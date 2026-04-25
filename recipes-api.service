@@ -1,0 +1,16 @@
+[Unit]
+Description=Recipes API (FastAPI on port 8201)
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=wisechef
+Group=wisechef
+WorkingDirectory=/home/wisechef/recipes-api
+EnvironmentFile=/home/wisechef/recipes-api/.env
+ExecStart=/home/wisechef/recipes-api/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8201 --workers 2
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
