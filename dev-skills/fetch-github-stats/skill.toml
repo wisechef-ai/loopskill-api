@@ -1,0 +1,15 @@
+[skill]
+title = "Fetch GitHub Stats"
+description = "Fetches repository statistics from the GitHub API. Demonstrates network allowlist with specific domain access."
+slug = "fetch-github-stats"
+category = "devops"
+tier = "cook"
+license = "MIT"
+
+[sandbox]
+network_allow = ["api.github.com"]
+fs_write = ["/tmp", "/home/skill/.cache"]
+exec_allow = ["bash", "sh", "curl", "jq"]
+memory_mb = 256
+timeout_seconds = 60
+env_pass = ["PATH", "LANG", "HOME"]

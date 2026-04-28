@@ -1,0 +1,15 @@
+[skill]
+title = "NPM Installer"
+description = "Installs an npm package and verifies it works. Demonstrates network access to npm registry and filesystem writes to node_modules."
+slug = "npm-installer"
+category = "devops"
+tier = "operator"
+license = "MIT"
+
+[sandbox]
+network_allow = ["registry.npmjs.org"]
+fs_write = ["/tmp", "/home/skill/node_modules", "/home/skill/.npm"]
+exec_allow = ["bash", "sh", "node", "npm", "npx"]
+memory_mb = 512
+timeout_seconds = 180
+env_pass = ["PATH", "LANG", "HOME", "NODE_PATH"]

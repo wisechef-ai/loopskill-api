@@ -1,0 +1,15 @@
+[skill]
+title = "Python Processor"
+description = "Runs a Python data processing script in the sandbox. Demonstrates Python exec allowance and tmpfs writes."
+slug = "python-processor"
+category = "data"
+tier = "cook"
+license = "MIT"
+
+[sandbox]
+network_allow = []
+fs_write = ["/tmp", "/home/skill/output"]
+exec_allow = ["python3", "bash", "sh"]
+memory_mb = 512
+timeout_seconds = 120
+env_pass = ["PATH", "LANG", "HOME"]

@@ -1,0 +1,16 @@
+[Unit]
+Description=WiseRecipes API (FastAPI on port 8200)
+After=network.target postgresql.service redis-server.service pgbouncer.service
+
+[Service]
+Type=simple
+User=wisechef
+Group=wisechef
+WorkingDirectory=/home/wisechef/wiserecipes-api
+EnvironmentFile=/etc/wiserecipes-api.env
+ExecStart=/home/wisechef/wiserecipes-api/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8200 --workers 2
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

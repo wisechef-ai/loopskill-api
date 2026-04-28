@@ -1,4 +1,4 @@
-"""SQLAlchemy models for Recipes.
+"""SQLAlchemy models for WiseRecipes.
 
 Schema per recipes-plan-v4-locked.md: users, api_keys, skills, skill_versions,
 install_events, telemetry_events, carousel_entries, referrals, creator_payouts,

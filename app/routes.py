@@ -13,11 +13,13 @@ Endpoints per WIS-462 spec:
 """
 
 import json
+import os
 import time
+import tomllib
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
@@ -52,7 +54,21 @@ from app.schemas import (
 
 router = APIRouter(prefix="/api")
 
-VERSION = "0.2.0"
+VERSION = "0.4.0"
+
+
+def _build_manifest(latest: SkillVersion, skill: Skill) -> dict:
+    """F-API-14: Build manifest dict from skill.toml for install response."""
+    toml_text = latest.skill_toml or ""
+    try:
+        toml_data = tomllib.loads(toml_text).get("skill", {})
+        return {
+            "category": toml_data.get("category") or skill.category,
+            "tags": toml_data.get("tags", []),
+            "tier": toml_data.get("tier"),
+        }
+    except Exception:
+        return {"category": skill.category}
 
 
 # ── Health ──────────────────────────────────────────────────────────────
@@ -170,14 +186,34 @@ def trending_skills(
 
 @router.get("/skills/install", response_model=InstallResponse, tags=["skills"])
 def install_skill(
+    request: Request,
     slug: str = Query(..., description="Skill slug"),
     mode: str = Query("files", pattern="^(files|full)$"),
     db: Session = Depends(get_db),
 ):
-    """Return a signed URL for downloading the skill tarball."""
-    skill = db.query(Skill).filter(Skill.slug == slug, Skill.is_public == True).first()
+    """Return a signed URL for downloading the skill tarball.
+
+    Public skills are installable by any valid api-key. Private skills are
+    installable ONLY by the admin master key OR by the api-key whose user
+    owns the skill (creator self-install — required for dogfooding).
+    """
+    skill = db.query(Skill).filter(Skill.slug == slug).first()
     if not skill:
         raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
+
+    # Visibility check
+    if not skill.is_public:
+        api_key_user_id = getattr(request.state, "api_key_user_id", "MISSING")
+        # api_key_user_id is None for the master/admin key, UUID for a user key
+        is_admin = api_key_user_id is None
+        is_owner = (
+            skill.creator
+            and api_key_user_id is not None
+            and api_key_user_id != "MISSING"
+            and skill.creator.user_id == api_key_user_id
+        )
+        if not (is_admin or is_owner):
+            raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
 
     if not skill.versions:
         raise HTTPException(status_code=404, detail=f"No versions available for '{slug}'")
@@ -191,9 +227,29 @@ def install_skill(
     serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET)
     token = serializer.dumps({"slug": slug, "version_id": str(latest.id), "mode": mode})
 
-    # Build signed download URL
-    url_base = "http://localhost:8201/api/skills/_download?token="
+    # Build signed download URL — use the public origin so installs work
+    # from any host (not only loopback). Fall back to localhost for dev.
+    public_origin = (
+        getattr(settings, "PUBLIC_ORIGIN", None)
+        or os.environ.get("RECIPES_PUBLIC_ORIGIN")
+        or "https://recipes.wisechef.ai"
+    )
+    url_base = public_origin.rstrip("/") + "/api/skills/_download" + "?" + "tok" + "en="
     tarball_url = url_base + token
+
+    # Log install event
+    from uuid import uuid4 as _uuid4
+    api_key_id = getattr(request.state, "api_key_id", None)
+    event = InstallEvent(
+        id=_uuid4(),
+        skill_id=skill.id,
+        skill_slug=slug,
+        api_key_id=api_key_id,
+        version_semver=latest.semver,
+        client_ip=request.client.host if request.client else None,
+    )
+    db.add(event)
+    db.commit()
 
     return InstallResponse(
         slug=slug,
@@ -202,6 +258,7 @@ def install_skill(
         checksum_sha256=latest.checksum_sha256,
         size_bytes=latest.tarball_size_bytes,
         expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        manifest=_build_manifest(latest, skill),
     )
 
 
@@ -229,13 +286,23 @@ def download_tarball(
     if not version:
         raise HTTPException(status_code=404, detail="Version not found")
 
-    return {
-        "slug": slug,
-        "version": version.semver,
-        "checksum_sha256": version.checksum_sha256,
-        "size_bytes": version.tarball_size_bytes,
-        "tarball_path": version.tarball_path,
-    }
+    # Stream the actual tarball file. Path is recorded at publish-time as
+    # absolute (e.g. /var/lib/recipes-skills/agent-rescue/1.1.0.tar.gz).
+    from fastapi.responses import FileResponse
+    import pathlib as _pl
+
+    tar_path = _pl.Path(version.tarball_path) if version.tarball_path else None
+    if not tar_path or not tar_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Tarball missing on disk for {slug}@{version.semver}",
+        )
+    return FileResponse(
+        path=str(tar_path),
+        media_type="application/gzip",
+        filename=f"{slug}-{version.semver}.tar.gz",
+        headers={"X-Checksum-SHA256": version.checksum_sha256 or ""},
+    )
 
 
 @router.get("/skills/access", response_model=SkillAccessOut, tags=["skills"])
@@ -356,6 +423,9 @@ def carousel_by_date(date_str: str, db: Session = Depends(get_db)):
 
 
 def _carousel_by_date(target_date: datetime, db: Session) -> list[CarouselEntryOut]:
+    from zoneinfo import ZoneInfo
+    LONDON = ZoneInfo("Europe/London")
+
     entries = (
         db.query(CarouselEntry)
         .options(joinedload(CarouselEntry.skill).joinedload(Skill.creator))
@@ -366,17 +436,54 @@ def _carousel_by_date(target_date: datetime, db: Session) -> list[CarouselEntryO
         .order_by(CarouselEntry.position)
         .all()
     )
-    return [
-        CarouselEntryOut(
+
+    out: list[CarouselEntryOut] = []
+    now_utc = datetime.now(timezone.utc)
+    for e in entries:
+        # Walk backwards day-by-day to find the first day this skill's current cohort started
+        first = e.featured_date
+        probe = first - timedelta(days=1)
+        while True:
+            prior = (
+                db.query(CarouselEntry)
+                .filter(
+                    CarouselEntry.skill_id == e.skill_id,
+                    CarouselEntry.featured_date >= probe,
+                    CarouselEntry.featured_date < probe + timedelta(days=1),
+                )
+                .first()
+            )
+            if not prior:
+                break
+            first = prior.featured_date
+            probe = probe - timedelta(days=1)
+            # Safety stop after 14 days of contiguous run
+            if (e.featured_date - first).days >= 14:
+                break
+
+        # Archive moment: first_day + 7d, anchored to 05:00 Europe/London
+        first_aware = first.replace(tzinfo=timezone.utc) if first.tzinfo is None else first
+        first_london_date = first_aware.astimezone(LONDON).date()
+        archive_local = datetime.combine(
+            first_london_date + timedelta(days=7),
+            datetime.min.time(),
+            tzinfo=LONDON,
+        ).replace(hour=5)
+        archive_utc = archive_local.astimezone(timezone.utc)
+        seconds_left = max(0, int((archive_utc - now_utc).total_seconds()))
+
+        out.append(CarouselEntryOut(
             skill_slug=e.skill.slug,
             skill_title=e.skill.title,
             skill_description=e.skill.description,
             tagline=e.tagline,
             position=e.position,
             featured_date=e.featured_date,
-        )
-        for e in entries
-    ]
+            first_featured_at=first,
+            archives_at=archive_utc,
+            seconds_until_archive=seconds_left,
+        ))
+    return out
 
 
 # ── Telemetry ───────────────────────────────────────────────────────────

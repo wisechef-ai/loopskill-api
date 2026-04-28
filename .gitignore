@@ -18,6 +18,10 @@ var/
 wheels/
 pip-wheel-metadata/
 share/python-wheels/
+
+# Secrets — never commit actual env files
+wiserecipes-api.env
+.env
 *.egg-info/
 .installed.cfg
 *.egg

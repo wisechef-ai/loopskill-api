@@ -79,6 +79,9 @@ class CarouselEntryOut(BaseModel):
     tagline: str | None = None
     position: int = 0
     featured_date: datetime
+    first_featured_at: datetime | None = None  # day this skill's current cohort entered carousel
+    archives_at: datetime | None = None        # when it rotates out (05:00 London on day+7)
+    seconds_until_archive: int | None = None   # convenience for UI countdown
 
     model_config = {"from_attributes": True}
 
@@ -124,6 +127,7 @@ class InstallResponse(BaseModel):
     checksum_sha256: str | None = None
     size_bytes: int | None = None
     expires_at: datetime | None = None
+    manifest: dict | None = None  # F-API-14: category, tags, tier from skill.toml
 
 
 # ── Health ──────────────────────────────────────────────────────────────
