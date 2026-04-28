@@ -1,0 +1,20 @@
+# Recipes API runtime + test dependencies (Sprint 4 baseline)
+fastapi>=0.110
+uvicorn[standard]>=0.27
+sqlalchemy>=2.0
+alembic>=1.13
+psycopg2-binary>=2.9
+pydantic>=2.5
+pydantic-settings>=2.1
+pydantic[email]>=2.5
+python-multipart>=0.0.7
+itsdangerous>=2.1
+PyJWT>=2.8
+cryptography>=41.0
+stripe>=8.0
+redis>=5.0
+httpx>=0.26
+tomli>=2.0; python_version < "3.11"
+# tests
+pytest>=8.0
+pytest-asyncio>=0.23

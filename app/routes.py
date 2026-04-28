@@ -49,6 +49,7 @@ from app.schemas import (
     SkillDetailOut,
     SkillOut,
     SkillSearchResult,
+    TelemetryEventOut,
     TelemetryIn,
 )
 
@@ -406,101 +407,77 @@ def get_api_library_entry(slug: str, db: Session = Depends(get_db)):
 
 
 # ── Carousel ────────────────────────────────────────────────────────────
-
-@router.get("/carousel/today", response_model=list[CarouselEntryOut], tags=["carousel"])
-def carousel_today(db: Session = Depends(get_db)):
-    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    return _carousel_by_date(today, db)
-
-
-@router.get("/carousel/{date_str}", response_model=list[CarouselEntryOut], tags=["carousel"])
-def carousel_by_date(date_str: str, db: Session = Depends(get_db)):
-    try:
-        target_date = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Date must be YYYY-MM-DD")
-    return _carousel_by_date(target_date, db)
-
-
-def _carousel_by_date(target_date: datetime, db: Session) -> list[CarouselEntryOut]:
-    from zoneinfo import ZoneInfo
-    LONDON = ZoneInfo("Europe/London")
-
-    entries = (
-        db.query(CarouselEntry)
-        .options(joinedload(CarouselEntry.skill).joinedload(Skill.creator))
-        .filter(
-            CarouselEntry.featured_date >= target_date,
-            CarouselEntry.featured_date < target_date + timedelta(days=1),
-        )
-        .order_by(CarouselEntry.position)
-        .all()
-    )
-
-    out: list[CarouselEntryOut] = []
-    now_utc = datetime.now(timezone.utc)
-    for e in entries:
-        # Walk backwards day-by-day to find the first day this skill's current cohort started
-        first = e.featured_date
-        probe = first - timedelta(days=1)
-        while True:
-            prior = (
-                db.query(CarouselEntry)
-                .filter(
-                    CarouselEntry.skill_id == e.skill_id,
-                    CarouselEntry.featured_date >= probe,
-                    CarouselEntry.featured_date < probe + timedelta(days=1),
-                )
-                .first()
-            )
-            if not prior:
-                break
-            first = prior.featured_date
-            probe = probe - timedelta(days=1)
-            # Safety stop after 14 days of contiguous run
-            if (e.featured_date - first).days >= 14:
-                break
-
-        # Archive moment: first_day + 7d, anchored to 05:00 Europe/London
-        first_aware = first.replace(tzinfo=timezone.utc) if first.tzinfo is None else first
-        first_london_date = first_aware.astimezone(LONDON).date()
-        archive_local = datetime.combine(
-            first_london_date + timedelta(days=7),
-            datetime.min.time(),
-            tzinfo=LONDON,
-        ).replace(hour=5)
-        archive_utc = archive_local.astimezone(timezone.utc)
-        seconds_left = max(0, int((archive_utc - now_utc).total_seconds()))
-
-        out.append(CarouselEntryOut(
-            skill_slug=e.skill.slug,
-            skill_title=e.skill.title,
-            skill_description=e.skill.description,
-            tagline=e.tagline,
-            position=e.position,
-            featured_date=e.featured_date,
-            first_featured_at=first,
-            archives_at=archive_utc,
-            seconds_until_archive=seconds_left,
-        ))
-    return out
+# Sprint 4: routes moved to app/carousel/routes.py with new contract wire
+# format (slot/role/score). The legacy CarouselEntryOut shape with
+# archives_at / seconds_until_archive is a UI helper concern — when the
+# Astro landing page consumes the new endpoint, port the archive-countdown
+# logic into a thin wrapper field on the new response model. Deleted here
+# to eliminate duplicate path mount that was shadowing the new router.
 
 
 # ── Telemetry ───────────────────────────────────────────────────────────
 
-@router.post("/telemetry", status_code=201, tags=["telemetry"])
+@router.post("/telemetry", status_code=201, tags=["telemetry"], response_model=TelemetryEventOut)
 def post_telemetry(
+    request: Request,
     body: TelemetryIn,
     db: Session = Depends(get_db),
 ):
+    """Record a telemetry event.
+
+    Accepts two modes (both may be combined):
+    - **Typed mode**: typed fields (goal_class, duration_seconds, retry_count,
+      user_intervention, agent_class_hash) land in dedicated columns.
+    - **Legacy mode**: ``payload`` dict is JSON-serialised into the ``payload``
+      text column. Existing callers continue to work unchanged.
+
+    Validation (raises 422 on failure):
+    - ``event_type`` ∈ {install, first_use, task_completed, task_failed, replaced}
+    - ``duration_seconds`` 0..86400
+    - ``agent_class_hash`` regex ^[a-f0-9]{8,64}$ if present
+
+    Raises 404 if ``skill_slug`` is provided but not found in the skills table.
+    """
+    # Resolve skill_slug → skill_id (required if slug provided)
+    skill_id = None
+    if body.skill_slug:
+        # F5: filter to public skills OR the caller's own private skills to avoid
+        # enumeration oracle (201 vs 404 leaking private skill existence)
+        api_key_user_id = getattr(request.state, "api_key_user_id", None)
+        skill_query = db.query(Skill).filter(Skill.slug == body.skill_slug)
+        skill = skill_query.first()
+        if not skill:
+            raise HTTPException(status_code=404, detail="unknown skill_slug")
+        # If skill is private, only creator or admin can log telemetry against it
+        if not skill.is_public:
+            is_admin = api_key_user_id is None
+            is_owner = (
+                skill.creator is not None
+                and api_key_user_id is not None
+                and str(skill.creator.user_id) == str(api_key_user_id)
+            )
+            if not (is_admin or is_owner):
+                # Return 404, not 403 — 403 is also an oracle
+                raise HTTPException(status_code=404, detail="unknown skill_slug")
+        skill_id = skill.id
+
     event = TelemetryEvent(
         event_type=body.event_type,
         skill_slug=body.skill_slug,
-        payload=json.dumps(body.payload) if body.payload else None,
+        # F9: preserve empty dict semantics — {} stores as '{}', not NULL
+        payload=json.dumps(body.payload) if body.payload is not None else None,
+        # Typed columns (NULL when not provided)
+        skill_id=skill_id,
+        goal_class=body.goal_class,
+        duration_seconds=body.duration_seconds,
+        retry_count=body.retry_count,
+        user_intervention=body.user_intervention,
+        agent_class_hash=body.agent_class_hash,
     )
     db.add(event)
     db.commit()
-    return {"status": "recorded"}
+    db.refresh(event)
+    return TelemetryEventOut(status="recorded", event_id=str(event.id))
 
 
 # ── WiseChef Demo CTA ───────────────────────────────────────────────────

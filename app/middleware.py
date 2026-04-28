@@ -57,7 +57,7 @@ def mark_redis_failed():
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
     """Validate x-api-key header. Exempt /docs, /openapi.json, /healthz, /,
-    auth endpoints (JWT-based), and Stripe webhooks."""
+    auth endpoints (JWT-based), Stripe webhooks, and public carousel endpoints."""
 
     EXEMPT_PATHS = {
         "/docs", "/openapi.json", "/redoc", "/healthz", "/", "/api/healthz",
@@ -73,6 +73,10 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     WEBHOOK_PATHS = {
         "/api/stripe/webhook",
     }
+    # Public endpoints — no API key required (F4: carousel is unauthenticated)
+    PUBLIC_PREFIXES = (
+        "/api/carousel/",
+    )
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -89,6 +93,10 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
         # JWT-authenticated endpoints don't need API key
         if any(path.startswith(prefix) for prefix in self.JWT_AUTH_PREFIXES):
+            return await call_next(request)
+
+        # Public endpoints — skip API key validation entirely (F4)
+        if any(path.startswith(prefix) for prefix in self.PUBLIC_PREFIXES):
             return await call_next(request)
 
         # Admin endpoints require API key (not exempt)

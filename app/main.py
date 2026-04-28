@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 
 from app.config import settings
+from app.carousel.routes import router as carousel_router
 from app.creator_routes import router as creator_router
 from app.database import engine
 from app.middleware import APIKeyMiddleware, RateLimitMiddleware
@@ -29,6 +30,7 @@ def create_app() -> FastAPI:
     app.add_middleware(APIKeyMiddleware)
 
     app.include_router(router)
+    app.include_router(carousel_router, prefix="/api")
     app.include_router(sandbox_router)
     app.include_router(creator_router)
     app.include_router(publisher_router)

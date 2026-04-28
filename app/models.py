@@ -109,6 +109,16 @@ class Skill(Base):
     creator_id = Column(UUID(as_uuid=True), ForeignKey("creators.id"), nullable=True)
     org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id"), nullable=True)
 
+    # D1 additions (Sprint 4) — nullable so existing rows are unaffected
+    # vertical: agency | solo | enterprise | horizontal
+    vertical = Column(String(64), nullable=True)
+    # free-tier pricing flag for carousel public filter
+    is_free = Column(Boolean, nullable=True)
+    # denormalised install counter for scoring; NOT NULL default 0
+    install_count = Column(Integer, default=0, nullable=False, server_default="0")
+    # average user rating 0..5; scoring defaults to 3.0 when NULL
+    rating_avg = Column(Float, nullable=True)
+
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -164,9 +174,27 @@ class TelemetryEvent(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     event_type = Column(String(128), nullable=False, index=True)
     skill_slug = Column(String(255), nullable=True, index=True)
-    payload = Column(Text, nullable=True)  # JSON string
+    payload = Column(Text, nullable=True)  # JSON string (legacy mode)
     client_ip = Column(String(64), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
+
+    # ── Typed telemetry columns (D3 — Sprint 4) ─────────────────────────
+    # skill_id resolves skill_slug → FK; stored alongside slug for back-compat
+    # Uses UUID type to match skills.id (both stored as 32-char hex in SQLite)
+    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=True, index=True)
+    # open enum — store as text, no server-side rejection on unknown value
+    goal_class = Column(String(128), nullable=True)
+    # task duration in seconds (0..86400); NULL when not provided
+    duration_seconds = Column(Integer, nullable=True)
+    # number of retries before success/failure; NULL when not provided
+    retry_count = Column(Integer, nullable=True)
+    # True = human intervened; False = fully automated; NULL = not reported
+    user_intervention = Column(Boolean, nullable=True)
+    # sha256 short-hash identifying agent class; regex ^[a-f0-9]{8,64}$
+    agent_class_hash = Column(String(64), nullable=True)
+    # optional link to the install_event that preceded this telemetry event
+    # Uses UUID type to match install_events.id
+    install_event_id = Column(UUID(as_uuid=True), ForeignKey("install_events.id"), nullable=True)
 
 
 # ── Carousel ────────────────────────────────────────────────────────────
@@ -180,6 +208,12 @@ class CarouselEntry(Base):
     tagline = Column(String(512), nullable=True)
     position = Column(Integer, default=0)
     created_at = Column(DateTime, server_default=func.now())
+
+    # Sprint 4 — carousel scoring output columns (added via migration a7f7db696591)
+    slot = Column(Integer, nullable=True)       # 1-indexed slot in today's carousel (1..7)
+    role = Column(String(64), nullable=True)   # new-capability | replaces | experimental
+    verdict = Column(String(32), nullable=True) # promote | hold | archive — set by verdict cron
+    score = Column(Float, nullable=True)        # scoring algo output 0..10
 
     skill = relationship("Skill", back_populates="carousel_entries")
 

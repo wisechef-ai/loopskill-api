@@ -14,7 +14,9 @@ import os, sys, datetime as dt
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-DATABASE_URL = os.environ.get("WR_DATABASE_URL", "postgresql://wisechef@127.0.0.1:6432/wiserecipes")
+from app.config import settings
+
+DATABASE_URL = os.environ.get("WR_DATABASE_URL", settings.DATABASE_URL)
 
 
 def main():

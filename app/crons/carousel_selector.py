@@ -27,7 +27,9 @@ import os, sys, math, datetime as dt, random
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-DATABASE_URL = os.environ.get("WR_DATABASE_URL", "postgresql://wisechef@127.0.0.1:6432/wiserecipes")
+from app.config import settings
+
+DATABASE_URL = os.environ.get("WR_DATABASE_URL", settings.DATABASE_URL)
 SLOTS = 7
 LOOKBACK_DAYS_HISTORY = int(os.environ.get("CAROUSEL_HISTORY_DAYS", "90"))
 LOOKBACK_DAYS_VELOCITY = 7

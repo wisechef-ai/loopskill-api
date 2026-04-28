@@ -3,7 +3,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import StringConstraints
+from typing import Annotated
 
 
 # ── Skills ──────────────────────────────────────────────────────────────
@@ -64,10 +66,80 @@ class SkillSearchResult(BaseModel):
 
 # ── Telemetry ───────────────────────────────────────────────────────────
 
+# Allowed event types per Sprint 4 contract
+TELEMETRY_EVENT_TYPES = {"install", "first_use", "task_completed", "task_failed", "replaced"}
+
+import re as _re
+
+_AGENT_HASH_RE = _re.compile(r"^[a-f0-9]{8,64}$")
+
+
 class TelemetryIn(BaseModel):
+    """Accepts both legacy (payload text) and typed telemetry payloads.
+
+    Typed fields (all optional):
+      goal_class        — open enum, stored as-is
+      duration_seconds  — 0..86400
+      retry_count       — non-negative integer
+      user_intervention — boolean
+      agent_class_hash  — ^[a-f0-9]{8,64}$
+
+    Legacy field (optional):
+      payload           — free-form dict; stored as JSON text in payload column
+    """
+
     event_type: str = Field(..., max_length=128)
-    skill_slug: str | None = None
+    # F8: strip whitespace, require at least 1 char after stripping
+    skill_slug: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)] | None = None
+
+    # Legacy mode
     payload: dict | None = None
+
+    # Typed mode (all optional, stored in dedicated columns)
+    goal_class: str | None = Field(default=None, max_length=64)
+    duration_seconds: int | None = None
+    retry_count: int | None = None
+    user_intervention: bool | None = None
+    agent_class_hash: str | None = None
+
+    @field_validator("event_type")
+    @classmethod
+    def validate_event_type(cls, v: str) -> str:
+        if v not in TELEMETRY_EVENT_TYPES:
+            raise ValueError(
+                f"event_type must be one of {sorted(TELEMETRY_EVENT_TYPES)}, got {v!r}"
+            )
+        return v
+
+    @field_validator("duration_seconds")
+    @classmethod
+    def validate_duration(cls, v: int | None) -> int | None:
+        if v is not None:
+            if v < 0 or v > 86400:
+                raise ValueError("duration_seconds must be between 0 and 86400")
+        return v
+
+    @field_validator("retry_count")
+    @classmethod
+    def validate_retry_count(cls, v: int | None) -> int | None:
+        if v is not None and v < 0:
+            raise ValueError("retry_count must be >= 0")
+        return v
+
+    @field_validator("agent_class_hash")
+    @classmethod
+    def validate_agent_hash(cls, v: str | None) -> str | None:
+        if v is not None and not _AGENT_HASH_RE.match(v):
+            raise ValueError(
+                "agent_class_hash must match ^[a-f0-9]{8,64}$"
+            )
+        return v
+
+
+class TelemetryEventOut(BaseModel):
+    """Response for POST /api/telemetry."""
+    status: str
+    event_id: str
 
 
 # ── Carousel ────────────────────────────────────────────────────────────
