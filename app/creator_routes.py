@@ -467,7 +467,15 @@ def run_payouts(
 
 @router.post("/stripe/webhook")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
-    """Handle Stripe webhook events."""
+    """Handle Stripe webhook events.
+
+    Routes events to the right service:
+    - checkout.session.completed, customer.subscription.* → subscription_service
+    - account.updated, transfer.* → Connect (creator payouts)
+
+    Idempotent: every event_id is recorded in stripe_event_ids; replays
+    return 200 with already_processed=True (no side effects).
+    """
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature", "")
 
@@ -478,8 +486,33 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Invalid signature")
 
     event_type = event.get("type", "")
-    logger.info(f"Stripe webhook: {event_type}")
+    event_id = event.get("id", "?")
+    logger.info(f"Stripe webhook: {event_type} (id={event_id})")
 
+    # Idempotency check — replays are no-ops
+    from app.subscription_service import (
+        record_event_or_skip,
+        handle_checkout_completed,
+        handle_subscription_event,
+    )
+    if not record_event_or_skip(event, db):
+        logger.info(f"Replay of event {event_id} ({event_type}) — skipped")
+        return {"received": True, "already_processed": True, "event_id": event_id}
+
+    # ── Subscription events ─────────────────────────────────────────────
+    if event_type == "checkout.session.completed":
+        result = handle_checkout_completed(event, db)
+        return {"received": True, "event_id": event_id, **result}
+
+    if event_type in (
+        "customer.subscription.created",
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+    ):
+        result = handle_subscription_event(event, db)
+        return {"received": True, "event_id": event_id, **result}
+
+    # ── Connect events (creator payouts — existing behavior) ───────────
     if event_type == "account.updated":
         data = event["data"]["object"]
         account_id = data["id"]

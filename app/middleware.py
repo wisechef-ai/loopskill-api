@@ -63,12 +63,15 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         "/docs", "/openapi.json", "/redoc", "/healthz", "/", "/api/healthz",
     }
     # Prefixes for paths that use JWT auth instead of API key
-    JWT_AUTH_PREFIXES=(
+    JWT_AUTH_PREFIXES = (
         "/api/auth/",
         "/api/stripe/onboard",
         "/api/stripe/status",
         "/api/stripe/dashboard",
         "/api/creator/",
+        "/api/checkout/",
+        "/api/billing/",
+        "/api/api-keys",
     )
     WEBHOOK_PATHS = {
         "/api/stripe/webhook",

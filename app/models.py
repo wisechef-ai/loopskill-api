@@ -35,10 +35,17 @@ class User(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     github_id = Column(Integer, unique=True, nullable=True, index=True)
+    google_id = Column(String(255), unique=True, nullable=True, index=True)
     email = Column(String(512), nullable=True, index=True)
     display_name = Column(String(255), nullable=False)
     avatar_url = Column(Text, nullable=True)
     stripe_connect_id = Column(String(255), nullable=True)  # Stripe Connect Express account ID
+    # ── Subscription billing (Cook/Operator/Studio tiers) ─────────────────
+    stripe_customer_id = Column(String(255), unique=True, nullable=True, index=True)
+    subscription_status = Column(String(32), nullable=True, index=True)  # active, past_due, canceled, incomplete, trialing, unpaid, paused
+    subscription_tier = Column(String(32), nullable=True)  # cook, operator, studio
+    subscription_id = Column(String(255), nullable=True)  # Stripe subscription id
+    subscription_current_period_end = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -313,3 +320,18 @@ Version = SkillVersion
 
 # Legacy Payout model for backward compat
 Payout = CreatorPayout
+
+
+class StripeEventId(Base):
+    """Idempotency table for Stripe webhook events.
+
+    Inserting a row succeeds only on first sight; subsequent receptions
+    of the same event_id raise IntegrityError, which the webhook handler
+    treats as a no-op replay (HTTP 200 with already_processed=True).
+    """
+    __tablename__ = "stripe_event_ids"
+
+    event_id = Column(String(255), primary_key=True)
+    event_type = Column(String(128), nullable=False)
+    processed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    livemode = Column(Boolean, nullable=True)

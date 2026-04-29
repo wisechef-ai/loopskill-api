@@ -17,9 +17,21 @@ class Settings(BaseSettings):
     STRIPE_PUBLISHABLE_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
 
+    # Stripe Subscription price IDs (Cook / Operator / Studio tiers)
+    STRIPE_PRICE_COOK: str = ""
+    STRIPE_PRICE_OPERATOR: str = ""
+    STRIPE_PRICE_STUDIO: str = ""
+
     # GitHub OAuth
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: str = ""
+
+    # Google OAuth
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+
+    # OAuth redirect base URL (used to build callback URLs)
+    OAUTH_REDIRECT_BASE: str = ""  # e.g. https://recipes.wisechef.ai 
 
     # JWT for creator auth
     JWT_SECRET: str = "wr-jwt-secret-change-me"

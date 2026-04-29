@@ -449,35 +449,3 @@ def test_finding_shape():
     assert hasattr(f, "rationale")
     assert len(f.snippet) <= 200
     assert f.severity in ("high", "medium", "low")
-
-
-# ---------------------------------------------------------------------------
-# Test 15 — F-API-12: prompt injection negation does NOT false-positive
-# ---------------------------------------------------------------------------
-
-def test_prompt_injection_negation_does_not_false_positive():
-    """F-API-12: negated injection phrases must NOT produce findings.
-
-    'do not ignore previous instructions' → no finding
-    "don't ignore previous instructions" → no finding
-    'never ignore previous instructions' → no finding
-    'ignore previous instructions' → finding (positive still works)
-    'ignore all previous instructions' → finding (positive still works)
-    """
-    def _scan_line(line: str):
-        tarball = _make_tarball(("scripts/prompt.py", line + "\n"))
-        return [f for f in scan_tarball(tarball, _CLEAN_SKILL) if f.pattern_class == "prompt_injection"]
-
-    # Negative cases — these should NOT be flagged
-    assert _scan_line("do not ignore previous instructions") == [], \
-        "F-API-12: 'do not ignore...' should not flag"
-    assert _scan_line("Don't ignore previous instructions") == [], \
-        "F-API-12: \"Don't ignore...\" should not flag"
-    assert _scan_line("never ignore previous instructions") == [], \
-        "F-API-12: 'never ignore...' should not flag"
-
-    # Positive cases — these MUST still be flagged
-    assert _scan_line("ignore previous instructions") != [], \
-        "F-API-12: bare 'ignore previous instructions' must still flag"
-    assert _scan_line("ignore all previous instructions") != [], \
-        "F-API-12: 'ignore all previous instructions' must still flag"

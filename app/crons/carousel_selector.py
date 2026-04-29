@@ -2,7 +2,7 @@
 
 Algorithm (mirrors plan v4):
   1. Eligibility: skills with status='approved'/is_public=true, not already in carousel
-     in the last 90 days, and not by a creator who has another slot already today.
+     in the last 7 days (CAROUSEL_HISTORY_DAYS env), and not by a creator who has another slot already today.
   2. Diversity: no repeat creator/category in the same day's lineup.
   3. Ranking score:
         0.40 * velocity   (install rate over last 7 days, normalised)
@@ -31,7 +31,7 @@ from app.config import settings
 
 DATABASE_URL = os.environ.get("WR_DATABASE_URL", settings.DATABASE_URL)
 SLOTS = 7
-LOOKBACK_DAYS_HISTORY = int(os.environ.get("CAROUSEL_HISTORY_DAYS", "90"))
+LOOKBACK_DAYS_HISTORY = int(os.environ.get("CAROUSEL_HISTORY_DAYS", "7"))
 LOOKBACK_DAYS_VELOCITY = 7
 FORCE = os.environ.get("CAROUSEL_FORCE", "0") == "1"  # dev: ignore history filter
 

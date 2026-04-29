@@ -3,7 +3,10 @@
 from fastapi import FastAPI
 
 from app.config import settings
+from app.auth_routes import router as auth_router
+from app.api_key_routes import router as api_key_router
 from app.carousel.routes import router as carousel_router
+from app.checkout_routes import router as checkout_router
 from app.creator_routes import router as creator_router
 from app.database import engine
 from app.middleware import APIKeyMiddleware, RateLimitMiddleware
@@ -30,10 +33,13 @@ def create_app() -> FastAPI:
     app.add_middleware(APIKeyMiddleware)
 
     app.include_router(router)
+    app.include_router(auth_router)
     app.include_router(carousel_router, prefix="/api")
     app.include_router(sandbox_router)
     app.include_router(creator_router)
     app.include_router(publisher_router)
+    app.include_router(checkout_router)
+    app.include_router(api_key_router)
 
     @app.get("/", tags=["meta"])
     def root():

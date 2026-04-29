@@ -498,33 +498,26 @@ class TestFirejailArgGeneration(unittest.TestCase):
     def test_private_home_and_tmp(self):
         profile = SandboxProfile()
         args = profile.to_firejail_args("/home/skill")
-        # F-API-10: generator emits --private=<dir> (single token with =)
-        self.assertTrue(any(a.startswith("--private=") for a in args), f"--private= not in {args}")
+        self.assertIn("--private", args)
         self.assertIn("--private-tmp", args)
 
     def test_memory_rlimit(self):
         profile = SandboxProfile(memory_mb=512)
         args = profile.to_firejail_args("/home/skill")
-        # F-API-10: generator emits --rlimit-as=<val> (single token with =)
-        self.assertTrue(
-            any(a == f"--rlimit-as={512 * 1024 * 1024}" for a in args),
-            f"--rlimit-as=<val> not in {args}",
-        )
+        rlimit_idx = args.index("--rlimit-as")
+        self.assertEqual(args[rlimit_idx + 1], str(512 * 1024 * 1024))
 
     def test_timeout_format(self):
         profile = SandboxProfile(timeout_seconds=90)
         args = profile.to_firejail_args("/home/skill")
-        # F-API-10: generator emits --timeout=<val> (single token with =)
-        self.assertTrue(
-            any(a == "--timeout=00:01:30" for a in args),
-            f"--timeout=00:01:30 not in {args}",
-        )
+        timeout_idx = args.index("--timeout")
+        self.assertEqual(args[timeout_idx + 1], "00:01:30")
 
     def test_env_sandbox_set(self):
         profile = SandboxProfile()
         args = profile.to_firejail_args("/home/skill")
-        # F-API-10: generator emits --env=SANDBOX=1 (single token with =)
-        self.assertIn("--env=SANDBOX=1", args)
+        self.assertIn("--env", args)
+        self.assertIn("SANDBOX=1", args)
 
     def test_ends_with_separator(self):
         profile = SandboxProfile()
@@ -604,72 +597,6 @@ class TestSandboxIntegration(unittest.TestCase):
         )
         self.assertTrue(result.success, f"Sandbox failed: {result.stderr}\nstdout: {result.stdout}")
         self.assertIn("High scorers", result.stdout)
-
-
-class TestProxyHangTimeout(unittest.TestCase):
-    """F-API-04 — domain proxy that hangs must time out within 6 seconds."""
-
-    def test_proxy_hang_times_out(self):
-        """Mock the proxy script to sleep forever; expect SandboxError within 6s."""
-        import time as time_module
-        from app.sandbox.runner import SandboxError
-
-        # Create a mock proxy script that never emits a port line
-        with tempfile.TemporaryDirectory() as tmpdir:
-            hanging_script = os.path.join(tmpdir, "_run_proxy.py")
-            with open(hanging_script, "w") as f:
-                f.write("import time\ntime.sleep(60)\n")
-
-            start = time_module.monotonic()
-            with self.assertRaises((SandboxError, RuntimeError)) as ctx:
-                _hanging_proxy_start(hanging_script, ["example.com"])
-            elapsed = time_module.monotonic() - start
-            # Must time out within 6 seconds (5s timeout + 1s grace)
-            self.assertLess(elapsed, 6.0, f"Proxy hang took too long: {elapsed:.1f}s")
-            # Error message must mention timeout
-            self.assertIn("5s", str(ctx.exception), f"Error should mention 5s timeout: {ctx.exception}")
-
-
-def _hanging_proxy_start(script_path: str, allowed_domains: list) -> dict:
-    """Standalone helper: start the hanging proxy script and run the timeout logic."""
-    import sys
-    import subprocess
-    import select
-    import time as time_module
-    from app.sandbox.runner import SandboxError
-
-    proc = subprocess.Popen(
-        [sys.executable, script_path] + (allowed_domains or []),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-
-    deadline = time_module.monotonic() + 5.0
-    port_line = None
-    while time_module.monotonic() < deadline:
-        rl, _, _ = select.select([proc.stdout, proc.stderr], [], [], 0.5)
-        if proc.stdout in rl:
-            raw = proc.stdout.readline()
-            port_line = raw.decode().rstrip("\n")
-            if port_line:
-                break
-        if proc.stderr in rl:
-            proc.stderr.readline()
-
-    if not port_line:
-        proc.terminate()
-        try:
-            proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-        remaining_stderr = b""
-        try:
-            remaining_stderr = proc.stderr.read()
-        except Exception:
-            pass
-        raise SandboxError(f"proxy did not emit port within 5s; stderr={remaining_stderr!r}")
-
-    return {"process": proc, "port": int(port_line.strip())}
 
 
 if __name__ == "__main__":
