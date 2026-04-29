@@ -144,7 +144,13 @@ def create_transfer(
 
 
 def verify_webhook_signature(payload: bytes, sig_header: str) -> dict:
-    """Verify and parse a Stripe webhook event."""
+    """Verify and parse a Stripe webhook event.
+
+    Returns a plain dict (not a stripe.Event object). Stripe SDK 15.x
+    Event objects no longer support .get() / [] mapping access cleanly,
+    so we convert to dict here once and let all downstream handlers use
+    standard mapping access.
+    """
     if not settings.STRIPE_WEBHOOK_SECRET:
         raise StripeConnectError("Stripe webhook secret not configured")
 
@@ -154,7 +160,25 @@ def verify_webhook_signature(payload: bytes, sig_header: str) -> dict:
             sig_header,
             settings.STRIPE_WEBHOOK_SECRET,
         )
-        return event
+        # Convert Stripe Event object → plain dict (recursive).
+        # Walk the tree manually because Stripe 15.x objects are dict-like
+        # but not directly JSON-serializable, and contain Decimals.
+        from decimal import Decimal as _Decimal
+        def _to_plain(o):
+            if hasattr(o, "to_dict"):
+                return _to_plain(o.to_dict())
+            if isinstance(o, dict):
+                return {k: _to_plain(v) for k, v in o.items()}
+            if isinstance(o, list):
+                return [_to_plain(v) for v in o]
+            if isinstance(o, _Decimal):
+                # Stripe amounts are integer cents, but Decimals also appear
+                # in tax rates etc. Return int when possible, else float.
+                if o == o.to_integral_value():
+                    return int(o)
+                return float(o)
+            return o
+        return _to_plain(event)
     except stripe.error.SignatureVerificationError:
         raise StripeConnectError("Invalid webhook signature")
     except Exception as e:
