@@ -76,9 +76,13 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     WEBHOOK_PATHS = {
         "/api/stripe/webhook",
     }
-    # Public endpoints — no API key required (F4: carousel is unauthenticated)
+    # Public endpoints — no API key required (F4: carousel is unauthenticated;
+    # G2: search/trending must be discoverable by agents before they have a key,
+    # per LarryBrain spec §4.1)
     PUBLIC_PREFIXES = (
         "/api/carousel/",
+        "/api/skills/search",
+        "/api/skills/trending",
     )
 
     async def dispatch(self, request: Request, call_next):
