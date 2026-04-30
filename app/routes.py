@@ -107,6 +107,7 @@ def _skill_to_out(skill: Skill) -> SkillOut:
 def search_skills(
     q: str | None = Query(None, description="Full-text search on title + description"),
     category: str | None = Query(None),
+    tier: str | None = Query(None, pattern="^(free|cook|operator|studio)$", description="Filter by access tier"),
     sort: str = Query("updated_at", pattern="^(updated_at|created_at|title)$"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -123,6 +124,8 @@ def search_skills(
         )
     if category:
         query = query.filter(Skill.category == category)
+    if tier:
+        query = query.filter(Skill.tier == tier)
 
     # sort
     sort_col = getattr(Skill, sort, Skill.updated_at)

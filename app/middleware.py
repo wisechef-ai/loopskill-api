@@ -78,12 +78,20 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     }
     # Public endpoints — no API key required (F4: carousel is unauthenticated;
     # G2: search/trending must be discoverable by agents before they have a key,
-    # per LarryBrain spec §4.1)
+    # per LarryBrain spec §4.1; skill detail is public so agents can read SKILL.md
+    # before deciding whether to subscribe — matches LarryBrain catalog browsing UX;
+    # _download uses HMAC-signed token in the URL, no API key needed)
     PUBLIC_PREFIXES = (
         "/api/carousel/",
         "/api/skills/search",
         "/api/skills/trending",
+        "/api/skills/access",
+        "/api/skills/_download",
     )
+    # Public skill-detail GETs match path-shape /api/skills/{slug} (no trailing path).
+    # Distinguished from /api/skills/install (auth) and /api/skills/_download (auth)
+    # by checking the next segment doesn't start with underscore or known auth verb.
+    PUBLIC_SKILL_DETAIL_AUTH_VERBS = ("install", "_download", "_publish", "_audit")
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
@@ -105,6 +113,14 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         # Public endpoints — skip API key validation entirely (F4)
         if any(path.startswith(prefix) for prefix in self.PUBLIC_PREFIXES):
             return await call_next(request)
+
+        # Public skill-detail GETs (/api/skills/{slug}) — match LarryBrain catalog
+        # browsability. Auth-only verbs (install, _download, _publish) still gated.
+        if request.method == "GET" and path.startswith("/api/skills/"):
+            tail = path[len("/api/skills/"):]
+            # Single segment, no underscore prefix, not a known auth verb.
+            if "/" not in tail and not tail.startswith("_") and tail not in self.PUBLIC_SKILL_DETAIL_AUTH_VERBS:
+                return await call_next(request)
 
         # Admin endpoints require API key (not exempt)
         key = request.headers.get("x-api-key")
