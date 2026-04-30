@@ -122,6 +122,18 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             # Single segment, no underscore prefix, not a known auth verb.
             if "/" not in tail and not tail.startswith("_") and tail not in self.PUBLIC_SKILL_DETAIL_AUTH_VERBS:
                 return await call_next(request)
+            # Two-segment public sub-resources: /api/skills/{slug}/related (Stage 1, G15).
+            # Only the suffix is allowed-listed — the slug itself is not parsed for
+            # underscore/auth-verb rules because slugs are kebab-case lowercase.
+            if "/" in tail:
+                slug, _, suffix = tail.partition("/")
+                if (
+                    slug
+                    and not slug.startswith("_")
+                    and slug not in self.PUBLIC_SKILL_DETAIL_AUTH_VERBS
+                    and suffix in {"related"}
+                ):
+                    return await call_next(request)
 
         # Admin endpoints require API key (not exempt)
         key = request.headers.get("x-api-key")

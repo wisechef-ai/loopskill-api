@@ -339,7 +339,7 @@ def skill_access(
 
 @router.get("/skills/{slug}", response_model=SkillDetailOut, tags=["skills"])
 def get_skill_detail(slug: str, db: Session = Depends(get_db)):
-    """Full skill detail with versions."""
+    """Full skill detail with versions and resolved related skills."""
     skill = (
         db.query(Skill)
         .options(joinedload(Skill.versions), joinedload(Skill.creator))
@@ -348,6 +348,8 @@ def get_skill_detail(slug: str, db: Session = Depends(get_db)):
     )
     if not skill:
         raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
+
+    related_objs = _resolve_related(db, skill)
 
     return SkillDetailOut(
         id=skill.id,
@@ -372,9 +374,98 @@ def get_skill_detail(slug: str, db: Session = Depends(get_db)):
             }
             for v in skill.versions
         ],
+        related=related_objs,
         created_at=skill.created_at,
         updated_at=skill.updated_at,
     )
+
+
+# Maximum related skills returned by detail/related endpoints. Stage 1 cap.
+RELATED_SKILLS_CAP = 10
+
+
+def _resolve_related(db: Session, skill: "Skill") -> list:
+    """Resolve `skill.related_skills` slug list to public SkillOut payloads.
+
+    Filters applied (Stage 1 contract):
+      - drop self-reference (skill.slug appearing in its own related_skills)
+      - drop slugs that don't exist in DB
+      - drop is_public=False skills (no internal-leak)
+      - cap at RELATED_SKILLS_CAP, preserving frontmatter declaration order
+    """
+    raw = skill.related_skills or []
+    if not raw:
+        return []
+
+    # Normalise: drop self-refs, lowercase, dedupe preserving order
+    seen: set[str] = set()
+    candidates: list[str] = []
+    for s in raw:
+        if not isinstance(s, str):
+            continue
+        norm = s.strip().lower()
+        if not norm or norm == skill.slug or norm in seen:
+            continue
+        seen.add(norm)
+        candidates.append(norm)
+        if len(candidates) >= RELATED_SKILLS_CAP * 2:  # over-fetch buffer for filtering
+            break
+
+    if not candidates:
+        return []
+
+    # Single query: pull all candidate public skills at once
+    rows = (
+        db.query(Skill)
+        .filter(Skill.slug.in_(candidates), Skill.is_public == True)
+        .all()
+    )
+    by_slug = {r.slug: r for r in rows}
+
+    # Preserve declaration order, cap at limit
+    out = []
+    for slug in candidates:
+        r = by_slug.get(slug)
+        if not r:
+            continue
+        latest = r.versions[0].semver if r.versions else None
+        out.append({
+            "id": r.id,
+            "slug": r.slug,
+            "title": r.title,
+            "description": r.description,
+            "category": r.category,
+            "tier": r.tier,
+            "is_public": r.is_public,
+            "creator_name": r.creator.name if r.creator else None,
+            "latest_version": latest,
+            "created_at": r.created_at,
+            "updated_at": r.updated_at,
+        })
+        if len(out) >= RELATED_SKILLS_CAP:
+            break
+    return out
+
+
+@router.get(
+    "/skills/{slug}/related",
+    response_model=list[SkillOut],
+    tags=["skills"],
+)
+def get_skill_related(slug: str, db: Session = Depends(get_db)):
+    """Return up to 10 public skills the author declared as related.
+
+    Public — no auth required. Used by the portal "Works well with" rail
+    and by the meta-skill v1.1+ install response.
+    """
+    skill = (
+        db.query(Skill)
+        .filter(Skill.slug == slug, Skill.is_public == True)
+        .first()
+    )
+    if not skill:
+        raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
+    return _resolve_related(db, skill)
 
 
 @router.get("/recipes/{slug}", response_model=RecipeOut, tags=["recipes"])

@@ -30,6 +30,9 @@ class SkillDetailOut(SkillOut):
     readme: str | None = None
     license: str | None = None
     versions: list["VersionOut"] = []
+    # Stage 1 (G15) — resolved related skills. Public-only, max 10, slugs filtered:
+    # internal skills, self-references, and dangling links are dropped server-side.
+    related: list["SkillOut"] = []
 
 
 class VersionOut(BaseModel):

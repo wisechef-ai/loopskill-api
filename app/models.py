@@ -15,6 +15,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -125,6 +126,13 @@ class Skill(Base):
     install_count = Column(Integer, default=0, nullable=False, server_default="0")
     # average user rating 0..5; scoring defaults to 3.0 when NULL
     rating_avg = Column(Float, nullable=True)
+
+    # Stage 1 (G15) — declared edges from SKILL.md frontmatter `related_skills:`.
+    # Stored as a JSON array of slugs for cross-DB portability (Postgres uses JSONB
+    # under the hood; SQLite tests get plain JSON). The /api/skills/{slug}/related
+    # endpoint resolves these slugs to public SkillOut objects, filtering internals,
+    # dangling references, and self-loops. See tests/test_related_skills.py.
+    related_skills = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
