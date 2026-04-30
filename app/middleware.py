@@ -131,7 +131,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                     slug
                     and not slug.startswith("_")
                     and slug not in self.PUBLIC_SKILL_DETAIL_AUTH_VERBS
-                    and suffix in {"related"}
+                    and suffix in {"related", "graph"}
                 ):
                     return await call_next(request)
 

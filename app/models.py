@@ -330,6 +330,39 @@ Version = SkillVersion
 Payout = CreatorPayout
 
 
+# ── Skill Graph Stage 2 (G16) — derived edges ───────────────────────────
+
+class SkillDerivedEdge(Base):
+    """Edges between skills derived by the offline edge-builder.
+
+    Stage 2 supplements declared `Skill.related_skills` (Stage 1) with edges
+    inferred from three signals:
+        - tag overlap (Jaccard similarity of latest skill_toml tags)
+        - same-category co-occurrence
+        - co-install score (same api_key installs both within 30 days)
+
+    `weight` is the combined score in [0..1]; rows with weight below
+    `app.edge_builder.WEIGHT_THRESHOLD` are not persisted. Idempotent rebuilds
+    are achieved by atomic delete-then-insert in `persist_edges`.
+
+    Edges are stored DIRECTED (a→b and b→a both written) so that lookups by
+    source_slug stay simple and indexable. The /api/stats trending_pairs view
+    deduplicates back to undirected pairs.
+    """
+    __tablename__ = "skill_derived_edges"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    source_slug = Column(String(255), nullable=False, index=True)
+    target_slug = Column(String(255), nullable=False, index=True)
+    weight = Column(Float, nullable=False)
+    signals = Column(JSON, nullable=True)  # {jaccard, category, coinstall}
+    last_built_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("source_slug", "target_slug", name="uq_skill_edge_pair"),
+    )
+
+
 class StripeEventId(Base):
     """Idempotency table for Stripe webhook events.
 

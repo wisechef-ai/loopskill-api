@@ -468,6 +468,116 @@ def get_skill_related(slug: str, db: Session = Depends(get_db)):
     return _resolve_related(db, skill)
 
 
+# ── Skill Graph (Stage 2 — G16) ─────────────────────────────────────────
+
+GRAPH_RAIL_CAP = 10
+
+
+def _hydrate_skill_outs(db: Session, slugs: list[str]) -> list[dict]:
+    """Resolve a list of slugs (preserving order) to public SkillOut dicts."""
+    if not slugs:
+        return []
+    rows = (
+        db.query(Skill)
+        .filter(Skill.slug.in_(slugs), Skill.is_public == True)
+        .all()
+    )
+    by_slug = {r.slug: r for r in rows}
+    out = []
+    for slug in slugs:
+        r = by_slug.get(slug)
+        if not r:
+            continue
+        latest = r.versions[0].semver if r.versions else None
+        out.append({
+            "id": r.id,
+            "slug": r.slug,
+            "title": r.title,
+            "description": r.description,
+            "category": r.category,
+            "tier": r.tier,
+            "is_public": r.is_public,
+            "creator_name": r.creator.name if r.creator else None,
+            "latest_version": latest,
+            "created_at": r.created_at,
+            "updated_at": r.updated_at,
+        })
+    return out
+
+
+@router.get("/skills/{slug}/graph", tags=["skills"])
+def get_skill_graph(slug: str, db: Session = Depends(get_db)):
+    """Return the Stage-1 declared edges + Stage-2 derived edges for a skill.
+
+    Response shape:
+        {
+          "slug": str,
+          "declared":  [SkillOut...],   # author-declared (Stage 1)
+          "derived":   [SkillOut...],   # algorithm-derived (Stage 2), top-K
+          "all":       [SkillOut...],   # union, declared first, capped at 10
+          "edges":     [{slug, weight, signals}, ...]  # debug/derived metadata
+        }
+    """
+    from app.models import SkillDerivedEdge
+
+    skill = (
+        db.query(Skill)
+        .filter(Skill.slug == slug, Skill.is_public == True)
+        .first()
+    )
+    if not skill:
+        raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
+
+    declared = _resolve_related(db, skill)
+    declared_slugs_set = {s["slug"] for s in declared}
+
+    edge_rows = (
+        db.query(SkillDerivedEdge)
+        .filter(SkillDerivedEdge.source_slug == slug)
+        .order_by(SkillDerivedEdge.weight.desc())
+        .limit(GRAPH_RAIL_CAP * 2)  # over-fetch then filter for public/non-declared
+        .all()
+    )
+
+    # Skip edges that target a non-public or already-declared skill
+    derived_slugs: list[str] = []
+    edge_meta: list[dict] = []
+    for e in edge_rows:
+        if e.target_slug in declared_slugs_set:
+            continue
+        if e.target_slug == slug:
+            continue
+        derived_slugs.append(e.target_slug)
+        edge_meta.append({
+            "slug": e.target_slug,
+            "weight": float(e.weight),
+            "signals": e.signals or {},
+        })
+        if len(derived_slugs) >= GRAPH_RAIL_CAP:
+            break
+
+    derived = _hydrate_skill_outs(db, derived_slugs)
+
+    # Union: declared first (handcrafted), then derived (algorithmic)
+    seen = set()
+    union = []
+    for s in declared + derived:
+        if s["slug"] in seen:
+            continue
+        seen.add(s["slug"])
+        union.append(s)
+        if len(union) >= GRAPH_RAIL_CAP:
+            break
+
+    return {
+        "slug": slug,
+        "declared": declared,
+        "derived": derived,
+        "all": union,
+        "edges": edge_meta,
+    }
+
+
 @router.get("/recipes/{slug}", response_model=RecipeOut, tags=["recipes"])
 def get_recipe(slug: str, db: Session = Depends(get_db)):
     recipe = (
@@ -627,6 +737,30 @@ def marketplace_stats(db: Session = Depends(get_db)):
         or 0
     )
 
+    # Trending pairs (Stage 2, G16): top-weighted derived edges, deduplicated
+    # to undirected pairs. Quietly returns [] when the edge table is empty.
+    try:
+        from app.models import SkillDerivedEdge
+        edge_rows = (
+            db.query(SkillDerivedEdge.source_slug, SkillDerivedEdge.target_slug,
+                     SkillDerivedEdge.weight)
+            .order_by(SkillDerivedEdge.weight.desc())
+            .limit(200)  # over-fetch, dedupe pulls roughly half
+            .all()
+        )
+        seen_pairs: set[tuple[str, str]] = set()
+        trending_pairs: list[dict] = []
+        for src, tgt, w in edge_rows:
+            key = tuple(sorted([src, tgt]))
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            trending_pairs.append({"a": key[0], "b": key[1], "weight": float(w)})
+            if len(trending_pairs) >= 10:
+                break
+    except Exception:
+        trending_pairs = []
+
     return {
         "total_skills": int(total_skills),
         "total_installs_lifetime": int(total_installs),
@@ -634,6 +768,7 @@ def marketplace_stats(db: Session = Depends(get_db)):
         "by_tier": by_tier,
         "by_category": by_category,
         "top_installed": top_installed,
+        "trending_pairs": trending_pairs,
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
