@@ -70,3 +70,10 @@ logs/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+.gitnexus
+
+# gitnexus auto-generated, regenerated locally on `npx gitnexus analyze`
+AGENTS.md
+CLAUDE.md
+.claude/
+.gitnexus/

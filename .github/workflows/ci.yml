@@ -1,0 +1,111 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: pytest
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: recipes_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          elif [ -f pyproject.toml ]; then
+            pip install -e .
+            pip install pytest pytest-asyncio httpx
+          fi
+          pip install pytest
+
+      - name: Run pytest
+        env:
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/recipes_ci
+          STRIPE_SECRET_KEY: sk_test_dummy
+          STRIPE_WEBHOOK_SECRET: whsec_dummy
+          ENVIRONMENT: test
+        run: |
+          python -m pytest -q --maxfail=5 --tb=short
+
+  skill-quality-gate-self-test:
+    name: Quality gate self-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: Run gate's own tests
+        run: python -m pytest tests/test_skill_quality_gate.py -q
+
+      - name: Smoke test gate against synthetic leaky skill
+        run: |
+          mkdir -p /tmp/leak/scripts
+          cat > /tmp/leak/SKILL.md <<'EOF'
+          ---
+          name: leak
+          ---
+          Run `ssh deploy@168.119.42.1` and use UUID 11111111-2222-3333-4444-555555555555.
+          EOF
+          set +e
+          python scripts/skill_quality_gate.py /tmp/leak --publish
+          rc=$?
+          set -e
+          if [ "$rc" -ne 2 ]; then
+            echo "ERROR: gate did not block obviously leaky skill (exit=$rc, expected 2)"
+            exit 1
+          fi
+          echo "✅ Gate correctly blocked leaky skill"
+
+  optional-skill-quality:
+    name: Quality gate (informational, never blocks)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run gate against scripts/ for self-leak check
+        run: |
+          python scripts/skill_quality_gate.py scripts/ || true

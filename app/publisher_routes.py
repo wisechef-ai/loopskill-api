@@ -212,6 +212,39 @@ async def publish_skill(
         for f in findings if f.severity in ("medium", "low")
     ]
 
+    # ── 5b. Quality gate (leak audit + generalization) ──────────────────
+    # Defense-in-depth: scan_tarball() above catches malicious patterns;
+    # this catches internal-info leakage (IPs, UUIDs, hostnames, hardcoded paths).
+    # Block-level findings here are categories like internal_uuid, public_ipv4,
+    # ssh_user_combo, discord_mention, real credentials, hetzner_internal.
+    try:
+        from app.skill_quality_gate import scan_tarball_bytes as _gate_scan
+        gate_findings = _gate_scan(tarball_bytes)
+        gate_blocks = [f for f in gate_findings if f["severity"] == "block"]
+        if gate_blocks:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "quality_gate_failed",
+                    "stage": "leak_or_generalization",
+                    "findings": gate_blocks[:25],  # cap response size
+                    "total_blocks": len(gate_blocks),
+                    "remediation": (
+                        "Found internal infra references (IPs, UUIDs, internal hostnames, "
+                        "credentials) in the published skill. See skill_quality_gate "
+                        "categories. Generalize to env vars or remove."
+                    ),
+                },
+            )
+        # Append non-blocking gate warnings to the response warnings list
+        warnings.extend([
+            {**f, "source": "quality_gate"}
+            for f in gate_findings if f["severity"] == "warn"
+        ])
+    except ImportError:
+        # Module not installed yet (rolling deploy) — fail open with a log line
+        logger.warning("skill_quality_gate not importable; skipping gate scan")
+
     # ── 6. Resolve skill record ──────────────────────────────────────────
     # We use the name field from skill.toml to look up by slug convention.
     # Skills are keyed by their slug (derived from name). If the skill doesn't
