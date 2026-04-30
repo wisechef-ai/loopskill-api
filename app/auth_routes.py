@@ -258,6 +258,16 @@ async def get_me(
         "display_name": user.display_name,
         "avatar_url": user.avatar_url,
         "created_at": user.created_at.isoformat() if user.created_at else None,
+        # Subscription state — embedded so every page that calls /api/auth/me
+        # knows the user's current plan without a second round-trip to /billing/me.
+        # Fixes auth-aware UI being plan-blind across Nav.astro, pricing page,
+        # /skills/{slug} install gate, and any future page that wants tier-conditional UX.
+        "subscription_tier": user.subscription_tier,
+        "subscription_status": user.subscription_status,
+        "subscription_current_period_end": (
+            user.subscription_current_period_end.isoformat()
+            if user.subscription_current_period_end else None
+        ),
     }
 
 
