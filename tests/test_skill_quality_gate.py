@@ -45,7 +45,100 @@ def test_blocks_pipe_to_shell(tmp_path: Path) -> None:
     })
     rc, out = run_gate(str(tmp_path), "--publish")
     assert rc == 2
-    assert "pipe_to_shell_curl" in out
+    assert "pipe_to_shell" in out
+
+
+def test_allows_trusted_upstream_installer(tmp_path: Path) -> None:
+    """curl|bash from a known-good upstream is documented practice."""
+    write_skill(tmp_path, {
+        "SKILL.md": (
+            "---\nname: x\n---\n"
+            "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh\n"
+            "curl -sSL https://install.python-poetry.org | python3 -\n"
+            "curl -fsSL https://raw.githubusercontent.com/xdevplatform/xurl/main/install.sh | bash\n"
+        ),
+    })
+    rc, out = run_gate(str(tmp_path), "--publish")
+    assert rc == 0, out
+
+
+def test_allows_safe_rm_targets(tmp_path: Path) -> None:
+    """rm -rf against ~/.cache/, /tmp/, $WORKDIR/ is benign cleanup."""
+    write_skill(tmp_path, {
+        "SKILL.md": (
+            "---\nname: x\n---\n"
+            "rm -rf ~/.cache/huggingface/hub\n"
+            "rm -rf /tmp/scratch-data\n"
+            "rm -rf $WORKDIR/build\n"
+            "rm -rf ./node_modules\n"
+        ),
+    })
+    rc, out = run_gate(str(tmp_path), "--publish")
+    assert rc == 0, out
+
+
+def test_blocks_real_destructive_rm(tmp_path: Path) -> None:
+    """`rm -rf /` and `rm -rf ~` (no path after) MUST still block."""
+    write_skill(tmp_path, {
+        "SKILL.md": "---\nname: x\n---\nx",
+        "scripts/run.sh": "#!/bin/bash\nrm -rf /\n",
+    })
+    rc, _ = run_gate(str(tmp_path), "--publish")
+    assert rc == 2
+
+
+def test_allows_public_dns_resolvers(tmp_path: Path) -> None:
+    """1.1.1.1, 8.8.8.8, etc. are documentation examples not infra disclosure."""
+    write_skill(tmp_path, {
+        "SKILL.md": (
+            "---\nname: x\n---\n"
+            "dig +short example.com @1.1.1.1\n"
+            "dig +short example.com @8.8.8.8\n"
+            "nslookup test.com 9.9.9.9\n"
+        ),
+    })
+    rc, out = run_gate(str(tmp_path), "--publish")
+    assert rc == 0, out
+
+
+def test_blocks_non_dns_public_ip(tmp_path: Path) -> None:
+    """Non-DNS public IPs still block (the IP allowlist is narrow)."""
+    write_skill(tmp_path, {
+        "SKILL.md": "---\nname: x\n---\nServer at 5.6.7.8",
+    })
+    rc, _ = run_gate(str(tmp_path), "--publish")
+    assert rc == 2
+
+
+def test_allows_ssh_custom_subdir(tmp_path: Path) -> None:
+    """~/.ssh/<custom-subdir>/ is user-isolated SSH config, not credential harvest."""
+    write_skill(tmp_path, {
+        "SKILL.md": (
+            "---\nname: x\n---\n"
+            "mkdir -p ~/.ssh/ci-keys\n"
+            "ssh-keygen -f ~/.ssh/ci-keys/deploy_rsa\n"
+            "ls ~/.ssh/staging/\n"
+        ),
+    })
+    rc, out = run_gate(str(tmp_path), "--publish")
+    assert rc == 0, out
+
+
+def test_blocks_ssh_credential_files(tmp_path: Path) -> None:
+    """Reading ~/.ssh/authorized_keys, ~/.ssh/id_*, ~/.ssh/known_hosts MUST still block."""
+    cases = [
+        "cat ~/.ssh/authorized_keys",
+        "cat ~/.ssh/id_rsa",
+        "cat ~/.ssh/id_ed25519.pub",
+        "cat ~/.ssh/known_hosts",
+    ]
+    for case in cases:
+        d = tmp_path / case.replace(" ", "_").replace("/", "_").replace(".", "_")
+        write_skill(d, {
+            "SKILL.md": f"---\nname: x\n---\n{case}",
+        })
+        rc, _ = run_gate(str(d), "--publish")
+        assert rc == 2, f"Should block: {case!r}"
 
 
 def test_allows_pipe_to_shell_inside_negation(tmp_path: Path) -> None:
@@ -57,6 +150,7 @@ def test_allows_pipe_to_shell_inside_negation(tmp_path: Path) -> None:
 
 
 def test_blocks_destructive_rm(tmp_path: Path) -> None:
+    """Real destructive rm — `rm -rf /` — MUST still block (covered also by test_blocks_real_destructive_rm)."""
     write_skill(tmp_path, {
         "SKILL.md": "---\nname: x\n---\nx",
         "scripts/run.sh": "#!/bin/bash\nrm -rf /\n",

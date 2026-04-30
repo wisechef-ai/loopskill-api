@@ -48,6 +48,20 @@ _IPV4_RE = re.compile(
 
 
 def _is_private_or_example_ip(ip: str) -> bool:
+    """Returns True for IPs that should NOT be flagged as recon disclosure.
+
+    Includes RFC1918 private, loopback, link-local, TEST-NET, multicast,
+    and well-known public DNS resolvers (1.1.1.1, 8.8.8.8, etc.) which
+    are documentation examples, not infra disclosure.
+    """
+    # Public DNS resolvers — these appear in 90% of network-tool docs
+    if ip in {
+        "1.1.1.1", "1.0.0.1",         # Cloudflare
+        "8.8.8.8", "8.8.4.4",         # Google
+        "9.9.9.9", "149.112.112.112", # Quad9
+        "208.67.222.222", "208.67.220.220",  # OpenDNS
+    }:
+        return True
     parts = [int(p) for p in ip.split(".")]
     if parts == [0, 0, 0, 0]:
         return True

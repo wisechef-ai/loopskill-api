@@ -65,11 +65,63 @@ class Finding:
 # Patterns — Source A: malicious / runtime threats (from security_scan.py)
 # ---------------------------------------------------------------------------
 
+_DESTRUCTIVE_RM_RE = re.compile(r"rm\s+-rf?\s+(/|~|\$HOME)(?=\s|$|[^a-zA-Z0-9_.\-/])")
+
+# Safe deletion targets — `rm -rf` against these is benign cache cleanup, not a wipe.
+# When the path after `rm -rf` matches any of these, suppress destructive_rm.
+_SAFE_RM_TARGETS = re.compile(
+    r"rm\s+-rf?\s+(?:"
+    r"~/\.cache/|"               # User cache (HuggingFace, pip, npm, etc.)
+    r"~/\.local/share/Trash|"    # XDG trash
+    r"~/\.npm/|~/\.pnpm/|~/\.yarn/|"  # Package manager caches
+    r"~/node_modules/|"          # node deps
+    r"\$HOME/\.cache/|"
+    r"/tmp/[a-zA-Z0-9_./\-]+|"   # /tmp scratch
+    r"\./[a-zA-Z0-9_\-./]+|"     # ./relative paths in current dir
+    r"\$\{?[A-Z_][A-Z0-9_]*\}?/"  # Env-var-rooted paths like $WORKDIR/
+    r")"
+)
+
+# Known-good upstream installers — curl|bash from these orgs is documented practice.
+# These appear in 90% of OSS install instructions; blocking them is a usability tax.
+_TRUSTED_INSTALLER_DOMAINS = re.compile(
+    r"https?://(?:"
+    # raw.githubusercontent.com/<USER>/<REPO>/... — the user is the trust anchor
+    r"raw\.githubusercontent\.com/(?:starship|rye-up|astral-sh|"
+    r"ohmyzsh|nvm-sh|pyenv|rbenv|sdkman|"
+    r"xdevplatform|denoland|bun-sh|oven-sh|cli|atuinsh|jorgebucaran|"
+    r"helmfile|kubectl|kubernetes-sigs|tursodatabase|"
+    r"wisechef-ai)/|"
+    # github.com/<USER>/<REPO>/releases/download/.../installer.sh
+    r"github\.com/(?:starship|astral-sh|denoland|bun-sh|oven-sh|"
+    r"xdevplatform|wisechef-ai)/[\w\-]+/releases/|"
+    # Direct installer subdomains
+    r"sh\.rustup\.rs|"
+    r"get\.docker\.com|get\.helm\.sh|get\.k3s\.io|get\.k0s\.sh|"
+    r"install\.python-poetry\.org|"
+    r"sh\.brew\.sh|cli\.github\.com|"
+    r"deno\.land/install\.sh|bun\.sh/install"
+    r")"
+)
+
+# Public DNS resolvers — these are documentation examples, not infra disclosure.
+_PUBLIC_DNS_IPS = {
+    "1.1.1.1", "1.0.0.1",         # Cloudflare
+    "8.8.8.8", "8.8.4.4",         # Google
+    "9.9.9.9", "149.112.112.112", # Quad9
+    "208.67.222.222", "208.67.220.220",  # OpenDNS
+    "76.76.2.0", "76.76.10.0",    # ControlD
+}
+
+# SSH paths considered legitimate user-isolated patterns (not credential harvest).
+# Only block reads of authorized_keys / id_* / known_hosts which contain actual creds.
+_SSH_HARVEST_RE = re.compile(
+    r"~/\.ssh/(?:authorized_keys|id_[a-z0-9_]+(?:\.pub)?|known_hosts)\b"
+)
+# Old broad rule (any ~/.ssh/ access) is replaced with the narrow one above.
+
 PATTERNS_MALICIOUS = [
-    # destructive
-    ("destructive_rm", "block",
-     re.compile(r"rm\s+-rf\s+(/|~|\$HOME)(?=\s|$|[^a-zA-Z0-9_.\-])"),
-     "Filesystem destruction pattern"),
+    # destructive — uses dedicated handler, not flat list scan (so safe-target check works)
     ("destructive_forkbomb", "block",
      re.compile(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"),
      "Fork bomb"),
@@ -79,14 +131,7 @@ PATTERNS_MALICIOUS = [
     ("destructive_dd", "block",
      re.compile(r"\bdd\s+.*of=/dev/(sd[a-z]|nvme|hd)"),
      "dd to raw block device"),
-    # pipe-to-shell
-    ("pipe_to_shell_curl", "block",
-     re.compile(r"\bcurl\s+[^|]*\|\s*(bash|sh|zsh|fish)\b"),
-     "Remote curl piped to shell — RCE risk"),
-    ("pipe_to_shell_wget", "block",
-     re.compile(r"\bwget\s+[^|]*\|\s*(bash|sh|zsh|fish)\b"),
-     "Remote wget piped to shell — RCE risk"),
-    # eval remote
+    # pipe-to-shell — handled with installer allowlist
     ("eval_curl", "block",
      re.compile(r"\beval\s*\(?\s*\$\s*\(\s*curl"),
      "eval of curl output"),
@@ -100,10 +145,7 @@ PATTERNS_MALICIOUS = [
     ("hex_obfuscation", "block",
      re.compile(r"(?:\\x[0-9a-fA-F]{2}){10,}"),
      "Hex-escaped payload (10+ bytes)"),
-    # credential harvest
-    ("cred_harvest_ssh", "block",
-     re.compile(r"~/\.ssh/(?!authorized_keys(?:\b|$))"),
-     "Reads ~/.ssh"),
+    # credential harvest — narrowed to actual cred files, not ~/.ssh/* generally
     ("cred_harvest_aws", "block",
      re.compile(r"~/\.aws/credentials"),
      "Reads ~/.aws/credentials"),
@@ -168,6 +210,9 @@ PATTERNS_MALICIOUS = [
      re.compile(r"""(?:open|write_text|write_bytes)\s*\(\s*['"](?:/etc/|/var/|/usr/|~/\.ssh/)"""),
      "Write to sensitive system path"),
 ]
+
+# Patterns handled outside the flat list (need custom logic for safe-target / allowlist)
+_PIPE_TO_SHELL_RE = re.compile(r"\b(?:curl|wget)\s+[^|]*\|\s*(?:bash|sh|zsh|fish)\b")
 
 # ---------------------------------------------------------------------------
 # Patterns — Source B: leak audit (internal info)
@@ -354,7 +399,7 @@ def _scan_text(file_path: str, content: str) -> list[Finding]:
     )
     # Categories that should respect negation context (guidance docs talk ABOUT these)
     NEGATION_AWARE = {
-        "pipe_to_shell_curl", "pipe_to_shell_wget",
+        "pipe_to_shell", "pipe_to_shell_curl", "pipe_to_shell_wget",
         "eval_curl", "eval_b64", "exec_b64",
         "destructive_rm", "destructive_forkbomb",
         "prompt_injection_ignore", "prompt_injection_disregard",
@@ -368,7 +413,40 @@ def _scan_text(file_path: str, content: str) -> list[Finding]:
         if fence_re.match(line):
             in_fence = not in_fence
 
-        # Source A: malicious
+        # ── Custom handler 1: destructive_rm with safe-target allowlist ──
+        m = _DESTRUCTIVE_RM_RE.search(line)
+        if m and not _is_negated(line, m.start()) and not _SAFE_RM_TARGETS.search(line):
+            findings.append(Finding(
+                "destructive_rm", "block", file_path, lineno,
+                line.strip()[:200],
+                "Filesystem destruction pattern",
+                "malicious",
+            ))
+
+        # ── Custom handler 2: pipe-to-shell with installer allowlist ─────
+        m = _PIPE_TO_SHELL_RE.search(line)
+        if m and not _is_negated(line, m.start()):
+            # Suppress if the URL in the curl/wget portion is a trusted installer.
+            preceding = line[:m.start() + len(m.group(0))]
+            if not _TRUSTED_INSTALLER_DOMAINS.search(preceding):
+                findings.append(Finding(
+                    "pipe_to_shell", "block", file_path, lineno,
+                    line.strip()[:200],
+                    "Remote curl/wget piped to shell — RCE risk. "
+                    "If this is a trusted upstream installer, file an allowlist PR.",
+                    "malicious",
+                ))
+
+        # ── Custom handler 3: SSH credential harvest (narrow) ────────────
+        if _SSH_HARVEST_RE.search(line):
+            findings.append(Finding(
+                "cred_harvest_ssh", "block", file_path, lineno,
+                line.strip()[:200],
+                "Reads ~/.ssh credential file (authorized_keys / id_* / known_hosts)",
+                "malicious",
+            ))
+
+        # Source A: malicious (rest of the patterns)
         for cat, sev, pat, rationale in PATTERNS_MALICIOUS:
             m = pat.search(line)
             if m:
@@ -377,11 +455,13 @@ def _scan_text(file_path: str, content: str) -> list[Finding]:
                 findings.append(Finding(cat, sev, file_path, lineno,
                                         line.strip()[:200], rationale, "malicious"))
 
-        # Source B: leak — IPv4 needs special handling (allow private + example IPs)
+        # Source B: leak — IPv4 needs special handling (allow private + example IPs + public DNS)
         for m in _IPV4_RE.finditer(line):
             ip = m.group(0)
             if _is_private_or_example_ip(ip):
                 continue
+            if ip in _PUBLIC_DNS_IPS:
+                continue  # Public DNS resolvers — documentation examples, not disclosure
             findings.append(Finding(
                 "public_ipv4", "block", file_path, lineno,
                 line.strip()[:200],

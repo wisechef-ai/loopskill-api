@@ -40,10 +40,16 @@ def test_private_ip_allowlist() -> None:
     assert _is_private_or_example_ip("203.0.113.5")  # TEST-NET-3
     assert _is_private_or_example_ip("224.0.0.1")  # multicast
     assert _is_private_or_example_ip("0.0.0.0")
-    # Public should NOT match
-    assert not _is_private_or_example_ip("168.119.57.68")
-    assert not _is_private_or_example_ip("8.8.8.8")
-    assert not _is_private_or_example_ip("1.1.1.1")
+    # Public DNS resolvers — documentation examples, allowlisted
+    assert _is_private_or_example_ip("1.1.1.1")
+    assert _is_private_or_example_ip("1.0.0.1")
+    assert _is_private_or_example_ip("8.8.8.8")
+    assert _is_private_or_example_ip("8.8.4.4")
+    assert _is_private_or_example_ip("9.9.9.9")
+    # Real public IPs should NOT match
+    assert not _is_private_or_example_ip("168.119.57.68")  # Hetzner
+    assert not _is_private_or_example_ip("5.6.7.8")
+    assert not _is_private_or_example_ip("4.4.4.4")  # close-but-no — not in allowlist
 
 
 # ── scan_text basics ───────────────────────────────────────────────────────
