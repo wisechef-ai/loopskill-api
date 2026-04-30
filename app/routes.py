@@ -485,6 +485,70 @@ def post_telemetry(
 
 # ── WiseChef Demo CTA ───────────────────────────────────────────────────
 
+@router.get("/stats", tags=["meta"])
+def marketplace_stats(db: Session = Depends(get_db)):
+    """Public marketplace transparency stats — totals, top categories, top skills.
+
+    No auth required. Powers the /stats portal page and the recipes_stats MCP tool.
+    Designed to beat LarryBrain's opacity: full counts, fresh data, clear scope.
+    """
+    from sqlalchemy import func as _f
+
+    total_skills = db.query(_f.count(Skill.id)).filter(Skill.is_public == True).scalar() or 0
+    total_installs = db.query(_f.count(InstallEvent.id)).scalar() or 0
+
+    # Tier breakdown
+    tier_rows = (
+        db.query(Skill.tier, _f.count(Skill.id))
+        .filter(Skill.is_public == True)
+        .group_by(Skill.tier)
+        .all()
+    )
+    by_tier = {t or "uncategorized": int(c) for t, c in tier_rows}
+
+    # Category breakdown
+    cat_rows = (
+        db.query(Skill.category, _f.count(Skill.id))
+        .filter(Skill.is_public == True)
+        .group_by(Skill.category)
+        .order_by(_f.count(Skill.id).desc())
+        .limit(20)
+        .all()
+    )
+    by_category = [{"category": c or "uncategorized", "count": int(n)} for c, n in cat_rows]
+
+    # Top installed skills (lifetime)
+    top_rows = (
+        db.query(InstallEvent.skill_slug, _f.count(InstallEvent.id).label("installs"))
+        .group_by(InstallEvent.skill_slug)
+        .order_by(_f.count(InstallEvent.id).desc())
+        .limit(10)
+        .all()
+    )
+    top_installed = [{"slug": s, "installs": int(c)} for s, c in top_rows]
+
+    # Recent installs (last 7d)
+    recent_window = datetime.now(timezone.utc) - timedelta(days=7)
+    installs_7d = (
+        db.query(_f.count(InstallEvent.id))
+        .filter(InstallEvent.created_at >= recent_window)
+        .scalar()
+        or 0
+    )
+
+    return {
+        "total_skills": int(total_skills),
+        "total_installs_lifetime": int(total_installs),
+        "installs_last_7d": int(installs_7d),
+        "by_tier": by_tier,
+        "by_category": by_category,
+        "top_installed": top_installed,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ── WiseChef Demo CTA ───────────────────────────────────────────────────
+
 @router.get("/wisechef/demo-cta", response_model=DemoCTAOut, tags=["wisechef"])
 def demo_cta():
     """WiseChef cross-sell CTA for the Recipes marketplace.
