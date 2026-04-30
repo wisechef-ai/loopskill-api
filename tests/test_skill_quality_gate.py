@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -10,7 +11,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-GATE = REPO / "scripts" / "skill_quality_gate.py"
+GATE = Path(os.environ.get("SKILL_QUALITY_GATE_SCRIPT") or REPO / "scripts" / "skill_quality_gate.py")
 
 
 def run_gate(*args: str, cwd: Path | None = None) -> tuple[int, str]:

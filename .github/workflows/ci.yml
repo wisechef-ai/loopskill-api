@@ -32,11 +32,16 @@ jobs:
         run: pip install pytest
 
       - name: Run gate's CLI tests in isolation (no conftest)
-        # Use --rootdir + --confcutdir to avoid pulling app/conftest deps.
-        # The CLI tests subprocess-out to the gate script — fully self-contained.
+        # Copy the test file to a clean dir so pytest can't auto-discover
+        # tests/conftest.py (which needs FastAPI + Postgres). The gate is
+        # stdlib-only so this isolation is correct.
+        env:
+          SKILL_QUALITY_GATE_SCRIPT: ${{ github.workspace }}/scripts/skill_quality_gate.py
         run: |
-          python -m pytest tests/test_skill_quality_gate.py \
-            -q --rootdir=/tmp --confcutdir=/tmp -p no:cacheprovider
+          mkdir -p /tmp/gate_tests
+          cp tests/test_skill_quality_gate.py /tmp/gate_tests/
+          cd /tmp/gate_tests
+          python -m pytest test_skill_quality_gate.py -q -p no:cacheprovider
 
       - name: Smoke test gate against synthetic leaky skill
         run: |
