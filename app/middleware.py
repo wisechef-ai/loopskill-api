@@ -119,6 +119,9 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         # browsability. Auth-only verbs (install, _download, _publish) still gated.
         if request.method == "GET" and path.startswith("/api/skills/"):
             tail = path[len("/api/skills/"):]
+            # Public full-graph dump (no slug, single segment)
+            if tail == "graph":
+                return await call_next(request)
             # Single segment, no underscore prefix, not a known auth verb.
             if "/" not in tail and not tail.startswith("_") and tail not in self.PUBLIC_SKILL_DETAIL_AUTH_VERBS:
                 return await call_next(request)

@@ -337,6 +337,64 @@ def skill_access(
     )
 
 
+@router.get("/skills/graph", tags=["skills"])
+def get_full_skill_graph(db: Session = Depends(get_db)):
+    """Full marketplace skill graph dump for portal-side visualisation (Stage 3, G17).
+
+    Returns ALL public skills as nodes plus all derived edges between them as
+    undirected unique pairs. Single round-trip — designed for `/graph` page
+    force-directed rendering.
+
+    No auth required. Cheap query (≤200 nodes, ≤500 dedup edges in practice).
+    """
+    from app.models import SkillDerivedEdge
+
+    public_skills = (
+        db.query(Skill)
+        .filter(Skill.is_public == True)  # noqa: E712
+        .all()
+    )
+    public_slug_set = {s.slug for s in public_skills}
+
+    nodes = [
+        {
+            "slug": s.slug,
+            "title": s.title,
+            "category": s.category or "general",
+            "tier": s.tier or "cook",
+            "install_count": int(s.install_count or 0),
+        }
+        for s in public_skills
+    ]
+
+    # Pull all directed edges, deduplicate to undirected, drop edges that
+    # touch a non-public node (defence in depth — builder already filters).
+    edge_rows = (
+        db.query(SkillDerivedEdge.source_slug,
+                 SkillDerivedEdge.target_slug,
+                 SkillDerivedEdge.weight)
+        .order_by(SkillDerivedEdge.weight.desc())
+        .all()
+    )
+    seen: set[tuple[str, str]] = set()
+    edges: list[dict] = []
+    for src, tgt, w in edge_rows:
+        if src not in public_slug_set or tgt not in public_slug_set:
+            continue
+        key = tuple(sorted([src, tgt]))
+        if key in seen:
+            continue
+        seen.add(key)
+        edges.append({"source": key[0], "target": key[1], "weight": float(w)})
+
+    return {
+        "nodes": nodes,
+        "edges": edges,
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+    }
+
+
 @router.get("/skills/{slug}", response_model=SkillDetailOut, tags=["skills"])
 def get_skill_detail(slug: str, db: Session = Depends(get_db)):
     """Full skill detail with versions and resolved related skills."""
