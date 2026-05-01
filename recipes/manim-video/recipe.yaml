@@ -1,0 +1,21 @@
+# recipes/manim-video/recipe.yaml — Phase F.9
+# Source SKILL.md: ~/.hermes/skills/creative/manim-video/SKILL.md
+# Manim renders math/animation videos via Cairo + LaTeX + ffmpeg. CPU only.
+
+runtime:
+  binaries:
+    - name: ffmpeg
+      provides: [ffmpeg]
+      minimum: "ffmpeg>=4.4"
+    - name: python3
+      minimum: "python3>=3.10"
+  env:
+    optional: [MANIM_QUALITY, MANIM_OUTPUT_DIR]
+  compatibility:
+    os: [linux, macos]
+    arch: [x86_64, arm64]
+    ram_gb:
+      minimum: 2
+      recommended: 8
+    disk_gb: 2
+    network: optional

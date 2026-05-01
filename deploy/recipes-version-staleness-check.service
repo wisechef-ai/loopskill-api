@@ -1,0 +1,12 @@
+[Unit]
+Description=Recipes — daily version-staleness sweep (Phase F.8)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/recipes-api
+EnvironmentFile=-/etc/recipes-api/recipes-api.env
+ExecStart=/opt/recipes-api/.venv/bin/python -m app.crons.version_staleness --json
+StandardOutput=journal
+StandardError=journal

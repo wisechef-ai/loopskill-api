@@ -1,0 +1,29 @@
+# recipes/ollama-low-vram-model-pick/recipe.yaml — Phase F.9
+# Source SKILL.md: ~/.hermes/skills/mlops/ollama-low-vram-model-pick/SKILL.md
+# Wraps Ollama for low-VRAM model selection. Requires ollama daemon running.
+
+runtime:
+  binaries:
+    - name: ollama
+      version: "0.3.0"
+      release_source: "github.com/ollama/ollama"
+      check_latest: weekly
+  services:
+    - name: ollama
+      type: systemd-user
+      port: 11434
+      health: "GET http://localhost:11434/api/tags"
+  env:
+    optional: [OLLAMA_HOST, OLLAMA_MODELS]
+  compatibility:
+    os: [linux, macos]
+    arch: [x86_64, arm64]
+    gpu:
+      required: false
+      preferred: nvidia
+      vram_gb: 2
+    ram_gb:
+      minimum: 4
+      recommended: 8
+    disk_gb: 10
+    network: optional

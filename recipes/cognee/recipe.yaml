@@ -1,0 +1,41 @@
+# recipes/cognee/recipe.yaml — Phase F.9 author for the cognee skill
+# Source SKILL.md: ~/.hermes/skills/devops/cognee-retrieval-architecture/SKILL.md
+# Cognee is a self-hosted knowledge-graph retrieval stack that boots from a
+# docker-compose with Postgres + a sidecar API. CPU-only is supported but
+# warm-start of the embedder benefits from a GPU; we mark it as preferred.
+
+runtime:
+  binaries:
+    - name: docker
+      provides: [docker]
+      minimum: "docker>=24.0"
+    - name: uv
+      version: "0.5.0"
+      release_source: "github.com/astral-sh/uv"
+      check_latest: weekly
+  services:
+    - name: cognee-api
+      type: docker-compose
+      compose: "deploys/cognee.yml"
+      port: 8100
+      health: "GET http://localhost:8100/healthz"
+  env:
+    required: [COGNEE_DB_URL]
+    optional: [COGNEE_LLM_API_KEY, COGNEE_EMBEDDER_DEVICE]
+  cron:
+    - name: nightly-sync
+      schedule: "0 3 * * *"
+      cmd: "python -m cognee.tasks.sync_all"
+  compatibility:
+    os: [linux, macos]
+    arch: [x86_64, arm64]
+    gpu:
+      required: false
+      preferred: nvidia
+      vram_gb: 4
+      cuda: ">=11.8"
+    ram_gb:
+      minimum: 4
+      recommended: 8
+    disk_gb: 5
+    network: required

@@ -180,6 +180,8 @@ class InstallEvent(Base):
     api_key_id = Column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=True)
     version_semver = Column(String(32), nullable=True)
     client_ip = Column(String(64), nullable=True)
+    # F.6 rollback marker: 'ok' | 'rolled_back' | 'partial' | 'in_progress'
+    status = Column(String(32), nullable=False, server_default="ok", index=True)
     created_at = Column(DateTime, server_default=func.now())
 
     skill = relationship("Skill", back_populates="install_events")

@@ -1,0 +1,21 @@
+# recipes/ascii-video/recipe.yaml — Phase F.9
+# Source SKILL.md: ~/.hermes/skills/creative/ascii-video/SKILL.md
+# Renders ASCII-art videos. ffmpeg + a Python pipeline. CPU only.
+
+runtime:
+  binaries:
+    - name: ffmpeg
+      provides: [ffmpeg]
+      minimum: "ffmpeg>=4.4"
+    - name: python3
+      minimum: "python3>=3.10"
+  env:
+    optional: [ASCII_VIDEO_PALETTE, ASCII_VIDEO_FPS]
+  compatibility:
+    os: [linux, macos]
+    arch: [x86_64, arm64]
+    ram_gb:
+      minimum: 1
+      recommended: 2
+    disk_gb: 1
+    network: optional
