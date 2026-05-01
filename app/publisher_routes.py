@@ -212,6 +212,30 @@ async def publish_skill(
         for f in findings if f.severity in ("medium", "low")
     ]
 
+    # ── 5a. A.7 discipline linter (BLOCKING pre-check) ──────────────────
+    # Enforces the skill-discipline anti-patterns (no user names, no curl|bash,
+    # no hardcoded /home paths, etc.) so that published skills are portable
+    # across users, hosts, and agent personalities. Runs early; rejects the
+    # publish entirely with HTTP 422 if any violation is found.
+    try:
+        import sys as _sys
+        _repo_root = str(Path(__file__).resolve().parent.parent)
+        if _repo_root not in _sys.path:
+            _sys.path.insert(0, _repo_root)
+        from scripts.skill_discipline_linter import lint_tarball_bytes as _discipline_lint
+        discipline_result = _discipline_lint(tarball_bytes)
+        if not discipline_result["ok"]:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "ok": False,
+                    "error": "discipline_lint_failed",
+                    "violations": discipline_result["violations"],
+                },
+            )
+    except ImportError:
+        logger.warning("skill_discipline_linter not importable; skipping A.7 gate")
+
     # ── 5b. Quality gate (leak audit + generalization) ──────────────────
     # Defense-in-depth: scan_tarball() above catches malicious patterns;
     # this catches internal-info leakage (IPs, UUIDs, hostnames, hardcoded paths).
