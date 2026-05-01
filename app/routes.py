@@ -20,11 +20,12 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.models import (
+    APIKey,
     APILibraryEntry,
     CarouselEntry,
     Creator,
@@ -86,7 +87,11 @@ def healthz(db: Session = Depends(get_db)):
 
 # ── Skills ──────────────────────────────────────────────────────────────
 
-def _skill_to_out(skill: Skill) -> SkillOut:
+def _skill_to_out(
+    skill: Skill,
+    install_count_total: int = 0,
+    install_count_7d: int = 0,
+) -> SkillOut:
     latest = skill.versions[0].semver if skill.versions else None
     return SkillOut(
         id=skill.id,
@@ -98,9 +103,35 @@ def _skill_to_out(skill: Skill) -> SkillOut:
         is_public=skill.is_public,
         creator_name=skill.creator.name if skill.creator else None,
         latest_version=latest,
+        install_count_total=install_count_total,
+        install_count_7d=install_count_7d,
         created_at=skill.created_at,
         updated_at=skill.updated_at,
     )
+
+
+def _install_counts_for(db: Session, skill_ids: list) -> dict:
+    """Return {skill_id: (total, last_7d)} for the supplied skill ids.
+
+    One round-trip aggregation — small marketplace (≤200 skills) so a
+    grouped query is cheaper than a LATERAL per row.
+    """
+    if not skill_ids:
+        return {}
+    since_7d = datetime.now(timezone.utc) - timedelta(days=7)
+    rows = (
+        db.query(
+            InstallEvent.skill_id,
+            func.count(InstallEvent.id).label("total"),
+            func.sum(
+                case((InstallEvent.created_at >= since_7d, 1), else_=0)
+            ).label("last_7d"),
+        )
+        .filter(InstallEvent.skill_id.in_(skill_ids))
+        .group_by(InstallEvent.skill_id)
+        .all()
+    )
+    return {sid: (int(total or 0), int(last_7d or 0)) for sid, total, last_7d in rows}
 
 
 @router.get("/skills/search", response_model=SkillSearchResult, tags=["skills"])
@@ -134,8 +165,11 @@ def search_skills(
     total = query.count()
     results = query.offset((page - 1) * page_size).limit(page_size).all()
 
+    counts = _install_counts_for(db, [s.id for s in results])
     return SkillSearchResult(
-        results=[_skill_to_out(s) for s in results],
+        results=[
+            _skill_to_out(s, *counts.get(s.id, (0, 0))) for s in results
+        ],
         total=total,
         page=page,
         page_size=page_size,
@@ -180,8 +214,11 @@ def trending_skills(
     total = query.count()
     results = query.offset((page - 1) * page_size).limit(page_size).all()
 
+    counts = _install_counts_for(db, [s.id for s in results])
     return SkillSearchResult(
-        results=[_skill_to_out(s) for s in results],
+        results=[
+            _skill_to_out(s, *counts.get(s.id, (0, 0))) for s in results
+        ],
         total=total,
         page=page,
         page_size=page_size,
@@ -309,30 +346,83 @@ def download_tarball(
     )
 
 
+# Tier rank lookup — higher rank = more capability. None / unknown = anonymous.
+# Plan v5.4 §A.8: Cook=all skills, Operator=Cook+forks, Studio=Operator+buckets.
+TIER_RANK = {None: 0, "free": 0, "cook": 1, "operator": 2, "studio": 3}
+
+
+def _resolve_caller_tier(db: Session, request: Request) -> str | None:
+    """Return the calling user's active subscription tier, or None if anonymous.
+
+    The access endpoint is in the middleware's PUBLIC_PREFIXES list, so we
+    re-implement a lightweight API-key lookup here to optionally hydrate the
+    caller's tier without forcing auth.
+    """
+    from app.config import settings
+
+    key = request.headers.get("x-api-key")
+    if not key or not key.startswith("rec_"):
+        return None
+    # Master key behaves as a Studio subscriber for capability checks.
+    if key == settings.API_KEY:
+        return "studio"
+    import hashlib
+    key_hash = hashlib.sha256(key.encode()).hexdigest()
+    api_key_obj = (
+        db.query(APIKey)
+        .filter(APIKey.key_hash == key_hash, APIKey.is_active == True)  # noqa: E712
+        .first()
+    )
+    if not api_key_obj:
+        return None
+    user = db.query(User).filter(User.id == api_key_obj.user_id).first()
+    if not user or user.subscription_status not in ("active", "trialing"):
+        return None
+    return user.subscription_tier
+
+
 @router.get("/skills/access", response_model=SkillAccessOut, tags=["skills"])
 def skill_access(
+    request: Request,
     skill: str = Query(..., description="Skill slug to check access for"),
+    fork_eligible: bool = Query(
+        False,
+        description="If true, require Operator+ tier (fork capability) on top of skill-tier access. Forks API ships in a later batch.",
+    ),
     db: Session = Depends(get_db),
 ):
-    """Check if the authenticated caller has access to a skill.
+    """Check whether the calling subscriber can access a skill.
 
-    Public skills are always accessible. Tier-gated skills require matching tier.
+    Tier semantics (Plan v5.4 §A.8):
+      - Cook subscribers can access any current skill (all skills are
+        currently cook-tier or below).
+      - Operator subscribers add fork capability — pass ``fork_eligible=true``
+        to gate access on it.
+      - Studio subscribers add bucket capability (bucket endpoints land in a
+        later batch; ``bucket_eligible`` is reported on every response).
     """
     s = db.query(Skill).filter(Skill.slug == skill).first()
     if not s:
         raise HTTPException(status_code=404, detail=f"Skill '{skill}' not found")
 
-    # Public skills = always accessible
-    has_access = s.is_public and (s.tier is None or s.tier == "cook")
+    user_tier = _resolve_caller_tier(db, request)
+    user_rank = TIER_RANK.get(user_tier, 0)
+    # Skills with no explicit tier default to cook — the marketplace baseline.
+    skill_rank = TIER_RANK.get(s.tier, TIER_RANK["cook"])
 
-    latest = s.versions[0].semver if s.versions else None
+    has_access = s.is_public and user_rank >= skill_rank
+    if fork_eligible:
+        has_access = has_access and user_rank >= TIER_RANK["operator"]
 
     return SkillAccessOut(
         slug=s.slug,
         title=s.title,
         has_access=has_access,
         tier=s.tier,
-        latest_version=latest,
+        user_tier=user_tier,
+        fork_eligible=user_rank >= TIER_RANK["operator"],
+        bucket_eligible=user_rank >= TIER_RANK["studio"],
+        latest_version=s.versions[0].semver if s.versions else None,
         license=s.license,
     )
 
@@ -408,6 +498,8 @@ def get_skill_detail(slug: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
 
     related_objs = _resolve_related(db, skill)
+    counts = _install_counts_for(db, [skill.id])
+    total_count, last_7d = counts.get(skill.id, (0, 0))
 
     return SkillDetailOut(
         id=skill.id,
@@ -419,6 +511,8 @@ def get_skill_detail(slug: str, db: Session = Depends(get_db)):
         is_public=skill.is_public,
         creator_name=skill.creator.name if skill.creator else None,
         latest_version=skill.versions[0].semver if skill.versions else None,
+        install_count_total=total_count,
+        install_count_7d=last_7d,
         readme=skill.readme,
         license=skill.license,
         versions=[

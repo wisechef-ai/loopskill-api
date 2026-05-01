@@ -20,6 +20,8 @@ class SkillOut(BaseModel):
     is_public: bool = True
     creator_name: str | None = None
     latest_version: str | None = None
+    install_count_total: int = 0
+    install_count_7d: int = 0
     created_at: datetime
     updated_at: datetime
 
@@ -47,11 +49,25 @@ class VersionOut(BaseModel):
 
 
 class SkillAccessOut(BaseModel):
-    """Response for GET /api/skills/access — shows if caller can use a skill."""
+    """Response for GET /api/skills/access — shows if caller can use a skill.
+
+    Tier semantics (Plan v5.4 §A.8):
+      Cook       — access to all skills currently in the marketplace
+      Operator   — Cook + fork capability (fork_eligible=True)
+      Studio     — Operator + bucket capability (bucket_eligible=True)
+
+    Skills carry a `tier` (cook | operator | studio | None=free). A caller
+    has access when their subscription tier rank ≥ the skill's tier rank.
+    The optional `fork_eligible` request param requires Operator+ on top of
+    skill-tier access.
+    """
     slug: str
     title: str
     has_access: bool
     tier: str | None = None
+    user_tier: str | None = None
+    fork_eligible: bool = False
+    bucket_eligible: bool = False
     latest_version: str | None = None
     license: str | None = None
 
