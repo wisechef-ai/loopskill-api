@@ -66,7 +66,27 @@ ALLOWED_LINK_DOMAINS = (
     "pypi.org",
     "npmjs.com",
     "crates.io",
+    "registry.npmjs.org",
+    "huggingface.co",
+    "docs.python.org",
+    "developer.mozilla.org",
 )
+
+# Placeholder / RFC-2606 reserved / docs-example domains. Always documentation,
+# never promotional.
+PLACEHOLDER_DOMAINS = frozenset({
+    "example.com",
+    "example.org",
+    "example.net",
+    "iana.org",
+    "localhost",
+    "127.0.0.1",
+    "0.0.0.0",
+    "yourdomain.com",
+    "yourcompany.com",
+    "yourclient.com",
+    "yoursite.com",
+})
 
 LINK_RE = re.compile(r"https?://([A-Za-z0-9.-]+)(/[^\s)\"'>]*)?")
 
@@ -222,20 +242,35 @@ def _check_agent_discipline(line: str, lineno: int) -> list[Violation]:
 
 def _check_external_promo(line: str, lineno: int) -> list[Violation]:
     found: list[Violation] = []
+    # Heuristic skips: CSV header rows (look like comma-separated identifiers),
+    # placeholder/example URLs, and "--url <example>" usage strings. These are
+    # documentation aids, not promotional links.
+    stripped = line.strip()
+    # CSV-shaped lines: 5+ commas and no markdown link syntax → likely a CSV row
+    if stripped.count(",") >= 4 and "[" not in stripped and "(" not in stripped:
+        return []
     for m in LINK_RE.finditer(line):
         host = m.group(1).lower()
-        if not any(host == d or host.endswith("." + d) for d in ALLOWED_LINK_DOMAINS):
-            found.append(
-                Violation(
-                    rule="no_external_promo",
-                    line=lineno,
-                    snippet=line.strip()[:200],
-                    suggestion=(
-                        f"Domain '{host}' is not on the allowlist "
-                        f"({', '.join(ALLOWED_LINK_DOMAINS)})."
-                    ),
-                )
+        # Allowlisted placeholder/example domains — these are documentation, not promo.
+        if host in PLACEHOLDER_DOMAINS:
+            continue
+        if host.endswith(".test") or host.endswith(".local") or host.endswith(".localhost"):
+            continue
+        if host.startswith("your") or host.startswith("sample.") or host.startswith("placeholder."):
+            continue
+        if any(host == d or host.endswith("." + d) for d in ALLOWED_LINK_DOMAINS):
+            continue
+        found.append(
+            Violation(
+                rule="no_external_promo",
+                line=lineno,
+                snippet=line.strip()[:200],
+                suggestion=(
+                    f"Domain '{host}' is not on the allowlist "
+                    f"({', '.join(ALLOWED_LINK_DOMAINS)})."
+                ),
             )
+        )
     return found
 
 
@@ -517,9 +552,26 @@ def auto_fix(text: str) -> str:
 
 def _resolve_inputs(target: Path) -> tuple[str, str | None, Path | None]:
     """Given a path to a skill dir or a single readme, return
-    (readme_text, recipe_yaml_text_or_None, skill_dir_or_None)."""
+    (readme_text, recipe_yaml_text_or_None, skill_dir_or_None).
+
+    When passed a bare .md file, skill_dir is None unless the parent directory
+    looks like a skill bundle (has SKILL.md AND a sibling recipe.yaml or skill.py).
+    Otherwise we'd recursively scan whatever cwd happens to contain — typically
+    a repo root with hundreds of unrelated .py files — and produce noise.
+    """
     if target.is_file():
-        return target.read_text(encoding="utf-8"), None, target.parent
+        parent = target.parent
+        # Only treat parent as a skill bundle if it has the expected shape.
+        looks_like_bundle = (
+            (parent / "SKILL.md").is_file()
+            and (
+                (parent / "recipe.yaml").is_file()
+                or (parent / "skill.py").is_file()
+                or (parent / "skill.yaml").is_file()
+            )
+        )
+        skill_dir = parent if looks_like_bundle else None
+        return target.read_text(encoding="utf-8"), None, skill_dir
     if target.is_dir():
         readme: Path | None = None
         for name in ("SKILL.md", "README.md", "skill.md", "readme.md"):

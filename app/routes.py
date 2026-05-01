@@ -138,6 +138,8 @@ def _install_counts_for(db: Session, skill_ids: list) -> dict:
 def search_skills(
     q: str | None = Query(None, description="Full-text search on title + description"),
     category: str | None = Query(None),
+    vertical: str | None = Query(None, pattern="^(marketing|code|web-scraping|ops|sales|sim-robotics)$",
+                                  description="Filter by Plan v5.4 vertical"),
     tier: str | None = Query(None, pattern="^(free|cook|operator|studio)$", description="Filter by access tier"),
     sort: str = Query("updated_at", pattern="^(updated_at|created_at|title)$"),
     page: int = Query(1, ge=1),
@@ -155,6 +157,8 @@ def search_skills(
         )
     if category:
         query = query.filter(Skill.category == category)
+    if vertical:
+        query = query.filter(Skill.vertical == vertical)
     if tier:
         query = query.filter(Skill.tier == tier)
 
