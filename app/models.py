@@ -513,6 +513,61 @@ class ReplacementCandidate(Base):
     )
 
 
+# ── Studio buckets (Phase E.1, v5.4) ───────────────────────────────────
+
+class Bucket(Base):
+    """Studio-tier collection of skills/forks that can be applied atomically.
+
+    Slug is globally unique so that `GET /api/buckets/{slug}/manifest` is a
+    single shareable URL. White-label deployments map a `custom_domain` (CNAME
+    target) to a bucket; `BucketHostMiddleware` reads the Host header and
+    scopes the catalog response.
+    """
+    __tablename__ = "buckets"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    slug = Column(String(255), unique=True, nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    visibility = Column(String(32), nullable=False, default="private", server_default="private")
+    is_white_label = Column(Boolean, nullable=False, default=False, server_default="0")
+    custom_domain = Column(Text, nullable=True, index=True)
+    pin_mode = Column(String(32), nullable=False, default="latest-stable", server_default="latest-stable")
+    theme_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    skills = relationship(
+        "BucketSkill",
+        back_populates="bucket",
+        cascade="all, delete-orphan",
+        order_by="BucketSkill.install_order",
+    )
+
+
+class BucketSkill(Base):
+    """Join row linking a bucket to either a public skill or a user fork.
+
+    Exactly one of (skill_id, fork_id) must be set — enforced by CHECK
+    constraint at the DB level. `install_order` controls the order the
+    meta-skill applies them in (lower = earlier).
+    """
+    __tablename__ = "bucket_skills"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    bucket_id = Column(UUID(as_uuid=True), ForeignKey("buckets.id", ondelete="CASCADE"), nullable=False, index=True)
+    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=True)
+    # NOTE: cross-branch FK target. The `skill_forks` table is created by the
+    # sibling agent/tori/v54-forks branch. We don't declare the FK here at the
+    # ORM level so the model loads cleanly whether or not the table exists.
+    fork_id = Column(UUID(as_uuid=True), nullable=True)
+    version_pin = Column(String(64), nullable=True)
+    install_order = Column(Integer, nullable=False, default=100, server_default="100")
+
+    bucket = relationship("Bucket", back_populates="skills")
+
+
 class StripeEventId(Base):
     """Idempotency table for Stripe webhook events.
 
