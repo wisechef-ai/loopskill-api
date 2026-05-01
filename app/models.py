@@ -363,6 +363,55 @@ class SkillDerivedEdge(Base):
     )
 
 
+# ── Auto-improve incident network (Phase B) ─────────────────────────────
+
+class IncidentReport(Base):
+    """B.3 — Anonymous failure reports submitted by `recipes-auto-improve`.
+
+    Sanitized at the wire (regex audit on POST), normalized error_signature
+    is sha256 of the top-5 stack frames. Indexed for clustering by signature
+    and for per-skill recency.
+    """
+    __tablename__ = "incident_reports"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    error_signature = Column(Text, nullable=False, index=True)
+    env_fingerprint = Column(JSON, nullable=False)
+    agent_fp_anon = Column(Text, nullable=False, index=True)
+    occurred_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    command = Column(Text, nullable=True)
+    exit_code = Column(Integer, nullable=True)
+    stack_trace_top = Column(Text, nullable=True)
+
+
+class PatchCandidate(Base):
+    """B.4/B.6 — Clustered incident signatures awaiting patch drafting.
+
+    State machine:
+        pending  → drafted   (LLM produced patch + regression test)
+        drafted  → canary    (passed STATIC + PROPERTY + SHADOW gates)
+        canary   → rolled_out (made it to 100%)
+        canary   → rolled_back (auto-rollback fired)
+        any      → rejected   (manual queue, no runnable test)
+    """
+    __tablename__ = "patch_candidates"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    error_signature = Column(Text, nullable=False, index=True)
+    cluster_count = Column(Integer, nullable=False, default=0)
+    distinct_agents = Column(Integer, nullable=False, default=0)
+    status = Column(String(32), nullable=False, default="pending", index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_clustered_at = Column(DateTime(timezone=True), nullable=True)
+    proposal_path = Column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("skill_id", "error_signature", name="uq_patch_candidate_sig"),
+    )
+
+
 class StripeEventId(Base):
     """Idempotency table for Stripe webhook events.
 

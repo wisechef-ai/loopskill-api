@@ -1,0 +1,12 @@
+[Unit]
+Description=Recipes auto-improve — LLM patch drafter (every 6h)
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=wisechef
+WorkingDirectory=/srv/recipes-api
+EnvironmentFile=/etc/recipes-api/wiserecipes-api.env
+ExecStart=/srv/recipes-api/.venv/bin/python -m app.crons.patch_drafter
+StandardOutput=journal
+StandardError=journal

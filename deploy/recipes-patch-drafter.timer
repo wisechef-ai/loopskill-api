@@ -1,0 +1,11 @@
+[Unit]
+Description=Run recipes-patch-drafter every 6 hours
+
+[Timer]
+OnBootSec=30min
+OnUnitActiveSec=6h
+Unit=recipes-patch-drafter.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

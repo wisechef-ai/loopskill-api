@@ -9,6 +9,8 @@ from app.carousel.routes import router as carousel_router
 from app.checkout_routes import router as checkout_router
 from app.creator_routes import router as creator_router
 from app.database import engine
+from app.feedback_routes import router as feedback_router
+from app.canary import router as canary_router
 from app.middleware import APIKeyMiddleware, RateLimitMiddleware
 from app.models import Base
 from app.publisher_routes import router as publisher_router
@@ -40,6 +42,8 @@ def create_app() -> FastAPI:
     app.include_router(publisher_router)
     app.include_router(checkout_router)
     app.include_router(api_key_router)
+    app.include_router(feedback_router)
+    app.include_router(canary_router)
 
     @app.get("/", tags=["meta"])
     def root():

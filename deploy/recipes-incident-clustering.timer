@@ -1,0 +1,11 @@
+[Unit]
+Description=Run recipes-incident-clustering every hour
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1h
+Unit=recipes-incident-clustering.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target
