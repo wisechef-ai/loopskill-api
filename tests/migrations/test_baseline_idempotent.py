@@ -22,7 +22,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 BASELINE_REV = "4ba0bf05cd47"
-HEAD_REV = "f1a2b3c4d5e6"
+HEAD_REV = "f3a91c5e7b4d"
 
 # Exact baseline production schema (as confirmed in contract)
 BASELINE_DDL = """

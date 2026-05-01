@@ -89,6 +89,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         "/api/skills/_download",
         "/api/stats",
         "/api/forks/_download",
+        "/api/graph",  # B.5: graph extension — public read; master-only write enforced inline
     )
     # Public skill-detail GETs match path-shape /api/skills/{slug} (no trailing path).
     # Distinguished from /api/skills/install (auth) and /api/skills/_download (auth)

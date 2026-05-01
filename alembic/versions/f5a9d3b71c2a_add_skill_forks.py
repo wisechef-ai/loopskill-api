@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import UUID
 
 # revision identifiers, used by Alembic.
 revision = "f5a9d3b71c2a"
-down_revision = "e8f2a4d10b73"
+down_revision = "f1a2b3c4d5e6"
 branch_labels = None
 depends_on = None
 

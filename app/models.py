@@ -468,6 +468,51 @@ class ForkVersion(Base):
     fork = relationship("SkillFork", back_populates="versions")
 
 
+# ── Skill graph extension (Phase B.5) ────────────────────────────────────
+
+class SkillReplacement(Base):
+    """Manual curator-edited skill replacement edges (B.5).
+
+    Inserted via master-API-key endpoint when a curator decides skill A is
+    superseded by skill B. Surfaced through GET /api/graph/related as the
+    `replaced_by` edge type alongside auto-detected candidates.
+    """
+    __tablename__ = "skill_replacements"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    source_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    target_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    reason = Column(Text, nullable=True)
+    created_by = Column(String(255), nullable=True)  # curator label / "master"
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("source_id", "target_id", name="uq_skill_replacement_pair"),
+    )
+
+
+class ReplacementCandidate(Base):
+    """Auto-detected replacement candidates awaiting human review (B.5).
+
+    Populated by the candidate sweep: looks for skills with high recent
+    incident rate where another skill has a strong co_invoked edge AND a
+    lower incident rate. Council/Adam confirm before any candidate becomes a
+    SkillReplacement.
+    """
+    __tablename__ = "replacement_candidates"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    source_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    target_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    evidence_json = Column(JSON, nullable=True)  # incident rates, co-invoke weight, sample count
+    status = Column(String(32), nullable=False, default="pending", index=True)  # pending | approved | rejected
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("source_id", "target_id", name="uq_replacement_candidate_pair"),
+    )
+
+
 class StripeEventId(Base):
     """Idempotency table for Stripe webhook events.
 

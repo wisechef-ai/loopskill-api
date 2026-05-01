@@ -24,7 +24,7 @@ import pytest
 # Locate the repo root (two levels up from this file: tests/migrations/test_upgrade.py)
 REPO_ROOT = Path(__file__).parent.parent.parent
 BASELINE_REV = "4ba0bf05cd47"
-HEAD_REV = "f1a2b3c4d5e6"
+HEAD_REV = "f3a91c5e7b4d"
 
 # Production baseline schema (DDL only — no Sprint 4 columns)
 BASELINE_DDL = """
