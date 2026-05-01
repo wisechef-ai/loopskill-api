@@ -82,8 +82,25 @@ def main():
         """), {"vc": velocity_cutoff, "cut": cutoff, "force": FORCE}).all()
 
         if not rows:
-            print(f"[carousel] {target_date}: no eligible skills, aborting")
-            return
+            # Eligibility filter excluded everything — fall back to no-history mode
+            # so the carousel never goes dark. Logs the fact for visibility.
+            print(f"[carousel] {target_date}: 0 eligible after history filter, retrying with FORCE=1")
+            rows = session.execute(text("""
+                SELECT s.id, s.slug, s.title, s.description, s.category, s.creator_id, s.tier,
+                       COUNT(DISTINCT ie.id) FILTER (WHERE ie.created_at > :vc) AS recent_installs,
+                       COUNT(DISTINCT ie.id) AS total_installs,
+                       COALESCE(AVG(CASE WHEN te.event_type = 'task_completed' THEN 1.0
+                                         WHEN te.event_type = 'task_failed' THEN 0.0
+                                         ELSE NULL END), 0.7) AS success_rate
+                  FROM skills s
+                  LEFT JOIN install_events ie ON ie.skill_id = s.id
+                  LEFT JOIN telemetry_events te ON te.skill_slug = s.slug
+                 WHERE s.is_public = true
+                 GROUP BY s.id
+            """), {"vc": velocity_cutoff}).all()
+            if not rows:
+                print(f"[carousel] {target_date}: 0 public skills exist, aborting")
+                return
 
         # Compute scores
         max_velocity = max((r.recent_installs for r in rows), default=1) or 1
