@@ -16,6 +16,8 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     JSON,
+    BigInteger,
+    CheckConstraint,
     String,
     Text,
     UniqueConstraint,
@@ -410,6 +412,58 @@ class PatchCandidate(Base):
     __table_args__ = (
         UniqueConstraint("skill_id", "error_signature", name="uq_patch_candidate_sig"),
     )
+
+
+# ── Operator-tier forks (Phase D.1) ──────────────────────────────────────
+
+class SkillFork(Base):
+    """A user's editable copy of a public skill.
+
+    Created via POST /api/forks/create. Each fork is a private workspace
+    keyed on (user_id, slug). Soft-deletes set visibility=NULL and clear
+    readme so the row remains for audit but no longer surfaces in lists.
+    """
+    __tablename__ = "skill_forks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    source_skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    name = Column(Text, nullable=False)
+    slug = Column(Text, nullable=False)
+    readme = Column(Text, nullable=True)
+    visibility = Column(Text, server_default="private", nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    latest_version_id = Column(UUID(as_uuid=True), nullable=True)
+
+    versions = relationship(
+        "ForkVersion",
+        back_populates="fork",
+        order_by="ForkVersion.created_at.desc()",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "visibility IS NULL OR visibility IN ('private','team','public')",
+            name="ck_skill_forks_visibility",
+        ),
+        UniqueConstraint("user_id", "slug", name="uq_skill_forks_user_slug"),
+    )
+
+
+class ForkVersion(Base):
+    __tablename__ = "fork_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    fork_id = Column(UUID(as_uuid=True), ForeignKey("skill_forks.id"), nullable=False, index=True)
+    semver = Column(Text, nullable=False)
+    tarball_path = Column(Text, nullable=False)
+    tarball_size_bytes = Column(BigInteger, nullable=False)
+    checksum_sha256 = Column(Text, nullable=False)
+    changelog = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    fork = relationship("SkillFork", back_populates="versions")
 
 
 class StripeEventId(Base):

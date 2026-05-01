@@ -1,0 +1,77 @@
+# D.3 — Operator-tier fork commands for the recipes meta-skill
+#
+# Target: github.com/wisechef-ai/recipes-skill (canonical meta-skill)
+# Apply via: cat d3-fork-commands.patch >> SKILL.md   (then re-trim to <200 lines)
+# Author: Tori — Phase D Plan v5.4
+#
+# Adds three commands that talk to the new operator-tier forks API:
+#   recipes fork <slug>            — POST /api/forks/create
+#   recipes publish-fork <name>    — POST /api/forks/<id>/version
+#   recipes install-fork <name>    — GET  /api/forks/<id>/install (signed URL)
+#
+# Also extends `recipes list` with a "Your forks" section (D.5) and tags
+# results with a `[fork]` badge in `recipes search`.
+#
+# Auth: every command sends `x-api-key: $RECIPES_API_KEY`. Operator/Studio
+# subscribers get 200/201; Cook tier gets 402 with `{needs_tier: 'operator'}`.
+
+## ─────────────────────────────────────────────────────────────────────
+## Append the following block to SKILL.md (commands section)
+## ─────────────────────────────────────────────────────────────────────
+
+### `recipes fork <slug>`
+Forks a public skill into your private library.
+```
+$ recipes fork seo-audit-engine --name "My SEO Audit"
+POST $RECIPES_API/api/forks/create
+  body: {source_slug, name, readme?}
+→ 201 {id, slug, source_slug, ...}
+```
+Errors:
+- 402 `{needs_tier: 'operator'}` → upgrade required
+- 404 `source_skill_not_found` → typo or private/internal slug
+- 409 `fork_exists` → you already have a fork with that slug
+
+### `recipes publish-fork <name> [--bump=patch|minor|major]`
+Tarballs the local fork directory and pushes a new version.
+```
+$ recipes publish-fork my-seo-audit --bump=minor
+POST $RECIPES_API/api/forks/<id>/version (multipart)
+  fields: tarball, semver, changelog
+→ 201 {id, semver, checksum_sha256, tarball_size_bytes}
+```
+The CLI computes semver from the previous fork version + `--bump`.
+
+### `recipes install-fork <name> [--into=<dir>]`
+Installs the latest version of one of your forks.
+```
+$ recipes install-fork my-seo-audit
+GET $RECIPES_API/api/forks/<id>/install
+→ 200 {tarball_url, checksum_sha256, size_bytes, expires_at}
+# CLI then GETs tarball_url (HMAC-signed, 5-min TTL) and verifies sha256
+# before extracting into ~/.recipes/forks/<slug>/
+```
+
+### `recipes list` (D.5 extension)
+After the standard catalog, append a "Your forks" section by GET-ing
+`/api/forks/list`.  Skip the section silently for non-Operator callers.
+```
+== Your forks ==
+- my-seo-audit  (forked from seo-audit-engine)  v0.3.1
+- internal-rag  (forked from cognee-related)    v1.0.0  [team]
+```
+
+### `recipes search <query>` (D.5 extension)
+Matches against user's forks too. Forks render with a trailing `[fork]`
+badge so users can tell catalog skills from their private copies at a
+glance.
+
+## ─────────────────────────────────────────────────────────────────────
+## Implementation notes (for the meta-skill maintainer)
+## ─────────────────────────────────────────────────────────────────────
+# - All four commands share a common helper `_forks_request(method, path, **kw)`
+#   that injects the API key header and surfaces 402 with a friendly upgrade
+#   prompt linking to https://recipes.wisechef.ai/pricing#operator.
+# - The fork tarball is built with `tar czf - --exclude=.git --exclude=node_modules .`
+#   and streamed (chunked) so we don't double the 10 MB payload in memory.
+# - Total addition: ~70 lines (well under the 200-line meta-skill cap).

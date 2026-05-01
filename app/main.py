@@ -11,6 +11,7 @@ from app.creator_routes import router as creator_router
 from app.database import engine
 from app.feedback_routes import router as feedback_router
 from app.canary import router as canary_router
+from app.forks_routes import router as forks_router
 from app.middleware import APIKeyMiddleware, RateLimitMiddleware
 from app.models import Base
 from app.publisher_routes import router as publisher_router
@@ -44,6 +45,7 @@ def create_app() -> FastAPI:
     app.include_router(api_key_router)
     app.include_router(feedback_router)
     app.include_router(canary_router)
+    app.include_router(forks_router)
 
     @app.get("/", tags=["meta"])
     def root():
