@@ -125,6 +125,15 @@ def client(db_session: Session):
     except Exception:
         pass
 
+    # Include checkout + creator routes for Stripe/webhook tests
+    try:
+        from app.checkout_routes import router as checkout_router
+        from app.creator_routes import router as creator_router
+        test_app.include_router(checkout_router)
+        test_app.include_router(creator_router)
+    except Exception:
+        pass
+
     test_app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(
