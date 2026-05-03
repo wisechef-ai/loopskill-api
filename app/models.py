@@ -612,3 +612,20 @@ class StripeEventId(Base):
     event_type = Column(String(128), nullable=False)
     processed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     livemode = Column(Boolean, nullable=True)
+
+
+class IntentSurveyResponse(Base):
+    """Anonymous exit-intent survey responses (stabilization_2605 phase A).
+
+    No PII required: q1/q4 are enums, q2/q3/q5 free-text optional. Email (q5)
+    is optional and stored for opt-in followups only.
+    """
+    __tablename__ = "intent_survey_responses"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    q1 = Column(String(16), nullable=False, index=True)
+    q2 = Column(Text, nullable=True)
+    q3 = Column(Text, nullable=True)
+    q4 = Column(String(32), nullable=False, index=True)
+    q5 = Column(String(512), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -101,7 +101,7 @@ class TestCheckoutCreation:
         }
 
         client.app.dependency_overrides[get_current_user_optional] = lambda: user
-        with patch("app.subscription_service.TIER_PRICE_IDS", {"cook": "price_test_cook", "operator": "price_test_op", "studio": "price_test_studio"}):
+        with patch("app.subscription_service.TIER_PRICE_IDS", {"cook": "price_test_cook", "studio": "price_test_studio"}):
             try:
                 resp = client.post("/api/checkout/cook")
             finally:
@@ -147,14 +147,14 @@ class TestWebhookCheckoutCompleted:
         event = _fake_event("checkout.session.completed", **session_data)
 
         # Mock subscription retrieval
-        fake_sub = _fake_subscription(tier="operator", price_id="price_op_123")
+        fake_sub = _fake_subscription(tier="studio", price_id="price_studio_123")
         mock_stripe.Subscription.retrieve.return_value = fake_sub
 
         result = handle_checkout_completed(event, db_session)
         assert result["processed"] == "checkout.session.completed"
         db_session.refresh(user)
         assert user.subscription_status == "active"
-        assert user.subscription_tier == "operator"
+        assert user.subscription_tier == "studio"
 
     def test_checkout_completed_skips_non_subscription(self, db_session):
         """8. Non-subscription sessions (e.g., payment) are skipped."""

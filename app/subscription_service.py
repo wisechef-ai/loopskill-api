@@ -32,9 +32,8 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 # ── Tier → Price ID mapping (loaded from settings) ───────────────────────
 
 TIER_PRICE_IDS: dict[str, str] = {
-    "cook": settings.STRIPE_PRICE_COOK,
-    "operator": settings.STRIPE_PRICE_OPERATOR,
-    "studio": settings.STRIPE_PRICE_STUDIO,
+    "cook": settings.STRIPE_PRICE_COOK,      # = Pro €20/mo
+    "studio": settings.STRIPE_PRICE_STUDIO,  # = All-in €100/mo
 }
 
 
@@ -238,7 +237,13 @@ def handle_checkout_completed(event: dict, db: Session) -> dict:
 
 
 def handle_subscription_event(event: dict, db: Session) -> dict:
-    """Handle customer.subscription.* events (created, updated, deleted)."""
+    """Handle customer.subscription.* events (created, updated, deleted).
+
+    On `customer.subscription.deleted`, the user is downgraded to free tier
+    (subscription_tier=None, subscription_status="canceled"). Their installed
+    skills keep working locally; only auto-improvement updates and new catalog
+    access stop.
+    """
     sub = event["data"]["object"]
     user = _user_from_subscription_metadata(sub, db)
     if not user:
@@ -247,20 +252,64 @@ def handle_subscription_event(event: dict, db: Session) -> dict:
 
     event_type = event.get("type", "")
     if event_type == "customer.subscription.deleted":
+        # Cancel → downgrade-to-free: clear sub fields so the user is back on Free.
         user.subscription_status = "canceled"
         user.subscription_id = None
         user.subscription_tier = None
         user.subscription_current_period_end = None
         db.commit()
         _maybe_sync_discord_role(user)
-        logger.info("Subscription canceled for user %s", user.id)
-        return {"processed": event_type, "user_id": str(user.id)}
+        logger.info("Subscription canceled for user %s — downgraded to free", user.id)
+        return {"processed": event_type, "user_id": str(user.id), "downgraded_to": "free"}
 
     _apply_subscription_state(user, sub, db)
     _maybe_sync_discord_role(user)
     logger.info("Subscription %s for user %s: status=%s tier=%s",
                 event_type, user.id, user.subscription_status, user.subscription_tier)
     return {"processed": event_type, "user_id": str(user.id)}
+
+
+# ── Downgrade (All-in → Pro) ─────────────────────────────────────────────
+
+def downgrade_studio_to_cook(user: User, db: Session) -> dict[str, Any]:
+    """Switch an All-in (studio) subscriber to Pro (cook) with proration.
+
+    Uses Stripe `subscription.modify` with proration_behavior="create_prorations"
+    so the user receives a prorated credit for the unused portion of All-in.
+    """
+    if user.subscription_tier != "studio":
+        raise SubscriptionError(f"not_studio: current tier is {user.subscription_tier!r}")
+    if not user.subscription_id:
+        raise SubscriptionError("no_active_subscription")
+
+    cook_price = TIER_PRICE_IDS.get("cook")
+    if not cook_price:
+        raise SubscriptionError("cook_price_not_configured")
+
+    sub = stripe.Subscription.retrieve(user.subscription_id)
+    items_data = (sub.get("items") or {}).get("data") if hasattr(sub, "get") else []
+    items_data = list(items_data or [])
+    if not items_data:
+        raise SubscriptionError("subscription_has_no_items")
+    item_id = items_data[0].get("id")
+    if not item_id:
+        raise SubscriptionError("subscription_item_id_missing")
+
+    modified = stripe.Subscription.modify(
+        user.subscription_id,
+        items=[{"id": item_id, "price": cook_price}],
+        proration_behavior="create_prorations",
+        metadata={"wiserecipes_user_id": str(user.id), "tier": "cook"},
+    )
+    user.subscription_tier = "cook"
+    db.commit()
+    logger.info("Downgraded user %s studio→cook (sub %s)", user.id, user.subscription_id)
+    return {
+        "ok": True,
+        "subscription_id": user.subscription_id,
+        "tier": "cook",
+        "stripe_status": modified.get("status") if hasattr(modified, "get") else None,
+    }
 
 
 # ── Webhook Signature Verification ───────────────────────────────────────

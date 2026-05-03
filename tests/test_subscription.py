@@ -69,17 +69,18 @@ def db(engine_fixture) -> Generator[Session, None, None]:
 
 @pytest.fixture
 def configured_prices(monkeypatch):
-    """Test price IDs in settings + subscription_service.TIER_PRICE_IDS."""
+    """Test price IDs in settings + subscription_service.TIER_PRICE_IDS.
+
+    Phase A (stabilization_2605): operator tier retired; only cook + studio.
+    """
     from app import subscription_service as ss
     monkeypatch.setattr(settings, "STRIPE_PRICE_COOK", "price_test_cook")
-    monkeypatch.setattr(settings, "STRIPE_PRICE_OPERATOR", "price_test_operator")
     monkeypatch.setattr(settings, "STRIPE_PRICE_STUDIO", "price_test_studio")
     monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "sk_test_dummy")
     monkeypatch.setattr(settings, "STRIPE_WEBHOOK_SECRET", "whsec_test_dummy")
     monkeypatch.setattr(settings, "OAUTH_REDIRECT_BASE", "https://recipes.test/")
     monkeypatch.setattr(ss, "TIER_PRICE_IDS", {
         "cook": "price_test_cook",
-        "operator": "price_test_operator",
         "studio": "price_test_studio",
     })
     yield
@@ -153,7 +154,7 @@ def webhook_client(db, configured_prices) -> TestClient:
 
 # ── Tests: POST /api/checkout/{tier} ─────────────────────────────────────
 
-@pytest.mark.parametrize("tier", ["cook", "operator", "studio"])
+@pytest.mark.parametrize("tier", ["cook", "studio"])
 def test_checkout_creates_session_for_authenticated_user(authed_client, tier):
     """Gate 1: authenticated POST /api/checkout/{tier} creates a Stripe session."""
     fake_session = {
@@ -230,7 +231,7 @@ def test_checkout_completed_marks_subscription_active(test_user, db, webhook_cli
         "status": "active",
         "current_period_end": period_end,
         "items": {"data": [{
-            "price": {"id": "price_test_operator", "metadata": {"tier": "operator"}},
+            "price": {"id": "price_test_studio", "metadata": {"tier": "studio"}},
         }]},
         "metadata": {"wiserecipes_user_id": str(test_user.id)},
         "customer": "cus_test_completed",
@@ -246,7 +247,7 @@ def test_checkout_completed_marks_subscription_active(test_user, db, webhook_cli
             "payment_status": "paid",
             "customer": "cus_test_completed",
             "subscription": sub_id,
-            "metadata": {"wiserecipes_user_id": str(test_user.id), "tier": "operator"},
+            "metadata": {"wiserecipes_user_id": str(test_user.id), "tier": "studio"},
         }},
     }
 
@@ -261,7 +262,7 @@ def test_checkout_completed_marks_subscription_active(test_user, db, webhook_cli
     db.expire_all()
     user = db.query(User).filter(User.id == test_user.id).first()
     assert user.subscription_status == "active"
-    assert user.subscription_tier == "operator"
+    assert user.subscription_tier == "studio"
     assert user.subscription_id == sub_id
     assert user.subscription_current_period_end is not None
 
@@ -383,7 +384,7 @@ def test_refund_does_not_cancel_subscription(test_user, db, webhook_client):
     test_user.stripe_customer_id = "cus_test_refund"
     test_user.subscription_id = "sub_active_during_refund"
     test_user.subscription_status = "active"
-    test_user.subscription_tier = "operator"
+    test_user.subscription_tier = "studio"
     db.commit()
 
     event = {
@@ -403,7 +404,7 @@ def test_refund_does_not_cancel_subscription(test_user, db, webhook_client):
     db.expire_all()
     user = db.query(User).filter(User.id == test_user.id).first()
     assert user.subscription_status == "active"
-    assert user.subscription_tier == "operator"
+    assert user.subscription_tier == "studio"
 
 
 # ── Tests: GET /api/billing/me ──────────────────────────────────────────

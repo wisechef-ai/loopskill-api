@@ -18,6 +18,7 @@ from app.subscription_service import (
     SubscriptionError,
     TIER_PRICE_IDS,
     create_checkout_session,
+    downgrade_studio_to_cook,
 )
 
 logger = logging.getLogger(__name__)
@@ -93,6 +94,30 @@ async def billing_me(
             if user.subscription_current_period_end else None
         ),
     }
+
+
+@router.post("/subscriptions/downgrade")
+async def downgrade_subscription(
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    """Switch an All-in (studio) subscriber to Pro (cook) with proration.
+
+    Requires authentication. Returns 400 if the caller isn't currently on studio.
+    """
+    if user is None:
+        raise HTTPException(status_code=401, detail="login_required")
+    try:
+        return downgrade_studio_to_cook(user, db)
+    except SubscriptionError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        # Defensive: if isinstance check above didn't catch a SubscriptionError due to
+        # module-reload or import-cycle weirdness, match by class name as a backup.
+        if type(e).__name__ == "SubscriptionError":
+            raise HTTPException(status_code=400, detail=str(e))
+        logger.exception("Downgrade failed for user %s", user.id)
+        raise HTTPException(status_code=500, detail="downgrade_error")
 
 
 @router.post("/billing/portal-session")

@@ -17,10 +17,10 @@ class Settings(BaseSettings):
     STRIPE_PUBLISHABLE_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
 
-    # Stripe Subscription price IDs (Cook / Operator / Studio tiers)
-    STRIPE_PRICE_COOK: str = ""
-    STRIPE_PRICE_OPERATOR: str = ""
-    STRIPE_PRICE_STUDIO: str = ""
+    # Stripe Subscription price IDs (Pro = "cook" slug €20/mo, All-in = "studio" slug €100/mo).
+    # Operator tier retired 2026-05-03 (stabilization_2605 phase A).
+    STRIPE_PRICE_COOK: str = "price_1TT3v2Egmqt5xoaL2DU8GgMO"
+    STRIPE_PRICE_STUDIO: str = "price_1TT3v2Egmqt5xoaL0XRo0VcX"
 
     # GitHub OAuth
     GITHUB_CLIENT_ID: str = ""
