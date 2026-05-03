@@ -97,6 +97,12 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         # NOT prefixed-public.
         "/api/v1/heartbeat",
     )
+
+    # Phase A — POST /api/intent-survey is anonymous; GET /api/intent-survey/results
+    # is admin-gated at the route level via x-api-key. Method-aware allowlist.
+    PUBLIC_POST_ONLY_PATHS = {
+        "/api/intent-survey",
+    }
     # Public skill-detail GETs match path-shape /api/skills/{slug} (no trailing path).
     # Distinguished from /api/skills/install (auth) and /api/skills/_download (auth)
     # by checking the next segment doesn't start with underscore or known auth verb.
@@ -121,6 +127,10 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
         # Public endpoints — skip API key validation entirely (F4)
         if any(path.startswith(prefix) for prefix in self.PUBLIC_PREFIXES):
+            return await call_next(request)
+
+        # Method-aware public POST endpoints (intent-survey: anonymous submit only)
+        if request.method == "POST" and path in self.PUBLIC_POST_ONLY_PATHS:
             return await call_next(request)
 
         # Public skill-detail GETs (/api/skills/{slug}) — match LarryBrain catalog
