@@ -1,5 +1,8 @@
 """WiseRecipes API — FastAPI application factory."""
 
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from app.config import settings
@@ -11,15 +14,33 @@ from app.checkout_routes import router as checkout_router
 from app.creator_routes import router as creator_router
 from app.database import engine
 from app.buckets_routes import router as buckets_router
+from app.discord_bot import bot as discord_bot
 from app.feedback_routes import router as feedback_router
 from app.canary import router as canary_router
 from app.forks_routes import router as forks_router
 from app.graph_routes import router as graph_router
+from app.heartbeat_routes import router as heartbeat_router
 from app.middleware import APIKeyMiddleware, BucketHostMiddleware, RateLimitMiddleware
 from app.models import Base
 from app.publisher_routes import router as publisher_router
 from app.routes import router
 from app.sandbox.routes import router as sandbox_router
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start/stop the Discord bot alongside the API.
+
+    Bot is a no-op when DISCORD_BOT_TOKEN is empty (server doesn't exist
+    yet at deploy time) — see app/discord_bot/bot.py.
+    """
+    bot_task = await discord_bot.start_bot()
+    try:
+        yield
+    finally:
+        await discord_bot.stop_bot(bot_task)
 
 
 def create_app() -> FastAPI:
@@ -29,6 +50,7 @@ def create_app() -> FastAPI:
         description="Skill marketplace & recipe sharing API for WiseChef ecosystem.",
         docs_url="/docs",
         redoc_url="/redoc",
+        lifespan=lifespan,
     )
 
     # Create tables
@@ -52,6 +74,7 @@ def create_app() -> FastAPI:
     app.include_router(forks_router)
     app.include_router(graph_router)
     app.include_router(buckets_router)
+    app.include_router(heartbeat_router)
 
     @app.get("/", tags=["meta"])
     def root():

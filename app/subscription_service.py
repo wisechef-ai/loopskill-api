@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.discord_bot.role_sync import sync_role_for_user
 from app.models import StripeEventId, User
 
 logger = logging.getLogger(__name__)
@@ -194,6 +195,20 @@ def _apply_subscription_state(user: User, sub: dict, db: Session) -> None:
     db.commit()
 
 
+def _maybe_sync_discord_role(user: User) -> None:
+    """Best-effort role sync. No-op if Discord client isn't available
+    (token unset, bot not running, or user hasn't linked Discord).
+    """
+    try:
+        from app.discord_bot.client_singleton import get_role_client
+        client = get_role_client()
+        if client is None or not user.discord_user_id:
+            return
+        sync_role_for_user(user, client=client)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Discord role sync failed for user %s: %s", user.id, e)
+
+
 def handle_checkout_completed(event: dict, db: Session) -> dict:
     """Handle checkout.session.completed event.
 
@@ -217,6 +232,7 @@ def handle_checkout_completed(event: dict, db: Session) -> dict:
     else:
         user.subscription_status = "active"
         db.commit()
+    _maybe_sync_discord_role(user)
     logger.info("Subscription activated for user %s via checkout %s", user.id, session["id"])
     return {"processed": "checkout.session.completed", "user_id": str(user.id)}
 
@@ -236,10 +252,12 @@ def handle_subscription_event(event: dict, db: Session) -> dict:
         user.subscription_tier = None
         user.subscription_current_period_end = None
         db.commit()
+        _maybe_sync_discord_role(user)
         logger.info("Subscription canceled for user %s", user.id)
         return {"processed": event_type, "user_id": str(user.id)}
 
     _apply_subscription_state(user, sub, db)
+    _maybe_sync_discord_role(user)
     logger.info("Subscription %s for user %s: status=%s tier=%s",
                 event_type, user.id, user.subscription_status, user.subscription_tier)
     return {"processed": event_type, "user_id": str(user.id)}

@@ -11,6 +11,7 @@ from uuid import uuid4
 from sqlalchemy import (
     Boolean,
     Column,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -18,6 +19,7 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     CheckConstraint,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -49,6 +51,12 @@ class User(Base):
     subscription_tier = Column(String(32), nullable=True)  # cook, operator, studio
     subscription_id = Column(String(255), nullable=True)  # Stripe subscription id
     subscription_current_period_end = Column(DateTime(timezone=True), nullable=True)
+    # ── Discord integration (Phase D) ─────────────────────────────────────
+    # 17-19 digit Discord snowflake; bot uses this to assign roles after
+    # Stripe webhooks. NULL when the user hasn't linked Discord yet.
+    discord_user_id = Column(String(32), nullable=True, index=True)
+    # Author-track score (creator quality signal) — populated elsewhere.
+    creator_track_record_score = Column(Float, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -566,6 +574,29 @@ class BucketSkill(Base):
     install_order = Column(Integer, nullable=False, default=100, server_default="100")
 
     bucket = relationship("Bucket", back_populates="skills")
+
+
+class FleetPing(Base):
+    """Mathematically-anonymous fleet heartbeat row (Phase D, F8 fix).
+
+    Stores ONLY a keyed blake2b(salt) hash and the day-of-last-seen. There is
+    no IP, no user_id, no user-agent column — by schema we cannot identify or
+    track an individual customer. Even a full DB compromise reveals nothing
+    because the hash is keyed by a server-side pepper.
+
+    Idempotency: unique index on (salt_hash, last_seen_day) collapses repeats
+    for the same device on the same day to a single row.
+    """
+    __tablename__ = "fleet_pings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    salt_hash = Column(LargeBinary, nullable=False, index=True)
+    last_seen_day = Column(Date, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("salt_hash", "last_seen_day", name="uq_fleet_pings_hash_day"),
+    )
 
 
 class StripeEventId(Base):

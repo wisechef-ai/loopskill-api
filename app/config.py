@@ -55,6 +55,16 @@ class Settings(BaseSettings):
     # Skill publisher — tarball storage root
     RECIPES_SKILLS_DIR: str = "/var/lib/recipes-skills"
 
+    # Phase D — heartbeat anonymity pepper (rotate cautiously: rotation
+    # invalidates idempotency joins for the rotation day).
+    HEARTBEAT_PEPPER: str = "wr-fleet-pepper-change-me"
+
+    # Phase D — Discord bot. When DISCORD_BOT_TOKEN is empty the bot lifespan
+    # is a no-op (server doesn't exist yet at deploy time).
+    DISCORD_BOT_TOKEN: str = ""
+    DISCORD_GUILD_ID: str = ""
+    DISCORD_AUTHOR_THRESHOLD: float = 80.0
+
     model_config = {"env_file": ".env", "env_prefix": "WR_"}
 
 

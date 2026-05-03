@@ -91,6 +91,11 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         "/api/stats",
         "/api/forks/_download",
         "/api/graph",  # B.5: graph extension — public read; master-only write enforced inline
+        # Phase D — anonymous heartbeat write endpoint (no API key required;
+        # mathematically anonymous schema, see app/heartbeat_routes.py).
+        # The READ endpoint /api/v1/fleet/weekly is gated separately and is
+        # NOT prefixed-public.
+        "/api/v1/heartbeat",
     )
     # Public skill-detail GETs match path-shape /api/skills/{slug} (no trailing path).
     # Distinguished from /api/skills/install (auth) and /api/skills/_download (auth)
