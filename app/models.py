@@ -15,6 +15,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     BigInteger,
@@ -143,6 +144,15 @@ class Skill(Base):
     # endpoint resolves these slugs to public SkillOut objects, filtering internals,
     # dangling references, and self-loops. See tests/test_related_skills.py.
     related_skills = Column(JSON, nullable=True)
+
+    # v6 Phase A — catalog topology columns
+    # 'original' = SHA-pinned Pantry snapshot; 'custom' = curated Menu/Cookbook skill
+    skill_variant = Column(String(20), nullable=False, server_default="custom")
+    original_source_url = Column(Text, nullable=True)
+    parent_skill_slug = Column(String(255), nullable=True)
+    pinned_sha = Column(String(64), nullable=True)
+    upstream_status = Column(String(20), nullable=False, server_default="active")
+    external_resources = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -629,3 +639,77 @@ class IntentSurveyResponse(Base):
     q4 = Column(String(32), nullable=False, index=True)
     q5 = Column(String(512), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# ── v6 Phase A — Cookbooks + Fleets ──────────────────────────────────────
+
+class Cookbook(Base):
+    """Customer-facing skill Cookbook — base or personal fork.
+
+    is_base=True identifies the single WiseChef base Cookbook (unique constraint
+    at DB level for Postgres). Personal Cookbooks have parent_cookbook_id=<base>.
+    Agency master Cookbooks have synced_from_cookbook_id pointing at the source.
+    """
+    __tablename__ = "cookbooks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    is_base = Column(Boolean, nullable=False, default=False, server_default="0")
+    parent_cookbook_id = Column(UUID(as_uuid=True), ForeignKey("cookbooks.id", ondelete="SET NULL"), nullable=True, index=True)
+    cookbook_owner = Column(UUID(as_uuid=True), nullable=True, index=True)
+    cookbook_link_token = Column(String(64), nullable=True)
+    link_expires_at = Column(DateTime(timezone=True), nullable=True)
+    synced_from_cookbook_id = Column(UUID(as_uuid=True), ForeignKey("cookbooks.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
+class CookbookSkill(Base):
+    """Provenance row linking a skill to a Cookbook.
+
+    source enum: 'forked' | 'custom-added' | 'overridden' | 'disabled'
+    - forked         = inherited from base, auto-updates on rebase
+    - custom-added   = customer's own skill
+    - overridden     = customer pinned this to a specific version
+    - disabled       = customer removed it from their Cookbook
+    """
+    __tablename__ = "cookbook_skills"
+
+    cookbook_id = Column(UUID(as_uuid=True), ForeignKey("cookbooks.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    source = Column(String(20), nullable=False)
+    pinned_version = Column(String(50), nullable=True)
+    added_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_cookbook_skills_source", "source"),
+    )
+
+
+class Fleet(Base):
+    """A named fleet of agents belonging to one owner user.
+
+    fleet_api_key_hash is a SHA-256 hash of the fleet's API key (UNIQUE).
+    Used to authenticate fleet sync requests via x-fleet-key header.
+    """
+    __tablename__ = "fleets"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    owner_user_id = Column(UUID(as_uuid=True), nullable=False)
+    name = Column(String(255), nullable=False)
+    fleet_api_key_hash = Column(String(64), unique=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class FleetSubscription(Base):
+    """Fleet subscription to a Cookbook on a given channel.
+
+    channel: 'canary' | 'stable' | 'frozen'
+    """
+    __tablename__ = "fleet_subscriptions"
+
+    fleet_id = Column(UUID(as_uuid=True), ForeignKey("fleets.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    cookbook_id = Column(UUID(as_uuid=True), ForeignKey("cookbooks.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    channel = Column(String(20), nullable=False, default="stable", server_default="stable")
+    subscribed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

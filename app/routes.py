@@ -141,6 +141,10 @@ def search_skills(
     vertical: str | None = Query(None, pattern="^(marketing|code|web-scraping|ops|sales|sim-robotics)$",
                                   description="Filter by Plan v5.4 vertical"),
     tier: str | None = Query(None, pattern="^(free|cook|operator|studio)$", description="Filter by access tier"),
+    subset: str | None = Query(None, pattern="^(pantry|menu|cookbook)$",
+                                description="v6: filter by catalog subset (pantry=original 3rd-party, menu=public custom, cookbook=private)"),
+    variant: str | None = Query(None, pattern="^(original|custom)$",
+                                 description="v6: filter by skill_variant"),
     sort: str = Query("updated_at", pattern="^(updated_at|created_at|title)$"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -161,6 +165,19 @@ def search_skills(
         query = query.filter(Skill.vertical == vertical)
     if tier:
         query = query.filter(Skill.tier == tier)
+
+    # v6 Phase A: subset filter — maps to skill_variant + is_public combinations
+    if subset == "pantry":
+        query = query.filter(Skill.skill_variant == "original")
+    elif subset == "menu":
+        query = query.filter(Skill.skill_variant == "custom", Skill.is_public == True)
+    elif subset == "cookbook":
+        # Private subset — currently empty in v6 Phase A (cookbook auto-fork ships in Phase B)
+        query = query.filter(Skill.is_public == False)
+
+    # v6 Phase A: variant filter (orthogonal to subset)
+    if variant:
+        query = query.filter(Skill.skill_variant == variant)
 
     # sort
     sort_col = getattr(Skill, sort, Skill.updated_at)
@@ -519,6 +536,13 @@ def get_skill_detail(slug: str, db: Session = Depends(get_db)):
         install_count_7d=last_7d,
         readme=skill.readme,
         license=skill.license,
+        # v6 Phase A catalog fields
+        skill_variant=getattr(skill, "skill_variant", "custom") or "custom",
+        original_source_url=getattr(skill, "original_source_url", None),
+        parent_skill_slug=getattr(skill, "parent_skill_slug", None),
+        pinned_sha=getattr(skill, "pinned_sha", None),
+        upstream_status=getattr(skill, "upstream_status", "active") or "active",
+        external_resources=getattr(skill, "external_resources", None),
         versions=[
             {
                 "id": v.id,
@@ -534,6 +558,22 @@ def get_skill_detail(slug: str, db: Session = Depends(get_db)):
         created_at=skill.created_at,
         updated_at=skill.updated_at,
     )
+
+
+@router.get("/skills/{slug}/external", tags=["skills"])
+def get_skill_external(slug: str, db: Session = Depends(get_db)):
+    """v6 Phase A: Return external_resources JSON for a skill.
+
+    Public, no auth — surfaces the "you might also want" upstream links the
+    skill author declared in frontmatter. Empty list if none, 404 if skill missing.
+    """
+    skill = db.query(Skill).filter(Skill.slug == slug).first()
+    if not skill:
+        raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
+    resources = getattr(skill, "external_resources", None) or []
+    if not isinstance(resources, list):
+        resources = []
+    return resources
 
 
 # Maximum related skills returned by detail/related endpoints. Stage 1 cap.
