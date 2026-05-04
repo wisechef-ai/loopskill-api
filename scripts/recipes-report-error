@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""recipes report-error — CLI to report skill errors to the Recipes API.
+
+Usage:
+    recipes report-error --slug <skill_slug> --signature <hex_hash> [--command "cmd"] [--exit-code 1] [--stack "trace"]
+
+Environment:
+    RECIPES_REPORT_ERRORS=true  — must be set (mirrors server-side opt-in)
+    RECIPES_API_URL             — API base URL (default: https://recipes.wisechef.ai)
+    RECIPES_API_KEY             — API key for authentication (optional for public endpoints)
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import platform
+import sys
+import traceback
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+
+
+def _env_fingerprint() -> dict:
+    """Collect a non-PII environment fingerprint."""
+    return {
+        "os": platform.system(),
+        "os_version": platform.release(),
+        "python": platform.python_version(),
+        "arch": platform.machine(),
+        "ci": os.environ.get("CI", "false").lower(),
+    }
+
+
+def _agent_fp_anon() -> str:
+    """Generate an anonymous agent fingerprint (stable per machine, no PII)."""
+    # Hash hostname + username to get a stable but anonymous ID
+    raw = f"{platform.node()}-{os.environ.get('USER', 'unknown')}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:32]
+
+
+def _compute_signature(error_text: str) -> str:
+    """Compute error signature from error text (sha256, first 32 hex chars)."""
+    return hashlib.sha256(error_text.encode()).hexdigest()[:32]
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="recipes report-error",
+        description="Report a skill error to the Recipes API",
+    )
+    parser.add_argument("--slug", required=True, help="Skill slug (e.g. 'client-reporter')")
+    parser.add_argument("--signature", help="Error signature (hex, 8-128 chars). Auto-computed from --error-text if omitted")
+    parser.add_argument("--error-text", help="Raw error text to auto-compute signature from")
+    parser.add_argument("--command", help="Command that was run (max 2048 chars)")
+    parser.add_argument("--exit-code", type=int, help="Exit code of the failed command")
+    parser.add_argument("--stack", help="Top of stack trace (max 2048 chars)")
+    parser.add_argument("--api-url", default=os.environ.get("RECIPES_API_URL", "https://recipes.wisechef.ai"),
+                        help="API base URL")
+    parser.add_argument("--dry-run", action="store_true", help="Print payload without sending")
+    parser.add_argument("--verbose", "-v", action="store_true")
+
+    args = parser.parse_args()
+
+    # Check opt-in
+    if os.environ.get("RECIPES_REPORT_ERRORS", "").lower() != "true":
+        print("Error reporting is disabled. Set RECIPES_REPORT_ERRORS=true to enable.", file=sys.stderr)
+        print("This is opt-in by design — no data is sent without explicit consent.", file=sys.stderr)
+        sys.exit(1)
+
+    # Compute signature
+    signature = args.signature
+    if not signature:
+        if args.error_text:
+            signature = _compute_signature(args.error_text)
+        else:
+            print("Error: provide --signature or --error-text", file=sys.stderr)
+            sys.exit(1)
+
+    payload = {
+        "skill_slug": args.slug,
+        "error_signature": signature,
+        "env_fingerprint": _env_fingerprint(),
+        "agent_fp_anon": _agent_fp_anon(),
+        "occurred_at": datetime.now(timezone.utc).isoformat(),
+        "command": args.command,
+        "exit_code": args.exit_code,
+        "stack_trace_top": args.stack,
+    }
+
+    # Remove None values
+    payload = {k: v for k, v in payload.items() if v is not None}
+
+    if args.dry_run:
+        print(json.dumps(payload, indent=2))
+        return
+
+    # Send to API
+    url = f"{args.api_url}/api/v1/skill-error"
+    data = json.dumps(payload).encode()
+    headers = {"Content-Type": "application/json"}
+
+    api_key = os.environ.get("RECIPES_API_KEY")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    req = Request(url, data=data, headers=headers, method="POST")
+
+    try:
+        resp = urlopen(req, timeout=10)
+        result = json.loads(resp.read())
+        if args.verbose:
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"✓ Error reported: {result.get('id', 'accepted')}")
+    except HTTPError as e:
+        body = e.read().decode()
+        try:
+            detail = json.loads(body).get("detail", body)
+        except Exception:
+            detail = body
+        print(f"✗ Failed ({e.code}): {detail}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"✗ Failed: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

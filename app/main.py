@@ -26,6 +26,7 @@ from app.models import Base
 from app.publisher_routes import router as publisher_router
 from app.routes import router
 from app.sandbox.routes import router as sandbox_router
+from app.skill_error_routes import router as skill_error_router
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,7 @@ def create_app() -> FastAPI:
     app.include_router(buckets_router)
     app.include_router(heartbeat_router)
     app.include_router(intent_survey_router)
+    app.include_router(skill_error_router)
 
     @app.get("/", tags=["meta"])
     def root():
