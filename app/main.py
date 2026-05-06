@@ -27,6 +27,7 @@ from app.middleware import APIKeyMiddleware, BucketHostMiddleware, RateLimitMidd
 from app.models import Base
 from app.publisher_routes import router as publisher_router
 from app.recall_routes import router as recall_router
+from app.recipify_routes import router as recipify_router
 from app.routes import router
 from app.sandbox.routes import router as sandbox_router
 from app.skill_error_routes import router as skill_error_router
@@ -84,6 +85,7 @@ def create_app() -> FastAPI:
     app.include_router(intent_survey_router)
     app.include_router(skill_error_router)
     app.include_router(recall_router)
+    app.include_router(recipify_router)
     app.include_router(mcp_router)
 
     @app.get("/", tags=["meta"])

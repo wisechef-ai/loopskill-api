@@ -95,8 +95,27 @@ def _tool_definitions() -> list[types.Tool]:
         ),
         types.Tool(
             name="recipes_recipify",
-            description="Phase G stub — convert a transcript into a recipe.",
-            inputSchema={"type": "object"},
+            description=(
+                "Convert a SKILL.md draft into a CookbookSkill row: validates "
+                "YAML frontmatter, classifies the category, infers related "
+                "skills via embedding cosine, writes the skill to the caller's "
+                "cookbook."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["slug", "content"],
+                "properties": {
+                    "slug": {"type": "string"},
+                    "content": {"type": "string"},
+                    "target_cookbook_id": {"type": "string"},
+                    "visibility": {
+                        "type": "string",
+                        "enum": ["private", "public_pending_review"],
+                        "default": "private",
+                    },
+                    "target_subrecipe_id": {"type": "string"},
+                },
+            },
         ),
         types.Tool(
             name="recipes_carousel_today",

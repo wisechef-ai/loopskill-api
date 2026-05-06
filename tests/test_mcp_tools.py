@@ -135,8 +135,11 @@ def test_recall_returns_hits_shape(db_session):
     assert isinstance(out["hits"], list)
 
 
-def test_recipify_is_phase_g_stub(db_session):
-    assert recipes_recipify(db_session) == {"error": "not_implemented", "phase": "G"}
+def test_recipify_is_no_longer_phase_g_stub(db_session):
+    out = recipes_recipify(db_session)
+    assert out.get("error") != "not_implemented"
+    assert out.get("phase") != "G"
+    assert out.get("code") == "missing_slug"
 
 
 def test_subrecipe_resolve_reports_operator_for_now(db_session):
