@@ -22,6 +22,7 @@ from app.forks_routes import router as forks_router
 from app.graph_routes import router as graph_router
 from app.heartbeat_routes import router as heartbeat_router
 from app.intent_survey_routes import router as intent_survey_router
+from app.mcp.server import router as mcp_router
 from app.middleware import APIKeyMiddleware, BucketHostMiddleware, RateLimitMiddleware
 from app.models import Base
 from app.publisher_routes import router as publisher_router
@@ -81,6 +82,7 @@ def create_app() -> FastAPI:
     app.include_router(heartbeat_router)
     app.include_router(intent_survey_router)
     app.include_router(skill_error_router)
+    app.include_router(mcp_router)
 
     @app.get("/", tags=["meta"])
     def root():
