@@ -49,7 +49,7 @@ class User(Base):
     # ── Subscription billing (Cook/Operator/Studio tiers) ─────────────────
     stripe_customer_id = Column(String(255), unique=True, nullable=True, index=True)
     subscription_status = Column(String(32), nullable=True, index=True)  # active, past_due, canceled, incomplete, trialing, unpaid, paused
-    subscription_tier = Column(String(32), nullable=True)  # cook, operator, studio
+    subscription_tier = Column(String(32), nullable=True)  # free, cook, operator
     subscription_id = Column(String(255), nullable=True)  # Stripe subscription id
     subscription_current_period_end = Column(DateTime(timezone=True), nullable=True)
     # ── Discord integration (Phase D) ─────────────────────────────────────
@@ -122,7 +122,7 @@ class Skill(Base):
     category = Column(String(128), nullable=True, index=True)
     readme = Column(Text, nullable=True)
     license = Column(String(64), nullable=True)
-    tier = Column(String(32), nullable=True)  # cook, operator, studio
+    tier = Column(String(32), nullable=True)  # free, cook, operator (studio retired v7/phase-F)
     is_public = Column(Boolean, default=True)
 
     creator_id = Column(UUID(as_uuid=True), ForeignKey("creators.id"), nullable=True)

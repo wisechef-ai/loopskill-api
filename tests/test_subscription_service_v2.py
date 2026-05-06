@@ -146,10 +146,13 @@ def test_operator_tier_retired_from_price_ids():
     assert set(ss.TIER_PRICE_IDS) == {"cook", "studio"}
 
 
-def test_operator_removed_from_settings_defaults():
-    """Settings.STRIPE_PRICE_OPERATOR field must be removed (operator retired)."""
+def test_operator_restored_in_settings_defaults():
+    """Settings.STRIPE_PRICE_OPERATOR field is restored in v7/phase-F (operator un-retired,
+    studio → operator alias). Both env vars exist during the 90-day backward-compat window
+    so older portal code reading STRIPE_PRICE_STUDIO still works."""
     from app.config import Settings
-    assert "STRIPE_PRICE_OPERATOR" not in Settings.model_fields
+    assert "STRIPE_PRICE_OPERATOR" in Settings.model_fields
+    assert "STRIPE_PRICE_STUDIO" in Settings.model_fields  # deprecated alias, kept for compat
 
 
 def test_operator_checkout_raises_subscription_error(configured_prices, db, studio_user):
