@@ -344,6 +344,23 @@ class WiseChefDemoRequest(Base):
     contacted_at = Column(DateTime, nullable=True)
 
 
+# ── Skill aliases (Phase J — chef→maestro rename) ───────────────────────
+
+class SkillAlias(Base):
+    """Old-slug → new-slug redirect for renamed skills.
+
+    `expires_at` enforces a finite redirect window (default 90d) so that we
+    don't carry forward unbounded compatibility shims. After expiry, requests
+    for the old slug fall through to a 404.
+    """
+    __tablename__ = "skill_aliases"
+
+    old_slug = Column(String(255), primary_key=True)
+    new_slug = Column(String(255), nullable=False, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 # ── Legacy Version model alias for backward compat during migration ─────
 # The old model was called "Version" — keep a redirect so seed.py works
 Version = SkillVersion

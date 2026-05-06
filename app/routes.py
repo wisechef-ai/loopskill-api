@@ -20,6 +20,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session, joinedload
 
@@ -31,6 +32,7 @@ from app.models import (
     Creator,
     InstallEvent,
     Recipe,
+    SkillAlias,
     SkillVersion,
     Skill,
     TelemetryEvent,
@@ -516,6 +518,27 @@ def get_skill_detail(slug: str, db: Session = Depends(get_db)):
         .first()
     )
     if not skill:
+        # Phase J — check skill_aliases for a non-expired redirect.
+        alias = (
+            db.query(SkillAlias)
+            .filter(SkillAlias.old_slug == slug)
+            .one_or_none()
+        )
+        if alias is not None:
+            now = datetime.now(timezone.utc)
+            expires = alias.expires_at
+            # SQLite returns naive datetimes; treat naive as UTC for comparison.
+            if expires is not None and expires.tzinfo is None:
+                expires = expires.replace(tzinfo=timezone.utc)
+            if expires is None or expires > now:
+                return JSONResponse(
+                    status_code=301,
+                    headers={"Location": f"/api/skills/{alias.new_slug}"},
+                    content={
+                        "redirect_to": alias.new_slug,
+                        "alias_expires_at": alias.expires_at.isoformat() if alias.expires_at else None,
+                    },
+                )
         raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
 
     related_objs = _resolve_related(db, skill)
