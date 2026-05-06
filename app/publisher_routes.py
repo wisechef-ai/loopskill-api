@@ -30,8 +30,9 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models import Creator, Skill, SkillVersion
+from app.models import Cookbook, CookbookSkill, Creator, Skill, SkillVersion
 from app.security_scan import scan_tarball
+from app.sync_fanout import emit_cookbook_event
 
 logger = logging.getLogger(__name__)
 
@@ -381,6 +382,35 @@ async def publish_skill(
 
     db.refresh(skill_obj)
     db.refresh(version_row)
+
+    # ── 11. Live-sync fan-out (Phase D) ─────────────────────────────────
+    # Notify every cookbook that has this skill (and isn't disabled). On
+    # Postgres this goes via pg_notify so all processes receive it; on
+    # SQLite tests it publishes directly to the in-process subscribers.
+    try:
+        cookbook_ids = [
+            str(cs.cookbook_id)
+            for cs in db.query(CookbookSkill)
+            .filter(
+                CookbookSkill.skill_id == skill_obj.id,
+                CookbookSkill.source != "disabled",
+            )
+            .all()
+        ]
+        if cookbook_ids:
+            await emit_cookbook_event(
+                db,
+                cookbook_ids,
+                {
+                    "slug": skill_obj.slug,
+                    "version": semver,
+                    "action": "version_published",
+                    "skill_id": str(skill_obj.id),
+                },
+            )
+            db.commit()
+    except Exception:
+        logger.exception("phase-D fan-out failed for %s@%s (non-fatal)", slug, semver)
 
     return PublishResponse(
         skill_id=str(skill_obj.id),

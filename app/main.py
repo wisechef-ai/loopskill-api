@@ -31,6 +31,8 @@ from app.recipify_routes import router as recipify_router
 from app.routes import router
 from app.sandbox.routes import router as sandbox_router
 from app.skill_error_routes import router as skill_error_router
+from app.sse_routes import router as sse_router
+from app.sync_fanout import get_fanout
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +45,18 @@ async def lifespan(app: FastAPI):
     yet at deploy time) — see app/discord_bot/bot.py.
     """
     bot_task = await discord_bot.start_bot()
+    fanout = get_fanout()
+    try:
+        await fanout.start_listener()
+    except Exception:
+        logger.exception("fanout: failed to start LISTEN/NOTIFY worker (non-fatal)")
     try:
         yield
     finally:
+        try:
+            await fanout.stop_listener()
+        except Exception:
+            logger.exception("fanout: failed to stop LISTEN/NOTIFY worker")
         await discord_bot.stop_bot(bot_task)
 
 
@@ -86,6 +97,7 @@ def create_app() -> FastAPI:
     app.include_router(skill_error_router)
     app.include_router(recall_router)
     app.include_router(recipify_router)
+    app.include_router(sse_router)
     app.include_router(mcp_router)
 
     @app.get("/", tags=["meta"])
