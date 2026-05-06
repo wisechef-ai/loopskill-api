@@ -145,6 +145,12 @@ class Skill(Base):
     # dangling references, and self-loops. See tests/test_related_skills.py.
     related_skills = Column(JSON, nullable=True)
 
+    # v7 Phase E — recall embedding (384-dim BAAI/bge-small-en-v1.5)
+    # Postgres uses pgvector vector(384); SQLite/tests store JSON-encoded floats
+    # in this Text column. The column is nullable so existing rows are unaffected
+    # until the backfill script runs.
+    embedding = Column(Text, nullable=True)
+
     # v6 Phase A — catalog topology columns
     # 'original' = SHA-pinned Pantry snapshot; 'custom' = curated Menu/Cookbook skill
     skill_variant = Column(String(20), nullable=False, server_default="custom")

@@ -78,8 +78,20 @@ def _tool_definitions() -> list[types.Tool]:
         ),
         types.Tool(
             name="recipes_recall",
-            description="Phase E stub — skill memory recall.",
-            inputSchema={"type": "object"},
+            description="Hybrid (vector + BM25) skill recall ranked for the caller's tier.",
+            inputSchema={
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": {"type": "string"},
+                    "local_context_summary": {"type": "string"},
+                    "tier_filter": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["free", "cook", "operator"]},
+                    },
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
+                },
+            },
         ),
         types.Tool(
             name="recipes_recipify",

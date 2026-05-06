@@ -117,8 +117,22 @@ def test_list_cookbook_returns_skills_for_owner(db_session):
 
 # ── recipes_recall / recipes_recipify / recipes_subrecipe_resolve ───────────
 
-def test_recall_is_phase_e_stub(db_session):
-    assert recipes_recall(db_session) == {"error": "not_implemented", "phase": "E"}
+def test_recall_requires_query(db_session):
+    # Phase E (v2) replaces the stub. Empty calls report a missing-query error
+    # instead of the old not_implemented payload.
+    out = recipes_recall(db_session)
+    assert out.get("error") == "query_required"
+
+
+def test_recall_returns_hits_shape(db_session):
+    from tests.conftest import make_skill
+
+    make_skill(db_session, slug="web-scraper", title="Web scraper",
+               description="Scrape websites and extract data", tier="free")
+    db_session.flush()
+    out = recipes_recall(db_session, query="scrape websites", limit=3)
+    assert "hits" in out and "backend" in out
+    assert isinstance(out["hits"], list)
 
 
 def test_recipify_is_phase_g_stub(db_session):
