@@ -35,6 +35,7 @@ from app.mcp.tools import (
     recipes_recall,
     recipes_recipify,
     recipes_search,
+    recipes_seeker,
     recipes_subrecipe_resolve,
 )
 
@@ -136,6 +137,15 @@ def _tool_definitions() -> list[types.Tool]:
                 "properties": {"install_dir": {"type": "string"}},
             },
         ),
+        types.Tool(
+            name="recipes_seeker",
+            description=(
+                "Probe local vendor skill directories (Claude / Codex / "
+                "Hermes / OpenCode) and diff against the public catalog. "
+                "READ-ONLY — never mutates vendor dirs."
+            ),
+            inputSchema={"type": "object"},
+        ),
     ]
 
 
@@ -170,6 +180,8 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
         return recipes_subrecipe_resolve(db, **args)
     if name == "recipes_doctor":
         return recipes_doctor(db, install_dir=args["install_dir"])
+    if name == "recipes_seeker":
+        return recipes_seeker(db, **args)
     raise ValueError(f"unknown tool: {name}")
 
 
