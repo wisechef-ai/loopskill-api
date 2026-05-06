@@ -1,0 +1,14 @@
+name: interplus-deploy-v1
+description: "Deploy a WiseChef agent stack to a small business client (5-step procedure)"
+skills:
+  - maestro
+  - atomic-habits
+  - paperclip-api
+  - claude-code-fleet-orchestration
+  - wisechef-content-engine
+procedure:
+  - step: "Provision client agent stack via recipes_install(framework-v0)"
+  - step: "Configure Discord webhook + Paperclip board for client"
+  - step: "Wire content pipeline to client's Resend domain"
+  - step: "Test end-to-end via daily-briefing + content-publish smoke"
+  - step: "Deliver subscription handoff doc to operator"

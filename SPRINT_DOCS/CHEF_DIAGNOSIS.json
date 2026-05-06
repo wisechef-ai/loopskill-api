@@ -1,0 +1,56 @@
+{
+  "started_at": 1778101327,
+  "duration_s": 0.39,
+  "totals": {
+    "green": 2,
+    "yellow": 0,
+    "red": 1,
+    "skip": 4
+  },
+  "decision": "infra-level",
+  "rationale": "HCLOUD_TOKEN unavailable \u2014 cannot provision wisechef-maestro CX23 box; scope shifts to canonical interplus-deploy-v1 sub-recipe + local smoke install only",
+  "checks": [
+    {
+      "name": "resend_quota",
+      "status": "green",
+      "detail": "no Resend 429/quota errors in last 24h",
+      "raw": ""
+    },
+    {
+      "name": "portal_deploy",
+      "status": "skip",
+      "detail": "curl failed (rc=6)",
+      "raw": ""
+    },
+    {
+      "name": "og_image_route",
+      "status": "skip",
+      "detail": "curl failed (rc=6)",
+      "raw": ""
+    },
+    {
+      "name": "cloudflare_articles",
+      "status": "skip",
+      "detail": "Cloudflare API token not provisioned in this phase",
+      "raw": ""
+    },
+    {
+      "name": "chef_ack_discord",
+      "status": "skip",
+      "detail": "DISCORD_BOT_TOKEN not in env",
+      "raw": ""
+    },
+    {
+      "name": "repo_drift",
+      "status": "green",
+      "detail": "branch head=c60a6a0a, origin/main=c60a6a0a",
+      "raw": ""
+    },
+    {
+      "name": "hcloud_credentials",
+      "status": "red",
+      "detail": "HCLOUD_TOKEN absent + no ~/.hcloud config \u2014 provisioning blocked",
+      "raw": ""
+    }
+  ]
+}
