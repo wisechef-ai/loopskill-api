@@ -1,12 +1,15 @@
-"""Recipes MCP server — dual transport.
+"""Recipes MCP server — triple transport (SSE, StreamableHTTP, stdio).
 
-* stdio   — ``python -m app.mcp`` for Claude Desktop and other local clients.
-* SSE/HTTP — mounted on the FastAPI app at ``/api/mcp/sse`` (event-stream) and
+* SSE/HTTP — mounted at ``/api/mcp/sse`` (event-stream) +
   ``/api/mcp/messages/`` (POSTs from the client).
+* StreamableHTTP — mounted at ``/api/mcp/http`` (single-endpoint POST,
+  stateful sessions, MCP spec 2025-03-26).
+* stdio   — ``python -m app.mcp`` for Claude Desktop and other local clients.
 
-Auth on the SSE side reuses ``app.middleware``'s validator. The stdio side
-trusts the env (``RECIPES_API_KEY``) since stdio is a local trust boundary.
-The handler dispatches a static tool catalogue to the eight Phase A tools.
+Auth on the SSE/StreamableHTTP side reuses ``app.middleware``'s validator.
+The stdio side trusts the env (``RECIPES_API_KEY``) since stdio is a local
+trust boundary.  The handler dispatches a static tool catalogue to the nine
+Phase A + Phase K tools.
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any, Awaitable, Callable
 
 import mcp.types as types
@@ -22,6 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from mcp.server.lowlevel import Server
 from mcp.server.sse import SseServerTransport
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -248,6 +252,43 @@ router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 # client for follow-up POSTs, so it must match the POST route below.
 _sse_transport = SseServerTransport("/api/mcp/messages/")
 
+# ── StreamableHTTP session manager ─────────────────────────────────────────
+#
+# The StreamableHTTPSessionManager wraps StreamableHTTPServerTransport and
+# handles session creation/cleanup automatically.  It needs a task group
+# (started in ``run()``) to manage concurrent sessions.
+#
+# session_idle_timeout=1800s (30 min) prevents Cloudflare's 100s streaming
+# timeout from firing on long-running tools by keeping the session alive.
+# NOTE: The MCP SDK 1.27 does not expose a ping_interval_seconds parameter;
+# if one appears in a future release, add it here and reduce idle_timeout.
+
+_http_session_manager: StreamableHTTPSessionManager | None = None
+
+
+def get_http_session_manager() -> StreamableHTTPSessionManager:
+    """Lazy-initialise the StreamableHTTP session manager.
+
+    Must be called at app startup (inside the lifespan) so the task group
+    is available.  The session manager reuses ``build_mcp_server()`` — the
+    same factory as SSE and stdio — so tool definitions are never duplicated.
+    """
+    global _http_session_manager
+    if _http_session_manager is None:
+        _http_session_manager = StreamableHTTPSessionManager(
+            app=build_mcp_server(),
+            json_response=False,
+            stateless=False,
+            session_idle_timeout=1800,  # 30 min — prevents CF 100s timeout
+        )
+    return _http_session_manager
+
+
+def _reset_http_session_manager() -> None:
+    """Reset the global session manager (for tests only)."""
+    global _http_session_manager
+    _http_session_manager = None
+
 
 def _authenticate(request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
     """Validate x-api-key on SSE handshake. Raises HTTPException on failure.
@@ -306,6 +347,86 @@ async def mcp_messages(
         logger.warning("mcp message dispatch failed: %s", exc)
         return JSONResponse({"detail": "bad message"}, status_code=400)
     return Response(status_code=202)
+
+
+# ── StreamableHTTP transport route ──────────────────────────────────────────
+
+# StreamableHTTP uses a raw ASGI handler (not a FastAPI route) because the
+# session manager sends HTTP responses directly via the ASGI ``send``
+# callable — FastAPI's route wrapper would attempt to send a second response
+# and trigger "Received multiple http.response.start messages".
+#
+# We use a Starlette Mount to attach it at /api/mcp/http.
+
+from starlette.routing import Mount
+
+
+def _build_streamable_http_mount() -> Mount:
+    """Create a Starlette Mount that forwards all requests to the session
+    manager's ASGI handler.  Must be called *after* the session manager has
+    been initialised (i.e., during app creation, not at import time).
+
+    Includes an auth gate that validates x-api-key on every request.
+    """
+    mgr = get_http_session_manager()
+
+    async def _asgi_app(scope, receive, send):
+        # Auth gate: validate x-api-key before forwarding to the MCP session
+        # manager. This mirrors the _authenticate dependency used by the SSE
+        # transport routes.
+        if scope["type"] == "http":
+            from app.mcp.auth import validate_key
+
+            request = Request(scope, receive)
+            key = request.headers.get("x-api-key")
+
+            # Fast-path: check master key without opening a DB session.
+            # This avoids needing PostgreSQL in the test environment.
+            if not key or not key.startswith("rec_"):
+                response = JSONResponse(
+                    {"detail": "Invalid or missing x-api-key header"},
+                    status_code=401,
+                )
+                await response(scope, receive, send)
+                return
+
+            if key == settings.API_KEY:
+                # Master key — skip DB lookup
+                pass
+            else:
+                # Non-master key — need DB lookup
+                from app.database import SessionLocal
+
+                db = SessionLocal()
+                try:
+                    result = validate_key(key, db)
+                finally:
+                    db.close()
+                if result["scope"] == "unauthorized":
+                    response = JSONResponse(
+                        {"detail": "Invalid or missing x-api-key header"},
+                        status_code=401,
+                    )
+                    await response(scope, receive, send)
+                    return
+        await mgr.handle_request(scope, receive, send)
+
+    return Mount("/api/mcp/http", app=_asgi_app)
+
+
+@asynccontextmanager
+async def run_streamable_http():
+    """Async context manager that starts the StreamableHTTP session manager's
+    task group.  Call this inside the FastAPI lifespan.
+
+    Usage::
+
+        async with run_streamable_http():
+            yield  # app is running
+    """
+    mgr = get_http_session_manager()
+    async with mgr.run():
+        yield
 
 
 # ── stdio entry point ──────────────────────────────────────────────────────

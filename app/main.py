@@ -23,7 +23,11 @@ from app.forks_routes import router as forks_router
 from app.graph_routes import router as graph_router
 from app.heartbeat_routes import router as heartbeat_router
 from app.intent_survey_routes import router as intent_survey_router
-from app.mcp.server import router as mcp_router
+from app.mcp.server import (
+    router as mcp_router,
+    run_streamable_http,
+    get_http_session_manager,
+)
 from app.middleware import APIKeyMiddleware, BucketHostMiddleware, RateLimitMiddleware
 from app.models import Base
 from app.publisher_routes import router as publisher_router
@@ -51,9 +55,16 @@ async def lifespan(app: FastAPI):
         await fanout.start_listener()
     except Exception:
         logger.exception("fanout: failed to start LISTEN/NOTIFY worker (non-fatal)")
+    # Phase 1 (v7.1): start StreamableHTTP session manager task group.
+    streamable_http_cm = run_streamable_http()
+    await streamable_http_cm.__aenter__()
     try:
         yield
     finally:
+        try:
+            await streamable_http_cm.__aexit__(None, None, None)
+        except Exception:
+            logger.exception("streamable_http: failed to shut down cleanly")
         try:
             await fanout.stop_listener()
         except Exception:
@@ -101,6 +112,12 @@ def create_app() -> FastAPI:
     app.include_router(recipify_router)
     app.include_router(sse_router)
     app.include_router(mcp_router)
+
+    # Phase 1 (v7.1): Mount StreamableHTTP ASGI sub-app at /api/mcp/http.
+    # Must happen after include_router(mcp_router) so the session manager's
+    # MCP server is built from the same build_mcp_server() factory.
+    from app.mcp.server import _build_streamable_http_mount
+    app.router.routes.append(_build_streamable_http_mount())
 
     @app.get("/", tags=["meta"])
     def root():

@@ -17,8 +17,9 @@ httpx>=0.26
 PyYAML>=6.0
 tomli>=2.0; python_version < "3.11"
 
-# MCP server (Phase A) — official Python SDK
-mcp[cli]>=1.0.0
+# MCP server (Phase A → Phase 1 v7.1) — official Python SDK
+# 1.4+ required for StreamableHTTP transport (StreamableHTTPSessionManager)
+mcp[cli]>=1.4
 
 # tests
 pytest>=8.0
