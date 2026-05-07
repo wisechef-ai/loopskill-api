@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     DISCORD_GUILD_ID: str = ""
     DISCORD_AUTHOR_THRESHOLD: float = 80.0
 
-    model_config = {"env_file": ".env", "env_prefix": "WR_"}
+    model_config = {"env_file": ".env", "env_prefix": "WR_", "extra": "ignore"}
 
 
 settings = Settings()
