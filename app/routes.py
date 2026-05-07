@@ -279,6 +279,40 @@ def install_skill(
         if not (is_admin or is_owner):
             raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
 
+    # WIS-902: Tier-aware install rate limit
+    caller_tier = _resolve_caller_tier_for_install(db, request)
+    install_limit = TIER_INSTALL_LIMITS.get(caller_tier, 5)
+    api_key_id = getattr(request.state, "api_key_id", None)
+    
+    if install_limit is not None:  # None = unlimited
+        today_count = _count_today_installs(db, api_key_id)
+        if today_count >= install_limit:
+            remaining = 0
+            reset_at = (datetime.now(timezone.utc).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ) + timedelta(days=1)).isoformat()
+            
+            from fastapi.responses import JSONResponse as _JRP
+            return _JRP(
+                status_code=429,
+                content={
+                    "detail": f"Install rate limit exceeded ({install_limit}/day for {caller_tier or 'free'} tier). "
+                              f"Upgrade to Operator for unlimited installs.",
+                    "tier": caller_tier,
+                    "limit": install_limit,
+                    "remaining": remaining,
+                    "reset_at": reset_at,
+                },
+                headers={
+                    "X-RateLimit-Limit": str(install_limit),
+                    "X-RateLimit-Remaining": "0",
+                    "X-RateLimit-Reset": reset_at,
+                    "Retry-After": str(int((datetime.now(timezone.utc).replace(
+                        hour=0, minute=0, second=0, microsecond=0
+                    ) + timedelta(days=1) - datetime.now(timezone.utc)).total_seconds())),
+                },
+            )
+
     if not skill.versions:
         raise HTTPException(status_code=404, detail=f"No versions available for '{slug}'")
 
@@ -315,7 +349,15 @@ def install_skill(
     db.add(event)
     db.commit()
 
-    return InstallResponse(
+    # WIS-902: Add rate-limit info headers to successful response
+    resp_headers = {}
+    if install_limit is not None:
+        today_count_after = _count_today_installs(db, api_key_id)
+        remaining = max(0, install_limit - today_count_after)
+        resp_headers["X-RateLimit-Limit"] = str(install_limit)
+        resp_headers["X-RateLimit-Remaining"] = str(remaining)
+    
+    resp = InstallResponse(
         slug=slug,
         version=latest.semver,
         tarball_url=tarball_url,
@@ -324,6 +366,10 @@ def install_skill(
         expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         manifest=_build_manifest(latest, skill),
     )
+    if resp_headers:
+        from fastapi.responses import JSONResponse as _JR
+        return _JR(content=resp.model_dump(mode="json"), headers=resp_headers)
+    return resp
 
 
 @router.get("/skills/_download", tags=["skills"])
@@ -373,6 +419,16 @@ def download_tarball(
 # Plan v5.4 §A.8: Cook=all skills, Operator=Cook+forks, Studio=Operator+buckets.
 TIER_RANK = {None: 0, "free": 0, "cook": 1, "operator": 2, "studio": 3}
 
+# WIS-902: Tier-aware install rate limits (installs per day per API key).
+# Free/anon: 5, Cook: 100, Operator+: unlimited.
+TIER_INSTALL_LIMITS: dict[str | None, int | None] = {
+    None: 5,        # anonymous / no API key
+    "free": 5,      # free-tier user
+    "cook": 100,    # Cook subscriber
+    "operator": None,  # unlimited
+    "studio": None,    # unlimited
+}
+
 
 def _resolve_caller_tier(db: Session, request: Request) -> str | None:
     """Return the calling user's active subscription tier, or None if anonymous.
@@ -402,6 +458,42 @@ def _resolve_caller_tier(db: Session, request: Request) -> str | None:
     if not user or user.subscription_status not in ("active", "trialing"):
         return None
     return user.subscription_tier
+
+
+def _resolve_caller_tier_for_install(db: Session, request: Request) -> str | None:
+    """Resolve caller tier from request.state (set by APIKeyMiddleware).
+
+    Returns the user's subscription tier, or None for anonymous/master.
+    Master key gets unlimited installs (treated as operator tier).
+    """
+    api_key_user_id = getattr(request.state, "api_key_user_id", "MISSING")
+    # Master key: unlimited
+    if api_key_user_id is None:
+        return "studio"
+    if api_key_user_id == "MISSING" or api_key_user_id == "CBT_TOKEN":
+        return None
+    
+    user = db.query(User).filter(User.id == api_key_user_id).first()
+    if not user or user.subscription_status not in ("active", "trialing"):
+        return None
+    return user.subscription_tier
+
+
+def _count_today_installs(db: Session, api_key_id) -> int:
+    """Count installs today for a given API key ID."""
+    if api_key_id is None:
+        return 0
+    today_start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    return (
+        db.query(func.count(InstallEvent.id))
+        .filter(
+            InstallEvent.api_key_id == api_key_id,
+            InstallEvent.created_at >= today_start,
+        )
+        .scalar() or 0
+    )
 
 
 @router.get("/skills/access", response_model=SkillAccessOut, tags=["skills"])

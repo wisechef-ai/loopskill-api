@@ -268,6 +268,23 @@ async def get_me(
             user.subscription_current_period_end.isoformat()
             if user.subscription_current_period_end else None
         ),
+        # WIS-902: Tier feature flags for frontend tier-conditional UX
+        "features": {
+            "full_catalog_install": user.subscription_tier in ("cook", "operator", "studio"),
+            "install_rate_limit": {
+                "free": 5, "cook": 100, "operator": None, "studio": None,
+            }.get(user.subscription_tier, 5),
+            "recipify": user.subscription_tier in ("cook", "operator", "studio"),
+            "cookbook_limit": {
+                "free": 0, "cook": 1, "operator": None, "studio": None,
+            }.get(user.subscription_tier, 0),
+            "cookbook_skill_cap": {
+                "free": 0, "cook": 25, "operator": None, "studio": None,
+            }.get(user.subscription_tier, 0),
+            "fleet_sync": user.subscription_tier in ("operator", "studio"),
+            "fleet_seeker": user.subscription_tier in ("operator", "studio"),
+            "subrecipe_priority_resolve": user.subscription_tier in ("operator", "studio"),
+        },
     }
 
 

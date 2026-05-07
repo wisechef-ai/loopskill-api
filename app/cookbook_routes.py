@@ -40,6 +40,9 @@ UNLIMITED_TIERS = {"operator", "studio"}
 ACTIVE_SUB_STATUSES = {"active", "trialing"}
 ALLOWED_SOURCES = {"forked", "custom-added", "overridden", "disabled"}
 
+# WIS-902: Cook tier skill cap per cookbook
+COOK_SKILL_CAP = 25
+
 
 # ── CBT scope enforcement for cookbook routes ─────────────────────────────
 
@@ -317,6 +320,27 @@ def add_skill_to_cookbook(
             "added_at": existing.added_at.isoformat() if existing.added_at else None,
             "reactivated": True,
         }
+
+    # WIS-902: Cook tier skill cap
+    if ctx.tier == "cook":
+        active_count = (
+            db.query(CookbookSkill)
+            .filter(
+                CookbookSkill.cookbook_id == cb.id,
+                CookbookSkill.source != "disabled",
+            )
+            .count()
+        )
+        if active_count >= COOK_SKILL_CAP:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "reason": "cook_skill_cap",
+                    "max_skills": COOK_SKILL_CAP,
+                    "current_count": active_count,
+                    "upgrade_to": "operator",
+                },
+            )
 
     cs = CookbookSkill(
         cookbook_id=cb.id,
