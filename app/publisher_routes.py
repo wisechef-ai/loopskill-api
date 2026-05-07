@@ -383,6 +383,15 @@ async def publish_skill(
     db.refresh(skill_obj)
     db.refresh(version_row)
 
+    # ── 10a. BM25 reindex (Phase 4) ──────────────────────────────────────
+    # Embeddings deferred to v7.2; BM25-only per Adam directive 2026-05-07.
+    # Synchronous — to_tsvector is <10ms in postgres.
+    try:
+        from app.search_index import reindex_bm25
+        reindex_bm25(skill_obj.slug, db)
+    except Exception:
+        logger.exception("BM25 reindex failed for %s (non-fatal)", skill_obj.slug)
+
     # ── 11. Live-sync fan-out (Phase D) ─────────────────────────────────
     # Notify every cookbook that has this skill (and isn't disabled). On
     # Postgres this goes via pg_notify so all processes receive it; on
@@ -419,3 +428,45 @@ async def publish_skill(
         sha256=sha256_hex,
         warnings=warnings,
     )
+
+
+# ── Phase 4: Skill Archive ──────────────────────────────────────────────
+
+
+class ArchiveResponse(BaseModel):
+    slug: str
+    archived: bool
+
+
+@router.post("/{slug}/_archive", response_model=ArchiveResponse, tags=["publisher"])
+async def archive_skill(
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Soft-archive a skill — sets is_archived=True and NULLs search_vector.
+
+    Auth: master key only (admin). Archived skills are hidden from /api/recall
+    but remain in the DB for audit/recovery.
+    """
+    from app.search_index import reindex_bm25
+
+    # Master-key only: api_key_user_id must be None
+    api_key_user_id = getattr(request.state, "api_key_user_id", "MISSING")
+    if api_key_user_id is not None:
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    if not SLUG_RE.match(slug):
+        raise HTTPException(422, detail=f"Invalid slug: {slug!r}")
+
+    skill_obj = db.query(Skill).filter(Skill.slug == slug).first()
+    if not skill_obj:
+        raise HTTPException(status_code=404, detail="Skill not found")
+
+    skill_obj.is_archived = True
+    db.flush()
+
+    # NULL the search vector so the skill drops from recall results
+    reindex_bm25(slug, db, archive=True)
+
+    return ArchiveResponse(slug=slug, archived=True)

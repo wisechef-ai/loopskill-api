@@ -151,6 +151,14 @@ class Skill(Base):
     # until the backfill script runs.
     embedding = Column(Text, nullable=True)
 
+    # v7.1 Phase 4 — BM25 search index (Postgres tsvector; SQLite stores raw text).
+    # Embeddings deferred to v7.2; BM25-only per Adam directive 2026-05-07.
+    search_vector = Column(Text, nullable=True)
+
+    # v7.1 Phase 4 — soft-archive flag. Archived skills are hidden from search
+    # (search_vector is NULLed) but remain in the DB for audit/recovery.
+    is_archived = Column(Boolean, default=False, server_default="false", nullable=False)
+
     # v6 Phase A — catalog topology columns
     # 'original' = SHA-pinned Pantry snapshot; 'custom' = curated Menu/Cookbook skill
     skill_variant = Column(String(20), nullable=False, server_default="custom")

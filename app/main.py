@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import settings
+from app.admin_routes import router as admin_router
 from app.auth_routes import router as auth_router
 from app.api_key_routes import router as api_key_router
 from app.buckets_routes import router as buckets_router
@@ -79,6 +80,7 @@ def create_app() -> FastAPI:
     app.add_middleware(BucketHostMiddleware)
 
     app.include_router(router)
+    app.include_router(admin_router)
     app.include_router(auth_router)
     app.include_router(carousel_router, prefix="/api")
     app.include_router(sandbox_router)

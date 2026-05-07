@@ -120,6 +120,7 @@ def recall_skills(
     candidates = (
         db.query(Skill)
         .filter(Skill.is_public == True)  # noqa: E712
+        .filter(Skill.is_archived == False)  # Phase 4: exclude archived
         .filter(Skill.tier.in_(tier_filter))
         .all()
     )
