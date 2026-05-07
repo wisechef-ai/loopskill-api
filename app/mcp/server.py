@@ -1,8 +1,8 @@
 """Recipes MCP server — dual transport.
 
 * stdio   — ``python -m app.mcp`` for Claude Desktop and other local clients.
-* SSE/HTTP — mounted on the FastAPI app at ``/mcp/sse`` (event-stream) and
-  ``/mcp/messages/`` (POSTs from the client).
+* SSE/HTTP — mounted on the FastAPI app at ``/api/mcp/sse`` (event-stream) and
+  ``/api/mcp/messages/`` (POSTs from the client).
 
 Auth on the SSE side reuses ``app.middleware``'s validator. The stdio side
 trusts the env (``RECIPES_API_KEY``) since stdio is a local trust boundary.
@@ -231,11 +231,22 @@ def build_mcp_server(db_factory: Callable[[], Session] = SessionLocal) -> Server
 
 
 # ── FastAPI router (SSE transport) ──────────────────────────────────────────
+#
+# Public surface: /api/mcp/{healthz,sse,messages/}
+#
+# Why /api/mcp instead of plain /mcp:
+# The Cloudflare zone fronting recipes.wisechef.ai intercepts literal /mcp/*
+# paths at the edge (likely CF's managed AI Gateway / Workers MCP product)
+# and returns 404 before the request ever reaches our cloudflared tunnel.
+# /api/mcp/* passes through cleanly via the existing /api/* tunnel rule.
+# Verified 2026-05-07 by inspecting cloudflared_tunnel_total_requests counter.
 
-router = APIRouter(prefix="/mcp", tags=["mcp"])
+router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 
 # The SseServerTransport must be shared between GET /sse and POST /messages.
-_sse_transport = SseServerTransport("/mcp/messages/")
+# The path passed here is the public path the SSE endpoint advertises to the
+# client for follow-up POSTs, so it must match the POST route below.
+_sse_transport = SseServerTransport("/api/mcp/messages/")
 
 
 def _authenticate(request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
@@ -266,7 +277,7 @@ async def mcp_sse(
     _auth: dict[str, Any] = Depends(_authenticate),
 ):
     """SSE transport endpoint. Long-lived connection — client posts to
-    ``/mcp/messages/`` for actual JSON-RPC traffic.
+    ``/api/mcp/messages/`` for actual JSON-RPC traffic.
     """
     server = build_mcp_server()
 

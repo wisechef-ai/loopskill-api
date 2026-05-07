@@ -4,8 +4,8 @@ We do not run a full MCP handshake here — the official SDK already covers
 that. What we verify is the integration boundary:
   * the FastAPI router is wired
   * unauthenticated callers are rejected
-  * authenticated GET /mcp/sse opens the event-stream
-  * /mcp/healthz lists the eight Phase A tools
+  * authenticated GET /api/mcp/sse opens the event-stream
+  * /api/mcp/healthz lists the eight Phase A tools
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ def mcp_client(mcp_app):
 
 
 def test_healthz_lists_phase_a_tools(mcp_client):
-    resp = mcp_client.get("/mcp/healthz")
+    resp = mcp_client.get("/api/mcp/healthz")
     assert resp.status_code == 200
     body = resp.json()
     assert body["name"] == "recipes-mcp"
@@ -54,31 +54,31 @@ def test_healthz_lists_phase_a_tools(mcp_client):
 
 
 def test_sse_rejects_missing_api_key(mcp_client):
-    resp = mcp_client.get("/mcp/sse")
+    resp = mcp_client.get("/api/mcp/sse")
     assert resp.status_code == 401
 
 
 def test_sse_rejects_bad_api_key(mcp_client):
-    resp = mcp_client.get("/mcp/sse", headers={"x-api-key": "rec_not_real"})
+    resp = mcp_client.get("/api/mcp/sse", headers={"x-api-key": "rec_not_real"})
     assert resp.status_code == 401
 
 
 def test_messages_endpoint_rejects_unauthenticated(mcp_client):
-    resp = mcp_client.post("/mcp/messages/", json={})
+    resp = mcp_client.post("/api/mcp/messages/", json={})
     assert resp.status_code == 401
 
 
 def test_sse_route_is_registered_at_expected_path(mcp_app):
-    """Confirm /mcp/sse and /mcp/messages/ are wired by the router.
+    """Confirm /api/mcp/sse and /api/mcp/messages/ are wired by the router.
 
     The full GET handshake spins up ``server.run()`` — a long-lived loop we
     deliberately do not exercise here (the SDK's own tests cover JSON-RPC
     semantics). What we assert is the FastAPI route table.
     """
     paths = {getattr(r, "path", None) for r in mcp_app.router.routes}
-    assert "/mcp/sse" in paths
-    assert "/mcp/messages/" in paths
-    assert "/mcp/healthz" in paths
+    assert "/api/mcp/sse" in paths
+    assert "/api/mcp/messages/" in paths
+    assert "/api/mcp/healthz" in paths
 
 
 def test_build_mcp_server_dispatches_search_tool(db_session):
