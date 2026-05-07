@@ -50,7 +50,7 @@ def test_healthz_lists_phase_a_tools(mcp_client):
     assert body["name"] == "recipes-mcp"
     expected = {t.name for t in _tool_definitions()}
     assert set(body["tools"]) == expected
-    assert len(expected) == 9
+    assert len(expected) == 10
 
 
 def test_sse_rejects_missing_api_key(mcp_client):
@@ -113,5 +113,5 @@ def test_build_mcp_server_dispatches_search_tool(db_session):
     parsed = _json.loads(payload_text)
     assert any(r["slug"] == "dispatch-skill" for r in parsed["results"])
     # Sanity: the static tool catalogue lists every registered tool
-    # (Phase A's 8 + Phase K's recipes_seeker = 9).
-    assert len(_tool_definitions()) == 9
+    # (Phase A's 8 + Phase K's recipes_seeker + Phase 2's recipes_sync = 10).
+    assert len(_tool_definitions()) == 10

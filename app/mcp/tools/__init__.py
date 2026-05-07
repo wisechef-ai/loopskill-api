@@ -13,6 +13,7 @@ from app.mcp.tools.carousel_today import recipes_carousel_today
 from app.mcp.tools.subrecipe_resolve import recipes_subrecipe_resolve
 from app.mcp.tools.doctor import recipes_doctor
 from app.mcp.tools.seeker import recipes_seeker
+from app.mcp.tools.recipes_sync import recipes_sync
 
 __all__ = [
     "recipes_search",
@@ -24,4 +25,5 @@ __all__ = [
     "recipes_subrecipe_resolve",
     "recipes_doctor",
     "recipes_seeker",
+    "recipes_sync",
 ]

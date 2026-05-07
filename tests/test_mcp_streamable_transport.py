@@ -24,7 +24,7 @@ from app.mcp.server import _tool_definitions, router as mcp_router
 # ── Fixtures ────────────────────────────────────────────────────────────────
 
 EXPECTED_TOOL_NAMES = {t.name for t in _tool_definitions()}
-EXPECTED_TOOL_COUNT = len(EXPECTED_TOOL_NAMES)  # 9 as of Phase K
+EXPECTED_TOOL_COUNT = len(EXPECTED_TOOL_NAMES)  # 10 as of Phase 2
 
 
 @pytest.fixture()

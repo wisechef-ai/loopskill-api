@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import SessionLocal, get_db
 from app.mcp.auth import validate_key
+from app.mcp.cookbook_status import get_cookbook_status, invalidate_cookbook_status
 from app.mcp.tools import (
     recipes_carousel_today,
     recipes_doctor,
@@ -41,6 +42,7 @@ from app.mcp.tools import (
     recipes_search,
     recipes_seeker,
     recipes_subrecipe_resolve,
+    recipes_sync,
 )
 
 logger = logging.getLogger("wiserecipes.mcp")
@@ -150,6 +152,33 @@ def _tool_definitions() -> list[types.Tool]:
             ),
             inputSchema={"type": "object"},
         ),
+        types.Tool(
+            name="recipes_sync",
+            description=(
+                "Synchronise a cookbook's skills to their latest published "
+                "versions. By default (dry_run=false) this APplies updates "
+                "immediately. Pass dry_run=true to preview the diff without "
+                "mutating state."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["cookbook_id"],
+                "properties": {
+                    "cookbook_id": {
+                        "type": "string",
+                        "description": "UUID of the cookbook to synchronise.",
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "If true, return the diff without applying changes. "
+                            "Default is false (apply immediately)."
+                        ),
+                    },
+                },
+            },
+        ),
     ]
 
 
@@ -186,6 +215,13 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
         return recipes_doctor(db, install_dir=args["install_dir"])
     if name == "recipes_seeker":
         return recipes_seeker(db, **args)
+    if name == "recipes_sync":
+        return recipes_sync(
+            db,
+            cookbook_id=args["cookbook_id"],
+            dry_run=args.get("dry_run", False),
+            caller=caller,
+        )
     raise ValueError(f"unknown tool: {name}")
 
 
@@ -196,12 +232,30 @@ def call_tool_sync(
     caller: dict[str, Any] | None = None,
     db: Session | None = None,
 ) -> dict[str, Any]:
-    """Direct synchronous entry-point used by tests and the stdio loop."""
+    """Direct synchronous entry-point used by tests and the stdio loop.
+
+    Injects a ``cookbook_status`` block when the caller is an authenticated
+    user with outdated skills in their cookbooks.
+    """
     caller = caller or {"scope": "operator", "user_id": None}
     own_db = db is None
     session = db or SessionLocal()
     try:
-        return _dispatch(name, session, args or {}, caller)
+        payload = _dispatch(name, session, args or {}, caller)
+
+        # After a successful recipes_sync apply, invalidate cached status
+        if name == "recipes_sync" and isinstance(payload, dict) and payload.get("applied"):
+            invalidate_cookbook_status(caller.get("user_id"))
+
+        # Inject cookbook_status for authenticated users (skip for recipes_sync
+        # itself to avoid noisy double-reporting — sync already returns the diff).
+        if isinstance(payload, dict) and name != "recipes_sync":
+            user_id = caller.get("user_id")
+            status = get_cookbook_status(session, user_id)
+            if status:
+                payload["cookbook_status"] = status
+
+        return payload
     finally:
         if own_db:
             session.close()
