@@ -695,6 +695,8 @@ class Cookbook(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
+    share_tokens = relationship("CookbookShareToken", back_populates="cookbook", cascade="all, delete-orphan")
+
 
 class CookbookSkill(Base):
     """Provenance row linking a skill to a Cookbook.
@@ -715,6 +717,41 @@ class CookbookSkill(Base):
 
     __table_args__ = (
         Index("ix_cookbook_skills_source", "source"),
+    )
+
+
+class CookbookShareToken(Base):
+    """Share token for scoped delegation of cookbook access (Phase 3).
+
+    Token format: cbt_<8-hex-cookbook-prefix>_<32-hex-random>
+    Only the sha256 hash is stored; the plaintext is shown exactly once at creation.
+    """
+    __tablename__ = "cookbook_share_tokens"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    cookbook_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("cookbooks.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    token_hash = Column(Text, nullable=False)
+    token_prefix = Column(String(20), nullable=False)
+    scope = Column(String(8), nullable=False, default="edit", server_default="edit")
+    name = Column(String(120), nullable=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    is_active = Column(Boolean, default=True, server_default="true", nullable=False)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+
+    cookbook = relationship("Cookbook", back_populates="share_tokens")
+
+    __table_args__ = (
+        CheckConstraint(
+            "scope IN ('read', 'edit')",
+            name="ck_cookbook_share_tokens_scope",
+        ),
+        Index("idx_cbst_prefix", "token_prefix"),
+        Index("idx_cbst_cookbook_active", "cookbook_id", "is_active"),
     )
 
 

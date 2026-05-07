@@ -37,6 +37,7 @@ from app.routes import router
 from app.sandbox.routes import router as sandbox_router
 from app.skill_error_routes import router as skill_error_router
 from app.sse_routes import router as sse_router
+from app.share_token_routes import router as share_token_router
 from app.sync_fanout import get_fanout
 
 logger = logging.getLogger(__name__)
@@ -111,6 +112,7 @@ def create_app() -> FastAPI:
     app.include_router(recall_router)
     app.include_router(recipify_router)
     app.include_router(sse_router)
+    app.include_router(share_token_router)
     app.include_router(mcp_router)
 
     # Phase 1 (v7.1): Mount StreamableHTTP ASGI sub-app at /api/mcp/http.

@@ -35,11 +35,52 @@ from app.models import Cookbook, CookbookSkill, Skill, SkillVersion, User
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cookbooks", tags=["cookbooks"])
 
-
 COOKBOOK_TIERS = {"cook", "operator", "studio"}
 UNLIMITED_TIERS = {"operator", "studio"}
 ACTIVE_SUB_STATUSES = {"active", "trialing"}
 ALLOWED_SOURCES = {"forked", "custom-added", "overridden", "disabled"}
+
+
+# ── CBT scope enforcement for cookbook routes ─────────────────────────────
+
+def _enforce_cbt_scope_for_cookbook_route(request: Request, cookbook_id: str) -> None:
+    """Enforce cbt_ token scope for cookbook-level routes.
+
+    Raises 403 if:
+      - cbt_ token's cookbook_id != route's cookbook_id
+      - cbt_ token scope is 'read' and method is not GET
+    No-op if no cbt_ token is present (rec_ key path).
+    """
+    scope = getattr(request.state, "cookbook_token_scope", None)
+    if scope is None:
+        return  # No cbt_ token; rec_ key path
+
+    token_cb_id = getattr(request.state, "cookbook_token_cookbook_id", None)
+    try:
+        cid = UUID(cookbook_id)
+    except (ValueError, TypeError):
+        return  # Let downstream handle invalid ID
+
+    if token_cb_id != cid:
+        raise HTTPException(
+            status_code=403,
+            detail="Token scope mismatch (wrong cookbook)",
+        )
+
+    if scope == "read" and request.method != "GET":
+        raise HTTPException(
+            status_code=403,
+            detail="Token scope mismatch (read-only)",
+        )
+
+    # SECURITY: cbt_ tokens NEVER authorize publishing, regardless of scope.
+    # Even if a /api/cookbooks/{id}/_publish route is added in the future,
+    # this gate blocks it. Same for any path containing /_publish.
+    if "/_publish" in request.url.path:
+        raise HTTPException(
+            status_code=403,
+            detail="Share tokens cannot authorize publishing",
+        )
 
 
 # ── Tier gate ────────────────────────────────────────────────────────────
@@ -48,13 +89,30 @@ class CookbookCtx(BaseModel):
     user_id: Optional[UUID] = None
     is_master: bool = False
     tier: Optional[str] = None
+    # SECURITY: when populated, this caller authenticated via a cbt_ share token
+    # scoped to this single cookbook. Route-level checks must enforce that any
+    # cb the request acts on equals this value, and must block writes if scope='read'.
+    cbt_cookbook_id: Optional[UUID] = None
 
     model_config = {"arbitrary_types_allowed": True}
 
 
 def require_cookbook_tier(request: Request, db: Session = Depends(get_db)) -> CookbookCtx:
-    """401 unless caller has an active cook/operator/studio sub OR is master."""
+    """401 unless caller has an active cook/operator/studio sub OR is master.
+
+    SECURITY: cbt_ share tokens stamp api_key_user_id="CBT_TOKEN" (sentinel)
+    rather than None — None is the master-key signal. Without this guard
+    a cbt_ token would inherit master-tier access. Cbt_ tokens fall through
+    to the route-level scope checks in app/share_token_routes.py.
+    """
+    is_cbt = getattr(request.state, "is_cbt_token", False)
     api_key_user_id = getattr(request.state, "api_key_user_id", "MISSING")
+
+    # cbt_ token: no user, not master. The route-level scope checks gate access.
+    if is_cbt or api_key_user_id == "CBT_TOKEN":
+        cookbook_id = getattr(request.state, "cookbook_token_cookbook_id", None)
+        return CookbookCtx(user_id=None, is_master=False, tier="cook", cbt_cookbook_id=cookbook_id)
+
     if api_key_user_id is None:
         return CookbookCtx(user_id=None, is_master=True, tier="studio")
 
@@ -202,9 +260,11 @@ def list_cookbooks(
 @router.get("/{cookbook_id}")
 def get_cookbook(
     cookbook_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
     rows = _skills_for(db, cb.id, include_disabled=True)
     out = _to_cb_out(cb)
@@ -224,9 +284,11 @@ def get_cookbook(
 def add_skill_to_cookbook(
     cookbook_id: str,
     body: SkillAddIn,
+    request: Request,
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
 
     source = body.source or "custom-added"
@@ -277,9 +339,11 @@ def add_skill_to_cookbook(
 def remove_skill_from_cookbook(
     cookbook_id: str,
     slug: str,
+    request: Request,
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
 
     skill = db.query(Skill).filter(Skill.slug == slug).first()
@@ -314,10 +378,12 @@ def _make_install_url(skill_id: UUID, version_id: UUID) -> str:
 @router.post("/{cookbook_id}/install")
 def install_cookbook(
     cookbook_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
     """Idempotent: re-running returns the same payload. Disabled skills are skipped."""
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
     rows = _skills_for(db, cb.id, include_disabled=False)
 
@@ -359,9 +425,11 @@ def install_cookbook(
 @router.get("/{cookbook_id}/manifest")
 def cookbook_manifest(
     cookbook_id: str,
+    request: Request,
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
     rows = _skills_for(db, cb.id, include_disabled=True)
 
@@ -384,10 +452,12 @@ def cookbook_manifest(
 @router.get("/{cookbook_id}/sync")
 def cookbook_sync(
     cookbook_id: str,
+    request: Request,
     since: Optional[str] = None,
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
 
     since_dt: Optional[datetime] = None

@@ -170,7 +170,68 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 content={"detail": "Invalid or missing x-api-key header"},
             )
 
-        # Enforce rec_ prefix
+        # Enforce rec_ prefix — but first check for cbt_ share tokens
+        if key.startswith("cbt_"):
+            # SECURITY: cbt_ tokens are scoped strictly to cookbook routes.
+            # Without this gate they would inherit the master-key signal
+            # (api_key_user_id=None) on any other endpoint that uses
+            # `is_master = (api_key_user_id is None)`. Cookbook-prefixed paths
+            # ONLY — anything else is 403 with no info leak.
+            if not request.url.path.startswith("/api/cookbooks/"):
+                from fastapi.responses import JSONResponse
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Share tokens can only access cookbook routes"},
+                )
+            # Parse: cbt_<8-hex-prefix>_<32-hex-random>
+            parts = key.split("_")
+            if len(parts) != 3 or len(parts[1]) != 8 or len(parts[2]) != 32:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid share token format"},
+                )
+            cookbook_prefix_8 = parts[1]
+            from app.database import SessionLocal
+            from app.models import CookbookShareToken
+            from datetime import datetime, timezone as _tz
+            db = SessionLocal()
+            try:
+                candidates = (
+                    db.query(CookbookShareToken)
+                    .filter(
+                        CookbookShareToken.token_prefix == cookbook_prefix_8,
+                        CookbookShareToken.is_active == True,
+                    )
+                    .all()
+                )
+                key_hash = hashlib.sha256(key.encode()).hexdigest()
+                match = None
+                for row in candidates:
+                    if row.token_hash == key_hash:
+                        match = row
+                        break
+                if match is None:
+                    from fastapi.responses import JSONResponse
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "Invalid or revoked share token"},
+                    )
+                # Found valid share token
+                match.last_used_at = datetime.now(_tz.utc)
+                db.commit()
+                request.state.cookbook_token_scope = match.scope
+                request.state.cookbook_token_cookbook_id = match.cookbook_id
+                # SECURITY: do NOT set api_key_user_id=None — that's the master-key
+                # sentinel. Use a string sentinel so any code that checks
+                # `is_master = (api_key_user_id is None)` correctly excludes cbt_.
+                request.state.api_key_user_id = "CBT_TOKEN"
+                request.state.api_key_id = None
+                request.state.is_cbt_token = True
+                return await call_next(request)
+            finally:
+                db.close()
+
         if not key.startswith(API_KEY_PREFIX):
             from fastapi.responses import JSONResponse
             return JSONResponse(
