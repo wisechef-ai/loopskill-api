@@ -55,6 +55,11 @@ def upgrade() -> None:
     if _has_column(bind, "cookbooks", "shared_key_hash"):
         op.execute("ALTER TABLE cookbooks DROP COLUMN IF EXISTS shared_key_hash CASCADE")
 
+    # 1b) users.display_name was a legacy NOT NULL — v7 model has no field for it.
+    # Drop the constraint so v7 INSERT (without display_name) succeeds.
+    if dialect == "postgresql" and _has_column(bind, "users", "display_name"):
+        op.execute("ALTER TABLE users ALTER COLUMN display_name DROP NOT NULL")
+
     # 2) Unique partial index (only one base cookbook ever)
     # SQLite doesn't support partial indexes pre-3.8, but our test infra is on 3.40+,
     # so we just guard with the helper.
