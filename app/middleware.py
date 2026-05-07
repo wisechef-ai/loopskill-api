@@ -96,6 +96,11 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         # The READ endpoint /api/v1/fleet/weekly is gated separately and is
         # NOT prefixed-public.
         "/api/v1/heartbeat",
+        # Phase A v2 — MCP healthz/discovery is unauthenticated so MCP clients
+        # can probe server availability before sending credentials. Actual SSE
+        # transport (/api/mcp/sse) and message endpoint (/api/mcp/messages/)
+        # remain auth-required and re-validate the key per request.
+        "/api/mcp/healthz",
     )
 
     # Phase A — POST /api/intent-survey is anonymous; GET /api/intent-survey/results
