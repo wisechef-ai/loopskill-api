@@ -1,0 +1,103 @@
+name: Sync recipes-skill repo
+
+# When the API surface or skill-side helpers change in recipes-api,
+# auto-PR the relevant artifacts into wisechef-ai/recipes-skill so the
+# distributed skill (the customer-facing piece) never falls behind production.
+#
+# Pattern: open a PR (never push directly), with reviewers requested.
+# Keeps a clear audit trail; lets us back out a sync that fights skill-repo work.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "tools/recipes_cli.py"
+      - "app/mcp/server.py"
+      - "docs/recipes-skill/**"
+      - "scripts/sync_recipes_skill.py"
+      - "scripts/open_skill_sync_pr.sh"
+      - ".github/workflows/sync-recipes-skill.yml"
+  workflow_dispatch:
+    inputs:
+      force_pr:
+        description: "Force open a PR even if no diff detected"
+        required: false
+        default: "false"
+
+concurrency:
+  group: recipes-skill-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: Mirror artifacts into recipes-skill
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout recipes-api
+        uses: actions/checkout@v4
+        with:
+          path: recipes-api
+          fetch-depth: 1
+
+      - name: Detect missing PAT
+        id: pat
+        env:
+          PAT: ${{ secrets.RECIPES_SKILL_PAT }}
+        run: |
+          if [ -z "$PAT" ]; then
+            echo "::warning::RECIPES_SKILL_PAT secret not set — skipping sync. Set it via 'gh secret set RECIPES_SKILL_PAT' to enable."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout recipes-skill
+        if: steps.pat.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: wisechef-ai/recipes-skill
+          path: recipes-skill
+          token: ${{ secrets.RECIPES_SKILL_PAT }}
+          fetch-depth: 0
+
+      - name: Configure git identity
+        if: steps.pat.outputs.skip != 'true'
+        run: |
+          cd recipes-skill
+          git config user.name "wisechef-bot"
+          git config user.email "bot@wisechef.ai"
+
+      - name: Run sync script
+        if: steps.pat.outputs.skip != 'true'
+        id: sync
+        run: |
+          set -e
+          cd recipes-api
+          if [ -f scripts/sync_recipes_skill.py ]; then
+            python3 scripts/sync_recipes_skill.py \
+              --source-repo "$(pwd)" \
+              --target-repo "$(realpath ../recipes-skill)" \
+              --commit-sha "${{ github.sha }}"
+          else
+            echo "::warning::scripts/sync_recipes_skill.py not present yet; skipping"
+            exit 0
+          fi
+
+      - name: Open PR with sync diff
+        if: steps.pat.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RECIPES_SKILL_PAT }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_AUTHOR: ${{ github.actor }}
+          SOURCE_REPO: ${{ github.repository }}
+          SOURCE_COMMIT_MSG: ${{ github.event.head_commit.message }}
+          SKILL_REPO_DIR: ${{ github.workspace }}/recipes-skill
+          FORCE_PR: ${{ inputs.force_pr || 'false' }}
+        run: |
+          chmod +x recipes-api/scripts/open_skill_sync_pr.sh
+          recipes-api/scripts/open_skill_sync_pr.sh

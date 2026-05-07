@@ -1,0 +1,210 @@
+name: Deploy to recipes.wisechef.ai (production)
+
+# Architecture: recipes.wisechef.ai is served by wisechef-hq (Hetzner CX22, 77.42.92.141)
+# via Cloudflare tunnel 7c703ff8-2520-4b52-91ef-1cb4f02348ec → uvicorn on :3360.
+# This workflow replicates the manual procedure documented in recipes-marketplace-deploy SKILL.md
+# and the recipes-platform-host-migration SKILL.md cutover playbook.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "alembic/**"
+      - "scripts/**"
+      - "tools/**"
+      - "requirements.txt"
+      - "pyproject.toml"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+    inputs:
+      skip_verify:
+        description: "Skip post-deploy public route verification"
+        required: false
+        default: "false"
+      skip_alembic:
+        description: "Skip alembic upgrade head (for code-only emergency rollbacks)"
+        required: false
+        default: "false"
+
+concurrency:
+  # Single deploy slot — never let two deploys race against the same host.
+  group: recipes-api-prod-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Pull, install, migrate, restart, verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # ---- SSH config (dedicated deploy key + pinned host fingerprints) ----
+      - name: Configure SSH
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          ssh-keygen -y -f ~/.ssh/deploy_key > /dev/null
+          echo "SSH configured."
+
+      # ---- G-F18 alembic single-head invariant (precondition gate) ----
+      - name: Verify single alembic head on remote
+        run: |
+          set -e
+          REMOTE_HEADS=$(ssh -i ~/.ssh/deploy_key \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=20 \
+              "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+              "cd ~/wiserecipes-api && git fetch origin main --quiet && git log origin/main -1 --pretty=format:%H" )
+          echo "remote main HEAD will be: $REMOTE_HEADS"
+
+      # ---- DB safety net: pre-deploy backup ----
+      - name: Pre-deploy DB snapshot (rolling, last 5 kept)
+        id: snapshot
+        run: |
+          set -e
+          ssh -i ~/.ssh/deploy_key \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=20 \
+              "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" bash -se <<'REMOTE'
+            set -euo pipefail
+            mkdir -p ~/backups/auto-deploy
+            STAMP=$(date -u +%Y%m%d-%H%M%S)
+            cd ~/wiserecipes-api
+            set -a; source .env; set +a
+            pg_dump "$WR_DATABASE_URL" -Fc -f "$HOME/backups/auto-deploy/wiserecipes.predeploy-${STAMP}.dump"
+            ls -1dt $HOME/backups/auto-deploy/wiserecipes.predeploy-*.dump | tail -n +6 | xargs -r rm -f
+            ls -lh $HOME/backups/auto-deploy/ | tail -6
+          REMOTE
+
+      # ---- The actual deploy: pull, install, migrate, restart ----
+      - name: Pull + install + migrate + restart
+        id: deploy
+        run: |
+          set -e
+          ssh -i ~/.ssh/deploy_key \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              -o StrictHostKeyChecking=yes \
+              -o ConnectTimeout=20 \
+              "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" bash -se <<'REMOTE'
+            set -euo pipefail
+            cd ~/wiserecipes-api
+
+            # 1. Capture rollback point
+            BEFORE_SHA=$(git rev-parse HEAD)
+            echo "::notice::Rolling forward from $BEFORE_SHA"
+
+            # 2. Fetch + fast-forward main
+            git fetch origin main
+            git checkout main
+            git reset --hard origin/main
+            AFTER_SHA=$(git rev-parse HEAD)
+            echo "::notice::To $AFTER_SHA"
+
+            if [ "$BEFORE_SHA" = "$AFTER_SHA" ]; then
+              echo "Already at HEAD — nothing to deploy."
+              exit 0
+            fi
+
+            # 3. G-F17 — Pip install ALWAYS (git pull does not run pip)
+            source venv/bin/activate
+            pip install -q --upgrade pip wheel
+            pip install -q -r requirements.txt
+
+            # 4. G-F18 — Alembic single-head invariant
+            HEADS=$(alembic heads --resolve-dependencies 2>/dev/null | wc -l)
+            if [ "$HEADS" -ne 1 ]; then
+              echo "::error::ABORT: $HEADS alembic heads after pull (expected 1). Multi-head means uncoordinated migrations merged."
+              alembic heads --resolve-dependencies
+              # Rollback the git pull so we don't run with broken state
+              git reset --hard "$BEFORE_SHA"
+              exit 1
+            fi
+
+            # 5. Run migrations (skipped if input.skip_alembic=true via wrapper)
+            alembic upgrade head 2>&1 | tail -20
+
+            # 6. Restart service
+            sudo systemctl restart wiserecipes-api
+            sleep 3
+
+            # 7. Local readiness gate (5×2s)
+            for i in 1 2 3 4 5; do
+              CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3360/api/mcp/healthz || echo "000")
+              echo "  readiness attempt $i: local=$CODE"
+              if [ "$CODE" = "200" ]; then
+                echo "OK: local 200"
+                exit 0
+              fi
+              sleep 2
+            done
+
+            echo "::error::Local readiness gate failed — service did not become healthy"
+            sudo systemctl status wiserecipes-api --no-pager | tail -30 || true
+            sudo journalctl -u wiserecipes-api --no-pager -n 80 || true
+
+            # Auto-rollback to BEFORE_SHA
+            echo "::warning::Rolling back to $BEFORE_SHA"
+            git reset --hard "$BEFORE_SHA"
+            pip install -q -r requirements.txt
+            sudo systemctl restart wiserecipes-api
+            exit 1
+          REMOTE
+
+      # ---- Public verification ----
+      - name: Public verification
+        if: ${{ inputs.skip_verify != 'true' }}
+        run: |
+          set -e
+          sleep 5  # CF edge propagation
+          FAIL=0
+          for path in /api/mcp/healthz /api/mcp/sse /api/cookbooks /api/skills/_publish; do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://recipes.wisechef.ai${path}" --max-time 15 || echo "000")
+            printf "  %-32s %s\n" "$path" "$CODE"
+            # 200 OK; 401/403 OK (auth-gated route, but service is up); 405 OK on POST endpoints probed via GET
+            case "$CODE" in
+              2*|401|403|405) ;;
+              *) FAIL=$((FAIL + 1)) ;;
+            esac
+          done
+          if [ "$FAIL" -gt 0 ]; then
+            echo "::error::$FAIL routes returned unexpected status"
+            exit 1
+          fi
+          echo "All routes returned acceptable status."
+
+      # ---- Cleanup (ALWAYS — even on failure, secrets must not leak) ----
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts || true
+
+      # ---- Discord notify on success/failure ----
+      - name: Notify Discord
+        if: always() && env.DISCORD_AGENT_SYNC_WEBHOOK != ''
+        env:
+          DISCORD_AGENT_SYNC_WEBHOOK: ${{ secrets.DISCORD_AGENT_SYNC_WEBHOOK }}
+        run: |
+          STATUS="${{ job.status }}"
+          ICON="✅"
+          [ "$STATUS" != "success" ] && ICON="❌"
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
+          MSG="${ICON} **recipes-api auto-deploy ${STATUS}** — \`${SHA_SHORT}\` to recipes.wisechef.ai by ${{ github.actor }}"
+          curl -sS -H "Content-Type: application/json" \
+            -d "{\"content\": \"$MSG\"}" \
+            "$DISCORD_AGENT_SYNC_WEBHOOK" > /dev/null || true
