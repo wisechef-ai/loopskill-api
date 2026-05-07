@@ -126,7 +126,10 @@ jobs:
             pip install -q --upgrade pip wheel
             pip install -q -r requirements.txt
 
-            # 4. G-F18 — Alembic single-head invariant
+            # 4. Source .env so DATABASE_URL/WR_DATABASE_URL etc are available to alembic
+            set -a; source .env; set +a
+
+            # 5. G-F18 — Alembic single-head invariant
             HEADS=$(alembic heads --resolve-dependencies 2>/dev/null | wc -l)
             if [ "$HEADS" -ne 1 ]; then
               echo "::error::ABORT: $HEADS alembic heads after pull (expected 1). Multi-head means uncoordinated migrations merged."
@@ -136,14 +139,14 @@ jobs:
               exit 1
             fi
 
-            # 5. Run migrations (skipped if input.skip_alembic=true via wrapper)
+            # 6. Run migrations (skipped if input.skip_alembic=true via wrapper)
             alembic upgrade head 2>&1 | tail -20
 
-            # 6. Restart service
+            # 7. Restart service
             sudo systemctl restart wiserecipes-api
             sleep 3
 
-            # 7. Local readiness gate (5×2s)
+            # 8. Local readiness gate (5×2s)
             for i in 1 2 3 4 5; do
               CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3360/api/mcp/healthz || echo "000")
               echo "  readiness attempt $i: local=$CODE"
