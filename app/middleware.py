@@ -65,6 +65,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     # Prefixes for paths that use JWT auth instead of API key
     JWT_AUTH_PREFIXES = (
         "/api/auth/",
+        "/api/me/",  # WIS-660 referral routes (and any future /api/me/* user-scoped JWT endpoints)
         "/api/stripe/onboard",
         "/api/stripe/status",
         "/api/stripe/dashboard",
@@ -73,6 +74,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         "/api/billing/",
         "/api/api-keys",
         "/api/buckets/",
+        "/api/subscriptions/",  # subscriptions/downgrade is JWT-authed
     )
     WEBHOOK_PATHS = {
         "/api/stripe/webhook",
