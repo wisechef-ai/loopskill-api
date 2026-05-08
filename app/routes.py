@@ -13,6 +13,7 @@ Endpoints per WIS-462 spec:
 """
 
 import json
+import logging
 import os
 import time
 import tomllib
@@ -23,6 +24,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session, joinedload
+
+logger = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.models import (
@@ -219,35 +222,70 @@ def trending_skills(
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    """Trending = most telemetry install events in the given period."""
-    since_map = {"day": 1, "week": 7, "month": 30}
-    since_days = since_map[period]
-    since = datetime.now(timezone.utc) - timedelta(days=since_days)
+    """Trending = most telemetry install events in the given period.
 
-    # Aggregate telemetry install counts per skill
-    subq = (
-        db.query(
-            TelemetryEvent.skill_slug,
-            func.count(TelemetryEvent.id).label("install_count"),
-        )
-        .filter(
+    RCP-11: when the requested window has no install events, transparently
+    widen the lookback (day → week → month → all-time) so a quiet stretch
+    never returns empty trending while real install history exists. The
+    response is the same shape; widening is silent on the wire and logged
+    server-side so we can spot a chronically dead telemetry stream.
+    """
+    since_map = {"day": 1, "week": 7, "month": 30}
+    fallback_chain = ["day", "week", "month", "all"]
+    # Start the widening at (or after) the user's requested window.
+    start_idx = fallback_chain.index(period)
+
+    now = datetime.now(timezone.utc)
+
+    def _query_for(window: str):
+        filters = [
             TelemetryEvent.event_type == "install",
             TelemetryEvent.skill_slug.isnot(None),
-            TelemetryEvent.created_at >= since,
+        ]
+        if window != "all":
+            filters.append(
+                TelemetryEvent.created_at >= now - timedelta(days=since_map[window])
+            )
+        subq = (
+            db.query(
+                TelemetryEvent.skill_slug,
+                func.count(TelemetryEvent.id).label("install_count"),
+            )
+            .filter(*filters)
+            .group_by(TelemetryEvent.skill_slug)
+            .subquery()
         )
-        .group_by(TelemetryEvent.skill_slug)
-        .subquery()
-    )
+        return (
+            db.query(Skill)
+            .options(joinedload(Skill.versions), joinedload(Skill.creator))
+            .join(subq, Skill.slug == subq.c.skill_slug)
+            .filter(Skill.is_public == True)  # noqa: E712
+            .order_by(subq.c.install_count.desc())
+        )
 
-    query = (
-        db.query(Skill)
-        .options(joinedload(Skill.versions), joinedload(Skill.creator))
-        .join(subq, Skill.slug == subq.c.skill_slug)
-        .filter(Skill.is_public == True)
-        .order_by(subq.c.install_count.desc())
-    )
+    query = None
+    total = 0
+    chosen_window = period
+    for window in fallback_chain[start_idx:]:
+        candidate = _query_for(window)
+        candidate_total = candidate.count()
+        if candidate_total > 0:
+            query = candidate
+            total = candidate_total
+            chosen_window = window
+            break
 
-    total = query.count()
+    if query is None:
+        # Genuinely no install telemetry anywhere — return the empty shape.
+        return SkillSearchResult(results=[], total=0, page=page, page_size=page_size)
+
+    if chosen_window != period:
+        logger.info(
+            "trending: widened window %s → %s (no installs in requested period)",
+            period,
+            chosen_window,
+        )
+
     results = query.offset((page - 1) * page_size).limit(page_size).all()
 
     counts = _install_counts_for(db, [s.id for s in results])
