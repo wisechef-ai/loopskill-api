@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import re
 import threading
 import time
@@ -30,6 +31,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import IncidentReport, Skill
+from app import github_dispatch, feedback_ratelimit
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +156,7 @@ def _audit_payload(payload: dict[str, Any]) -> str | None:
 
 # ── Rate limiting ───────────────────────────────────────────────────────
 
-_RATE_LIMIT_MAX = 20  # 20/hr for skill-error (higher than incident's 10)
+_RATE_LIMIT_MAX = 30  # 30/hr for skill-error (bumped from 20 in Stream 1)
 _RATE_LIMIT_WINDOW_S = 3600
 _buckets: dict[str, list[float]] = defaultdict(list)
 _buckets_lock = threading.Lock()
@@ -255,11 +257,27 @@ def post_skill_error(
     # Anonymize via Presidio + custom layer
     anon = _anonymize_payload(raw)
 
-    # Rate limit
+    # Rate limit (local backstop)
     if not _check_rate_limit(payload.agent_fp_anon):
         raise HTTPException(
             status_code=429,
             detail="rate limit exceeded for agent_fp_anon",
+        )
+
+    # Cross-tool ceiling check (Stream 1: shared 30/24h bucket)
+    _cross_identity = payload.agent_fp_anon
+    _cross_sig = hashlib.sha256(
+        f"{payload.skill_slug}|{payload.error_signature}".encode()
+    ).hexdigest()
+    _cross_rl = feedback_ratelimit.check_and_record(
+        identity=_cross_identity,
+        tool="skill-error",
+        signature=_cross_sig,
+    )
+    if not _cross_rl.allowed and not _cross_rl.deduped:
+        raise HTTPException(
+            status_code=429,
+            detail="cross-tool rate limit exceeded",
         )
 
     occurred = payload.occurred_at
@@ -279,6 +297,21 @@ def post_skill_error(
     db.add(report)
     db.commit()
     db.refresh(report)
+
+    # Compute composite signature and fire GitHub dispatch (Stream 1)
+    composite_sig = hashlib.sha256(
+        f"{payload.skill_slug}|{payload.error_signature}".encode()
+    ).hexdigest()
+    github_dispatch.dispatch_event(
+        "skill-error",
+        {
+            "id": str(report.id),
+            "skill_slug": payload.skill_slug,
+            "error_signature": payload.error_signature,
+            "agent_fp_anon": payload.agent_fp_anon,
+            "signature": composite_sig,
+        },
+    )
 
     logger.info(
         "skill-error accepted: skill=%s sig=%s agent=%s",

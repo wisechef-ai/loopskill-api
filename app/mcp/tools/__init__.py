@@ -14,6 +14,9 @@ from app.mcp.tools.subrecipe_resolve import recipes_subrecipe_resolve
 from app.mcp.tools.doctor import recipes_doctor
 from app.mcp.tools.seeker import recipes_seeker
 from app.mcp.tools.recipes_sync import recipes_sync
+from app.mcp.tools.feedback import recipes_feedback
+from app.mcp.tools.recipify_request import recipes_request_recipe
+from app.mcp.tools.skill_error import recipes_report_skill_error
 
 __all__ = [
     "recipes_search",
@@ -26,4 +29,7 @@ __all__ = [
     "recipes_doctor",
     "recipes_seeker",
     "recipes_sync",
+    "recipes_feedback",
+    "recipes_request_recipe",
+    "recipes_report_skill_error",
 ]

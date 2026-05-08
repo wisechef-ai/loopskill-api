@@ -43,6 +43,9 @@ from app.mcp.tools import (
     recipes_seeker,
     recipes_subrecipe_resolve,
     recipes_sync,
+    recipes_feedback,
+    recipes_request_recipe,
+    recipes_report_skill_error,
 )
 
 logger = logging.getLogger("wiserecipes.mcp")
@@ -179,6 +182,73 @@ def _tool_definitions() -> list[types.Tool]:
                 },
             },
         ),
+        types.Tool(
+            name="recipes_feedback",
+            description=(
+                "Send feedback about recipes.wisechef.ai. Use when the "
+                "user says 'write feedback that...', 'give feedback...', "
+                "'report that...', or expresses frustration with the platform "
+                "UX, search, billing, or docs. Auto-creates a labelled GitHub "
+                "issue. Rate limited per 24h."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["category", "message"],
+                "properties": {
+                    "category": {
+                        "type": "string",
+                        "enum": ["ux", "search", "billing", "docs", "install", "other"],
+                    },
+                    "message": {"type": "string"},
+                    "context": {"type": "object"},
+                    "agent_id": {"type": "string"},
+                    "force": {"type": "boolean", "default": False},
+                    "confirmation": {"type": "string"},
+                },
+            },
+        ),
+        types.Tool(
+            name="recipes_request_recipe",
+            description=(
+                "Request a new recipe (skill). Use when the user says "
+                "'recipify X', 'please add X to recipes', "
+                "'we need a recipe for X'. Creates a GitHub wishlist issue."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["target_name", "why_useful"],
+                "properties": {
+                    "target_name": {"type": "string"},
+                    "why_useful": {"type": "string"},
+                    "suggested_sources": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "agent_id": {"type": "string"},
+                },
+            },
+        ),
+        types.Tool(
+            name="recipes_report_skill_error",
+            description=(
+                "Report that an installed recipe is broken, has wrong "
+                "instructions, or fails on this host. Use when the user says "
+                "'this skill is broken', 'report this skill', or when an "
+                "install/run fails. Auto-creates a labelled GitHub issue with "
+                "the failure signature."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["slug", "signature", "summary"],
+                "properties": {
+                    "slug": {"type": "string"},
+                    "signature": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "details": {"type": "string"},
+                    "agent_id": {"type": "string"},
+                },
+            },
+        ),
     ]
 
 
@@ -221,6 +291,36 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             cookbook_id=args["cookbook_id"],
             dry_run=args.get("dry_run", False),
             caller=caller,
+        )
+    if name == "recipes_feedback":
+        return recipes_feedback(
+            db,
+            category=args["category"],
+            message=args["message"],
+            context=args.get("context"),
+            agent_id=args.get("agent_id"),
+            force=args.get("force", False),
+            confirmation=args.get("confirmation"),
+            api_key_id=caller.get("api_key_id"),
+        )
+    if name == "recipes_request_recipe":
+        return recipes_request_recipe(
+            db,
+            target_name=args["target_name"],
+            why_useful=args["why_useful"],
+            suggested_sources=args.get("suggested_sources"),
+            agent_id=args.get("agent_id"),
+            api_key_id=caller.get("api_key_id"),
+        )
+    if name == "recipes_report_skill_error":
+        return recipes_report_skill_error(
+            db,
+            slug=args["slug"],
+            signature=args["signature"],
+            summary=args["summary"],
+            details=args.get("details"),
+            agent_id=args.get("agent_id"),
+            api_key_id=caller.get("api_key_id"),
         )
     raise ValueError(f"unknown tool: {name}")
 

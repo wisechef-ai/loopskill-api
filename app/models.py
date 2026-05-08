@@ -807,3 +807,54 @@ class FleetSubscription(Base):
     cookbook_id = Column(UUID(as_uuid=True), ForeignKey("cookbooks.id", ondelete="CASCADE"), primary_key=True, nullable=False)
     channel = Column(String(20), nullable=False, default="stable", server_default="stable")
     subscribed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# ── Feedback v1 tables (Stream 1 — feedback-loop sprint) ────────────────────
+
+class RecipifyRequest(Base):
+    """User request to add a new recipe/skill to the marketplace.
+
+    Created via POST /api/v1/recipify-request or the recipes_request_recipe
+    MCP tool. Dispatches a GitHub repository_dispatch event of type
+    'recipify-request'.
+    """
+    __tablename__ = "recipify_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    target_name = Column(Text, nullable=False)
+    why_useful = Column(Text, nullable=False)
+    suggested_sources = Column(JSON, nullable=False, default=list)
+    agent_id = Column(Text, nullable=True)
+    api_key_id = Column(UUID(as_uuid=True), nullable=True)
+    signature = Column(Text, nullable=False)  # sha256(target_name|why_useful) hex
+    issue_url = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("idx_rr_api_key_created", "api_key_id", "created_at"),
+        Index("idx_rr_signature", "signature"),
+    )
+
+
+class FeedbackSubmission(Base):
+    """User/agent feedback submission.
+
+    Created via POST /api/v1/feedback or the recipes_feedback MCP tool.
+    Dispatches a GitHub repository_dispatch event of type 'feedback'.
+    """
+    __tablename__ = "feedback_submissions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    category = Column(Text, nullable=False)
+    message = Column(Text, nullable=False)
+    context = Column(JSON, nullable=False, default=dict)
+    agent_id = Column(Text, nullable=True)
+    api_key_id = Column(UUID(as_uuid=True), nullable=True)
+    signature = Column(Text, nullable=False)  # sha256(category|message) hex
+    issue_url = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("idx_fs_api_key_created", "api_key_id", "created_at"),
+        Index("idx_fs_signature", "signature"),
+    )
