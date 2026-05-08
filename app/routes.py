@@ -56,6 +56,19 @@ from app.schemas import (
     TelemetryIn,
 )
 
+# WIS-903: Retired skill registry
+from pathlib import Path as _Path
+_RETIREMENT_FILE = _Path(__file__).resolve().parent.parent / 'retired-skills.txt'
+_RETIRED_SKILLS: dict[str, str] = {}
+if _RETIREMENT_FILE.exists():
+    for _line in _RETIREMENT_FILE.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith('#'):
+            _parts = _line.split(None, 1)
+            if len(_parts) == 2:
+                _RETIRED_SKILLS[_parts[0]] = _parts[1]
+
+
 router = APIRouter(prefix="/api")
 
 VERSION = "0.4.0"
@@ -263,6 +276,13 @@ def install_skill(
     """
     skill = db.query(Skill).filter(Skill.slug == slug).first()
     if not skill:
+        # WIS-903: check retired skill registry
+        _alt = _RETIRED_SKILLS.get(slug)
+        if _alt:
+            raise HTTPException(
+                status_code=404,
+                detail=f"This skill was retired 2026-05-07. See: {_alt} or contact support.",
+            )
         raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
 
     # Visibility check
@@ -631,6 +651,13 @@ def get_skill_detail(slug: str, db: Session = Depends(get_db)):
                         "alias_expires_at": alias.expires_at.isoformat() if alias.expires_at else None,
                     },
                 )
+        # WIS-903: check retired skill registry
+        _alt = _RETIRED_SKILLS.get(slug)
+        if _alt:
+            raise HTTPException(
+                status_code=404,
+                detail=f"This skill was retired 2026-05-07. See: {_alt} or contact support.",
+            )
         raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
 
     related_objs = _resolve_related(db, skill)

@@ -79,3 +79,4 @@ CLAUDE.md
 .gitnexus/
 .omx/
 .v6venv/
+*.bak

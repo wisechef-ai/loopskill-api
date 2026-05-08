@@ -1,0 +1,32 @@
+# Retired skills — WIS-903 catalog cleanup (2026-05-07)
+# Format: slug closest_keep_slug
+xurl graphify
+scrapling web-scraper-pro
+test-driven-development clean-code
+systematic-debugging clean-code
+excalidraw vision-driven-svg-iteration
+pixel-art vision-driven-svg-iteration
+p5js vision-driven-svg-iteration
+manim-video hyperframes-video
+arxiv tavily-search
+blogwatcher tavily-search
+polymarket tavily-search
+notion client-reporter
+powerpoint client-reporter
+github-pr-workflow code-reviewer
+github-issues code-reviewer
+ascii-art vision-driven-svg-iteration
+gif-search hyperframes-video
+songwriting-and-ai-music hyperframes-video
+google-workspace client-reporter
+dspy graphify
+audiocraft hyperframes-video
+design-md client-reporter
+baoyu-infographic vision-driven-svg-iteration
+baoyu-comic vision-driven-svg-iteration
+architecture-diagram vision-driven-svg-iteration
+agent-browser web-scraper-pro
+codebase-inspection code-reviewer
+ocr-and-documents client-reporter
+linear client-reporter
+llm-wiki tavily-search
