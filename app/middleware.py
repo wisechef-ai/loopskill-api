@@ -316,9 +316,23 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     Per the spec: 60 req/min (configurable via RATE_LIMIT_PER_MINUTE).
     Uses Redis Sorted Sets for precise sliding window counting.
     Falls back to in-memory if Redis is down.
+
+    Real client IP is taken from CF-Connecting-IP (Cloudflare) or the first
+    entry in X-Forwarded-For when present, NOT request.client.host. Behind
+    Cloudflare, request.client.host is the edge IP and shared across every
+    visitor — which would put the entire internet into a single 60/min bucket.
     """
 
+    # Paths we never rate-limit:
+    # - docs / health: utility
+    # - / : landing page
+    # - /api/auth/*/login + /api/auth/*/callback : OAuth one-shot redirects.
+    #   Limiting these by shared IP locks every visitor out of GitHub/Google
+    #   sign-in once Cloudflare's pop has 60 hits in the window. The OAuth
+    #   provider already enforces per-app rate limits server-side; double-
+    #   limiting here breaks login without adding security.
     EXEMPT_PATHS = {"/docs", "/openapi.json", "/redoc", "/healthz", "/", "/api/healthz"}
+    EXEMPT_PREFIXES = ("/api/auth/github/", "/api/auth/google/")
 
     def __init__(self, app, max_requests: int = 60, window_seconds: int = 60):
         super().__init__(app)
@@ -326,6 +340,26 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self.window_seconds = window_seconds
         # In-memory fallback
         self._hits: dict[str, list[float]] = defaultdict(list)
+
+    @staticmethod
+    def _real_client_ip(request: Request) -> str:
+        """Get the actual visitor IP, not the Cloudflare/proxy edge IP.
+
+        Order: CF-Connecting-IP > X-Forwarded-For (first hop) > request.client.host.
+        Header values are validated as IPs to avoid spoofing-via-header from
+        clients that hit the origin directly (only trust headers in proxied env).
+        """
+        # Cloudflare always sets this when proxying
+        cf_ip = request.headers.get("cf-connecting-ip")
+        if cf_ip:
+            return cf_ip.strip()
+        # Generic reverse-proxy fallback — first IP in the chain is the client
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            first = xff.split(",")[0].strip()
+            if first:
+                return first
+        return request.client.host if request.client else "unknown"
 
     def _check_redis(self, client_ip: str, now: float) -> bool:
         """Check rate limit via Redis sliding window. Returns True if allowed."""
@@ -364,8 +398,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if request.url.path in self.EXEMPT_PATHS:
             return await call_next(request)
+        if any(request.url.path.startswith(p) for p in self.EXEMPT_PREFIXES):
+            return await call_next(request)
 
-        client_ip = request.client.host if request.client else "unknown"
+        client_ip = self._real_client_ip(request)
         now = time.time()
 
         allowed = self._check_redis(client_ip, now)
