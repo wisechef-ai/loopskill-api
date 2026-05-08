@@ -1,6 +1,6 @@
 """feedback_v1_tables
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: fb1f00d000aa
 Revises: 0d8c25489899
 Create Date: 2026-05-08 18:00:00.000000
 
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = "a1b2c3d4e5f6"
+revision = "fb1f00d000aa"
 down_revision = "0d8c25489899"
 branch_labels = None
 depends_on = None
