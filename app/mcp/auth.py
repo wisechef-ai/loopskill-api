@@ -26,16 +26,17 @@ def validate_key(key: str | None, db: Session) -> dict[str, Any]:
     NotImplementedError per spec.
     """
     if not key:
-        return {"scope": "unauthorized", "user_id": None}
+        return {"scope": "unauthorized", "user_id": None, "api_key_id": None}
 
     if key.startswith("sub_"):
         raise NotImplementedError("phase-C")
 
     if not key.startswith("rec_"):
-        return {"scope": "unauthorized", "user_id": None}
+        return {"scope": "unauthorized", "user_id": None, "api_key_id": None}
 
     if key == settings.API_KEY:
-        return {"scope": "operator", "user_id": None}
+        # Master operator key — no per-user identity, no APIKey row.
+        return {"scope": "operator", "user_id": None, "api_key_id": None}
 
     key_hash = hashlib.sha256(key.encode()).hexdigest()
     api_key_obj = (
@@ -44,6 +45,10 @@ def validate_key(key: str | None, db: Session) -> dict[str, Any]:
         .first()
     )
     if api_key_obj:
-        return {"scope": "operator", "user_id": api_key_obj.user_id}
+        return {
+            "scope": "operator",
+            "user_id": api_key_obj.user_id,
+            "api_key_id": api_key_obj.id,
+        }
 
-    return {"scope": "unauthorized", "user_id": None}
+    return {"scope": "unauthorized", "user_id": None, "api_key_id": None}

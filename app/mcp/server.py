@@ -261,12 +261,56 @@ def call_tool_sync(
             session.close()
 
 
+def _caller_from_request_context(server: Server) -> dict[str, Any]:
+    """Return the caller dict stashed on the active request, or a stdio fallback.
+
+    SSE and StreamableHTTP transports both attach the original Starlette
+    ``Request`` object to the MCP ``RequestContext.request`` field. Our auth
+    layer (``_authenticate`` for SSE/messages, the ASGI wrapper for
+    StreamableHTTP) has already validated the x-api-key and stashed the
+    resolved caller dict on ``request.state.mcp_caller`` (which is backed by
+    ``scope["state"]``). We retrieve it here so each tool call sees the
+    caller that actually authenticated *this* call — not a hardcoded
+    ``user_id=None`` master.
+
+    Falls back to the stdio operator default when there is no active
+    request context (stdio loop, direct call_tool_sync, in-process tests
+    that drive the request handler manually).
+    """
+    fallback = {"scope": "operator", "user_id": None, "api_key_id": None}
+    try:
+        ctx = server.request_context
+    except LookupError:
+        return fallback
+
+    request = getattr(ctx, "request", None)
+    if request is None:
+        return fallback
+
+    # request.state is backed by scope["state"]; if our auth layer didn't run
+    # (shouldn't happen — auth gates both transports), fall through cleanly.
+    state = getattr(request, "state", None)
+    if state is None:
+        return fallback
+    caller = getattr(state, "mcp_caller", None)
+    if not isinstance(caller, dict):
+        return fallback
+    return caller
+
+
 def build_mcp_server(db_factory: Callable[[], Session] = SessionLocal) -> Server:
     """Build a fresh ``mcp.Server`` instance bound to the supplied db factory.
 
     A factory (rather than a single session) is required because each tool
     invocation needs an independent session — long-lived MCP connections
     would otherwise leak transactions.
+
+    The server is built once per transport connection (SSE: per ``GET /sse``;
+    StreamableHTTP: once at app startup, reused across sessions; stdio: once
+    per process). Auth context is therefore *not* baked into the closure —
+    it is resolved per-call from the active ``request_context`` so each
+    JSON-RPC ``tools/call`` runs with the user that authenticated *that*
+    call. See ``_caller_from_request_context``.
     """
     server: Server = Server(SERVER_NAME, version=SERVER_VERSION)
 
@@ -276,9 +320,10 @@ def build_mcp_server(db_factory: Callable[[], Session] = SessionLocal) -> Server
 
     @server.call_tool()
     async def _call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
+        caller = _caller_from_request_context(server)
         db = db_factory()
         try:
-            payload = _dispatch(name, db, arguments or {}, {"scope": "operator", "user_id": None})
+            payload = _dispatch(name, db, arguments or {}, caller)
         except Exception as exc:  # noqa: BLE001
             payload = {"error": str(exc), "tool": name}
         finally:
@@ -349,11 +394,19 @@ def _authenticate(request: Request, db: Session = Depends(get_db)) -> dict[str, 
 
     Uses ``Depends(get_db)`` rather than ``SessionLocal()`` directly so the
     test suite's ``dependency_overrides`` substitution still applies.
+
+    On success, stashes the resolved caller dict on ``request.state.mcp_caller``
+    (backed by ``scope["state"]``). The MCP transport later builds a fresh
+    Starlette ``Request`` from the same scope when it dispatches each
+    JSON-RPC message; that Request reads the same state, so tool handlers
+    can pull the authenticated caller via ``server.request_context``. See
+    ``_caller_from_request_context`` for the consumer side.
     """
     key = request.headers.get("x-api-key")
     result = validate_key(key, db)
     if result["scope"] == "unauthorized":
         raise HTTPException(status_code=401, detail="Invalid or missing x-api-key header")
+    request.state.mcp_caller = result
     return result
 
 
@@ -427,15 +480,20 @@ def _build_streamable_http_mount() -> Mount:
     async def _asgi_app(scope, receive, send):
         # Auth gate: validate x-api-key before forwarding to the MCP session
         # manager. This mirrors the _authenticate dependency used by the SSE
-        # transport routes.
+        # transport routes. On success the caller dict is stashed on
+        # scope["state"]["mcp_caller"] so the per-call dispatch (see
+        # ``_caller_from_request_context``) can plumb the authenticated
+        # user_id / api_key_id into each tool invocation.
         if scope["type"] == "http":
             from app.mcp.auth import validate_key
 
             request = Request(scope, receive)
             key = request.headers.get("x-api-key")
 
-            # Fast-path: check master key without opening a DB session.
-            # This avoids needing PostgreSQL in the test environment.
+            # Fast-path: master key without opening a DB session. This avoids
+            # needing PostgreSQL in the test environment. The master key has
+            # no per-user identity (user_id=None, api_key_id=None) which is
+            # exactly the operator-scope fallback contract.
             if not key or not key.startswith("rec_"):
                 response = JSONResponse(
                     {"detail": "Invalid or missing x-api-key header"},
@@ -445,8 +503,12 @@ def _build_streamable_http_mount() -> Mount:
                 return
 
             if key == settings.API_KEY:
-                # Master key — skip DB lookup
-                pass
+                # Master key — skip DB lookup, stash explicit operator caller.
+                request.state.mcp_caller = {
+                    "scope": "operator",
+                    "user_id": None,
+                    "api_key_id": None,
+                }
             else:
                 # Non-master key — need DB lookup
                 from app.database import SessionLocal
@@ -463,6 +525,7 @@ def _build_streamable_http_mount() -> Mount:
                     )
                     await response(scope, receive, send)
                     return
+                request.state.mcp_caller = result
         await mgr.handle_request(scope, receive, send)
 
     return Mount("/api/mcp/http", app=_asgi_app)
