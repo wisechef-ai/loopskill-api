@@ -30,6 +30,12 @@ from app.auth import (
 )
 from app.config import settings
 from app.database import get_db
+from app.referral import (
+    REFERRAL_COOKIE_MAX_AGE,
+    REFERRAL_COOKIE_NAME,
+    ensure_referral_code,
+    process_referral_cookie,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,11 +89,31 @@ def _make_error_redirect(error: str) -> RedirectResponse:
     return response
 
 
+def _stamp_referral_cookie(response, ref: str | None) -> None:
+    """If a ?ref=CODE query param was supplied at /login, persist it for 30d
+    so the OAuth round-trip carries it through to the callback (WIS-660)."""
+    if not ref:
+        return
+    response.set_cookie(
+        key=REFERRAL_COOKIE_NAME,
+        value=ref,
+        max_age=REFERRAL_COOKIE_MAX_AGE,
+        httponly=False,
+        secure=settings.HOST != "0.0.0.0",
+        samesite="lax",
+        path="/",
+    )
+
+
 # ── GitHub OAuth ─────────────────────────────────────────────────────────
 
 @router.get("/github/login")
-async def github_login(request: Request, next: Optional[str] = None):
-    """Initiate GitHub OAuth flow. Preserves optional `next` query param via cookie."""
+async def github_login(request: Request, next: Optional[str] = None, ref: Optional[str] = None):
+    """Initiate GitHub OAuth flow. Preserves optional `next` query param via cookie.
+
+    Optional `ref=CODE` query param is stamped as a 30-day cookie so the
+    referral attribution survives the OAuth round-trip (WIS-660).
+    """
     if not settings.GITHUB_CLIENT_ID:
         raise HTTPException(status_code=503, detail="GitHub OAuth not configured")
 
@@ -110,6 +136,7 @@ async def github_login(request: Request, next: Optional[str] = None):
             key="oauth_next", value=next, max_age=600, httponly=True,
             secure=settings.HOST != "0.0.0.0", samesite="lax",
         )
+    _stamp_referral_cookie(response, ref)
     return response
 
 
@@ -135,12 +162,22 @@ async def github_callback(
     try:
         github_data = await exchange_github_code(code)
         user = find_or_create_user_by_github(db, github_data)
+        # WIS-660: capture referral attribution + give every user their own code.
+        try:
+            ref_code = request.cookies.get(REFERRAL_COOKIE_NAME)
+            if ref_code:
+                process_referral_cookie(db, user, ref_code)
+            ensure_referral_code(user, db)
+        except Exception:  # noqa: BLE001 — never block sign-in on referral failure
+            logger.exception("Referral processing failed for user %s (non-fatal)", user.id)
         jwt_token = create_jwt(user)
         next_url = request.cookies.get("oauth_next")
         logger.info(f"GitHub auth success: user={user.id} ({user.display_name}) next={next_url!r}")
         resp = _make_success_redirect(jwt_token, next_url=next_url)
         if next_url:
             resp.delete_cookie("oauth_next", path="/")
+        # Clear the referral cookie once we've persisted it; safe to drop.
+        resp.delete_cookie(REFERRAL_COOKIE_NAME, path="/")
         return resp
     except AuthError as e:
         logger.error(f"GitHub auth failed: {e}")
@@ -150,8 +187,11 @@ async def github_callback(
 # ── Google OAuth ─────────────────────────────────────────────────────────
 
 @router.get("/google/login")
-async def google_login(request: Request, next: Optional[str] = None):
-    """Initiate Google OAuth flow. Preserves optional `next` query param via cookie."""
+async def google_login(request: Request, next: Optional[str] = None, ref: Optional[str] = None):
+    """Initiate Google OAuth flow. Preserves optional `next` query param via cookie.
+
+    Optional `ref=CODE` query param is stamped as a 30-day cookie (WIS-660).
+    """
     if not settings.GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=503, detail="Google OAuth not configured")
 
@@ -173,6 +213,7 @@ async def google_login(request: Request, next: Optional[str] = None):
             key="oauth_next", value=next, max_age=600, httponly=True,
             secure=settings.HOST != "0.0.0.0", samesite="lax",
         )
+    _stamp_referral_cookie(response, ref)
     return response
 
 
@@ -198,12 +239,21 @@ async def google_callback(
     try:
         google_data = await exchange_google_code(code)
         user = find_or_create_user_by_google(db, google_data)
+        # WIS-660: capture referral attribution + give every user their own code.
+        try:
+            ref_code = request.cookies.get(REFERRAL_COOKIE_NAME)
+            if ref_code:
+                process_referral_cookie(db, user, ref_code)
+            ensure_referral_code(user, db)
+        except Exception:  # noqa: BLE001 — never block sign-in on referral failure
+            logger.exception("Referral processing failed for user %s (non-fatal)", user.id)
         jwt_token = create_jwt(user)
         next_url = request.cookies.get("oauth_next")
         logger.info(f"Google auth success: user={user.id} ({user.display_name}) next={next_url!r}")
         resp = _make_success_redirect(jwt_token, next_url=next_url)
         if next_url:
             resp.delete_cookie("oauth_next", path="/")
+        resp.delete_cookie(REFERRAL_COOKIE_NAME, path="/")
         return resp
     except AuthError as e:
         logger.error(f"Google auth failed: {e}")

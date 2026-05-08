@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.discord_bot.role_sync import sync_role_for_user
-from app.models import StripeEventId, User
+from app.models import CreatorPayout, Referral, StripeEventId, User
 
 logger = logging.getLogger(__name__)
 
@@ -330,3 +330,107 @@ def verify_subscription_webhook(payload: bytes, sig_header: str) -> dict:
         raise SubscriptionError(f"Invalid signature: {e}") from e
     except Exception as e:
         raise SubscriptionError(f"Webhook verification failed: {e}") from e
+
+
+# ── Referral payout accrual (WIS-660) ────────────────────────────────────
+
+def _accrue_referral_on_first_payment(user: User, db: Session) -> dict | None:
+    """Accrue referrer's share to creator_payouts on user's first payment.
+
+    Called from the invoice.payment_succeeded webhook. Reads the user's
+    subscription from Stripe, computes the referrer's share at the rate
+    locked on the Referral row, marks the referral converted, and creates
+    a CreatorPayout(source='referral_first_invoice') row.
+
+    Idempotent: if the Referral is already 'converted' (i.e. payout already
+    accrued), returns None without double-paying.
+
+    Returns a dict describing the new payout, or None if no referral exists,
+    no subscription is found, or the payout was already accrued.
+    """
+    referral = (
+        db.query(Referral)
+        .filter(Referral.referred_user_id == user.id)
+        .first()
+    )
+    if not referral:
+        return None
+    if referral.status == "converted":
+        # Already accrued — do not double-pay on subsequent invoices.
+        return None
+
+    referrer = db.query(User).filter(User.id == referral.referrer_user_id).first()
+    if not referrer:
+        return None
+
+    if not user.subscription_id:
+        return None
+
+    # Fetch subscription from Stripe to get amount.
+    try:
+        sub = stripe.Subscription.retrieve(user.subscription_id, expand=["items.data.plan"])
+        items = (sub.get("items") or {}).get("data") or []
+        if not items:
+            return None
+        amount = items[0].get("plan", {}).get("amount")
+        if not amount:
+            return None
+    except Exception as e:  # noqa: BLE001
+        logger.error("Failed to fetch subscription %s: %s", user.subscription_id, e)
+        return None
+
+    from decimal import Decimal
+    rate = referral.rate or Decimal("0.50")
+    reward_cents = int(int(amount) * float(rate))
+
+    # Mark referral converted.
+    referral.status = "converted"
+    referral.reward_cents = reward_cents
+    referral.converted_at = datetime.now(timezone.utc)
+
+    # Create payout row. amount_cents and creator_share_cents both carry
+    # the reward — amount_cents is the WIS-660 multi-source field, and
+    # creator_share_cents is the legacy field expected by existing payout
+    # tooling so it shows up in payout reports without a schema fork.
+    payout = CreatorPayout(
+        creator_id=referrer.id,
+        creator_share_cents=reward_cents,
+        amount_cents=reward_cents,
+        source="referral_first_invoice",
+        referral_id=referral.id,
+        status="pending",
+    )
+    db.add(payout)
+    db.commit()
+    db.refresh(payout)
+    logger.info(
+        "Accrued referral payout: referrer=%s amount=%d cents rate=%s",
+        referrer.id, reward_cents, rate,
+    )
+    return {"payout_id": str(payout.id), "creator_share_cents": reward_cents}
+
+
+def handle_invoice_payment_succeeded(event: dict, db: Session) -> dict:
+    """Handle invoice.payment_succeeded: accrue referral payout if applicable."""
+    invoice = event.get("data", {}).get("object", {}) or {}
+    customer_id = invoice.get("customer")
+    if not customer_id:
+        return {"skipped": "no-customer"}
+
+    user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
+    if not user:
+        logger.warning("No user found for Stripe customer %s", customer_id)
+        return {"skipped": "user-not-found"}
+
+    payout_result = _accrue_referral_on_first_payment(user, db)
+    if payout_result:
+        return {
+            "processed": "invoice.payment_succeeded",
+            "payout": payout_result,
+            "user_id": str(user.id),
+        }
+    return {
+        "processed": "invoice.payment_succeeded",
+        "referral": "none",
+        "user_id": str(user.id),
+    }

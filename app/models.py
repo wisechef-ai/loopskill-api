@@ -21,6 +21,7 @@ from sqlalchemy import (
     BigInteger,
     CheckConstraint,
     LargeBinary,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -58,6 +59,18 @@ class User(Base):
     discord_user_id = Column(String(32), nullable=True, index=True)
     # Author-track score (creator quality signal) — populated elsewhere.
     creator_track_record_score = Column(Float, nullable=True)
+    # ── Referral / Affiliate tracking (WIS-660) ──────────────────────────
+    # Each user gets a base62 referral_code (8-16 chars) lazily on first
+    # sign-in. `referred_by` is the FK to the user whose code triggered this
+    # signup. Both nullable because the columns are added by an in-place
+    # migration over an existing table.
+    referral_code = Column(String(16), nullable=True, unique=True, index=True)
+    referred_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -312,14 +325,24 @@ class CreatorPayout(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     creator_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
-    period_start = Column(DateTime, nullable=False)
-    period_end = Column(DateTime, nullable=False)
+    # ── Legacy skill-install fields (period_start/period_end were NOT NULL on
+    # the original schema; relaxed to NULL by WIS-660 migration so referral
+    # payouts — which have no billing period — can use the same table.)
+    period_start = Column(DateTime, nullable=True)
+    period_end = Column(DateTime, nullable=True)
     installs_count = Column(Integer, nullable=False, default=0)
     gross_revenue_cents = Column(Integer, nullable=False, default=0)
     creator_share_cents = Column(Integer, nullable=False, default=0)
     currency = Column(String(8), default="eur")
-    status = Column(String(32), default="pending")  # pending, paid, failed
+    status = Column(String(32), default="pending")  # pending, accrued, paid, failed
     stripe_transfer_id = Column(String(255), nullable=True)
+    # ── WIS-660: multi-source payout attribution ─────────────────────────
+    # source: skill_install | referral_first_invoice
+    # amount_cents: convenience copy of creator_share_cents for referral payouts
+    # referral_id: backref to the Referral row that triggered the payout
+    source = Column(String(32), nullable=False, default="skill_install", server_default="skill_install")
+    amount_cents = Column(Integer, nullable=True)
+    referral_id = Column(UUID(as_uuid=True), ForeignKey("referrals.id"), nullable=True, index=True)
     created_at = Column(DateTime, server_default=func.now())
     paid_at = Column(DateTime, nullable=True)
 
@@ -334,10 +357,13 @@ class Referral(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     referrer_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     referred_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    referral_code = Column(String(64), unique=True, nullable=False, index=True)
+    referral_code = Column(String(64), nullable=False, index=True)  # referrer's code; non-unique (a referrer can be linked to many referred users)
     referred_email = Column(String(512), nullable=True)
     status = Column(String(32), default="pending")  # pending, signed_up, converted
     reward_cents = Column(Integer, nullable=True)
+    # WIS-660: rate-locked at the moment the referral was created — first 50
+    # referrers get 0.50 (50%), everyone after that defaults to 0.30 (30%).
+    rate = Column(Numeric(precision=5, scale=4), nullable=False, server_default="0.50")
     created_at = Column(DateTime, server_default=func.now())
     converted_at = Column(DateTime, nullable=True)
 

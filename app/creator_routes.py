@@ -494,6 +494,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         record_event_or_skip,
         handle_checkout_completed,
         handle_subscription_event,
+        handle_invoice_payment_succeeded,
     )
     if not record_event_or_skip(event, db):
         logger.info(f"Replay of event {event_id} ({event_type}) — skipped")
@@ -510,6 +511,11 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         "customer.subscription.deleted",
     ):
         result = handle_subscription_event(event, db)
+        return {"received": True, "event_id": event_id, **result}
+
+    # ── Invoice events (WIS-660: referral payout accrual) ───────────────
+    if event_type == "invoice.payment_succeeded":
+        result = handle_invoice_payment_succeeded(event, db)
         return {"received": True, "event_id": event_id, **result}
 
     # ── Connect events (creator payouts — existing behavior) ───────────
