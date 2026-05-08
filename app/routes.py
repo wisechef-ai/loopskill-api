@@ -405,6 +405,16 @@ def install_skill(
         client_ip=request.client.host if request.client else None,
     )
     db.add(event)
+
+    # RCP-13: keep the denormalised Skill.install_count counter in sync with
+    # the InstallEvent table (the path /api/skills/install actually writes).
+    # Atomic SQL-level expression so concurrent installs cannot lose writes.
+    # Same transaction as the InstallEvent insert — either both land or
+    # neither does.
+    db.query(Skill).filter(Skill.id == skill.id).update(
+        {Skill.install_count: Skill.install_count + 1},
+        synchronize_session=False,
+    )
     db.commit()
 
     # WIS-902: Add rate-limit info headers to successful response
@@ -1055,6 +1065,21 @@ def post_telemetry(
         agent_class_hash=body.agent_class_hash,
     )
     db.add(event)
+
+    # RCP-13: keep the denormalised Skill.install_count counter in sync with
+    # telemetry. The trending endpoint and live API responses compute counts
+    # directly from telemetry/install_events, but Skill.install_count is the
+    # popularity scoring input used by the carousel selector and by any future
+    # ORDER BY popularity queries. Increment atomically (SQL-level expression,
+    # not a Python read-modify-write) so concurrent installs cannot lose
+    # writes. Same DB transaction as the telemetry insert — either both land
+    # or neither does.
+    if body.event_type == "install" and skill_id is not None:
+        db.query(Skill).filter(Skill.id == skill_id).update(
+            {Skill.install_count: Skill.install_count + 1},
+            synchronize_session=False,
+        )
+
     db.commit()
     db.refresh(event)
     return TelemetryEventOut(status="recorded", event_id=str(event.id))
