@@ -145,6 +145,60 @@ class TestPromoCodeFallback:
             assert "discounts" not in kwargs
             assert result["url"].startswith("https://checkout.stripe.com/")
 
+    def test_stripe_listobject_with_data_attribute_works(self):
+        """Stripe SDK 15.x returns ``stripe.ListObject`` with ``.data``
+        attribute, not ``.get('data')``. The code must handle both shapes
+        — the dict-shape is what test_valid_code_passes_discounts_kwarg
+        already exercises; this pins the attribute-shape used by the
+        real SDK at runtime.
+        """
+        with patch("app.subscription_service.stripe") as stripe_mock, \
+             patch("app.subscription_service.get_or_create_customer", return_value="cus_TEST"), \
+             patch("app.subscription_service.TIER_PRICE_IDS", {"cook": "price_TEST"}):
+            # Mock a ListObject-like object: has .data attribute, NO .get method.
+            class _ListObject:
+                """Minimal stand-in for stripe.ListObject — only .data."""
+                def __init__(self, data):
+                    self.data = data
+
+            stripe_mock.PromotionCode.list.return_value = _ListObject(
+                [{"id": "promo_LIVE_FROM_SDK", "code": "WELCOME50"}]
+            )
+            stripe_mock.checkout.Session.create.return_value = _stub_stripe_session_response()
+
+            create_checkout_session(
+                user=_make_user(), tier="cook", db=MagicMock(),
+                promo_code="WELCOME50",
+            )
+            kwargs = stripe_mock.checkout.Session.create.call_args.kwargs
+            assert kwargs.get("discounts") == [{"promotion_code": "promo_LIVE_FROM_SDK"}]
+            assert "allow_promotion_codes" not in kwargs
+
+    def test_stripe_listobject_promotion_code_with_id_attr_works(self):
+        """The PromotionCode resource itself has a ``.id`` attribute as
+        well as supporting dict-style access. Ensure we extract id correctly
+        even when the test fixture is an attribute-only object.
+        """
+        with patch("app.subscription_service.stripe") as stripe_mock, \
+             patch("app.subscription_service.get_or_create_customer", return_value="cus_TEST"), \
+             patch("app.subscription_service.TIER_PRICE_IDS", {"cook": "price_TEST"}):
+            class _PromoCode:
+                """SDK-shape promotion code: has .id but no [] support."""
+                id = "promo_FROM_OBJ_ATTR"
+
+            class _ListObject:
+                data = [_PromoCode()]
+
+            stripe_mock.PromotionCode.list.return_value = _ListObject()
+            stripe_mock.checkout.Session.create.return_value = _stub_stripe_session_response()
+
+            create_checkout_session(
+                user=_make_user(), tier="cook", db=MagicMock(),
+                promo_code="WELCOME50",
+            )
+            kwargs = stripe_mock.checkout.Session.create.call_args.kwargs
+            assert kwargs.get("discounts") == [{"promotion_code": "promo_FROM_OBJ_ATTR"}]
+
     def test_stripe_api_error_during_lookup_falls_back_does_not_raise(self):
         with patch("app.subscription_service.stripe") as stripe_mock, \
              patch("app.subscription_service.get_or_create_customer", return_value="cus_TEST"), \

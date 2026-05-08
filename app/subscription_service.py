@@ -113,12 +113,23 @@ def create_checkout_session(
         normalized = promo_code.strip().upper()
         try:
             results = stripe.PromotionCode.list(code=normalized, active=True, limit=1)
-            promo_obj = (results.get("data") or [None])[0]
+            # stripe.ListObject behaves like a dict but ``.get`` may not be
+            # available depending on SDK version — read ``data`` attribute
+            # directly with fallback to dict-style access in tests.
+            data = getattr(results, "data", None)
+            if data is None and hasattr(results, "__getitem__"):
+                try:
+                    data = results["data"]
+                except (KeyError, TypeError):
+                    data = []
+            promo_obj = (data or [None])[0]
             if promo_obj:
-                discounts.append({"promotion_code": promo_obj["id"]})
+                # promo_obj["id"] works for both dict (tests) and stripe.PromotionCode
+                promo_id = promo_obj["id"] if hasattr(promo_obj, "__getitem__") else promo_obj.id
+                discounts.append({"promotion_code": promo_id})
                 logger.info(
                     "Pre-applied promotion code %s (id=%s) for user %s tier %s",
-                    normalized, promo_obj["id"], user.id, tier,
+                    normalized, promo_id, user.id, tier,
                 )
             else:
                 logger.info(
