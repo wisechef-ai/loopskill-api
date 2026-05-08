@@ -80,3 +80,4 @@ CLAUDE.md
 .omx/
 .v6venv/
 *.bak
+.venv
