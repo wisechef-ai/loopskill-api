@@ -61,6 +61,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
     EXEMPT_PATHS = {
         "/docs", "/openapi.json", "/redoc", "/healthz", "/", "/api/healthz",
+        "/api/health/transparency",  # Stream 0: public transparency scorecard
     }
     # Prefixes for paths that use JWT auth instead of API key
     JWT_AUTH_PREFIXES = (
@@ -333,7 +334,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     #   sign-in once Cloudflare's pop has 60 hits in the window. The OAuth
     #   provider already enforces per-app rate limits server-side; double-
     #   limiting here breaks login without adding security.
-    EXEMPT_PATHS = {"/docs", "/openapi.json", "/redoc", "/healthz", "/", "/api/healthz"}
+    EXEMPT_PATHS = {"/docs", "/openapi.json", "/redoc", "/healthz", "/", "/api/healthz", "/api/health/transparency"}
     EXEMPT_PREFIXES = ("/api/auth/github/", "/api/auth/google/")
 
     def __init__(self, app, max_requests: int = 60, window_seconds: int = 60):
