@@ -302,8 +302,12 @@ def trending_skills(
 @router.get("/skills/install", response_model=InstallResponse, tags=["skills"])
 def install_skill(
     request: Request,
-    slug: str = Query(..., description="Skill slug"),
+    slug: str = Query(..., description="Skill slug; supports 'slug@semver' suffix"),
     mode: str = Query("files", pattern="^(files|full)$"),
+    version: str | None = Query(
+        None,
+        description="Pin install to a specific semver. Overrides any '@version' suffix on slug.",
+    ),
     db: Session = Depends(get_db),
 ):
     """Return a signed URL for downloading the skill tarball.
@@ -312,6 +316,11 @@ def install_skill(
     installable ONLY by the admin master key OR by the api-key whose user
     owns the skill (creator self-install — required for dogfooding).
     """
+    # Stream 4: support 'slug@semver' inline pinning, or explicit ?version=
+    if "@" in slug and version is None:
+        slug, _v = slug.split("@", 1)
+        version = (_v or "").strip() or None
+    slug = slug.strip()
     skill = db.query(Skill).filter(Skill.slug == slug).first()
     if not skill:
         # WIS-903: check retired skill registry
@@ -374,7 +383,20 @@ def install_skill(
     if not skill.versions:
         raise HTTPException(status_code=404, detail=f"No versions available for '{slug}'")
 
-    latest = skill.versions[0]
+    # Stream 4: explicit version pinning. None ⇒ latest (existing behaviour).
+    if version:
+        target = next((v for v in skill.versions if v.semver == version), None)
+        if target is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Version '{version}' not found for '{slug}'. "
+                    f"Available: {[v.semver for v in skill.versions]}"
+                ),
+            )
+        latest = target
+    else:
+        latest = skill.versions[0]
 
     # Generate a signed token (HMAC-style with itsdangerous)
     from itsdangerous import URLSafeTimedSerializer

@@ -45,9 +45,17 @@ PER_SOURCE_TOP_K = 25  # graph endpoint slices to ≤10; keep some headroom
 COINSTALL_WINDOW_DAYS = 30
 
 # Weight allocation — keep the sum at 1.0
+# v1 (legacy, no `related_skills` declared anywhere)
 W_JACCARD = 0.6
 W_CATEGORY = 0.2
 W_COINSTALL = 0.2
+
+# v2 (new, when use_declared=True). Sum = 1.0:
+#   0.4 declared + 0.4 jaccard + 0.1 category + 0.1 coinstall
+W_DECLARED = 0.4
+W_JACCARD_V2 = 0.4
+W_CATEGORY_V2 = 0.1
+W_COINSTALL_V2 = 0.1
 
 
 # ── Pure helpers ──────────────────────────────────────────────────────────
@@ -83,6 +91,33 @@ def extract_tags(skill: Skill) -> list[str]:
     return [str(t).strip().lower() for t in raw if str(t).strip()]
 
 
+def extract_related_skills(skill: Skill) -> list[str]:
+    """Read `related_skills` from latest skill_version's skill_toml [skill] table.
+
+    Returns a deduplicated lowercased slug list, or [] on any failure.
+    """
+    if not skill.versions:
+        return []
+    latest = skill.versions[0]
+    if not latest.skill_toml:
+        return []
+    try:
+        data = tomllib.loads(latest.skill_toml)
+    except Exception:
+        return []
+    raw = data.get("skill", {}).get("related_skills", [])
+    if not isinstance(raw, list):
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for r in raw:
+        s = str(r).strip().lower()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
 # ── Co-install signal ─────────────────────────────────────────────────────
 
 def _coinstall_index(
@@ -114,12 +149,21 @@ def _coinstall_score(slug_a: str, slug_b: str, idx: dict[str, set]) -> float:
 
 # ── Edge construction ─────────────────────────────────────────────────────
 
-def build_edges(db: Session) -> list[dict]:
+def build_edges(db: Session, *, use_declared: bool = True) -> list[dict]:
     """Compute all edges across the public skill catalog.
 
     Returns directed edges as plain dicts (suitable for both ORM persistence
     and JSON serialisation in tests). Each pair (a,b) and (b,a) appears at
     most once; self-loops are skipped; non-public skills are excluded.
+
+    When `use_declared=True` (default), a fourth signal is mixed in:
+        weight = 0.4 * declared_relation + 0.4 * jaccard
+               + 0.1 * category          + 0.1 * coinstall
+    `declared_relation` is 1.0 iff either side declares the other in its
+    `related_skills` frontmatter, else 0.0.
+
+    When `use_declared=False`, the legacy 0.6/0.2/0.2 weights are used —
+    handy for the dry-run safety gate that compares old-vs-new edges.
 
     We currently do an O(N²) scan because the catalog is ≤200 skills. When we
     cross 1k skills, swap to a tag-inverted-index pre-filter.
@@ -138,6 +182,7 @@ def build_edges(db: Session) -> list[dict]:
             "slug": s.slug,
             "tags": set(extract_tags(s)),
             "category": s.category,
+            "related": set(extract_related_skills(s)),
         })
 
     # Co-install index (single query)
@@ -156,12 +201,25 @@ def build_edges(db: Session) -> list[dict]:
             j_score = jaccard(fa["tags"], fb["tags"])
             c_score = 1.0 if (fa["category"] and fa["category"] == fb["category"]) else 0.0
             ci_score = _coinstall_score(fa["slug"], fb["slug"], coinstall_idx)
-
-            weight = (
-                W_JACCARD * j_score
-                + W_CATEGORY * c_score
-                + W_COINSTALL * ci_score
+            d_score = (
+                1.0
+                if (fb["slug"] in fa["related"] or fa["slug"] in fb["related"])
+                else 0.0
             )
+
+            if use_declared:
+                weight = (
+                    W_DECLARED * d_score
+                    + W_JACCARD_V2 * j_score
+                    + W_CATEGORY_V2 * c_score
+                    + W_COINSTALL_V2 * ci_score
+                )
+            else:
+                weight = (
+                    W_JACCARD * j_score
+                    + W_CATEGORY * c_score
+                    + W_COINSTALL * ci_score
+                )
 
             if weight < WEIGHT_THRESHOLD:
                 continue
@@ -171,6 +229,8 @@ def build_edges(db: Session) -> list[dict]:
                 "category": c_score,
                 "coinstall": round(ci_score, 4),
             }
+            if use_declared:
+                signals["declared"] = d_score
             edges_by_source[fa["slug"]].append({
                 "source_slug": fa["slug"],
                 "target_slug": fb["slug"],
@@ -214,3 +274,39 @@ def persist_edges(db: Session, edges: list[dict]) -> int:
     db.add_all(rows)
     db.flush()
     return len(rows)
+
+
+# ── Dry-run safety gate (Stream 4) ───────────────────────────────────────
+
+def dry_run_compare(db: Session) -> dict:
+    """Compare legacy (use_declared=False) vs new (use_declared=True) edge sets.
+
+    Returns a structured comparison report; the controller's safety bar is
+    `breaking == False` (delta_pct must stay ≤ 20%).
+    """
+    old = build_edges(db, use_declared=False)
+    new = build_edges(db, use_declared=True)
+
+    old_pairs = {(e["source_slug"], e["target_slug"]) for e in old}
+    new_pairs = {(e["source_slug"], e["target_slug"]) for e in new}
+
+    shared = old_pairs & new_pairs
+    removed = old_pairs - new_pairs
+    added = new_pairs - old_pairs
+    delta_pct = 100.0 * (len(removed) + len(added)) / max(1, len(old_pairs))
+
+    return {
+        "old_count": len(old_pairs),
+        "new_count": len(new_pairs),
+        "shared": len(shared),
+        "removed": len(removed),
+        "added": len(added),
+        "delta_pct": round(delta_pct, 2),
+        "breaking": delta_pct > 20.0,
+        "removed_sample": [
+            {"source_slug": s, "target_slug": t} for (s, t) in list(removed)[:10]
+        ],
+        "added_sample": [
+            {"source_slug": s, "target_slug": t} for (s, t) in list(added)[:10]
+        ],
+    }
