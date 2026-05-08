@@ -56,6 +56,7 @@ async def create_subscription_checkout(
         pass
     success_url = body.get("success_url") if isinstance(body, dict) else None
     cancel_url = body.get("cancel_url") if isinstance(body, dict) else None
+    promo_code = body.get("promo_code") if isinstance(body, dict) else None
 
     try:
         result = create_checkout_session(
@@ -64,6 +65,7 @@ async def create_subscription_checkout(
             db=db,
             success_url=success_url,
             cancel_url=cancel_url,
+            promo_code=promo_code,
         )
     except SubscriptionError as e:
         logger.error("Checkout creation failed for user %s tier %s: %s", user.id, tier, e)

@@ -77,10 +77,20 @@ def create_checkout_session(
     db: Session,
     success_url: str | None = None,
     cancel_url: str | None = None,
+    promo_code: str | None = None,
 ) -> dict[str, Any]:
     """Create a Stripe Checkout Session for a subscription tier.
 
     Returns dict with session_id and url. Raises SubscriptionError on bad input.
+
+    Optional ``promo_code`` (e.g. "WELCOME50") will be looked up against
+    Stripe's promotion_codes index and pre-applied to the checkout — the
+    user lands on Stripe with the discount already showing instead of
+    having to expand the (default-collapsed) "Add promotion code" link.
+
+    Falsy / unknown / inactive codes are silently ignored — never raise
+    on the buyer's side. Stripe's own UI still lets them type any other
+    valid code in addition to or instead of this one.
     """
     if tier not in TIER_PRICE_IDS:
         raise SubscriptionError(f"Unknown tier: {tier!r}. Valid: {sorted(TIER_PRICE_IDS)}")
@@ -95,7 +105,33 @@ def create_checkout_session(
     success_url = success_url or f"{base}/billing/success?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = cancel_url or f"{base}/pricing"
 
-    session = stripe.checkout.Session.create(
+    # Pre-apply a promotion code if the caller supplied one. This is
+    # additive UX over Stripe's built-in (default-collapsed) "Add
+    # promotion code" link — buyers can still enter codes manually.
+    discounts: list[dict[str, str]] = []
+    if promo_code:
+        normalized = promo_code.strip().upper()
+        try:
+            results = stripe.PromotionCode.list(code=normalized, active=True, limit=1)
+            promo_obj = (results.get("data") or [None])[0]
+            if promo_obj:
+                discounts.append({"promotion_code": promo_obj["id"]})
+                logger.info(
+                    "Pre-applied promotion code %s (id=%s) for user %s tier %s",
+                    normalized, promo_obj["id"], user.id, tier,
+                )
+            else:
+                logger.info(
+                    "Promotion code %r not found / inactive — ignoring (user %s)",
+                    normalized, user.id,
+                )
+        except Exception as e:  # noqa: BLE001 — never block checkout on a bad code
+            logger.warning(
+                "Promotion code lookup failed for %r (user %s): %s",
+                normalized, user.id, e,
+            )
+
+    checkout_kwargs: dict[str, Any] = dict(
         customer=customer_id,
         mode="subscription",
         payment_method_types=["card"],
@@ -107,7 +143,6 @@ def create_checkout_session(
         tax_id_collection={"enabled": True},
         customer_update={"address": "auto", "name": "auto"},
         billing_address_collection="required",
-        allow_promotion_codes=True,
         metadata={
             "wiserecipes_user_id": str(user.id),
             "tier": tier,
@@ -119,6 +154,15 @@ def create_checkout_session(
             },
         },
     )
+    # Stripe disallows allow_promotion_codes when discounts are pre-applied,
+    # but we still want users to be able to enter other codes when none
+    # was pre-applied. Set the flags conditionally.
+    if discounts:
+        checkout_kwargs["discounts"] = discounts
+    else:
+        checkout_kwargs["allow_promotion_codes"] = True
+
+    session = stripe.checkout.Session.create(**checkout_kwargs)
     logger.info("Created checkout session %s for user %s tier %s", session["id"], user.id, tier)
     return {"session_id": session["id"], "url": session["url"], "tier": tier}
 
