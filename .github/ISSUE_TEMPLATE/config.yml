@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Send feedback via MCP tool (preferred)
+    url: https://recipes.wisechef.ai/docs#tag/mcp-tools
+    about: |
+      Use the MCP tool recipes_feedback, recipes_request_recipe, or
+      recipes_report_skill_error to send feedback directly from your agent.
+      Issues are created automatically with proper labels and dedup detection.
+  - name: Bug reports & feature requests (GitHub UI fallback)
+    url: https://github.com/wisechef-ai/recipes-api/issues/new/choose
+    about: If you cannot use the MCP tools, use a template below.

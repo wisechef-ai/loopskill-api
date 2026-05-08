@@ -1,0 +1,174 @@
+name: Feedback Dispatcher
+
+on:
+  repository_dispatch:
+    types:
+      - feedback
+      - recipify-request
+      - skill-error
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  open-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create or deduplicate issue
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const eventType  = context.payload.action;        // e.g. "feedback"
+            const payload    = context.payload.client_payload; // forwarded fields
+
+            // ----------------------------------------------------------------
+            // Helpers
+            // ----------------------------------------------------------------
+            function truncate(str, max) {
+              if (!str) return '';
+              return str.length > max ? str.slice(0, max - 1) + '…' : str;
+            }
+
+            function buildTable(rows) {
+              const lines = ['| Field | Value |', '|---|---|'];
+              for (const [k, v] of rows) {
+                const val = typeof v === 'object' ? JSON.stringify(v) : String(v ?? '');
+                lines.push(`| \`${k}\` | ${val.replace(/\|/g, '\\|')} |`);
+              }
+              return lines.join('\n');
+            }
+
+            // ----------------------------------------------------------------
+            // Per-event config
+            // ----------------------------------------------------------------
+            let title, body, labels;
+
+            if (eventType === 'feedback') {
+              const category = payload.category || 'other';
+              const msg      = truncate(payload.message || '', 120);
+              title  = `[${category}] ${msg}`;
+              labels = ['feedback', 'agent-reported', `feedback/${category}`];
+              body   = [
+                '## Feedback submission',
+                '',
+                buildTable([
+                  ['id',        payload.id],
+                  ['category',  payload.category],
+                  ['agent_id',  payload.agent_id],
+                  ['context',   payload.context],
+                  ['message',   payload.message],
+                ]),
+                '',
+                `**signature:** \`${payload.signature || 'n/a'}\``,
+              ].join('\n');
+
+            } else if (eventType === 'recipify-request') {
+              const name = truncate(payload.target_name || '', 120);
+              title  = `[recipe:request] ${name}`;
+              labels = ['recipe:request', 'agent-reported'];
+              body   = [
+                '## Recipify request',
+                '',
+                buildTable([
+                  ['id',                payload.id],
+                  ['target_name',       payload.target_name],
+                  ['why_useful',        payload.why_useful],
+                  ['suggested_sources', payload.suggested_sources],
+                  ['agent_id',          payload.agent_id],
+                ]),
+                '',
+                `**signature:** \`${payload.signature || 'n/a'}\``,
+              ].join('\n');
+
+            } else if (eventType === 'skill-error') {
+              const slug = payload.skill_slug || 'unknown';
+              const sig  = truncate(payload.error_signature || '', 80);
+              title  = `[recipe:bug] ${slug} — ${sig}`;
+              labels = ['recipe:bug', 'agent-reported'];
+              body   = [
+                '## Skill error report',
+                '',
+                buildTable([
+                  ['id',              payload.id],
+                  ['skill_slug',      payload.skill_slug],
+                  ['error_signature', payload.error_signature],
+                  ['agent_fp_anon',   payload.agent_fp_anon],
+                ]),
+                '',
+                `**signature:** \`${payload.signature || 'n/a'}\``,
+              ].join('\n');
+
+            } else {
+              core.warning(`Unhandled event_type: ${eventType}`);
+              return;
+            }
+
+            // ----------------------------------------------------------------
+            // Dedup: search open issues by signature
+            // ----------------------------------------------------------------
+            let dupIssueNumber = null;
+            const signature = payload.signature;
+
+            if (signature) {
+              const q = `repo:wisechef-ai/recipes-api is:issue is:open ${signature} in:body`;
+              try {
+                const searchResult = await octokit.rest.search.issuesAndPullRequests({
+                  q,
+                  per_page: 5,
+                });
+                if (searchResult.data.total_count > 0) {
+                  dupIssueNumber = searchResult.data.items[0].number;
+                  core.info(`Dedup match found: issue #${dupIssueNumber}`);
+                }
+              } catch (err) {
+                core.warning(`Dedup search failed (non-fatal): ${err.message}`);
+              }
+            }
+
+            if (dupIssueNumber) {
+              labels.push('dedup');
+              body += `\n\n---\n> :warning: **Duplicate detected** — signature matches existing open issue #${dupIssueNumber}`;
+            }
+
+            // ----------------------------------------------------------------
+            // Ensure category sub-labels exist (feedback only, best-effort)
+            // ----------------------------------------------------------------
+            if (eventType === 'feedback') {
+              const catLabel = `feedback/${payload.category || 'other'}`;
+              try {
+                await octokit.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo:  context.repo.repo,
+                  name:  catLabel,
+                });
+              } catch {
+                try {
+                  await octokit.rest.issues.createLabel({
+                    owner:       context.repo.owner,
+                    repo:        context.repo.repo,
+                    name:        catLabel,
+                    color:       '0075ca',
+                    description: `Feedback category: ${payload.category || 'other'}`,
+                  });
+                } catch (createErr) {
+                  core.warning(`Could not create label ${catLabel}: ${createErr.message}`);
+                }
+              }
+            }
+
+            // ----------------------------------------------------------------
+            // Open the issue
+            // ----------------------------------------------------------------
+            const issue = await octokit.rest.issues.create({
+              owner:  context.repo.owner,
+              repo:   context.repo.repo,
+              title,
+              body,
+              labels,
+            });
+
+            core.info(`Opened issue #${issue.data.number}: ${issue.data.html_url}`);
+            core.setOutput('issue_url',    issue.data.html_url);
+            core.setOutput('issue_number', String(issue.data.number));

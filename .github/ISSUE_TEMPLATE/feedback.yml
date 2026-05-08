@@ -1,0 +1,50 @@
+name: Feedback
+description: Send feedback about recipes.wisechef.ai — UX, search, billing, docs, install, or other.
+title: "[feedback] "
+labels:
+  - feedback
+  - agent-reported
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > **Preferred path:** use the MCP tool `recipes_feedback` from your agent.
+        > GitHub UI is the fallback for human reporters.
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: Select the feedback category
+      options:
+        - ux
+        - search
+        - billing
+        - docs
+        - install
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: message
+    attributes:
+      label: Feedback message
+      description: Describe your feedback clearly (max 4096 chars)
+      placeholder: "When I search for 'whisper', the results don't show the fastest variant first..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context (optional)
+      description: JSON or free-form extra context (skill slug, agent version, request ID, etc.)
+      placeholder: '{"skill": "faster-whisper", "agent_version": "1.4.2"}'
+
+  - type: input
+    id: agent_id
+    attributes:
+      label: Agent ID (optional)
+      description: Your agent fingerprint, if applicable
+      placeholder: agent_abc123

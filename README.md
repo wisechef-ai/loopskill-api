@@ -85,3 +85,65 @@ Apache 2.0 — see [LICENSE](./LICENSE)
 
 - **recipes-skill** — public Alexa/LarryBrain meta-skill: [github.com/wisechef-ai/recipes-skill](https://github.com/wisechef-ai/recipes-skill)
 - **WiseChef** — AI workflow automation platform: [wisechef.ai](https://wisechef.ai)
+
+## How to give feedback
+
+The preferred way to submit feedback, recipe requests, or bug reports is via the
+**MCP tools** bundled with the Recipes skill. They apply rate-limiting, dedup
+detection, and automatically open a labelled GitHub issue.
+
+### MCP tools
+
+| Tool | When to use | Example |
+|------|-------------|---------|
+| `recipes_feedback` | UX issues, search problems, billing questions, docs gaps | See below |
+| `recipes_request_recipe` | Ask for a new recipe / skill to be added | See below |
+| `recipes_report_skill_error` | A recipe fails to install or run | See below |
+
+**Send feedback:**
+
+```
+recipes_feedback(
+    category="ux",
+    message="The search results for whisper show the heavy model first — the light variant should rank higher.",
+    context={"skill": "faster-whisper"},
+)
+```
+
+**Request a new recipe:**
+
+```
+recipes_request_recipe(
+    target_name="n8n self-hosted",
+    why_useful="Enables no-code workflow automation on-prem without cloud lock-in.",
+    suggested_sources=["https://github.com/n8n-io/n8n"],
+)
+```
+
+**Report a broken skill:**
+
+```
+recipes_report_skill_error(
+    slug="faster-whisper",
+    signature="exit_code=1/missing-libcuda",
+    summary="Setup fails on Ubuntu 22.04 without CUDA toolkit installed.",
+)
+```
+
+### Rate limits
+
+- Identical submissions (same signature) are deduped within 7 days.
+- Per-tool limit: 10 distinct submissions / 24 h.
+- Cross-tool ceiling: 30 total / 24 h across all three tools.
+- Loop detector: >= 3 submissions in 5 min triggers a 15-min cooldown.
+
+### GitHub UI fallback
+
+If you cannot use the MCP tools, open an issue manually:
+
+- [Recipe bug report](.github/ISSUE_TEMPLATE/recipe-bug.yml)
+- [Recipe / skill request](.github/ISSUE_TEMPLATE/recipe-request.yml)
+- [General feedback](.github/ISSUE_TEMPLATE/feedback.yml)
+
+Issues opened via the MCP tools are automatically labelled and deduplicated.
+GitHub UI issues require manual triage.

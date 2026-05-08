@@ -1,0 +1,67 @@
+name: Recipe Bug Report
+description: Report that an installed recipe is broken, has wrong instructions, or fails on this host.
+title: "[recipe:bug] "
+labels:
+  - recipe:bug
+  - agent-reported
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > **Preferred path:** use the MCP tool `recipes_report_skill_error` from your agent.
+        > GitHub UI is the fallback for human reporters.
+
+  - type: input
+    id: skill_slug
+    attributes:
+      label: Skill slug
+      description: The slug of the broken skill (e.g. `cognee`, `ollama-low-vram-model-pick`)
+      placeholder: my-skill-slug
+    validations:
+      required: true
+
+  - type: input
+    id: error_signature
+    attributes:
+      label: Error signature / fingerprint
+      description: Short identifier for the error (stack trace hash, error code, or brief description)
+      placeholder: "exit_code=1 / FileNotFoundError: /usr/bin/python3"
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong? What did you expect?
+      placeholder: Describe the failure...
+    validations:
+      required: true
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Full error output (optional)
+      description: Paste the full logs or stack trace here
+      render: shell
+
+  - type: input
+    id: agent_id
+    attributes:
+      label: Agent ID (optional)
+      description: Your agent fingerprint, if applicable
+      placeholder: agent_abc123
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux (x86_64)
+        - Linux (arm64)
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows
+        - Other
+    validations:
+      required: true
