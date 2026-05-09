@@ -1,3 +1,29 @@
+# ============================================================
+# feedback-dispatcher.yml
+# Listens on repository_dispatch events and routes to the
+# appropriate action (open issue or create draft PR).
+#
+# Event types handled:
+#   feedback          -> opens a GitHub issue
+#   recipify-request  -> opens a GitHub issue
+#   skill-error       -> opens a GitHub issue
+#   skill-patch       -> creates a DRAFT PR with patched files
+#
+# Required labels (create once via gh CLI):
+#   skill:patch         - FBCA04  (Patch submitted via recipes_propose_skill_patch)
+#   cla:auto-mit        - 0E8A16  (Auto-MIT licensed via API submission CLA)
+#   patch:rejected-size - D73A4A  (Rejected: exceeded size cap)
+#   patch:rejected-path - D73A4A  (Rejected: path not in allowlist)
+#   patch:rejected-token - D73A4A (Rejected: forbidden token detected)
+#   agent-reported      - existing label
+#
+# gh label create 'skill:patch' --description 'Patch submitted via recipes_propose_skill_patch' --color FBCA04 --repo wisechef-ai/recipes-api
+# gh label create 'cla:auto-mit' --description 'Auto-MIT licensed via API submission CLA' --color 0E8A16 --repo wisechef-ai/recipes-api
+# gh label create 'patch:rejected-size' --description 'Rejected: exceeded size cap' --color D73A4A --repo wisechef-ai/recipes-api
+# gh label create 'patch:rejected-path' --description 'Rejected: path not in allowlist' --color D73A4A --repo wisechef-ai/recipes-api
+# gh label create 'patch:rejected-token' --description 'Rejected: forbidden token detected' --color D73A4A --repo wisechef-ai/recipes-api
+# ============================================================
+
 name: Feedback Dispatcher
 
 on:
@@ -6,10 +32,12 @@ on:
       - feedback
       - recipify-request
       - skill-error
+      - skill-patch
 
 permissions:
   issues: write
-  contents: read
+  contents: write
+  pull-requests: write
 
 jobs:
   open-issue:
@@ -39,6 +67,202 @@ jobs:
               }
               return lines.join('\n');
             }
+
+            // ================================================================
+            // SKILL-PATCH: create a draft PR with patched files
+            // ================================================================
+            if (eventType === 'skill-patch') {
+              const slug        = payload.slug;
+              const dedupHash   = payload.dedup_hash;
+              const shortHash   = dedupHash.slice(0, 12);
+              const branchName  = `skill-patch/${slug}/${shortHash}`;
+              const owner       = context.repo.owner;
+              const repo        = context.repo.repo;
+
+              core.info(`skill-patch event: slug=${slug}, branch=${branchName}`);
+
+              // --------------------------------------------------------------
+              // 1. Dedup: look for an existing open PR with same branch + labels
+              // --------------------------------------------------------------
+              let existingPR = null;
+              try {
+                const searchQ = `repo:${owner}/${repo} is:pr is:open head:${branchName} label:skill:patch label:skill:${slug}`;
+                const searchResult = await octokit.rest.search.issuesAndPullRequests({
+                  q: searchQ,
+                  per_page: 5,
+                });
+                if (searchResult.data.total_count > 0) {
+                  existingPR = searchResult.data.items[0];
+                  core.info(`Duplicate PR found: #${existingPR.number}`);
+                }
+              } catch (err) {
+                core.warning(`Dedup search failed (non-fatal): ${err.message}`);
+              }
+
+              if (existingPR) {
+                await octokit.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: existingPR.number,
+                  body: `Duplicate submission from anon-agent \`${payload.anon_hash || 'unspecified'}\`, see existing PR`,
+                });
+                core.info(`Commented on existing PR #${existingPR.number} and exiting.`);
+                return;
+              }
+
+              // --------------------------------------------------------------
+              // 2. Get SHA of main branch
+              // --------------------------------------------------------------
+              const mainRef = await octokit.rest.git.getRef({
+                owner,
+                repo,
+                ref: 'heads/main',
+              });
+              const mainSha = mainRef.data.object.sha;
+              core.info(`main SHA: ${mainSha}`);
+
+              // --------------------------------------------------------------
+              // 3. Create the patch branch
+              // --------------------------------------------------------------
+              await octokit.rest.git.createRef({
+                owner,
+                repo,
+                ref: `refs/heads/${branchName}`,
+                sha: mainSha,
+              });
+              core.info(`Created branch: ${branchName}`);
+
+              // --------------------------------------------------------------
+              // 4. Commit each file into the branch
+              //    Skill bundle layout confirmed: recipes/<slug>/<file.path>
+              //    (verified: recipes/maestro/SKILL.md, recipes/framework-v0/SKILL.md)
+              // --------------------------------------------------------------
+              const commitMessage = `skill-patch(${slug}): ${payload.rationale.split('\n')[0].slice(0, 72)}`;
+
+              for (const file of payload.files) {
+                const repoPath  = `recipes/${slug}/${file.path}`;
+                const contentB64 = Buffer.from(file.content).toString('base64');
+
+                // Try to get existing file SHA (required for updates, absent for creates)
+                let existingFileSha = undefined;
+                try {
+                  const existing = await octokit.rest.repos.getContent({
+                    owner,
+                    repo,
+                    path: repoPath,
+                    ref: 'main',
+                  });
+                  existingFileSha = existing.data.sha;
+                  core.info(`Existing file SHA for ${repoPath}: ${existingFileSha}`);
+                } catch (err) {
+                  if (err.status === 404) {
+                    core.info(`New file (no existing SHA): ${repoPath}`);
+                  } else {
+                    throw err;
+                  }
+                }
+
+                const fileParams = {
+                  owner,
+                  repo,
+                  path:    repoPath,
+                  message: commitMessage,
+                  content: contentB64,
+                  branch:  branchName,
+                };
+                if (existingFileSha) {
+                  fileParams.sha = existingFileSha;
+                }
+
+                await octokit.rest.repos.createOrUpdateFileContents(fileParams);
+                core.info(`Committed file: ${repoPath}`);
+              }
+
+              // --------------------------------------------------------------
+              // 5. Build PR body (R5: CLA, anon-hash, evidence, file list, dedup)
+              // --------------------------------------------------------------
+              const firstLine    = payload.rationale.split('\n')[0].slice(0, 80);
+              const evidenceLink = payload.evidence_install_id
+                ? `#${payload.evidence_install_id}`
+                : 'none';
+              const fileList = payload.files
+                .map(f => `- \`${f.path}\` (${f.content.split('\n').length} lines)`)
+                .join('\n');
+              const anonHash = payload.anon_hash || 'unspecified';
+
+              const prBody = [
+                '## Skill Patch Submission',
+                '',
+                '| Field | Value |',
+                '|---|---|',
+                `| slug | ${slug} |`,
+                `| base_version | ${payload.base_version} |`,
+                `| dedup_hash | \`${dedupHash}\` |`,
+                `| anon_agent | \`${anonHash}\` |`,
+                `| evidence_issue | ${evidenceLink} |`,
+                `| files_changed | ${payload.files.length} |`,
+                '',
+                '### Rationale',
+                '',
+                payload.rationale,
+                '',
+                '### Files',
+                '',
+                fileList,
+                '',
+                '### Contribution Agreement (CLA-by-API)',
+                '',
+                `This patch was submitted via the \`recipes_propose_skill_patch\` MCP tool. ` +
+                  `By submitting, the contributor releases these changes under the source skill's ` +
+                  `declared license (or MIT if none declared). ` +
+                  `Anonymous agent fingerprint: \`${anonHash}\`.`,
+                '',
+                '### Review Checklist',
+                '',
+                '- [ ] No script changes leaked through (path allowlist enforced server-side)',
+                '- [ ] No forbidden tokens (curl|bash, eval, base64 -d, etc — server-side scan passed)',
+                '- [ ] Lint passes on changed files',
+                '- [ ] Manually inspect for license-contaminating copy-paste',
+                '- [ ] Verify the fix actually addresses the evidence issue (if linked)',
+                '',
+                '*Auto-generated by feedback-dispatcher workflow. Draft PR — never auto-merge.*',
+              ].join('\n');
+
+              // --------------------------------------------------------------
+              // 6. Open DRAFT PR
+              // --------------------------------------------------------------
+              const prTitle = `[skill-patch] ${slug}: ${firstLine}`;
+              const pr = await octokit.rest.pulls.create({
+                owner,
+                repo,
+                title: prTitle,
+                head:  branchName,
+                base:  'main',
+                body:  prBody,
+                draft: true,
+              });
+
+              core.info(`Opened draft PR #${pr.data.number}: ${pr.data.html_url}`);
+
+              // --------------------------------------------------------------
+              // 7. Apply labels
+              // --------------------------------------------------------------
+              await octokit.rest.issues.addLabels({
+                owner,
+                repo,
+                issue_number: pr.data.number,
+                labels: ['skill:patch', 'agent-reported', `skill:${slug}`, 'cla:auto-mit'],
+              });
+
+              core.info(`Labels applied to PR #${pr.data.number}`);
+              core.setOutput('pr_url',    pr.data.html_url);
+              core.setOutput('pr_number', String(pr.data.number));
+              return;
+            }
+
+            // ================================================================
+            // ISSUE-BASED EVENTS: feedback / recipify-request / skill-error
+            // ================================================================
 
             // ----------------------------------------------------------------
             // Per-event config
