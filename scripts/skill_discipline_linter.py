@@ -51,6 +51,55 @@ from typing import Any
 # Constants
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# OS Profiles — controls which path prefixes and commands are accepted or
+# forbidden for each declared operating system.  If a skill declares
+# os_supported: [macos] in its SKILL.md frontmatter, only macOS tokens are
+# accepted; tokens from OTHER profiles are flagged unless the skill also
+# declares those OSes (union semantics for multi-OS skills).
+# ---------------------------------------------------------------------------
+
+OS_PROFILES: dict[str, dict] = {
+    "linux": {
+        "allowed_path_prefixes": ["~/.", "/var/", "/etc/", "/opt/", "/tmp/"],
+        "allowed_commands": [
+            "systemctl", "journalctl", "ss", "nproc", "md5sum", "setsid",
+            "docker", "docker-compose", "docker compose",
+        ],
+        "forbidden_commands": [],
+    },
+    "macos": {
+        "allowed_path_prefixes": [
+            "~/Library/", "/opt/homebrew/", "/usr/local/", "~/.", "/tmp/", "/private/",
+        ],
+        "allowed_commands": [
+            "launchctl", "lsof", "sysctl", "md5", "nohup", "docker", "docker compose",
+        ],
+        "forbidden_commands": ["systemctl", "apt-get", "apt"],
+    },
+    "windows": {
+        "allowed_path_prefixes": [
+            "%APPDATA%", "%LOCALAPPDATA%", "C:\\\\Users\\\\", "$env:",
+        ],
+        "allowed_commands": ["Get-", "Set-", "Start-Service", "Stop-Service"],
+        "forbidden_commands": ["systemctl", "launchctl", "apt-get"],
+    },
+}
+
+# Pre-computed sets of ALL known OS-specific tokens across every profile.
+# Used to identify whether a token is "OS-typed" in the first place.
+_ALL_OS_COMMANDS: frozenset[str] = frozenset(
+    cmd
+    for profile in OS_PROFILES.values()
+    for cmd in profile["allowed_commands"]
+)
+_ALL_OS_PATH_PREFIXES: frozenset[str] = frozenset(
+    pfx
+    for profile in OS_PROFILES.values()
+    for pfx in profile["allowed_path_prefixes"]
+)
+
+
 USER_NAMES = ("Adam", "Tori", "Wise", "Chef", "Mariusz", "Olek", "Marco", "Karol")
 INTERNAL_INFRA = ("Paperclip", "wisechef-agents", "wisechef-hq", "adam-xps", "obsidian-vault")
 
@@ -429,9 +478,164 @@ def _check_help_text(skill_dir: Path | None) -> list[Violation]:
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# OS-aware helpers
 # ---------------------------------------------------------------------------
 
+# Inline YAML-ish frontmatter parser (stdlib only, no PyYAML).
+# Handles:
+#   os_supported: [linux, macos]
+#   os_supported: ['linux', 'macos']
+#   os_supported:
+#     - linux
+#     - macos
+_FRONTMATTER_BLOCK_RE = re.compile(
+    r"^---\s*\n(.*?)\n---\s*(?:\n|$)", re.DOTALL
+)
+_OS_SUPPORTED_INLINE_RE = re.compile(
+    r"^os_supported\s*:\s*\[([^\]]*)\]", re.MULTILINE
+)
+_OS_SUPPORTED_LIST_RE = re.compile(
+    r"^os_supported\s*:\s*$", re.MULTILINE
+)
+_LIST_ITEM_RE = re.compile(r"^\s+-\s+([^\s#]+)", re.MULTILINE)
+
+
+def parse_os_targets_from_frontmatter(text: str) -> list[str] | None:
+    """Return the os_supported list from SKILL.md YAML frontmatter, or None if absent."""
+    m = _FRONTMATTER_BLOCK_RE.match(text)
+    if not m:
+        return None
+    fm = m.group(1)
+
+    # Inline form: os_supported: [linux, macos]
+    inline = _OS_SUPPORTED_INLINE_RE.search(fm)
+    if inline:
+        raw = inline.group(1)
+        items = [s.strip().strip("'\"") for s in raw.split(",") if s.strip()]
+        return [i for i in items if i] or None
+
+    # Block list form:
+    #   os_supported:
+    #     - linux
+    block_key = _OS_SUPPORTED_LIST_RE.search(fm)
+    if block_key:
+        after = fm[block_key.end():]
+        # Collect leading "  - item" lines
+        items = []
+        for line in after.splitlines():
+            li = _LIST_ITEM_RE.match(line)
+            if li:
+                items.append(li.group(1).strip("'\""))
+            elif line.strip() and not line.startswith(" ") and not line.startswith("\t"):
+                break  # next top-level key
+        return items or None
+
+    return None
+
+
+def _build_effective_profile(os_targets: list[str]) -> dict:
+    """Merge OS profiles for all declared targets (union semantics)."""
+    allowed_paths: set[str] = set()
+    allowed_cmds: set[str] = set()
+    forbidden_cmds: set[str] = set()
+
+    for os_name in os_targets:
+        profile = OS_PROFILES.get(os_name.lower())
+        if profile is None:
+            continue
+        allowed_paths.update(profile["allowed_path_prefixes"])
+        allowed_cmds.update(profile["allowed_commands"])
+        # A command is forbidden only if it's forbidden in ALL declared profiles
+        # (union = lenient). Implementation: start from first profile's forbidden
+        # set and intersect with subsequent profiles.
+
+    # Re-compute forbidden as intersection of each profile's forbidden_commands.
+    profiles = [OS_PROFILES[t.lower()] for t in os_targets if t.lower() in OS_PROFILES]
+    if profiles:
+        forbidden_cmds = set(profiles[0]["forbidden_commands"])
+        for p in profiles[1:]:
+            forbidden_cmds &= set(p["forbidden_commands"])
+    else:
+        forbidden_cmds = set()
+
+    return {
+        "allowed_path_prefixes": allowed_paths,
+        "allowed_cmds": allowed_cmds,
+        "forbidden_cmds": forbidden_cmds,
+    }
+
+
+def _check_os_tokens(
+    line: str,
+    lineno: int,
+    effective_profile: dict,
+) -> list[Violation]:
+    """Check OS-specific path prefixes and commands against effective profile."""
+    violations: list[Violation] = []
+    allowed_paths = effective_profile["allowed_path_prefixes"]
+    allowed_cmds = effective_profile["allowed_cmds"]
+    forbidden_cmds = effective_profile["forbidden_cmds"]
+
+    # Check forbidden commands first — these are explicit profile violations.
+    for cmd in forbidden_cmds:
+        if re.search(rf"(?<![A-Za-z0-9_-]){re.escape(cmd)}(?![A-Za-z0-9_-])", line):
+            violations.append(
+                Violation(
+                    rule="os_forbidden_command",
+                    line=lineno,
+                    snippet=line.strip()[:200],
+                    suggestion=(
+                        f"Command '{cmd}' is in forbidden_commands for the declared "
+                        "OS profile. Remove it or update os_supported in frontmatter."
+                    ),
+                )
+            )
+            return violations  # one per line is enough
+
+    # Check OS-specific path prefixes in ALL profiles: if a path prefix from a
+    # *different* profile appears, flag it — unless that prefix is also in the
+    # effective (allowed) set.
+    for pfx in _ALL_OS_PATH_PREFIXES - allowed_paths:
+        # Skip generic prefixes that are safe on all platforms (e.g. ~/.)
+        if pfx in {"~/.", "/tmp/"}:
+            continue
+        if pfx in line:
+            violations.append(
+                Violation(
+                    rule="os_unknown_path_prefix",
+                    line=lineno,
+                    snippet=line.strip()[:200],
+                    suggestion=(
+                        f"Path prefix '{pfx}' is not in the allowed_path_prefixes "
+                        "for the declared OS profile(s). Add the OS to os_supported "
+                        "in the SKILL.md frontmatter, or use a portable path."
+                    ),
+                )
+            )
+            return violations
+
+    # Check OS-specific commands that belong to OTHER profiles.
+    for cmd in _ALL_OS_COMMANDS - allowed_cmds:
+        if re.search(rf"(?<![A-Za-z0-9_-]){re.escape(cmd)}(?![A-Za-z0-9_-])", line):
+            violations.append(
+                Violation(
+                    rule="os_unknown_command",
+                    line=lineno,
+                    snippet=line.strip()[:200],
+                    suggestion=(
+                        f"Command '{cmd}' is not in allowed_commands for the declared "
+                        "OS profile(s). Add the OS to os_supported in frontmatter."
+                    ),
+                )
+            )
+            return violations
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
 
 PER_LINE_CHECKS = (
     _check_user_names,
@@ -448,15 +652,32 @@ def lint_skill(
     readme_text: str,
     recipe_yaml: str | None = None,
     skill_dir: Path | None = None,
+    os_targets: list[str] | None = None,
 ) -> dict[str, Any]:
     """Lint a skill's README/SKILL.md text plus optional recipe.yaml.
 
+    os_targets: override the OS targets to lint for (overrides frontmatter).
+      If None, the frontmatter os_supported is read; if that's also absent,
+      defaults to ['linux'] for backwards compat.
+
     Returns {"ok": bool, "violations": [{rule, line, snippet, suggestion}, ...]}.
     """
+    # Resolve effective OS targets.
+    # Priority: CLI arg (os_targets param) > frontmatter > default linux
+    if os_targets is None:
+        fm_targets = parse_os_targets_from_frontmatter(readme_text)
+        effective_os = fm_targets if fm_targets else ["linux"]
+    else:
+        effective_os = os_targets
+
+    effective_profile = _build_effective_profile(effective_os)
+
     violations: list[Violation] = []
     for lineno, raw in enumerate(readme_text.splitlines(), start=1):
         for check in PER_LINE_CHECKS:
             violations.extend(check(raw, lineno))
+        # OS-aware token check (skips if all OS profiles are in effective set)
+        violations.extend(_check_os_tokens(raw, lineno, effective_profile))
 
     violations.extend(_check_compat(recipe_yaml))
     violations.extend(_check_help_text(skill_dir))
@@ -604,6 +825,16 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Print a unified diff of mechanical-only fixes (paths/names).",
     )
+    parser.add_argument(
+        "--os-target",
+        default="",
+        metavar="OS[,OS...]",
+        help=(
+            "Comma-separated OS targets to lint for (e.g. macos,linux). "
+            "Overrides the os_supported key in the SKILL.md frontmatter. "
+            "Default (no flag): read from frontmatter; if absent, use linux."
+        ),
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -623,7 +854,17 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.writelines(diff)
         return 0 if fixed == readme_text else 1
 
-    result = lint_skill(readme_text, recipe_yaml=recipe_text, skill_dir=skill_dir)
+    # Parse --os-target flag → list of OS names (or None = read from frontmatter)
+    cli_os_targets: list[str] | None = None
+    if args.os_target:
+        cli_os_targets = [s.strip() for s in args.os_target.split(",") if s.strip()]
+
+    result = lint_skill(
+        readme_text,
+        recipe_yaml=recipe_text,
+        skill_dir=skill_dir,
+        os_targets=cli_os_targets,
+    )
     print(json.dumps(result["violations"], indent=2))
     return 0 if result["ok"] else 1
 
