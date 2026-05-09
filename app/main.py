@@ -39,6 +39,7 @@ from app.sandbox.routes import router as sandbox_router
 from app.skill_error_routes import router as skill_error_router
 from app.transparency_routes import router as transparency_router
 from app.feedback_v1_routes import router as feedback_v1_router
+from app.skill_patch_routes import router as skill_patch_router
 from app.sse_routes import router as sse_router
 from app.share_token_routes import router as share_token_router
 from app.sync_fanout import get_fanout
@@ -114,6 +115,7 @@ def create_app() -> FastAPI:
     app.include_router(skill_error_router)
     app.include_router(transparency_router)
     app.include_router(feedback_v1_router)
+    app.include_router(skill_patch_router)
     app.include_router(recall_router)
     app.include_router(recipify_router)
     app.include_router(referral_router)

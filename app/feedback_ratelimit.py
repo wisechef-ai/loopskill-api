@@ -41,6 +41,22 @@ LOOP_COOLDOWN_S = 15 * 60  # 15 min
 SKILL_ERROR_RATE_MAX = 30  # bumped from 20/hr — now part of cross-tool
 SKILL_ERROR_WINDOW_S = 3600  # still 1-hour backstop for skill-error
 
+# ── Per-tool overrides ────────────────────────────────────────────────────
+#
+# Tools listed here override the module-level PER_TOOL_MAX / LOOP_THRESHOLD /
+# LOOP_WINDOW_S defaults. All other behaviour (cross-tool ceiling, dedup
+# window, cooldown duration) is unchanged.
+#
+# skill-patch: 1/24h per (identity, slug) — very tight because patches are
+# heavier than plain feedback. Loop detector fires at 2 hits in 30 min.
+TOOL_OVERRIDES: dict[str, dict] = {
+    "skill-patch": {
+        "per_tool_max": 1,           # 1 patch per 24h per (identity, slug)
+        "loop_threshold": 2,         # loop fires at 2 rapid hits (not 3)
+        "loop_window_s": 1800,       # 30-min window for loop detection
+    },
+}
+
 # ── State stores ────────────────────────────────────────────────────────────
 
 _lock = threading.Lock()
@@ -103,7 +119,7 @@ class RateLimitResult:
 def check_and_record(
     *,
     identity: str,
-    tool: str,          # "feedback" | "recipify-request" | "skill-error"
+    tool: str,          # "feedback" | "recipify-request" | "skill-error" | "skill-patch"
     signature: str,
     issue_url: str = "",
     force: bool = False,
@@ -113,10 +129,20 @@ def check_and_record(
 
     Returns a RateLimitResult describing the outcome.
     Call BEFORE persisting to DB; only records the hit when allowed=True.
+
+    Per-tool overrides (see TOOL_OVERRIDES) let callers like 'skill-patch'
+    use a tighter per-tool ceiling and a shorter loop-detection window without
+    changing any behaviour for the existing feedback/recipify-request/skill-error tools.
     """
     result = RateLimitResult()
     now = time.monotonic()
     wall_now = datetime.now(timezone.utc)
+
+    # Resolve per-tool overrides (or fall back to module defaults)
+    _overrides = TOOL_OVERRIDES.get(tool, {})
+    _per_tool_max = _overrides.get("per_tool_max", PER_TOOL_MAX)
+    _loop_threshold = _overrides.get("loop_threshold", LOOP_THRESHOLD)
+    _loop_window = _overrides.get("loop_window_s", LOOP_WINDOW_S)
 
     with _lock:
         # ── 1. Dedup check ───────────────────────────────────────────────
@@ -131,7 +157,7 @@ def check_and_record(
             return result
 
         # ── 2. Loop detector ─────────────────────────────────────────────
-        loop_hits = _purge(_loop.get(identity, []), LOOP_WINDOW_S, now)
+        loop_hits = _purge(_loop.get(identity, []), _loop_window, now)
         cooldown_expiry = _cooldown.get(identity, 0.0)
 
         if cooldown_expiry > now:
@@ -145,7 +171,7 @@ def check_and_record(
                 return result
             # force+confirmation overrides cooldown — proceed
 
-        if len(loop_hits) >= LOOP_THRESHOLD:
+        if len(loop_hits) >= _loop_threshold:
             # Trigger cooldown
             _cooldown[identity] = now + LOOP_COOLDOWN_S
             if not (force and confirmation):
@@ -158,7 +184,7 @@ def check_and_record(
         # ── 3. Per-tool window ───────────────────────────────────────────
         tool_key = (identity, tool)
         tool_hits = _purge(_per_tool.get(tool_key, []), PER_TOOL_WINDOW_S, now)
-        if len(tool_hits) >= PER_TOOL_MAX:
+        if len(tool_hits) >= _per_tool_max:
             result.allowed = False
             result.hard_block = True
             result.force_available = True

@@ -46,6 +46,7 @@ from app.mcp.tools import (
     recipes_feedback,
     recipes_request_recipe,
     recipes_report_skill_error,
+    recipes_propose_skill_patch,
 )
 
 logger = logging.getLogger("wiserecipes.mcp")
@@ -249,6 +250,42 @@ def _tool_definitions() -> list[types.Tool]:
                 },
             },
         ),
+        types.Tool(
+            name="recipes_propose_skill_patch",
+            description=(
+                "Submit a working patch (draft PR) to a recipes-marketplace skill "
+                "on wisechef-ai/recipes-api. Use when you have ALREADY fixed a skill "
+                "locally during install or use and want to ship the fix back so other "
+                "agents do not hit the same bug. Allowed file paths: SKILL.md, "
+                "references/*.md, templates/*.{yml,yaml,sh,env,md}. Script changes "
+                "(scripts/*, install.sh, recipe.yaml) are NOT allowed here — describe "
+                "those as a comment on the skill-error issue body instead. Hard limits: "
+                "3 files max, 200 lines per file, 600 lines total. Rate limited to "
+                "1 patch per 24h per (agent, skill). Returns dedup_hash and (eventually) pr_url."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["slug", "base_version", "files", "rationale"],
+                "properties": {
+                    "slug": {"type": "string"},
+                    "base_version": {"type": "string"},
+                    "files": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["path", "content"],
+                            "properties": {
+                                "path": {"type": "string"},
+                                "content": {"type": "string"},
+                            },
+                        },
+                    },
+                    "rationale": {"type": "string"},
+                    "evidence_install_id": {"type": "string"},
+                    "agent_id_anon": {"type": "string"},
+                },
+            },
+        ),
     ]
 
 
@@ -320,6 +357,17 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             summary=args["summary"],
             details=args.get("details"),
             agent_id=args.get("agent_id"),
+            api_key_id=caller.get("api_key_id"),
+        )
+    if name == "recipes_propose_skill_patch":
+        return recipes_propose_skill_patch(
+            db,
+            slug=args["slug"],
+            base_version=args["base_version"],
+            files=args["files"],
+            rationale=args["rationale"],
+            evidence_install_id=args.get("evidence_install_id"),
+            agent_id_anon=args.get("agent_id_anon"),
             api_key_id=caller.get("api_key_id"),
         )
     raise ValueError(f"unknown tool: {name}")

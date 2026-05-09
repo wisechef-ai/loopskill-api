@@ -17,6 +17,7 @@ from app.mcp.tools.recipes_sync import recipes_sync
 from app.mcp.tools.feedback import recipes_feedback
 from app.mcp.tools.recipify_request import recipes_request_recipe
 from app.mcp.tools.skill_error import recipes_report_skill_error
+from app.mcp.tools.skill_patch import recipes_propose_skill_patch
 
 __all__ = [
     "recipes_search",
@@ -32,4 +33,5 @@ __all__ = [
     "recipes_feedback",
     "recipes_request_recipe",
     "recipes_report_skill_error",
+    "recipes_propose_skill_patch",
 ]

@@ -858,3 +858,33 @@ class FeedbackSubmission(Base):
         Index("idx_fs_api_key_created", "api_key_id", "created_at"),
         Index("idx_fs_signature", "signature"),
     )
+
+
+class SkillPatch(Base):
+    """Agent-submitted skill patch awaiting draft PR creation.
+
+    Created via POST /api/v1/skill-patch or the recipes_propose_skill_patch
+    MCP tool. Dispatches a GitHub repository_dispatch event of type 'skill-patch'.
+    """
+    __tablename__ = "skill_patches"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    ts = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    api_key_h = Column(Text, nullable=True)         # sha256 of the api key (anon)
+    slug = Column(Text, nullable=True)
+    base_version = Column(Text, nullable=False)
+    dedup_hash = Column(Text, nullable=False, unique=True)
+    file_paths_json = Column(JSON, nullable=False, default=list)
+    anon_hash = Column(Text, nullable=False, default="")
+    gh_pr_number = Column(Integer, nullable=True)
+    gh_pr_url = Column(Text, nullable=True)
+    # status values: pending | opened | merged | closed | rejected
+    status = Column(String(32), nullable=False, default="pending")
+    rejection_reason = Column(Text, nullable=True)
+    rationale = Column(Text, nullable=False, default="")
+    evidence_install_id = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("idx_sp_api_key_h", "api_key_h"),
+        Index("idx_sp_slug", "slug"),
+    )
