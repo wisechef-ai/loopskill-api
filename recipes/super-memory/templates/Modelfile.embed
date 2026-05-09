@@ -1,0 +1,12 @@
+# Ollama Modelfile — alias nomic-embed-text as text-embedding-3-small
+# Required because cognee uses tiktoken internally which crashes on
+# non-OpenAI model names (see pitfall 14)
+#
+# Usage:
+#   ollama create text-embedding-3-small -f Modelfile.embed
+#
+# This creates an Ollama model called "text-embedding-3-small" that is
+# actually nomic-embed-text (768 dimensions). cognee's tiktoken recognizes
+# the OpenAI name, and Ollama serves the actual local model.
+
+FROM nomic-embed-text
