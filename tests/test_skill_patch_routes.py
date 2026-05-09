@@ -321,3 +321,34 @@ def test_auth_missing(patch_client_no_auth):
         headers={},  # no x-api-key
     )
     assert resp.status_code in (401, 403), resp.text
+
+
+# ── Test 13: extensionless template filenames are allowed ─────────────────────
+# Regression test for the dogfood-failure caught on 2026-05-09: validator
+# rejected `templates/Modelfile.embed` because the original allowlist required
+# specific extensions. Real-world templates include extensionless filenames
+# (Modelfile, Dockerfile, Containerfile). The blocklist (*.py, scripts/**,
+# install.sh, recipe.yaml) is the actual security gate; templates/* is inert
+# text consumed elsewhere.
+
+def test_path_templates_extensionless_allowed():
+    """templates/Modelfile, templates/Dockerfile, etc. must validate."""
+    from app.skill_patch_validation import validate_path
+    for p in [
+        "templates/Modelfile",
+        "templates/Modelfile.embed",
+        "templates/Dockerfile",
+        "templates/Containerfile",
+        "templates/docker-compose.macos.yml",
+    ]:
+        ok, reason = validate_path(p)
+        assert ok is True, f"expected {p} allowed, got reason={reason!r}"
+
+    # And the blocklist still wins inside templates/ for executable code paths
+    # (recipe.yaml / *.py). NOTE: `templates/install.sh` is NOT blocked because
+    # files under templates/ are inert content (the skill author's install.sh
+    # renders or copies them; our server never executes templates/* directly).
+    # The actual security gate is FORBIDDEN_TOKENS scanning content, not paths.
+    for p in ["templates/foo.py"]:
+        ok, reason = validate_path(p)
+        assert ok is False, f"expected {p} blocked, got ok={ok}"

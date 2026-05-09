@@ -20,14 +20,16 @@ PATH_ALLOWLIST_EXACT: frozenset[str] = frozenset({
     "recipe.yaml.frontmatter",
 })
 
-# Glob patterns for allowed paths
+# Glob patterns for allowed paths.
+#
+# templates/* is intentionally broad: real-world template filenames include
+# extensionless ones (Modelfile, Dockerfile, Containerfile) and many config
+# variants. The R1 blocklist below still rejects executable script paths,
+# *.py, recipe.yaml, and install/uninstall.sh — so templates/* is "inert
+# text consumed by code that lives elsewhere", which is the safe bucket.
 PATH_ALLOWLIST_GLOBS: list[str] = [
     "references/*.md",
-    "templates/*.md",
-    "templates/*.yml",
-    "templates/*.yaml",
-    "templates/*.sh",
-    "templates/*.env",
+    "templates/*",
 ]
 
 # Glob patterns that are explicitly blocked (blocklist takes priority)
