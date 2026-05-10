@@ -155,7 +155,10 @@ def check_stripe_drift(tiers: dict[str, Any], stripe_prices: dict[str, dict]) ->
             continue
         want_nick = meta.get("stripe_nickname", "")
         got_nick = info.get("nickname") or ""
-        if want_nick and got_nick != want_nick:
+        # rev 7.2 hotfix: allow yaml prefix to be the canonical name; Stripe nicknames
+        # frequently carry an audit-trail suffix like " (RCP-1 2026-05-08, RCP-7 rev7.3 label)".
+        # We treat it as in-sync if Stripe's nickname STARTS WITH the yaml value.
+        if want_nick and not got_nick.startswith(want_nick):
             issues.append(
                 f"Stripe price {info['price_id']!r} nickname mismatch for {key!r}: "
                 f"yaml={want_nick!r} stripe={got_nick!r}"
