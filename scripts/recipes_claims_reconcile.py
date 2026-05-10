@@ -63,8 +63,11 @@ def query_db_tier_distribution() -> dict[str, int] | None:
         from sqlalchemy import create_engine, text
         engine = create_engine(db_url, pool_pre_ping=True, connect_args={"connect_timeout": 5})
         with engine.connect() as conn:
+            # rev 7.2 hotfix: column is 'subscription_tier' on the users table,
+            # not 'tier' (Skill.tier exists; User.subscription_tier is the user-facing one).
             rows = conn.execute(
-                text("SELECT tier, COUNT(*) AS cnt FROM users GROUP BY tier")
+                text("SELECT subscription_tier AS tier, COUNT(*) AS cnt "
+                     "FROM users GROUP BY subscription_tier")
             ).fetchall()
         return {row[0]: int(row[1]) for row in rows if row[0]}
     except Exception as exc:  # noqa: BLE001
@@ -98,9 +101,16 @@ def query_stripe_prices(tiers: dict[str, Any]) -> dict[str, dict] | None:
                 continue
             try:
                 price = stripe.Price.retrieve(price_id)
+                # rev 7.2 hotfix: stripe SDK v15 returns Price objects, not dicts.
+                # `.get()` works on a SubResource but not on the top-level Price obj.
+                # Use attribute access with getattr() fallback for safety.
+                meta_obj = getattr(price, "metadata", None) or {}
+                tier_slug_meta = (
+                    meta_obj.get("tier_slug") if hasattr(meta_obj, "get") else None
+                )
                 result[key] = {
-                    "nickname": price.get("nickname"),
-                    "tier_slug_meta": (price.get("metadata") or {}).get("tier_slug"),
+                    "nickname": getattr(price, "nickname", None),
+                    "tier_slug_meta": tier_slug_meta,
                     "price_id": price_id,
                 }
             except Exception as exc:  # noqa: BLE001
