@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.discord_bot.role_sync import sync_role_for_user
 from app.models import CreatorPayout, Referral, StripeEventId, User
+from app.revenue_alerts import post_revenue_event
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,14 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 TIER_PRICE_IDS: dict[str, str] = {
     "cook": settings.STRIPE_PRICE_COOK,      # = Pro €20/mo
     "studio": settings.STRIPE_PRICE_STUDIO,  # = All-in €100/mo
+}
+
+# Display-friendly USD price for revenue alerts. Mirror of config/tiers.yaml.
+# Used purely for Discord notifications — no billing logic depends on this.
+TIER_USD_PRICE: dict[str, float] = {
+    "cook": 20.0,
+    "operator": 100.0,
+    "studio": 100.0,
 }
 
 
@@ -288,6 +297,26 @@ def handle_checkout_completed(event: dict, db: Session) -> dict:
         db.commit()
     _maybe_sync_discord_role(user)
     logger.info("Subscription activated for user %s via checkout %s", user.id, session["id"])
+
+    # Revenue alert: ping Discord on first paid signup. Internal users
+    # (chef@/tori@/adam.krawczyk0698 on $0 Co-worker price) still trigger
+    # this — that's intentional, the team should see every checkout completion
+    # to confirm the pipe is alive.
+    try:
+        post_revenue_event(
+            event_kind="new_subscription",
+            user_email=user.email,
+            user_id=str(user.id),
+            tier=user.subscription_tier,
+            amount_usd=TIER_USD_PRICE.get((user.subscription_tier or "").lower()),
+            extra_lines=[
+                f"Stripe checkout: `{session.get('id', '?')}`",
+                f"Stripe subscription: `{sub_id or '(none)'}`",
+            ],
+        )
+    except Exception:  # noqa: BLE001 — never block the webhook on alerting
+        logger.exception("revenue_alerts: new_subscription dispatch failed")
+
     return {"processed": "checkout.session.completed", "user_id": str(user.id)}
 
 
@@ -306,6 +335,8 @@ def handle_subscription_event(event: dict, db: Session) -> dict:
         return {"skipped": "user-not-found"}
 
     event_type = event.get("type", "")
+    prior_tier = (user.subscription_tier or "").lower() if user.subscription_tier else None
+
     if event_type == "customer.subscription.deleted":
         # Cancel → downgrade-to-free: clear sub fields so the user is back on Free.
         user.subscription_status = "canceled"
@@ -315,12 +346,51 @@ def handle_subscription_event(event: dict, db: Session) -> dict:
         db.commit()
         _maybe_sync_discord_role(user)
         logger.info("Subscription canceled for user %s — downgraded to free", user.id)
+
+        try:
+            post_revenue_event(
+                event_kind="subscription_canceled",
+                user_email=user.email,
+                user_id=str(user.id),
+                tier=prior_tier,
+                amount_usd=TIER_USD_PRICE.get(prior_tier or ""),
+                extra_lines=[
+                    f"Stripe subscription: `{sub.get('id', '?')}`",
+                    "Installed skills keep working locally; only auto-improvement updates stop.",
+                ],
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("revenue_alerts: cancel dispatch failed")
         return {"processed": event_type, "user_id": str(user.id), "downgraded_to": "free"}
 
     _apply_subscription_state(user, sub, db)
     _maybe_sync_discord_role(user)
     logger.info("Subscription %s for user %s: status=%s tier=%s",
                 event_type, user.id, user.subscription_status, user.subscription_tier)
+
+    # Tier-change alert: only fire when the tier actually moved (Pro→Pro+ etc).
+    # Skip for noise events (status: past_due → active churn-recovery, billing
+    # period rollovers, payment-method updates) where the tier is unchanged.
+    new_tier = (user.subscription_tier or "").lower() if user.subscription_tier else None
+    if new_tier and new_tier != prior_tier:
+        try:
+            kind = "subscription_upgrade"
+            if prior_tier and TIER_USD_PRICE.get(new_tier, 0) < TIER_USD_PRICE.get(prior_tier, 0):
+                kind = "subscription_downgrade"
+            post_revenue_event(
+                event_kind=kind,
+                user_email=user.email,
+                user_id=str(user.id),
+                tier=new_tier,
+                amount_usd=TIER_USD_PRICE.get(new_tier),
+                extra_lines=[
+                    f"Was: {prior_tier or '(none)'} → Now: {new_tier}",
+                    f"Stripe event: `{event_type}`",
+                ],
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("revenue_alerts: tier-change dispatch failed")
+
     return {"processed": event_type, "user_id": str(user.id)}
 
 
