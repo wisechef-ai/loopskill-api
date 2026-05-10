@@ -1,0 +1,35 @@
+# SSOT for tier display metadata.
+# db_slug is the immutable contract: it matches DB column, API responses, and tests.
+# display_name is what /pricing and /skills cards render.
+# DO NOT rename db_slug without a coordinated DB migration + API + test sweep.
+# To change display labels or pricing: edit ONLY this file, then run:
+#   python3 scripts/recipes_stripe_sync.py --check-only   (verify)
+#   python3 scripts/recipes_claims_reconcile.py --strict   (confirm no drift)
+version: 1
+
+tiers:
+  free:
+    db_slug: free
+    display_name: Free
+    price_usd: 0
+    price_id_env: null
+    accent_color: "#6B7280"
+    badge: Free
+
+  cook:
+    db_slug: cook
+    display_name: Pro
+    price_usd: 20
+    price_id_env: WR_STRIPE_PRICE_COOK
+    stripe_nickname: "Pro $20/mo"
+    accent_color: "#3B82F6"
+    badge: Pro
+
+  operator:
+    db_slug: operator
+    display_name: Pro+
+    price_usd: 100
+    price_id_env: WR_STRIPE_PRICE_STUDIO
+    stripe_nickname: "Pro+ $100/mo"
+    accent_color: "#D4A017"
+    badge: Pro+
