@@ -220,7 +220,7 @@ class TestCookRateLimit:
         )
         assert resp.status_code == 429, f"Expected 429, got {resp.status_code}: {resp.text}"
         body = resp.json()
-        assert "Upgrade to Operator" in body["detail"]
+        assert "Upgrade to Pro+" in body["detail"]
         assert body["tier"] == "cook"
         assert body["limit"] == 100
         # Check standard rate-limit headers

@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session, joinedload
 logger = logging.getLogger(__name__)
 
 from app.database import get_db
+from app.tier_labels import display_label
 from app.models import (
     APIKey,
     APILibraryEntry,
@@ -364,7 +365,7 @@ def install_skill(
                 status_code=429,
                 content={
                     "detail": f"Install rate limit exceeded ({install_limit}/day for {caller_tier or 'free'} tier). "
-                              f"Upgrade to Operator for unlimited installs.",
+                              f"Upgrade to {display_label('operator')} for unlimited installs.",
                     "tier": caller_tier,
                     "limit": install_limit,
                     "remaining": remaining,
