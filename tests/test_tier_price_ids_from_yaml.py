@@ -185,3 +185,43 @@ class TestEnvVarRenameLegacyFallback:
             assert "pro_plus" not in result
         finally:
             self._restore(original)
+
+    def test_prod_scenario_default_canonical_with_real_legacy_in_env(self):
+        """REGRESSION: prod has WR_STRIPE_PRICE_COOK set to the real price ID,
+        WR_STRIPE_PRICE_PRO unset. The defaults for STRIPE_PRICE_PRO must NOT
+        mask the legacy fallback. This was the bug caught immediately after
+        Phase 6 deploy on 2026-05-11."""
+        # STRIPE_PRICE_PRO default in config.py is "" (intentionally).
+        # STRIPE_PRICE_COOK default in config.py is a stale test ID.
+        # The .env on prod overrides STRIPE_PRICE_COOK with the real price ID.
+        # The resolver MUST see STRIPE_PRICE_PRO="" and fall back to STRIPE_PRICE_COOK.
+        ss, original = self._reload_with_settings(
+            STRIPE_PRICE_PRO="",  # canonical default — simulates unset .env
+            STRIPE_PRICE_PRO_PLUS="",
+            STRIPE_PRICE_COOK="price_PROD_REAL_cook_value",
+            STRIPE_PRICE_STUDIO="price_PROD_REAL_studio_value",
+        )
+        try:
+            result = ss._load_tier_price_ids()
+            assert result["pro"] == "price_PROD_REAL_cook_value", (
+                f"Phase 6 regression: canonical default masked legacy. Got {result['pro']!r}"
+            )
+            assert result["pro_plus"] == "price_PROD_REAL_studio_value"
+        finally:
+            self._restore(original)
+
+    def test_canonical_field_default_is_empty(self):
+        """RCP-INCIDENT-2026-05-11 Phase 6 hotfix: STRIPE_PRICE_PRO and
+        STRIPE_PRICE_PRO_PLUS MUST default to '' so an unset .env triggers
+        the legacy-env-var fallback. Any non-empty default would mask the
+        real prod value sourced via WR_STRIPE_PRICE_COOK/STUDIO."""
+        from app.config import Settings
+        defaults = Settings.model_fields
+        assert defaults["STRIPE_PRICE_PRO"].default == "", (
+            "STRIPE_PRICE_PRO must default to '' so unset .env falls back to legacy. "
+            f"Got {defaults['STRIPE_PRICE_PRO'].default!r}"
+        )
+        assert defaults["STRIPE_PRICE_PRO_PLUS"].default == "", (
+            "STRIPE_PRICE_PRO_PLUS must default to '' so unset .env falls back to legacy. "
+            f"Got {defaults['STRIPE_PRICE_PRO_PLUS'].default!r}"
+        )

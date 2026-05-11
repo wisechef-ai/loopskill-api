@@ -21,12 +21,13 @@ class Settings(BaseSettings):
     # Canonical env var names (RCP-INCIDENT-2026-05-11 Phase 6, 2026-05-11):
     #   WR_STRIPE_PRICE_PRO        (€20/mo)
     #   WR_STRIPE_PRICE_PRO_PLUS   (€100/mo)
-    # Legacy aliases retained until 2026-06-10 so an .env that still uses
-    # WR_STRIPE_PRICE_COOK / WR_STRIPE_PRICE_OPERATOR / WR_STRIPE_PRICE_STUDIO
-    # keeps working through the soak window. _load_tier_price_ids() reads
-    # the canonical names first and falls back to legacy if empty.
-    STRIPE_PRICE_PRO: str = "price_1TT3v2Egmqt5xoaL2DU8GgMO"
-    STRIPE_PRICE_PRO_PLUS: str = "price_1TT3v2Egmqt5xoaL0XRo0VcX"
+    # CANONICAL FIELDS DEFAULT TO "" so an unset .env value doesn't get masked
+    # by a stale-default constant. If the canonical env var is empty,
+    # _load_tier_price_ids() falls back to price_id_env_legacy
+    # (WR_STRIPE_PRICE_COOK / WR_STRIPE_PRICE_OPERATOR / WR_STRIPE_PRICE_STUDIO),
+    # which the host's .env still defines until 2026-06-10.
+    STRIPE_PRICE_PRO: str = ""
+    STRIPE_PRICE_PRO_PLUS: str = ""
     # Legacy aliases — deprecated, remove after 2026-06-10
     STRIPE_PRICE_COOK: str = "price_1TT3v2Egmqt5xoaL2DU8GgMO"
     STRIPE_PRICE_OPERATOR: str = "price_1TT3v2Egmqt5xoaL0XRo0VcX"
