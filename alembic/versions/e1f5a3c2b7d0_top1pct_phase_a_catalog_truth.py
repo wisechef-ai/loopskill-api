@@ -76,6 +76,13 @@ SCRUBBED_DESCRIPTIONS = {
         "OpenAI's gpt-image-1. Picks the right backend based on cost, style, "
         "and resolution constraints. Returns a URL or local file path."
     ),
+    "agent-rescue": (
+        "Fleet-wide monitoring and auto-remediation for an AI-agent fleet. "
+        "Watches for failed crons, dead processes, stale heartbeats, and "
+        "budget overruns; restarts safely or escalates to a human. Use when "
+        "wiring an autonomous multi-agent stack and you need a single "
+        "supervisor process that keeps everything healthy."
+    ),
 }
 
 

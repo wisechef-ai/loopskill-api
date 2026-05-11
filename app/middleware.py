@@ -104,6 +104,11 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         # transport (/api/mcp/sse) and message endpoint (/api/mcp/messages/)
         # remain auth-required and re-validate the key per request.
         "/api/mcp/healthz",
+        # top1pct_1105 Phase A — marketing counts is the SSOT for every public
+        # surface (homepage hero, /skills, /pricing, /docs). MUST be reachable
+        # without auth so the static-build pipeline can pull it; counts contain
+        # no PII or sensitive data.
+        "/api/marketing/",
     )
 
     # Phase A — POST /api/intent-survey is anonymous; GET /api/intent-survey/results
