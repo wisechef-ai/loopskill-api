@@ -1,0 +1,102 @@
+# SSOT for marketing surface copy — counts, tier display, MCP tools, REST endpoints.
+#
+# Phase F of top1pct_1105. Extends config/tiers.yaml (tier display SSOT) with the
+# bigger marketing surface — what numbers appear on every public page, which
+# endpoints the catalog exposes, which MCP tools the agent gets, and what each
+# bullet says.
+#
+# THE INVARIANT: every public surface (homepage hero, /skills, /pricing,
+# /docs/getting-started, /docs/mcp) consumes from THIS file via either:
+#   - GET /api/marketing-snapshot  (runtime — for client-side renders)
+#   - vite-yaml import             (build time — for static Astro pages)
+#   - GET /api/marketing/counts    (live numbers only, sub-second fresh)
+#
+# The drift watchdog (Phase F probe d, batched into recipes-publish-watchdog,
+# every 4h) compares this file against:
+#   - the live DB counts → flags if drift > 1
+#   - the built HTML in dist/ → flags if any surface hardcodes a number
+#   - app/subscription_service.TIER_PRICE_IDS keys → flags if tier set diverges
+#
+# To change a number: edit ONLY this file, push, redeploy.  The cron-managed
+# counts block at the bottom is auto-overwritten by scripts/refresh_marketing_counts.py
+# (run nightly + before deploy).
+version: 1
+
+# ── COUNTS ──────────────────────────────────────────────────────────────────
+# Auto-refreshed by scripts/refresh_marketing_counts.py from live DB. The
+# values committed here are a static fallback for the static build when the
+# /api/marketing/counts endpoint is unreachable; otherwise the live endpoint
+# wins.
+counts:
+  skills_total: 48                # all non-archived public skills
+  free_skills: 3
+  pro_skills: 34                  # DB slug = cook, display = Pro
+  pro_plus_exclusive_skills: 11   # DB slug = operator, display = Pro+
+  mcp_tools_count: 6
+  rest_endpoint_count: 11
+  last_refresh_at: 2026-05-11T22:00:00Z
+
+# ── TIERS — display layer (immutable contract with config/tiers.yaml) ───────
+# Mirror of config/tiers.yaml fields needed for marketing. The drift watchdog
+# verifies these two stay in sync. Do NOT diverge price_usd or display_name
+# here without updating config/tiers.yaml in the same commit.
+tiers:
+  pro:
+    display_name: Pro
+    price_usd: 20
+    bullets:
+      - All paid skills
+      - 1 personal cookbook + fleet sync
+      - Cross-vendor (Claude Code, Cursor, Cline, OpenClaw, Hermes, Windsurf)
+      - Per-key install visibility
+      - Cancel anytime
+  pro_plus:
+    display_name: Pro+
+    price_usd: 100
+    bullets:
+      - Everything in Pro
+      - Up to 20 cookbooks (vs 1)
+      - Deploy cookbooks to your clients' agents
+      - Per-cookbook scoped API keys (up to 20)
+      - Private org-only catalog
+      - Priority skill review
+
+# ── MCP TOOLS — what the recipes_mcp_server exposes ─────────────────────────
+mcp_tools:
+  - recipes_search
+  - recipes_detail
+  - recipes_trending
+  - recipes_install
+  - recipes_install_meta_skill
+  - recipes_stats
+
+# ── REST ENDPOINTS — the public catalog surface ─────────────────────────────
+# Used by /docs/mcp "REST endpoints" section and by the drift watchdog
+# probe (c) — surfaces a list, watchdog re-discovers via curl /openapi.json,
+# diffs.  An endpoint added to the API but not listed here is a drift signal.
+rest_endpoints:
+  - /api/skills/search
+  - /api/skills/{slug}
+  - /api/skills/install
+  - /api/skills/access
+  - /api/skills/trending
+  - /api/carousel/today
+  - /api/auth/me
+  - /api/auth/logout
+  - /api/api-keys                 # Phase C — per-cookbook keys
+  - /api/telemetry
+  - /api/marketing/counts         # Phase A — drift-proof counts SSOT
+
+# ── PROOF POINTS — verifiable marketing claims ──────────────────────────────
+# Anything copied into hero/cards/pricing.  If a claim moves out of this list,
+# remove it from the surface too.  Drift watchdog (Phase F probe e) greps the
+# built HTML for any claim NOT in this list — flags brand drift.
+proof_points:
+  - text: "Same skill, every agent — Claude Code, Cursor, Cline, OpenClaw, Hermes, Windsurf."
+    surfaces: [homepage_hero, docs_mcp]
+  - text: "Six dedicated MCP tools — not a generic REST wrapper."
+    surfaces: [docs_mcp, homepage_hero]
+  - text: "Curated weekly. Signed and versioned. No cloud round-trip at run time."
+    surfaces: [homepage_hero, docs_sync]
+  - text: "On Pro+, push pre-built cookbooks straight into agents you operate for clients."
+    surfaces: [homepage_hero, docs_deployment, pricing]

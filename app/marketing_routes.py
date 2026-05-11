@@ -72,3 +72,34 @@ def marketing_counts(db: Session = Depends(get_db)) -> dict:
             "pro_plus": display_label("operator"),
         },
     }
+
+
+@router.get("/snapshot")
+def marketing_snapshot(db: Session = Depends(get_db)) -> dict:
+    """Full marketing SSOT — counts merged with config/recipes-marketing.yaml.
+
+    Phase F of top1pct_1105: every public surface should read from this
+    endpoint OR from the yaml at build time. The yaml is the static base;
+    counts are live-overlaid. Drift watchdog (recipes-publish-watchdog cron,
+    every 4h) verifies the yaml matches DB and surfaces.
+    """
+    import yaml
+    from pathlib import Path
+
+    yaml_path = Path(__file__).resolve().parent.parent / "config" / "recipes-marketing.yaml"
+    try:
+        with open(yaml_path) as f:
+            snap = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        snap = {"version": 0, "error": "recipes-marketing.yaml missing"}
+
+    # Overlay live counts on top of the yaml's static fallback.
+    live = marketing_counts(db)
+    snap.setdefault("counts", {})
+    snap["counts"]["skills_total"] = live["total"]
+    snap["counts"]["free_skills"] = live["free"]
+    snap["counts"]["pro_skills"] = live["pro"]
+    snap["counts"]["pro_plus_exclusive_skills"] = live["pro_plus"]
+    snap["counts"]["last_added_at"] = live["last_added_at"]
+    snap["_source"] = "config/recipes-marketing.yaml + live DB counts"
+    return snap
