@@ -182,3 +182,60 @@ def test_invalid_webhook_secret_critical_and_alert(caplog):
         "whsec_" in r.message or "invalid" in r.message.lower()
         for r in critical_records
     )
+
+
+# ── Test 6: regression — real stripe.ListObject shape (no .get on data) ───────
+
+class _FakeStripeObject:
+    """Mimics stripe._stripe_object.StripeObject: attribute access only,
+    `.get(k)` raises AttributeError (the trap that broke prod 2026-05-11)."""
+    def __init__(self, **kw):
+        self._kw = kw
+    def __getattr__(self, k):
+        if k.startswith("_"):
+            raise AttributeError(k)
+        if k in self._kw:
+            return self._kw[k]
+        raise AttributeError(k)
+
+
+class _FakeStripeListObject:
+    """Mimics stripe._list_object.ListObject. `.data` is the attribute;
+    `.get('data')` raises AttributeError because there's no stored 'get' key.
+    EXACT shape that broke startup_checks v1 in prod on 2026-05-11."""
+    def __init__(self, data):
+        self.data = data
+    def __getattr__(self, k):
+        if k.startswith("_"):
+            raise AttributeError(k)
+        raise AttributeError(k)
+
+
+def test_endpoints_listobject_shape_regression(caplog):
+    """RCP-INCIDENT-2026-05-11 regression: real Stripe SDK returns ListObject
+    whose .get('data') raises AttributeError. Our code must use attribute
+    access. This test would FAIL against the v1 implementation."""
+    from app.startup_checks import verify_stripe_webhook_endpoint
+
+    ep = _FakeStripeObject(
+        url=_EXPECTED_WEBHOOK_URL,
+        status="enabled",
+        id="we_test_listobject",
+    )
+    endpoints_resp = _FakeStripeListObject(data=[ep])
+
+    with patch("stripe.WebhookEndpoint.list", return_value=endpoints_resp), \
+         patch.dict("os.environ", {
+             "WR_STRIPE_WEBHOOK_SECRET": "whsec_valid_secret",
+             "TORI_DISCORD_WEBHOOK_URL": "",
+         }), \
+         patch("app.startup_checks.post_tori_alert") as mock_alert, \
+         caplog.at_level(logging.CRITICAL, logger="app.startup_checks"):
+        _run(verify_stripe_webhook_endpoint())
+
+    mock_alert.assert_not_called()
+    critical_records = [r for r in caplog.records if r.levelno >= logging.CRITICAL]
+    assert not critical_records, (
+        "ListObject-shape probe must succeed without CRITICAL — got: "
+        f"{[r.message for r in critical_records]}"
+    )

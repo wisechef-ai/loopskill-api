@@ -92,9 +92,27 @@ async def verify_stripe_webhook_endpoint() -> None:
         # The default SDK timeout (~80s) is fine here; we're inside a try/except
         # and this only runs once per boot.
         endpoints = stripe.WebhookEndpoint.list(limit=20)
+        # stripe ListObject: `.data` is the attribute, `.get("data")` raises
+        # AttributeError because ListObject inherits from StripeObject and
+        # "data"/`get` aren't stored keys. Defensive access pattern:
+        endpoint_data = getattr(endpoints, "data", None)
+        if endpoint_data is None:
+            try:
+                endpoint_data = endpoints["data"]  # type: ignore[index]
+            except (KeyError, TypeError):
+                endpoint_data = []
+
+        def _field(ep, name):
+            """Read a field whether ep is a stripe object or a dict."""
+            v = getattr(ep, name, None)
+            if v is None and isinstance(ep, dict):
+                v = ep.get(name)
+            return v
+
         matching = [
-            ep for ep in (endpoints.get("data") or [])
-            if ep.get("url") == EXPECTED_WEBHOOK_URL and ep.get("status") == "enabled"
+            ep for ep in (endpoint_data or [])
+            if _field(ep, "url") == EXPECTED_WEBHOOK_URL
+            and _field(ep, "status") == "enabled"
         ]
         count = len(matching)
         if count == 1:
