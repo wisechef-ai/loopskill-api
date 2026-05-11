@@ -21,7 +21,7 @@ from app.subscription_service import (
     TIER_PRICE_IDS,
     _apply_subscription_state,
     create_checkout_session,
-    downgrade_operator_to_cook,
+    downgrade_pro_plus_to_pro,
 )
 
 logger = logging.getLogger(__name__)
@@ -63,6 +63,14 @@ async def create_subscription_checkout(
             status_code=401,
             detail="login_required",
         )
+
+    # Legacy tier URL alias rewrite — keeps old /api/checkout/cook etc. working.
+    # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
+    LEGACY_TIER_URL_ALIASES = {"cook": "pro", "operator": "pro_plus", "studio": "pro_plus"}
+    if tier in LEGACY_TIER_URL_ALIASES:
+        logger.info("Legacy tier URL %r → rewriting to %r", tier, LEGACY_TIER_URL_ALIASES[tier])
+        tier = LEGACY_TIER_URL_ALIASES[tier]
+
     if tier not in TIER_PRICE_IDS:
         raise HTTPException(
             status_code=400,
@@ -190,14 +198,14 @@ async def downgrade_subscription(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
-    """Switch a Pro+ (operator) subscriber to Pro (cook) with proration.
+    """Switch a Pro+ subscriber to Pro with proration.
 
-    Requires authentication. Returns 400 if the caller isn't currently on operator.
+    Requires authentication. Returns 400 if the caller isn't currently on pro_plus.
     """
     if user is None:
         raise HTTPException(status_code=401, detail="login_required")
     try:
-        return downgrade_operator_to_cook(user, db)
+        return downgrade_pro_plus_to_pro(user, db)
     except SubscriptionError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

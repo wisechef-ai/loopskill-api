@@ -1,10 +1,11 @@
 """Tier label helpers — load from config/tiers.yaml.
 For any user-facing text (API responses, emails, logs), use display_label(slug)
-instead of hardcoding 'Cook' or 'Operator'.
+instead of hardcoding 'Pro' or 'Pro+'.
 
-Helpers _is_paid_tier() and _is_operator_tier() handle legacy 'studio' slug
+Helpers _is_paid_tier() and _is_pro_plus_tier() handle legacy slugs
 transparently for the 30-day backwards-compat window (RCP-INCIDENT-2026-05-11).
 """
+import logging
 import yaml
 from functools import lru_cache
 from pathlib import Path
@@ -12,11 +13,15 @@ from pathlib import Path
 # config/tiers.yaml lives two levels up from app/
 TIERS_YAML = Path(__file__).resolve().parent.parent / 'config' / 'tiers.yaml'
 
-# Legacy slug mapping — 'studio' was the original DB slug for the operator tier.
+logger = logging.getLogger(__name__)
+
+# Legacy slug mapping — tracks all pre-Phase-5 DB slugs to canonical.
 # Accepted transparently for 30 days after migration (remove after 2026-06-10).
 # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
 _LEGACY_SLUG_MAP: dict[str, str] = {
-    "studio": "operator",
+    "studio": "pro_plus",    # Phase 3 legacy
+    "operator": "pro_plus",  # Phase 5 legacy
+    "cook": "pro",           # Phase 5 legacy
 }
 
 
@@ -34,27 +39,41 @@ def _canonical(slug: str) -> str:
 def display_label(db_slug: str) -> str:
     """Return the user-facing display name for a DB tier slug.
 
-    Accepts legacy slug 'studio' transparently (maps to 'operator').
+    Accepts legacy slugs 'studio', 'operator', 'cook' transparently.
     """
     canonical = _canonical(db_slug)
     return _tiers().get(canonical, {}).get('display_name', canonical.title())
 
 
 def _is_paid_tier(tier: str | None) -> bool:
-    """Return True if tier is any paid tier (cook, operator, or legacy studio).
+    """Return True if tier is any paid tier (pro, pro_plus, or legacy slugs).
 
     # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
     """
     if not tier:
         return False
-    return _canonical(tier) in ("cook", "operator")
+    return _canonical(tier) in ("pro", "pro_plus")
+
+
+def _is_pro_plus_tier(tier: str | None) -> bool:
+    """Return True if tier is the pro_plus tier (or legacy 'operator'/'studio' slugs).
+
+    # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
+    """
+    if not tier:
+        return False
+    return _canonical(tier) == "pro_plus"
 
 
 def _is_operator_tier(tier: str | None) -> bool:
-    """Return True if tier is the operator tier (or legacy 'studio' slug).
+    """Deprecated wrapper — delegates to _is_pro_plus_tier.
 
     # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
+    Kept for any external caller that imports the old function name.
+    All internal callers have been updated to use _is_pro_plus_tier directly.
     """
-    if not tier:
-        return False
-    return _canonical(tier) == "operator"
+    logger.debug(
+        "DEPRECATION: _is_operator_tier() called — use _is_pro_plus_tier() instead. "
+        "This wrapper will be removed after 2026-06-10 (RCP-INCIDENT-2026-05-11)."
+    )
+    return _is_pro_plus_tier(tier)

@@ -128,7 +128,7 @@ def _make_app(db: Session, *, api_key_user_id, is_admin: bool = False) -> FastAP
 
 class TestTierGate:
     def test_cook_tier_blocked_with_402(self, db_session, tmp_path):
-        user = _make_user(db_session, tier="cook")
+        user = _make_user(db_session, tier="pro")
         _make_skill(db_session, slug="src-1")
         db_session.commit()
 
@@ -140,7 +140,7 @@ class TestTierGate:
                     "name": "My Cook Fork",
                 })
         assert r.status_code == 402, r.text
-        assert r.json()["detail"]["needs_tier"] == "operator"
+        assert r.json()["detail"]["needs_tier"] == "pro_plus"
 
     def test_no_tier_blocked_with_402(self, db_session, tmp_path):
         user = _make_user(db_session, tier=None, status=None)
@@ -157,7 +157,7 @@ class TestTierGate:
         assert r.status_code == 402
 
     def test_inactive_subscription_blocked(self, db_session, tmp_path):
-        user = _make_user(db_session, tier="operator", status="canceled")
+        user = _make_user(db_session, tier="pro_plus", status="canceled")
         _make_skill(db_session, slug="src-3")
         db_session.commit()
 
@@ -173,7 +173,7 @@ class TestTierGate:
 
 class TestCreateFork:
     def test_operator_can_create(self, db_session, tmp_path):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         skill = _make_skill(db_session, slug="seo-audit-engine")
         db_session.commit()
 
@@ -209,7 +209,7 @@ class TestCreateFork:
         assert r.status_code == 201
 
     def test_unknown_source_returns_404(self, db_session, tmp_path):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         db_session.commit()
 
         with patch.dict(os.environ, {"RECIPES_FORKS_DIR": str(tmp_path)}):
@@ -238,7 +238,7 @@ class TestVersionUpload:
         return fork
 
     def test_upload_preserves_sha256_and_size(self, db_session, tmp_path):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         fork = self._create_fork(db_session, user, "src-vu-1")
 
         tarball_bytes = b"this-is-a-tarball-payload-" + b"x" * 256
@@ -273,7 +273,7 @@ class TestVersionUpload:
         assert str(fork.latest_version_id) == body["id"]
 
     def test_invalid_semver_rejected(self, db_session, tmp_path):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         fork = self._create_fork(db_session, user, "src-vu-2")
 
         with patch.dict(os.environ, {"RECIPES_FORKS_DIR": str(tmp_path)}):
@@ -287,8 +287,8 @@ class TestVersionUpload:
         assert r.status_code == 422
 
     def test_other_users_fork_404s(self, db_session, tmp_path):
-        owner = _make_user(db_session, tier="operator")
-        intruder = _make_user(db_session, tier="operator")
+        owner = _make_user(db_session, tier="pro_plus")
+        intruder = _make_user(db_session, tier="pro_plus")
         fork = self._create_fork(db_session, owner, "src-vu-3")
 
         with patch.dict(os.environ, {"RECIPES_FORKS_DIR": str(tmp_path)}):
@@ -304,7 +304,7 @@ class TestVersionUpload:
 
 class TestInstallSignedURL:
     def test_install_returns_valid_signed_url_and_download_works(self, db_session, tmp_path):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         skill = _make_skill(db_session, slug="src-inst")
         fork = SkillFork(
             id=uuid4(),
@@ -344,7 +344,7 @@ class TestInstallSignedURL:
                 assert dl.headers.get("X-Checksum-SHA256") == hashlib.sha256(tarball_bytes).hexdigest()
 
     def test_expired_install_token_returns_401(self, db_session, tmp_path):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         skill = _make_skill(db_session, slug="src-exp")
         fork = SkillFork(
             id=uuid4(),
@@ -393,7 +393,7 @@ class TestInstallSignedURL:
 
 class TestSoftDelete:
     def test_delete_clears_visibility_and_readme(self, db_session, tmp_path):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         skill = _make_skill(db_session, slug="src-del")
         fork = SkillFork(
             id=uuid4(),
@@ -431,8 +431,8 @@ class TestSoftDelete:
 
 class TestList:
     def test_list_returns_only_active_forks_for_user(self, db_session, tmp_path):
-        user = _make_user(db_session, tier="operator")
-        other = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
+        other = _make_user(db_session, tier="pro_plus")
         skill = _make_skill(db_session, slug="src-list")
 
         mine_active = SkillFork(

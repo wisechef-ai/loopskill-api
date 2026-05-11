@@ -27,7 +27,7 @@ Q4Choice = Literal["agency", "solo", "dev", "curious"]
 
 
 class IntentSurveyIn(BaseModel):
-    q1: Q1Choice = Field(..., description="Would you pay €100/mo for All-in?")
+    q1: Q1Choice = Field(..., description="Would you pay €100/mo for Pro+?")
     q2: Optional[str] = Field(default=None, max_length=2000)
     q3: Optional[str] = Field(default=None, max_length=2000)
     q4: Q4Choice = Field(..., description="Which best describes you?")

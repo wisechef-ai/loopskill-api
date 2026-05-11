@@ -28,7 +28,7 @@ from app.auth import (
     get_google_auth_url,
     verify_jwt,
 )
-from app.tier_labels import _is_operator_tier, _is_paid_tier
+from app.tier_labels import _is_pro_plus_tier, _is_paid_tier
 from app.config import settings
 from app.database import get_db
 from app.referral import (
@@ -323,18 +323,24 @@ async def get_me(
         "features": {
             "full_catalog_install": _is_paid_tier(user.subscription_tier),
             "install_rate_limit": {
-                "free": 5, "cook": 100, "operator": None, "studio": None,
+                "free": 5, "pro": 100, "pro_plus": None,
+                # Legacy aliases for 30-day shim window (RCP-INCIDENT-2026-05-11)
+                "cook": 100, "operator": None, "studio": None,
             }.get(user.subscription_tier, 5),
             "recipify": _is_paid_tier(user.subscription_tier),
             "cookbook_limit": {
-                "free": 0, "cook": 1, "operator": None, "studio": None,
+                "free": 0, "pro": 1, "pro_plus": None,
+                # Legacy aliases for 30-day shim window (RCP-INCIDENT-2026-05-11)
+                "cook": 1, "operator": None, "studio": None,
             }.get(user.subscription_tier, 0),
             "cookbook_skill_cap": {
-                "free": 0, "cook": 25, "operator": None, "studio": None,
+                "free": 0, "pro": 25, "pro_plus": None,
+                # Legacy aliases for 30-day shim window (RCP-INCIDENT-2026-05-11)
+                "cook": 25, "operator": None, "studio": None,
             }.get(user.subscription_tier, 0),
-            "fleet_sync": _is_operator_tier(user.subscription_tier),
-            "fleet_seeker": _is_operator_tier(user.subscription_tier),
-            "subrecipe_priority_resolve": _is_operator_tier(user.subscription_tier),
+            "fleet_sync": _is_pro_plus_tier(user.subscription_tier),
+            "fleet_seeker": _is_pro_plus_tier(user.subscription_tier),
+            "subrecipe_priority_resolve": _is_pro_plus_tier(user.subscription_tier),
         },
     }
 

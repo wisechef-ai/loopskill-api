@@ -1,8 +1,8 @@
 """Map a user's subscription state → Discord role.
 
 Roles:
-  studio (active)         → All-in
-  cook   (active)         → Pro
+  pro_plus (active)        → Pro+
+  pro      (active)        → Pro
   no/canceled subscription → Free
   creator_track_record_score >= threshold → Author overlay
 
@@ -20,9 +20,16 @@ logger = logging.getLogger("wiserecipes.discord")
 
 ACTIVE_STATUSES = frozenset({"active", "trialing"})
 
+# Canonical tier → Discord role name mapping.
+# Legacy slug aliases kept for the 30-day shim window (RCP-INCIDENT-2026-05-11, remove after 2026-06-10).
+# Do NOT rename Discord role names here — that's a separate ops task.
 TIER_TO_ROLE = {
-    "studio": "All-in",
-    "cook": "Pro",
+    "pro_plus": "Pro+",   # canonical (Phase 5)
+    "pro": "Pro",         # canonical (Phase 5)
+    # Legacy aliases:
+    "operator": "Pro+",   # Phase 5 legacy
+    "studio": "Pro+",     # Phase 3 legacy
+    "cook": "Pro",        # Phase 5 legacy
 }
 
 

@@ -97,7 +97,7 @@ def patched_client(db, engine_fixture) -> TestClient:
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
-def _make_skill(db, slug="test-skill", title="Test Skill", tier="operator",
+def _make_skill(db, slug="test-skill", title="Test Skill", tier="pro_plus",
                 is_public=True):
     s = Skill(
         id=uuid.uuid4(),
@@ -171,8 +171,8 @@ def _make_install_event(db, skill_id, api_key_id=None, when=None):
 class TestCookFullCatalog:
     def test_cook_installs_operator_skill(self, patched_client, db):
         """WIS-902 acceptance: Cook tier installs operator-tagged skill → 200."""
-        skill = _make_skill(db, slug="graphify-op", title="Graphify", tier="operator")
-        cook_key, _ = _make_user_with_key(db, tier="cook")
+        skill = _make_skill(db, slug="graphify-op", title="Graphify", tier="pro_plus")
+        cook_key, _ = _make_user_with_key(db, tier="pro")
 
         resp = patched_client.get(
             "/api/skills/install?slug=graphify-op",
@@ -186,8 +186,8 @@ class TestCookFullCatalog:
 
     def test_cook_installs_cook_skill(self, patched_client, db):
         """Cook installs cook-tier skill → 200."""
-        _make_skill(db, slug="cook-skill-1", title="Cook Skill", tier="cook")
-        cook_key, _ = _make_user_with_key(db, tier="cook")
+        _make_skill(db, slug="cook-skill-1", title="Cook Skill", tier="pro")
+        cook_key, _ = _make_user_with_key(db, tier="pro")
 
         resp = patched_client.get(
             "/api/skills/install?slug=cook-skill-1",
@@ -206,7 +206,7 @@ class TestCookRateLimit:
         for i in range(101):
             skills.append(_make_skill(db, slug=f"rl-skill-{i}", title=f"RL Skill {i}"))
 
-        cook_key, ak_id = _make_user_with_key(db, tier="cook")
+        cook_key, ak_id = _make_user_with_key(db, tier="pro")
 
         # Simulate 100 previous installs today
         for i in range(100):
@@ -221,7 +221,7 @@ class TestCookRateLimit:
         assert resp.status_code == 429, f"Expected 429, got {resp.status_code}: {resp.text}"
         body = resp.json()
         assert "Upgrade to Pro+" in body["detail"]
-        assert body["tier"] == "cook"
+        assert body["tier"] == "pro"
         assert body["limit"] == 100
         # Check standard rate-limit headers
         assert resp.headers.get("X-RateLimit-Limit") == "100"
@@ -260,8 +260,8 @@ class TestFreeTierRateLimit:
 class TestOperatorUnlimited:
     def test_operator_no_rate_limit(self, patched_client, db):
         """WIS-902: Operator tier has unlimited installs (no rate-limit headers)."""
-        _make_skill(db, slug="op-skill-1", title="Op Skill", tier="operator")
-        op_key, _ = _make_user_with_key(db, tier="operator")
+        _make_skill(db, slug="op-skill-1", title="Op Skill", tier="pro_plus")
+        op_key, _ = _make_user_with_key(db, tier="pro_plus")
 
         resp = patched_client.get(
             "/api/skills/install?slug=op-skill-1",

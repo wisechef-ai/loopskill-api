@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import Cookbook, CookbookSkill, Skill, SkillVersion, User
-from app.tier_labels import _is_operator_tier, _is_paid_tier
+from app.tier_labels import _is_pro_plus_tier, _is_paid_tier
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cookbooks", tags=["cookbooks"])
@@ -40,8 +40,8 @@ router = APIRouter(prefix="/api/cookbooks", tags=["cookbooks"])
 # functions (_is_paid_tier, _is_operator_tier) defined in tier_labels.py which
 # transparently accept the legacy 'studio' slug for 30 days. These set
 # constants remain for reference/documentation only — do not use for gate checks.
-COOKBOOK_TIERS = {"cook", "operator"}   # canonical; 'studio' handled via shim
-UNLIMITED_TIERS = {"operator"}           # canonical; 'studio' handled via shim
+COOKBOOK_TIERS = {"pro", "pro_plus"}   # canonical; legacy slugs handled via shim
+UNLIMITED_TIERS = {"pro_plus"}          # canonical; legacy slugs handled via shim
 ACTIVE_SUB_STATUSES = {"active", "trialing"}
 ALLOWED_SOURCES = {"forked", "custom-added", "overridden", "disabled"}
 
@@ -119,10 +119,10 @@ def require_cookbook_tier(request: Request, db: Session = Depends(get_db)) -> Co
     # cbt_ token: no user, not master. The route-level scope checks gate access.
     if is_cbt or api_key_user_id == "CBT_TOKEN":
         cookbook_id = getattr(request.state, "cookbook_token_cookbook_id", None)
-        return CookbookCtx(user_id=None, is_master=False, tier="cook", cbt_cookbook_id=cookbook_id)
+        return CookbookCtx(user_id=None, is_master=False, tier="pro", cbt_cookbook_id=cookbook_id)
 
     if api_key_user_id is None:
-        return CookbookCtx(user_id=None, is_master=True, tier="operator")
+        return CookbookCtx(user_id=None, is_master=True, tier="pro_plus")
 
     if api_key_user_id == "MISSING":
         raise HTTPException(status_code=401, detail="auth_required")
@@ -134,7 +134,7 @@ def require_cookbook_tier(request: Request, db: Session = Depends(get_db)) -> Co
     if not _is_paid_tier(tier) or status not in ACTIVE_SUB_STATUSES:
         raise HTTPException(
             status_code=401,
-            detail={"needs_tier": "cook", "current_tier": tier},
+            detail={"needs_tier": "pro", "current_tier": tier},
         )
     return CookbookCtx(user_id=user.id, is_master=False, tier=tier)
 
@@ -223,7 +223,7 @@ def create_cookbook(
     if not name:
         raise HTTPException(status_code=422, detail="invalid_name")
 
-    if ctx.tier == "cook":
+    if ctx.tier == "pro" or ctx.tier == "cook":  # cook=legacy alias, remove after 2026-06-10
         existing = (
             db.query(Cookbook)
             .filter(Cookbook.cookbook_owner == ctx.user_id)
@@ -232,7 +232,7 @@ def create_cookbook(
         if existing >= 1:
             raise HTTPException(
                 status_code=403,
-                detail={"reason": "cook_tier_limit", "max_cookbooks": 1},
+                detail={"reason": "pro_tier_limit", "max_cookbooks": 1},
             )
 
     cb = Cookbook(
@@ -326,8 +326,8 @@ def add_skill_to_cookbook(
             "reactivated": True,
         }
 
-    # WIS-902: Cook tier skill cap
-    if ctx.tier == "cook":
+    # WIS-902: Pro tier skill cap
+    if ctx.tier == "pro" or ctx.tier == "cook":  # cook=legacy alias, remove after 2026-06-10
         active_count = (
             db.query(CookbookSkill)
             .filter(
@@ -340,10 +340,10 @@ def add_skill_to_cookbook(
             raise HTTPException(
                 status_code=403,
                 detail={
-                    "reason": "cook_skill_cap",
+                    "reason": "pro_skill_cap",
                     "max_skills": COOK_SKILL_CAP,
                     "current_count": active_count,
-                    "upgrade_to": "operator",
+                    "upgrade_to": "pro_plus",
                 },
             )
 

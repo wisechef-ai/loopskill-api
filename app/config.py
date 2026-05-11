@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     STRIPE_PUBLISHABLE_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
 
-    # Stripe Subscription price IDs (Cook €20/mo, All-in €100/mo).
+    # Stripe Subscription price IDs (Pro €20/mo, Pro+ €100/mo).
     # v7/phase-F: studio tier retired and aliased to operator. The €100/mo
     # price ID is reused as STRIPE_PRICE_OPERATOR (same Stripe product, just
     # the canonical name). STRIPE_PRICE_STUDIO is kept as a deprecated alias

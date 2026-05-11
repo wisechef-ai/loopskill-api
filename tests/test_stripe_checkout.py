@@ -58,7 +58,7 @@ def _fake_checkout_session(session_id="cs_test_123", sub_id="sub_test_123"):
     }
 
 
-def _fake_subscription(sub_id="sub_test_123", tier="cook", price_id="price_cook_123"):
+def _fake_subscription(sub_id="sub_test_123", tier="pro", price_id="price_cook_123"):
     """Build a fake Stripe Subscription dict."""
     return {
         "id": sub_id,
@@ -101,7 +101,7 @@ class TestCheckoutCreation:
         }
 
         client.app.dependency_overrides[get_current_user_optional] = lambda: user
-        with patch("app.subscription_service.TIER_PRICE_IDS", {"cook": "price_test_cook", "operator": "price_test_operator"}):
+        with patch("app.subscription_service.TIER_PRICE_IDS", {"pro": "price_test_cook", "pro_plus": "price_test_operator"}):
             try:
                 resp = client.post("/api/checkout/cook")
             finally:
@@ -111,7 +111,7 @@ class TestCheckoutCreation:
         data = resp.json()
         assert data["session_id"] == "cs_test_xyz"
         assert "checkout.stripe.com" in data["url"]
-        assert data["tier"] == "cook"
+        assert data["tier"] == "pro"
 
     def test_checkout_rejects_invalid_tier(self, client, db_session):
         """2. Invalid tier returns 400 with helpful message."""
@@ -147,14 +147,14 @@ class TestWebhookCheckoutCompleted:
         event = _fake_event("checkout.session.completed", **session_data)
 
         # Mock subscription retrieval
-        fake_sub = _fake_subscription(tier="operator", price_id="price_operator_123")
+        fake_sub = _fake_subscription(tier="pro_plus", price_id="price_operator_123")
         mock_stripe.Subscription.retrieve.return_value = fake_sub
 
         result = handle_checkout_completed(event, db_session)
         assert result["processed"] == "checkout.session.completed"
         db_session.refresh(user)
         assert user.subscription_status == "active"
-        assert user.subscription_tier == "operator"  # canonical slug post-Phase 3
+        assert user.subscription_tier == "pro_plus"  # canonical slug post-Phase 3
 
     def test_checkout_completed_skips_non_subscription(self, db_session):
         """8. Non-subscription sessions (e.g., payment) are skipped."""
@@ -217,11 +217,11 @@ class TestSubscriptionDeleted:
         user = _make_user(
             db_session,
             subscription_status="active",
-            subscription_tier="cook",
+            subscription_tier="pro",
             subscription_id="sub_active_001",
         )
 
-        sub_data = _fake_subscription(sub_id="sub_active_001", tier="cook")
+        sub_data = _fake_subscription(sub_id="sub_active_001", tier="pro")
         sub_data["metadata"]["wiserecipes_user_id"] = str(user.id)
         event = _fake_event("customer.subscription.deleted", **sub_data)
 
@@ -246,12 +246,12 @@ class TestTierResolution:
         session_data["metadata"]["wiserecipes_user_id"] = str(user.id)
         event = _fake_event("checkout.session.completed", **session_data)
 
-        fake_sub = _fake_subscription(tier="operator", price_id="price_operator_24900")
+        fake_sub = _fake_subscription(tier="pro_plus", price_id="price_operator_24900")
         mock_stripe.Subscription.retrieve.return_value = fake_sub
 
         handle_checkout_completed(event, db_session)
         db_session.refresh(user)
-        assert user.subscription_tier == "operator"  # canonical slug post-Phase 3
+        assert user.subscription_tier == "pro_plus"  # canonical slug post-Phase 3
 
 
 class TestBillingMe:
@@ -263,7 +263,7 @@ class TestBillingMe:
         user = _make_user(
             db_session,
             subscription_status="active",
-            subscription_tier="cook",
+            subscription_tier="pro",
             stripe_customer_id="cus_billing_test",
             subscription_id="sub_billing_test",
         )
@@ -277,7 +277,7 @@ class TestBillingMe:
         assert resp.status_code == 200
         data = resp.json()
         assert data["subscription_status"] == "active"
-        assert data["subscription_tier"] == "cook"
+        assert data["subscription_tier"] == "pro"
         assert data["stripe_customer_id"] == "cus_billing_test"
 
     def test_billing_me_rejects_anonymous(self, client):

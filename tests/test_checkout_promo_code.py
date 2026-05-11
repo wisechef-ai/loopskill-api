@@ -52,7 +52,7 @@ class TestPromoCodePreApplied:
     def test_valid_code_passes_discounts_kwarg(self):
         with patch("app.subscription_service.stripe") as stripe_mock, \
              patch("app.subscription_service.get_or_create_customer", return_value="cus_TEST_BUYER"), \
-             patch("app.subscription_service.TIER_PRICE_IDS", {"cook": "price_TEST_COOK"}):
+             patch("app.subscription_service.TIER_PRICE_IDS", {"pro": "price_TEST_COOK"}):
             stripe_mock.PromotionCode.list.return_value = {
                 "data": [{"id": "promo_LIVE_WELCOME50", "code": "WELCOME50"}],
             }
@@ -61,7 +61,7 @@ class TestPromoCodePreApplied:
             user = _make_user()
             db = MagicMock()
             create_checkout_session(
-                user=user, tier="cook", db=db, promo_code="WELCOME50",
+                user=user, tier="pro", db=db, promo_code="WELCOME50",
             )
 
             stripe_mock.PromotionCode.list.assert_called_once_with(
@@ -82,14 +82,14 @@ class TestPromoCodePreApplied:
     def test_lowercase_code_is_normalised_to_uppercase(self):
         with patch("app.subscription_service.stripe") as stripe_mock, \
              patch("app.subscription_service.get_or_create_customer", return_value="cus_TEST_BUYER"), \
-             patch("app.subscription_service.TIER_PRICE_IDS", {"cook": "price_TEST"}):
+             patch("app.subscription_service.TIER_PRICE_IDS", {"pro": "price_TEST"}):
             stripe_mock.PromotionCode.list.return_value = {
                 "data": [{"id": "promo_LIVE", "code": "WELCOME50"}],
             }
             stripe_mock.checkout.Session.create.return_value = _stub_stripe_session_response()
 
             create_checkout_session(
-                user=_make_user(), tier="cook", db=MagicMock(),
+                user=_make_user(), tier="pro", db=MagicMock(),
                 promo_code="  welcome50  ",  # whitespace + lowercase
             )
 
@@ -104,11 +104,11 @@ class TestPromoCodeFallback:
     def test_no_promo_code_uses_legacy_allow_promotion_codes(self):
         with patch("app.subscription_service.stripe") as stripe_mock, \
              patch("app.subscription_service.get_or_create_customer", return_value="cus_TEST"), \
-             patch("app.subscription_service.TIER_PRICE_IDS", {"cook": "price_TEST"}):
+             patch("app.subscription_service.TIER_PRICE_IDS", {"pro": "price_TEST"}):
             stripe_mock.checkout.Session.create.return_value = _stub_stripe_session_response()
 
             create_checkout_session(
-                user=_make_user(), tier="cook", db=MagicMock(),
+                user=_make_user(), tier="pro", db=MagicMock(),
                 # promo_code intentionally omitted
             )
             kwargs = stripe_mock.checkout.Session.create.call_args.kwargs
@@ -119,11 +119,11 @@ class TestPromoCodeFallback:
     def test_empty_string_promo_code_uses_legacy_behaviour(self):
         with patch("app.subscription_service.stripe") as stripe_mock, \
              patch("app.subscription_service.get_or_create_customer", return_value="cus_TEST"), \
-             patch("app.subscription_service.TIER_PRICE_IDS", {"cook": "price_TEST"}):
+             patch("app.subscription_service.TIER_PRICE_IDS", {"pro": "price_TEST"}):
             stripe_mock.checkout.Session.create.return_value = _stub_stripe_session_response()
 
             create_checkout_session(
-                user=_make_user(), tier="cook", db=MagicMock(), promo_code="",
+                user=_make_user(), tier="pro", db=MagicMock(), promo_code="",
             )
             kwargs = stripe_mock.checkout.Session.create.call_args.kwargs
             assert kwargs.get("allow_promotion_codes") is True
@@ -132,12 +132,12 @@ class TestPromoCodeFallback:
     def test_unknown_promo_code_falls_back_does_not_block(self):
         with patch("app.subscription_service.stripe") as stripe_mock, \
              patch("app.subscription_service.get_or_create_customer", return_value="cus_TEST"), \
-             patch("app.subscription_service.TIER_PRICE_IDS", {"cook": "price_TEST"}):
+             patch("app.subscription_service.TIER_PRICE_IDS", {"pro": "price_TEST"}):
             stripe_mock.PromotionCode.list.return_value = {"data": []}  # not found
             stripe_mock.checkout.Session.create.return_value = _stub_stripe_session_response()
 
             result = create_checkout_session(
-                user=_make_user(), tier="cook", db=MagicMock(),
+                user=_make_user(), tier="pro", db=MagicMock(),
                 promo_code="DOESNOTEXIST",
             )
             kwargs = stripe_mock.checkout.Session.create.call_args.kwargs
@@ -154,7 +154,7 @@ class TestPromoCodeFallback:
         """
         with patch("app.subscription_service.stripe") as stripe_mock, \
              patch("app.subscription_service.get_or_create_customer", return_value="cus_TEST"), \
-             patch("app.subscription_service.TIER_PRICE_IDS", {"cook": "price_TEST"}):
+             patch("app.subscription_service.TIER_PRICE_IDS", {"pro": "price_TEST"}):
             # Mock a ListObject-like object: has .data attribute, NO .get method.
             class _ListObject:
                 """Minimal stand-in for stripe.ListObject — only .data."""
@@ -167,7 +167,7 @@ class TestPromoCodeFallback:
             stripe_mock.checkout.Session.create.return_value = _stub_stripe_session_response()
 
             create_checkout_session(
-                user=_make_user(), tier="cook", db=MagicMock(),
+                user=_make_user(), tier="pro", db=MagicMock(),
                 promo_code="WELCOME50",
             )
             kwargs = stripe_mock.checkout.Session.create.call_args.kwargs
@@ -181,7 +181,7 @@ class TestPromoCodeFallback:
         """
         with patch("app.subscription_service.stripe") as stripe_mock, \
              patch("app.subscription_service.get_or_create_customer", return_value="cus_TEST"), \
-             patch("app.subscription_service.TIER_PRICE_IDS", {"cook": "price_TEST"}):
+             patch("app.subscription_service.TIER_PRICE_IDS", {"pro": "price_TEST"}):
             class _PromoCode:
                 """SDK-shape promotion code: has .id but no [] support."""
                 id = "promo_FROM_OBJ_ATTR"
@@ -193,7 +193,7 @@ class TestPromoCodeFallback:
             stripe_mock.checkout.Session.create.return_value = _stub_stripe_session_response()
 
             create_checkout_session(
-                user=_make_user(), tier="cook", db=MagicMock(),
+                user=_make_user(), tier="pro", db=MagicMock(),
                 promo_code="WELCOME50",
             )
             kwargs = stripe_mock.checkout.Session.create.call_args.kwargs
@@ -202,12 +202,12 @@ class TestPromoCodeFallback:
     def test_stripe_api_error_during_lookup_falls_back_does_not_raise(self):
         with patch("app.subscription_service.stripe") as stripe_mock, \
              patch("app.subscription_service.get_or_create_customer", return_value="cus_TEST"), \
-             patch("app.subscription_service.TIER_PRICE_IDS", {"cook": "price_TEST"}):
+             patch("app.subscription_service.TIER_PRICE_IDS", {"pro": "price_TEST"}):
             stripe_mock.PromotionCode.list.side_effect = Exception("Stripe API down")
             stripe_mock.checkout.Session.create.return_value = _stub_stripe_session_response()
 
             result = create_checkout_session(
-                user=_make_user(), tier="cook", db=MagicMock(),
+                user=_make_user(), tier="pro", db=MagicMock(),
                 promo_code="WELCOME50",
             )
             kwargs = stripe_mock.checkout.Session.create.call_args.kwargs

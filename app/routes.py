@@ -159,7 +159,7 @@ def search_skills(
     category: str | None = Query(None),
     vertical: str | None = Query(None, pattern="^(marketing|code|web-scraping|ops|sales|sim-robotics)$",
                                   description="Filter by Plan v5.4 vertical"),
-    tier: str | None = Query(None, pattern="^(free|cook|operator|studio)$", description="Filter by access tier"),
+    tier: str | None = Query(None, pattern="^(free|pro|pro_plus|cook|operator|studio)$", description="Filter by access tier"),
     subset: str | None = Query(None, pattern="^(pantry|menu|cookbook)$",
                                 description="v6: filter by catalog subset (pantry=original 3rd-party, menu=public custom, cookbook=private)"),
     variant: str | None = Query(None, pattern="^(original|custom)$",
@@ -365,7 +365,7 @@ def install_skill(
                 status_code=429,
                 content={
                     "detail": f"Install rate limit exceeded ({install_limit}/day for {caller_tier or 'free'} tier). "
-                              f"Upgrade to {display_label('operator')} for unlimited installs.",
+                              f"Upgrade to {display_label('pro_plus')} for unlimited installs.",
                     "tier": caller_tier,
                     "limit": install_limit,
                     "remaining": remaining,
@@ -507,17 +507,25 @@ def download_tarball(
 
 
 # Tier rank lookup — higher rank = more capability. None / unknown = anonymous.
-# Plan v5.4 §A.8: Cook=all skills, Operator=Cook+forks, Studio=Operator+buckets.
-TIER_RANK = {None: 0, "free": 0, "cook": 1, "operator": 2, "studio": 3}
+# Phase 5 (RCP-INCIDENT-2026-05-11): canonical slugs are 'pro' and 'pro_plus'.
+# Legacy slugs kept for backwards compat until 2026-06-10.
+TIER_RANK = {
+    None: 0, "free": 0,
+    "pro": 1, "cook": 1,           # cook=legacy alias for pro
+    "pro_plus": 2, "operator": 2, "studio": 3,  # operator/studio=legacy for pro_plus
+}
 
 # WIS-902: Tier-aware install rate limits (installs per day per API key).
-# Free/anon: 5, Cook: 100, Operator+: unlimited.
+# Free/anon: 5, Pro: 100, Pro+: unlimited.
 TIER_INSTALL_LIMITS: dict[str | None, int | None] = {
     None: 5,        # anonymous / no API key
     "free": 5,      # free-tier user
-    "cook": 100,    # Cook subscriber
-    "operator": None,  # unlimited
-    "studio": None,    # unlimited
+    "pro": 100,     # Pro subscriber
+    "pro_plus": None,  # unlimited
+    # Legacy aliases:
+    "cook": 100,    # legacy alias → pro
+    "operator": None,  # legacy alias → pro_plus
+    "studio": None,    # legacy alias → pro_plus
 }
 
 
@@ -533,9 +541,9 @@ def _resolve_caller_tier(db: Session, request: Request) -> str | None:
     key = request.headers.get("x-api-key")
     if not key or not key.startswith("rec_"):
         return None
-    # Master key behaves as a Studio subscriber for capability checks.
+    # Master key behaves as a Pro+ subscriber for capability checks.
     if key == settings.API_KEY:
-        return "studio"
+        return "pro_plus"
     import hashlib
     key_hash = hashlib.sha256(key.encode()).hexdigest()
     api_key_obj = (
@@ -558,9 +566,9 @@ def _resolve_caller_tier_for_install(db: Session, request: Request) -> str | Non
     Master key gets unlimited installs (treated as operator tier).
     """
     api_key_user_id = getattr(request.state, "api_key_user_id", "MISSING")
-    # Master key: unlimited
+    # Master key gets unlimited installs (treated as pro_plus tier).
     if api_key_user_id is None:
-        return "studio"
+        return "pro_plus"
     if api_key_user_id == "MISSING" or api_key_user_id == "CBT_TOKEN":
         return None
     
@@ -613,12 +621,12 @@ def skill_access(
 
     user_tier = _resolve_caller_tier(db, request)
     user_rank = TIER_RANK.get(user_tier, 0)
-    # Skills with no explicit tier default to cook — the marketplace baseline.
-    skill_rank = TIER_RANK.get(s.tier, TIER_RANK["cook"])
+    # Skills with no explicit tier default to pro — the marketplace baseline.
+    skill_rank = TIER_RANK.get(s.tier, TIER_RANK["pro"])
 
     has_access = s.is_public and user_rank >= skill_rank
     if fork_eligible:
-        has_access = has_access and user_rank >= TIER_RANK["operator"]
+        has_access = has_access and user_rank >= TIER_RANK["pro_plus"]
 
     return SkillAccessOut(
         slug=s.slug,

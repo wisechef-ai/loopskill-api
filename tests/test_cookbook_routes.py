@@ -129,7 +129,7 @@ class TestTierGates:
         with TestClient(app) as client:
             r = client.post("/api/cookbooks", json={"name": "Mine"})
         assert r.status_code == 401, r.text
-        assert r.json()["detail"]["needs_tier"] == "cook"
+        assert r.json()["detail"]["needs_tier"] == "pro"
 
     def test_no_tier_blocked_with_401(self, db_session):
         user = _make_user(db_session, tier=None, status=None)
@@ -141,7 +141,7 @@ class TestTierGates:
         assert r.status_code == 401
 
     def test_cook_tier_can_create(self, db_session):
-        user = _make_user(db_session, tier="cook")
+        user = _make_user(db_session, tier="pro")
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
@@ -154,7 +154,7 @@ class TestTierGates:
         assert body["is_base"] is False
 
     def test_cook_tier_second_cookbook_blocked_with_403(self, db_session):
-        user = _make_user(db_session, tier="cook")
+        user = _make_user(db_session, tier="pro")
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
@@ -163,10 +163,10 @@ class TestTierGates:
             assert r1.status_code == 201
             r2 = client.post("/api/cookbooks", json={"name": "Second"})
         assert r2.status_code == 403
-        assert r2.json()["detail"]["reason"] == "cook_tier_limit"
+        assert r2.json()["detail"]["reason"] == "pro_tier_limit"
 
     def test_operator_unlimited(self, db_session):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
@@ -180,8 +180,8 @@ class TestTierGates:
 
 class TestListDetail:
     def test_list_only_returns_mine(self, db_session):
-        mine = _make_user(db_session, tier="operator")
-        other = _make_user(db_session, tier="operator")
+        mine = _make_user(db_session, tier="pro_plus")
+        other = _make_user(db_session, tier="pro_plus")
         cb_mine = Cookbook(id=uuid4(), name="Mine", cookbook_owner=mine.id)
         cb_other = Cookbook(id=uuid4(), name="Other", cookbook_owner=other.id)
         db_session.add_all([cb_mine, cb_other])
@@ -196,7 +196,7 @@ class TestListDetail:
         assert str(cb_other.id) not in ids
 
     def test_get_detail_includes_skills(self, db_session):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
         skill = _make_skill(db_session, slug="alpha")
         db_session.add(cb)
@@ -215,8 +215,8 @@ class TestListDetail:
         assert body["skills"][0]["source"] == "custom-added"
 
     def test_get_other_users_cookbook_returns_404(self, db_session):
-        owner = _make_user(db_session, tier="operator")
-        intruder = _make_user(db_session, tier="operator")
+        owner = _make_user(db_session, tier="pro_plus")
+        intruder = _make_user(db_session, tier="pro_plus")
         cb = Cookbook(id=uuid4(), name="Private", cookbook_owner=owner.id)
         db_session.add(cb)
         db_session.commit()
@@ -231,7 +231,7 @@ class TestListDetail:
 
 class TestAddRemoveSkill:
     def test_add_skill_succeeds(self, db_session):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
         _make_skill(db_session, slug="beta")
         db_session.add(cb)
@@ -245,7 +245,7 @@ class TestAddRemoveSkill:
         assert r.json()["source"] == "custom-added"
 
     def test_add_unknown_skill_returns_404(self, db_session):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
         db_session.add(cb)
         db_session.commit()
@@ -256,7 +256,7 @@ class TestAddRemoveSkill:
         assert r.status_code == 404
 
     def test_delete_skill_soft_deletes(self, db_session):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
         skill = _make_skill(db_session, slug="gamma")
         db_session.add(cb)
@@ -285,7 +285,7 @@ class TestAddRemoveSkill:
 
 class TestManifest:
     def test_manifest_yaml_roundtrip(self, db_session):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         cb = Cookbook(id=uuid4(), name="Manifest CB", description="My desc",
                       cookbook_owner=user.id)
         skill = _make_skill(db_session, slug="delta")
@@ -314,7 +314,7 @@ class TestManifest:
 
 class TestInstall:
     def test_install_idempotent(self, db_session):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
         skill = _make_skill(db_session, slug="epsilon", with_version=True)
         db_session.add(cb)
@@ -337,7 +337,7 @@ class TestInstall:
         assert body["skills"][0]["tarball_url"]
 
     def test_install_skips_disabled(self, db_session):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
         kept = _make_skill(db_session, slug="kept", with_version=True)
         gone = _make_skill(db_session, slug="gone", with_version=True)
@@ -361,7 +361,7 @@ class TestInstall:
 
 class TestSync:
     def test_sync_since_filter(self, db_session):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
         s1 = _make_skill(db_session, slug="t1")
         s2 = _make_skill(db_session, slug="t2")
@@ -397,7 +397,7 @@ class TestSync:
         assert "t3" in slugs
 
     def test_sync_partitions_by_source(self, db_session):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
         a = _make_skill(db_session, slug="add-me")
         u = _make_skill(db_session, slug="update-me")
@@ -420,7 +420,7 @@ class TestSync:
         assert {e["slug"] for e in body["removed"]} == {"remove-me"}
 
     def test_sync_invalid_since_returns_422(self, db_session):
-        user = _make_user(db_session, tier="operator")
+        user = _make_user(db_session, tier="pro_plus")
         cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
         db_session.add(cb)
         db_session.commit()

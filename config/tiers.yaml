@@ -16,19 +16,25 @@ tiers:
     accent_color: "#6B7280"
     badge: Free
 
-  cook:
-    db_slug: cook
+  pro:
+    db_slug: pro
     display_name: Pro
     price_usd: 20
+    # price_id_env intentionally retains the legacy env var name (WR_STRIPE_PRICE_COOK).
+    # Renaming the env var is a separate ops task — Adam will update .env post-deploy.
+    # RCP-INCIDENT-2026-05-11: env var name is itself legacy; do not rename here yet.
     price_id_env: WR_STRIPE_PRICE_COOK
     stripe_nickname: "Pro $20/mo"
     accent_color: "#3B82F6"
     badge: Pro
 
-  operator:
-    db_slug: operator
+  pro_plus:
+    db_slug: pro_plus
     display_name: Pro+
     price_usd: 100
+    # price_id_env intentionally retains the legacy env var name (WR_STRIPE_PRICE_STUDIO).
+    # Renaming the env var is a separate ops task — Adam will update .env post-deploy.
+    # RCP-INCIDENT-2026-05-11: env var name is itself legacy; do not rename here yet.
     price_id_env: WR_STRIPE_PRICE_STUDIO
     stripe_nickname: "Pro+ $100/mo"
     accent_color: "#D4A017"

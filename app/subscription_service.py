@@ -2,7 +2,7 @@
 
 Handles:
 - Customer creation (one per user, lazy-created on first checkout)
-- Subscription Checkout Sessions (Cook/Operator tiers)
+- Subscription Checkout Sessions (Pro/Pro+ tiers)
 - Webhook event processing (subscription lifecycle)
 - Idempotent webhook deduplication
 
@@ -85,11 +85,14 @@ TIER_PRICE_IDS: dict[str, str] = _load_tier_price_ids()
 
 # Display-friendly USD price for revenue alerts. Loaded from config/tiers.yaml.
 # Used purely for Discord notifications — no billing logic depends on this.
-# Also include legacy 'studio' slug for the 30-day backwards-compat window.
+# Also include legacy slugs for the 30-day backwards-compat window.
 # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
 TIER_USD_PRICE: dict[str, float] = {
     **_load_tier_usd_price(),
-    "studio": _load_tier_usd_price().get("operator", 100.0),  # legacy alias
+    # Legacy aliases — pro=20, pro_plus=100
+    "cook": _load_tier_usd_price().get("pro", 20.0),       # legacy alias → pro
+    "operator": _load_tier_usd_price().get("pro_plus", 100.0),  # legacy alias → pro_plus
+    "studio": _load_tier_usd_price().get("pro_plus", 100.0),    # legacy alias → pro_plus
 }
 
 
@@ -100,16 +103,23 @@ class SubscriptionError(Exception):
 # ── Backwards-compat slug normalisation ─────────────────────────────────
 
 def _normalise_tier(tier: str | None) -> str | None:
-    """Translate legacy 'studio' slug to canonical 'operator'.
+    """Translate legacy slugs to canonical names.
 
     # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
+    Legacy → canonical:
+      studio → pro_plus  (from Phase 3, now rewrites through to pro_plus)
+      operator → pro_plus  (from Phase 5)
+      cook → pro  (from Phase 5)
     """
-    if tier == "studio":
+    LEGACY = {"studio": "pro_plus", "operator": "pro_plus", "cook": "pro"}
+    if tier in LEGACY:
+        canonical = LEGACY[tier]
         logger.warning(
-            "DEPRECATION: tier slug 'studio' received — normalising to 'operator'. "
-            "This shim will be removed after 2026-06-10 (RCP-INCIDENT-2026-05-11)."
+            "DEPRECATION: tier slug %r received — normalising to %r. "
+            "This shim will be removed after 2026-06-10 (RCP-INCIDENT-2026-05-11).",
+            tier, canonical
         )
-        return "operator"
+        return canonical
     return tier
 
 
@@ -464,23 +474,23 @@ def handle_subscription_event(event: dict, db: Session) -> dict:
 
 # ── Downgrade (Pro+ → Pro) ───────────────────────────────────────────────
 
-def downgrade_operator_to_cook(user: User, db: Session) -> dict[str, Any]:
-    """Switch a Pro+ (operator) subscriber to Pro (cook) with proration.
+def downgrade_pro_plus_to_pro(user: User, db: Session) -> dict[str, Any]:
+    """Switch a Pro+ subscriber to Pro with proration.
 
     Uses Stripe `subscription.modify` with proration_behavior="create_prorations"
     so the user receives a prorated credit for the unused portion of Pro+.
     """
-    # Accept legacy 'studio' slug via shim
+    # Accept legacy slugs via shim
     # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
     effective_tier = _normalise_tier(user.subscription_tier) or user.subscription_tier
-    if effective_tier != "operator":
-        raise SubscriptionError(f"not_operator: current tier is {user.subscription_tier!r}")
+    if effective_tier != "pro_plus":
+        raise SubscriptionError(f"not_pro_plus: current tier is {user.subscription_tier!r}")
     if not user.subscription_id:
         raise SubscriptionError("no_active_subscription")
 
-    cook_price = TIER_PRICE_IDS.get("cook")
-    if not cook_price:
-        raise SubscriptionError("cook_price_not_configured")
+    pro_price = TIER_PRICE_IDS.get("pro")
+    if not pro_price:
+        raise SubscriptionError("pro_price_not_configured")
 
     sub = stripe.Subscription.retrieve(user.subscription_id)
     items_data = (sub.get("items") or {}).get("data") if hasattr(sub, "get") else []
@@ -493,35 +503,51 @@ def downgrade_operator_to_cook(user: User, db: Session) -> dict[str, Any]:
 
     modified = stripe.Subscription.modify(
         user.subscription_id,
-        items=[{"id": item_id, "price": cook_price}],
+        items=[{"id": item_id, "price": pro_price}],
         proration_behavior="create_prorations",
-        metadata={"wiserecipes_user_id": str(user.id), "tier": "cook"},
+        metadata={"wiserecipes_user_id": str(user.id), "tier": "pro"},
     )
-    user.subscription_tier = "cook"
+    user.subscription_tier = "pro"
     db.commit()
-    logger.info("Downgraded user %s operator→cook (sub %s)", user.id, user.subscription_id)
+    logger.info("Downgraded user %s pro_plus→pro (sub %s)", user.id, user.subscription_id)
     return {
         "ok": True,
         "subscription_id": user.subscription_id,
-        "tier": "cook",
+        "tier": "pro",
         "stripe_status": modified.get("status") if hasattr(modified, "get") else None,
     }
 
 
-def downgrade_studio_to_cook(user: User, db: Session) -> dict[str, Any]:
-    """Deprecated wrapper — delegates to downgrade_operator_to_cook.
+def downgrade_operator_to_cook(user: User, db: Session) -> dict[str, Any]:
+    """Deprecated wrapper — delegates to downgrade_pro_plus_to_pro.
 
     # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
     Kept for any external caller (test code, ops scripts) that imports the
     old function name. All internal callers have been updated to use
-    downgrade_operator_to_cook directly.
+    downgrade_pro_plus_to_pro directly.
+    """
+    logger.warning(
+        "DEPRECATION: downgrade_operator_to_cook() is deprecated. "
+        "Use downgrade_pro_plus_to_pro() instead. "
+        "This wrapper will be removed after 2026-06-10 (RCP-INCIDENT-2026-05-11)."
+    )
+    return downgrade_pro_plus_to_pro(user, db)
+
+
+def downgrade_studio_to_cook(user: User, db: Session) -> dict[str, Any]:
+    """Deprecated wrapper — delegates to downgrade_pro_plus_to_pro.
+
+    # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
+    Kept for any external caller (test code, ops scripts) that imports the
+    old function name. All internal callers have been updated to use
+    downgrade_pro_plus_to_pro directly.
     """
     logger.warning(
         "DEPRECATION: downgrade_studio_to_cook() is deprecated. "
-        "Use downgrade_operator_to_cook() instead. "
+        "Use downgrade_pro_plus_to_pro() instead. "
         "This wrapper will be removed after 2026-06-10 (RCP-INCIDENT-2026-05-11)."
     )
-    return downgrade_operator_to_cook(user, db)
+    return downgrade_pro_plus_to_pro(user, db)
 
 
 # ── Webhook Signature Verification ───────────────────────────────────────

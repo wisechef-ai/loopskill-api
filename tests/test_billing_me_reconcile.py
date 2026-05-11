@@ -84,8 +84,8 @@ def configured_prices(monkeypatch):
     monkeypatch.setattr(settings, "STRIPE_PRICE_STUDIO", "price_test_studio")
     monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "sk_test_dummy")
     monkeypatch.setattr(ss, "TIER_PRICE_IDS", {
-        "cook": "price_test_cook",
-        "studio": "price_test_studio",
+        "pro": "price_test_cook",
+        "pro_plus": "price_test_studio",
     })
 
 
@@ -128,7 +128,7 @@ def _make_user(db: Session, **kwargs) -> User:
     return user
 
 
-def _fake_stripe_sub(price_id: str = "price_test_studio", tier_meta: str = "studio") -> dict:
+def _fake_stripe_sub(price_id: str = "price_test_studio", tier_meta: str = "pro_plus") -> dict:
     """Build a minimal Stripe Subscription dict."""
     return {
         "id": f"sub_test_{uuid.uuid4().hex[:8]}",
@@ -159,13 +159,13 @@ def test_tier_null_active_sub_triggers_reconcile(db):
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["subscription_tier"] == "studio", f"Expected 'studio', got {body['subscription_tier']!r}"
+    assert body["subscription_tier"] == "pro_plus", f"Expected 'pro_plus', got {body['subscription_tier']!r}"
     assert body["subscription_status"] == "active"
 
     # Verify DB row was actually updated
     db.expire_all()
     refreshed = db.query(User).filter(User.id == user.id).first()
-    assert refreshed.subscription_tier == "studio"
+    assert refreshed.subscription_tier == "pro_plus"
     assert refreshed.subscription_status == "active"
 
     mock_list.assert_called_once()
@@ -180,7 +180,7 @@ def test_already_synced_no_stripe_call(db):
     user = _make_user(
         db,
         stripe_customer_id="cus_already_synced",
-        subscription_tier="cook",
+        subscription_tier="pro",
         subscription_status="active",
         subscription_id="sub_already_synced",
     )
@@ -193,7 +193,7 @@ def test_already_synced_no_stripe_call(db):
 
     assert resp.status_code == 200
     body = resp.json()
-    assert body["subscription_tier"] == "cook"
+    assert body["subscription_tier"] == "pro"
     mock_list.assert_not_called()
 
 

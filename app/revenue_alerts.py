@@ -73,7 +73,7 @@ def post_revenue_event(
         event_kind: short label, see above.
         user_email: paying user's email (None if not yet known).
         user_id: internal UUID, surfaced for cross-reference.
-        tier: db slug — ``cook``, ``operator``, ``studio``, ``free``, or None.
+        tier: db slug — ``pro``, ``pro_plus``, ``free``, or None. Legacy slugs ``cook``, ``operator``, ``studio`` also accepted via shim until 2026-06-10.
         amount_usd: monthly subscription price in USD (None if unknown).
         extra_lines: optional list of additional bullet strings.
 
@@ -119,6 +119,9 @@ def post_revenue_event(
 
 _TIER_DISPLAY = {
     "free": "Free",
+    "pro": "Pro",
+    "pro_plus": "Pro+",
+    # Legacy aliases — RCP-INCIDENT-2026-05-11 shim, remove after 2026-06-10
     "cook": "Pro",
     "operator": "Pro+",
     "studio": "Pro+",
