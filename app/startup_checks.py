@@ -87,7 +87,11 @@ async def verify_stripe_webhook_endpoint() -> None:
             post_tori_alert(msg)
 
         # ── 2. Check registered endpoints ─────────────────────────────────────
-        endpoints = stripe.WebhookEndpoint.list(limit=20, timeout=WEBHOOK_CHECK_TIMEOUT_S)
+        # NOTE: stripe SDK rejects `timeout=` as a per-call kwarg on resource
+        # list methods (InvalidRequestError: Received unknown parameter: timeout).
+        # The default SDK timeout (~80s) is fine here; we're inside a try/except
+        # and this only runs once per boot.
+        endpoints = stripe.WebhookEndpoint.list(limit=20)
         matching = [
             ep for ep in (endpoints.get("data") or [])
             if ep.get("url") == EXPECTED_WEBHOOK_URL and ep.get("status") == "enabled"
