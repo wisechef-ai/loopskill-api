@@ -490,7 +490,7 @@ class TestPhase3CriticReviewFixes:
 
         ctx = require_cookbook_tier(_MockReq(), db=db_session)
         assert ctx.is_master is True
-        assert ctx.tier == "studio"
+        assert ctx.tier == "operator"  # Phase 3: master key uses canonical 'operator' slug
 
     def test_publish_path_blocked_for_cbt_via_cookbook_helper(self):
         """MED#5: even if a /api/cookbooks/{id}/_publish route is added later,

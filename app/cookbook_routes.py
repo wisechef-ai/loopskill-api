@@ -31,12 +31,17 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import Cookbook, CookbookSkill, Skill, SkillVersion, User
+from app.tier_labels import _is_operator_tier, _is_paid_tier
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cookbooks", tags=["cookbooks"])
 
-COOKBOOK_TIERS = {"cook", "operator", "studio"}
-UNLIMITED_TIERS = {"operator", "studio"}
+# RCP-INCIDENT-2026-05-11: COOKBOOK_TIERS and UNLIMITED_TIERS now use helper
+# functions (_is_paid_tier, _is_operator_tier) defined in tier_labels.py which
+# transparently accept the legacy 'studio' slug for 30 days. These set
+# constants remain for reference/documentation only — do not use for gate checks.
+COOKBOOK_TIERS = {"cook", "operator"}   # canonical; 'studio' handled via shim
+UNLIMITED_TIERS = {"operator"}           # canonical; 'studio' handled via shim
 ACTIVE_SUB_STATUSES = {"active", "trialing"}
 ALLOWED_SOURCES = {"forked", "custom-added", "overridden", "disabled"}
 
@@ -101,7 +106,7 @@ class CookbookCtx(BaseModel):
 
 
 def require_cookbook_tier(request: Request, db: Session = Depends(get_db)) -> CookbookCtx:
-    """401 unless caller has an active cook/operator/studio sub OR is master.
+    """401 unless caller has an active cook/operator sub OR is master.
 
     SECURITY: cbt_ share tokens stamp api_key_user_id="CBT_TOKEN" (sentinel)
     rather than None — None is the master-key signal. Without this guard
@@ -117,7 +122,7 @@ def require_cookbook_tier(request: Request, db: Session = Depends(get_db)) -> Co
         return CookbookCtx(user_id=None, is_master=False, tier="cook", cbt_cookbook_id=cookbook_id)
 
     if api_key_user_id is None:
-        return CookbookCtx(user_id=None, is_master=True, tier="studio")
+        return CookbookCtx(user_id=None, is_master=True, tier="operator")
 
     if api_key_user_id == "MISSING":
         raise HTTPException(status_code=401, detail="auth_required")
@@ -126,7 +131,7 @@ def require_cookbook_tier(request: Request, db: Session = Depends(get_db)) -> Co
     tier = user.subscription_tier if user else None
     status = user.subscription_status if user else None
 
-    if tier not in COOKBOOK_TIERS or status not in ACTIVE_SUB_STATUSES:
+    if not _is_paid_tier(tier) or status not in ACTIVE_SUB_STATUSES:
         raise HTTPException(
             status_code=401,
             detail={"needs_tier": "cook", "current_tier": tier},

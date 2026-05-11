@@ -60,16 +60,16 @@ def db(engine_fixture) -> Generator[Session, None, None]:
 
 @pytest.fixture
 def configured_prices(monkeypatch):
-    """Test price IDs in settings + subscription_service.TIER_PRICE_IDS (no operator)."""
+    """Test price IDs in settings + subscription_service.TIER_PRICE_IDS (operator canonical)."""
     from app import subscription_service as ss
     monkeypatch.setattr(settings, "STRIPE_PRICE_COOK", "price_test_cook_v2")
     monkeypatch.setattr(settings, "STRIPE_PRICE_STUDIO", "price_test_studio_v2")
-    monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "sk_test_dummy")
+    monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "***")
     monkeypatch.setattr(settings, "STRIPE_WEBHOOK_SECRET", "whsec_test_dummy")
     monkeypatch.setattr(settings, "OAUTH_REDIRECT_BASE", "https://recipes.test/")
     monkeypatch.setattr(ss, "TIER_PRICE_IDS", {
         "cook": "price_test_cook_v2",
-        "studio": "price_test_studio_v2",
+        "operator": "price_test_studio_v2",  # operator is canonical slug (Phase 3)
     })
     yield
 
@@ -90,15 +90,16 @@ def _build_test_app(db: Session) -> FastAPI:
 
 @pytest.fixture
 def studio_user(db) -> User:
+    """User with canonical 'operator' tier (was 'studio' before Phase 3 migration)."""
     user = User(
         id=uuid.uuid4(),
         github_id=1_001 + int(uuid.uuid4().int) % 1_000_000,
         email=f"v2-{uuid.uuid4().hex[:6]}@test.recipes.wisechef.ai",
-        display_name="V2 Studio User",
+        display_name="V2 Operator User",
         stripe_customer_id="cus_test_studio_v2",
         subscription_id="sub_test_studio_v2",
         subscription_status="active",
-        subscription_tier="studio",
+        subscription_tier="operator",  # Phase 3: canonical slug
     )
     db.add(user)
     db.commit()
@@ -133,8 +134,8 @@ def _client_for(db: Session, user: User | None) -> TestClient:
 
 # ── Tier rename validation ──────────────────────────────────────────────
 
-def test_operator_tier_retired_from_price_ids():
-    """Operator slug must not appear in TIER_PRICE_IDS (production source).
+def test_operator_tier_in_price_ids():
+    """operator slug must appear in TIER_PRICE_IDS (canonical slug post-Phase 3).
 
     Reload subscription_service so any earlier monkeypatch from another
     test module does not mask the production state.
@@ -142,39 +143,72 @@ def test_operator_tier_retired_from_price_ids():
     import importlib
     from app import subscription_service as ss
     ss = importlib.reload(ss)
-    assert "operator" not in ss.TIER_PRICE_IDS
-    assert set(ss.TIER_PRICE_IDS) == {"cook", "studio"}
+    assert "operator" in ss.TIER_PRICE_IDS
+    assert "studio" not in ss.TIER_PRICE_IDS
+    assert set(ss.TIER_PRICE_IDS) == {"cook", "operator"}
+
+
+def test_legacy_studio_shim_still_accepted_in_checkout(configured_prices, db, studio_user):
+    """Backwards-compat: create_checkout_session('studio') still works via shim.
+
+    # RCP-INCIDENT-2026-05-11 backwards-compat shim test, remove after 2026-06-10
+    """
+    from app.subscription_service import create_checkout_session
+    import stripe
+
+    fake_customer = {"id": "cus_shim_legacy"}
+    fake_session = {"id": "cs_shim_test", "url": "https://checkout.stripe.com/cs_shim"}
+
+    studio_user.stripe_customer_id = "cus_shim_legacy"
+    db.commit()
+
+    with patch("stripe.Customer.create", return_value=fake_customer), \
+         patch("stripe.checkout.Session.create", return_value=fake_session), \
+         patch("stripe.PromotionCode.list", return_value={"data": []}):
+        # 'studio' should be normalised to 'operator' and create_checkout_session
+        # should use the 'operator' price (since TIER_PRICE_IDS has 'operator' now)
+        result = create_checkout_session(user=studio_user, tier="studio", db=db)
+    assert result["tier"] == "operator"  # normalised
 
 
 def test_operator_restored_in_settings_defaults():
-    """Settings.STRIPE_PRICE_OPERATOR field is restored in v7/phase-F (operator un-retired,
-    studio → operator alias). Both env vars exist during the 90-day backward-compat window
-    so older portal code reading STRIPE_PRICE_STUDIO still works."""
+    """Settings.STRIPE_PRICE_OPERATOR field exists (operator un-retired, studio→operator)."""
     from app.config import Settings
     assert "STRIPE_PRICE_OPERATOR" in Settings.model_fields
     assert "STRIPE_PRICE_STUDIO" in Settings.model_fields  # deprecated alias, kept for compat
 
 
-def test_operator_checkout_raises_subscription_error(configured_prices, db, studio_user):
-    """create_checkout_session('operator') must raise SubscriptionError."""
-    from app.subscription_service import create_checkout_session, SubscriptionError
-    with pytest.raises(SubscriptionError) as excinfo:
-        create_checkout_session(user=studio_user, tier="operator", db=db)
-    assert "operator" in str(excinfo.value).lower() or "unknown tier" in str(excinfo.value).lower()
+def test_operator_checkout_works(configured_prices, db, studio_user):
+    """create_checkout_session('operator') must succeed (canonical slug post-Phase 3)."""
+    from app.subscription_service import create_checkout_session
+
+    fake_customer = {"id": "cus_test_studio_v2"}
+    fake_session = {"id": "cs_op_test", "url": "https://checkout.stripe.com/cs_op_test"}
+
+    with patch("stripe.Customer.create", return_value=fake_customer), \
+         patch("stripe.checkout.Session.create", return_value=fake_session), \
+         patch("stripe.PromotionCode.list", return_value={"data": []}):
+        result = create_checkout_session(user=studio_user, tier="operator", db=db)
+    assert result["tier"] == "operator"
+    assert result["session_id"] == "cs_op_test"
 
 
-def test_operator_checkout_endpoint_returns_400(configured_prices, db, studio_user):
-    """POST /api/checkout/operator returns 400."""
+def test_operator_checkout_endpoint_works(configured_prices, db, studio_user):
+    """POST /api/checkout/operator returns 200 (canonical slug post-Phase 3)."""
     client = _client_for(db, studio_user)
-    resp = client.post("/api/checkout/operator")
-    assert resp.status_code == 400
-    assert "invalid_tier" in resp.json()["detail"]
+    fake_session = {"id": "cs_ep_test", "url": "https://checkout.stripe.com/cs_ep"}
+    fake_customer = {"id": "cus_ep_test"}
+    with patch("stripe.Customer.create", return_value=fake_customer), \
+         patch("stripe.checkout.Session.create", return_value=fake_session), \
+         patch("stripe.PromotionCode.list", return_value={"data": []}):
+        resp = client.post("/api/checkout/operator")
+    assert resp.status_code == 200, resp.text
 
 
 # ── Downgrade endpoint ───────────────────────────────────────────────────
 
 def test_downgrade_studio_to_cook_calls_stripe_modify(configured_prices, db, studio_user):
-    """POST /api/subscriptions/downgrade switches studio→cook with proration."""
+    """POST /api/subscriptions/downgrade switches operator→cook with proration."""
     fake_sub = {"id": studio_user.subscription_id, "items": {"data": [{"id": "si_test_001"}]}}
     fake_modified = {
         "id": studio_user.subscription_id,
@@ -205,11 +239,11 @@ def test_downgrade_studio_to_cook_calls_stripe_modify(configured_prices, db, stu
 
 
 def test_downgrade_rejects_cook_user(configured_prices, db, cook_user):
-    """Only studio users can downgrade — cook returns 400."""
+    """Only operator users can downgrade — cook returns 400."""
     client = _client_for(db, cook_user)
     resp = client.post("/api/subscriptions/downgrade")
     assert resp.status_code == 400
-    assert "studio" in resp.json()["detail"].lower() or "not_studio" in resp.json()["detail"]
+    assert "operator" in resp.json()["detail"].lower() or "not_operator" in resp.json()["detail"]
 
 
 def test_downgrade_requires_auth(configured_prices, db):

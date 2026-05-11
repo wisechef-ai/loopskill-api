@@ -2,7 +2,7 @@
 
 Handles:
 - Customer creation (one per user, lazy-created on first checkout)
-- Subscription Checkout Sessions (Cook/Operator/Studio tiers)
+- Subscription Checkout Sessions (Cook/Operator tiers)
 - Webhook event processing (subscription lifecycle)
 - Idempotent webhook deduplication
 
@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 import stripe
+import yaml
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -29,25 +32,85 @@ logger = logging.getLogger(__name__)
 stripe.api_version = "2026-01-28.clover"
 stripe.api_key = settings.STRIPE_SECRET_KEY
 
+# Path to the SSOT tiers config
+_TIERS_YAML = Path(__file__).resolve().parent.parent / "config" / "tiers.yaml"
 
-# ── Tier → Price ID mapping (loaded from settings) ───────────────────────
 
-TIER_PRICE_IDS: dict[str, str] = {
-    "cook": settings.STRIPE_PRICE_COOK,      # = Pro €20/mo
-    "studio": settings.STRIPE_PRICE_STUDIO,  # = All-in €100/mo
-}
+# ── SSOT tier config helpers ─────────────────────────────────────────────
 
-# Display-friendly USD price for revenue alerts. Mirror of config/tiers.yaml.
+@lru_cache(maxsize=1)
+def _load_tiers_yaml() -> dict:
+    """Load and cache config/tiers.yaml."""
+    with open(_TIERS_YAML) as f:
+        return yaml.safe_load(f)["tiers"]
+
+
+@lru_cache(maxsize=1)
+def _load_tier_price_ids() -> dict[str, str]:
+    """Return {db_slug: price_id} from config/tiers.yaml.
+
+    Reads the price_id_env field for each tier and resolves via settings.
+    Tiers without price_id_env (free tier) are excluded.
+
+    TODO: rename env var WR_STRIPE_PRICE_STUDIO → WR_STRIPE_PRICE_OPERATOR
+    in a separate ops task (out of scope for Phase 3). The yaml maps
+    operator.price_id_env=WR_STRIPE_PRICE_STUDIO until that rename lands.
+    """
+    tiers = _load_tiers_yaml()
+    result: dict[str, str] = {}
+    for db_slug, meta in tiers.items():
+        env_name = meta.get("price_id_env")
+        if not env_name:
+            continue
+        # settings uses WR_ prefix (pydantic-settings env_prefix="WR_")
+        # so WR_STRIPE_PRICE_COOK → settings.STRIPE_PRICE_COOK
+        attr = env_name.removeprefix("WR_")
+        val = getattr(settings, attr, None)
+        if val is not None:
+            result[db_slug] = val
+    return result
+
+
+@lru_cache(maxsize=1)
+def _load_tier_usd_price() -> dict[str, float]:
+    """Return {db_slug: price_usd} from config/tiers.yaml."""
+    tiers = _load_tiers_yaml()
+    return {slug: float(meta["price_usd"]) for slug, meta in tiers.items()
+            if "price_usd" in meta}
+
+
+# ── Tier → Price ID mapping (loaded from SSOT config/tiers.yaml) ──────────
+
+TIER_PRICE_IDS: dict[str, str] = _load_tier_price_ids()
+
+# Display-friendly USD price for revenue alerts. Loaded from config/tiers.yaml.
 # Used purely for Discord notifications — no billing logic depends on this.
+# Also include legacy 'studio' slug for the 30-day backwards-compat window.
+# RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
 TIER_USD_PRICE: dict[str, float] = {
-    "cook": 20.0,
-    "operator": 100.0,
-    "studio": 100.0,
+    **_load_tier_usd_price(),
+    "studio": _load_tier_usd_price().get("operator", 100.0),  # legacy alias
 }
 
 
 class SubscriptionError(Exception):
     """Raised when a subscription operation fails."""
+
+
+# ── Backwards-compat slug normalisation ─────────────────────────────────
+
+def _normalise_tier(tier: str | None) -> str | None:
+    """Translate legacy 'studio' slug to canonical 'operator'.
+
+    # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
+    """
+    if tier == "studio":
+        logger.warning(
+            "DEPRECATION: tier slug 'studio' received — normalising to 'operator'. "
+            "This shim will be removed after 2026-06-10 (RCP-INCIDENT-2026-05-11)."
+        )
+        return "operator"
+    return tier
 
 
 # ── Customer Management ──────────────────────────────────────────────────
@@ -101,6 +164,9 @@ def create_checkout_session(
     on the buyer's side. Stripe's own UI still lets them type any other
     valid code in addition to or instead of this one.
     """
+    # Normalise legacy 'studio' slug before checking TIER_PRICE_IDS
+    tier = _normalise_tier(tier) or tier
+
     if tier not in TIER_PRICE_IDS:
         raise SubscriptionError(f"Unknown tier: {tier!r}. Valid: {sorted(TIER_PRICE_IDS)}")
 
@@ -254,6 +320,8 @@ def _apply_subscription_state(user: User, sub: dict, db: Session) -> None:
                     tier = t
                     break
         if tier:
+            # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
+            tier = _normalise_tier(tier) or tier
             user.subscription_tier = tier
     db.commit()
 
@@ -394,16 +462,19 @@ def handle_subscription_event(event: dict, db: Session) -> dict:
     return {"processed": event_type, "user_id": str(user.id)}
 
 
-# ── Downgrade (All-in → Pro) ─────────────────────────────────────────────
+# ── Downgrade (Pro+ → Pro) ───────────────────────────────────────────────
 
-def downgrade_studio_to_cook(user: User, db: Session) -> dict[str, Any]:
-    """Switch an All-in (studio) subscriber to Pro (cook) with proration.
+def downgrade_operator_to_cook(user: User, db: Session) -> dict[str, Any]:
+    """Switch a Pro+ (operator) subscriber to Pro (cook) with proration.
 
     Uses Stripe `subscription.modify` with proration_behavior="create_prorations"
-    so the user receives a prorated credit for the unused portion of All-in.
+    so the user receives a prorated credit for the unused portion of Pro+.
     """
-    if user.subscription_tier != "studio":
-        raise SubscriptionError(f"not_studio: current tier is {user.subscription_tier!r}")
+    # Accept legacy 'studio' slug via shim
+    # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
+    effective_tier = _normalise_tier(user.subscription_tier) or user.subscription_tier
+    if effective_tier != "operator":
+        raise SubscriptionError(f"not_operator: current tier is {user.subscription_tier!r}")
     if not user.subscription_id:
         raise SubscriptionError("no_active_subscription")
 
@@ -428,13 +499,29 @@ def downgrade_studio_to_cook(user: User, db: Session) -> dict[str, Any]:
     )
     user.subscription_tier = "cook"
     db.commit()
-    logger.info("Downgraded user %s studio→cook (sub %s)", user.id, user.subscription_id)
+    logger.info("Downgraded user %s operator→cook (sub %s)", user.id, user.subscription_id)
     return {
         "ok": True,
         "subscription_id": user.subscription_id,
         "tier": "cook",
         "stripe_status": modified.get("status") if hasattr(modified, "get") else None,
     }
+
+
+def downgrade_studio_to_cook(user: User, db: Session) -> dict[str, Any]:
+    """Deprecated wrapper — delegates to downgrade_operator_to_cook.
+
+    # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
+    Kept for any external caller (test code, ops scripts) that imports the
+    old function name. All internal callers have been updated to use
+    downgrade_operator_to_cook directly.
+    """
+    logger.warning(
+        "DEPRECATION: downgrade_studio_to_cook() is deprecated. "
+        "Use downgrade_operator_to_cook() instead. "
+        "This wrapper will be removed after 2026-06-10 (RCP-INCIDENT-2026-05-11)."
+    )
+    return downgrade_operator_to_cook(user, db)
 
 
 # ── Webhook Signature Verification ───────────────────────────────────────

@@ -71,17 +71,18 @@ def db(engine_fixture) -> Generator[Session, None, None]:
 def configured_prices(monkeypatch):
     """Test price IDs in settings + subscription_service.TIER_PRICE_IDS.
 
-    Phase A (stabilization_2605): operator tier retired; only cook + studio.
+    Phase 3 (RCP-INCIDENT-2026-05-11): operator is the canonical slug.
+    'studio' is accepted via backwards-compat shim for 30 days.
     """
     from app import subscription_service as ss
     monkeypatch.setattr(settings, "STRIPE_PRICE_COOK", "price_test_cook")
     monkeypatch.setattr(settings, "STRIPE_PRICE_STUDIO", "price_test_studio")
-    monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "sk_test_dummy")
+    monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "***")
     monkeypatch.setattr(settings, "STRIPE_WEBHOOK_SECRET", "whsec_test_dummy")
     monkeypatch.setattr(settings, "OAUTH_REDIRECT_BASE", "https://recipes.test/")
     monkeypatch.setattr(ss, "TIER_PRICE_IDS", {
         "cook": "price_test_cook",
-        "studio": "price_test_studio",
+        "operator": "price_test_studio",  # canonical slug post-Phase 3
     })
     yield
 
@@ -154,8 +155,11 @@ def webhook_client(db, configured_prices) -> TestClient:
 
 # ── Tests: POST /api/checkout/{tier} ─────────────────────────────────────
 
-@pytest.mark.parametrize("tier", ["cook", "studio"])
-def test_checkout_creates_session_for_authenticated_user(authed_client, tier):
+@pytest.mark.parametrize("tier,expected_price", [
+    ("cook", "price_test_cook"),
+    ("operator", "price_test_studio"),  # operator uses WR_STRIPE_PRICE_STUDIO (same Stripe ID)
+])
+def test_checkout_creates_session_for_authenticated_user(authed_client, tier, expected_price):
     """Gate 1: authenticated POST /api/checkout/{tier} creates a Stripe session."""
     fake_session = {
         "id": f"cs_test_{tier}_abc",
@@ -175,7 +179,7 @@ def test_checkout_creates_session_for_authenticated_user(authed_client, tier):
 
     kwargs = session_create.call_args.kwargs
     assert kwargs["mode"] == "subscription"
-    assert kwargs["line_items"] == [{"price": f"price_test_{tier}", "quantity": 1}]
+    assert kwargs["line_items"] == [{"price": expected_price, "quantity": 1}]
     assert kwargs["automatic_tax"] == {"enabled": True}
     assert kwargs["tax_id_collection"] == {"enabled": True}
     assert kwargs["billing_address_collection"] == "required"
@@ -231,7 +235,7 @@ def test_checkout_completed_marks_subscription_active(test_user, db, webhook_cli
         "status": "active",
         "current_period_end": period_end,
         "items": {"data": [{
-            "price": {"id": "price_test_studio", "metadata": {"tier": "studio"}},
+            "price": {"id": "price_test_operator", "metadata": {"tier": "operator"}},
         }]},
         "metadata": {"wiserecipes_user_id": str(test_user.id)},
         "customer": "cus_test_completed",
@@ -247,7 +251,7 @@ def test_checkout_completed_marks_subscription_active(test_user, db, webhook_cli
             "payment_status": "paid",
             "customer": "cus_test_completed",
             "subscription": sub_id,
-            "metadata": {"wiserecipes_user_id": str(test_user.id), "tier": "studio"},
+            "metadata": {"wiserecipes_user_id": str(test_user.id), "tier": "operator"},
         }},
     }
 
@@ -262,7 +266,7 @@ def test_checkout_completed_marks_subscription_active(test_user, db, webhook_cli
     db.expire_all()
     user = db.query(User).filter(User.id == test_user.id).first()
     assert user.subscription_status == "active"
-    assert user.subscription_tier == "studio"
+    assert user.subscription_tier == "operator"
     assert user.subscription_id == sub_id
     assert user.subscription_current_period_end is not None
 
@@ -304,7 +308,7 @@ def test_subscription_deleted_clears_state(test_user, db, webhook_client):
     test_user.stripe_customer_id = "cus_test_deleted"
     test_user.subscription_id = "sub_to_be_deleted"
     test_user.subscription_status = "active"
-    test_user.subscription_tier = "studio"
+    test_user.subscription_tier = "operator"  # canonical slug post-Phase 3
     db.commit()
 
     event = {
@@ -384,7 +388,7 @@ def test_refund_does_not_cancel_subscription(test_user, db, webhook_client):
     test_user.stripe_customer_id = "cus_test_refund"
     test_user.subscription_id = "sub_active_during_refund"
     test_user.subscription_status = "active"
-    test_user.subscription_tier = "studio"
+    test_user.subscription_tier = "operator"  # canonical slug post-Phase 3
     db.commit()
 
     event = {
@@ -404,7 +408,7 @@ def test_refund_does_not_cancel_subscription(test_user, db, webhook_client):
     db.expire_all()
     user = db.query(User).filter(User.id == test_user.id).first()
     assert user.subscription_status == "active"
-    assert user.subscription_tier == "studio"
+    assert user.subscription_tier == "operator"  # canonical slug post-Phase 3
 
 
 # ── Tests: GET /api/billing/me ──────────────────────────────────────────
@@ -429,3 +433,51 @@ def test_billing_me_anonymous_returns_401(anon_client):
     """Anonymous /api/billing/me returns 401."""
     resp = anon_client.get("/api/billing/me")
     assert resp.status_code == 401
+
+
+# ── Backwards-compat shim test ───────────────────────────────────────────
+
+def test_legacy_studio_webhook_normalised_to_operator(test_user, db, webhook_client):
+    """Gate: incoming webhook with tier='studio' normalises to 'operator' via shim.
+
+    # RCP-INCIDENT-2026-05-11 backwards-compat shim test, remove after 2026-06-10
+    """
+    sub_id = f"sub_shim_{uuid.uuid4().hex[:8]}"
+    period_end = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
+    fake_subscription = {
+        "id": sub_id,
+        "status": "active",
+        "current_period_end": period_end,
+        "items": {"data": [{
+            # Legacy: price metadata still says 'studio'
+            "price": {"id": "price_test_studio_legacy", "metadata": {"tier": "studio"}},
+        }]},
+        "metadata": {"wiserecipes_user_id": str(test_user.id)},
+        "customer": "cus_test_shim",
+    }
+    event = {
+        "id": f"evt_{uuid.uuid4().hex}",
+        "type": "checkout.session.completed",
+        "livemode": False,
+        "data": {"object": {
+            "id": "cs_test_shim",
+            "object": "checkout.session",
+            "mode": "subscription",
+            "payment_status": "paid",
+            "customer": "cus_test_shim",
+            "subscription": sub_id,
+            "metadata": {"wiserecipes_user_id": str(test_user.id), "tier": "studio"},
+        }},
+    }
+
+    with patch("stripe.Subscription.retrieve", return_value=fake_subscription):
+        resp = _post_event(webhook_client, event)
+
+    assert resp.status_code == 200, resp.text
+    db.expire_all()
+    user = db.query(User).filter(User.id == test_user.id).first()
+    # Shim: 'studio' in price metadata → 'operator' in DB
+    assert user.subscription_tier == "operator", (
+        f"Expected 'operator' after shim, got {user.subscription_tier!r}"
+    )
+

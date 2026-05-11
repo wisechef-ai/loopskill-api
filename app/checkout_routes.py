@@ -21,7 +21,7 @@ from app.subscription_service import (
     TIER_PRICE_IDS,
     _apply_subscription_state,
     create_checkout_session,
-    downgrade_studio_to_cook,
+    downgrade_operator_to_cook,
 )
 
 logger = logging.getLogger(__name__)
@@ -190,14 +190,14 @@ async def downgrade_subscription(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
-    """Switch an All-in (studio) subscriber to Pro (cook) with proration.
+    """Switch a Pro+ (operator) subscriber to Pro (cook) with proration.
 
-    Requires authentication. Returns 400 if the caller isn't currently on studio.
+    Requires authentication. Returns 400 if the caller isn't currently on operator.
     """
     if user is None:
         raise HTTPException(status_code=401, detail="login_required")
     try:
-        return downgrade_studio_to_cook(user, db)
+        return downgrade_operator_to_cook(user, db)
     except SubscriptionError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

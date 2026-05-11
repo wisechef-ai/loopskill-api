@@ -39,6 +39,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import APIKey, ForkVersion, Skill, SkillFork, User
+from app.tier_labels import _is_operator_tier
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/forks", tags=["forks"])
@@ -46,7 +47,10 @@ router = APIRouter(prefix="/api/forks", tags=["forks"])
 
 # ── Constants ────────────────────────────────────────────────────────────
 
-OPERATOR_TIERS = {"operator", "studio"}
+# RCP-INCIDENT-2026-05-11: OPERATOR_TIERS now uses _is_operator_tier() helper
+# from tier_labels.py which transparently accepts legacy 'studio' for 30 days.
+# This constant is kept for reference only.
+OPERATOR_TIERS = {"operator"}  # canonical; 'studio' handled via shim in _is_operator_tier
 ACTIVE_SUB_STATUSES = {"active", "trialing"}
 ALLOWED_VISIBILITY = {"private", "team", "public"}
 
@@ -89,14 +93,14 @@ class TierContext(BaseModel):
 
 
 def require_operator(request: Request, db: Session = Depends(get_db)) -> TierContext:
-    """402 unless caller is master-key OR has an active operator/studio sub.
+    """402 unless caller is master-key OR has an active operator sub.
 
     The middleware has already validated the API key and stamped api_key_user_id
     on request.state. user_id is None for the static master key.
     """
     api_key_user_id = getattr(request.state, "api_key_user_id", "MISSING")
     if api_key_user_id is None:
-        return TierContext(user_id=None, is_master=True, tier="studio")
+        return TierContext(user_id=None, is_master=True, tier="operator")
 
     if api_key_user_id == "MISSING":
         raise HTTPException(status_code=401, detail="auth_required")
@@ -105,7 +109,7 @@ def require_operator(request: Request, db: Session = Depends(get_db)) -> TierCon
     tier = user.subscription_tier if user else None
     status = user.subscription_status if user else None
 
-    if tier not in OPERATOR_TIERS or status not in ACTIVE_SUB_STATUSES:
+    if not _is_operator_tier(tier) or status not in ACTIVE_SUB_STATUSES:
         raise HTTPException(
             status_code=402,
             detail={"needs_tier": "operator", "current_tier": tier},

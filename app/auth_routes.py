@@ -28,6 +28,7 @@ from app.auth import (
     get_google_auth_url,
     verify_jwt,
 )
+from app.tier_labels import _is_operator_tier, _is_paid_tier
 from app.config import settings
 from app.database import get_db
 from app.referral import (
@@ -320,20 +321,20 @@ async def get_me(
         ),
         # WIS-902: Tier feature flags for frontend tier-conditional UX
         "features": {
-            "full_catalog_install": user.subscription_tier in ("cook", "operator", "studio"),
+            "full_catalog_install": _is_paid_tier(user.subscription_tier),
             "install_rate_limit": {
                 "free": 5, "cook": 100, "operator": None, "studio": None,
             }.get(user.subscription_tier, 5),
-            "recipify": user.subscription_tier in ("cook", "operator", "studio"),
+            "recipify": _is_paid_tier(user.subscription_tier),
             "cookbook_limit": {
                 "free": 0, "cook": 1, "operator": None, "studio": None,
             }.get(user.subscription_tier, 0),
             "cookbook_skill_cap": {
                 "free": 0, "cook": 25, "operator": None, "studio": None,
             }.get(user.subscription_tier, 0),
-            "fleet_sync": user.subscription_tier in ("operator", "studio"),
-            "fleet_seeker": user.subscription_tier in ("operator", "studio"),
-            "subrecipe_priority_resolve": user.subscription_tier in ("operator", "studio"),
+            "fleet_sync": _is_operator_tier(user.subscription_tier),
+            "fleet_seeker": _is_operator_tier(user.subscription_tier),
+            "subrecipe_priority_resolve": _is_operator_tier(user.subscription_tier),
         },
     }
 
