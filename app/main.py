@@ -35,6 +35,7 @@ from app.recall_routes import router as recall_router
 from app.recipify_routes import router as recipify_router
 from app.referral_routes import router as referral_router
 from app.routes import router
+from app.marketing_routes import router as marketing_router
 from app.sandbox.routes import router as sandbox_router
 from app.skill_error_routes import router as skill_error_router
 from app.transparency_routes import router as transparency_router
@@ -122,6 +123,7 @@ def create_app() -> FastAPI:
     app.include_router(recall_router)
     app.include_router(recipify_router)
     app.include_router(referral_router)
+    app.include_router(marketing_router)
     app.include_router(sse_router)
     app.include_router(share_token_router)
     app.include_router(mcp_router)

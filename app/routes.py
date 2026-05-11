@@ -159,7 +159,7 @@ def search_skills(
     category: str | None = Query(None),
     vertical: str | None = Query(None, pattern="^(marketing|code|web-scraping|ops|sales|sim-robotics)$",
                                   description="Filter by Plan v5.4 vertical"),
-    tier: str | None = Query(None, pattern="^(free|pro|pro_plus|cook|operator|studio)$", description="Filter by access tier"),
+    tier: str | None = Query(None, pattern="^(free|pro|pro_plus|cook|operator|studio)$", description="Filter by access tier (DB: free|cook|operator|studio; display: free|pro|pro_plus — accepted as aliases via Phase A map)"),
     subset: str | None = Query(None, pattern="^(pantry|menu|cookbook)$",
                                 description="v6: filter by catalog subset (pantry=original 3rd-party, menu=public custom, cookbook=private)"),
     variant: str | None = Query(None, pattern="^(original|custom)$",
@@ -172,7 +172,7 @@ def search_skills(
     query = db.query(Skill).options(
         joinedload(Skill.versions),
         joinedload(Skill.creator),
-    ).filter(Skill.is_public == True)
+    ).filter(Skill.is_public == True, Skill.is_archived == False)
 
     if q:
         query = query.filter(
@@ -183,7 +183,12 @@ def search_skills(
     if vertical:
         query = query.filter(Skill.vertical == vertical)
     if tier:
-        query = query.filter(Skill.tier == tier)
+        # Phase A — top1pct_1105: accept display slugs `pro` / `pro_plus` and
+        # transparently map them to the immutable DB slugs `cook` / `operator`.
+        # The DB column stays stable (per locked decision in plan §0); user-facing
+        # filters use the new brand labels.
+        tier_db = {"pro": "cook", "pro_plus": "operator"}.get(tier, tier)
+        query = query.filter(Skill.tier == tier_db)
 
     # v6 Phase A: subset filter — maps to skill_variant + is_public combinations
     if subset == "pantry":
