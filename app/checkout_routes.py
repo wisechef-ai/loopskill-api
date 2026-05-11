@@ -6,6 +6,8 @@ GET  /api/billing/me          — current user's subscription state (cookie auth
 from __future__ import annotations
 
 import logging
+import time
+from typing import Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -17,12 +19,31 @@ from app.models import User
 from app.subscription_service import (
     SubscriptionError,
     TIER_PRICE_IDS,
+    _apply_subscription_state,
     create_checkout_session,
     downgrade_studio_to_cook,
 )
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["checkout"])
+
+# ── Phase 2: billing/me reconciliation constants ─────────────────────────────
+
+# Maximum seconds we are willing to wait for Stripe during /api/billing/me.
+# Passed as the Stripe SDK per-call timeout so a slow Stripe API can't hang
+# the success-page poll indefinitely.
+BILLING_ME_RECONCILE_BUDGET_S: int = 4
+
+# Minimum gap (seconds) between reconciliation attempts for the same user.
+# Prevents a hammering frontend from burning through our Stripe read quota.
+_RECONCILE_COOLDOWN_S: int = 5
+
+# In-process cache: user_id (str) → monotonic timestamp of last attempt.
+# Fine-grained enough for our purpose; resets on worker restart (acceptable).
+_reconcile_last_attempt: Dict[str, float] = {}
+
+# Subscription statuses that are considered "in-sync" — no reconcile needed.
+_HEALTHY_STATUSES = frozenset({"active", "trialing"})
 
 
 @router.post("/checkout/{tier}")
@@ -79,11 +100,77 @@ async def create_subscription_checkout(
 
 @router.get("/billing/me")
 async def billing_me(
+    db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
-    """Current authenticated user's subscription state."""
+    """Current authenticated user's subscription state.
+
+    Phase 2: if the user has a Stripe customer ID but no active tier in the DB
+    (race condition window after checkout, before webhook delivery), perform an
+    inline Stripe lookup and apply the subscription synchronously.  This makes
+    the success-page poll converge in one RTT rather than waiting up to 30 s for
+    the webhook to arrive.
+
+    Guards:
+    - Entire Stripe call is wrapped in try/except; any exception falls back to
+      the stale DB state so the endpoint never 5xx.
+    - Per-user cooldown (``_RECONCILE_COOLDOWN_S``) prevents a hammering
+      frontend from exhausting Stripe quota.
+    - ``BILLING_ME_RECONCILE_BUDGET_S`` is passed as Stripe call timeout.
+    - Never creates customers, subscriptions, or invoices — read + sync only.
+    """
     if user is None:
         raise HTTPException(status_code=401, detail="login_required")
+
+    # ── Phase 2: server-side reconciliation ──────────────────────────────────
+    needs_reconcile = (
+        bool(user.stripe_customer_id)
+        and (
+            user.subscription_tier is None
+            or user.subscription_status not in _HEALTHY_STATUSES
+        )
+    )
+    if needs_reconcile:
+        user_key = str(user.id)
+        now = time.monotonic()
+        last = _reconcile_last_attempt.get(user_key, 0.0)
+        if now - last >= _RECONCILE_COOLDOWN_S:
+            _reconcile_last_attempt[user_key] = now
+            try:
+                import stripe
+                stripe.api_key = settings.STRIPE_SECRET_KEY
+                stripe.api_version = "2026-01-28.clover"
+                subs = stripe.Subscription.list(
+                    customer=user.stripe_customer_id,
+                    status="active",
+                    limit=1,
+                    expand=["data.items.data.price"],
+                    timeout=BILLING_ME_RECONCILE_BUDGET_S,
+                )
+                data = (subs or {}).get("data") or []
+                if data:
+                    sub = data[0]
+                    _apply_subscription_state(user, dict(sub), db)
+                    db.refresh(user)
+                    logger.info(
+                        "billing/me reconciled user %s → tier=%s status=%s",
+                        user.id,
+                        user.subscription_tier,
+                        user.subscription_status,
+                    )
+            except Exception:
+                logger.warning(
+                    "billing/me reconciliation failed for user %s — returning stale DB state",
+                    user.id,
+                    exc_info=True,
+                )
+        else:
+            logger.debug(
+                "billing/me reconciliation skipped for user %s (cooldown, %.1fs remaining)",
+                user.id,
+                _RECONCILE_COOLDOWN_S - (now - last),
+            )
+
     return {
         "user_id": str(user.id),
         "email": user.email,

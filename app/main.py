@@ -42,6 +42,7 @@ from app.feedback_v1_routes import router as feedback_v1_router
 from app.skill_patch_routes import router as skill_patch_router
 from app.sse_routes import router as sse_router
 from app.share_token_routes import router as share_token_router
+from app.startup_checks import verify_stripe_webhook_endpoint  # Phase 4
 from app.sync_fanout import get_fanout
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,8 @@ async def lifespan(app: FastAPI):
     Bot is a no-op when DISCORD_BOT_TOKEN is empty (server doesn't exist
     yet at deploy time) — see app/discord_bot/bot.py.
     """
+    # Phase 4: boot-time Stripe webhook smoke test (fail-soft).
+    await verify_stripe_webhook_endpoint()
     bot_task = await discord_bot.start_bot()
     fanout = get_fanout()
     try:
