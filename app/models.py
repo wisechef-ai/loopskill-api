@@ -86,6 +86,14 @@ class APIKey(Base):
     key_prefix = Column(String(12), nullable=False)          # first 8 chars for lookup
     key_hash = Column(String(255), nullable=False)            # full sha256 of key
     name = Column(String(255), nullable=True)                 # label like "production"
+    # Phase C — per-cookbook scoping + human label
+    label = Column(String(100), nullable=True)                # human label e.g. "ACME client"
+    cookbook_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("cookbooks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
     last_used_at = Column(DateTime, nullable=True)

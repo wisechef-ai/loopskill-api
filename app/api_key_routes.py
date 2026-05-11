@@ -1,13 +1,14 @@
 """API key management routes — generate, list, revoke.
 
-WIS-640: Plan v4 — users need a `rec_*` key to use the meta-skill or any /api/* route.
-This module provides the user-facing CRUD for it.
+Phase C (top1pct_1105):
+- Multi-key support with tier cap enforcement (Free/Pro = 1, Pro+ = 20)
+- Per-cookbook scoping: optional cookbook_id on create
+- Human label: optional label field (persisted as both `name` and `label`)
+- GET /api-keys returns install_count_total + install_count_7d per key
+- REMOVED: "revoke-before-create" one-per-user policy → replaced by cap check
 
-Design:
-- One active key per user (regenerate revokes old + creates new in single txn).
-- Plaintext key returned ONCE on creation. Never recoverable after.
-- Stored as sha256 hash with 12-char prefix for lookup.
-- Format: `rec_live_<32 random urlsafe chars>` — matches existing API_KEY_PREFIX in middleware.
+Original WIS-640: users need a `rec_*` key to use the meta-skill or any /api/* route.
+Key format: rec_live_<32 random urlsafe chars>
 """
 from __future__ import annotations
 
@@ -15,14 +16,17 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime, timezone
+from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth_routes import get_current_user_optional
 from app.database import get_db
-from app.models import APIKey, User
+from app.models import APIKey, Cookbook, InstallEvent, User
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["api-keys"])
@@ -30,6 +34,18 @@ router = APIRouter(prefix="/api", tags=["api-keys"])
 
 KEY_PREFIX = "rec_live_"
 KEY_BODY_LEN = 32  # urlsafe chars after prefix
+
+# Tier → max active keys cap
+KEY_CAP: dict[str, int] = {
+    "free": 1,
+    "pro": 1,
+    # legacy slugs map to same caps
+    "cook": 1,
+    "pro_plus": 20,
+    "operator": 20,
+    "studio": 20,
+}
+DEFAULT_CAP = 1  # fallback for unknown/null tiers
 
 
 def _generate_key() -> tuple[str, str, str]:
@@ -47,6 +63,68 @@ def _require_user(user: User | None) -> User:
     return user
 
 
+# ── Pydantic schemas ──────────────────────────────────────────────────────
+
+class CreateKeyIn(BaseModel):
+    label: Optional[str] = None       # human label ≤100 chars
+    cookbook_id: Optional[str] = None  # UUID of an owned cookbook
+    name: Optional[str] = None         # legacy alias for label
+
+
+# ── Install count aggregation helper ─────────────────────────────────────
+
+def _fetch_install_counts(db: Session, key_ids: list[UUID]) -> dict[UUID, dict]:
+    """Return {key_id: {total: int, last_7d: int}} for a list of key IDs.
+
+    Uses SQLAlchemy ORM aggregation — handles UUID/binary correctly across
+    SQLite (tests) and Postgres (prod) without raw SQL type coercion issues.
+    """
+    if not key_ids:
+        return {}
+
+    result: dict[UUID, dict] = {kid: {"total": 0, "last_7d": 0} for kid in key_ids}
+
+    from datetime import timedelta
+    from sqlalchemy import case, func as sqlfunc
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+
+    try:
+        rows = (
+            db.query(
+                InstallEvent.api_key_id,
+                sqlfunc.count().label("total"),
+                sqlfunc.sum(
+                    case((InstallEvent.created_at >= cutoff, 1), else_=0)
+                ).label("last_7d"),
+            )
+            .filter(InstallEvent.api_key_id.in_(key_ids))
+            .group_by(InstallEvent.api_key_id)
+            .all()
+        )
+
+        for row in rows:
+            kid = row[0]
+            if kid is None:
+                continue
+            if not isinstance(kid, UUID):
+                try:
+                    kid = UUID(str(kid))
+                except (ValueError, AttributeError):
+                    continue
+            if kid in result:
+                result[kid] = {
+                    "total": int(row[1] or 0),
+                    "last_7d": int(row[2] or 0),
+                }
+    except Exception as exc:
+        logger.warning("install_count aggregation failed: %s", exc)
+
+    return result
+
+
+# ── Routes ────────────────────────────────────────────────────────────────
+
 @router.post("/api-keys")
 async def create_api_key(
     request: Request,
@@ -55,46 +133,92 @@ async def create_api_key(
 ):
     """Create a new API key for the authenticated user.
 
-    Enforces "one active key per user": any existing active key is revoked
-    in the same transaction. The plaintext key is returned ONCE — store it.
+    Phase C policy:
+    - Free / Pro / legacy cook : max 1 active key
+    - Pro+ / legacy operator   : max 20 active keys
+    - Optional cookbook_id: must belong to the calling user
+    - Optional label: human-readable name ≤100 chars
+
+    The plaintext key is returned ONCE — store it.
     """
     user = _require_user(user)
 
-    # Revoke any existing active keys (one-per-user policy)
-    existing = db.query(APIKey).filter(
-        APIKey.user_id == user.id, APIKey.is_active == True,  # noqa: E712
-    ).all()
-    for k in existing:
-        k.is_active = False
-
-    plaintext, prefix12, key_hash = _generate_key()
-    body = {}
+    # Parse body (best-effort; not all callers send JSON)
+    body: dict = {}
     try:
         body = await request.json()
     except Exception:
         pass
-    name = (body or {}).get("name") if isinstance(body, dict) else None
+    if not isinstance(body, dict):
+        body = {}
+
+    # ── Tier cap enforcement ──────────────────────────────────────────────
+    tier = user.subscription_tier or "free"
+    cap = KEY_CAP.get(tier, DEFAULT_CAP)
+
+    active_count = (
+        db.query(APIKey)
+        .filter(APIKey.user_id == user.id, APIKey.is_active == True)  # noqa: E712
+        .count()
+    )
+    if active_count >= cap:
+        raise HTTPException(
+            status_code=403,
+            detail=f"key_cap_exceeded — max {cap} active key(s) on {tier} tier",
+        )
+
+    # ── Optional cookbook scoping ─────────────────────────────────────────
+    cookbook_id: UUID | None = None
+    if body.get("cookbook_id"):
+        try:
+            cookbook_id = UUID(str(body["cookbook_id"]))
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="invalid_cookbook_id")
+
+        cb = (
+            db.query(Cookbook)
+            .filter(Cookbook.id == cookbook_id, Cookbook.cookbook_owner == user.id)
+            .first()
+        )
+        if not cb:
+            raise HTTPException(status_code=404, detail="cookbook_not_found")
+
+    # ── Label (prefer explicit `label`, fall back to `name`) ─────────────
+    raw_label: str | None = body.get("label") or body.get("name")
+    if raw_label and len(raw_label) > 100:
+        raw_label = raw_label[:100]
+    label = raw_label or "default"
+
+    # ── Create key ────────────────────────────────────────────────────────
+    plaintext, prefix12, key_hash = _generate_key()
 
     new_key = APIKey(
         user_id=user.id,
         key_prefix=prefix12,
         key_hash=key_hash,
-        name=name or "default",
+        name=label,     # keep `name` populated for backwards-compat reads
+        label=label,
+        cookbook_id=cookbook_id,
         is_active=True,
     )
     db.add(new_key)
     db.commit()
     db.refresh(new_key)
 
-    logger.info("Created API key %s for user %s (revoked %d previous)",
-                new_key.id, user.id, len(existing))
+    logger.info(
+        "Created API key %s for user %s (tier=%s cap=%d active=%d cookbook=%s)",
+        new_key.id, user.id, tier, cap, active_count + 1,
+        str(cookbook_id) if cookbook_id else "none",
+    )
 
     # Plaintext returned ONCE — never again
     return {
         "id": str(new_key.id),
         "key": plaintext,
         "prefix": prefix12,
+        "label": new_key.label,
         "name": new_key.name,
+        "cookbook_id": str(new_key.cookbook_id) if new_key.cookbook_id else None,
         "created_at": new_key.created_at.isoformat() if new_key.created_at else None,
         "warning": "Save this key now — it will not be shown again.",
     }
@@ -105,7 +229,14 @@ async def list_api_keys(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
-    """List the authenticated user's API keys (no plaintext)."""
+    """List the authenticated user's API keys (no plaintext).
+
+    Phase C additions: each key item now includes:
+      - cookbook_id (UUID or null)
+      - label (human label)
+      - install_count_total (all-time installs via this key)
+      - install_count_7d   (installs in the last 7 days)
+    """
     user = _require_user(user)
     keys = (
         db.query(APIKey)
@@ -113,15 +244,24 @@ async def list_api_keys(
         .order_by(APIKey.created_at.desc())
         .all()
     )
+
+    # Aggregate install counts in one query
+    key_ids = [k.id for k in keys if k.id is not None]
+    counts = _fetch_install_counts(db, key_ids)
+
     return {
         "keys": [
             {
                 "id": str(k.id),
                 "prefix": k.key_prefix,
+                "label": k.label or k.name,
                 "name": k.name,
+                "cookbook_id": str(k.cookbook_id) if k.cookbook_id else None,
                 "is_active": k.is_active,
                 "created_at": k.created_at.isoformat() if k.created_at else None,
                 "last_used_at": k.last_used_at.isoformat() if k.last_used_at else None,
+                "install_count_total": counts.get(k.id, {}).get("total", 0),
+                "install_count_7d": counts.get(k.id, {}).get("last_7d", 0),
             }
             for k in keys
         ],

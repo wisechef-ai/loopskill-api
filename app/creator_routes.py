@@ -262,62 +262,47 @@ def get_me(
     )
 
 
-# ── Stripe Connect ──────────────────────────────────────────────────────
+# ── Stripe Connect — KILLED in top1pct_1105 Phase C ─────────────────────
+#
+# Plan §0 decision: NO payment for publishers, NO Stripe Connect onboarding.
+# Only earning mechanism = 50% referral rev-share via referral code.
+#
+# These endpoints return 410 Gone so the frontend fails loudly during rollout
+# rather than silently succeeding with a no-op.
+#
+# NOTE: The webhook handler below still processes subscription events — that's
+# the *subscription billing* flow (checkout.session.completed etc.) which is
+# separate from the creator-payout Stripe Connect flow that's being killed.
 
 @router.post("/stripe/onboard")
 def stripe_onboard(
-    body: StripeOnboardRequest,
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """Start Stripe Connect Express onboarding for the authenticated creator."""
-    user = _get_current_user(request, db)
+    """KILLED — Stripe Connect creator onboarding removed in top1pct_1105 Phase C.
 
-    if not user.stripe_connect_id:
-        try:
-            account_id = create_connect_account(user)
-            user.stripe_connect_id = account_id
-            db.commit()
-            db.refresh(user)
-        except StripeConnectError as e:
-            raise HTTPException(status_code=502, detail=str(e))
-
-    try:
-        url = create_onboarding_link(
-            user.stripe_connect_id,
-            return_url=body.return_url,
-            refresh_url=body.refresh_url,
-        )
-    except StripeConnectError as e:
-        raise HTTPException(status_code=502, detail=str(e))
-
-    return {"url": url, "account_id": user.stripe_connect_id}
+    Earning mechanism is now 50% referral rev-share only.
+    See /referrals for details.
+    """
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "stripe_connect_removed — creator payouts via Stripe Connect are no longer "
+            "offered. Earn 50% recurring rev-share by sharing your referral code. "
+            "See /referrals."
+        ),
+    )
 
 
-@router.get("/stripe/status", response_model=StripeStatusResponse)
+@router.get("/stripe/status")
 def stripe_status(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """Check Stripe Connect account status for the authenticated creator."""
-    user = _get_current_user(request, db)
-
-    if not user.stripe_connect_id:
-        return StripeStatusResponse(connected=False)
-
-    try:
-        status = get_account_status(user.stripe_connect_id)
-    except StripeConnectError as e:
-        raise HTTPException(status_code=502, detail=str(e))
-
-    return StripeStatusResponse(
-        connected=True,
-        account_id=user.stripe_connect_id,
-        charges_enabled=status["charges_enabled"],
-        payouts_enabled=status["payouts_enabled"],
-        details_submitted=status["details_submitted"],
-        country=status["country"],
-        currency=status["default_currency"],
+    """KILLED — Stripe Connect status removed in top1pct_1105 Phase C."""
+    raise HTTPException(
+        status_code=410,
+        detail="stripe_connect_removed — see /referrals for the current earning model.",
     )
 
 
@@ -326,18 +311,11 @@ def stripe_dashboard_link(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """Get a Stripe Express dashboard login link."""
-    user = _get_current_user(request, db)
-
-    if not user.stripe_connect_id:
-        raise HTTPException(status_code=400, detail="Stripe Connect not set up")
-
-    try:
-        url = create_dashboard_link(user.stripe_connect_id)
-    except StripeConnectError as e:
-        raise HTTPException(status_code=502, detail=str(e))
-
-    return {"url": url}
+    """KILLED — Stripe Express dashboard removed in top1pct_1105 Phase C."""
+    raise HTTPException(
+        status_code=410,
+        detail="stripe_connect_removed — see /referrals for the current earning model.",
+    )
 
 
 # ── Creator Earnings ────────────────────────────────────────────────────

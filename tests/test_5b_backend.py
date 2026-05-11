@@ -119,17 +119,24 @@ class TestApiKeysCreate:
         assert keys[0]["prefix"].startswith("rec_live_")
         assert keys[0]["is_active"] is True
 
-    def test_creating_second_key_revokes_first(self, authed_client, test_user, db):
-        first = authed_client.post("/api/api-keys").json()
-        second = authed_client.post("/api/api-keys").json()
-        assert first["key"] != second["key"]
+    def test_creating_second_key_blocked_by_cap(self, authed_client, test_user, db):
+        """Phase C: second POST for a free/null-tier user returns 403 (cap=1).
 
-        # GET should show 2 keys total, only one active
+        Old behavior: second POST revoked the first and created a new key.
+        New behavior: cap is enforced server-side; user must revoke first, then create.
+        """
+        first = authed_client.post("/api/api-keys")
+        assert first.status_code == 200, first.text
+
+        second = authed_client.post("/api/api-keys")
+        assert second.status_code == 403, second.text
+        assert "key_cap_exceeded" in second.json()["detail"]
+
+        # Only one key should exist (the first one, still active)
         keys = authed_client.get("/api/api-keys").json()["keys"]
-        assert len(keys) == 2
         active = [k for k in keys if k["is_active"]]
         assert len(active) == 1
-        assert active[0]["id"] == second["id"]
+        assert active[0]["id"] == first.json()["id"]
 
 
 class TestApiKeysList:
