@@ -20,10 +20,11 @@ tiers:
     db_slug: pro
     display_name: Pro
     price_usd: 20
-    # price_id_env intentionally retains the legacy env var name (WR_STRIPE_PRICE_COOK).
-    # Renaming the env var is a separate ops task — Adam will update .env post-deploy.
-    # RCP-INCIDENT-2026-05-11: env var name is itself legacy; do not rename here yet.
-    price_id_env: WR_STRIPE_PRICE_COOK
+    # Canonical env var (RCP-INCIDENT-2026-05-11 Phase 6). The resolver
+    # in app/subscription_service.py also accepts the legacy
+    # WR_STRIPE_PRICE_COOK as a fallback until 2026-06-10.
+    price_id_env: WR_STRIPE_PRICE_PRO
+    price_id_env_legacy: WR_STRIPE_PRICE_COOK
     stripe_nickname: "Pro $20/mo"
     accent_color: "#3B82F6"
     badge: Pro
@@ -32,10 +33,11 @@ tiers:
     db_slug: pro_plus
     display_name: Pro+
     price_usd: 100
-    # price_id_env intentionally retains the legacy env var name (WR_STRIPE_PRICE_STUDIO).
-    # Renaming the env var is a separate ops task — Adam will update .env post-deploy.
-    # RCP-INCIDENT-2026-05-11: env var name is itself legacy; do not rename here yet.
-    price_id_env: WR_STRIPE_PRICE_STUDIO
+    # Canonical env var (RCP-INCIDENT-2026-05-11 Phase 6). The resolver
+    # in app/subscription_service.py also accepts the legacy
+    # WR_STRIPE_PRICE_STUDIO as a fallback until 2026-06-10.
+    price_id_env: WR_STRIPE_PRICE_PRO_PLUS
+    price_id_env_legacy: WR_STRIPE_PRICE_STUDIO
     stripe_nickname: "Pro+ $100/mo"
     accent_color: "#D4A017"
     badge: Pro+

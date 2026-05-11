@@ -48,6 +48,11 @@
             {"type": "null"}
           ]
         },
+        "price_id_env_legacy": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Legacy env-var name accepted as fallback during a rename soak window. RCP-INCIDENT-2026-05-11 Phase 6."
+        },
         "stripe_nickname": {
           "type": "string",
           "description": "Stripe price.nickname to enforce. Required for paid tiers.",

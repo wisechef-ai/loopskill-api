@@ -17,14 +17,20 @@ class Settings(BaseSettings):
     STRIPE_PUBLISHABLE_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
 
-    # Stripe Subscription price IDs (Pro €20/mo, Pro+ €100/mo).
-    # v7/phase-F: studio tier retired and aliased to operator. The €100/mo
-    # price ID is reused as STRIPE_PRICE_OPERATOR (same Stripe product, just
-    # the canonical name). STRIPE_PRICE_STUDIO is kept as a deprecated alias
-    # so older portal code reading the env var keeps working through cutover.
+    # Stripe Subscription price IDs.
+    # Canonical env var names (RCP-INCIDENT-2026-05-11 Phase 6, 2026-05-11):
+    #   WR_STRIPE_PRICE_PRO        (€20/mo)
+    #   WR_STRIPE_PRICE_PRO_PLUS   (€100/mo)
+    # Legacy aliases retained until 2026-06-10 so an .env that still uses
+    # WR_STRIPE_PRICE_COOK / WR_STRIPE_PRICE_OPERATOR / WR_STRIPE_PRICE_STUDIO
+    # keeps working through the soak window. _load_tier_price_ids() reads
+    # the canonical names first and falls back to legacy if empty.
+    STRIPE_PRICE_PRO: str = "price_1TT3v2Egmqt5xoaL2DU8GgMO"
+    STRIPE_PRICE_PRO_PLUS: str = "price_1TT3v2Egmqt5xoaL0XRo0VcX"
+    # Legacy aliases — deprecated, remove after 2026-06-10
     STRIPE_PRICE_COOK: str = "price_1TT3v2Egmqt5xoaL2DU8GgMO"
     STRIPE_PRICE_OPERATOR: str = "price_1TT3v2Egmqt5xoaL0XRo0VcX"
-    STRIPE_PRICE_STUDIO: str = "price_1TT3v2Egmqt5xoaL0XRo0VcX"  # deprecated alias
+    STRIPE_PRICE_STUDIO: str = "price_1TT3v2Egmqt5xoaL0XRo0VcX"
 
     # GitHub OAuth
     GITHUB_CLIENT_ID: str = ""

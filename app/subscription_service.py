@@ -50,11 +50,10 @@ def _load_tier_price_ids() -> dict[str, str]:
     """Return {db_slug: price_id} from config/tiers.yaml.
 
     Reads the price_id_env field for each tier and resolves via settings.
+    If the canonical env var resolves to an empty string, falls back to
+    price_id_env_legacy (RCP-INCIDENT-2026-05-11 Phase 6 — env var rename
+    soak window, expires 2026-06-10).
     Tiers without price_id_env (free tier) are excluded.
-
-    TODO: rename env var WR_STRIPE_PRICE_STUDIO → WR_STRIPE_PRICE_OPERATOR
-    in a separate ops task (out of scope for Phase 3). The yaml maps
-    operator.price_id_env=WR_STRIPE_PRICE_STUDIO until that rename lands.
     """
     tiers = _load_tiers_yaml()
     result: dict[str, str] = {}
@@ -63,10 +62,26 @@ def _load_tier_price_ids() -> dict[str, str]:
         if not env_name:
             continue
         # settings uses WR_ prefix (pydantic-settings env_prefix="WR_")
-        # so WR_STRIPE_PRICE_COOK → settings.STRIPE_PRICE_COOK
+        # so WR_STRIPE_PRICE_PRO → settings.STRIPE_PRICE_PRO
         attr = env_name.removeprefix("WR_")
-        val = getattr(settings, attr, None)
-        if val is not None:
+        val = getattr(settings, attr, None) or ""
+        if not val:
+            # Fall back to the legacy env var name if the canonical is empty.
+            # This lets a stale .env (still has WR_STRIPE_PRICE_COOK but not
+            # WR_STRIPE_PRICE_PRO yet) keep working through the rename window.
+            legacy = meta.get("price_id_env_legacy")
+            if legacy:
+                legacy_attr = legacy.removeprefix("WR_")
+                legacy_val = getattr(settings, legacy_attr, None) or ""
+                if legacy_val:
+                    logger.info(
+                        "Tier %r resolved Stripe price via LEGACY env var %s "
+                        "(canonical %s was empty). Set the canonical var in .env "
+                        "to silence this — legacy fallback removed after 2026-06-10.",
+                        db_slug, legacy, env_name,
+                    )
+                    val = legacy_val
+        if val:
             result[db_slug] = val
     return result
 

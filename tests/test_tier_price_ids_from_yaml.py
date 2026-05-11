@@ -109,3 +109,79 @@ class TestTierPriceIdsFromYaml:
         assert result["pro"] == 20.0
         assert result["pro_plus"] == 100.0
         assert result["free"] == 0.0
+
+
+class TestEnvVarRenameLegacyFallback:
+    """RCP-INCIDENT-2026-05-11 Phase 6 — env var rename soak window.
+
+    The canonical env vars are WR_STRIPE_PRICE_PRO and WR_STRIPE_PRICE_PRO_PLUS.
+    Legacy env vars WR_STRIPE_PRICE_COOK / WR_STRIPE_PRICE_OPERATOR /
+    WR_STRIPE_PRICE_STUDIO are accepted as fallback until 2026-06-10.
+    """
+
+    def _reload_with_settings(self, **overrides):
+        """Reload subscription_service with specific settings field overrides."""
+        from app import subscription_service as ss
+        from app.config import settings
+        # Apply overrides
+        original = {}
+        for k, v in overrides.items():
+            original[k] = getattr(settings, k, None)
+            setattr(settings, k, v)
+        # Bust caches
+        ss._load_tiers_yaml.cache_clear()
+        ss._load_tier_price_ids.cache_clear()
+        ss._load_tier_usd_price.cache_clear()
+        return ss, original
+
+    def _restore(self, original):
+        from app.config import settings
+        for k, v in original.items():
+            setattr(settings, k, v)
+
+    def test_canonical_env_var_wins_when_set(self):
+        """When STRIPE_PRICE_PRO is set, it's used (not legacy STRIPE_PRICE_COOK)."""
+        ss, original = self._reload_with_settings(
+            STRIPE_PRICE_PRO="price_CANONICAL_pro",
+            STRIPE_PRICE_PRO_PLUS="price_CANONICAL_proplus",
+            STRIPE_PRICE_COOK="price_LEGACY_cook",
+            STRIPE_PRICE_STUDIO="price_LEGACY_studio",
+        )
+        try:
+            result = ss._load_tier_price_ids()
+            assert result["pro"] == "price_CANONICAL_pro", (
+                f"Expected canonical, got {result['pro']!r}"
+            )
+            assert result["pro_plus"] == "price_CANONICAL_proplus"
+        finally:
+            self._restore(original)
+
+    def test_legacy_env_var_used_when_canonical_empty(self):
+        """If WR_STRIPE_PRICE_PRO is empty, fall back to WR_STRIPE_PRICE_COOK."""
+        ss, original = self._reload_with_settings(
+            STRIPE_PRICE_PRO="",
+            STRIPE_PRICE_PRO_PLUS="",
+            STRIPE_PRICE_COOK="price_LEGACY_cook_used",
+            STRIPE_PRICE_STUDIO="price_LEGACY_studio_used",
+        )
+        try:
+            result = ss._load_tier_price_ids()
+            assert result["pro"] == "price_LEGACY_cook_used"
+            assert result["pro_plus"] == "price_LEGACY_studio_used"
+        finally:
+            self._restore(original)
+
+    def test_both_canonical_and_legacy_empty_excludes_tier(self):
+        """If neither env var is set, the tier is excluded from TIER_PRICE_IDS."""
+        ss, original = self._reload_with_settings(
+            STRIPE_PRICE_PRO="",
+            STRIPE_PRICE_PRO_PLUS="",
+            STRIPE_PRICE_COOK="",
+            STRIPE_PRICE_STUDIO="",
+        )
+        try:
+            result = ss._load_tier_price_ids()
+            assert "pro" not in result
+            assert "pro_plus" not in result
+        finally:
+            self._restore(original)
