@@ -175,6 +175,7 @@ def create_checkout_session(
     success_url: str | None = None,
     cancel_url: str | None = None,
     promo_code: str | None = None,
+    utm_ref: str | None = None,
 ) -> dict[str, Any]:
     """Create a Stripe Checkout Session for a subscription tier.
 
@@ -188,6 +189,10 @@ def create_checkout_session(
     Falsy / unknown / inactive codes are silently ignored — never raise
     on the buyer's side. Stripe's own UI still lets them type any other
     valid code in addition to or instead of this one.
+
+    Optional ``utm_ref`` (from cookie ``recipes_utm_ref``) is attached to
+    both the session-level metadata and subscription_data.metadata so Stripe
+    propagates it to both the customer and subscription objects.
     """
     # Normalise legacy 'studio' slug before checking TIER_PRICE_IDS
     tier = _normalise_tier(tier) or tier
@@ -257,11 +262,13 @@ def create_checkout_session(
         metadata={
             "wiserecipes_user_id": str(user.id),
             "tier": tier,
+            **({"utm_ref": utm_ref} if utm_ref else {}),
         },
         subscription_data={
             "metadata": {
                 "wiserecipes_user_id": str(user.id),
                 "tier": tier,
+                **({"utm_ref": utm_ref} if utm_ref else {}),
             },
         },
     )
@@ -457,6 +464,13 @@ def handle_subscription_event(event: dict, db: Session) -> dict:
         return {"processed": event_type, "user_id": str(user.id), "downgraded_to": "free"}
 
     _apply_subscription_state(user, sub, db)
+    # marketing_1205: persist utm_ref from subscription metadata (or session
+    # metadata fallback) onto the user row so attribution survives the webhook.
+    sub_meta = sub.get("metadata") or {}
+    utm_ref = sub_meta.get("utm_ref")
+    if utm_ref and not user.utm_ref:
+        user.utm_ref = utm_ref[:32]
+        db.commit()
     _maybe_sync_discord_role(user)
     logger.info("Subscription %s for user %s: status=%s tier=%s",
                 event_type, user.id, user.subscription_status, user.subscription_tier)

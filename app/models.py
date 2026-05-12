@@ -71,6 +71,10 @@ class User(Base):
         nullable=True,
         index=True,
     )
+    # ── marketing_1205: UTM ref attribution ──────────────────────────────
+    # Set from ?ref= query param on /install or /pricing. Propagated to Stripe
+    # checkout metadata so subscriptions can be attributed per platform.
+    utm_ref = Column(String(32), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

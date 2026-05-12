@@ -95,6 +95,7 @@ async def create_subscription_checkout(
             success_url=success_url,
             cancel_url=cancel_url,
             promo_code=promo_code,
+            utm_ref=request.cookies.get("recipes_utm_ref"),
         )
     except SubscriptionError as e:
         logger.error("Checkout creation failed for user %s tier %s: %s", user.id, tier, e)

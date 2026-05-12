@@ -35,6 +35,7 @@ from app.recall_routes import router as recall_router
 from app.recipify_routes import router as recipify_router
 from app.referral_routes import router as referral_router
 from app.routes import router
+from app.routes import utm_router  # marketing_1205: platform short-link redirectors
 from app.marketing_routes import router as marketing_router
 from app.sandbox.routes import router as sandbox_router
 from app.skill_error_routes import router as skill_error_router
@@ -100,6 +101,7 @@ def create_app() -> FastAPI:
     app.add_middleware(BucketHostMiddleware)
 
     app.include_router(router)
+    app.include_router(utm_router)  # marketing_1205: /x/<slug>, /li/<slug> etc.
     app.include_router(admin_router)
     app.include_router(auth_router)
     app.include_router(carousel_router, prefix="/api")

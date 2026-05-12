@@ -305,6 +305,25 @@ def trending_skills(
     )
 
 
+# ── marketing_1205: UTM ref attribution ─────────────────────────────────────
+_UTM_REF_ALLOWLIST = frozenset({"li", "x", "yt", "ig", "fb", "agentpact"})
+_UTM_COOKIE_NAME = "recipes_utm_ref"
+_UTM_COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days in seconds
+
+
+def _set_utm_ref_cookie(response, ref: str | None) -> None:
+    """Set httpOnly UTM ref cookie if ref is on the allowlist; silently drop others."""
+    if ref and ref in _UTM_REF_ALLOWLIST:
+        response.set_cookie(
+            _UTM_COOKIE_NAME,
+            value=ref,
+            max_age=_UTM_COOKIE_MAX_AGE,
+            httponly=True,
+            samesite="lax",
+            secure=True,
+        )
+
+
 @router.get("/skills/install", response_model=InstallResponse, tags=["skills"])
 def install_skill(
     request: Request,
@@ -314,6 +333,7 @@ def install_skill(
         None,
         description="Pin install to a specific semver. Overrides any '@version' suffix on slug.",
     ),
+    ref: str | None = Query(None, description="UTM ref platform code (li, x, yt, ig, fb, agentpact)"),
     db: Session = Depends(get_db),
 ):
     """Return a signed URL for downloading the skill tarball.
@@ -462,10 +482,35 @@ def install_skill(
         expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         manifest=_build_manifest(latest, skill),
     )
-    if resp_headers:
+    if resp_headers or ref:
         from fastapi.responses import JSONResponse as _JR
-        return _JR(content=resp.model_dump(mode="json"), headers=resp_headers)
+        json_resp = _JR(content=resp.model_dump(mode="json"), headers=resp_headers)
+        _set_utm_ref_cookie(json_resp, ref)
+        return json_resp
     return resp
+
+
+# ── marketing_1205: platform short-link redirectors ─────────────────────────
+# X (and some other platforms) strip query params from short links,
+# so we provide /x/<slug>, /li/<slug> etc. that 302 to /api/skills/install?slug=<slug>&ref=<platform>.
+# These are root-level routes (no /api prefix) — use a separate router.
+
+from fastapi.responses import RedirectResponse as _RedirectResponse  # noqa: E402
+from fastapi import APIRouter as _APIRouter  # noqa: E402
+
+utm_router = _APIRouter(tags=["skills"])
+
+for _platform in ("x", "li", "ig", "yt", "fb"):
+    def _make_redirect(ref_val: str):
+        @utm_router.get(f"/{ref_val}/{{skill_slug}}", include_in_schema=False)
+        def _platform_redirect(skill_slug: str, ref_val: str = ref_val):
+            return _RedirectResponse(
+                url=f"/api/skills/install?slug={skill_slug}&ref={ref_val}",
+                status_code=302,
+            )
+        _platform_redirect.__name__ = f"redirect_{ref_val}_slug"
+        return _platform_redirect
+    _make_redirect(_platform)
 
 
 @router.get("/skills/_download", tags=["skills"])
