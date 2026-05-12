@@ -109,6 +109,12 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         # without auth so the static-build pipeline can pull it; counts contain
         # no PII or sensitive data.
         "/api/marketing/",
+        # marketing_1205 — UTM redirectors for social platforms. Public, set cookie + 302.
+        "/x/",
+        "/li/",
+        "/ig/",
+        "/yt/",
+        "/fb/",
     )
 
     # Phase A — POST /api/intent-survey is anonymous; GET /api/intent-survey/results
