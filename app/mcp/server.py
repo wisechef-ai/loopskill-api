@@ -98,7 +98,7 @@ def _tool_definitions() -> list[types.Tool]:
                     "local_context_summary": {"type": "string"},
                     "tier_filter": {
                         "type": "array",
-                        "items": {"type": "string", "enum": ["free", "cook", "operator"]},
+                        "items": {"type": "string", "enum": ["free", "cook", "operator", "pro", "pro_plus"]},
                     },
                     "limit": {"type": "integer", "minimum": 1, "maximum": 50, "default": 10},
                 },

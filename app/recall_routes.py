@@ -115,6 +115,9 @@ def recall_skills(
 ) -> dict:
     """Service layer used by both the HTTP route and the MCP tool."""
     tier_filter = tier_filter or ["free", "cook", "operator"]
+    # Phase 5 alias map: accept display slugs from MCP/HTTP callers.
+    _tier_alias = {"pro": "cook", "pro_plus": "operator", "studio": "operator"}
+    tier_filter = [_tier_alias.get(t, t) for t in tier_filter]
     limit = max(1, min(int(limit or 10), 50))
 
     candidates = (

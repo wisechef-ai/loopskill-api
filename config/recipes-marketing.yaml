@@ -30,8 +30,8 @@ version: 1
 counts:
   skills_total: 48                # all non-archived public skills
   free_skills: 3
-  pro_skills: 34                  # DB slug = cook, display = Pro
-  pro_plus_exclusive_skills: 11   # DB slug = operator, display = Pro+
+  pro_skills: 45                  # DB slug = cook, display = Pro (all paid skills as of 2026-05-13)
+  pro_plus_exclusive_skills: 0    # 2026-05-13: all paid skills moved to Pro; Pro+ retains cookbooks/keys/private catalog perks (non-skill)
   mcp_tools_count: 6
   rest_endpoint_count: 11
   last_refresh_at: 2026-05-11T22:00:00Z
@@ -45,7 +45,7 @@ tiers:
     display_name: Pro
     price_usd: 20
     bullets:
-      - All paid skills
+      - Every paid skill in the catalog (45 today, growing weekly)
       - 1 personal cookbook + fleet sync
       - Cross-vendor (Claude Code, Cursor, Cline, OpenClaw, Hermes, Windsurf)
       - Per-key install visibility
@@ -54,7 +54,7 @@ tiers:
     display_name: Pro+
     price_usd: 100
     bullets:
-      - Everything in Pro
+      - Everything in Pro (every paid skill included — no skill-tier paywall)
       - Up to 20 cookbooks (vs 1)
       - Deploy cookbooks to your clients' agents
       - Per-cookbook scoped API keys (up to 20)
