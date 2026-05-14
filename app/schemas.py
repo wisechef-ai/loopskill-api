@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from pydantic import StringConstraints
-from typing import Annotated
+from typing import Annotated, Optional
 
 
 # ── Skills ──────────────────────────────────────────────────────────────
@@ -232,6 +232,13 @@ class HealthOut(BaseModel):
     status: str
     version: str
     db: str
+    # ── WIS-1003 (atomic-habits 2026-05-14 #7) ──
+    # Liveness of the Stripe webhook pipeline. NULL means "no events processed
+    # in the last 24h" (cold/empty DB, e.g. tests) — treat as "no signal" not
+    # "unhealthy". A value above ~600s on a live deployment is the early signal
+    # that wiped out 17h on 2026-05-12 (webhook signing-secret drift incident).
+    stripe_webhook_lag_seconds: Optional[float] = None
+    stripe_last_event_at: Optional[str] = None  # ISO 8601 UTC, or None
 
 
 # ── Demo CTA ────────────────────────────────────────────────────────────

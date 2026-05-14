@@ -18,11 +18,12 @@ import os
 import time
 import tomllib
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import case, func
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session, joinedload
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,7 @@ from app.models import (
     SkillAlias,
     SkillVersion,
     Skill,
+    StripeEventId,
     TelemetryEvent,
     User,
     WiseChefDemoRequest,
@@ -101,7 +103,37 @@ def healthz(db: Session = Depends(get_db)):
         db_status = "ok"
     except Exception:
         db_status = "error"
-    return HealthOut(status="ok", version=VERSION, db=db_status)
+
+    # WIS-1003 (atomic-habits 2026-05-14 #7): expose Stripe webhook lag so
+    # the May-12-class incident (signing-secret drift → 17h of silent
+    # webhook failures → users charged but plans NULL) becomes a deterministic
+    # signal a watchdog can probe in <100ms. Lag = NOW() - max(processed_at).
+    # Returns None on cold/empty DB; the watchdog must treat None as "no signal"
+    # not "unhealthy" so a freshly-deployed staging env doesn't false-alarm.
+    stripe_lag: Optional[float] = None
+    stripe_last: Optional[str] = None
+    try:
+        last_evt: Optional[datetime] = db.execute(
+            select(func.max(StripeEventId.processed_at))
+        ).scalar_one_or_none()
+        if last_evt is not None:
+            now = datetime.now(timezone.utc)
+            # processed_at is TIMESTAMPTZ in pg; SQLite tests may return naive.
+            if last_evt.tzinfo is None:
+                last_evt = last_evt.replace(tzinfo=timezone.utc)
+            stripe_lag = max(0.0, (now - last_evt).total_seconds())
+            stripe_last = last_evt.isoformat()
+    except Exception:
+        # Never let the lag probe break /healthz — it must stay <200ms reliable.
+        pass
+
+    return HealthOut(
+        status="ok",
+        version=VERSION,
+        db=db_status,
+        stripe_webhook_lag_seconds=stripe_lag,
+        stripe_last_event_at=stripe_last,
+    )
 
 
 # ── Skills ──────────────────────────────────────────────────────────────
