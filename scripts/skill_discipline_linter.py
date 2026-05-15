@@ -119,6 +119,8 @@ ALLOWED_LINK_DOMAINS = (
     "huggingface.co",
     "docs.python.org",
     "developer.mozilla.org",
+    # Upstreams referenced by wrapper recipes shipped in this repo:
+    "aitoearn.ai",  # AiToEarn MCP server (recipes/aitoearn) — MIT, github.com/yikart/AiToEarn
 )
 
 # Placeholder / RFC-2606 reserved / docs-example domains. Always documentation,
