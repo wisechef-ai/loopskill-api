@@ -235,10 +235,9 @@ Put each with_skill version before its baseline counterpart.
 
 4. **Launch the viewer** with both qualitative outputs and quantitative data:
    ```bash
-   # Run in the background (using your shell's job-control or a process manager).
-   # On macOS/Linux you can use: setsid python ... &  (or: caffeinate / launchd).
-   # The viewer is a long-running web server; it should be supervised, not
-   # daemonised with nohup, which is not portable across all profiles.
+   # Run as a background job. On macOS/Linux, your shell's job control (`&`)
+   # is enough; for long-lived supervised runs prefer systemd, launchd, or a
+   # process manager.
    python <skill-creator-path>/eval-viewer/generate_review.py \
      <workspace>/iteration-N \
      --skill-name "my-skill" \
