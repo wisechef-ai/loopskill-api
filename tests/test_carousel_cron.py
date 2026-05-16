@@ -137,6 +137,80 @@ class TestDailyCarouselJob:
         assert inserted == 0
         assert _count_entries(db_session, target) == 0
 
+    def test_tagline_uses_description_not_title(self, db_session):
+        """pick_1605 Phase C regression: tagline must be a slice of description,
+        NOT the skill title. Today's Pick widget on recipes.wisechef.ai
+        falls back through a tagline ladder; if the server returns tagline==title
+        the hero looks identical to the H3 and the editorial value drops to zero.
+
+        See plan §3 Phase C acceptance gate:
+          curl /api/carousel/today | jq '[.entries[] | select(.tagline != .skill.title)] | length' >= 1
+        """
+        target = date(2026, 5, 28)
+        # Skill A: long description — tagline should be description[:80].
+        s_long = Skill(
+            id=uuid4(),
+            slug="cron-tagline-long",
+            title="Cron Tagline Long",
+            description=(
+                "Diagnose and fix a hard production failure with five distinct subsystems. "
+                "Use when the customer reports a 502 and the deploy logs are unhelpful."
+            ),
+            category="devops",
+            tier="operator",
+            is_public=True,
+            install_count=999,
+            rating_avg=4.8,
+            created_at=datetime(2026, 4, 1, tzinfo=timezone.utc),
+        )
+        # Skill B: no description — tagline falls back to title[:80] (acceptable).
+        s_no_desc = Skill(
+            id=uuid4(),
+            slug="cron-tagline-no-desc",
+            title="Cron Tagline No Description",
+            description=None,
+            category="devops",
+            tier="operator",
+            is_public=True,
+            install_count=100,
+            rating_avg=4.0,
+            created_at=datetime(2026, 4, 1, tzinfo=timezone.utc),
+        )
+        db_session.add_all([s_long, s_no_desc])
+        db_session.flush()
+
+        daily_carousel_job(db_session, target)
+
+        entries = (
+            db_session.query(CarouselEntry)
+            .filter(
+                CarouselEntry.featured_date >= datetime.combine(target, datetime.min.time(), tzinfo=timezone.utc),
+                CarouselEntry.featured_date <= datetime.combine(target, datetime.max.time(), tzinfo=timezone.utc),
+            )
+            .all()
+        )
+        # Find the entry for our long-description skill
+        long_entry = next((e for e in entries if e.skill.slug == "cron-tagline-long"), None)
+        assert long_entry is not None, "Expected entry for cron-tagline-long"
+        assert long_entry.tagline != long_entry.skill.title, (
+            f"Tagline must derive from description, not title. "
+            f"Got tagline={long_entry.tagline!r} title={long_entry.skill.title!r}"
+        )
+        assert long_entry.tagline.startswith("Diagnose and fix"), (
+            f"Tagline should start with description prefix, got {long_entry.tagline!r}"
+        )
+        assert len(long_entry.tagline) <= 80, (
+            f"Tagline must be <= 80 chars, got {len(long_entry.tagline)}: {long_entry.tagline!r}"
+        )
+        # At least one entry in the batch has tagline != title — the v3.6 REVENUE_MARKETING
+        # seed and the hero card both depend on this invariant.
+        non_title_count = sum(1 for e in entries if e.tagline != e.skill.title)
+        assert non_title_count >= 1, (
+            "At least one entry must have tagline != skill.title (description-derived). "
+            "Otherwise the Today's Pick widget falls all the way through the fallback ladder "
+            "and the hero shows duplicate text in H3 + tagline slots."
+        )
+
     def test_private_skills_excluded(self, db_session):
         """Private skills (is_public=False) must not appear in carousel."""
         target = date(2026, 5, 27)
