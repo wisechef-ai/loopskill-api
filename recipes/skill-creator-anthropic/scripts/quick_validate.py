@@ -94,10 +94,13 @@ def validate_skill(skill_path):
     return True, "Skill is valid!"
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python quick_validate.py <skill_directory>")
-        sys.exit(1)
-    
-    valid, message = validate_skill(sys.argv[1])
+    import argparse
+    p = argparse.ArgumentParser(
+        description="Validate a skill directory's SKILL.md frontmatter + structure."
+    )
+    p.add_argument("skill_dir", help="Path to the skill directory (must contain SKILL.md).")
+    args = p.parse_args()
+
+    valid, message = validate_skill(args.skill_dir)
     print(message)
     sys.exit(0 if valid else 1)

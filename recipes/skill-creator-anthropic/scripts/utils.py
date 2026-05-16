@@ -45,3 +45,17 @@ def parse_skill_md(skill_path: Path) -> tuple[str, str, str]:
         i += 1
 
     return name, description, content
+
+
+if __name__ == "__main__":
+    # Library module — no CLI surface, but respond to --help so the skill
+    # discipline linter (must_have_help_text rule) is satisfied.
+    import argparse
+    p = argparse.ArgumentParser(
+        description=(
+            "Library module with shared helpers for skill-creator scripts. "
+            "Use the parse_skill_md() function from Python; no CLI entry point."
+        )
+    )
+    p.parse_args()
+    print("This is a library module. Import parse_skill_md from this file.")

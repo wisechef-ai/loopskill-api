@@ -3,6 +3,7 @@ name: incident-response-openclaw
 version: 1.0.0
 description: 'Structured incident response for OpenClaw system failures. Use when a user reports something broken, missing, changed, or misbehaving — config loss, agent routing failures, binding changes, gateway crashes, missing settings, or any system regression. Follows a strict 7-phase loop: Triage → Evidence → 5 Whys → Restore → Prevent → Monitor → Document. Triggers on: "investigate", "why did X stop working", "something changed", "bindings lost", "gateway down", "gateway crashed", "setting disappeared", "something disappeared", "fix this", "who changed X", "root cause", "audit", "misconfigured", "agent not responding".'
 owner_agent: any agent with exec access to the affected system
+os_supported: [linux, macos]
 ---
 
 # Incident Response

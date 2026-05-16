@@ -109,15 +109,17 @@ def package_skill(skill_path, output_dir=None):
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python utils/package_skill.py <path/to/skill-folder> [output-directory]")
-        print("\nExample:")
-        print("  python utils/package_skill.py skills/public/my-skill")
-        print("  python utils/package_skill.py skills/public/my-skill ./dist")
-        sys.exit(1)
+    import argparse
+    p = argparse.ArgumentParser(
+        description="Package a skill directory into a .skill zip file."
+    )
+    p.add_argument("skill_path", help="Path to the skill folder (must contain SKILL.md).")
+    p.add_argument("output_dir", nargs="?", default=None,
+                   help="Optional output directory (default: alongside the skill folder).")
+    args = p.parse_args()
 
-    skill_path = sys.argv[1]
-    output_dir = sys.argv[2] if len(sys.argv) > 2 else None
+    skill_path = args.skill_path
+    output_dir = args.output_dir
 
     print(f"📦 Packaging skill: {skill_path}")
     if output_dir:
