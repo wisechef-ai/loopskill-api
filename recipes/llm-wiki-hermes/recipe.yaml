@@ -1,0 +1,21 @@
+# recipes/llm-wiki-hermes/recipe.yaml
+# Imported from NousResearch/hermes-agent (MIT). Renamed slug to llm-wiki-hermes.
+# Patched 2026-05-16: systemd example /home/user/ → %h/ for portability.
+runtime:
+  binaries: []
+  services: []
+  env:
+    optional: [WIKI_PATH]
+  cron: []
+  compatibility:
+    os: [linux, macos, windows]
+    arch: [x86_64, arm64]
+    ram_gb:
+      minimum: 0
+      recommended: 0
+    disk_gb: 0
+    network: optional
+upstream:
+  source: "https://github.com/NousResearch/hermes-agent/tree/main/skills/research/llm-wiki"
+  license: MIT
+  notes: "Patched systemd ExecStart example to %h template (added 2026-05-16)."
