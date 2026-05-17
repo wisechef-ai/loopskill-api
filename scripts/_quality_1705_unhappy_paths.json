@@ -1,0 +1,968 @@
+{
+  "aitoearn": [
+    {
+      "condition": "AiToEarn MCP server process not running when skill is invoked — all platform publish calls return 'Connection refused' on stdio transport",
+      "recovery": "Run `ps aux | grep aitoearn` to confirm; start with `npx aitoearn-mcp &` or equivalent entry-point, then re-issue the publish command. Verify port/stdio config in the MCP client config file before retrying."
+    },
+    {
+      "condition": "Platform OAuth token for TikTok or Instagram expires mid-campaign (tokens rotate every 60 days) — first post succeeds, subsequent calls return 401 Unauthorized",
+      "recovery": "Identify the expired platform via the error response body (each platform returns its own token-expiry error code). Re-run the AiToEarn OAuth flow for that specific platform only (`aitoearn auth refresh tiktok`), then replay the failed publish queue from the last successful timestamp."
+    },
+    {
+      "condition": "Content formatted for TikTok (vertical 9:16 video) uploaded to YouTube — YouTube API rejects the aspect ratio or auto-crops, breaking monetization attribution",
+      "recovery": "Read per-platform format requirements from AiToEarn's channel config before scheduling. Add a pre-flight format check: if `channel.aspect_ratio != source.aspect_ratio`, transcode with `ffmpeg -vf 'pad=1920:1080:(ow-iw)/2:(oh-ih)/2'` before upload."
+    },
+    {
+      "condition": "CPS/CPE/CPM payout aggregation double-counts earnings when the same content is posted to both TikTok and Douyin (same underlying ByteDance ID)",
+      "recovery": "Deduplicate by matching `platform_post_id` across Douyin and TikTok response payloads before summing. Store payout records keyed on `(platform, post_id)` composite, not just `post_id`."
+    },
+    {
+      "condition": "Xiaohongshu (RED) post rejected silently — API returns 200 OK but content is held for review due to external link in caption, causing zero reach",
+      "recovery": "Strip all HTTP URLs from Xiaohongshu captions before publish (RED policy). Check the post status endpoint 10 minutes after submission; if `status != 'published'`, pull the `audit_reason` field and edit the caption accordingly."
+    }
+  ],
+  "brainstorming": [
+    {
+      "condition": "search_files returns zero results on an unfamiliar codebase because the root directory passed is a monorepo sub-package and the relevant code lives two levels up",
+      "recovery": "Run `find . -name 'package.json' -o -name 'pyproject.toml' | head -20` to map the actual project roots, then re-run search_files from the correct ancestor directory before asking clarifying questions."
+    },
+    {
+      "condition": "Design doc written to `docs/superpowers/specs/` (legacy path) instead of `~/obsidian-vault/projects/<project>/specs/YYYY-MM-DD-<topic>.md` — Obsidian never indexes it",
+      "recovery": "Move the file: `mv docs/superpowers/specs/<file> ~/obsidian-vault/projects/<project>/specs/<file>` and update any internal links. Going forward, always expand `~` to the literal home path before write_file to avoid path confusion."
+    },
+    {
+      "condition": "User approves design verbally ('sounds good') but then adds three new requirements in the next message before implementation begins, expanding scope beyond the approved design",
+      "recovery": "Treat the expanded requirements as a new scope boundary. Re-present a delta design (only the additions) and require explicit approval on the delta before implementing anything new. Do not fold unstated requirements into an already-approved design."
+    },
+    {
+      "condition": "Three architectural approaches presented but user responds 'just pick one' — implementing without a stated rationale leaves no record for future reviewers",
+      "recovery": "Select the approach with the lowest irreversibility (easiest to change later) and document the decision with the trade-off reasoning in the design doc. Write one sentence in the spec: 'Chose approach B because X; revisit if Y changes.'"
+    }
+  ],
+  "brand-rollout-meta-repo": [
+    {
+      "condition": "pnpm fails to resolve `github:org/brand#semver:^1.0.0` in CI with 'fatal: repository not found' because the CI runner uses HTTPS auth but the reference resolves via SSH",
+      "recovery": "Set `GITHUB_TOKEN` in the CI environment and configure pnpm's git resolver: add `git-credentials-helper=github` to `.npmrc`. Alternatively, switch the consumer dependency to HTTPS: `\"@org/brand\": \"github:org/brand#v1.0.2\"` pinned to a tag rather than semver range."
+    },
+    {
+      "condition": "validate.mjs gates fail because tokens/index.cjs was hand-edited to add a new token but tokens/index.js and tokens.css were not updated — ESM/CJS/CSS parity check throws on next PR",
+      "recovery": "Run `node scripts/validate.mjs --verbose` locally to see which tokens are missing from which format. Sync manually: any key added to index.cjs must appear verbatim in index.js and as `--wc-<key>: <value>` in tokens.css. Never edit CJS in isolation."
+    },
+    {
+      "condition": "propagate.yml workflow fails to open bump PRs in consumer repos because the GitHub App used in CI lacks 'Contents: write' and 'Pull requests: write' permissions on consumer repos",
+      "recovery": "In the GitHub App settings, add both permissions to each consumer repo explicitly. If the app can't be changed, switch propagate.yml to use a PAT (Personal Access Token) scoped to all consumer repos, stored as `ORG_PROPAGATE_TOKEN` in the brand repo's secrets."
+    },
+    {
+      "condition": "Consumer using Tailwind v4 imports `@org/brand/tailwind-preset` (CJS) — Tailwind v4 dropped CommonJS config support, causing `require is not defined` at build time",
+      "recovery": "Add an ESM variant `tailwind/preset.mjs` to the brand repo exporting the same object. Update the `exports` map to `\"./tailwind-preset\": { \"import\": \"./tailwind/preset.mjs\", \"require\": \"./tailwind/preset.cjs\" }`. Consumer upgrades to `import preset from '@org/brand/tailwind-preset'`."
+    }
+  ],
+  "caddy-multipage-static-deploy": [
+    {
+      "condition": "Agent applies the multi-page Caddyfile (`try_files {path} {path}/index.html {path}.html`) to an SPA that has only one `dist/index.html` — every non-root route returns 404 because `/skills/index.html` doesn't exist",
+      "recovery": "Run `find dist/ -name 'index.html' | wc -l` before applying any config. If count == 1, it's a SPA: use `try_files {path} {path}/index.html /index.html` (trailing fallback to root). If count > 1, it's multi-page: use the per-directory pattern. Skill readme calls this the first diagnostic gate."
+    },
+    {
+      "condition": "Caddy systemd service shows 'active (running)' but a manual caddy process from a previous session is actually holding port 443/80 — caddy reload silently no-ops",
+      "recovery": "Run `ss -tlnp | grep ':443'` to find the PID holding the port. If it's not the systemd-managed process, kill it: `sudo kill <pid>`. Then `sudo systemctl restart caddy` to let the managed process bind. Confirm with `curl -I https://yourdomain.com` checking response headers for `Server: Caddy`."
+    },
+    {
+      "condition": "caddy user cannot traverse the home directory where dist/ lives — file_server returns 403 Forbidden because `~/<user>/app/dist` has permissions 700",
+      "recovery": "Run `namei -l /home/<user>/app/dist` to find the first directory in the path that blocks traversal. Fix with `chmod o+x /home/<user>` (execute-only, not read). Never chmod the dist/ contents world-readable — only the directory execute bit is needed for caddy to traverse."
+    },
+    {
+      "condition": "Multi-page site has both `/about` (directory) and `/about.html` (file) — `try_files {path} {path}/index.html {path}.html` serves the file for `/about` instead of the directory's index",
+      "recovery": "Reorder try_files: put `{path}/index.html` before `{path}.html` so directories take priority. Audit dist/ for ambiguous name collisions (`find dist/ -name '*.html' | sed 's/\\.html$//' | sort > /tmp/pages.txt && find dist/ -type d | sort > /tmp/dirs.txt && comm -12 /tmp/pages.txt /tmp/dirs.txt`) and remove the orphan .html files."
+    }
+  ],
+  "chef": [
+    {
+      "condition": "`chef morning` returns 401 when reading Paperclip board because PAPERCLIP_TOKEN was rotated at the platform level but chef's env file was not updated",
+      "recovery": "Pull the current token from Bitwarden (`bw get item paperclip-api-token | jq -r '.fields[] | select(.name==\"token\") | .value'`), write it to the chef env file, and `source ~/.chef/env` before re-running. Add a token-expiry check to the morning cron that emails 7 days before rotation."
+    },
+    {
+      "condition": "`chef morning` fails to read today's calendar because the `gws` CLI OAuth token has expired — gws returns 'token has been expired or revoked'",
+      "recovery": "Run `gws auth login` to re-authenticate the Google Workspace session. If running headlessly, use `gws auth refresh` with a service account key stored at `~/.config/gws/service-account.json`. After refresh, re-run `chef morning` — the calendar section will populate from the new token."
+    },
+    {
+      "condition": "`chef weekly` MRR delta is inflated because STRIPE_API_KEY points to the test-mode key (sk_test_) instead of live (sk_live_) — test charges show as real revenue",
+      "recovery": "Check the key prefix: `echo $STRIPE_API_KEY | cut -c1-8`. If it's `sk_test_`, swap the value to the live key from the production .env on the deploy host (`ssh $HOST 'grep STRIPE_API_KEY /path/to/.env'`). Never store live and test keys in the same env file."
+    },
+    {
+      "condition": "`chef marketing` reports 0 scheduled posts even though posts were queued — happens when Postiz webhook URL changed after a Cloudflare tunnel restart",
+      "recovery": "Run `curl -s $POSTIZ_API_URL/api/posts?status=scheduled | jq '.count'` to confirm posts exist server-side. If they do, the issue is the webhook endpoint: re-register the outbound webhook in Postiz settings with the current tunnel URL from `cloudflared tunnel info`."
+    }
+  ],
+  "clean-architecture": [
+    {
+      "condition": "Framework adapter class in the outer circle imports a use-case interface directly from the inner circle, inverting the Dependency Rule — linters don't catch it because both live in the same Python package namespace",
+      "recovery": "Run `python -m pyflakes --extend-ignore=F401 src/ 2>&1 | grep -v '__init__'` to surface cross-boundary imports. For structural enforcement, add `import-linter` with a `ForbiddenImportContract` declaring that `adapters.*` may not import from `usecases.*`. Fail CI on contract violations."
+    },
+    {
+      "condition": "ORM model object (SQLAlchemy `User`) passed directly from the repository into a use case — the use case now depends on the database schema, violating the boundary",
+      "recovery": "Introduce a domain entity dataclass (`@dataclass class User`) in the entities layer. Map ORM → domain in the repository's `to_domain()` method before returning to the use case. The use case imports only the domain dataclass, never the ORM model."
+    },
+    {
+      "condition": "Shared Kernel grows to 60+ classes shared between two bounded contexts over 6 months — any change to the Shared Kernel breaks both contexts, deploy coordination required",
+      "recovery": "Audit the Shared Kernel contents: any class used by only one context is a false-Shared-Kernel candidate. Move it into that context's private namespace. For genuinely shared types (Money, Currency), extract them into a tiny, explicitly-versioned package with a changelog. Gate Shared Kernel PRs on approval from both context owners."
+    },
+    {
+      "condition": "Architecture review scores 7/10 but reviewer focuses only on import direction, missing that data crossing the boundary is in the database's wire format (dict with raw `created_at` timestamp) instead of a domain-friendly form",
+      "recovery": "Add a second scoring axis: 'data crossing boundary is in inner-circle-convenient form.' For each boundary crossing in the code review, verify the data structure is a domain object or primitive — not a dict, ORM row, or API response literal. Flag any boundary-crossing that carries framework-specific types."
+    }
+  ],
+  "clean-code": [
+    {
+      "condition": "Boy Scout Rule applied during a targeted bugfix — agent rewrites adjacent clean functions while fixing one-line bug, creating a large unintended diff that breaks unrelated tests",
+      "recovery": "Scope Boy Scout changes to the specific block already opened by the bugfix. Mention adjacent smells in a comment (`# NOTE: this function could be extracted — see clean-code skill`) but do not touch them. Revert unrequested changes with `git checkout HEAD -- <file>` and re-apply only the bug fix."
+    },
+    {
+      "condition": "Function named `process_data()` passes the code review checklist but violates meaningful names — it receives invoice records, applies tax, and sends an email in one call",
+      "recovery": "Apply Single Responsibility: split into `calculate_invoice_tax(invoice)`, `apply_tax_to_invoice(invoice, tax)`, and `send_invoice_notification(invoice)`. Score the refactored version against clean-code rubric before committing; 9+ requires each function to do one thing with a name that reveals that thing."
+    },
+    {
+      "condition": "Magic number `300` appears in three places across the codebase for different purposes (timeout seconds, max retries, and pixel width) — extracting to a single `MAX_VALUE = 300` constant makes the code worse",
+      "recovery": "Extract three separate named constants: `REQUEST_TIMEOUT_SECONDS = 300`, `MAX_RETRY_ATTEMPTS = 300` (suspicious — should be 5), `SIDEBAR_MAX_WIDTH_PX = 300`. Each constant name must encode its domain meaning and unit. The suspicious value should be reviewed against business requirements."
+    },
+    {
+      "condition": "Bare `except:` swallows all exceptions including `KeyboardInterrupt` and `SystemExit` — the codebase scores 4/10 because every error path silently continues",
+      "recovery": "Replace bare `except:` with `except Exception as e:` at minimum, and annotate with the specific exceptions expected: `except (requests.ConnectionError, requests.Timeout) as e:`. Add a top-level reraise for `KeyboardInterrupt` and `SystemExit`. Flag all remaining `pass` statements in except blocks as REQUIRED fixes."
+    }
+  ],
+  "client-reporter": [
+    {
+      "condition": "GA4 service account has Viewer access at the account level but not the specific property — `analyticsdata.googleapis.com` returns 403 `PERMISSION_DENIED` for that property_id",
+      "recovery": "In GA4 Admin → Property → Property Access Management, explicitly add the service-account email (from the JSON key file's `client_email` field) with Viewer role on the specific property. Account-level access does not cascade to property level."
+    },
+    {
+      "condition": "weasyprint PDF rendering fails with `OSError: cannot load library 'libgobject-2.0-0': libgobject-2.0-0: cannot open shared object file` on a fresh Ubuntu machine",
+      "recovery": "Install the missing Pango system dependency: `sudo apt install -y libpango-1.0-0 libpangoft2-1.0-0 libglib2.0-0`. Verify with `python3 -c 'import weasyprint; print(weasyprint.__version__)'`. The skill falls back to `.md` output if weasyprint is missing — check for `.md` file in `./output/` if no PDF is generated."
+    },
+    {
+      "condition": "Meta Ads access token was a 60-day short-lived token, not a long-lived system user token — report generation fails with `Error 190: Access token has expired` mid-month",
+      "recovery": "Generate a System User token in Meta Business Suite (Business Settings → Users → System Users → Generate Token). System user tokens have no expiration. Replace `META_ADS_ACCESS_TOKEN` in env with the system user token and confirm via `curl 'https://graph.facebook.com/me?access_token=<token>'`."
+    },
+    {
+      "condition": "TikTok Ads API returns 429 `Too Many Requests` when running reports for 8 clients in sequence — the skill has no rate-limit handling",
+      "recovery": "Add 2-second sleeps between client report runs: `time.sleep(2)` after each TikTok API call batch. For bulk runs across 10+ clients, stagger with `time.sleep(60)` between clients. TikTok Ads API rate limit is typically 10 requests/second — stay under 5/second to include headroom."
+    }
+  ],
+  "code-review": [
+    {
+      "condition": "SQLAlchemy `text()` call used with f-string interpolation (`db.execute(text(f\"SELECT * FROM users WHERE id = {user_id}\"))`) passes a keyword grep for 'f-string SQL' but bypasses parameterized query detection",
+      "recovery": "Flag any `text()` usage in SQLAlchemy reviews: `grep -rn 'text(f' src/ tests/`. The fix is `db.execute(text('SELECT * FROM users WHERE id = :id'), {'id': user_id})`. Add this pattern to the SQL injection checklist as 'ORM raw text with f-string interpolation.'"
+    },
+    {
+      "condition": "`element.innerHTML = userInput` flagged as XSS risk but the variable is commented `# already sanitized by DOMPurify` — reviewer clears the issue without verifying the sanitization is actually applied at the call site",
+      "recovery": "Never clear an XSS finding based on a comment. Trace the variable backward through the call stack to the actual DOMPurify.sanitize() call. If the sanitization is in a different function and the data passed to innerHTML could have been mutated in between, mark it REQUIRED. Only clear if the sanitize call is on the same line or in the immediate caller."
+    },
+    {
+      "condition": "Review checklist ticked for 'resources cleaned up in finally blocks' but a database connection opened inside a try block uses `.close()` in the except branch only — any non-exception exit path leaks the connection",
+      "recovery": "Require context managers for all resource-owning objects: `with db.connect() as conn:` instead of manual try/except/close. Flag any `.close()` that appears only in `except` or `finally` but not guaranteed-by-context-manager. Context managers are the only acceptable pattern for connection cleanup."
+    },
+    {
+      "condition": "Asymmetric surface bug: `/api/offers/:id` GET handler exists and is tested; `/api/needs/:id` GET handler is missing — review checklist doesn't include symmetry check across sibling routes",
+      "recovery": "Add a symmetry scan step to the review: list all sibling entity names in the codebase (`grep -r 'router\\.' src/routes/ | grep -oP \"'/(\\w+)'\" | sort -u`), then verify each route verb (GET, POST, PATCH, DELETE) exists for each sibling. File a REQUIRED finding for each missing symmetric route."
+    }
+  ],
+  "cold-outreach": [
+    {
+      "condition": "dnspython MX lookup returns NXDOMAIN for a valid prospect domain because the system resolver is behind a corporate firewall that blocks external DNS UDP/53 — valid domains appear undeliverable",
+      "recovery": "Override the resolver to use a public DNS: in the skill script, set `dns.resolver.default_resolver = dns.resolver.Resolver(); dns.resolver.default_resolver.nameservers = ['1.1.1.1', '8.8.8.8']` before running lookups. Test with `python3 -c \"import dns.resolver; print(dns.resolver.resolve('gmail.com', 'MX'))\"` using the explicit nameservers."
+    },
+    {
+      "condition": "Gmail SMTP rejects the App Password with '534-5.7.9 Application-specific password required' because 2-Step Verification is not enabled on the sender Google account",
+      "recovery": "Enable 2-Step Verification at myaccount.google.com/security, then generate the App Password at myaccount.google.com/apppasswords (category: Mail). The App Password is 16 characters with no spaces. Set it as SMTP_PASS — do not use the Google account login password."
+    },
+    {
+      "condition": "Claude API call for a 500-row CSV hits the context limit mid-batch — the output CSV is truncated at row 312 with no error, and the skill reports success",
+      "recovery": "Chunk the CSV into batches of 50 rows before calling Claude. Write each batch result to the output CSV immediately before processing the next chunk. If a chunk fails, log the failed row range to `/tmp/outreach-failed-rows.txt` and reprocess only those rows. Never pass an entire large CSV in a single API call."
+    },
+    {
+      "condition": "MX check returns all records as `mx_valid: true` but several domains use catch-all MX configurations (e.g., `*.example.com`) that accept any address — invalid sub-addresses pass deliverability check",
+      "recovery": "Supplement MX validation with SMTP VRFY or RCPT TO probe on port 25 for ambiguous domains. If the SMTP server returns 250 for a clearly fake address (test@domain.com where 'test' is not a real user), mark that domain as `mx_catchall: true` in the output CSV and flag for manual review before sending."
+    }
+  ],
+  "creative-ideation": [
+    {
+      "condition": "Constraint randomly selected from the developer library ('The CLI tool that should exist') when user explicitly said they work in hardware and embedded systems — idea proposals miss the domain",
+      "recovery": "Before selecting a constraint, extract the user's domain from their message (keywords: hardware, embedded, IoT, firmware, circuit) and filter the constraint library to hardware-compatible constraints ('Do a lot of math', 'One million of something', 'Make something that dies'). Reroll if the selected constraint is purely software-native."
+    },
+    {
+      "condition": "User selects idea #2 from the generated list, but the skill immediately starts writing code without asking about the user's tech stack, language preference, or available time",
+      "recovery": "Before implementation, ask three constrained questions in sequence: (1) What language/runtime? (2) What's the time budget? (3) Any must-have constraints? Present these as multiple-choice options to keep the exchange under 30 seconds. Only begin implementation after answers are confirmed."
+    },
+    {
+      "condition": "'High concept, low effort' constraint applied to an art/music domain request — generates an abstract concept that requires GPU rendering and a month of work, contradicting the 'afternoon' implementation target",
+      "recovery": "After generating ideas under this constraint, apply the literal constraint test: 'Can a single person ship this in one afternoon?' If no, simplify until yes. For art/music domains, reframe the concept toward tooling (a script that generates the artwork) rather than the artwork itself."
+    }
+  ],
+  "critical-code-reviewer": [
+    {
+      "condition": "A Pylint `W0612` (unused variable) and two minor naming inconsistencies are flagged as 🔴 BLOCKING — reviewees stop acting on reviews because everything is always critical",
+      "recovery": "Reserve 🔴 BLOCKING strictly for: data loss risk, security vulnerability, broken core functionality, or race condition with confirmed concurrent access path. Demote style issues to 🟢 SUGGESTIONS and rename inconsistencies to 📝 NOTED. Re-grade the current review using this calibration before posting."
+    },
+    {
+      "condition": "Alembic migration file (`versions/abc123_add_user_table.py`) reviewed as application code — every `op.create_table()` call is flagged for 'missing input validation' and 'no error handling'",
+      "recovery": "Skip review of: `alembic/versions/*.py`, `package-lock.json`, `poetry.lock`, build artifacts in `dist/` or `__pycache__/`. Detect migration files by path pattern before review: `if path.startswith('alembic/versions/'): skip`. These generate noise with zero actionable signal."
+    },
+    {
+      "condition": "Race condition flagged on a FastAPI endpoint that uses `async def` — reviewer assumes async == concurrent without verifying the endpoint holds no shared mutable state and the event loop is single-threaded",
+      "recovery": "Before flagging a race condition, trace: (1) Is there shared mutable state (module-level dict, class-level cache)? (2) Is the async function using `asyncio.gather` or `threading`? If the endpoint is a pure coroutine with no shared state, the race condition does not exist. Document the concurrency model explicitly in the finding."
+    },
+    {
+      "condition": "Asymmetric surface check not performed because `/api/v1/needs` and `/api/v1/offers` routes are in separate router files — reviewer only reads the file that was changed in the PR diff",
+      "recovery": "When any route handler is added or modified, run: `grep -r 'router\\.\\(get\\|post\\|put\\|delete\\|patch\\)' src/routes/ | awk -F'/' '{print $NF}' | sed 's/[^a-z_].*//g' | sort -u` to list all entity names. Manually verify symmetric routes exist for each sibling entity. Flag missing symmetry as 🟡 REQUIRED."
+    }
+  ],
+  "customer-discovery-competitive-intel": [
+    {
+      "condition": "SearXNG not configured (SEARXNG_URL env var missing) — web_research silently returns empty results and the fallback chain falls to gemini-2.0-flash, which hits the LiteLLM rate limit on the free tier",
+      "recovery": "Detect the failure mode by checking `web_research` response length < 100 chars. If SearXNG is down, skip directly to `web_extract` on known stable pricing URLs from the skill's Pricing Research Targets table (e.g., `https://lindy.ai/pricing`). Label all synthesized data as 'from web_extract, not search-aggregated.'"
+    },
+    {
+      "condition": "Competitor pricing page at `https://relevanceai.com/pricing` returns 403 because Cloudflare bot-detection blocks the headless extraction agent",
+      "recovery": "Fall through to the next known stable URL for that competitor (e.g., `https://relevanceai.com/blog/pricing` or a third-party review on G2/Capterra that lists pricing). Mark the data source in the report as 'third-party source, verify currency.' Never present a 403-sourced blank as 'pricing not available.'"
+    },
+    {
+      "condition": "Competitor pricing data extracted from a web page that was cached 6 months ago — outdated prices presented as current in the report",
+      "recovery": "Check the `Last-Modified` or `Date` header in the web_extract response. If older than 60 days, note explicitly in the report: 'Pricing sourced from page dated [date] — verify current pricing at [URL] before using in sales calls.' Never strip the date attribution from pricing data."
+    },
+    {
+      "condition": "Customer discovery question 'Would you use a tool like this?' included in the 5-question list — violates Mom Test Rule 1 and generates invalid validation data",
+      "recovery": "Run a Mom Test compliance check on every question before including it: does the question ask about past behavior ('What did you last pay to solve this?') or future hypothetical ('Would you buy this?')? Replace any 'would you' or 'do you think' phrasing with 'When did you last...' or 'What do you currently do when...'"
+    }
+  ],
+  "data-pipeline": [
+    {
+      "condition": "Pipeline runs before an upstream database migration has completed — a new column (`processed_at`) referenced in the pipeline's INSERT statement doesn't exist yet, causing `OperationalError: no such column`",
+      "recovery": "Add a schema pre-flight check at pipeline start: `SELECT column_name FROM information_schema.columns WHERE table_name='<table>' AND column_name='processed_at'`. If the column is absent, exit with code 1 and a message listing the missing column. Run `alembic upgrade head` on the target DB before retrying."
+    },
+    {
+      "condition": "Source API uses cursor-based pagination; pipeline stores the cursor in memory. If the run is interrupted at page 7 of 20, re-running from the start creates duplicate records for pages 1-6",
+      "recovery": "Persist the pagination cursor to a file after each successful page: `echo $CURSOR > /tmp/pipeline_cursor.txt`. On startup, read the cursor if the file exists. After full completion, delete the cursor file. Use `INSERT OR IGNORE` (SQLite) or `INSERT ... ON CONFLICT DO NOTHING` (Postgres) for idempotent inserts."
+    },
+    {
+      "condition": "DATA_OUTPUT_PATH env var not set — pipeline writes output to the default `/tmp/` which is cleared on reboot, silently losing processed data",
+      "recovery": "Add an early exit if DATA_OUTPUT_PATH is unset or points to /tmp: `if [[ -z \"$DATA_OUTPUT_PATH\" || \"$DATA_OUTPUT_PATH\" == /tmp* ]]; then echo 'ERROR: set DATA_OUTPUT_PATH to a persistent path'; exit 1; fi`. Require the path to be explicitly configured, never default to /tmp for output data."
+    },
+    {
+      "condition": "Source API returns a 429 with `Retry-After: 60` header mid-pipeline — pipeline crashes immediately with an unhandled HTTP error instead of waiting",
+      "recovery": "Wrap all API calls in a retry loop that reads the `Retry-After` header: `wait = int(response.headers.get('Retry-After', 30)); time.sleep(wait)`. Apply exponential backoff for repeated 429s: `min(wait * 2**attempt, 300)` seconds, max 5 attempts before aborting with a clear log of the last response body."
+    }
+  ],
+  "domain-driven-design": [
+    {
+      "condition": "Repository returns a raw SQLAlchemy ORM model object directly to the use case — the use case now implicitly depends on the database schema and SQLAlchemy session lifecycle",
+      "recovery": "Add a `to_domain()` method to each repository that maps the ORM object to a pure Python dataclass (the domain entity). The use case imports only the domain dataclass module. Run `grep -rn 'from sqlalchemy' app/use_cases/` — any hit is a boundary violation requiring extraction."
+    },
+    {
+      "condition": "Two bounded contexts (Billing and Fulfillment) use the same `Customer` class imported from a shared module — a billing-specific field (`payment_method`) leaks into fulfillment's data model",
+      "recovery": "Create separate `Customer` representations per context: `billing.domain.Customer` with payment fields, `fulfillment.domain.Customer` with shipping fields. Use an Anti-Corruption Layer at the integration boundary that maps one to the other. Never share entity classes across bounded contexts."
+    },
+    {
+      "condition": "Domain event named `OrderDataUpdated` (CRUD verb) instead of `OrderShipped` (business action) — developers can't tell from the event name what business process triggered it",
+      "recovery": "Rename all domain events to past-tense business actions: `OrderShipped`, `PaymentDeclined`, `InventoryReserved`. Run a naming audit: `grep -rn 'Event\\|DataUpdated\\|RecordSaved\\|EntityChanged' src/domain/events/` — any technical-verb name is a refactor candidate. The event name must be recognizable to a domain expert."
+    },
+    {
+      "condition": "Aggregate designed with 15 entities under one `Order` root — a status update on one line item acquires a transaction lock on the entire order for 200ms in a high-concurrency system",
+      "recovery": "Split the aggregate: `Order` root contains only the order header and status. `OrderLineItem` becomes its own small aggregate with its own root. Use domain events to coordinate state changes between aggregates rather than direct object references. Target aggregates that can be transacted in < 10ms."
+    }
+  ],
+  "faster-whisper": [
+    {
+      "condition": "`insanely-fast-whisper` crashes with `OSError: libnppicc.so.12: cannot open shared object file` because `torchcodec` was included in the default install and requires the full CUDA toolkit",
+      "recovery": "Uninstall torchcodec from the insanely-fast-whisper pipx venv: `$(pipx environment -v PIPX_LOCAL_VENVS)/insanely-fast-whisper/bin/python -m pip uninstall torchcodec -y`. Verify the fix: `insanely-fast-whisper --file-name /dev/null --device-id 0 --model-name openai/whisper-tiny 2>&1 | grep -v torchcodec`."
+    },
+    {
+      "condition": "`--language en` passed to a model with `.en` suffix (e.g., `distil-whisper/distil-small.en`) — raises `ValueError: Cannot specify task or language for an English-only model`",
+      "recovery": "Strip `--language` from the command when the model name ends in `.en`. Detection pattern in shell: `if [[ \"$MODEL\" == *.en ]]; then LANG_FLAG=''; else LANG_FLAG=\"--language $LANG\"; fi`. Or switch to the multilingual variant: `distil-whisper/distil-small` (no `.en` suffix) which accepts `--language`."
+    },
+    {
+      "condition": "faster-whisper CLI invoked in a voice-loop, triggering ~25-30 second cold-start per call because the CTranslate2 model reloads from disk each subprocess invocation",
+      "recovery": "Switch to the Python API for loop usage: instantiate `WhisperModel` once (`model = WhisperModel('large-v3-turbo', device='cuda', compute_type='float16')`) and call `model.transcribe()` in a loop. The model stays resident in GPU memory between calls. Only use the CLI for one-off transcriptions."
+    },
+    {
+      "condition": "insanely-fast-whisper shows as installed (`pipx list` includes it) but the venv is silently empty — `insanely-fast-whisper --help` returns `ModuleNotFoundError: No module named 'transformers'`",
+      "recovery": "Reinstall with the `--force` flag: `pipx install insanely-fast-whisper --force`. The `--force` flag replaces the broken venv entirely. After reinstall, immediately uninstall torchcodec (see condition 1) before testing. Verify with `insanely-fast-whisper --file-name test.mp3 --device-id 0 --model-name openai/whisper-tiny`."
+    }
+  ],
+  "frontend-design": [
+    {
+      "condition": "`hover:scale-105` applied to a full-width hero card (`w-full`) — on hover, the card expands beyond its container, triggering a CLS spike > 0.1 and causing layout reflow on every mouse-over",
+      "recovery": "Replace `hover:scale-105` on large elements with `hover:shadow-lg hover:shadow-black/20` or `hover:-translate-y-1`. Scale transforms on full-width elements cause reflow; shadow and translate-y are composited by the GPU without triggering layout. Test CLS with Lighthouse before deploying any hover animation on large cards."
+    },
+    {
+      "condition": "Hardcoded `bg-white text-gray-900` in hero section — when the OS/browser switches to dark mode, the hero remains white-on-white (white background, white system text), becoming unreadable",
+      "recovery": "Replace hardcoded background colors with semantic Tailwind tokens: `bg-background text-foreground` (if shadcn/ui is configured) or explicit `dark:bg-gray-900 dark:text-white` variants. Audit all `bg-white`, `bg-gray-50`, `text-gray-900` instances: `grep -rn 'bg-white\\|text-gray-900' src/` and add `dark:` counterparts."
+    },
+    {
+      "condition": "70-20-10 color rule applied at the component level (each card has its own 70/20/10 breakdown) — the page as a whole has 8 accent colors competing for attention, producing visual noise",
+      "recovery": "The 70-20-10 ratio is a page-level budget, not a per-component one. Audit the full page by taking a screenshot and counting pixels by color family. If the accent color appears in more than 10% of pixel area across the page, reduce usage to CTAs and links only. One accent color per page, maximum two."
+    },
+    {
+      "condition": "Hero image rendered with `<img src='/hero.jpg'>` instead of Next.js `<Image>` — LCP is 4.2s because the unoptimized 2MB JPEG is not compressed, resized, or lazy-loaded",
+      "recovery": "Replace with `import Image from 'next/image'; <Image src='/hero.jpg' width={1440} height={810} priority alt='...' />`. Set `priority` on above-the-fold images to preload. Verify LCP improvement with `npx lighthouse https://yoursite.com --only-categories=performance --output=json | jq '.audits.\"largest-contentful-paint\".numericValue'`."
+    }
+  ],
+  "gh-fix-ci": [
+    {
+      "condition": "CI failure caused by a rotated `NPM_TOKEN` or `PYPI_TOKEN` secret — GitHub Actions job exits with 401, but the fix attempt modifies package versions or lockfiles instead of the missing secret",
+      "recovery": "Before touching code, check the raw CI log for HTTP 401 on `registry.npmjs.org` or `pypi.org`. If found, regenerate the token at the respective registry, update the GitHub Actions secret at Settings → Secrets → Actions → `NPM_TOKEN`, and re-run the failed job without any code change."
+    },
+    {
+      "condition": "GitHub Actions cache (actions/cache) not invalidated after a dependency lockfile change — the cached `node_modules/` or `.venv/` contains stale packages, causing the new code to fail at import",
+      "recovery": "Update the cache key to include the lockfile hash: `key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}`. If the cache is already stale, manually invalidate by changing the cache key prefix in the workflow file (e.g., add a version prefix `v2-${{ runner.os }}-node-...`) and push to trigger a cache miss."
+    },
+    {
+      "condition": "Matrix CI fails on the `windows-latest` runner with a path separator error (`\\` vs `/`) — fix only patches the Linux runner path handling, leaving Windows broken",
+      "recovery": "Use `path.join()` or `os.path.join()` instead of string concatenation for all file paths. Test locally with `python3 -c \"import os; print(os.path.join('a', 'b', 'c'))\"` on Windows path semantics. In GitHub Actions, use `${{ github.workspace }}` instead of hardcoded `/home/runner` paths, which is cross-platform."
+    },
+    {
+      "condition": "PR branch diverged from main before the CI fix was applied — the fix commit triggers a merge conflict in the CI workflow file itself, blocking merge",
+      "recovery": "Rebase the fix branch onto current main: `git fetch origin && git rebase origin/main`. If the workflow file has a merge conflict, take the incoming (main) version as base and re-apply only the specific lines changed by the fix. Push with `git push --force-with-lease` and confirm CI triggers on the rebased SHA."
+    }
+  ],
+  "gitnexus": [
+    {
+      "condition": "`gitnexus analyze` run without `--embeddings` flag after a previous run that had embeddings — this silently deletes all existing semantic embeddings from the index",
+      "recovery": "Always check the current index state first: `gitnexus status` shows whether embeddings exist. If embeddings need to be preserved, always pass `--embeddings` explicitly. To rebuild deleted embeddings: `gitnexus analyze --force --embeddings` (takes 2-10 minutes depending on repo size)."
+    },
+    {
+      "condition": "`gitnexus wiki` fails hard with `Error: GITNEXUS_API_KEY is required` or `OPENAI_API_KEY is required` — interrupts an agent workflow that expected wiki to work without an LLM key",
+      "recovery": "For agent use without an LLM key, bypass `gitnexus wiki` entirely and query KuzuDB directly via the Node script in the readme: `node /tmp/gn_dump.js` from the repo directory. This reads the `.gitnexus/kuzu` graph in read-only mode and provides clusters, processes, and top-degree nodes without any API key."
+    },
+    {
+      "condition": "KuzuDB Cypher query uses `desc` as a column alias (`RETURN n.id, count(r) as desc ORDER BY desc`) — Kuzu treats `desc` as the ORDER BY direction keyword and raises a parse error",
+      "recovery": "Replace `desc` alias with a non-reserved name: `RETURN n.id as node_id, count(r) as degree ORDER BY degree DESC`. Check the Kuzu reserved word list before using any SQL/Cypher keyword as an alias. Common conflicts: `desc`, `asc`, `order`, `limit`, `match`, `return`."
+    },
+    {
+      "condition": "`gitnexus analyze` run on a monorepo whose root includes `node_modules/` — analyzes 80,000+ node_modules files, runs for 40+ minutes, and produces a meaningless graph dominated by npm package internals",
+      "recovery": "Create or update `.gitignore` at the repo root to include `node_modules/`. GitNexus respects `.gitignore` by default. If node_modules is already indexed, run `gitnexus clean` then `gitnexus analyze` again. For repos where .gitignore can't be changed, use `--include 'src/**,tests/**'` flag to scope the analysis."
+    }
+  ],
+  "graphify": [
+    {
+      "condition": "Graphify run in code mode on an Obsidian vault (100% markdown files) — Tree-sitter AST produces `main()`, `frontmatter()`, and `read_file()` as top god nodes because it parsed prose-embedded code snippets as function calls",
+      "recovery": "Rerun with `--mode knowledge`: `graphify /path/to/vault --mode knowledge`. Knowledge mode skips the AST pass entirely and extracts domain concepts via LLM. Verify by checking `GRAPH_REPORT.md`: god nodes should be domain concepts (e.g., 'WiseChef', 'Agent Coordination'), not function names."
+    },
+    {
+      "condition": "LLM semantic pass hits token quota mid-extraction on a 200-file codebase — the graph is partially populated with only files A-K processed, giving a misleading GRAPH_REPORT",
+      "recovery": "Check `graphify-out/graph.json` for the `provenance_stats` section to see how many files were semantically processed. Resume extraction by running graphify with `--resume` flag if supported, or manually add semantic nodes for the unprocessed files using the `EXTRACTED` provenance format shown in the readme. Mark the report as `[PARTIAL - semantic pass incomplete]` at the top."
+    },
+    {
+      "condition": "Graphify run on a 3-file, 2000-word utility script — tool warns about small corpus but user ignores it; LLM tokens spent extracting a graph with 4 nodes and 2 edges",
+      "recovery": "Check Graphify's detect output first: `graphify detect /path/to/repo` (or the Python API equivalent). If `total_files < 5` and `total_words < 50000`, just read the files directly with `read_file`. The overhead of a graph on tiny repos exceeds the analysis value."
+    },
+    {
+      "condition": "Semantic nodes created with `provenance: AMBIGUOUS` but no `confidence` field — the graph report can't distinguish reliable from speculative connections, misleading downstream consumers",
+      "recovery": "For every `AMBIGUOUS` node or edge, add `\"confidence\": 0.0` to `0.9` based on evidence strength. Add a note in the GRAPH_REPORT header: 'Edges with confidence < 0.5 are speculative — verify before acting on them.' Prefer `INFERRED` with confidence over `AMBIGUOUS` for all edges that have some supporting evidence."
+    }
+  ],
+  "hostinger-dns-api": [
+    {
+      "condition": "PUT request sent with a bare JSON array (`[{...}, ...]`) instead of the required `{\"zone\": [{...}, ...]}` wrapper — API returns `{\"message\":\"The zone field is required.\",\"errors\":{\"zone\":[\"The zone field is required.\"]}}`",
+      "recovery": "Wrap the zone array before PUT: `json.dump({\"zone\": zone}, open('/tmp/zone-payload.json', 'w'))`. Confirm the payload structure with `jq 'keys'` before sending — it must show `[\"zone\"]` as the only top-level key. If you got this error, no records were changed; re-attempt with the corrected payload."
+    },
+    {
+      "condition": "CNAME target written without trailing dot (`ypb6kcbs.up.railway.app` instead of `ypb6kcbs.up.railway.app.`) — API returns 200 but DNS resolution silently fails for the domain",
+      "recovery": "Always append a trailing dot to CNAME and ALIAS values before PUT. Detection: `python3 -c \"v='ypb6kcbs.up.railway.app'; print(v if v.endswith('.') else v+'.')\"`. After writing, verify propagation: `dig +short www.agentpact.xyz @1.1.1.1` — if no result after 60 seconds, check the trailing dot."
+    },
+    {
+      "condition": "PUT payload includes only the modified record (not the full zone) — Hostinger replaces the entire zone with only the single record, deleting all other DNS records (MX, TXT, A) for the domain",
+      "recovery": "Always follow the pull-mutate-push pattern: GET the full zone, edit only the target record in the Python list, wrap in `{\"zone\": full_list}`, then PUT. Never construct a zone array from scratch — always start from the live GET response. Before PUT, confirm the payload has the same number of records as the GET: `jq '.zone | length'`."
+    },
+    {
+      "condition": "Hostinger API token grants access to the entire portfolio (10+ domains) — typo in the domain variable (`agentpact.xyz` vs `agenpact.xyz`) modifies DNS records on the wrong domain",
+      "recovery": "Before any PUT, print the domain being modified and pause: `echo \"About to modify DNS for: $DOMAIN. Ctrl-C to abort.\" && sleep 5`. After PUT, immediately GET the zone and confirm the record appears as expected. If wrong domain was modified, restore from the pre-edit snapshot saved during the pull step."
+    }
+  ],
+  "hundred-million-offers": [
+    {
+      "condition": "Value Equation numerator maximized ('10x faster results') but Time Delay denominator not addressed — the offer claims speed without specifying the mechanism, making the claim unsubstantiatable and legally risky",
+      "recovery": "For every time-delay claim, specify the mechanism: 'Get your first report in 5 minutes because the onboarding wizard pre-populates from your GA4 account — no manual data entry.' Every speed claim must name what eliminates the delay. Remove claims that can't be backed with a specific mechanism."
+    },
+    {
+      "condition": "Scarcity element added ('Only 10 spots left') without any real capacity constraint — enrollment is unlimited and the counter never actually decrements",
+      "recovery": "Replace false scarcity with real scarcity: a defined cohort enrollment window (`cohort opens first Monday of each month`), a genuine capacity limit enforced technically (Stripe coupon with max_redemptions), or a time-based deadline tied to a real event (product launch date). False scarcity violates FTC guidelines."
+    },
+    {
+      "condition": "Bonus stacking adds 6 bonuses to the offer but three of them (webinar replay, PDF checklist, email sequence) have high fulfillment cost and low perceived value — margin collapses while price stays flat",
+      "recovery": "Apply the bonus filter: keep only bonuses where `perceived_value / fulfillment_cost > 3`. Webinar replays and email sequences often fail this test. High-ratio bonuses: templates, calculators, frameworks, done-for-you assets. Remove low-ratio bonuses and replace with one high-value tool that costs almost nothing to deliver at scale."
+    },
+    {
+      "condition": "Risk-reversing guarantee written as 'We guarantee results' without defining what 'results' means or how they're measured — legally unenforceable and operationally ambiguous",
+      "recovery": "Rewrite the guarantee with three specific fields: (1) the measurable outcome (`10 qualified leads in 30 days`), (2) the measurement method (`leads defined as booked calls from your CRM`), and (3) the reversal action (`full refund, no questions asked`). Every word in the guarantee must be verifiable by both parties."
+    }
+  ],
+  "hyperframes-invitation-card": [
+    {
+      "condition": "Music bed uploaded as `.ogg` (Discord voice memo format) — ffmpeg audio decode fails with `Invalid data found when processing input` because the file is actually an Opus container mislabeled as OGG",
+      "recovery": "Force ffmpeg to probe the container: `ffmpeg -v error -i input.ogg -f null - 2>&1`. If it fails, try `ffmpeg -acodec libopus -i input.ogg -acodec aac -ar 44100 output.m4a`. For Discord-exported voice memos, always try `ffmpeg -i input.ogg -c:a aac output.m4a` first — Discord exports Opus-in-OGG which converts cleanly to AAC."
+    },
+    {
+      "condition": "Two adjacent scenes placed on the same `data-track-index` (both set to 0) — they attempt to render simultaneously on the same track, producing visual overlap or corrupt frame sequence",
+      "recovery": "Alternate track indices strictly: scene 1 → track 0, scene 2 → track 1, scene 3 → track 0, etc. Validate before render: `grep -oP 'data-track-index=\"\\K[0-9]'` in the HTML should produce alternating 0,1,0,1 pattern. Any two consecutive identical indices is a bug."
+    },
+    {
+      "condition": "`object-position: 50% 50%` default crops heads off user-provided selfie in the circular photo cameo — faces are in the upper portion of the frame but the crop centers on the body",
+      "recovery": "Set `object-position: 50% 30%` for typical selfies (face near top) as the starting point, then use the vision harness to calibrate: render the cameo, call vision asking 'Are the faces fully visible and centered?', adjust the Y percentage until vision confirms 9/10. Range 20%-40% covers most selfie compositions."
+    },
+    {
+      "condition": "Exit fade animation added to scene 3 (date scene) in violation of the rule that only the closing scene (scene 6) may have an exit animation — the date scene fades out mid-video, disrupting the crossfade transition rhythm",
+      "recovery": "Remove the `gsap.to('.s3-*', {opacity: 0, ...})` exit animation from scene 3. The transition between scenes 3 and 4 is handled by the blur-crossfade on the track, not by an explicit exit. Only scene 6 (closing) is permitted an exit fade. Search for unintended exits: `grep -n 'gsap.to' index.html | grep -v 'gsap.from'`."
+    }
+  ],
+  "hyperframes-video": [
+    {
+      "condition": "`hyperframes doctor` reports FFmpeg and Node.js as passing but the Chromium headless-shell is not fetched — running `hyperframes render` silently fails during the frame capture phase with no frames written to the buffer",
+      "recovery": "Run `npx hyperframes browser ensure` explicitly after every install or CI environment setup. Verify the shell is present: `ls ~/.cache/hyperframes/chrome/*/chrome-headless-shell` (Linux) or the platform-equivalent path. If missing, `npx hyperframes browser ensure` downloads it. Never trust `doctor` for Chrome — verify the binary directly."
+    },
+    {
+      "condition": "`hyperframes render /path/to/composition.html` returns 'Not a directory' — the CLI requires a project scaffold from `hyperframes init`, not a bare HTML file path",
+      "recovery": "Initialize a project first: `hyperframes init my-video --no-install && cd my-video`. Copy or move the composition HTML to `my-video/index.html`. Then run `hyperframes render my-video/` (directory path, not the HTML file path). The `hyperframes.json` and `meta.json` in the project dir are required by the CLI."
+    },
+    {
+      "condition": "Stage element missing `data-duration` attribute — the HyperFrames renderer infers timeline length as 0 seconds and produces a valid-but-empty MP4 file (0 frames)",
+      "recovery": "Ensure the stage `<div>` includes all required data attributes: `data-composition-id`, `data-start`, `data-duration`, `data-width`, `data-height`, `data-fps`. Validate before render: `grep -oP 'data-duration=\"\\K[^\"]+' index.html` — if empty or missing, add `data-duration=\"8\"` (or desired seconds). Zero-duration renders produce valid MP4 containers with 0 bytes of video data."
+    },
+    {
+      "condition": "/dev/shm is too small (default 64MB in some Docker environments) — Chrome workers crash during multi-scene render with `ENOMEM: not enough space/quota` when allocating frame buffers",
+      "recovery": "Increase /dev/shm: run Docker with `--shm-size=2gb` or add `tmpfs: [{path: /dev/shm, options: 'size=2048m'}]` to docker-compose.yml. Verify available space: `df -h /dev/shm`. For non-Docker Linux, check `/proc/meminfo` for `Shmem` usage. Minimum /dev/shm for a 1920x1080 render at 30fps is 512MB."
+    }
+  ],
+  "hyperspace-matrix": [
+    {
+      "condition": "`hyperspace search query` fails with 'connection refused' or 'command not found: hyperspace' because the binary installed to `~/.npm-global/bin/` is not on the shell PATH",
+      "recovery": "Add the npm global bin to PATH: `export PATH=\"$HOME/.npm-global/bin:$PATH\"` in `~/.bashrc` or `~/.zshrc`. Verify: `which hyperspace`. If still missing, check the install prefix: `npm config get prefix` and confirm the binary is in `$(npm config get prefix)/bin/`. For the wrapper script, use the full path: `bash ~/.hermes/skills/research/hyperspace-matrix/scripts/matrix-search.sh`."
+    },
+    {
+      "condition": "Search results include OpenClaw-specific skills (e.g., `openclaw-browser-agent`) that have no equivalent installation path for Hermes agents — agent attempts to install a non-existent skill",
+      "recovery": "After receiving hyperspace results, filter for Hermes-compatible skills: check if each result has an installation method that works outside OpenClaw (npm package, pip package, or GitHub repo). Label OpenClaw-only results as 'not portable to Hermes' and exclude them from the recommendation. The readme explicitly warns: 'evaluate portability manually.'"
+    },
+    {
+      "condition": "Query 'text to speech' returns 10 results all with similarity scores below 0.3 — the index has poor coverage of TTS tools and the results are semantically unrelated",
+      "recovery": "If all results score < 0.3, do not act on them. Re-query with a more specific task description: 'generate speech audio from text locally using GPU' or 'ElevenLabs API text to speech'. The readme recommends task descriptions over keywords. If specificity doesn't improve scores, fall back to a direct web search for the tool category."
+    },
+    {
+      "condition": "matrix-search.sh passes query as multiple shell words without quoting — `bash matrix-search.sh generate images from text` passes only 'generate' as the query argument",
+      "recovery": "Always quote the query argument in the wrapper script: `bash matrix-search.sh \"generate images from text\" --limit 10`. Verify the script's argument handling by inspecting the first 10 lines of matrix-search.sh: `head -10 ~/.hermes/skills/research/hyperspace-matrix/scripts/matrix-search.sh`."
+    }
+  ],
+  "image-generator": [
+    {
+      "condition": "OpenAI gpt-image-1 prompt contains a term flagged by content policy (even innocuous contexts like 'weapon', 'blood', 'nude') — API returns 400 `content_policy_violation` and no image is generated",
+      "recovery": "Inspect the prompt for policy-sensitive terms using OpenAI's content policy list. Rephrase: 'ancient battle scene' instead of 'soldiers with weapons'. If the use case genuinely requires depicting sensitive content, switch to a local Stable Diffusion or FLUX backend which runs without OpenAI content moderation."
+    },
+    {
+      "condition": "FLUX local model selected but the host GPU has only 6GB VRAM — model fails to load with `RuntimeError: CUDA out of memory` and the skill falls back to Stable Diffusion without notifying the user the quality tier changed",
+      "recovery": "Before loading FLUX, check VRAM: `nvidia-smi --query-gpu=memory.free --format=csv,noheader`. FLUX.1-dev requires ~12GB, FLUX.1-schnell requires ~8GB. If insufficient, explicitly select a quantized variant (FLUX.1-schnell-Q4) or switch to Stable Diffusion XL (requires ~6GB). Log the fallback decision clearly."
+    },
+    {
+      "condition": "User requests 4K (3840×2160) resolution image — gpt-image-1 maximum output is 1792×1024, silently downscaling the request and returning a smaller image labeled as requested size",
+      "recovery": "Validate resolution against backend capability before calling: gpt-image-1 max is 1792×1024; Stability XL max is 2048×2048; local SDXL can tile to 4K with `--enable-tile`. If the requested resolution exceeds backend capability, upscale the max-resolution output using `realesrgan-ncnn-vulkan -i input.png -o output.png -s 2` for 2x."
+    },
+    {
+      "condition": "Stable Diffusion server (AUTOMATIC1111 or ComfyUI) not running — image-generator fails with `requests.exceptions.ConnectionError: Connection refused` on port 7860 with no fallback attempt",
+      "recovery": "Check if the SD server is running: `curl -s http://localhost:7860/sdapi/v1/sd-models | jq '.[0].title'`. If not running, start it: `cd ~/stable-diffusion-webui && ./webui.sh --nowebui --api &` and wait for 'Uvicorn running' in the log. Only attempt the API call after the server responds to health-check."
+    }
+  ],
+  "incident-response": [
+    {
+      "condition": "Incident triaged as 'agent routing failure' (wrong skill dispatched) but the actual cause is a Netbird WireGuard peer disconnecting — remediation targets the skill routing table while the real problem is network connectivity",
+      "recovery": "Before touching routing config, run the connectivity check first: `netbird status` and `ping -c 3 <agent-peer-ip>`. If Netbird shows peer as disconnected, run `netbird down && netbird up` to re-establish the tunnel. Only proceed to routing triage after confirming WireGuard peers are visible to each other."
+    },
+    {
+      "condition": "Config backup for the affected OpenClaw component doesn't exist (backup cron failed silently 3 weeks ago) — restoration falls back to a full reinstall that takes 40 minutes and loses all customization",
+      "recovery": "Before declaring 'no backup available', check alternate sources: `git log --oneline ~/.hermes/config/ | head -10` (config may be in git), `crontab -l | grep backup` (check if backup cron is actually scheduled), `ls -lt /tmp/*.backup 2>/dev/null | head -5` (check /tmp for recent temp backups). Only proceed with reinstall if all three sources are empty."
+    },
+    {
+      "condition": "Two simultaneous incidents — remediation steps from incident A (restart agent gateway) applied to incident B's component (restart LiteLLM proxy) — wrong service restarted, unaffected service disrupted",
+      "recovery": "Assign a unique incident ID at the start of each response (e.g., `INC-$(date +%s)`). Prefix all remediation commands with the target component explicitly: `# INC-1741234567: restart agent-gateway only`. Never issue restart commands without naming the specific service. Maintain a separate terminal tab or tmux pane per active incident."
+    },
+    {
+      "condition": "Agent routing tables rebuilt while active agents are mid-task — agents in-flight receive contradictory routing responses from old and new tables simultaneously, producing split-brain behavior",
+      "recovery": "Implement a drain-then-rebuild sequence: (1) set the gateway to 'drain mode' (reject new requests, complete in-flight), (2) wait for in-flight count to reach 0 (`watch -n1 'curl -s localhost:8100/health | jq .active_requests'`), (3) rebuild routing tables, (4) re-enable gateway. Skip drain only if the incident is a complete gateway crash."
+    }
+  ],
+  "larry": [
+    {
+      "condition": "`node-canvas` install fails on macOS with `gyp: No Xcode or CLT version detected` — node-canvas requires a C++ compiler from Xcode Command Line Tools to compile native bindings",
+      "recovery": "Install Xcode CLI tools: `xcode-select --install` and wait for the dialog to complete. If already installed but gyp still fails, run `sudo xcode-select --reset`. On Ubuntu/Debian: `sudo apt install build-essential libcairo2-dev libpango1.0-dev libjpeg-dev libgif-dev librsvg2-dev`. After install, `npm install canvas` in the larry project directory."
+    },
+    {
+      "condition": "OpenAI image generation called with model `gpt-image-1` (without `.5`) — the readme explicitly warns 'ALWAYS 1.5, never 1'. The older model produces lower quality at the same cost",
+      "recovery": "Hard-code the model string as `gpt-image-1.5` in the generation script and add a validation assertion: `assert model_name == 'gpt-image-1.5', f'Wrong model: {model_name}. Larry requires gpt-image-1.5.'` Grep the codebase for the wrong version: `grep -rn 'gpt-image-1[^.]' scripts/`."
+    },
+    {
+      "condition": "Postiz analytics API returns empty `posts: []` for the first 48 hours after a new account is provisioned — the daily feedback loop starts with zero data and produces no actionable signal",
+      "recovery": "Add a guard in the feedback-loop script: `if len(posts_data) == 0 and account_age_hours < 72: skip_optimization('Postiz account too new — analytics populate after 48h. Run again tomorrow.')`. Do not run hook optimization or content type decisions until at least 5 posts have at least 24 hours of analytics data."
+    },
+    {
+      "condition": "TikTok post rejected by Postiz API because video length exceeds 60 seconds — standard TikTok accounts are limited to 60s, the skill generates 90-second slideshows without checking the account's upload limit",
+      "recovery": "Before rendering, check the TikTok account's upload limit via Postiz: `GET /api/social-accounts/{id}/limits`. If `max_video_duration_seconds == 60`, cap the slideshow at 58 seconds (2s buffer). For longer content, split into two sequential posts or upgrade the TikTok account to creator status (allows 10-minute videos)."
+    },
+    {
+      "condition": "RevenueCat SDK not initialized before the app's first launch event — TikTok attribution window (24h) closes before the SDK is ready to receive the purchase event, breaking conversion attribution",
+      "recovery": "Initialize RevenueCat in `application(_:didFinishLaunchingWithOptions:)` (iOS) or `Application.onCreate()` (Android) — before any other SDK. Verify initialization order in the startup log: RevenueCat's `Purchases.configure()` must appear before any `Analytics.logEvent()` calls. Use RevenueCat's debug overlay to confirm attribution is firing on first launch."
+    }
+  ],
+  "launch-readiness-check": [
+    {
+      "condition": "DNS resolves to the Cloudflare tunnel hostname but the tunnel is pointed at port 8000 (old development server) instead of port 8080 (current production service) — health check returns 200 on the wrong process",
+      "recovery": "Verify the tunnel target: `cloudflared tunnel info <tunnel-name> | grep url` and compare the port to `systemctl show <service-name> --property=ExecStart`. If they differ, update the tunnel config: `cloudflared tunnel route dns <tunnel-name> <domain>` and restart the tunnel with the corrected `url: http://localhost:8080`."
+    },
+    {
+      "condition": "Alembic head check skipped during launch readiness — the deployed code expects column `subscription_tier` (added in migration `abc123`) but the DB still has the pre-migration schema, causing 500 errors on first real user",
+      "recovery": "Run `alembic current` on the deploy host and compare to `alembic heads` in the repo. If they differ: `alembic upgrade head` on the target database before declaring live. Never skip the alembic check; it must be the last verification step before DNS cutover."
+    },
+    {
+      "condition": "Smoke tests run against `http://localhost:8080` instead of the public URL `https://app.example.com` — tests pass because the local service is healthy, but the public URL is actually returning 502 from a misconfigured reverse proxy",
+      "recovery": "Hard-code the public URL in the smoke test suite. Never use localhost or 127.0.0.1 in launch readiness checks. Run: `curl -sv https://app.example.com/api/health` (note the `s` flag — show TLS details) and verify the response comes from the production server, not a local process."
+    },
+    {
+      "condition": "Git commit on the deploy host (`git rev-parse HEAD`) is behind `origin/main` by 3 commits — a deploy was queued but didn't run, and the launched version is missing 3 critical fixes",
+      "recovery": "Compare `git rev-parse HEAD` on the host against `git ls-remote origin HEAD` (no clone required). If they differ, `git fetch origin && git diff HEAD..origin/main --stat` to see what's missing. Pull and rebuild: `git pull && systemctl restart <service>`. Only declare launch-ready when host HEAD matches origin HEAD."
+    }
+  ],
+  "lean-startup": [
+    {
+      "condition": "MVP built and shipped before defining the learning hypothesis — the team has usage data but no baseline prediction to compare against, so Build-Measure-Learn produces no validated learning",
+      "recovery": "Before any build work, write the hypothesis in falsifiable form: 'We believe [persona] will [action] because [reason]. We'll know this is true when [metric] reaches [threshold] within [timeframe].' If this can't be written before building, the build shouldn't start. Score the current experiment against this template — a missing hypothesis scores 0/10."
+    },
+    {
+      "condition": "Signup count (vanity metric) accepted as validation signal for a B2B SaaS — 500 signups with 0 company email domains and 0 paid conversions is treated as 'strong market interest'",
+      "recovery": "Replace vanity metrics with actionable metrics on the validation ladder: 'percentage of users who complete onboarding within 24h' (Level 3) or 'number of paying customers after a 14-day trial' (Level 4). Apply the metric test: 'Can we take a specific action based on this number?' If the answer is 'we could post about it on Twitter,' it's vanity."
+    },
+    {
+      "condition": "Pivot decision made based on one customer interview where the customer said 'I wouldn't pay for this' — team pivots the entire product without checking if this is an outlier vs. a pattern",
+      "recovery": "Require a minimum sample size before a pivot decision: at least 5 interviews with the same outcome, or a quantitative signal from 50+ users showing the same behavior. A single 'wouldn't pay' is a yellow signal at best. Compare the interview to the validation criteria defined before the experiment — only act if the pre-defined threshold is crossed."
+    },
+    {
+      "condition": "Build-Measure-Learn loop planned as: build entire product (4 months), measure (1 month), learn (1 week) — total cycle time of 5.5 months means only 2 loops per year",
+      "recovery": "Apply reverse planning to compress the loop: start with 'What do we need to learn?' and find the cheapest test. For a purchase hypothesis, the minimum test is a landing page with a payment button (build in 2 days, measure in 1 week). For a usability hypothesis, 5 user sessions with a mockup (build in 1 day, measure in 3 days). Target loop time < 2 weeks for early-stage."
+    }
+  ],
+  "llm-wiki-hermes": [
+    {
+      "condition": "New wiki page created for 'Cognee Architecture' but not linked from the index page or any related page — the page is invisible to graph traversal and never surfaced in searches",
+      "recovery": "After creating any new wiki page, run a link-audit script: `grep -rn 'Cognee Architecture' ~/obsidian-vault/ | grep -v 'cognee-architecture.md'` — if zero results, add a wikilink from at least one related page and from the index. Every page must have at least one incoming link to be part of the connected graph."
+    },
+    {
+      "condition": "Embedding model swapped from `text-embedding-ada-002` (dim=1536) to `text-embedding-3-small` (dim=1536 compatible) mid-build — works. But if swapped to `text-embedding-3-large` (dim=3072), existing embeddings are incompatible and similarity search returns nonsense results",
+      "recovery": "Before swapping embedding models, delete all existing embeddings: `rm -rf .wiki_embeddings/`. Rebuild the embedding index from scratch with the new model. Add a metadata file `.wiki_embeddings/model.json` recording `{\"model\": \"text-embedding-3-large\", \"dim\": 3072}` and validate on load: if stored dim != current model dim, abort and prompt to rebuild."
+    },
+    {
+      "condition": "Wiki build script encounters a `[[non-existent-page]]` wikilink — depending on implementation, either crashes with KeyError or silently creates a dangling link that produces 404 on navigation",
+      "recovery": "Add a link validation pass before finalizing the build: `grep -roh '\\[\\[[^\\]]*\\]\\]' wiki/ | sed 's/\\[\\[//g; s/\\]\\]//g' | sort -u > /tmp/linked.txt && ls wiki/*.md | xargs -I{} basename {} .md | sort > /tmp/existing.txt && comm -23 /tmp/linked.txt /tmp/existing.txt` — output is the set of dangling links. Either create stub pages or fix the link references."
+    },
+    {
+      "condition": "Duplicate concept pages created under 'LLM Providers' and 'AI Model Providers' — both have substantial content, neither references the other, knowledge is fragmented",
+      "recovery": "Run a semantic deduplication check before creating any new page: search existing pages for the concept name and synonyms. If a page covers the same domain, merge rather than create. Standard merge procedure: pick the canonical name (usually the more specific one), redirect the other via a frontmatter alias, and append the unique content from the duplicate."
+    }
+  ],
+  "local-skills-discovery": [
+    {
+      "condition": "HOME is a symlink (`/home/adam -> /data/users/adam`) — glob patterns like `~/.hermes/skills/**` resolve to the symlink target but the skill scans the literal `~` path, missing skills installed under the physical path",
+      "recovery": "Resolve HOME before scanning: `REAL_HOME=$(realpath ~)`. Use `$REAL_HOME/.hermes/skills/` in all globs. Test with: `ls -la \"$(realpath ~)/.hermes/skills/\" | head -5`. If the symlink-resolved path differs from `~`, both paths should be checked to catch any skills installed under either form."
+    },
+    {
+      "condition": "Two skills with slug `code-review` installed — one in `~/.hermes/skills/` and one in `~/.claude/skills/` — the later-discovered one overwrites the first in the unified catalog without preserving both or warning",
+      "recovery": "When a slug collision is detected, emit a warning and use the `source` field to distinguish: `{\"slug\": \"code-review\", \"source\": \"hermes\", ...}` vs `{\"slug\": \"code-review\", \"source\": \"claude\", ...}`. Never silently overwrite. Surface both in the catalog with a `conflict: true` flag and let the caller decide which to use."
+    },
+    {
+      "condition": "Skill SKILL.md was mounted read-only in a Docker volume — `mtime` never changes when the skill is updated inside the container, so freshness metadata reports stale dates for always-current skills",
+      "recovery": "For skills in read-only mounts, fall back to reading the `version` field from the SKILL.md frontmatter as the freshness signal instead of mtime. Compare the version string against the catalog's recorded version. If frontmatter is also missing a version, mark `freshness: unknown` explicitly rather than reporting a stale mtime as the freshness date."
+    },
+    {
+      "condition": "SKILL.md frontmatter missing `version` field for 15 of 53 discovered skills — discovery reports `version: unknown` for all of them, making the audit output unreliable for dependency management",
+      "recovery": "For skills with missing version fields, fall back to the git tag of the containing repo if the skill lives in a git-tracked directory: `git -C <skill_dir> describe --tags --abbrev=0 2>/dev/null`. If no git tag exists either, extract the creation date from `git log --follow --format=%ai <skill_dir>/SKILL.md | tail -1` and report `version: git-<YYYY-MM-DD>`."
+    }
+  ],
+  "mcp-builder": [
+    {
+      "condition": "FastMCP tool accesses Pydantic model fields with dict-style `params['query']` instead of attribute access `params.query` — raises `TypeError: 'SearchParams' object is not subscriptable` at runtime",
+      "recovery": "Replace all `params['field']` with `params.field` in FastMCP tool implementations. Pydantic BaseModel instances use attribute access, not dict subscript. Add a pre-Phase-4 code scan: `grep -n \"params\\[\" server.py` — any hit needs to be converted to dot notation. Test with: `mcporter call --server my-server --tool search '{\"query\": \"test\"}'`."
+    },
+    {
+      "condition": "TypeScript MCP server hardcodes port 3000 in the stdio transport config — when another process occupies port 3000, the server fails to start with `EADDRINUSE` and `mcporter` reports a timeout instead of a clear error",
+      "recovery": "MCP stdio servers should not listen on a port at all — they communicate via stdin/stdout. Remove any `listen(3000)` or `createServer().listen()` call. The MCP SDK stdio transport handles the connection through process.stdin/process.stdout. Verify startup: `timeout 5s node server.js` should exit cleanly (after 5s) without any bind error."
+    },
+    {
+      "condition": "Tool description exceeds 1000 characters — some MCP clients (Claude Desktop, Cursor) truncate the tool manifest, making the tool appear with incomplete instructions and LLMs fail to use it correctly",
+      "recovery": "Keep tool descriptions under 500 characters. Move implementation details to the tool's parameters' `description` fields instead. Validate length: `python3 -c \"import json; d=json.load(open('tool-manifest.json')); [print(t['name'], len(t['description'])) for t in d['tools']]\"`. Any description > 500 chars needs trimming."
+    },
+    {
+      "condition": "`mcporter config add my-server python server.py` succeeds but `mcporter call` times out at 30s because the server awaits input from an interactive prompt (`input()` call left in from development)",
+      "recovery": "Search for interactive input calls before shipping: `grep -n 'input()\\|sys.stdin.read\\|raw_input' server.py`. Remove or guard with `if sys.stdin.isatty():`. Test headless startup: `echo '' | timeout 5s python server.py` — if it hangs past 5 seconds, an interactive read is blocking the stdio transport initialization."
+    }
+  ],
+  "mom-test": [
+    {
+      "condition": "Customer interview question 'Would you pay $50/month for this tool?' included in the script — this is a leading future-hypothetical question that violates Mom Test Rule 2 and produces false validation data",
+      "recovery": "Replace every 'would you' question with a past-behavior equivalent: 'What did you last pay for a tool that does something similar?' or 'Walk me through the last time you had to deal with this problem.' Run a Mom Test compliance check: any question answered with 'yes' by a polite stranger who doesn't want your product fails the test."
+    },
+    {
+      "condition": "Customer says 'That's really interesting, I'd love to have something like that' — this compliment is recorded as a strong positive signal (green light) in the findings doc",
+      "recovery": "Re-code this as a yellow light (compliment, not a commitment). Update the findings doc to reflect the Mom Test signal hierarchy: green = money transferred, time committed, specific referral given; yellow = 'that's interesting', 'sounds useful'; red = direct rejection or 'I don't have that problem.' Separate signal level from interview notes."
+    },
+    {
+      "condition": "Interview conducted with the VP of Engineering (decision-maker and budget owner) instead of the actual daily user (the developer who would use the tool) — the VP's pain points are organizational, not the product's actual workflow pain",
+      "recovery": "Clarify the interview target before scheduling: for B2B tools, interview the actual daily user first (the person who would touch the product every day), then separately interview the economic buyer. The Mom Test rules apply to both, but the pain profiles are different. Don't conflate the user interview with the buyer interview in the findings."
+    },
+    {
+      "condition": "Findings document mixes verbatim quotes with the interviewer's paraphrased interpretation in the same bullet — downstream readers can't distinguish real customer words from analyst opinion",
+      "recovery": "Use a two-column format in the findings doc: left column is verbatim quotes (exact words, in quotation marks, with interviewee identifier), right column is the interpretation. Never paraphrase in the signal column. If a quote wasn't captured verbatim, mark it as '[paraphrase]' and weight it lower in the analysis."
+    }
+  ],
+  "nano-pdf": [
+    {
+      "condition": "nano-pdf uses 0-based page indexing but user passes 1-based page number — `nano-pdf edit report.pdf 1 \"fix typo\"` edits page 0 (first page) on some versions and raises an index error on others",
+      "recovery": "Test the version's indexing with a known two-page PDF: `nano-pdf edit test.pdf 0 \"add marker page-0\"` and `nano-pdf edit test.pdf 1 \"add marker page-1\"` — examine which physical page each edit lands on. The readme notes this ambiguity explicitly; always validate with `±1` before applying to real documents. Pin the nano-pdf version after confirming indexing behavior."
+    },
+    {
+      "condition": "nano-pdf not installed on the host — `nano-pdf` command returns `bash: nano-pdf: command not found`",
+      "recovery": "Install via uv (preferred in Hermes): `uv pip install nano-pdf`. Or via pip: `pip install nano-pdf`. Verify installation: `which nano-pdf && nano-pdf --version`. If `uv` is not available: `pip install --user nano-pdf` and ensure `~/.local/bin` is on PATH."
+    },
+    {
+      "condition": "nano-pdf called to reposition a text block (move the title 2cm to the right) — the tool edits text content via LLM but does not support positional or layout modifications, silently leaving positions unchanged",
+      "recovery": "For layout modifications (position, font size, image placement), nano-pdf is the wrong tool. Use `pypdf` with `PageObject.merge_transformed_page()` or switch to `reportlab` for structural changes. nano-pdf's scope is text content replacement only — spelling, naming, date changes. Verify the output file size hasn't changed unexpectedly (unchanged layout = same byte count)."
+    },
+    {
+      "condition": "nano-pdf LLM call fails with `AuthenticationError` because the API key for the underlying LLM provider is not configured in nano-pdf's config file or environment",
+      "recovery": "Run `nano-pdf --help` to identify which env var or config file the tool reads for the API key. Typically: `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`. Set the appropriate key: `export OPENAI_API_KEY=$(bw get password openai-api-key)`. Check nano-pdf's config location: `cat ~/.nano-pdf/config.json` if the env var approach doesn't work."
+    }
+  ],
+  "obviously-awesome": [
+    {
+      "condition": "Competitive alternatives analysis lists only direct competitors (other SaaS tools) and omits 'doing nothing' and 'cobbled-together spreadsheets + email' as alternatives — the product gets positioned against the wrong baseline",
+      "recovery": "For every product, require at least one 'status quo' alternative: 'what does the customer do today if we don't exist?' Common status-quo alternatives: Excel/Google Sheets, email threads, hiring a freelancer, manual processes. Include these in the competitive alternatives table and position against them — they often represent the largest share of the actual competitive landscape."
+    },
+    {
+      "condition": "Market category chosen is 'AI tools' — a 10,000-company category where differentiation is invisible and every claim is matched by 50 competitors",
+      "recovery": "Apply the 'category of one' test: can you name 3 direct competitors that belong to the same category? If yes, the category is too broad. Narrow until you can say 'the only [category] that [unique attribute] for [specific customer].' For AI tools companies: 'AI scheduling tool for solo agency founders who bill by the hour' is a category — 'AI tools' is not."
+    },
+    {
+      "condition": "Positioning exercise completed by the product team alone — sales team has different positioning (emphasizing different unique attributes) and uses it in all external conversations, creating internal misalignment",
+      "recovery": "Run the positioning workshop with at least one person from sales and one from customer success in the room. After the session, distribute the positioning canvas and ask each participant to write one sentence of how they'd describe the product to a prospect. Collect and compare — divergence > 30% of wording means the positioning hasn't landed and needs another session."
+    },
+    {
+      "condition": "Unique attributes listed are table-stakes features ('easy to use', 'affordable', 'integrates with Slack') that all competitors also claim — these aren't differentiators and scoring the positioning gives 3/10",
+      "recovery": "Apply the differentiator filter: for each claimed unique attribute, ask 'Which specific competitor does NOT offer this?' If every named competitor offers it, it's a qualifier (needed to compete) not a differentiator (reason to choose you). Remove qualifiers from the unique attributes list. Only keep attributes where the answer names at least one competitor that lacks it."
+    }
+  ],
+  "plan-for-goal": [
+    {
+      "condition": "Goal written as 'Improve system performance' — no falsifiability criterion, no measurement, no completion state; could be open forever",
+      "recovery": "Rewrite using the SMART-falsifiable template: 'Reduce P95 API response time from 450ms to under 200ms as measured by Datadog on the /api/v1/search endpoint, validated over 7 consecutive days.' Every goal must have a specific metric, a specific target value, a measurement method, and a time boundary. If any of these four elements is missing, the goal is incomplete."
+    },
+    {
+      "condition": "Five goals generated for a sprint but dependency order not specified — goal 3 ('Deploy to production') is attempted before goal 1 ('Pass integration tests'), causing a failed deploy",
+      "recovery": "Add a `depends_on: [goal_id]` field to each goal that has a prerequisite. Before generating the plan, draw the dependency graph and topologically sort the goals. Present the execution order explicitly: 'Goal 3 cannot start until goals 1 and 2 are complete.' Mark blocking dependencies in the issue tracker with explicit link types."
+    },
+    {
+      "condition": "Goals generated at week-level granularity for a 3-month project — each goal takes 3 weeks with no intermediate checkpoints, making it impossible to detect slippage until the deadline",
+      "recovery": "Break any goal that takes > 5 business days into sub-goals with intermediate deliverables. Each sub-goal should produce a tangible artifact (a passing test, a merged PR, a deployed endpoint) that can be independently verified. Maximum goal size for early-stage work: 3 days. Add explicit checkpoints at days 3 and 7 for any goal that runs longer."
+    },
+    {
+      "condition": "Plan pasted into GitHub Issues loses the structured format (numbered goals, dependencies, acceptance criteria all collapse into unformatted text) — the plan is no longer machine-parseable",
+      "recovery": "Use GitHub's task list syntax (`- [ ] goal description`) and cross-reference links (`#issue-number`) for dependencies. Test paste into a draft issue before finalizing. Alternatively, generate the plan as a GitHub Project (not issue) using the GitHub API to create cards with proper fields. Check that acceptance criteria survive as issue body, not just title."
+    }
+  ],
+  "pr-draft": [
+    {
+      "condition": "`git diff main..HEAD` used instead of `git diff $(git merge-base main HEAD)..HEAD` — the diff includes commits from main that diverged after the branch was created, producing a PR description that references unrelated changes",
+      "recovery": "Always use the merge-base form: `git diff --stat $(git merge-base main HEAD)..HEAD`. The merge-base is the actual fork point. Verify: `git log --oneline $(git merge-base main HEAD)..HEAD` should show only commits made on the feature branch, not any from main's history."
+    },
+    {
+      "condition": "PR description references `Fixes #847` but issue #847 doesn't exist in the repository — GitHub renders a dead link and the reviewer is confused about what was being fixed",
+      "recovery": "Before including issue references, verify they exist: `gh issue view 847 2>&1 | head -1` (should return the issue title, not 'not found'). If the issue is in a different repo, use the full reference `org/repo#847`. If there's no linked issue at all, use `Related to [description]` prose instead of a magic keyword."
+    },
+    {
+      "condition": "`git branch --show-current` returns nothing (detached HEAD state) — all subsequent `git diff main..HEAD` commands reference no branch, producing an empty or nonsensical diff",
+      "recovery": "Detect detached HEAD: `git symbolic-ref --short HEAD 2>/dev/null || echo 'DETACHED'`. If detached, abort and ask the user to `git checkout -b <branch-name>` to name the current commit before generating the PR. Never generate a PR from a detached HEAD state — the PR will have no branch to merge."
+    },
+    {
+      "condition": "Conventional Commits type chosen as `feat:` for a change that only fixes a regression introduced 2 commits ago — downstream semantic versioning bumps minor version instead of patch version",
+      "recovery": "Apply the semantic versioning rule: `fix:` = bug fix = patch bump (1.0.x); `feat:` = new capability = minor bump (1.x.0); `BREAKING CHANGE` = major bump (x.0.0). If the change corrects a regression (code that was working before), it's a `fix:` regardless of the code volume changed. Check the git log for 'introduced in' commits to classify correctly."
+    }
+  ],
+  "proposal-builder": [
+    {
+      "condition": "weasyprint PDF generation fails with `OSError: cannot load library 'libgobject-2.0-0'` on a fresh Ubuntu 24.04 machine where the Pango system library is not installed",
+      "recovery": "Install the required system library: `sudo apt install -y libpango-1.0-0 libpangoft2-1.0-0 libglib2.0-0`. Verify: `python3 -c 'import weasyprint; print(weasyprint.__version__)'`. If the command succeeds with no output but still fails on render, also install: `sudo apt install -y libcairo2 libpangocairo-1.0-0`. The skill falls back to `.md` output if weasyprint is absent — check `output/` for a `.md` file if no PDF is produced."
+    },
+    {
+      "condition": "Discovery call transcript is 3 bullet points and a date — Claude extracts placeholder-quality data for scope, deliverables, and pricing tiers because the transcript lacks specifics",
+      "recovery": "Before calling Claude, validate transcript quality: word count must exceed 500 words and include at least one pricing-related sentence and one deliverable description. If below threshold, prompt the user for additional call notes before proceeding. A minimal extraction prompt will not produce a usable proposal — the output quality is bounded by the input quality."
+    },
+    {
+      "condition": "Claude API call for extraction returns a truncated JSON object when the transcript exceeds ~60,000 tokens — the extracted `deliverables` array is cut off mid-item and the JSON is invalid",
+      "recovery": "Chunk long transcripts before extraction: split at natural boundaries (speaker turns, section headers) into segments of ~10,000 tokens each. Extract from each segment independently, then merge the outputs. Validate the final JSON before rendering: `python3 -c \"import json; json.load(open('extracted.json'))\"` — a JSONDecodeError means truncation occurred."
+    },
+    {
+      "condition": "`fonts.googleapis.com` blocked by a corporate proxy — weasyprint renders the PDF with the system fallback font (DejaVu Serif) instead of the branded font, breaking the agency's visual identity",
+      "recovery": "Download the required Google Font files locally before rendering: `wget -O /tmp/inter.ttf 'https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMw2boKoduKmMEVuLyfAZ9hiJ-Ek-_EeA.woff2'` and set `@font-face { src: url('/tmp/inter.ttf') }` in the HTML template. Or configure weasyprint's `font_config` to include the local font path."
+    }
+  ],
+  "railway-serverless-diagnose": [
+    {
+      "condition": "Autonomous agent fires a single HTTP probe, receives `404 {\"message\":\"Application not found\"}` from Railway's edge during the cold-start wake window, and records the service as 'dead' in Paperclip — triggering a cascade of blocked downstream tickets",
+      "recovery": "Never act on a single 404 probe. Implement the wake-and-retry pattern: `sleep 10 && curl -sf https://api.example.up.railway.app/health`. If the second probe returns 200, the first 404 was a cold-start artifact. Update the Paperclip ticket status before any downstream tickets are marked as blocked on this diagnosis."
+    },
+    {
+      "condition": "Railway API state check at `backboard.railway.app/graphql/v2` returns 401 because the Railway Bearer token stored in the agent's env has expired or been rotated",
+      "recovery": "Generate a new Railway token at railway.app/account/tokens. Update the agent env: `export RAILWAY_TOKEN=<new_token>`. Re-run the API state check: `curl -H 'Authorization: Bearer $RAILWAY_TOKEN' -H 'Content-Type: application/json' https://backboard.railway.app/graphql/v2 -d '{\"query\":\"{ me { id } }\"}'`. A successful `me.id` response confirms the token works."
+    },
+    {
+      "condition": "Wake probe sent to the Railway health endpoint `/health` instead of the root path `/` — the app's /health route requires database connectivity and returns 503 during boot even after the cold-start completes, masking a healthy app as dead",
+      "recovery": "Send the wake probe to the root path `/` or a lightweight endpoint that doesn't require DB connectivity. Only use `/health` for a diagnostic probe after confirming the app is running. During Railway cold-start diagnosis, use `curl -sS -o /dev/null -w '%{http_code}' https://api.example.up.railway.app/` — a non-404 response (including 401 or 302) confirms the app is alive."
+    },
+    {
+      "condition": "Multiple downstream Paperclip tickets were marked as blocked based on the original misdiagnosis — even after the service is confirmed healthy, the stale 'Railway is dead' status on the root ticket leaves all downstream tickets in blocked state",
+      "recovery": "After confirming the service is healthy via a successful HTTP probe, update the root diagnosis ticket immediately: change status to 'unblocked', add a note 'Railway cold-start false alarm — service confirmed healthy at [timestamp] via probe to [URL]'. Then use Paperclip's bulk-update to unblock all tickets that cited the root ticket as their blocker."
+    }
+  ],
+  "repo-viz": [
+    {
+      "condition": "`d2` installed at `~/.local/bin/d2` but the shell PATH doesn't include `~/.local/bin` — all render commands fail silently with `d2: command not found` and no PNG is produced",
+      "recovery": "Add to shell profile: `export PATH=\"$HOME/.local/bin:$PATH\"` in `~/.bashrc` or `~/.zshrc`, then `source ~/.bashrc`. For immediate use without reloading: `~/.local/bin/d2 --theme 200 input.d2 output.png`. Verify: `~/.local/bin/d2 --version` should print the version string."
+    },
+    {
+      "condition": "D2 syntax error in the generated `.d2` file (e.g., unclosed quote in a label) — `d2` exits 0 but produces a zero-byte PNG file, indistinguishable from a successful render without checking file size",
+      "recovery": "Always check output file size after render: `ls -lh output.png | awk '{print $5}'` — a zero-byte or sub-1KB file indicates a render failure. Check d2's stderr: `d2 input.d2 output.png 2>&1 | grep -i error`. Fix syntax by running `d2 fmt input.d2` (d2 has a formatter that catches most syntax issues) before rendering."
+    },
+    {
+      "condition": "Playwright Chromium not installed on the host — `npx playwright screenshot` fails with `Error: browserType.launch: Executable doesn't exist at /root/.cache/ms-playwright/chromium-*/chrome-linux/chrome`",
+      "recovery": "Install the Playwright browser: `npx playwright install chromium`. This is a one-time setup step that downloads ~150MB. Verify: `npx playwright install --dry-run chromium 2>&1 | grep -i 'already installed'`. In CI, add the install step before any screenshot commands in the workflow."
+    },
+    {
+      "condition": "Playwright viewport flag passed as `--viewport-size=\"1200,630\"` (comma) instead of `--viewport-size=\"1200x630\"` (x) — screenshot silently uses the default 1280×720 viewport, cropping the OG image card incorrectly",
+      "recovery": "Use `x` as the separator: `npx playwright screenshot --full-page --viewport-size=\"1200x630\" hero.html output.png`. Verify the output dimensions: `python3 -c \"from PIL import Image; img=Image.open('output.png'); print(img.size)\"` — expected `(1200, 630)`. If it shows `(1280, 720)`, the viewport flag was ignored."
+    }
+  ],
+  "ruthless-mentor": [
+    {
+      "condition": "Mentor identifies 6 improvement areas simultaneously — user receives a list of 6 critiques and acts on none because the cognitive load of parallel change is too high",
+      "recovery": "Prioritize to exactly one change per session: 'The single highest-leverage habit to change this week is X. Everything else stays as-is.' After the user demonstrates change on item 1 (1-2 weeks), introduce item 2. Never surface more than one priority at a time regardless of how many issues exist."
+    },
+    {
+      "condition": "Advice given without first understanding the user's actual constraints — mentor recommends 'spend 2 hours daily on deep work' to a parent of a newborn who has 45-minute windows",
+      "recovery": "Before any recommendation, elicit three constraints: (1) available daily time window in minutes, (2) hard deadline or external forcing function, (3) the one thing that must not change. Tailor every recommendation to fit within constraint 1 exactly. Ignore-constraint advice has a near-zero completion rate."
+    },
+    {
+      "condition": "Feedback delivered in adversarial framing ('This is mediocre and you know it') — user stops sharing work with the mentor, removing the feedback loop entirely",
+      "recovery": "Reframe critique as gap analysis: 'This is at a 6/10. Here's specifically what a 9/10 version looks like: [concrete example]. The gap is [specific behavior]. You can close it by [specific action].' The adversarial tone is reserved for when the user has explicitly asked for 'brutal feedback' — otherwise, use calibrated directness."
+    },
+    {
+      "condition": "Action items assigned at end of session without a deadline or measurement criterion — items appear in the next session uncompleted, no data on whether the advice was actionable",
+      "recovery": "Every action item must have: (1) a specific observable output ('draft the landing page headline, not revise the product'), (2) a deadline ('by Thursday 6pm'), and (3) a self-check ('it's done when you can paste the headline here'). At the next session, review completion before adding new items."
+    }
+  ],
+  "seo-audit-engine": [
+    {
+      "condition": "npx lighthouse in a Docker container crashes with `CHROME_CRASH: Chrome exited with code 139` even with `--no-sandbox` flag — the container needs additional capabilities",
+      "recovery": "Add `--disable-setuid-sandbox` alongside `--no-sandbox` in `LH_CHROME_FLAGS`. If still crashing, run the container with `--cap-add=SYS_ADMIN`. On WSL2, also add `--disable-gpu --single-process`. Verify the fix: `npx --yes lighthouse https://example.com --chrome-flags='--headless --no-sandbox --disable-setuid-sandbox' --output=json | jq '.lighthouseVersion'`."
+    },
+    {
+      "condition": "Target site is a React SPA — BeautifulSoup crawl returns `<div id='root'></div>` (pre-JS HTML) with no meta tags, headings, or links because all content is injected at runtime by JavaScript",
+      "recovery": "For JS-rendered sites, the BeautifulSoup crawl results are unreliable. Use only the Lighthouse scores (which use a real Chromium with JS execution) and mark all crawl-based findings (missing alt text, broken links, heading hierarchy) as `[unverifiable — JS-rendered site]` in the report. Switch to Playwright-based crawling if structural analysis is required."
+    },
+    {
+      "condition": "`requests.head()` for link checking returns 405 `Method Not Allowed` from a CDN-fronted URL — the link checker marks a valid URL as broken and includes it in the broken-links section of the report",
+      "recovery": "Implement a fallback for 405 responses: retry with `requests.get()` using `stream=True` and read only the first 512 bytes. If GET returns 200, reclassify as 'valid link (HEAD blocked)'. Add a `head_blocked: true` annotation in the report rather than 'broken link'. CDN providers (Cloudflare, Fastly) commonly block HEAD requests."
+    },
+    {
+      "condition": "Target site's `robots.txt` blocks the audit user agent (`Disallow: /` for `User-agent: *`) — crawl returns empty because the site actively blocks unknown bots",
+      "recovery": "Check robots.txt first: `curl -s https://target.com/robots.txt`. If `Disallow: /` is present for all agents, the crawl will be empty. Options: (1) add the audit tool's user-agent to the site's robots.txt whitelist, (2) pass a whitelisted User-Agent string via `--user-agent` flag, or (3) run with `--skip-robots` only if the site owner has authorized the audit."
+    }
+  ],
+  "skill-creator": [
+    {
+      "condition": "New skill created with slug `code-review` — an existing skill with that slug already exists in the catalog. The creation process overwrites the existing SKILL.md without warning",
+      "recovery": "Before writing any file, check for slug collisions: `ls ~/.hermes/skills/**/$SLUG/SKILL.md 2>/dev/null`. If a match is found, abort and present the existing skill for review. Ask explicitly: 'A skill with slug X already exists. Do you want to update it (keep slug) or create a new one (choose a different slug)?' Never overwrite silently."
+    },
+    {
+      "condition": "SKILL.md generated without required frontmatter fields (`version`, `author`, `license`) — skill passes local install but fails catalog validation in recipes.wisechef.ai's submission pipeline",
+      "recovery": "Use a template with all required fields pre-populated: `version: 1.0.0`, `author: <creator_name>`, `license: MIT`. Run a frontmatter validation check before completing: `python3 -c \"import yaml; d=yaml.safe_load(open('SKILL.md').read().split('---')[1]); assert all(k in d for k in ['version','author','license']), 'missing fields'\"`. Fix any missing fields before submission."
+    },
+    {
+      "condition": "Skill written and saved to `~/clawd/skills/` (Claude Code path) instead of `~/.hermes/skills/` (Hermes path) — the skill is invisible to Hermes agents and never appears in local-skills-discovery output",
+      "recovery": "Determine the target platform before writing: `echo $HERMES_SKILLS_DIR` for Hermes, or check the Claude Code skills config for Claude Code. Save to both if cross-platform support is needed. After saving, verify discoverability: `bash -c 'ls ~/.hermes/skills/**/$SLUG/SKILL.md 2>/dev/null'` — absence means wrong path."
+    },
+    {
+      "condition": "Skill declares no dependencies in its SKILL.md but requires `weasyprint`, `anthropic`, and `pango` system library — users install the skill and get import errors on first use",
+      "recovery": "Add `requiredEnv`, `permissions`, and a `prerequisites` section to SKILL.md listing every dependency: Python packages, system libraries, external binaries, and API keys. Template: `prerequisites: [\"pip install weasyprint anthropic\", \"sudo apt install libpango-1.0-0\"]`. Test a clean-room install by creating a fresh virtualenv and following only the documented prerequisites."
+    }
+  ],
+  "startup-architect": [
+    {
+      "condition": "Web search for 'AI productivity tools market size 2026' returns an AI-generated Medium article with fabricated TAM figures ($847B) — these numbers are used in market_analysis.md without source verification",
+      "recovery": "Require primary or analyst sources for all market figures: Gartner, IDC, Grand View Research, or SEC filings. For each TAM/SAM number, record the source URL and publication year in the markdown. If only AI-generated content is available, label the data as 'estimate — unverified' and search for at least one corroborating source before using."
+    },
+    {
+      "condition": "Competitor pricing scraped from a web page where the pricing section is loaded by JavaScript — BeautifulSoup-based extraction returns the empty div, and the agent uses outdated pricing from a 6-month-old Google cache",
+      "recovery": "For JS-rendered pricing pages, use the `--extract-only` flag with summarize-cli or fetch via a Playwright-based extractor that executes JavaScript. Cross-reference any extracted pricing with G2, Capterra, or the Wayback Machine timestamp. Record the extraction date in competitor_map.md: 'Pricing as of [date]: $XX/mo.'"
+    },
+    {
+      "condition": "landing_page.html references Tailwind CDN (`<script src='https://cdn.tailwindcss.com'>`) but the agent runs in an offline or restricted-network environment — the page renders unstyled",
+      "recovery": "For offline-safe delivery, inline critical CSS: copy the required Tailwind utility classes as a `<style>` block in the HTML head. Alternatively, use the Tailwind CLI to generate a standalone CSS file: `npx tailwindcss -i input.css -o output.css --minify` and embed the output inline. Test rendering by opening the file with network disabled."
+    },
+    {
+      "condition": "Files saved to `~/Desktop/startup_kit/` — on a headless Linux server or WSL environment, there is no `~/Desktop/` directory, causing a `mkdir -p` silent success but files written to a non-discoverable path",
+      "recovery": "Create the output directory at a guaranteed path: `mkdir -p ~/startup-kit-$(date +%Y%m%d)`. Confirm the directory exists before writing: `[ -d \"$OUTPUT_DIR\" ] && echo 'OK' || exit 1`. At completion, print the absolute path: `echo \"Kit written to: $(realpath ~/startup-kit-$DATE)\"`. Never hardcode `~/Desktop/` on server environments."
+    }
+  ],
+  "stripe-live-price-rotation": [
+    {
+      "condition": "Legacy env-var alias `RESCUE_PRICE_ID` not updated alongside `PRICE_RESCUE` — checkout-routes.js reads the old alias and charges customers the archived price, which Stripe rejects with `Error: price is not active`",
+      "recovery": "Grep for ALL price env-var naming forms before updating: `ssh $HOST 'grep -rE \"process\\.env\\.[A-Z_]*PRICE[A-Z_]*\" /path/to/app/src/'`. Update every matching env-var name in the .env file. Restart the service after each batch of env-var changes and verify with `curl https://app/api/prices | jq '.rescue_price_id'` that the response shows the new price ID."
+    },
+    {
+      "condition": "Service restarted using `sudo systemctl restart app` but the service runs under user systemd (`systemctl --user restart app`) — `sudo systemctl` acts on the system unit (which doesn't exist), exits 0 with a 'not found' warning, and the service is never actually restarted with the new env vars",
+      "recovery": "Determine the systemd scope before restarting: `systemctl --user status app 2>/dev/null | head -1` vs `sudo systemctl status app 2>/dev/null | head -1`. Use whichever returns the active unit. If unsure: `ps aux | grep '[a]pp' | awk '{print $1}'` — if UID matches the logged-in user, it's user-mode. Use `systemctl --user restart app` for user-mode services."
+    },
+    {
+      "condition": "Frontend JS bundle cached by Cloudflare CDN for 1 hour — after deploying the new price copy, the CDN serves the old bundle with the old price strings to users for up to 60 minutes",
+      "recovery": "After frontend deploy, purge the CDN cache immediately: `curl -X POST 'https://api.cloudflare.com/client/v4/zones/$ZONE_ID/purge_cache' -H 'Authorization: Bearer $CF_TOKEN' -d '{\"purge_everything\":true}'`. Verify the purge worked by checking the response body for `\"success\": true`. Then re-run the smoke test against the public URL and confirm the new price strings appear in the JavaScript bundle source."
+    },
+    {
+      "condition": "Existing subscriber's active subscription is on an archived price_id (`price_OLD`) — Stripe's next billing cycle attempts to invoice on the archived price and fails, causing subscription churn",
+      "recovery": "Before archiving any price, check for active subscriptions using it: `curl -s -u \"$STRIPE_SECRET_KEY:\" 'https://api.stripe.com/v1/subscriptions?price=price_OLD&status=active&limit=100'`. If subscriptions exist, migrate them first: `curl -s -u \"$STRIPE_SECRET_KEY:\" https://api.stripe.com/v1/subscriptions/$SUB_ID -d 'items[0][id]=$ITEM_ID' -d 'items[0][price]=$NEW_PRICE_ID'`. Only archive the old price after all subscribers are migrated."
+    },
+    {
+      "condition": "Two tiers rotated in one session but only the first tier's env-var is updated — the second tier's `PRICE_WARD` still points to the archived `price_OLD_WARD`, causing checkout for that tier to fail silently",
+      "recovery": "Generate a checklist at the start of any multi-tier rotation: one row per tier with columns (tier_name, old_price_id, new_price_id, env_var_name, env_var_updated, frontend_copy_updated). Complete every row before proceeding to service restart. After restart, test each tier's checkout flow independently with `curl -X POST .../api/checkout -d '{\"tier\":\"ward\"}'` and verify the response includes the new price ID."
+    }
+  ],
+  "stripe-sdk-15-webhook-compat": [
+    {
+      "condition": "`event.get(\"type\", \"\")` raises `AttributeError: get` after upgrading to Stripe Python SDK 15.x — every webhook delivery returns 500, Stripe retries 4 times within 30 seconds, and the `stripe_event_ids` table remains empty",
+      "recovery": "Patch the `verify_webhook_signature` wrapper to convert the Event to a plain dict immediately: `event_dict = json.loads(json.dumps(event, cls=stripe.StripeObjectEncoder))`. All downstream handlers then receive a plain dict and work unchanged. Verify: `ssh $HOST 'journalctl -u app -n 50 | grep -E \"POST /api/stripe/webhook|AttributeError\"'` — after restart, 500s should become 200s."
+    },
+    {
+      "condition": "`event.to_dict()` called on the StripeObject to convert it, but the dict still contains `Decimal` values for `amount` and `tax_rate` — `json.dumps(event.to_dict())` raises `TypeError: Object of type Decimal is not JSON serializable`",
+      "recovery": "Use a custom encoder: `json.loads(json.dumps(event.to_dict_recursive(), cls=stripe.StripeObjectEncoder))`. The `StripeObjectEncoder` handles Decimal serialization. Alternatively, use `float()` on amounts explicitly: `lambda obj: float(obj) if isinstance(obj, Decimal) else obj`. Never assume `to_dict()` produces a JSON-safe dict on SDK 15.x."
+    },
+    {
+      "condition": "Fix applied to the top-level `verify_webhook_signature` function but a nested sub-handler imports the `Event` object directly from a cached module attribute — the StripeObject still leaks through in the sub-handler path",
+      "recovery": "Audit all code paths that touch the Event: `grep -rn 'stripe.Event\\|StripeObject\\|\\.get(\\|\\[.data.\\]' api/webhooks/`. Every access to event data must go through the plain-dict conversion. Use Python's type system to enforce this: add `assert isinstance(event, dict), f'expected dict, got {type(event)}'` at the top of each sub-handler."
+    },
+    {
+      "condition": "Stripe retried the same event 4 times with 500 responses — after the fix is deployed, the 5th delivery succeeds but creates 4 duplicate records in `stripe_event_ids` because idempotency was not checked before the fix was applied",
+      "recovery": "Add idempotency check as the first line of the webhook handler: `if db.query(StripeEventId).filter_by(event_id=event['id']).first(): return Response(status=200)`. After deploying the fix, clean up duplicates: `DELETE FROM stripe_event_ids WHERE ctid NOT IN (SELECT min(ctid) FROM stripe_event_ids GROUP BY event_id)`. Use the Stripe Dashboard's Events view to confirm which events were processed multiple times."
+    }
+  ],
+  "strix": [
+    {
+      "condition": "Docker daemon not running when Strix is invoked — fails immediately with `Cannot connect to the Docker daemon at unix:///var/run/docker.sock: Is the docker daemon running?`",
+      "recovery": "Start Docker: `sudo systemctl start docker` (Linux) or open Docker Desktop (macOS/Windows). Verify: `docker info | grep 'Server Version'`. For CI environments, add a Docker service to the workflow: `services: {docker: {image: docker:dind, options: --privileged}}`. Strix cannot function without Docker — do not attempt to scan without it."
+    },
+    {
+      "condition": "Strix PR diff-scope scan in GitHub Actions fails with `fatal: bad object origin/main` because the checkout action used `fetch-depth: 1` (shallow clone) and the diff base is not available",
+      "recovery": "Set `fetch-depth: 0` in the `actions/checkout` step to fetch full history. Alternatively, pass an explicit diff base: `strix -n -t ./ --scan-mode quick --diff-base ${{ github.event.pull_request.base.sha }}`. The base SHA is always available in the GitHub context even in shallow clones."
+    },
+    {
+      "condition": "Strix targeted at the production URL (`https://app.example.com`) instead of the staging URL — the AI security scanner probes real endpoints, potentially triggering real data mutations or rate-limit lockouts on live user accounts",
+      "recovery": "Configure Strix with a `--target` that explicitly points to the staging environment: `strix --target https://staging.app.example.com`. Add a pre-scan assertion to prevent accidental prod targeting: `[[ \"$TARGET\" == *staging* || \"$TARGET\" == *localhost* ]] || { echo 'ERROR: target must be staging or localhost'; exit 1; }`. Never run Strix against production without explicit written authorization from the system owner."
+    },
+    {
+      "condition": "LLM API key hits rate limit mid-scan (Anthropic claude-sonnet-4-6 at 50k tokens/minute) — Strix terminates after scanning 3 of 12 planned attack vectors, producing an incomplete finding set",
+      "recovery": "Upgrade the API key tier or switch to a model with higher rate limits: `export STRIX_LLM='anthropic/claude-haiku-3-5'` for bulk scanning. Alternatively, split the scan into focused partial scans: `strix --target api.app.com --instruction 'Focus only on authentication bypass'` (one category per run). Merge the finding sets manually after each partial scan completes."
+    }
+  ],
+  "summarize-cli": [
+    {
+      "condition": "`summarize` command returns `bash: summarize: command not found` — the CLI is not installed on this host (the readme explicitly notes 'NOT currently installed')",
+      "recovery": "Install via pip: `pip install summarize-cli` or download the binary from https://summarize.sh. After install, verify: `which summarize && summarize --version`. If pip install fails due to a system-level Python conflict, use `pipx install summarize-cli` which creates an isolated environment."
+    },
+    {
+      "condition": "Default model `google/gemini-3-flash-preview` fails with `GEMINI_API_KEY not set` — the environment variable is missing and the error message only shows the provider name, not which env var to set",
+      "recovery": "Set the Google API key: `export GEMINI_API_KEY=<key_from_aistudio.google.com>`. If using a different provider, override the model: `summarize url --model anthropic/claude-haiku-3-5` (requires `ANTHROPIC_API_KEY`). Check all available provider keys: `summarize --help | grep -A5 'Providers'`."
+    },
+    {
+      "condition": "YouTube URL summarized without `--youtube auto` flag — `summarize` tries to fetch the YouTube page as a web URL, gets the HTML page with no transcript, and returns a summary of YouTube's generic page content",
+      "recovery": "Always use `--youtube auto` for YouTube URLs: `summarize 'https://youtu.be/VIDEO_ID' --youtube auto`. The `auto` flag triggers Apify-based transcript extraction which fetches the actual video captions. Without it, the summarizer receives no meaningful content. Detect YouTube URLs by matching `youtu.be|youtube.com/watch` before calling summarize."
+    },
+    {
+      "condition": "PDF with scanned pages (image-only, no text layer) passed to summarize — the tool extracts an empty text corpus and returns a summary like 'This document appears to have no readable content'",
+      "recovery": "Pre-process scanned PDFs with OCR before summarizing: `ocrmypdf input.pdf input-ocr.pdf && summarize input-ocr.pdf`. `ocrmypdf` adds a text layer to image-based PDFs. If `ocrmypdf` is not installed: `sudo apt install ocrmypdf`. Verify the OCR worked: `pdftotext input-ocr.pdf - | wc -w` — if > 100 words, the OCR succeeded."
+    }
+  ],
+  "super-memory": [
+    {
+      "condition": "cognee-api :8100 fails to start because the `vector` extension is not created in the Postgres database — cognee logs `ERROR: type 'vector' does not exist` and the API crashes on startup",
+      "recovery": "Create the pgvector extension: `psql -U postgres -d cognee -c 'CREATE EXTENSION IF NOT EXISTS vector;'`. Verify: `psql -U postgres -d cognee -c \"SELECT extname FROM pg_extension WHERE extname='vector';\"` — must return one row. After creating the extension, restart cognee-api: `bash scripts/20-cognee-up.sh`."
+    },
+    {
+      "condition": "LiteLLM proxy :4000 rotation config references an expired Anthropic API key — cognee embedding calls return 401, nightly ingest pipeline runs but produces an empty graph with zero nodes ingested",
+      "recovery": "Check LiteLLM's config: `cat ~/.hermes/litellm-config.yaml | grep -A3 'anthropic'`. Update the expired key in the config and reload: `systemctl --user restart litellm-proxy` or `bash scripts/30-litellm-proxy.sh`. Verify embedding calls work: `curl http://localhost:4000/embeddings -d '{\"model\":\"text-embedding-ada-002\",\"input\":\"test\"}'` — expect a 200 with an embedding array."
+    },
+    {
+      "condition": "Port 5984 (CouchDB) already bound by another process when script 60-couchdb-up.sh runs — CouchDB starts but binds to a random available port, and the Obsidian LiveSync plugin can't connect",
+      "recovery": "Identify the port conflict: `ss -tlnp | grep ':5984'`. If another service owns it, stop it: `sudo kill $(ss -tlnp | grep ':5984' | awk '{print $6}' | grep -oP 'pid=\\K[0-9]+')`. If CouchDB should use an alternate port, update the bind address in `/opt/couchdb/etc/local.ini` and update the Obsidian LiveSync plugin connection URL to match."
+    },
+    {
+      "condition": "scripts/90-verify.sh --detect returns `state:ok` but the watchdog cron entry is missing from crontab — cognee-api process dies during off-hours and is never restarted until a human notices",
+      "recovery": "Verify watchdog cron independently of the verify script: `crontab -l | grep watchdog`. If missing, re-install: `bash scripts/40-watchdog-cron.sh`. Then confirm the entry: `crontab -l | grep watchdog` should show an hourly entry. The verify script checks process state but not crontab contents — these are separate checks."
+    },
+    {
+      "condition": "cognee stack updated with a new embedding model that outputs 3072-dimensional vectors — existing pgvector embeddings in the `cognee_embeddings` table are 1536-dimensional and are now incompatible, causing cosine similarity queries to return errors",
+      "recovery": "Drop and rebuild the embeddings table: `psql -U postgres -d cognee -c 'DROP TABLE IF EXISTS cognee_embeddings;'`. Then re-run the nightly ingest from scratch: `bash scripts/50-nightly-ingest.sh`. Record the current model and dimension in a metadata table: `INSERT INTO cognee_meta VALUES ('embedding_model', 'text-embedding-3-large', '3072')` to detect future mismatches."
+    }
+  ],
+  "tavily-search": [
+    {
+      "condition": "TAVILY_API_KEY not set in environment — `search.mjs` returns `Error: 401 Unauthorized` with no indication of which env var is missing",
+      "recovery": "Set the key: `export TAVILY_API_KEY=$(bw get password tavily-api-key)` or retrieve from https://tavily.com after login. Verify: `node ~/.hermes/skills/research/tavily-search/scripts/search.mjs 'test query' -n 2` — expect JSON with a `results` array. The readme notes this key is 'NOT currently set' by default on Hermes."
+    },
+    {
+      "condition": "`--deep` search mode takes 45+ seconds for complex queries — agent's tool-call timeout (typically 30s) kills the process and returns no results",
+      "recovery": "For time-constrained contexts, use basic mode first: `node search.mjs \"query\" -n 5` (no `--deep`). If basic mode results are insufficient, run `--deep` as a background job with `timeout 120` and process results asynchronously. Set the agent's tool timeout to at least 90s before using `--deep` mode."
+    },
+    {
+      "condition": "News topic search with `--days 3` returns articles from 2 weeks ago because Tavily's news index caching doesn't strictly enforce the `days` cutoff",
+      "recovery": "After receiving news results, filter by publication date client-side: `results.filter(r => new Date(r.published_date) > new Date(Date.now() - 3*24*60*60*1000))`. Always check the `published_date` field in each result — do not trust the `--days` filter as a hard cutoff. Report any result older than the requested window as 'potentially outside requested date range.'"
+    },
+    {
+      "condition": "`extract.mjs` called on a URL behind Cloudflare anti-bot protection — returns Cloudflare's 'Just a moment...' challenge HTML instead of the article content",
+      "recovery": "Detect Cloudflare challenge HTML by checking for `<title>Just a moment...</title>` in the extract result. If found, fall back to the `--firecrawl always` flag which uses Firecrawl's Cloudflare-aware extraction: `node search.mjs --firecrawl always \"query\"`. Alternatively, use a direct `web_extract` tool if the agent has one, which may have its own bypass."
+    }
+  ],
+  "vision-driven-svg-iteration": [
+    {
+      "condition": "Same SVG path rated 9/10 (call 1, shape-only harness) then 4/10 (call 2, harness includes glow animation) — the glow effect causes vision to count different numbers of lobes, making scores across calls incomparable",
+      "recovery": "Build a shape-only harness for scoring: remove all glow effects, gradients, and animations before calling vision. Only re-add decorative effects after the shape geometry scores ≥8/10 consistently across 3 shape-only calls. The readme documents this calibration step explicitly as validated on 2026-04-25."
+    },
+    {
+      "condition": "Vision called with 'Does this chef hat look good?' — an aesthetic quality question produces inconsistent scores (7/10, 9/10, 5/10 across three calls) because vision is rating feel, not geometry",
+      "recovery": "Replace aesthetic questions with countable feature questions: 'Count the number of puff sections on the crown. Rate each candidate 1-10 on whether it has exactly 3 puffs clearly visible.' Counts are objective and produce consistent results across calls. Only move to aesthetic rating after the feature count is stable."
+    },
+    {
+      "condition": "Production SVG deployed before human eyeball confirmation on a real browser — the animation renders correctly in headless Chrome (used for vision scoring) but produces a 3-pixel flicker at 60fps on Safari that is invisible in the harness",
+      "recovery": "Enforce the iron law: zero production deploys until the human-eyeball-on-real-browser step is completed. Open the test harness file directly in the target browser at full size. For animated SVGs, view for at least 3 full animation cycles. Confirm no flicker, no reflow, no visual artifact. Only then deploy."
+    },
+    {
+      "condition": "Candidates rendered in separate harness files (one per candidate) instead of side-by-side — vision judges each candidate in isolation and can't make relative comparisons, producing inflated scores for weak candidates",
+      "recovery": "Always render all candidates in a single harness grid using the template from the readme: multiple `.card` elements inside a `.grid` container, each labeled v1, v2, v3, v4. Vision performs significantly better at comparative ranking than absolute scoring. Side-by-side layout is mandatory for the initial scoring pass."
+    }
+  ],
+  "whitelabel-dashboard": [
+    {
+      "condition": "`GA4_SERVICE_ACCOUNT_JSON` env var contains a path with spaces (e.g., `/home/adam/my keys/service-account.json`) — Streamlit's env var parser splits on the space, producing a truncated invalid path",
+      "recovery": "Quote the path in the environment: `export GA4_SERVICE_ACCOUNT_JSON='/home/adam/my keys/service-account.json'` (single quotes). Alternatively, move the JSON file to a path without spaces: `mkdir -p ~/.config/dashboards && mv '/home/adam/my keys/service-account.json' ~/.config/dashboards/sa.json`. Verify: `python3 -c \"import os; print(os.path.exists(os.environ['GA4_SERVICE_ACCOUNT_JSON']))\"`."
+    },
+    {
+      "condition": "`streamlit-authenticator` bcrypt-hashed passwords stop working after a library version upgrade that changes the hashing rounds — users can't log in and there's no error message, just an incorrect-password response",
+      "recovery": "Regenerate the password hash after any streamlit-authenticator version change: `python3 -c \"import streamlit_authenticator as stauth; print(stauth.Hasher(['new_password']).generate()[0])\"`. Update `auth.yaml` with the newly generated hash. The Hasher output is version-specific — hashes generated on v0.2.x may not work on v0.3.x."
+    },
+    {
+      "condition": "Two client dashboards assigned the same `--server.port 8510` — the second `streamlit run` call fails with `OSError: [Errno 98] Address already in use`",
+      "recovery": "Assign ports from a registry: maintain a `~/.config/dashboards/ports.json` file mapping `{\"acme\": 8510, \"beta-client\": 8511, ...}`. Before starting any dashboard, check: `python3 -c \"import json; ports=json.load(open('ports.json')); assert 8512 not in ports.values(), 'port conflict'\"`. Or use auto-assignment: `--server.port $(python3 -c \"import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()\")`."
+    },
+    {
+      "condition": "GA4 service account has Viewer access on three properties — the wrong `GA4_PROPERTY_ID` in the client's config silently returns another client's analytics data, mixing GA4 sessions and revenue figures",
+      "recovery": "Add a property ownership verification step during dashboard setup: `python3 -c \"from google.analytics.data_v1beta import BetaAnalyticsDataClient; client=BetaAnalyticsDataClient(); req=client.run_report(property=f'properties/{PROPERTY_ID}', date_ranges=[...]); print(req)\"` — the response will include the property's data. Cross-check the domain shown in GA4 reports against the client's actual domain before publishing the dashboard."
+    }
+  ]
+}

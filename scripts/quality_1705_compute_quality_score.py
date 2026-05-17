@@ -15,17 +15,20 @@ Formula (per plan §3 Phase C step 6, scoped to what we can measure today):
                               with an outcome verb (save/generate/triage/
                               detect/build/etc.). 5 if >= 100 chars but no
                               verb. 0 if < 60 chars.
+  unhappy_paths_score (0..10): 10 if >=5 declared paths with >=80-char
+                                total avg (condition+recovery) text;
+                                7 if >=3 paths with >=50-char avg;
+                                3 if >=1 path; 0 otherwise.
   age_cap_score (0..10):  10 unless the skill was created in the last 14d
                             — then cap any computed score at 8.5 (F8 mitigation).
 
-  weights:                install=0.30, freshness=0.30, description=0.30, age_cap=0.10
+  weights:                install=0.20, freshness=0.25, description=0.25,
+                          unhappy=0.20, smoke=0.10
+  (Phase D dropped 2026-05-17 — its 0.10 video weight redistributed:
+   +0.10 to unhappy_paths since that's a real, measurable signal now.)
 
-  Deferred (will land in Phase D + later C):
-    - unhappy_paths presence (requires SKILL.md backfill)
-    - demo video presence (requires Phase D videos)
-    - smoke test pass rate (requires Phase C container test infra)
-  These three sub-scores default to 7.0 for now (neutral) so the score is
-  computable; they'll be wired in once their feeders ship.
+  Deferred:
+    - smoke test pass rate (requires Phase C container test infra) — neutral 7.0
 
 Idempotent: re-running with no signal change produces identical numbers.
 Dry-run default; --commit to write.
@@ -40,6 +43,11 @@ import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+try:
+    import yaml
+except ImportError:
+    yaml = None  # type: ignore
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -125,6 +133,48 @@ def _description_score(description: str | None) -> float:
     return 5.0 if len(desc) >= 100 else 3.0
 
 
+def _parse_unhappy_paths(readme: str | None) -> list[dict]:
+    """Extract unhappy_paths from readme YAML frontmatter. Returns [] on any parse issue."""
+    if not readme or not readme.startswith("---") or yaml is None:
+        return []
+    try:
+        end = readme.index("\n---", 3)
+    except ValueError:
+        return []
+    fm_text = readme[3:end].strip("\n")
+    try:
+        data = yaml.safe_load(fm_text) or {}
+    except yaml.YAMLError:
+        return []
+    paths = data.get("unhappy_paths") if isinstance(data, dict) else None
+    if not isinstance(paths, list):
+        return []
+    cleaned: list[dict] = []
+    for p in paths:
+        if not isinstance(p, dict):
+            continue
+        c = p.get("condition")
+        r = p.get("recovery")
+        if isinstance(c, str) and isinstance(r, str) and c.strip() and r.strip():
+            cleaned.append({"condition": c.strip(), "recovery": r.strip()})
+    return cleaned
+
+
+def _unhappy_paths_score(readme: str | None) -> float:
+    paths = _parse_unhappy_paths(readme)
+    n = len(paths)
+    if n == 0:
+        return 0.0
+    avg_text_len = sum(len(p["condition"]) + len(p["recovery"]) for p in paths) / n
+    if n >= 5 and avg_text_len >= 80:
+        return 10.0
+    if n >= 3 and avg_text_len >= 50:
+        return 7.0
+    if n >= 1:
+        return 3.0
+    return 0.0
+
+
 def compute_score(
     install_count: int,
     last_verified,
@@ -132,21 +182,20 @@ def compute_score(
     created_at,
     all_install_counts: list[int],
     now: datetime,
+    readme: str | None = None,
 ) -> float:
     install_s = _install_score(install_count, all_install_counts)
     fresh_s = _freshness_score(last_verified, now)
     desc_s = _description_score(description)
-    # Neutral placeholders until Phase D + unhappy_paths backfill land
-    unhappy_s = 7.0
-    video_s = 7.0
+    unhappy_s = _unhappy_paths_score(readme)
+    # Smoke test infra deferred — neutral placeholder
     smoke_s = 7.0
 
     raw = (
         install_s * 0.20
         + fresh_s * 0.25
         + desc_s * 0.25
-        + unhappy_s * 0.10
-        + video_s * 0.10
+        + unhappy_s * 0.20
         + smoke_s * 0.10
     )
 
@@ -184,7 +233,7 @@ def main():
     with Session() as session:
         rows = session.execute(text(
             "SELECT id, slug, install_count, last_verified, description, "
-            "created_at, quality_score FROM skills "
+            "created_at, quality_score, readme FROM skills "
             "WHERE is_public = true AND is_archived = false"
         )).all()
 
@@ -201,6 +250,7 @@ def main():
                     created_at=r.created_at,
                     all_install_counts=all_install_counts,
                     now=now,
+                    readme=r.readme,
                 )
                 old_score = r.quality_score
                 if old_score is None or abs((old_score or 0) - new_score) >= 0.01:
@@ -236,7 +286,7 @@ def main():
             sum(
                 (compute_score(
                     r.install_count or 0, r.last_verified, r.description,
-                    r.created_at, all_install_counts, now,
+                    r.created_at, all_install_counts, now, r.readme,
                 ))
                 for r in rows
             ) / max(len(rows), 1),

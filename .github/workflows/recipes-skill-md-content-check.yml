@@ -7,8 +7,12 @@ name: recipes-skill-md-content-check
 #     step 2 with a measurable outcome ("saves N hours/week", "tested on M
 #     installs", etc.). Vague claims undermine the 9/10 quality bar.
 #
-# Future gates (when content backfill ships):
+# Structural gates:
 #   - unhappy_paths frontmatter: ≥3 entries required (plan §3 step 1)
+#     — enforced by C-content sprint 2026-05-17. Backfilled to 53 catalog
+#     skills via scripts/quality_1705_unhappy_paths_backfill.py.
+#
+# Future gates (when their infra ships):
 #   - last_verified frontmatter: must be within 90 days
 #   - smoke_test command must be declared
 #
@@ -72,3 +76,21 @@ jobs:
             exit 1
           fi
           echo "✅ No banned phrases detected."
+
+      - name: Require >=3 unhappy_paths entries
+        run: |
+          set -e
+          if [ ! -s changed_skill_md.txt ]; then
+            exit 0
+          fi
+          python3 -m pip install --quiet pyyaml
+          FAIL=0
+          while IFS= read -r file; do
+            if [ -z "$file" ] || [ ! -f "$file" ]; then continue; fi
+            python3 scripts/check_skill_md_unhappy_paths.py "$file" || FAIL=1
+          done < changed_skill_md.txt
+          if [ "$FAIL" -eq 1 ]; then
+            echo ""
+            echo "unhappy_paths gate FAILED. Every published skill MUST declare >=3 entries."
+            exit 1
+          fi
