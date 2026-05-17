@@ -1,0 +1,164 @@
+# SSOT for the chef_growth_1705 Phase D Contribution Bounty Pool.
+#
+# CONTRACT
+# --------
+# This file is the authoritative source for:
+#   - the monthly cash payout cap (computed_monthly_cap)
+#   - the formula that derives it from prior-month new MRR
+#   - the per-bounty rate card
+#   - the credit-only-mode flag (auto-flipped when cap == $0)
+#   - the audit trail of every cap recompute
+#
+# Two writers touch this file:
+#   1. MRR-attestation cron (Tori-owned, no_agent=True, deterministic SQL)
+#      - Runs day-1 of every month at 09:00 UTC
+#      - Writes only the `computed` block + appends to `audit_log`
+#      - Never edits rate_card, funding, or anti_abuse
+#   2. Tori (manual PR) for everything else
+#
+# Chef READS this file on every bounty claim — refuses to approve cash payouts
+# that would breach computed.monthly_cap_usd.
+#
+# Rule (chef_growth_1705 §0 row "SELF-FUNDING BOUNTY POOL"):
+#   monthly_cap = $100  if month_index == 1 (Adam-funded)
+#               = min($100, new_mrr_previous_month_usd × 0.30)  thereafter
+#   cash burn ≤ 30% of new MRR — STRICT, no exceptions.
+version: 1
+codename: chef_growth_1705
+phase: D
+authored_by: tori
+authored_at: 2026-05-17
+
+# ── FUNDING THESIS ───────────────────────────────────────────────────────────
+funding:
+  month_1_seed_usd: 100.00          # Adam funds month 1 only
+  month_1_funder: adam
+  thereafter_formula: "min(100.00, new_mrr_previous_month_usd * 0.30)"
+  thereafter_funder: recipes_revenue
+  hard_ceiling_usd: 100.00          # never exceed this even if MRR justifies it
+  cash_burn_invariant: "cumulative_cash_paid_30d <= computed.monthly_cap_usd"
+
+# ── COMPUTED STATE (cron-managed; do not hand-edit) ──────────────────────────
+# The MRR-attestation cron overwrites this block on day-1 of each month.
+# `updated_at` MUST be within 35 days for Chef to approve cash claims.
+computed:
+  current_month: "2026-05"
+  current_month_index: 1            # 1 == Adam-funded month
+  new_mrr_previous_month_usd: 0.00  # April 2026 baseline; live MRR launches mid-May
+  monthly_cap_usd: 100.00           # = $100 because month_index == 1
+  credit_only_mode: false           # auto-true when monthly_cap_usd == 0
+  computed_by: "tori-bootstrap"     # cron will overwrite with "mrr-attestation-cron"
+  updated_at: "2026-05-17T00:00:00Z"
+  source_query: "SELECT SUM(subscription_created_amount) - SUM(subscription_canceled_amount) FROM stripe_events WHERE event_time BETWEEN $month_start AND $month_end"
+  next_recompute_at: "2026-06-01T09:00:00Z"
+
+# ── RATE CARD ────────────────────────────────────────────────────────────────
+# Per-deliverable bounty values. credit_usd is what most contributors take
+# (1 mo Pro per $20 of credit). cash_usd is only payable to Pro/Pro+
+# subscribers via Stripe Invoice after Stripe Identity verification.
+#
+# Three-gate acceptance (chef_growth_1705 §0 + §3 Phase D step 5):
+#   gate_1: acceptance criteria pre-published, contributor signs up to them
+#   gate_2: live verification at delivery     — pay 50% here
+#   gate_3: 30-day durability check passes    — pay remaining 50% here
+# If gate_3 fails, the second 50% is retained.
+rate_card:
+  seo_answer_post:
+    description: "One published SEO answer-page from config/seo-queue.yaml queue"
+    credit_usd: 40.00
+    cash_usd: 30.00
+    gate_3_durability_check: "post still indexed and ranking ≥ baseline at day 30"
+  reddit_thoughtful_reply:
+    description: "Substantive Reddit reply with ≥3 upvotes and zero removal in 7 days"
+    credit_usd: 8.00
+    cash_usd: 5.00
+    gate_3_durability_check: "comment not deleted, account not banned at day 30"
+    notes: "Capped at 5 paid replies per contributor per month"
+  free_skill_authored:
+    description: "New free-tier skill published to wisechef-ai/awesome-agent-recipes mirror"
+    credit_usd: 60.00
+    cash_usd: 40.00
+    gate_3_durability_check: "skill quality_score ≥ 7.0 at day 30, no install failures"
+  bug_report_with_repro:
+    description: "Verified bug in Recipes or a public skill with minimal repro"
+    credit_usd: 20.00
+    cash_usd: 15.00
+    gate_3_durability_check: "fix shipped within 14 days; bug confirmed closed"
+  aitoearn_feedback_signal:
+    description: "Substantive feedback on aitoearn 2.0.0 from receiving-agent perspective"
+    credit_usd: 15.00
+    cash_usd: 10.00
+    gate_3_durability_check: "feedback led to a 2.x patch shipped within 14 days"
+
+# ── ANTI-ABUSE ───────────────────────────────────────────────────────────────
+# Hard guards to prevent the pool from being farmed by a single contributor.
+anti_abuse:
+  max_full_rate_deliverables_per_contributor_per_month: 3
+  rate_limit_after_max:
+    credit_usd: 10.00
+    cash_usd: 0.00
+    note: "Subsequent deliverables flat $10 credit only — no cash, ever"
+  cumulative_cash_30d_strict_cap: "computed.monthly_cap_usd"
+  identity_verification_required_for_cash: true
+  identity_provider: stripe_identity
+  identity_only_for_cash: true       # credit payouts do NOT require identity
+  cash_eligible_subscription_tiers: [pro, pro_plus]
+  block_self_referrals: true
+  block_known_abuse_emails_file: config/bounty-pool-deny-list.yaml  # follow-up PR
+
+# ── CREDIT-ONLY MODE ─────────────────────────────────────────────────────────
+# Auto-flipped to true when computed.monthly_cap_usd == 0.
+# Behavior:
+#   - All new cash claims rejected with the credit_only_user_message below
+#   - Credit balances continue to be issued normally
+#   - Gate-3 cash promises ALREADY MADE in prior month ARE HONORED
+#     (the cap only blocks NEW gate-2 cash promises) — see §3 Phase D step 1
+credit_only_mode:
+  enabled: false                     # mirrors computed.credit_only_mode
+  user_message: |
+    Recipes' bounty pool is in credit-only mode this month because last month's
+    new MRR was below the funding threshold. Your reward will be issued as
+    Pro / Pro+ credit (1 month of Pro per $20 of credit). Cash-out becomes
+    available again as soon as MRR returns. Existing cash payouts already
+    promised at Gate 2 will still be honored at Gate 3.
+  fallback_to_credit_rate_card: true # credit_usd values still apply
+
+# ── APPROVAL FLOW ────────────────────────────────────────────────────────────
+# Tori approves every payout until $500 cumulative paid out without dispute.
+# After that, Chef autonomous within computed.monthly_cap_usd.
+approval:
+  current_phase: tori_gated
+  switch_to_chef_autonomous_at_cumulative_paid_usd: 500.00
+  cumulative_paid_usd_to_date: 0.00
+  cumulative_disputes_to_date: 0
+  reset_to_tori_gated_on_dispute: true
+
+# ── CASH-OUT FLOW (Pro / Pro+ only) ──────────────────────────────────────────
+cashout:
+  eligible_tiers: [pro, pro_plus]
+  minimum_balance_usd: 20.00
+  payout_provider: stripe_invoice
+  payout_fee_passed_to_contributor: true
+  test_payout_completed_at: null     # MUST be a valid timestamp before first real cash payout
+  test_payout_amount_usd: 5.00       # $5 dummy invoice; verify end-to-end
+
+# ── ESCALATION RULES ─────────────────────────────────────────────────────────
+escalation:
+  to_adam:
+    - "computed.monthly_cap_usd < $20 for 3 consecutive months (thesis review)"
+    - "dispute filed on any payout"
+    - "Stripe Identity verification fails for a Pro/Pro+ subscriber attempting cash-out"
+    - "Cumulative cash burn would exceed computed.monthly_cap_usd within current rolling 30d"
+  to_tori:
+    - "Any single bounty claim where rate_card lookup is ambiguous"
+    - "New deliverable type proposed by a contributor (extend rate_card via PR)"
+
+# ── AUDIT LOG (append-only; cron + manual PRs both append) ───────────────────
+# Each entry: when, who, what changed, why, with the OLD value for diff-trail.
+audit_log:
+  - timestamp: "2026-05-17T00:00:00Z"
+    actor: tori
+    event: bootstrap
+    detail: "Initial pool authored; month-1 cap = $100 (Adam-funded)"
+    monthly_cap_usd_before: null
+    monthly_cap_usd_after: 100.00
