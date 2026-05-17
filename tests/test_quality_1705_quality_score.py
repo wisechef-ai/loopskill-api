@@ -45,12 +45,27 @@ def test_quality_score_column_exists(db_engine):
 
 
 def test_install_score_zero_for_no_installs():
-    assert scorer._install_score(0, [0, 5, 10, 100]) == 0.0
+    # v2: 0 installs is now NEUTRAL (5.0), not 0.0. Rationale: at catalog
+    # launch, 80%+ of skills have 0 installs by definition — penalising them
+    # turns a fresh-launch problem into a quality problem.
+    assert scorer._install_score(0, [0, 5, 10, 100]) == 5.0
 
 
 def test_install_score_full_for_top_installer():
     s = scorer._install_score(100, [0, 5, 10, 100])
     assert s == 10.0
+
+
+def test_install_score_above_neutral_for_some_installs():
+    # v2: any installs > 0 score in 6..10 band (proven adoption bonus)
+    s = scorer._install_score(5, [0, 5, 10, 100])
+    assert 6.0 <= s <= 10.0
+
+
+def test_install_score_neutral_when_whole_catalog_new():
+    # v2: when no skill has installs, everyone gets neutral 5.0
+    assert scorer._install_score(0, [0, 0, 0, 0]) == 5.0
+    assert scorer._install_score(0, []) == 5.0
 
 
 def test_freshness_score_full_for_recent():
@@ -70,8 +85,10 @@ def test_freshness_score_decays_mid_range():
     assert 3 < s < 7  # roughly midway
 
 
-def test_freshness_score_none_returns_zero():
-    assert scorer._freshness_score(None, datetime.now(timezone.utc)) == 0.0
+def test_freshness_score_none_returns_neutral():
+    # v2: missing last_verified now scores neutral 5.0 (was 0.0).
+    # We don't punish skills that haven't been verified yet.
+    assert scorer._freshness_score(None, datetime.now(timezone.utc)) == 5.0
 
 
 def test_description_score_with_outcome_verb():
@@ -84,8 +101,11 @@ def test_description_score_long_without_verb():
         "An interesting tool that helps users do something useful with their "
         "data — useful for many scenarios in modern software development."
     )
-    # Does not start with an outcome verb
-    assert scorer._description_score(desc) == 5.0
+    # v2: "An" is treated as a leading article — we look past it for an outcome
+    # verb in words 2-5. None found ("interesting", "tool", "that", "helps")
+    # so it falls into the "article + no outcome verb in next 4 words" bucket:
+    # 6.0 if ≥100 chars (encourages a description but still below outcome-led 10.0).
+    assert scorer._description_score(desc) == 6.0
 
 
 def test_description_score_too_short():
@@ -265,10 +285,12 @@ def test_unhappy_paths_score_low_for_one_entry():
         "    recovery: backoff and retry\n"
         "---\nbody"
     )
-    assert scorer._unhappy_paths_score(rm) == 3.0
+    # v2: 1 entry = 4.0 (bumped from 3.0 — token attempt is worth something)
+    assert scorer._unhappy_paths_score(rm) == 4.0
 
 
-def test_unhappy_paths_score_seven_for_three_substantial_entries():
+def test_unhappy_paths_score_nine_for_three_substantial_entries():
+    """v2: 3 entries with ≥80-char avg → 9.0 (new bucket between 7 and 10)."""
     rm = """---
 unhappy_paths:
   - condition: Stripe webhook signature mismatch on rotated secret
@@ -280,7 +302,9 @@ unhappy_paths:
 ---
 body
 """
-    assert scorer._unhappy_paths_score(rm) == 7.0
+    # v2: this hits the n≥3, avg≥80c bucket → 9.0 (was 7.0 in v1).
+    # Each entry above is ~95-100 chars (condition + recovery).
+    assert scorer._unhappy_paths_score(rm) == 9.0
 
 
 def test_unhappy_paths_score_ten_for_five_meaty_entries():
@@ -302,8 +326,8 @@ body
     assert scorer._unhappy_paths_score(rm) == 10.0
 
 
-def test_unhappy_paths_score_three_entries_too_short_falls_to_three():
-    """3 entries but average text is too short — falls through to the 1-entry bucket."""
+def test_unhappy_paths_score_three_entries_too_short_falls_to_four():
+    """3 entries but avg text too short to clear the 50c bar — drops to n≥1 bucket = 4.0."""
     rm = """---
 unhappy_paths:
   - condition: x
@@ -315,7 +339,8 @@ unhappy_paths:
 ---
 body
 """
-    assert scorer._unhappy_paths_score(rm) == 3.0
+    # v2: n≥1 bucket bumped from 3.0 → 4.0
+    assert scorer._unhappy_paths_score(rm) == 4.0
 
 
 def test_unhappy_paths_skipped_on_empty_strings():
@@ -331,8 +356,8 @@ unhappy_paths:
 ---
 body
 """
-    # Only 1 valid entry survives
-    assert scorer._unhappy_paths_score(rm) == 3.0
+    # Only 1 valid entry survives → n≥1 bucket = 4.0 (was 3.0 in v1)
+    assert scorer._unhappy_paths_score(rm) == 4.0
 
 
 def test_compute_score_with_unhappy_paths_lifts_score():
@@ -373,3 +398,104 @@ body
     )
     # +0.20 weight × 10.0 vs +0.20 weight × 0.0 = +2.0 boost expected
     assert with_unhappy - base >= 1.5
+
+
+# -----------------------------------------------------------------------------
+# v2 anchor calibration — Adam-named reference skills must score ≥8.0.
+# These tests are the durable signal that any future scorer tweak hasn't
+# regressed the calibration that landed 2026-05-17.
+# -----------------------------------------------------------------------------
+
+
+def _mk_anchor_skill(slug, install, has_outcome_verb=True, n_unhappy=3,
+                      uhappy_avg=80, fresh_days=0):
+    """Build the input args compute_score expects for an anchor-skill test."""
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    # Fake a description that starts with an outcome verb (well over 100c)
+    if has_outcome_verb:
+        desc = f"Generates {slug} outputs that save the operator at least four hours per week by automating the manual workflow end to end."
+    else:
+        desc = f"A {slug} skill that does the thing — runs as a CLI and produces output."
+    # Build a synthetic readme with n_unhappy entries each with ~uhappy_avg chars
+    base = "x" * max(20, uhappy_avg // 2)
+    entries = "\n".join(
+        f"  - condition: {base} cond {i} {base}\n    recovery: {base} reco {i} {base}"
+        for i in range(n_unhappy)
+    )
+    readme = f"---\nunhappy_paths:\n{entries}\n---\nbody"
+    last_verified = now - timedelta(days=fresh_days)
+    # Created long ago so age cap doesn't kick in
+    created = now - timedelta(days=60)
+    return dict(
+        install_count=install, last_verified=last_verified,
+        description=desc, created_at=created,
+        all_install_counts=[install, 0, 0, 5, 10],
+        now=now, readme=readme,
+    )
+
+
+def test_v2_anchor_well_documented_skill_with_some_installs_scores_at_least_8():
+    """A skill with outcome-led desc, 3 substantial unhappy_paths, and some
+    installs should score ≥8.0 under v2. This is the floor that Adam-named
+    references (larry/chef/plan-for-goal/ruthless-mentor/brainstorming) hit."""
+    from scripts.quality_1705_compute_quality_score import compute_score
+    args = _mk_anchor_skill("chef", install=2)
+    assert compute_score(**args) >= 8.0
+
+
+def test_v2_anchor_zero_install_well_documented_skill_scores_at_least_8():
+    """The critical fix in v2: a brand-new, zero-install skill that IS well
+    documented (outcome desc + 3 unhappy_paths) must NOT be penalised for
+    being new. This was the v1 bug — zero installs dropped 2 points off
+    every new skill, making 8.0+ unreachable until adoption proved itself."""
+    from scripts.quality_1705_compute_quality_score import compute_score
+    args = _mk_anchor_skill("plan-for-goal", install=0)
+    assert compute_score(**args) >= 8.0, (
+        "Zero-install but well-documented skill should clear 8.0 — "
+        "v2's job is to stop penalising newness."
+    )
+
+
+def test_v2_anchor_thin_description_skill_scores_below_8():
+    """Reverse check: skills with thin/non-outcome descriptions stay below 8.0
+    even with good unhappy_paths. The formula correctly surfaces content debt."""
+    from scripts.quality_1705_compute_quality_score import compute_score
+    args = _mk_anchor_skill("data-pipeline", install=0, has_outcome_verb=False)
+    # has_outcome_verb=False produces "A data-pipeline skill that does the thing..."
+    # which is short (<100c) AND article-led → desc_s should be modest
+    assert compute_score(**args) < 8.0, (
+        "A skill with weak description should NOT reach the 8.0 anchor "
+        "threshold — formula must still discriminate content quality."
+    )
+
+
+def test_v2_install_weight_is_only_10_percent():
+    """Confirm the install signal has been demoted to weight 0.10 (was 0.20).
+    This is the structural fix that lets new skills clear 8.0."""
+    from scripts.quality_1705_compute_quality_score import compute_score
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    base_kwargs = dict(
+        last_verified=now,
+        description="Generates a real outcome with substantial description text "
+                   "for over 100 characters of useful explanation here.",
+        created_at=now - timedelta(days=60),
+        all_install_counts=[0, 0, 100],
+        now=now,
+        readme="---\nunhappy_paths:\n"
+               "  - condition: " + "x"*80 + "\n    recovery: " + "y"*80 + "\n"
+               "  - condition: " + "x"*80 + "\n    recovery: " + "y"*80 + "\n"
+               "  - condition: " + "x"*80 + "\n    recovery: " + "y"*80 + "\n"
+               "---\nbody",
+    )
+    # Same skill, install=0 vs install=100 — score diff should be ≤ 0.5 (i.e.
+    # the install signal accounts for at most ~0.5 points on the 10-point scale)
+    s0 = compute_score(install_count=0, **base_kwargs)
+    s100 = compute_score(install_count=100, **base_kwargs)
+    delta = s100 - s0
+    assert delta <= 0.5, (
+        f"install signal too heavy: scoring diff between 0 and 100 installs "
+        f"= {delta:.2f}. v2 demoted install to weight 0.10; signal range "
+        f"5.0 (neutral) → 10.0 (top) is 5 points × 0.10 = max 0.5 score diff."
+    )
