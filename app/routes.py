@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session, joinedload
 logger = logging.getLogger(__name__)
 
 from app.database import get_db
-from app.tier_labels import display_label
+from app.tier_labels import display_label, _is_paid_tier
 from app.models import (
     APIKey,
     APILibraryEntry,
@@ -789,8 +789,14 @@ def get_full_skill_graph(db: Session = Depends(get_db)):
 
 
 @router.get("/skills/{slug}", response_model=SkillDetailOut, tags=["skills"])
-def get_skill_detail(slug: str, db: Session = Depends(get_db)):
-    """Full skill detail with versions and resolved related skills."""
+def get_skill_detail(slug: str, request: Request, db: Session = Depends(get_db)):
+    """Full skill detail with versions and resolved related skills.
+
+    quality_1705 Phase B — body paywall:
+      - Anonymous / free callers receive metadata-only (readme=null, external_resources=null)
+      - Pro / Pro+ callers receive the full SKILL.md body + scripts/templates manifest
+      - The master/admin api key is treated as Pro+ for self-test parity.
+    """
     skill = (
         db.query(Skill)
         .options(joinedload(Skill.versions), joinedload(Skill.creator))
@@ -832,6 +838,16 @@ def get_skill_detail(slug: str, db: Session = Depends(get_db)):
     counts = _install_counts_for(db, [skill.id])
     total_count, last_7d = counts.get(skill.id, (0, 0))
 
+    # quality_1705 Phase B — body paywall.
+    # Anonymous / free callers get metadata-only; Pro / Pro+ get the full body.
+    # _is_paid_tier() resolves "cook" (legacy = Pro DB slug) AND "pro" / "pro_plus" to True.
+    caller_tier = _resolve_caller_tier(db, request)
+    caller_is_paid = _is_paid_tier(caller_tier)
+    readme_payload = skill.readme if caller_is_paid else None
+    external_payload = (
+        getattr(skill, "external_resources", None) if caller_is_paid else None
+    )
+
     return SkillDetailOut(
         id=skill.id,
         slug=skill.slug,
@@ -844,7 +860,7 @@ def get_skill_detail(slug: str, db: Session = Depends(get_db)):
         latest_version=skill.versions[0].semver if skill.versions else None,
         install_count_total=total_count,
         install_count_7d=last_7d,
-        readme=skill.readme,
+        readme=readme_payload,
         license=skill.license,
         # v6 Phase A catalog fields
         skill_variant=getattr(skill, "skill_variant", "custom") or "custom",
@@ -852,7 +868,7 @@ def get_skill_detail(slug: str, db: Session = Depends(get_db)):
         parent_skill_slug=getattr(skill, "parent_skill_slug", None),
         pinned_sha=getattr(skill, "pinned_sha", None),
         upstream_status=getattr(skill, "upstream_status", "active") or "active",
-        external_resources=getattr(skill, "external_resources", None),
+        external_resources=external_payload,
         versions=[
             {
                 "id": v.id,
