@@ -794,7 +794,7 @@ def get_skill_detail(slug: str, db: Session = Depends(get_db)):
     skill = (
         db.query(Skill)
         .options(joinedload(Skill.versions), joinedload(Skill.creator))
-        .filter(Skill.slug == slug, Skill.is_public == True)
+        .filter(Skill.slug == slug, Skill.is_public == True, Skill.is_archived == False)
         .first()
     )
     if not skill:
@@ -967,7 +967,7 @@ def get_skill_related(slug: str, db: Session = Depends(get_db)):
     """
     skill = (
         db.query(Skill)
-        .filter(Skill.slug == slug, Skill.is_public == True)
+        .filter(Skill.slug == slug, Skill.is_public == True, Skill.is_archived == False)
         .first()
     )
     if not skill:
@@ -1029,7 +1029,7 @@ def get_skill_graph(slug: str, db: Session = Depends(get_db)):
 
     skill = (
         db.query(Skill)
-        .filter(Skill.slug == slug, Skill.is_public == True)
+        .filter(Skill.slug == slug, Skill.is_public == True, Skill.is_archived == False)
         .first()
     )
     if not skill:
