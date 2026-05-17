@@ -208,6 +208,18 @@ def search_skills(
         description="quality_1705 Phase C — filter skills with quality_score >= N. "
                     "Skills without a computed quality_score are excluded when this is set.",
     ),
+    hybrid: bool = Query(
+        True,
+        description="issue #111: when the literal keyword pass returns fewer than "
+                    "``hybrid_min_keyword_hits`` results, augment with hybrid recall "
+                    "(BM25 + vector) results. Set hybrid=false to force pure keyword.",
+    ),
+    hybrid_min_keyword_hits: int = Query(
+        3,
+        ge=0,
+        le=20,
+        description="Threshold below which hybrid fallback activates. Default 3.",
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -259,14 +271,97 @@ def search_skills(
     total = query.count()
     results = query.offset((page - 1) * page_size).limit(page_size).all()
 
-    counts = _install_counts_for(db, [s.id for s in results])
+    keyword_skill_outs = [
+        _skill_to_out(s, *_install_counts_for(db, [s.id]).get(s.id, (0, 0)))
+        for s in results
+    ]
+
+    # issue #111: hybrid fallback for broad multi-keyword queries.
+    # When the literal ILIKE pass returns fewer than ``hybrid_min_keyword_hits``
+    # AND the caller supplied a non-empty query, augment with recall_skills
+    # (BM25 + optional vector). This closes the "recall finds many, search
+    # finds zero" gap reported by hermes-mac01.
+    backend = "keyword"
+    augmented = False
+    final_outs = keyword_skill_outs
+    final_total = total
+
+    if hybrid and q and len(results) < hybrid_min_keyword_hits and page == 1:
+        try:
+            from app.recall_routes import recall_skills
+
+            tier_for_recall: list[str] = ["free", "cook", "operator"]
+            if tier:
+                # Caller asked for a specific tier — respect it.
+                tier_db = {"pro": "cook", "pro_plus": "operator"}.get(tier, tier)
+                tier_for_recall = [tier_db]
+
+            recall_blob = recall_skills(
+                db,
+                query=q,
+                tier_filter=tier_for_recall,
+                limit=max(page_size, 10),
+                user_id=None,
+                is_master=True,
+                user_tier=None,
+            )
+            recall_hits = recall_blob.get("hits", []) if isinstance(recall_blob, dict) else []
+
+            # Map recall hits (slug-keyed) onto fresh Skill rows so we share the
+            # same SkillOut shape with the literal pass. min_quality filter must
+            # carry through so we don't smuggle low-quality rows back in via
+            # recall.
+            existing_slugs = {sk.slug for sk in results}
+            extra_slugs = [
+                h["slug"]
+                for h in recall_hits
+                if isinstance(h, dict) and h.get("slug") and h["slug"] not in existing_slugs
+            ]
+
+            if extra_slugs:
+                extra_q = db.query(Skill).options(
+                    joinedload(Skill.versions),
+                    joinedload(Skill.creator),
+                ).filter(
+                    Skill.is_public == True,  # noqa: E712
+                    Skill.is_archived == False,  # noqa: E712
+                    Skill.slug.in_(extra_slugs),
+                )
+                # Re-apply the same hygiene + quality filters used above so we
+                # don't widen the surface by accident.
+                if min_quality is not None:
+                    extra_q = extra_q.filter(Skill.quality_score >= min_quality)
+                if category:
+                    extra_q = extra_q.filter(Skill.category == category)
+                if vertical:
+                    extra_q = extra_q.filter(Skill.vertical == vertical)
+                # Preserve recall's ranking order rather than the SQL default.
+                extra_rows = {sk.slug: sk for sk in extra_q.all()}
+                ordered_extras = [extra_rows[s] for s in extra_slugs if s in extra_rows]
+
+                if ordered_extras:
+                    extra_counts = _install_counts_for(db, [s.id for s in ordered_extras])
+                    extra_outs = [
+                        _skill_to_out(s, *extra_counts.get(s.id, (0, 0)))
+                        for s in ordered_extras
+                    ]
+                    final_outs = (keyword_skill_outs + extra_outs)[: page_size]
+                    final_total = total + len(extra_outs)
+                    augmented = True
+                    backend = "recall_only" if not results else "hybrid"
+        except Exception:  # noqa: BLE001 — never let hybrid kill the literal pass
+            import logging
+            logging.getLogger(__name__).exception(
+                "hybrid search fallback failed; returning literal results only"
+            )
+
     return SkillSearchResult(
-        results=[
-            _skill_to_out(s, *counts.get(s.id, (0, 0))) for s in results
-        ],
-        total=total,
+        results=final_outs,
+        total=final_total,
         page=page,
         page_size=page_size,
+        backend=backend,
+        hybrid_augmented=augmented,
     )
 
 

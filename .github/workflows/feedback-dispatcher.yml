@@ -83,20 +83,68 @@ jobs:
 
               // --------------------------------------------------------------
               // 1. Dedup: look for an existing open PR with same branch + labels
+              //
+              // Issue #59 (parallel fix): the original implementation used
+              // search.issuesAndPullRequests which hits the search INDEX, and
+              // the index lags by several seconds. Two skill-patch submissions
+              // with the same dedup_hash within ~2s reliably produced two
+              // duplicate PRs because the index hadn't ingested the first PR
+              // by the time the second arrived. Same root cause as the
+              // skill-error dedup bug fixed below.
+              //
+              // Fix: use pulls.list (realtime, no index lag) filtered by head
+              // ref. dedup_hash exact-match against PR body is the primary
+              // signal; the head-ref match is a secondary check.
               // --------------------------------------------------------------
               let existingPR = null;
+              const payloadDedupHash = payload.dedup_hash;
               try {
-                const searchQ = `repo:${owner}/${repo} is:pr is:open head:${branchName} label:skill:patch label:skill:${slug}`;
-                const searchResult = await octokit.rest.search.issuesAndPullRequests({
-                  q: searchQ,
-                  per_page: 5,
+                const prs = await octokit.rest.pulls.list({
+                  owner,
+                  repo,
+                  state: 'open',
+                  head: `${owner}:${branchName}`,
+                  per_page: 10,
                 });
-                if (searchResult.data.total_count > 0) {
-                  existingPR = searchResult.data.items[0];
-                  core.info(`Duplicate PR found: #${existingPR.number}`);
+                if (prs.data.length > 0) {
+                  existingPR = prs.data[0];
+                  core.info(`Duplicate PR found (realtime, head match): #${existingPR.number}`);
+                } else if (payloadDedupHash) {
+                  // Fall through to a wider hash scan across recent open PRs
+                  // in case the dedup race created a PR on a different branch.
+                  const allOpen = await octokit.rest.pulls.list({
+                    owner,
+                    repo,
+                    state: 'open',
+                    per_page: 100,
+                    sort: 'created',
+                    direction: 'desc',
+                  });
+                  const hashMatch = allOpen.data.find(p =>
+                    (p.body || '').includes(payloadDedupHash)
+                  );
+                  if (hashMatch) {
+                    existingPR = hashMatch;
+                    core.info(`Duplicate PR found (realtime, dedup_hash match): #${existingPR.number}`);
+                  }
                 }
               } catch (err) {
-                core.warning(`Dedup search failed (non-fatal): ${err.message}`);
+                core.warning(`Realtime PR dedup failed (non-fatal): ${err.message}`);
+                // Fall back to legacy search-index path so a transient
+                // pulls.list failure doesn't break the dispatcher entirely.
+                try {
+                  const searchQ = `repo:${owner}/${repo} is:pr is:open head:${branchName} label:skill:patch label:skill:${slug}`;
+                  const searchResult = await octokit.rest.search.issuesAndPullRequests({
+                    q: searchQ,
+                    per_page: 5,
+                  });
+                  if (searchResult.data.total_count > 0) {
+                    existingPR = searchResult.data.items[0];
+                    core.info(`Duplicate PR found (search-index fallback): #${existingPR.number}`);
+                  }
+                } catch (searchErr) {
+                  core.warning(`Search-index fallback also failed: ${searchErr.message}`);
+                }
               }
 
               if (existingPR) {
@@ -330,24 +378,92 @@ jobs:
             }
 
             // ----------------------------------------------------------------
-            // Dedup: search open issues by signature
+            // Dedup: search recent open issues by signature.
+            //
+            // Issue #59: octokit.search.issuesAndPullRequests hits the search
+            // INDEX, which lags by several seconds. Two near-simultaneous
+            // submissions of the same error_signature reliably produced two
+            // duplicate issues (e.g. #51 + #52 within ~2s) because the search
+            // index hadn't ingested issue #1 by the time issue #2 was opened.
+            //
+            // Fix: replace the search call with issues.listForRepo filtered by
+            // the event-type label (real-time, no index lag) and scan the
+            // first 100 most-recent open issues for the signature substring
+            // in title or body. Also accept dedup_hash for skill-patch events
+            // and error_signature for skill-error events as exact-match keys.
             // ----------------------------------------------------------------
             let dupIssueNumber = null;
             const signature = payload.signature;
+            const errorSig = payload.error_signature;
+            const dedupHash = payload.dedup_hash;
 
-            if (signature) {
-              const q = `repo:wisechef-ai/recipes-api is:issue is:open ${signature} in:body`;
-              try {
-                const searchResult = await octokit.rest.search.issuesAndPullRequests({
-                  q,
-                  per_page: 5,
-                });
-                if (searchResult.data.total_count > 0) {
-                  dupIssueNumber = searchResult.data.items[0].number;
-                  core.info(`Dedup match found: issue #${dupIssueNumber}`);
+            // Build the label filter for the realtime listForRepo call.
+            // Every event-type carries one of these labels (set above).
+            const dedupLabel =
+              eventType === 'feedback'        ? 'feedback' :
+              eventType === 'recipify-request'? 'recipe:request' :
+              eventType === 'skill-error'     ? 'recipe:bug' :
+              null;
+
+            try {
+              const listed = await octokit.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                state: 'open',
+                labels: dedupLabel || undefined,
+                per_page: 100,
+                sort: 'created',
+                direction: 'desc',
+              });
+
+              // Build the candidate match set. We accept any of:
+              //  - exact error_signature in title (skill-error path)
+              //  - exact dedup_hash anywhere in body (skill-patch path)
+              //  - signature substring in body (catch-all)
+              const candidates = [];
+              for (const iss of listed.data) {
+                if (iss.pull_request) continue; // filter out PRs that list-issues returns
+                const inTitle =
+                  errorSig && iss.title.includes(errorSig)
+                  ? `title:error_signature`
+                  : null;
+                const body = iss.body || '';
+                const inBodyHash =
+                  dedupHash && body.includes(dedupHash)
+                  ? `body:dedup_hash`
+                  : null;
+                const inBodySig =
+                  signature && body.includes(signature)
+                  ? `body:signature`
+                  : null;
+                const why = inTitle || inBodyHash || inBodySig;
+                if (why) {
+                  candidates.push({ number: iss.number, why });
                 }
-              } catch (err) {
-                core.warning(`Dedup search failed (non-fatal): ${err.message}`);
+              }
+
+              if (candidates.length) {
+                dupIssueNumber = candidates[0].number;
+                core.info(
+                  `Dedup match (realtime): issue #${dupIssueNumber} via ${candidates[0].why}` +
+                  (candidates.length > 1 ? ` (+${candidates.length - 1} more)` : '')
+                );
+              }
+            } catch (err) {
+              core.warning(`Realtime dedup failed (non-fatal): ${err.message}`);
+              // Fallback to the legacy search-index path so the dispatcher
+              // never breaks on rate-limit errors from listForRepo.
+              if (signature) {
+                try {
+                  const q = `repo:${context.repo.owner}/${context.repo.repo} is:issue is:open ${signature} in:body`;
+                  const fallback = await octokit.rest.search.issuesAndPullRequests({ q, per_page: 5 });
+                  if (fallback.data.total_count > 0) {
+                    dupIssueNumber = fallback.data.items[0].number;
+                    core.info(`Dedup match (search-index fallback): issue #${dupIssueNumber}`);
+                  }
+                } catch (searchErr) {
+                  core.warning(`Search-index fallback also failed: ${searchErr.message}`);
+                }
               }
             }
 

@@ -94,6 +94,12 @@ class SkillSearchResult(BaseModel):
     total: int
     page: int
     page_size: int
+    # issue #111: search now falls through to hybrid recall when the literal
+    # keyword pass returns fewer than 3 hits. ``backend`` lets callers tell
+    # whether they got pure-keyword results or a hybrid-augmented list.
+    # Defaults to "keyword" for backward compatibility with old clients.
+    backend: str = "keyword"  # "keyword" | "hybrid" | "recall_only"
+    hybrid_augmented: bool = False
 
 
 # ── Telemetry ───────────────────────────────────────────────────────────
