@@ -498,26 +498,36 @@ class TestFirejailArgGeneration(unittest.TestCase):
     def test_private_home_and_tmp(self):
         profile = SandboxProfile()
         args = profile.to_firejail_args("/home/skill")
-        self.assertIn("--private", args)
+        # firejail emits "--private=/path" as a single token; --private-tmp is bare.
+        self.assertTrue(
+            any(a.startswith("--private=") for a in args),
+            f"Expected --private=<path> in firejail args, got: {args}",
+        )
         self.assertIn("--private-tmp", args)
 
     def test_memory_rlimit(self):
         profile = SandboxProfile(memory_mb=512)
         args = profile.to_firejail_args("/home/skill")
-        rlimit_idx = args.index("--rlimit-as")
-        self.assertEqual(args[rlimit_idx + 1], str(512 * 1024 * 1024))
+        # firejail emits "--rlimit-as=VALUE" as a single token.
+        expected = f"--rlimit-as={512 * 1024 * 1024}"
+        self.assertIn(expected, args)
 
     def test_timeout_format(self):
         profile = SandboxProfile(timeout_seconds=90)
         args = profile.to_firejail_args("/home/skill")
-        timeout_idx = args.index("--timeout")
-        self.assertEqual(args[timeout_idx + 1], "00:01:30")
+        # firejail emits "--timeout=HH:MM:SS" as a single token.
+        self.assertIn("--timeout=00:01:30", args)
 
     def test_env_sandbox_set(self):
         profile = SandboxProfile()
         args = profile.to_firejail_args("/home/skill")
-        self.assertIn("--env", args)
-        self.assertIn("SANDBOX=1", args)
+        # firejail emits env vars as "--env=KEY=VALUE" rather than separate
+        # "--env" + "KEY=VALUE" tokens. Check the SANDBOX=1 marker is present
+        # in that combined form.
+        self.assertTrue(
+            any(a.startswith("--env=SANDBOX=1") for a in args),
+            f"Expected --env=SANDBOX=1 in firejail args, got: {args}",
+        )
 
     def test_ends_with_separator(self):
         profile = SandboxProfile()

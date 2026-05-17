@@ -117,6 +117,14 @@ class Creator(Base):
     avatar_url = Column(Text, nullable=True)
     bio = Column(Text, nullable=True)
     is_founder = Column(Boolean, default=False)  # first-50 publishers get 75% rate
+    # polish_1805 item 4 — author identity surfacing.
+    # handle is the short social handle without "@" prefix (e.g. "adamkrawczyk").
+    # url is the canonical profile/portfolio link the portal renders as the
+    # author block "by <name> @<handle>". Both nullable — backfill cron
+    # (scripts/backfill_creator_identity.py) populates from cookbook frontmatter,
+    # SKILL.md `maintainer:` field, or git author info when present.
+    handle = Column(String(64), nullable=True)
+    url = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
     skills = relationship("Skill", back_populates="creator")

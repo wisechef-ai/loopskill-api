@@ -164,19 +164,27 @@ class TestUTMCookieSilentDrop:
 # ── Test (c): /x/<slug> redirects to /api/skills/install?...&ref=x ───────
 
 class TestPlatformRedirects:
+    """marketing_1205 — the /x/, /li/, /ig/, /yt/, /fb/ shortcut redirects.
+
+    PR #85 changed the destination from /api/skills/install (install endpoint)
+    to /skills/<slug>?ref=<platform> (public skill PAGE) — this gives social
+    visitors the marketing page first so they can browse before installing,
+    while still attributing them via the UTM cookie set by the redirector.
+    """
+
     def test_x_slug_redirects(self, utm_client):
-        """(c) GET /x/<slug> → 302 to /api/skills/install?slug=<slug>&ref=x."""
+        """GET /x/<slug> → 302 to /skills/<slug>?ref=x (marketing landing)."""
         resp = utm_client.get("/x/super-memory", follow_redirects=False)
         assert resp.status_code == 302
         location = resp.headers.get("location", "")
-        assert "slug=super-memory" in location
+        assert "/skills/super-memory" in location
         assert "ref=x" in location
 
     def test_li_slug_redirects(self, utm_client):
         resp = utm_client.get("/li/some-skill", follow_redirects=False)
         assert resp.status_code == 302
         location = resp.headers.get("location", "")
-        assert "slug=some-skill" in location
+        assert "/skills/some-skill" in location
         assert "ref=li" in location
 
     def test_ig_slug_redirects(self, utm_client):

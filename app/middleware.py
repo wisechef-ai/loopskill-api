@@ -153,12 +153,38 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # Public skill-detail GETs (/api/skills/{slug}) — match LarryBrain catalog
-        # browsability. Auth-only verbs (install, _download, _publish) still gated.
+        # browsability. Auth-only verbs (install, _download, _publish) still gated,
+        # EXCEPT /api/skills/install for tier=free skills (polish_1805 item 1 —
+        # frictionless install matches Smithery `npx skills add` UX). Free-tier
+        # installs are still rate-limited per IP by the RateLimitMiddleware so
+        # this is not an abuse vector.
         if request.method == "GET" and path.startswith("/api/skills/"):
             tail = path[len("/api/skills/"):]
             # Public full-graph dump (no slug, single segment)
             if tail == "graph":
                 return await call_next(request)
+            # polish_1805 item 1 — public install for free skills only.
+            # CRITICAL: we do NOT do a DB lookup in the middleware because the
+            # test infrastructure (and some prod request-scoping) shares a
+            # connection pool that gets confused by a parallel SessionLocal()
+            # call mid-request. Instead: if the request has NO ``x-api-key``
+            # header at all, mark it as "candidate free install" and let the
+            # /install route enforce the tier='free' + is_public check at
+            # the route level (route uses Depends(get_db) — same session as
+            # the rest of the route logic, no double-session footgun).
+            #
+            # The route's existing visibility check + the new
+            # ``is_anonymous_free_install`` gate together guarantee that:
+            #   - tier=free + public → install proceeds (no key)
+            #   - tier=cook/operator + no key → route returns 401
+            #   - private skill + no key → route returns 404 (no leak)
+            if tail == "install":
+                has_key_header = bool(request.headers.get("x-api-key"))
+                if not has_key_header:
+                    request.state.api_key_user_id = None
+                    request.state.api_key_id = None
+                    request.state.is_anonymous_free_install = True
+                    return await call_next(request)
             # Single segment, no underscore prefix, not a known auth verb.
             if "/" not in tail and not tail.startswith("_") and tail not in self.PUBLIC_SKILL_DETAIL_AUTH_VERBS:
                 return await call_next(request)

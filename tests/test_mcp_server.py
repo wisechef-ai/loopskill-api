@@ -50,7 +50,18 @@ def test_healthz_lists_phase_a_tools(mcp_client):
     assert body["name"] == "recipes-mcp"
     expected = {t.name for t in _tool_definitions()}
     assert set(body["tools"]) == expected
-    assert len(expected) == 10
+    # MCP tool surface has expanded beyond the original Phase A 10. Pin the
+    # minimum (the v1 contract that external MCP clients depend on) rather
+    # than the exact count so future additions don't break this test.
+    PHASE_A_REQUIRED = {
+        "recipes_search",
+        "recipes_install",
+        "recipes_recall",
+    }
+    assert PHASE_A_REQUIRED.issubset(expected), (
+        f"Phase A tool contract broken — missing {PHASE_A_REQUIRED - expected}"
+    )
+    assert len(expected) >= 10, f"Tool catalog shrank to {len(expected)}; expected >= 10"
 
 
 def test_sse_rejects_missing_api_key(mcp_client):
@@ -112,6 +123,9 @@ def test_build_mcp_server_dispatches_search_tool(db_session):
     import json as _json
     parsed = _json.loads(payload_text)
     assert any(r["slug"] == "dispatch-skill" for r in parsed["results"])
-    # Sanity: the static tool catalogue lists every registered tool
-    # (Phase A's 8 + Phase K's recipes_seeker + Phase 2's recipes_sync = 10).
-    assert len(_tool_definitions()) == 10
+    # Sanity: the static tool catalogue includes every registered tool. The
+    # surface has grown from Phase A's 8 + Phase K + Phase 2 = 10 to 14+ as
+    # new MCP tools shipped (doctor, feedback, carousel_today, propose_patch).
+    # Pin the floor, not the exact count, so future additions don't break
+    # this regression test.
+    assert len(_tool_definitions()) >= 10

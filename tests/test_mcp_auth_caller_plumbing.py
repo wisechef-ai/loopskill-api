@@ -662,5 +662,17 @@ class TestRecipesSyncReceivesCaller:
 
 
 def test_tool_catalogue_unchanged():
-    """RCP-10 must not change the tool surface."""
-    assert len(_tool_definitions()) == 10
+    """RCP-10 must not shrink the tool surface below the v1 contract.
+
+    Original constant was ``== 10`` (Phase A baseline). The catalogue has
+    grown to 14 as new MCP tools shipped (recipes_doctor, recipes_feedback,
+    recipes_carousel_today, recipes_propose_skill_patch). Pin the floor so
+    external MCP clients keep working; track growth in source-control diffs.
+    """
+    tools = _tool_definitions()
+    assert len(tools) >= 10
+    names = {t.name for t in tools}
+    PHASE_A_REQUIRED = {"recipes_search", "recipes_install", "recipes_recall"}
+    assert PHASE_A_REQUIRED.issubset(names), (
+        f"Phase A tool contract broken — missing {PHASE_A_REQUIRED - names}"
+    )

@@ -19,6 +19,9 @@ class SkillOut(BaseModel):
     tier: str | None = None
     is_public: bool = True
     creator_name: str | None = None
+    # polish_1805 item 4 — author identity. Nullable until creator backfill ran.
+    creator_handle: str | None = None
+    creator_url: str | None = None
     latest_version: str | None = None
     install_count_total: int = 0
     install_count_7d: int = 0

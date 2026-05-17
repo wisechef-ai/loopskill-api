@@ -153,6 +153,8 @@ def _skill_to_out(
         tier=skill.tier,
         is_public=skill.is_public,
         creator_name=skill.creator.name if skill.creator else None,
+        creator_handle=skill.creator.handle if skill.creator else None,
+        creator_url=skill.creator.url if skill.creator else None,
         latest_version=latest,
         install_count_total=install_count_total,
         install_count_7d=install_count_7d,
@@ -405,11 +407,39 @@ def install_skill(
             )
         raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
 
+    # polish_1805 item 1 — free-skill anonymous install path.
+    # The middleware sets ``is_anonymous_free_install`` when the request
+    # reached this route without an ``x-api-key`` header. The route enforces
+    # the contract here (defence-in-depth + the actual gate — middleware just
+    # waves the request through):
+    #
+    #   tier=free + public                  → 200 install
+    #   tier=cook/pro/operator + anon       → 401 "Authentication required"
+    #   private skill + anon                → 404 (no existence leak; mirrors
+    #                                          the visibility-check default)
+    #
+    # The anonymous path uses ``api_key_user_id=None`` which is the SAME
+    # sentinel value as the master/admin key. We MUST exclude anonymous
+    # callers from the admin codepath in the visibility check below.
+    is_anonymous_free_install = bool(getattr(request.state, "is_anonymous_free_install", False))
+    if is_anonymous_free_install:
+        if not skill.is_public:
+            # Don't even tell anonymous callers that private skills exist.
+            raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
+        if (skill.tier or "").lower() != "free":
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication required to install this skill. Free skills install with no key.",
+            )
+
     # Visibility check
     if not skill.is_public:
         api_key_user_id = getattr(request.state, "api_key_user_id", "MISSING")
-        # api_key_user_id is None for the master/admin key, UUID for a user key
-        is_admin = api_key_user_id is None
+        # api_key_user_id is None for the master/admin key, UUID for a user key.
+        # polish_1805 — anonymous free-install callers ALSO have api_key_user_id=None,
+        # so we must check the is_anonymous_free_install flag explicitly before
+        # treating None as admin.
+        is_admin = api_key_user_id is None and not is_anonymous_free_install
         is_owner = (
             skill.creator
             and api_key_user_id is not None
@@ -871,6 +901,8 @@ def get_skill_detail(slug: str, request: Request, db: Session = Depends(get_db))
         tier=skill.tier,
         is_public=skill.is_public,
         creator_name=skill.creator.name if skill.creator else None,
+        creator_handle=skill.creator.handle if skill.creator else None,
+        creator_url=skill.creator.url if skill.creator else None,
         latest_version=skill.versions[0].semver if skill.versions else None,
         install_count_total=total_count,
         install_count_7d=last_7d,
@@ -976,6 +1008,8 @@ def _resolve_related(db: Session, skill: "Skill") -> list:
             "tier": r.tier,
             "is_public": r.is_public,
             "creator_name": r.creator.name if r.creator else None,
+            "creator_handle": r.creator.handle if r.creator else None,
+            "creator_url": r.creator.url if r.creator else None,
             "latest_version": latest,
             "created_at": r.created_at,
             "updated_at": r.updated_at,
@@ -1036,6 +1070,8 @@ def _hydrate_skill_outs(db: Session, slugs: list[str]) -> list[dict]:
             "tier": r.tier,
             "is_public": r.is_public,
             "creator_name": r.creator.name if r.creator else None,
+            "creator_handle": r.creator.handle if r.creator else None,
+            "creator_url": r.creator.url if r.creator else None,
             "latest_version": latest,
             "created_at": r.created_at,
             "updated_at": r.updated_at,
