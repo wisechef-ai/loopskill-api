@@ -158,6 +158,7 @@ def _skill_to_out(
         install_count_7d=install_count_7d,
         created_at=skill.created_at,
         updated_at=skill.updated_at,
+        last_verified=getattr(skill, "last_verified", None),
     )
 
 
@@ -866,6 +867,7 @@ def get_skill_detail(slug: str, db: Session = Depends(get_db)):
         related=related_objs,
         created_at=skill.created_at,
         updated_at=skill.updated_at,
+        last_verified=getattr(skill, "last_verified", None),
     )
 
 

@@ -24,6 +24,9 @@ class SkillOut(BaseModel):
     install_count_7d: int = 0
     created_at: datetime
     updated_at: datetime
+    # quality_1705 Phase A — exposed on every public skill payload so MCP
+    # callers (recipes_search) can sort/filter on freshness.
+    last_verified: datetime | None = None
 
     model_config = {"from_attributes": True}
 

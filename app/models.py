@@ -184,6 +184,14 @@ class Skill(Base):
     # (search_vector is NULLed) but remain in the DB for audit/recovery.
     is_archived = Column(Boolean, default=False, server_default="false", nullable=False)
 
+    # quality_1705 Phase A — explicit timestamps for catalog hygiene.
+    # ``archived_at`` is set when ``is_archived`` flips to true (was previously
+    # only inferred). ``last_verified`` is stamped to now() by the Phase A
+    # backfill and is later updated by the Phase C ``last_verified`` cron
+    # whenever the skill's smoke test passes.
+    archived_at = Column(DateTime(timezone=True), nullable=True)
+    last_verified = Column(DateTime(timezone=True), nullable=True)
+
     # v6 Phase A — catalog topology columns
     # 'original' = SHA-pinned Pantry snapshot; 'custom' = curated Menu/Cookbook skill
     skill_variant = Column(String(20), nullable=False, server_default="custom")
