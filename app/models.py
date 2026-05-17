@@ -192,6 +192,17 @@ class Skill(Base):
     archived_at = Column(DateTime(timezone=True), nullable=True)
     last_verified = Column(DateTime(timezone=True), nullable=True)
 
+    # quality_1705 Phase C — weighted catalog quality score (0-10 float).
+    # Computed nightly by scripts/quality_1705_compute_quality_score.py from:
+    #   - install_count percentile
+    #   - days since last_verified (freshness)
+    #   - description length + outcome verb presence
+    #   - declared unhappy_paths count (Phase C content backfill)
+    #   - demo video presence (Phase D)
+    #   - smoke test pass rate (Phase C cron)
+    # Capped at 8.5 for first 14 days post-publish (no-data window, F8 mitigation).
+    quality_score = Column(Float, nullable=True)
+
     # v6 Phase A — catalog topology columns
     # 'original' = SHA-pinned Pantry snapshot; 'custom' = curated Menu/Cookbook skill
     skill_variant = Column(String(20), nullable=False, server_default="custom")

@@ -27,6 +27,8 @@ class SkillOut(BaseModel):
     # quality_1705 Phase A — exposed on every public skill payload so MCP
     # callers (recipes_search) can sort/filter on freshness.
     last_verified: datetime | None = None
+    # quality_1705 Phase C — weighted catalog quality score (0-10 float).
+    quality_score: float | None = None
 
     model_config = {"from_attributes": True}
 

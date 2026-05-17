@@ -159,6 +159,7 @@ def _skill_to_out(
         created_at=skill.created_at,
         updated_at=skill.updated_at,
         last_verified=getattr(skill, "last_verified", None),
+        quality_score=getattr(skill, "quality_score", None),
     )
 
 
@@ -197,7 +198,14 @@ def search_skills(
                                 description="v6: filter by catalog subset (pantry=original 3rd-party, menu=public custom, cookbook=private)"),
     variant: str | None = Query(None, pattern="^(original|custom)$",
                                  description="v6: filter by skill_variant"),
-    sort: str = Query("updated_at", pattern="^(updated_at|created_at|title)$"),
+    sort: str = Query("updated_at", pattern="^(updated_at|created_at|title|quality_score)$"),
+    min_quality: float | None = Query(
+        None,
+        ge=0,
+        le=10,
+        description="quality_1705 Phase C — filter skills with quality_score >= N. "
+                    "Skills without a computed quality_score are excluded when this is set.",
+    ),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -222,6 +230,12 @@ def search_skills(
         # filters use the new brand labels.
         tier_db = {"pro": "cook", "pro_plus": "operator"}.get(tier, tier)
         query = query.filter(Skill.tier == tier_db)
+
+    # quality_1705 Phase C — quality_score floor filter for agent callers
+    # who only want high-confidence skills. Skills without a score are
+    # excluded (defensive: agent shouldn't pick a skill we haven't graded).
+    if min_quality is not None:
+        query = query.filter(Skill.quality_score >= min_quality)
 
     # v6 Phase A: subset filter — maps to skill_variant + is_public combinations
     if subset == "pantry":
@@ -884,6 +898,7 @@ def get_skill_detail(slug: str, request: Request, db: Session = Depends(get_db))
         created_at=skill.created_at,
         updated_at=skill.updated_at,
         last_verified=getattr(skill, "last_verified", None),
+        quality_score=getattr(skill, "quality_score", None),
     )
 
 
