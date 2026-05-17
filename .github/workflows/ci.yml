@@ -145,3 +145,15 @@ jobs:
         run: |
           # Always run the skill quality gate lib tests — these MUST stay green.
           python -m pytest tests/test_skill_quality_gate_lib.py tests/test_publisher.py -q
+
+      - name: Run deploy-safety regression — catalog invariant trigger
+        env:
+          WITH_POSTGRES: "1"
+          POSTGRES_DSN: postgresql://ci:ci@localhost:5432/postgres
+        # The 2026-05-17 deploy of PR #113 broke because the catalog-invariant
+        # trigger function had a `%`-escape bug in raw SQL passing through
+        # psycopg2. Local SQLite tests passed (they skip the trigger). This
+        # gate runs the trigger via real Postgres before merge so the same
+        # class of bug fails CI, not production.
+        run: |
+          python -m pytest tests/test_catalog_invariant_trigger_psycopg2.py -v

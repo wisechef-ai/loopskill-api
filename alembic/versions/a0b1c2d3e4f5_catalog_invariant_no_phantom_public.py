@@ -46,6 +46,12 @@ def upgrade() -> None:
     # Function: raise EXCEPTION if a row is public + not archived + has no
     # published version. Runs on INSERT / UPDATE of skills, and on DELETE of
     # skill_versions (which is where a "made-it-orphan" race would land).
+    #
+    # NOTE: do NOT use ``%`` placeholders inside PL/pgSQL RAISE EXCEPTION when
+    # the SQL passes through psycopg2 — the driver re-interprets ``%`` as a
+    # parameter marker and double-escapes literal percent signs. Use ``RAISE
+    # USING MESSAGE = '...' || v_id::text`` instead so the message is built
+    # with string concatenation; no ``%`` in the SQL, no escape ambiguity.
     op.execute(
         """
         CREATE OR REPLACE FUNCTION catalog_no_phantom_public_skill()
@@ -77,8 +83,12 @@ def upgrade() -> None:
             WHERE skill_id = v_id;
 
             IF v_count = 0 THEN
-                RAISE EXCEPTION 'catalog_invariant_violation: skill %% is_public=true and is_archived=false but has no published versions. Either publish a version or set is_archived=true.', v_id
-                    USING ERRCODE = 'check_violation';
+                RAISE EXCEPTION USING
+                    ERRCODE = 'check_violation',
+                    MESSAGE = 'catalog_invariant_violation: skill ' || v_id::text
+                              || ' is_public=true and is_archived=false but has '
+                              || 'no published versions. Either publish a version '
+                              || 'or set is_archived=true.';
             END IF;
 
             RETURN COALESCE(NEW, OLD);
