@@ -2,6 +2,17 @@
 name: gitnexus
 description: Analyze codebases using GitNexus — a knowledge graph engine that indexes every dependency, call chain, cluster, and execution flow. Use for bug hunting, architecture reviews, and understanding unfamiliar codebases.
 tags: [codebase, analysis, knowledge-graph, architecture]
+unhappy_paths:
+  - condition: "gitnexus wiki exits non-zero with missing API key"
+    recovery: "Set OPENAI_API_KEY or GITNEXUS_API_KEY in env, or fall back to the Direct KuzuDB Query pattern documented below (no LLM key required)."
+  - condition: "gitnexus analyze removes existing semantic vectors when --embeddings is omitted"
+    recovery: "Re-run with --embeddings to opt back in. There is no --skip-embeddings flag; omitting --embeddings is the opt-out and erases prior vectors."
+  - condition: "Cypher query fails with 'desc is a reserved word' error"
+    recovery: "Rename the column alias to 'direction' or drop the AS clause. Kuzu reserves 'desc' even when used outside ORDER BY."
+  - condition: "Node script cannot resolve the kuzu package across installs"
+    recovery: "Use the createRequire + npm-root-resolution pattern shown in Direct KuzuDB Query section. Do not hardcode npm prefix paths — they differ across Hermes/Codex/Claude installs and macOS/Linux."
+  - condition: "MCP server hangs or never responds to agent calls"
+    recovery: "MCP is stdio-only — do not pipe its output or run it as HTTP. Confirm the agent is invoking via stdio (e.g. claude mcp add gitnexus -- npx -y gitnexus@latest mcp)."
 ---
 
 # GitNexus — Codebase Knowledge Graph
@@ -52,7 +63,7 @@ gitnexus serve                       # HTTP server for web UI bridge
 ```
 
 ### Web UI
-- Online: https://gitnexus.vercel.app
+- Source: https://github.com/abhigyanpatwari/GitNexus
 - Local bridge: `gitnexus serve` then open web UI
 
 ## Workflow for Bug Hunting

@@ -1,0 +1,10 @@
+runtime:
+  compatibility:
+    os: [linux, macos]
+    arch: [x86_64, arm64]
+    ram_gb: 1
+    network: required
+  requires:
+    - command: node
+      min_version: "18"
+    - command: npm
