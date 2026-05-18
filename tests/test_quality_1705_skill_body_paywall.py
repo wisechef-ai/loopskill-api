@@ -183,3 +183,98 @@ def test_metadata_always_visible(seeded_app):
     assert "latest_version" in body
     assert body["readme"] is None
     assert body["external_resources"] is None
+
+
+# ─────────────────────────── RCP-PUB-2026-05-18 ──────────────────────────
+# JWT-cookie auth for the body paywall — the portal browser case.
+# _resolve_caller_tier() must accept the wr_jwt cookie too, not just
+# x-api-key, so that authed Pro/Pro+ users browsing on recipes.wisechef.ai
+# can see paywalled SKILL.md bodies. Previously this only worked for agents.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _make_jwt(user_obj):
+    """Build a signed JWT matching the verify_jwt() contract.
+
+    Uses the production create_jwt helper so the token is signed with the
+    same secret + algorithm the API will use to verify it.
+    """
+    from app.auth import create_jwt
+    return create_jwt(user_obj)
+
+
+def _resolve_user_for(seeded_app, label):
+    """Look up the seeded User row under the given label, returning the
+    detached ORM object (with id, email, etc. populated)."""
+    app, _keys = seeded_app
+    from app.database import get_db
+    from app.models import User
+    db_dep = app.dependency_overrides[get_db]
+    db = next(db_dep())
+    try:
+        u = db.query(User).filter(User.email == f"{label}@test.local").first()
+        assert u is not None, f"seeded user {label} not found"
+        return u
+    finally:
+        db.close()
+
+
+def test_pro_user_jwt_cookie_gets_full_body(seeded_app):
+    """Pro user with no x-api-key but a valid wr_jwt cookie must see the body.
+
+    Regression: pre-RCP-PUB-2026-05-18 the API only honored x-api-key, so
+    Pro/Pro+ users browsing /skills/<slug> on the static portal saw
+    readme=null and got the upsell wall even though they were paid customers.
+    """
+    app, _ = seeded_app
+    client = TestClient(app)
+    user = _resolve_user_for(seeded_app, "pro")
+    token = _make_jwt(user)
+    resp = client.get(
+        "/api/skills/clean-architecture",
+        cookies={"wr_jwt": token},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["readme"] is not None, "Pro user with wr_jwt cookie must see SKILL.md body"
+    assert "Test Skill" in body["readme"]
+
+
+def test_pro_user_bearer_token_gets_full_body(seeded_app):
+    """Pro user passing JWT in Authorization: Bearer header — SPA pattern."""
+    app, _ = seeded_app
+    client = TestClient(app)
+    user = _resolve_user_for(seeded_app, "pro")
+    token = _make_jwt(user)
+    resp = client.get(
+        "/api/skills/clean-architecture",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["readme"] is not None
+
+
+def test_invalid_jwt_cookie_does_not_unlock_body(seeded_app):
+    """Tampered / expired / random JWT cookies must NOT leak the body."""
+    app, _ = seeded_app
+    client = TestClient(app)
+    resp = client.get(
+        "/api/skills/clean-architecture",
+        cookies={"wr_jwt": "not.a.valid.jwt"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["readme"] is None
+
+
+def test_free_user_jwt_cookie_does_not_unlock_body(seeded_app):
+    """A free-tier user's JWT cookie correctly resolves to tier=None — no body."""
+    app, _ = seeded_app
+    client = TestClient(app)
+    user = _resolve_user_for(seeded_app, "free")
+    token = _make_jwt(user)
+    resp = client.get(
+        "/api/skills/clean-architecture",
+        cookies={"wr_jwt": token},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["readme"] is None, "free-tier JWT must NOT unlock the body"

@@ -760,31 +760,66 @@ TIER_INSTALL_LIMITS: dict[str | None, int | None] = {
 def _resolve_caller_tier(db: Session, request: Request) -> str | None:
     """Return the calling user's active subscription tier, or None if anonymous.
 
+    Resolution order:
+      1. x-api-key header (agents calling the API directly with rec_* keys)
+      2. wr_jwt cookie (browser sessions hitting the static portal)
+      3. Authorization: Bearer (JWT-in-header for SPA clients)
+
     The access endpoint is in the middleware's PUBLIC_PREFIXES list, so we
-    re-implement a lightweight API-key lookup here to optionally hydrate the
+    re-implement a lightweight auth lookup here to optionally hydrate the
     caller's tier without forcing auth.
+
+    RCP-PUB-2026-05-18: JWT-cookie support added so browser callers on the
+    portal (recipes.wisechef.ai) can see paywalled SKILL.md bodies when the
+    user holds a Pro subscription. Previously, `/api/skills/{slug}` returned
+    `readme=null` for everyone except the agent-with-api-key callers,
+    breaking the "Pro subscribers see this section inline" promise on the
+    portal.
     """
     from app.config import settings
 
     key = request.headers.get("x-api-key")
-    if not key or not key.startswith("rec_"):
-        return None
-    # Master key behaves as a Pro+ subscriber for capability checks.
-    if key == settings.API_KEY:
-        return "pro_plus"
-    import hashlib
-    key_hash = hashlib.sha256(key.encode()).hexdigest()
-    api_key_obj = (
-        db.query(APIKey)
-        .filter(APIKey.key_hash == key_hash, APIKey.is_active == True)  # noqa: E712
-        .first()
-    )
-    if not api_key_obj:
-        return None
-    user = db.query(User).filter(User.id == api_key_obj.user_id).first()
-    if not user or user.subscription_status not in ("active", "trialing"):
-        return None
-    return user.subscription_tier
+    if key and key.startswith("rec_"):
+        # Master key behaves as a Pro+ subscriber for capability checks.
+        if key == settings.API_KEY:
+            return "pro_plus"
+        import hashlib
+        key_hash = hashlib.sha256(key.encode()).hexdigest()
+        api_key_obj = (
+            db.query(APIKey)
+            .filter(APIKey.key_hash == key_hash, APIKey.is_active == True)  # noqa: E712
+            .first()
+        )
+        if api_key_obj:
+            user = db.query(User).filter(User.id == api_key_obj.user_id).first()
+            if user and user.subscription_status in ("active", "trialing"):
+                return user.subscription_tier
+
+    # JWT cookie / Bearer fallback — used by the portal SPA when a logged-in
+    # user is browsing /skills/<slug> in the browser. No API key in this path.
+    token = request.cookies.get("wr_jwt")
+    if not token:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header[7:].strip()
+    if token:
+        try:
+            from app.auth_routes import verify_jwt  # local import to avoid cycles
+            payload = verify_jwt(token)
+        except Exception:  # noqa: BLE001
+            payload = None
+        if payload:
+            from uuid import UUID
+            try:
+                user_id = UUID(payload["sub"])
+            except (ValueError, KeyError, TypeError):
+                user_id = None
+            if user_id is not None:
+                user = db.query(User).filter(User.id == user_id).first()
+                if user and user.subscription_status in ("active", "trialing"):
+                    return user.subscription_tier
+
+    return None
 
 
 def _resolve_caller_tier_for_install(db: Session, request: Request) -> str | None:

@@ -342,9 +342,47 @@ async def publish_skill(
                 detail="You are not authorised to publish this skill",
             )
 
-    # ── 7. Update is_public on the skill row if requested ───────────────
+    # ── 7. Update mutable metadata on the skill row from this publish ────
+    # F-API-04 (RCP-PUB-2026-05-18): mutable manifest fields (description,
+    # license, tier, title) live on the SkillVersion's tarball, but the public
+    # /api/skills/<slug> endpoint reads them off the parent Skill row. Without
+    # this sync, the row keeps stale values from whatever code path created it
+    # (recipify, manual seed, archived row from a previous lifecycle). Each
+    # publish re-asserts the new tarball's frontmatter as the authoritative
+    # state for the row.
     if is_public and not skill_obj.is_public:
         skill_obj.is_public = True
+
+    # Description, license, title: re-sync from skill_section every publish.
+    # Only overwrite when the new value is non-empty AND differs — preserves
+    # editorial overrides from quality_1705 backfills until those are
+    # explicitly replaced by a published tarball with a real description.
+    new_desc = (skill_description or "").strip()
+    if new_desc and new_desc != (skill_obj.description or "").strip():
+        skill_obj.description = new_desc
+    new_license = (skill_section.get("license") or "").strip()
+    if new_license and new_license != (skill_obj.license or "").strip():
+        skill_obj.license = new_license
+    new_title = (skill_name or "").strip()
+    if new_title and new_title != (skill_obj.title or "").strip():
+        skill_obj.title = new_title
+    new_tier = (skill_section.get("tier") or "").strip()
+    if new_tier and new_tier != (skill_obj.tier or "").strip():
+        skill_obj.tier = new_tier
+
+    # Un-archive a previously-archived skill row when a fresh public version
+    # lands. Without this, the portal build silently skips the slug (it
+    # filters on is_archived=false) and the publish CLI's step-13 verification
+    # raises `portal dist missing skills/<slug>/index.html`. Surfaced as
+    # "Published-not-portalized" drift by recipes_publish_watchdog.py.
+    if is_public and getattr(skill_obj, "is_archived", False):
+        skill_obj.is_archived = False
+        if hasattr(skill_obj, "archived_at"):
+            skill_obj.archived_at = None
+        logger.info(
+            "publish: unarchived skill %s on publish of v%s (was hidden from catalog)",
+            slug, semver,
+        )
 
     # ── 8. Compute final sha256 (hex) ────────────────────────────────────
     sha256_hex = hashlib.sha256(tarball_bytes).hexdigest()

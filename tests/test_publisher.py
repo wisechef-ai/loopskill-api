@@ -699,3 +699,173 @@ class TestPublishTomlPersisted:
         assert version_row.skill_toml == toml_bytes.decode()
         expected_sha = hashlib.sha256(tarball_bytes).hexdigest()
         assert version_row.checksum_sha256 == expected_sha
+
+
+# ─────────────────────────── RCP-PUB-2026-05-18 ──────────────────────────
+# Three regression tests for the publish pipeline three-bug fix:
+#   1. Re-publish of an existing skill must re-sync description/title/license/tier
+#      from the tarball's skill.toml (Issue 1 — description="|" stays forever
+#      because the existing-skill code path never touched the row).
+#   2. Re-publish of an archived skill must un-archive it (Issue 2 — archived
+#      slug stays hidden from catalog → portal build skips it → drift alert).
+#   3. /api/skills/{slug} must authenticate via the wr_jwt cookie too, not just
+#      x-api-key (Issue 3 — Pro/Pro+ browser users couldn't see paywalled
+#      SKILL.md bodies because the API only honored agent api keys).
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class TestPublishExistingSkillResyncsMetadata:
+    """RCP-PUB-2026-05-18 §1 — re-publishing an existing skill must overwrite
+    stale description/license/tier/title on the parent Skill row from the
+    new tarball's frontmatter."""
+
+    def test_republish_overwrites_broken_description(self, db_session, tmp_path):
+        user = _make_user(db_session)
+        creator = _make_creator(db_session, user, slug="resync-creator")
+        # Seed an existing skill row with broken description (the prod bug)
+        skill = Skill(
+            id=uuid4(),
+            slug="resync-skill",
+            title="Old Title",
+            description="|",  # ← the bug: YAML literal indicator leaked into DB
+            license="MIT",
+            tier="cook",  # ← legacy tier label
+            is_public=True,
+            creator_id=creator.id,
+        )
+        db_session.add(skill)
+        db_session.commit()
+        skill_id = skill.id
+
+        priv, pub_bytes = _make_keypair()
+        tarball_bytes = b"resync tarball v1"
+        sig_bytes = _sign_tarball(priv, tarball_bytes)
+        toml_bytes = _valid_toml(
+            name="Resync Skill",
+            slug="resync-skill",
+            version="1.0.1",
+            description="A fully-formed description of at least twenty chars.",
+            license="Apache-2.0",
+            extra={"tier": "pro"},
+        )
+
+        client, env = _make_client(db_session, str(tmp_path), is_admin=True)
+        try:
+            resp = client.post(
+                "/api/skills/_publish",
+                files={
+                    "skill_toml": ("skill.toml", io.BytesIO(toml_bytes), "text/plain"),
+                    "tarball": ("skill.tar.gz", io.BytesIO(tarball_bytes), "application/octet-stream"),
+                    "signature": ("sig.bin", io.BytesIO(sig_bytes), "application/octet-stream"),
+                    "signing_pubkey": ("pub.bin", io.BytesIO(pub_bytes), "application/octet-stream"),
+                },
+                headers={"x-api-key": "rec_test_key"},
+                data={"is_public": "true"},
+            )
+        finally:
+            env.stop()
+
+        assert resp.status_code == 201, resp.text
+        db_session.expire_all()
+        row = db_session.query(Skill).filter(Skill.id == skill_id).first()
+        assert row is not None
+        assert row.description == "A fully-formed description of at least twenty chars."
+        assert row.title == "Resync Skill"
+        assert row.license == "Apache-2.0"
+        assert row.tier == "pro"
+
+
+class TestPublishUnarchivesHiddenSkill:
+    """RCP-PUB-2026-05-18 §2 — re-publishing an archived skill row must clear
+    is_archived so the portal build picks it up."""
+
+    def test_republish_unarchives_skill(self, db_session, tmp_path):
+        user = _make_user(db_session)
+        creator = _make_creator(db_session, user, slug="unarchive-creator")
+        skill = _make_skill(db_session, creator, slug="unarchive-skill", is_public=True)
+        skill.is_archived = True
+        db_session.commit()
+        skill_id = skill.id
+
+        priv, pub_bytes = _make_keypair()
+        tarball_bytes = b"unarchive tarball"
+        sig_bytes = _sign_tarball(priv, tarball_bytes)
+        toml_bytes = _valid_toml(name="unarchive-skill", slug="unarchive-skill", version="2.0.0")
+
+        client, env = _make_client(db_session, str(tmp_path), is_admin=True)
+        try:
+            resp = client.post(
+                "/api/skills/_publish",
+                files={
+                    "skill_toml": ("skill.toml", io.BytesIO(toml_bytes), "text/plain"),
+                    "tarball": ("skill.tar.gz", io.BytesIO(tarball_bytes), "application/octet-stream"),
+                    "signature": ("sig.bin", io.BytesIO(sig_bytes), "application/octet-stream"),
+                    "signing_pubkey": ("pub.bin", io.BytesIO(pub_bytes), "application/octet-stream"),
+                },
+                headers={"x-api-key": "rec_test_key"},
+                data={"is_public": "true"},
+            )
+        finally:
+            env.stop()
+
+        assert resp.status_code == 201, resp.text
+        db_session.expire_all()
+        row = db_session.query(Skill).filter(Skill.id == skill_id).first()
+        assert row is not None
+        assert row.is_archived is False, "publishing a public version must un-archive the skill row"
+
+
+class TestPublishExistingSkillPreservesNonEmptyDescription:
+    """Editorial overrides (e.g. quality_1705 backfill) must survive a re-publish
+    when the new tarball happens to ship the SAME description — no unnecessary
+    churn — but a NEW description WINS over the row. This test asserts the
+    'differs AND non-empty' guard works correctly: same description = no change."""
+
+    def test_no_op_when_description_unchanged(self, db_session, tmp_path):
+        user = _make_user(db_session)
+        creator = _make_creator(db_session, user, slug="preserve-creator")
+        existing_desc = "A fully-formed description of at least twenty chars."
+        skill = Skill(
+            id=uuid4(),
+            slug="preserve-skill",
+            title="Preserve Skill",
+            description=existing_desc,
+            license="MIT",
+            tier="pro",
+            is_public=True,
+            creator_id=creator.id,
+        )
+        db_session.add(skill)
+        db_session.commit()
+
+        priv, pub_bytes = _make_keypair()
+        tarball_bytes = b"preserve tarball"
+        sig_bytes = _sign_tarball(priv, tarball_bytes)
+        toml_bytes = _valid_toml(
+            name="Preserve Skill",
+            slug="preserve-skill",
+            version="1.0.1",
+            description=existing_desc,
+            extra={"tier": "pro"},
+        )
+
+        client, env = _make_client(db_session, str(tmp_path), is_admin=True)
+        try:
+            resp = client.post(
+                "/api/skills/_publish",
+                files={
+                    "skill_toml": ("skill.toml", io.BytesIO(toml_bytes), "text/plain"),
+                    "tarball": ("skill.tar.gz", io.BytesIO(tarball_bytes), "application/octet-stream"),
+                    "signature": ("sig.bin", io.BytesIO(sig_bytes), "application/octet-stream"),
+                    "signing_pubkey": ("pub.bin", io.BytesIO(pub_bytes), "application/octet-stream"),
+                },
+                headers={"x-api-key": "rec_test_key"},
+                data={"is_public": "true"},
+            )
+        finally:
+            env.stop()
+
+        assert resp.status_code == 201, resp.text
+        db_session.expire_all()
+        row = db_session.query(Skill).filter(Skill.slug == "preserve-skill").first()
+        assert row.description == existing_desc
