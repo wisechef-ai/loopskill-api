@@ -1,0 +1,23 @@
+[run]
+source = app
+branch = false
+omit =
+    app/discord_bot/*
+    app/sandbox/_run_proxy.py
+    alembic/*
+    */tests/*
+    */__pycache__/*
+    app/scripts/*
+    app/crons/*
+
+[report]
+show_missing = True
+skip_covered = False
+precision = 1
+exclude_lines =
+    pragma: no cover
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    def __repr__
+    @(abc\.)?abstractmethod
