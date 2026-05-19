@@ -23,6 +23,7 @@ from sqlalchemy.pool import StaticPool
 from app.database import get_db
 from app.models import Base, APIKey, Skill, User
 from app.routes import router as api_router
+from app.skill_routes import router as skill_router  # Phase E: /skills/{slug} moved
 
 
 SKILL_README = "# Test Skill\n\n" + ("This is the body content. " * 100)
@@ -47,6 +48,7 @@ def seeded_app(db_engine, monkeypatch):
     SessionLocal = sessionmaker(bind=db_engine, future=True)
     app = FastAPI()
     app.include_router(api_router)
+    app.include_router(skill_router, prefix="/api")  # Phase E: /skills/{slug}
 
     def _db():
         s = SessionLocal()

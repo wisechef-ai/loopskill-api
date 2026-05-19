@@ -25,6 +25,7 @@ from sqlalchemy.orm import sessionmaker
 from app.database import get_db
 from app.models import Base
 from app.routes import router as api_router
+from app.skill_routes import router as skill_router  # Phase E: /skills/{slug} moved
 
 
 @pytest.fixture()
@@ -41,6 +42,7 @@ def app_with_db(db_engine):
     SessionLocal = sessionmaker(bind=db_engine, future=True)
     app = FastAPI()
     app.include_router(api_router)
+    app.include_router(skill_router, prefix="/api")  # Phase E: /skills/{slug}
 
     def _db():
         s = SessionLocal()

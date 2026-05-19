@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
-ROUTES_PATH = Path(__file__).parent.parent / "app" / "routes.py"
+ROUTES_PATH = Path(__file__).parent.parent / "app" / "health_routes.py"
 
 
 # ── Source-grep regression: text("SELECT 1") ─────────────────────────────────
@@ -39,10 +39,10 @@ def test_routes_uses_select_1_not_func_count():
 def healthz_client(db_session):
     """TestClient with core routes including healthz."""
     from app.database import get_db
-    from app.routes import router as core_router
+    from app.health_routes import router as health_router  # Phase E: healthz moved
 
     app = FastAPI()
-    app.include_router(core_router)
+    app.include_router(health_router, prefix="/api")
 
     def override_db():
         try:
@@ -69,10 +69,10 @@ def test_healthz_returns_200_normally(healthz_client):
 def test_healthz_returns_503_when_db_raises(db_session):
     """Monkeypatched failing DB execute → /api/healthz returns 503 with db='error'."""
     from app.database import get_db
-    from app.routes import router as core_router
+    from app.health_routes import router as health_router  # Phase E: healthz moved
 
     app = FastAPI()
-    app.include_router(core_router)
+    app.include_router(health_router, prefix="/api")
 
     # Create a mock session that raises on execute
     failing_session = MagicMock()

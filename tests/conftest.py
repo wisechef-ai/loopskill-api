@@ -125,6 +125,21 @@ def client(db_session: Session):
     except Exception:
         pass
 
+    # Phase E: include the new feature routers split from routes.py
+    try:
+        from app.skill_routes import router as skill_router
+        from app.install_routes import router as install_router
+        from app.access_routes import router as access_router
+        from app.recipe_routes import router as recipe_router
+        from app.health_routes import router as health_router
+        test_app.include_router(skill_router, prefix="/api")
+        test_app.include_router(install_router, prefix="/api")
+        test_app.include_router(access_router, prefix="/api")
+        test_app.include_router(recipe_router, prefix="/api")
+        test_app.include_router(health_router, prefix="/api")
+    except Exception:
+        pass
+
     # Include checkout + creator routes for Stripe/webhook tests
     try:
         from app.checkout_routes import router as checkout_router

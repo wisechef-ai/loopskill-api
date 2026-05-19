@@ -122,6 +122,8 @@ def cb_client(engine_cb, session_cb):
     app.add_middleware(InjectMasterAuth)
     app.include_router(cookbook_router)  # router already has /api/cookbooks prefix
     app.include_router(routes_router)
+    from app.install_routes import router as install_router  # Phase E: _download moved
+    app.include_router(install_router, prefix="/api")  # Phase E: /skills/_download
     app.dependency_overrides[get_db] = override_db
 
     with TestClient(app, headers={"x-api-key": settings.API_KEY}) as tc:

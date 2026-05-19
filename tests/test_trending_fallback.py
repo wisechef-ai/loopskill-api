@@ -68,6 +68,7 @@ def db(engine_fixture) -> Generator[Session, None, None]:
 @pytest.fixture()
 def app_with_middleware(db) -> FastAPI:
     from app.routes import router as skills_router
+    from app.skill_routes import router as skill_router  # Phase E: trending moved
 
     app = FastAPI()
     app.add_middleware(APIKeyMiddleware)
@@ -77,6 +78,7 @@ def app_with_middleware(db) -> FastAPI:
 
     app.dependency_overrides[get_db] = _override_get_db
     app.include_router(skills_router)
+    app.include_router(skill_router, prefix="/api")  # Phase E: /skills/trending
     return app
 
 

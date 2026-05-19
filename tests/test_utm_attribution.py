@@ -40,11 +40,13 @@ def utm_client(db_session: Session):
 
     from app.routes import router as core_router
     from app.routes import utm_router
+    from app.install_routes import router as install_router  # Phase E: /skills/install moved
     from app.checkout_routes import router as checkout_router
     from app.creator_routes import router as creator_router
 
     test_app.include_router(core_router)
     test_app.include_router(utm_router)
+    test_app.include_router(install_router, prefix="/api")  # Phase E
     test_app.include_router(checkout_router)
     test_app.include_router(creator_router)
 

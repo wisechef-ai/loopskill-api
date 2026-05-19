@@ -103,7 +103,9 @@ def client_v6(seeded_db):
             db.close()
 
     from app.routes import router as core_router
+    from app.skill_routes import router as skill_router  # Phase E: search moved
     app.include_router(core_router)
+    app.include_router(skill_router, prefix="/api")  # Phase E: /skills/search
     app.dependency_overrides[get_db] = override_db
 
     with TestClient(app, headers={"x-api-key": settings.API_KEY}) as c:

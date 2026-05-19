@@ -35,7 +35,12 @@ from app.recall_routes import router as recall_router
 from app.recipify_routes import router as recipify_router
 from app.referral_routes import router as referral_router
 from app.routes import router
-from app.routes import utm_router  # marketing_1205: platform short-link redirectors
+from app.routes import utm_router  # backwards-compat: routes.py re-exports from utm_redirects
+from app.health_routes import router as health_router  # Phase E: health split
+from app.access_routes import router as access_router  # Phase E: access split
+from app.recipe_routes import router as recipe_router  # Phase E: recipe split
+from app.install_routes import router as install_router  # Phase E: install split
+from app.skill_routes import router as skill_router  # Phase E: skill split
 from app.marketing_routes import router as marketing_router
 from app.sandbox.routes import router as sandbox_router
 from app.skill_error_routes import router as skill_error_router
@@ -102,6 +107,11 @@ def create_app() -> FastAPI:
 
     app.include_router(router)
     app.include_router(utm_router)  # marketing_1205: /x/<slug>, /li/<slug> etc.
+    app.include_router(health_router, prefix="/api")  # Phase E: /api/healthz
+    app.include_router(access_router, prefix="/api")  # Phase E: /api/skills/access
+    app.include_router(recipe_router, prefix="/api")  # Phase E: /api/recipes/, /api/api-library/
+    app.include_router(install_router, prefix="/api")  # Phase E: /api/skills/install, /api/skills/_download
+    app.include_router(skill_router, prefix="/api")  # Phase E: /api/skills/*
     app.include_router(admin_router)
     app.include_router(auth_router)
     app.include_router(carousel_router, prefix="/api")

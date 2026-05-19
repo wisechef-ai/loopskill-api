@@ -18,6 +18,7 @@ from sqlalchemy.pool import StaticPool
 from app.models import Base, Skill
 from app.database import get_db
 from app.routes import router
+from app.skill_routes import router as skill_router  # Phase E: external moved
 
 
 @pytest.fixture(scope="module")
@@ -55,6 +56,7 @@ def test_app(engine):
             db.close()
 
     app.include_router(router)
+    app.include_router(skill_router, prefix="/api")  # Phase E: /skills/{slug}/external moved
     app.dependency_overrides[get_db] = override_db
     return app
 

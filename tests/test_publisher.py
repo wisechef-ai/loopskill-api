@@ -164,6 +164,7 @@ def _make_client(db: Session, skills_dir: str, api_key_user_id=None, is_admin=Fa
 
     from app.publisher_routes import router as publisher_router
     from app.routes import router as skills_router
+    from app.skill_routes import router as skill_search_router  # Phase E: search moved
 
     test_app = FastAPI()
 
@@ -176,6 +177,7 @@ def _make_client(db: Session, skills_dir: str, api_key_user_id=None, is_admin=Fa
 
     test_app.dependency_overrides[get_db] = _override_get_db
     test_app.include_router(skills_router)
+    test_app.include_router(skill_search_router, prefix="/api")  # Phase E: /skills/search
     test_app.include_router(publisher_router)
 
     # Inject auth state (simulating what APIKeyMiddleware would set)

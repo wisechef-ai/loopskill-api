@@ -53,22 +53,22 @@ def test_install_event_uses_socket_when_no_headers():
 
 
 def test_install_event_client_ip_import_in_routes():
-    """Verify routes.py imports _real_client_ip from app.utils.client_ip."""
+    """Verify install_routes.py imports _real_client_ip from app.utils.client_ip."""
     import inspect
-    import app.routes as routes_module
+    import app.install_routes as install_routes_module  # Phase E: moved from routes.py
 
-    src = inspect.getsource(routes_module)
+    src = inspect.getsource(install_routes_module)
     assert "from app.utils.client_ip import _real_client_ip" in src, (
-        "routes.py must import _real_client_ip from app.utils.client_ip (Issue #22)"
+        "install_routes.py must import _real_client_ip from app.utils.client_ip (Issue #22)"
     )
 
 
 def test_install_event_uses_trusted_cidrs_from_settings():
-    """Verify routes.py passes settings.TRUSTED_PROXY_CIDRS to _real_client_ip."""
+    """Verify install_routes.py passes settings.TRUSTED_PROXY_CIDRS to _real_client_ip."""
     import inspect
-    import app.routes as routes_module
+    import app.install_routes as install_routes_module  # Phase E: moved from routes.py
 
-    src = inspect.getsource(routes_module)
+    src = inspect.getsource(install_routes_module)
     assert "settings.TRUSTED_PROXY_CIDRS" in src, (
-        "routes.py must pass settings.TRUSTED_PROXY_CIDRS to _real_client_ip"
+        "install_routes.py must pass settings.TRUSTED_PROXY_CIDRS to _real_client_ip"
     )

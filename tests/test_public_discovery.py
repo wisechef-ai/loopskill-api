@@ -58,6 +58,7 @@ def db(engine_fixture) -> Generator[Session, None, None]:
 def app_with_middleware(db) -> FastAPI:
     """Build a FastAPI app with the real APIKeyMiddleware + skills routes."""
     from app.routes import router as skills_router
+    from app.skill_routes import router as skill_router  # Phase E: search/trending moved
 
     app = FastAPI()
     app.add_middleware(APIKeyMiddleware)
@@ -69,6 +70,7 @@ def app_with_middleware(db) -> FastAPI:
             pass
     app.dependency_overrides[get_db] = _override_get_db
     app.include_router(skills_router)  # router already has prefix="/api"
+    app.include_router(skill_router, prefix="/api")  # Phase E: /skills/search + /skills/trending
     return app
 
 

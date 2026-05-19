@@ -30,10 +30,12 @@ def _make_app_with_middleware(db_session):
     """
     from app.middleware import APIKeyMiddleware
     from app.routes import router as core_router
+    from app.install_routes import router as install_router  # Phase E: /skills/install
 
     app = FastAPI()
     app.add_middleware(APIKeyMiddleware)
     app.include_router(core_router)
+    app.include_router(install_router, prefix="/api")  # Phase E
 
     from app.database import get_db
 

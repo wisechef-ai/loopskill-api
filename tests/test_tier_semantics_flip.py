@@ -70,6 +70,7 @@ def patched_client(db, engine_fixture) -> TestClient:
     """TestClient with middleware + patched SessionLocal so auth middleware
     reads from the same in-memory test DB."""
     from app.routes import router as skills_router
+    from app.install_routes import router as install_router  # Phase E: install moved
     import app.database as db_mod
 
     app = FastAPI()
@@ -89,6 +90,7 @@ def patched_client(db, engine_fixture) -> TestClient:
 
     app.dependency_overrides[get_db] = _override_get_db
     app.include_router(skills_router)
+    app.include_router(install_router, prefix="/api")  # Phase E: /skills/install
 
     with patch.object(db_mod, "SessionLocal", test_session_factory):
         with TestClient(app, raise_server_exceptions=True) as c:

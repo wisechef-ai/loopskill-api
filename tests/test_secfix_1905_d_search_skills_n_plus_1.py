@@ -20,6 +20,7 @@ from uuid import uuid4
 from app.models import Base, Skill
 from app.database import get_db
 from app.routes import router
+from app.skill_routes import router as skill_router
 from app.config import settings
 
 
@@ -71,6 +72,7 @@ def populated_client(engine_n1, session_n1):
             db.close()
 
     app.include_router(router)
+    app.include_router(skill_router, prefix="/api")  # Phase E: search moved to skill_routes
     app.dependency_overrides[get_db] = override_db
 
     with TestClient(app, headers={"x-api-key": settings.API_KEY}) as tc:
