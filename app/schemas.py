@@ -47,6 +47,12 @@ class SkillDetailOut(SkillOut):
     pinned_sha: str | None = None
     upstream_status: str = "active"
     external_resources: list[dict] | None = None
+    # polish_1805 hotfix — count of unhappy_paths entries in the readme YAML
+    # frontmatter, exposed as a scalar so the static portal build can render
+    # the "N known pitfalls documented" trust pill WITHOUT needing the full
+    # body (which is paywalled by Phase B for anonymous callers).
+    # Always computed server-side; never leaks body content.
+    unhappy_paths_count: int = 0
 
 
 class VersionOut(BaseModel):

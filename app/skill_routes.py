@@ -20,6 +20,7 @@ Also exports:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -443,6 +444,24 @@ def get_skill_detail(slug: str, request: Request, db: Session = Depends(get_db))
     readme_payload = skill.readme if caller_is_paid else None
     external_payload = getattr(skill, "external_resources", None) if caller_is_paid else None
 
+    # polish_1805 hotfix — count of unhappy_paths entries in the readme YAML
+    # frontmatter, computed server-side and exposed as a SCALAR (just a number,
+    # no body content), so it is safe to surface even when readme_payload is
+    # paywalled by Phase B. The static portal build uses it for the "N known
+    # pitfalls documented" trust pill on every public skill page.
+    unhappy_count = 0
+    if skill.readme:
+        _front = re.match(r"^---\s*\n(.*?)\n---\s*\n", skill.readme, re.DOTALL)
+        if _front:
+            _yaml = _front.group(1)
+            _up = re.search(r"^unhappy_paths:\s*$", _yaml, re.MULTILINE)
+            if _up:
+                _tail = _yaml[_up.start() :]
+                _rest = _tail[len("unhappy_paths:") :]
+                _stop = re.search(r"^[a-z_][a-z0-9_]*:\s*$", _rest, re.MULTILINE)
+                _block = _tail[: len("unhappy_paths:") + _stop.start()] if _stop else _tail
+                unhappy_count = len(re.findall(r"^\s*-\s+condition:", _block, re.MULTILINE))
+
     return SkillDetailOut(
         id=skill.id,
         slug=skill.slug,
@@ -466,6 +485,7 @@ def get_skill_detail(slug: str, request: Request, db: Session = Depends(get_db))
         pinned_sha=getattr(skill, "pinned_sha", None),
         upstream_status=getattr(skill, "upstream_status", "active") or "active",
         external_resources=external_payload,
+        unhappy_paths_count=unhappy_count,
         versions=[
             {
                 "id": v.id,
