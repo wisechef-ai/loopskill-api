@@ -63,40 +63,61 @@ def compute_counts() -> dict:
 
 
 def update_yaml(counts: dict, mcp_tools: int = 6, rest_endpoints: int = 11) -> tuple[bool, str]:
-    """Return (changed, new_yaml_text). Idempotent on the counts block."""
+    """Return (changed, new_yaml_text). Idempotent on the counts block.
+
+    2026-05-19: switched from yaml.safe_dump(full doc) to surgical regex
+    updates so comments and structural formatting are preserved. The previous
+    impl stripped ~50 lines of SSOT contract documentation on every run,
+    which is why no one committed the auto-refreshed output — the diff was
+    too destructive.
+    """
+    import re
     import yaml
 
     raw = YAML_PATH.read_text()
     data = yaml.safe_load(raw)
     if "counts" not in data:
+        # Bootstrap path — file has no counts block. Fall back to safe_dump
+        # so we don't silently miss the first write.
         data["counts"] = {}
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        data["counts"] = {
+            "skills_total": counts["skills_total"],
+            "free_skills": counts["free_skills"],
+            "pro_skills": counts["pro_skills"],
+            "pro_plus_exclusive_skills": counts["pro_plus_exclusive_skills"],
+            "mcp_tools_count": mcp_tools,
+            "rest_endpoint_count": rest_endpoints,
+            "last_refresh_at": now,
+        }
+        return True, yaml.safe_dump(data, sort_keys=False, default_flow_style=False, indent=2)
 
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
     old_counts = dict(data["counts"])
-    data["counts"] = {
-        "skills_total": counts["skills_total"],
-        "free_skills": counts["free_skills"],
-        "pro_skills": counts["pro_skills"],
-        "pro_plus_exclusive_skills": counts["pro_plus_exclusive_skills"],
-        "mcp_tools_count": old_counts.get("mcp_tools_count", mcp_tools),
-        "rest_endpoint_count": old_counts.get("rest_endpoint_count", rest_endpoints),
-        "last_refresh_at": now,
+
+    new_values = {
+        "skills_total": str(counts["skills_total"]),
+        "free_skills": str(counts["free_skills"]),
+        "pro_skills": str(counts["pro_skills"]),
+        "pro_plus_exclusive_skills": str(counts["pro_plus_exclusive_skills"]),
+        # mcp_tools_count and rest_endpoint_count are not auto-refreshed —
+        # they\'re manual SSOT and the watchdog tracks separate invariants.
+        "last_refresh_at": f"\'{now}\'",
     }
 
-    # Only consider numeric changes for the "changed" flag; refreshing the
-    # timestamp every run would otherwise force a noisy git diff. We bump the
-    # timestamp unconditionally but flag changed=true only when a number moved.
-    numeric_changed = any(
-        old_counts.get(k) != data["counts"][k]
-        for k in [
-            "skills_total",
-            "free_skills",
-            "pro_skills",
-            "pro_plus_exclusive_skills",
-        ]
-    )
+    new_text = raw
+    for key, val in new_values.items():
+        # Match: leading whitespace, key, colon, current value, optional trailing comment
+        pattern = re.compile(rf"^(\s+{re.escape(key)}:\s+)([^\s#]+)(\s*(?:#.*)?)$", re.MULTILINE)
+        replaced, n = pattern.subn(rf"\g<1>{val}\g<3>", new_text, count=1)
+        if n == 1:
+            new_text = replaced
+        # If n != 1 we silently skip — caller can detect via missing values in the diff
 
-    new_text = yaml.safe_dump(data, sort_keys=False, default_flow_style=False, indent=2)
+    numeric_changed = any(
+        old_counts.get(k) != counts.get(k)
+        for k in ["skills_total", "free_skills", "pro_skills", "pro_plus_exclusive_skills"]
+    )
     return numeric_changed, new_text
 
 

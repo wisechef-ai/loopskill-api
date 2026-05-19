@@ -41,6 +41,64 @@ W_DIVERSITY = 0.20
 W_EDITORIAL = 0.10
 
 
+# ── Hoisted helpers (testable) ─────────────────────────────────────────────
+# 2026-05-19 (atomic-habits CRIT 7): these were inline inside main(). Hoisted
+# so tests/test_carousel_selector.py can exercise them without spinning up a
+# DB. They are pure functions of a candidate dict + a tagline string. The
+# slot1_quality_check mirrors the contract in skill `carousel-content-quality-gate`.
+
+import re as _re
+
+def derive_tagline(p: dict) -> str:
+    """Return the tagline a candidate would publish. description-first.
+
+    `p` is the scored-candidate dict built earlier in main() — has keys
+    description, title, slug. We cap at 120 chars to match the DB schema
+    (carousel_entries.tagline String(512), but the on-card render budget is
+    ~80-120 chars and we want headroom for ellipses on the FE side).
+    """
+    desc = (p.get("description") or "").strip()
+    if desc:
+        return desc[:120]
+    return (p.get("title") or p.get("slug") or "")[:120]
+
+
+def slot1_quality_check(p: dict, tagline: str) -> tuple[bool, str]:
+    """Slot-1 lint per skill `carousel-content-quality-gate`.
+
+    Returns (passed, drop_reason). Drop reasons are stable identifiers used by
+    downstream tooling (weekly retro, rejects log) — DO NOT rename without
+    updating the skill and the watchdog canary.
+    """
+    title = (p.get("title") or "").strip()
+    slug = (p.get("slug") or "").strip()
+    t = (tagline or "").strip()
+    if t.lower() == title.lower():
+        return False, "tagline_equals_title"
+    if len(t) < 20:
+        return False, f"tagline_too_short:{len(t)}"
+    if _re.fullmatch(r"[A-Z][a-z]+", t):
+        return False, "tagline_single_word"
+    stripped_slug = slug.replace("-", "").replace("_", "")
+    if len(stripped_slug) < 4 or (len(slug) < 6 and "-" not in slug):
+        return False, "slug_too_thin"
+    return True, "ok"
+
+
+def assign_role(slot_1idx: int, p: dict | None = None) -> str:
+    """Minimal role assignment. slots 1-5 → new-capability, 6-7 → experimental.
+
+    The richer `_assign_role` in app/carousel/selector.py inspects same-category
+    older skills to pick `replaces` — this lightweight version is what the
+    systemd-timer cron uses to keep the write path fast (no per-skill JOIN).
+    """
+    if slot_1idx >= 6:
+        return "experimental"
+    return "new-capability"
+
+
+
+
 def main():
     engine = create_engine(DATABASE_URL)
     Session = sessionmaker(bind=engine)
@@ -71,6 +129,10 @@ def main():
               LEFT JOIN install_events ie ON ie.skill_id = s.id
               LEFT JOIN telemetry_events te ON te.skill_slug = s.slug
              WHERE s.is_public = true
+               AND s.description IS NOT NULL
+               AND char_length(trim(s.description)) >= 20
+               AND lower(trim(s.description)) <> lower(trim(s.title))
+               AND lower(trim(s.description)) <> lower(trim(s.slug))
                AND (
                  :force = true
                  OR s.id NOT IN (
@@ -96,6 +158,10 @@ def main():
                   LEFT JOIN install_events ie ON ie.skill_id = s.id
                   LEFT JOIN telemetry_events te ON te.skill_slug = s.slug
                  WHERE s.is_public = true
+                   AND s.description IS NOT NULL
+                   AND char_length(trim(s.description)) >= 20
+                   AND lower(trim(s.description)) <> lower(trim(s.title))
+                   AND lower(trim(s.description)) <> lower(trim(s.slug))
                  GROUP BY s.id
             """), {"vc": velocity_cutoff}).all()
             if not rows:
@@ -156,19 +222,52 @@ def main():
                 cand["final_score"] = cand["score_base"]
                 picked.append(cand)
 
-        # Insert into carousel_entries (table has no `role` column — use tagline only)
-        for slot, p in enumerate(picked):
+        # Slot-1 pre-promotion gate — re-pick if it fails (helpers hoisted to module level for testability — see derive_tagline / slot1_quality_check / assign_role below)
+        if picked:
+            attempts = 0
+            while attempts < 5:
+                tag = derive_tagline(picked[0])
+                ok, reason = slot1_quality_check(picked[0], tag)
+                if ok:
+                    break
+                # Drop slot-1 candidate, log reject, promote next
+                rejects_dir = os.path.expanduser("~/.hermes/state/carousel-rejects")
+                try:
+                    os.makedirs(rejects_dir, exist_ok=True)
+                    log_path = os.path.join(rejects_dir, f"{target_date}.log")
+                    with open(log_path, "a") as fh:
+                        fh.write(f'{{"date": "{target_date}", "slug": "{picked[0].get("slug","")}", "drop_reason": "{reason}"}}\n')
+                except Exception as _logerr:
+                    print(f"[carousel] WARN: could not log slot-1 reject: {_logerr}", file=sys.stderr)
+                print(f"[carousel] slot-1 rejected: {picked[0].get('slug','?')} reason={reason}", file=sys.stderr)
+                # Promote the next candidate by removing index 0
+                if len(picked) > 1:
+                    picked = picked[1:]
+                else:
+                    break
+                attempts += 1
+            if attempts >= 5:
+                print(f"[carousel] WARN: slot-1 quality gate exhausted retries on {target_date}", file=sys.stderr)
+
+        # Insert with slot (1-indexed), role, score, and description-derived tagline
+        for idx, p in enumerate(picked):
+            slot_1idx = idx + 1
+            tagline = derive_tagline(p)
+            role = assign_role(slot_1idx, p)
             session.execute(text("""
                 INSERT INTO carousel_entries
-                  (id, skill_id, featured_date, position, tagline)
+                  (id, skill_id, featured_date, position, slot, role, score, tagline)
                 VALUES
-                  (gen_random_uuid(), :sid, :d, :pos, :tag)
+                  (gen_random_uuid(), :sid, :d, :pos, :slot, :role, :score, :tag)
                 ON CONFLICT DO NOTHING
             """), {
                 "sid": p["skill_id"],
                 "d": target_date,
-                "pos": slot,
-                "tag": (p["title"] or p["slug"])[:120],
+                "pos": idx,             # backward-compat 0-indexed
+                "slot": slot_1idx,      # 1-indexed
+                "role": role,
+                "score": float(p.get("final_score", 0.0)),
+                "tag": tagline,
             })
         session.commit()
 
