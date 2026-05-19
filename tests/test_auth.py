@@ -410,9 +410,19 @@ class TestAuthRoutes:
 
     @pytest.fixture(autouse=True)
     def _require_postgres(self):
-        """Skip the whole class when Postgres isn't reachable."""
+        """Skip the whole class when Postgres isn't reachable.
+
+        secfix_1905/A added a root conftest.py that forces ``WR_DATABASE_URL``
+        to sqlite so the production-secrets gate (Issue #1) doesn't fire
+        during normal test runs. That flips the global engine to SQLite,
+        which *is* reachable but doesn't match the integration-test assumptions
+        here (Postgres-flavored DDL + the MCP session manager mounted by
+        ``create_app()``). Skip when the engine isn't Postgres.
+        """
         from app.database import engine
         from sqlalchemy.exc import OperationalError
+        if engine.dialect.name != "postgresql":
+            pytest.skip(f"Integration tests require Postgres; got {engine.dialect.name}")
         try:
             with engine.connect() as _c:
                 _c.execute(__import__("sqlalchemy").text("SELECT 1"))

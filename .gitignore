@@ -81,3 +81,4 @@ CLAUDE.md
 .v6venv/
 *.bak
 .venv
+test_dev.db
