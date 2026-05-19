@@ -26,11 +26,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-try:
-    import frontmatter as fm
-except ImportError:
-    print("ERROR: python-frontmatter not installed. Run: pip install python-frontmatter", file=sys.stderr)
-    sys.exit(1)
+# frontmatter is imported lazily in main() — it's an optional dependency
+# not present in CI. Keeping this at module level causes sys.exit(1) during
+# pytest collection, breaking the coverage step.
+fm = None  # type: ignore[assignment]
 
 
 @dataclass
@@ -128,7 +127,15 @@ def write_csv(entries: list[SkillEntry], outpath: str) -> None:
 
 
 def main() -> None:
+    global fm
     from datetime import datetime
+
+    try:
+        import frontmatter as _fm
+    except ImportError:
+        print("ERROR: python-frontmatter not installed. Run: pip install python-frontmatter", file=sys.stderr)
+        sys.exit(1)
+    fm = _fm
 
     parser = argparse.ArgumentParser(description="Harvest skills for Cookbook curation")
     parser.add_argument(
