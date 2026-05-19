@@ -46,13 +46,39 @@ class SkillEntry:
     source_path: str = ""
 
 
+def _get_frontmatter():
+    """Lazily import the optional python-frontmatter dependency.
+
+    Kept lazy (not a top-level import) so the module can be imported — and
+    its pure-Python helpers like score_skill collected by pytest — on a host
+    without python-frontmatter installed (#129: collection must not crash).
+    parse_skill_md() calls this so direct callers (tests) work without
+    having to run main() first; previously the module-global ``fm`` stayed
+    None until main() ran, so every direct parse_skill_md() call hit
+    ``'NoneType' object has no attribute 'load'``.
+    """
+    global fm
+    if fm is None:
+        try:
+            import frontmatter as _fm
+        except ImportError:
+            print(
+                "ERROR: python-frontmatter not installed. "
+                "Run: pip install python-frontmatter",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        fm = _fm
+    return fm
+
+
 def parse_skill_md(path: Path) -> SkillEntry:
     """Parse a SKILL.md file and return a SkillEntry.
 
     Frontmatter fields:
         name, description, tags, tier, version, audit_pass, hosts
     """
-    post = fm.load(str(path))
+    post = _get_frontmatter().load(str(path))
     meta = post.metadata
 
     mtime = path.stat().st_mtime
@@ -127,15 +153,9 @@ def write_csv(entries: list[SkillEntry], outpath: str) -> None:
 
 
 def main() -> None:
-    global fm
     from datetime import datetime
 
-    try:
-        import frontmatter as _fm
-    except ImportError:
-        print("ERROR: python-frontmatter not installed. Run: pip install python-frontmatter", file=sys.stderr)
-        sys.exit(1)
-    fm = _fm
+    _get_frontmatter()  # fail fast if python-frontmatter is missing
 
     parser = argparse.ArgumentParser(description="Harvest skills for Cookbook curation")
     parser.add_argument(

@@ -51,9 +51,19 @@ def test_legacy_price_defaults_empty() -> None:
 # ── 2. Canonical defaults remain "" ───────────────────────────────────────────
 
 def test_canonical_price_defaults_empty() -> None:
-    """STRIPE_PRICE_PRO and STRIPE_PRICE_PRO_PLUS must default to empty string."""
+    """STRIPE_PRICE_PRO and STRIPE_PRICE_PRO_PLUS must default to empty string.
+
+    This asserts the Settings *field default*, so it must isolate from the
+    ambient environment — the test conftest sets WR_STRIPE_PRICE_PRO /
+    WR_STRIPE_PRICE_PRO_PLUS so TIER_PRICE_IDS is populated for the checkout
+    tests, and patch.dict(clear=False) would otherwise let those leak in.
+    We explicitly drop them so this test sees the true default.
+    """
     from app.config import Settings
-    with patch.dict(os.environ, {"WR_DATABASE_URL": "sqlite:///dev.db"}, clear=False):
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("WR_STRIPE_PRICE_PRO", "WR_STRIPE_PRICE_PRO_PLUS")}
+    env["WR_DATABASE_URL"] = "sqlite:///dev.db"
+    with patch.dict(os.environ, env, clear=True):
         s = Settings()
     assert s.STRIPE_PRICE_PRO == ""
     assert s.STRIPE_PRICE_PRO_PLUS == ""
