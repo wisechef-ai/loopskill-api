@@ -6,6 +6,7 @@ Falls back to in-memory if Redis is unavailable (graceful degradation).
 """
 
 import hashlib
+import hmac
 import time
 import logging
 from collections import defaultdict
@@ -184,6 +185,9 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                     request.state.api_key_user_id = None
                     request.state.api_key_id = None
                     request.state.is_anonymous_free_install = True
+                    # auth_ctx: anonymous caller (Phase A wiring)
+                    from app.auth_ctx import AuthContext
+                    request.state.auth_ctx = AuthContext.anonymous()
                     return await call_next(request)
             # Single segment, no underscore prefix, not a known auth verb.
             if "/" not in tail and not tail.startswith("_") and tail not in self.PUBLIC_SKILL_DETAIL_AUTH_VERBS:
@@ -248,7 +252,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 key_hash = hashlib.sha256(key.encode()).hexdigest()
                 match = None
                 for row in candidates:
-                    if row.token_hash == key_hash:
+                    if hmac.compare_digest(row.token_hash, key_hash):
                         match = row
                         break
                 if match is None:
@@ -268,6 +272,12 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 request.state.api_key_user_id = "CBT_TOKEN"
                 request.state.api_key_id = None
                 request.state.is_cbt_token = True
+                # auth_ctx: cbt_token scope
+                from app.auth_ctx import AuthContext
+                request.state.auth_ctx = AuthContext(
+                    scope="cbt_token",
+                    cookbook_scope=match.cookbook_id,
+                )
                 return await call_next(request)
             finally:
                 db.close()
@@ -280,9 +290,12 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             )
 
         # For dev: support a static master key from env (also prefixed rec_)
-        if key == settings.API_KEY:
+        if hmac.compare_digest(key, settings.API_KEY):
             request.state.api_key_id = None
             request.state.api_key_user_id = None
+            # auth_ctx: master scope
+            from app.auth_ctx import AuthContext
+            request.state.auth_ctx = AuthContext(scope="master")
             return await call_next(request)
 
         # Production: hash the key and look up in api_keys table
@@ -300,6 +313,14 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 db.commit()
                 request.state.api_key_id = api_key_obj.id
                 request.state.api_key_user_id = api_key_obj.user_id
+                # auth_ctx: user scope (Phase A wiring; Phase B adds cookbook_scope)
+                from app.auth_ctx import AuthContext
+                from uuid import UUID as _UUID
+                request.state.auth_ctx = AuthContext(
+                    scope="user",
+                    user_id=api_key_obj.user_id,
+                    api_key_id=api_key_obj.id,
+                )
                 return await call_next(request)
         finally:
             db.close()

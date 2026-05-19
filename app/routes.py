@@ -23,7 +23,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, select, text
 from sqlalchemy.orm import Session, joinedload
 
 logger = logging.getLogger(__name__)
@@ -99,7 +99,7 @@ def _build_manifest(latest: SkillVersion, skill: Skill) -> dict:
 @router.get("/healthz", tags=["meta"])
 def healthz(db: Session = Depends(get_db)):
     try:
-        db.execute(func.count(1))
+        db.execute(text("SELECT 1"))
         db_status = "ok"
     except Exception:
         db_status = "error"
@@ -133,6 +133,15 @@ def healthz(db: Session = Depends(get_db)):
         db=db_status,
         stripe_webhook_lag_seconds=stripe_lag,
         stripe_last_event_at=stripe_last,
+    ) if db_status == "ok" else JSONResponse(
+        status_code=503,
+        content=HealthOut(
+            status="error",
+            version=VERSION,
+            db="error",
+            stripe_webhook_lag_seconds=stripe_lag,
+            stripe_last_event_at=stripe_last,
+        ).model_dump(),
     )
 
 

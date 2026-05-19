@@ -1,6 +1,59 @@
 """WiseRecipes API — configuration via env vars."""
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
+
+# Default (insecure) values that MUST be rotated in any non-sqlite environment.
+_DEFAULT_API_KEY = "rec_dev_wiserecipes_local_testing_key"
+_DEFAULT_SIGNING_SECRET = "wr-tarball-signing-secret-change-me"
+_DEFAULT_JWT_SECRET = "wr-jwt-secret-change-me"
+_DEFAULT_HEARTBEAT_PEPPER = "wr-fleet-pepper-change-me"
+
+
+def _assert_production_secrets(settings: "Settings") -> None:
+    """Raise RuntimeError if any default change-me secret is present in a non-sqlite env.
+
+    Called from Settings.__init__ via model_validator so the process refuses
+    to boot rather than silently running with exploitable defaults.
+
+    Also enforces OAUTH_REDIRECT_BASE requirements in non-sqlite envs:
+    - Must be non-empty
+    - Must start with 'https://'
+
+    SQLite envs (local dev) are exempt — default values are fine there.
+    """
+    if "sqlite" in settings.DATABASE_URL:
+        return  # dev environment — allow defaults
+
+    insecure: list[str] = []
+    if settings.API_KEY == _DEFAULT_API_KEY:
+        insecure.append("API_KEY")
+    if settings.SIGNING_SECRET == _DEFAULT_SIGNING_SECRET:
+        insecure.append("SIGNING_SECRET")
+    if settings.JWT_SECRET == _DEFAULT_JWT_SECRET:
+        insecure.append("JWT_SECRET")
+    if settings.HEARTBEAT_PEPPER == _DEFAULT_HEARTBEAT_PEPPER:
+        insecure.append("HEARTBEAT_PEPPER")
+
+    if insecure:
+        raise RuntimeError(
+            f"Refusing to boot in production with default change-me secret(s): "
+            f"{', '.join(insecure)}. "
+            f"Set proper values via environment variables (WR_{{NAME}})."
+        )
+
+    # Issue #4 — OAUTH_REDIRECT_BASE must be non-empty and https:// in prod
+    base = settings.OAUTH_REDIRECT_BASE
+    if not base:
+        raise RuntimeError(
+            "Refusing to boot in production: OAUTH_REDIRECT_BASE is empty. "
+            "Set WR_OAUTH_REDIRECT_BASE=https://your-domain.example.com"
+        )
+    if not base.startswith("https://"):
+        raise RuntimeError(
+            f"Refusing to boot in production: OAUTH_REDIRECT_BASE must start with 'https://' "
+            f"(got {base!r}). Host-header-derived OAuth redirect URIs are a security risk."
+        )
 
 
 class Settings(BaseSettings):
@@ -76,7 +129,25 @@ class Settings(BaseSettings):
     DISCORD_GUILD_ID: str = ""
     DISCORD_AUTHOR_THRESHOLD: float = 80.0
 
+    # Issue #11 — explicit COOKIES_SECURE flag replaces HOST-heuristic.
+    # Default True (production safe). False only valid when DATABASE_URL
+    # contains "sqlite" (local dev). Validated below.
+    COOKIES_SECURE: bool = True
+
     model_config = {"env_file": ".env", "env_prefix": "WR_", "extra": "ignore"}
+
+    @model_validator(mode="after")
+    def _run_production_checks(self) -> "Settings":
+        """Run all production-safety checks after all fields are resolved."""
+        # Issue #11 — COOKIES_SECURE=False only valid in sqlite (dev) env
+        if not self.COOKIES_SECURE and "sqlite" not in self.DATABASE_URL:
+            raise RuntimeError(
+                "COOKIES_SECURE=False is only allowed when DATABASE_URL contains 'sqlite' "
+                "(local dev). Set WR_COOKIES_SECURE=true in production."
+            )
+        # Issues #1 + #4 — secrets gate
+        _assert_production_secrets(self)
+        return self
 
 
 settings = Settings()

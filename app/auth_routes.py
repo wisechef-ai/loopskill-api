@@ -77,7 +77,7 @@ def _make_success_redirect(jwt_token: str, next_url: str | None = None) -> Redir
         value=jwt_token,
         max_age=JWT_COOKIE_MAX_AGE,
         httponly=True,
-        secure=settings.HOST != "0.0.0.0",  # secure in prod, not local
+        secure=settings.COOKIES_SECURE,  # Issue #11: explicit flag replaces HOST heuristic
         samesite="lax",
         path="/",
     )
@@ -100,7 +100,7 @@ def _stamp_referral_cookie(response, ref: str | None) -> None:
         value=ref,
         max_age=REFERRAL_COOKIE_MAX_AGE,
         httponly=False,
-        secure=settings.HOST != "0.0.0.0",
+        secure=settings.COOKIES_SECURE,
         samesite="lax",
         path="/",
     )
@@ -129,13 +129,13 @@ async def github_login(request: Request, next: Optional[str] = None, ref: Option
         value=state,
         max_age=600,  # 10 minutes
         httponly=True,
-        secure=settings.HOST != "0.0.0.0",
+        secure=settings.COOKIES_SECURE,
         samesite="lax",
     )
     if next:
         response.set_cookie(
             key="oauth_next", value=next, max_age=600, httponly=True,
-            secure=settings.HOST != "0.0.0.0", samesite="lax",
+            secure=settings.COOKIES_SECURE, samesite="lax",
         )
     _stamp_referral_cookie(response, ref)
     return response
@@ -156,8 +156,8 @@ async def github_callback(
 
     # Verify state matches (CSRF protection)
     cookie_state = request.cookies.get("oauth_state")
-    if cookie_state and cookie_state != state:
-        logger.warning("GitHub OAuth state mismatch")
+    if not cookie_state or cookie_state != state:
+        logger.warning("GitHub OAuth state mismatch (cookie=%r, param=%r)", cookie_state, state)
         return _make_error_redirect("state_mismatch")
 
     try:
@@ -206,13 +206,13 @@ async def google_login(request: Request, next: Optional[str] = None, ref: Option
         value=state,
         max_age=600,
         httponly=True,
-        secure=settings.HOST != "0.0.0.0",
+        secure=settings.COOKIES_SECURE,
         samesite="lax",
     )
     if next:
         response.set_cookie(
             key="oauth_next", value=next, max_age=600, httponly=True,
-            secure=settings.HOST != "0.0.0.0", samesite="lax",
+            secure=settings.COOKIES_SECURE, samesite="lax",
         )
     _stamp_referral_cookie(response, ref)
     return response
@@ -233,8 +233,8 @@ async def google_callback(
 
     # Verify state matches (CSRF protection)
     cookie_state = request.cookies.get("oauth_state")
-    if cookie_state and cookie_state != state:
-        logger.warning("Google OAuth state mismatch")
+    if not cookie_state or cookie_state != state:
+        logger.warning("Google OAuth state mismatch (cookie=%r, param=%r)", cookie_state, state)
         return _make_error_redirect("state_mismatch")
 
     try:
