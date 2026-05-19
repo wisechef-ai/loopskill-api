@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.tier_labels import display_label, _is_paid_tier
+from app.utils.client_ip import _real_client_ip  # Issue #22
 from app.models import (
     APIKey,
     APILibraryEntry,
@@ -280,10 +281,14 @@ def search_skills(
     total = query.count()
     results = query.offset((page - 1) * page_size).limit(page_size).all()
 
-    keyword_skill_outs = [
-        _skill_to_out(s, *_install_counts_for(db, [s.id]).get(s.id, (0, 0)))
-        for s in results
-    ]
+    keyword_skill_outs = []
+    if results:
+        # Issue #19: single batched query for all results instead of N per-row queries.
+        counts = _install_counts_for(db, [s.id for s in results])
+        keyword_skill_outs = [
+            _skill_to_out(s, *counts.get(s.id, (0, 0)))
+            for s in results
+        ]
 
     # issue #111: hybrid fallback for broad multi-keyword queries.
     # When the literal ILIKE pass returns fewer than ``hybrid_min_keyword_hits``
@@ -631,7 +636,7 @@ def install_skill(
         skill_slug=slug,
         api_key_id=api_key_id,
         version_semver=latest.semver,
-        client_ip=request.client.host if request.client else None,
+        client_ip=_real_client_ip(request, settings.TRUSTED_PROXY_CIDRS),  # Issue #22
     )
     db.add(event)
 
@@ -1078,9 +1083,16 @@ def get_skill_external(slug: str, db: Session = Depends(get_db)):
     """v6 Phase A: Return external_resources JSON for a skill.
 
     Public, no auth — surfaces the "you might also want" upstream links the
-    skill author declared in frontmatter. Empty list if none, 404 if skill missing.
+    skill author declared in frontmatter. Empty list if none, 404 if skill
+    missing, private, or archived (no oracle for private/archived slugs).
+
+    Issue #16: added is_public + is_archived guard matching get_skill_detail.
     """
-    skill = db.query(Skill).filter(Skill.slug == slug).first()
+    skill = db.query(Skill).filter(
+        Skill.slug == slug,
+        Skill.is_public == True,   # noqa: E712
+        Skill.is_archived == False,  # noqa: E712
+    ).first()
     if not skill:
         raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
     resources = getattr(skill, "external_resources", None) or []

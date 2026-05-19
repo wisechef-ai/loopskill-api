@@ -16,6 +16,7 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
+from app.utils.client_ip import _real_client_ip as _real_client_ip_from_utils  # Issue #12
 
 logger = logging.getLogger("wiserecipes.middleware")
 
@@ -309,8 +310,11 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 APIKey.is_active == True,
             ).first()
             if api_key_obj:
-                from datetime import datetime, timezone; api_key_obj.last_used_at = datetime.now(timezone.utc)
-                db.commit()
+                # Issue #17: instead of committing to DB on every request,
+                # push to Redis-batched tracker (drained by crons/drain_last_used.py).
+                from app.last_used_tracker import tracker as _last_used_tracker
+                from datetime import datetime, timezone as _tz2
+                _last_used_tracker.record(api_key_obj.id, datetime.now(_tz2.utc))
                 request.state.api_key_id = api_key_obj.id
                 request.state.api_key_user_id = api_key_obj.user_id
                 # auth_ctx: user scope (Phase A wiring; Phase B adds cookbook_scope)
@@ -406,23 +410,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     @staticmethod
     def _real_client_ip(request: Request) -> str:
-        """Get the actual visitor IP, not the Cloudflare/proxy edge IP.
+        """Get the actual visitor IP, respecting trusted-proxy CIDRs (Issue #12).
 
-        Order: CF-Connecting-IP > X-Forwarded-For (first hop) > request.client.host.
-        Header values are validated as IPs to avoid spoofing-via-header from
-        clients that hit the origin directly (only trust headers in proxied env).
+        Delegates to app.utils.client_ip._real_client_ip with the configured
+        TRUSTED_PROXY_CIDRS so CF/XFF headers are only honoured when the
+        direct TCP peer is a known Cloudflare edge IP.
         """
-        # Cloudflare always sets this when proxying
-        cf_ip = request.headers.get("cf-connecting-ip")
-        if cf_ip:
-            return cf_ip.strip()
-        # Generic reverse-proxy fallback — first IP in the chain is the client
-        xff = request.headers.get("x-forwarded-for")
-        if xff:
-            first = xff.split(",")[0].strip()
-            if first:
-                return first
-        return request.client.host if request.client else "unknown"
+        return _real_client_ip_from_utils(request, settings.TRUSTED_PROXY_CIDRS)
 
     def _check_redis(self, client_ip: str, now: float) -> bool:
         """Check rate limit via Redis sliding window. Returns True if allowed."""

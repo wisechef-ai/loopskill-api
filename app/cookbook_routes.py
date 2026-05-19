@@ -395,13 +395,26 @@ def remove_skill_from_cookbook(
     return {"cookbook_id": str(cb.id), "slug": slug, "source": "disabled", "deleted": True}
 
 
-def _make_install_url(skill_id: UUID, version_id: UUID) -> str:
+def _make_install_url(skill_slug: str, version_id: UUID, version_semver: str) -> str:
+    """Build a signed download URL for a skill version (Issue #27).
+
+    Uses the same HMAC-signing flow as routes.py:recipes_install so the URL
+    resolves to /api/skills/_download?token=<signed> — a route that exists
+    and serves the tarball bytes.
+
+    The old implementation pointed at /api/skills/{id}/versions/{id}/tarball
+    which has never existed in this codebase (zero route matches).
+    """
+    from itsdangerous import URLSafeTimedSerializer
+
+    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET)
+    token = serializer.dumps({"slug": skill_slug, "version_id": str(version_id), "mode": "install"})
     public_origin = (
         getattr(settings, "PUBLIC_ORIGIN", None)
         or os.environ.get("RECIPES_PUBLIC_ORIGIN")
         or "https://recipes.wisechef.ai"
     )
-    return public_origin.rstrip("/") + f"/api/skills/{skill_id}/versions/{version_id}/tarball"
+    return public_origin.rstrip("/") + "/api/skills/_download?token=" + token
 
 
 @router.post("/{cookbook_id}/install")
@@ -439,7 +452,7 @@ def install_cookbook(
         skills_payload.append({
             "slug": skill.slug,
             "version": version.semver if version else None,
-            "tarball_url": _make_install_url(skill.id, version.id) if version else None,
+            "tarball_url": _make_install_url(skill.slug, version.id, version.semver) if version else None,
             "checksum_sha256": version.checksum_sha256 if version else None,
             "source": cs.source,
         })

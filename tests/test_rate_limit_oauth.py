@@ -53,39 +53,53 @@ def _no_redis():
 
 
 def test_rate_limit_uses_cf_connecting_ip(small_app):
-    """Two distinct CF-Connecting-IP values get distinct buckets."""
+    """Two distinct CF-Connecting-IP values get distinct buckets.
+
+    Issue #12 update: CF-Connecting-IP is only honoured when the TCP peer is
+    in TRUSTED_PROXY_CIDRS. We patch the setting to include 0.0.0.0/0 so
+    the TestClient's 'testclient' host is treated as a trusted proxy.
+    """
+    from unittest.mock import patch
     client = TestClient(small_app)
 
-    # Visitor A burns through the limit.
-    for _ in range(3):
+    with patch("app.middleware.settings") as mock_settings, \
+         patch("app.utils.client_ip._is_trusted", return_value=True):
+        # Visitor A burns through the limit.
+        for _ in range(3):
+            r = client.get("/api/anything", headers={"cf-connecting-ip": "1.1.1.1"})
+            assert r.status_code == 200
         r = client.get("/api/anything", headers={"cf-connecting-ip": "1.1.1.1"})
-        assert r.status_code == 200
-    r = client.get("/api/anything", headers={"cf-connecting-ip": "1.1.1.1"})
-    assert r.status_code == 429, "visitor A should be limited after 3 hits"
+        assert r.status_code == 429, "visitor A should be limited after 3 hits"
 
-    # Visitor B is independent.
-    r = client.get("/api/anything", headers={"cf-connecting-ip": "2.2.2.2"})
-    assert r.status_code == 200, "visitor B must not share visitor A's bucket"
+        # Visitor B is independent.
+        r = client.get("/api/anything", headers={"cf-connecting-ip": "2.2.2.2"})
+        assert r.status_code == 200, "visitor B must not share visitor A's bucket"
 
 
 def test_rate_limit_falls_back_to_xff(small_app):
-    """When no CF header, X-Forwarded-For first hop is used."""
+    """When no CF header, X-Forwarded-For first hop is used from trusted proxy.
+
+    Issue #12 update: XFF is only honoured from trusted proxies. We patch
+    _is_trusted to return True so the TestClient is treated as trusted.
+    """
     client = TestClient(small_app)
-    for _ in range(3):
+
+    with patch("app.utils.client_ip._is_trusted", return_value=True):
+        for _ in range(3):
+            r = client.get(
+                "/api/anything",
+                headers={"x-forwarded-for": "9.9.9.9, 10.0.0.1, 192.168.0.1"},
+            )
+            assert r.status_code == 200
         r = client.get(
             "/api/anything",
             headers={"x-forwarded-for": "9.9.9.9, 10.0.0.1, 192.168.0.1"},
         )
-        assert r.status_code == 200
-    r = client.get(
-        "/api/anything",
-        headers={"x-forwarded-for": "9.9.9.9, 10.0.0.1, 192.168.0.1"},
-    )
-    assert r.status_code == 429
+        assert r.status_code == 429
 
-    # Different first-hop = different bucket.
-    r = client.get("/api/anything", headers={"x-forwarded-for": "8.8.8.8"})
-    assert r.status_code == 200
+        # Different first-hop = different bucket.
+        r = client.get("/api/anything", headers={"x-forwarded-for": "8.8.8.8"})
+        assert r.status_code == 200
 
 
 @pytest.mark.parametrize(

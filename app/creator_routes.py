@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool  # Issue #18
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -480,7 +481,10 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 
     # ── Subscription events ─────────────────────────────────────────────
     if event_type == "checkout.session.completed":
-        result = handle_checkout_completed(event, db)
+        # Issue #18: wrap blocking Stripe SDK call in threadpool so the event
+        # loop is not stalled while handle_checkout_completed runs (it calls
+        # stripe.Customer.retrieve / stripe.Subscription.retrieve synchronously).
+        result = await run_in_threadpool(handle_checkout_completed, event, db)
         return {"received": True, "event_id": event_id, **result}
 
     if event_type in (
