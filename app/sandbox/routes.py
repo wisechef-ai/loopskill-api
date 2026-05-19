@@ -11,10 +11,12 @@ import json
 import os
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, joinedload
 
+from app import authz
 from app.database import get_db
 from app.models import Skill, SkillVersion, TelemetryEvent
 from app.sandbox.profile import SandboxProfile
@@ -116,14 +118,23 @@ def sandbox_status(slug: str, db: Session = Depends(get_db)):
 @router.post("/skills/{slug}/sandbox/run", response_model=SandboxRunResponse)
 def sandbox_run(
     slug: str,
-    body: SandboxRunRequest = Depends(lambda: SandboxRunRequest()),
+    request: Request,
+    body: SandboxRunRequest,  # Issue #26 fix: parse body from request JSON
     db: Session = Depends(get_db),
 ):
     """Execute a skill's entrypoint inside a bubblewrap sandbox.
 
     The skill must have a [sandbox] block in its skill.toml manifest.
     Execution result is recorded as a telemetry event.
+    Requires master scope or is_sandbox_operator=True on the API key.
     """
+    # Issue authz gate: only master or is_sandbox_operator may run sandboxes
+    auth_ctx = getattr(request.state, "auth_ctx", None)
+    if auth_ctx is None or not authz.can_run_sandbox(auth_ctx):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Forbidden: sandbox execution requires master scope or is_sandbox_operator=True"},
+        )
     skill = (
         db.query(Skill)
         .options(joinedload(Skill.versions))

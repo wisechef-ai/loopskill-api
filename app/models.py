@@ -101,6 +101,8 @@ class APIKey(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
     last_used_at = Column(DateTime, nullable=True)
+    # secfix_1905/C: sandbox execution privilege flag
+    is_sandbox_operator = Column(Boolean, nullable=False, server_default="false")
 
     user = relationship("User", back_populates="api_keys")
 

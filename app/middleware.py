@@ -320,6 +320,8 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                     scope="user",
                     user_id=api_key_obj.user_id,
                     api_key_id=api_key_obj.id,
+                    # secfix_1905/C: propagate sandbox execution privilege
+                    is_sandbox_operator=bool(getattr(api_key_obj, "is_sandbox_operator", False)),
                 )
                 return await call_next(request)
         finally:

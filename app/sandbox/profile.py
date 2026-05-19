@@ -15,6 +15,7 @@ arguments for the sandbox backend (firejail or bubblewrap).
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 import shlex
@@ -78,13 +79,58 @@ class SandboxProfile:
         )
 
     def validate(self) -> list[str]:
-        """Return list of validation warnings (empty = valid)."""
+        """Return list of validation warnings (empty = valid).
+
+        Raises ValueError if any network_allow entry is an IP literal that refers
+        to a loopback, link-local, private, reserved, multicast, or unspecified
+        address, or a hostname that violates RFC 1035 rules.
+        """
         warnings: list[str] = []
 
+        # RFC 1035 hostname label pattern: 1-63 chars, alphanumeric + hyphen,
+        # no leading/trailing hyphen.
+        _LABEL_RE = re.compile(r'^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$|^[a-z0-9]$', re.IGNORECASE)
+
         # Check network domains look reasonable
-        for domain in self.network_allow:
-            if not re.match(r"^[a-zA-Z0-9._-]+$", domain):
-                warnings.append(f"Suspicious network_allow domain: {domain!r}")
+        for host in self.network_allow:
+            # Issue #9 fix: probe as IP literal first.
+            try:
+                ip = ipaddress.ip_address(host)
+                if (
+                    ip.is_loopback
+                    or ip.is_link_local
+                    or ip.is_private
+                    or ip.is_reserved
+                    or ip.is_multicast
+                    or ip.is_unspecified
+                    or not ip.is_global
+                ):
+                    raise ValueError(f"Disallowed IP literal in network_allow: {host!r}")
+                # Public IP literal — allowed (but unusual), no warning needed.
+            except ValueError as exc:
+                # Re-raise if we produced it ourselves (disallowed IP).
+                if "Disallowed IP literal" in str(exc):
+                    raise
+                # Not an IP literal — apply hostname rules.
+                if host.lower() == "localhost":
+                    raise ValueError(
+                        f"Disallowed hostname in network_allow: {host!r} (loopback alias)"
+                    )
+                # Validate RFC 1035 hostname structure.
+                if len(host) > 253:
+                    raise ValueError(
+                        f"network_allow hostname too long (>253 chars): {host!r}"
+                    )
+                labels = host.split(".")
+                for label in labels:
+                    if not label:
+                        raise ValueError(
+                            f"network_allow hostname has empty label: {host!r}"
+                        )
+                    if not _LABEL_RE.match(label):
+                        raise ValueError(
+                            f"network_allow hostname label fails RFC 1035 rules: {label!r} in {host!r}"
+                        )
 
         # Check fs_write paths are absolute and reasonable
         for path in self.fs_write:

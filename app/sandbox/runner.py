@@ -223,7 +223,16 @@ class SandboxRunner:
                 proxy_port = proxy["port"]
                 logger.info(f"Sandbox {sandbox_id}: domain proxy on port {proxy_port} allowing {profile.network_allow}")
             except Exception as exc:
-                logger.warning(f"Sandbox {sandbox_id}: failed to start domain proxy: {exc}. Falling back to unrestricted network.")
+                # Issue #8 fix: fail CLOSED — never run with unrestricted network.
+                return SandboxResult(
+                    exit_code=-1,
+                    stdout="",
+                    stderr=f"Network proxy could not start: {exc!r}. Refusing to run with unrestricted network.",
+                    timed_out=False,
+                    duration_seconds=time.monotonic() - start_time,
+                    sandbox_id=sandbox_id,
+                    error="proxy_failed",
+                )
 
         try:
             # Stage skill dir under HOME for firejail access
@@ -332,7 +341,16 @@ class SandboxRunner:
                 proxy = self._start_domain_proxy_sync(profile.network_allow)
                 proxy_port = proxy["port"]
             except Exception as exc:
-                logger.warning(f"Sandbox {sandbox_id}: failed to start domain proxy: {exc}")
+                # Issue #8 fix: fail CLOSED — never run with unrestricted network.
+                return SandboxResult(
+                    exit_code=-1,
+                    stdout="",
+                    stderr=f"Network proxy could not start: {exc!r}. Refusing to run with unrestricted network.",
+                    timed_out=False,
+                    duration_seconds=time.monotonic() - start_time,
+                    sandbox_id=sandbox_id,
+                    error="proxy_failed",
+                )
 
         try:
             sandbox_root = os.path.join(self.workspace, sandbox_id)

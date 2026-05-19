@@ -19,6 +19,7 @@ Stdlib + re only — no third-party scanner dependencies.
 from __future__ import annotations
 
 import io
+import os
 import re
 import tarfile
 from dataclasses import dataclass
@@ -32,7 +33,7 @@ from typing import Literal
 @dataclass
 class Finding:
     pattern_class: str
-    severity: Literal["high", "medium", "low"]
+    severity: Literal["critical", "high", "medium", "low"]
     file_path: str
     line_no: int | None      # 1-indexed; None for binary/whole-file findings
     snippet: str             # max 200 chars
@@ -231,8 +232,53 @@ def scan_tarball(tarball_bytes: bytes, skill_section: dict) -> list[Finding]:
 
     with tf:
         for member in tf.getmembers():
+            # ── Issue #10: Path-traversal gate (checked for ALL member types) ──
+            name = member.name
+            # Reject absolute paths
+            if name.startswith("/"):
+                findings.append(_mk(
+                    "path_traversal", "critical", name, None,
+                    name[:200],
+                    "Tarball member has absolute path — path traversal risk",
+                ))
+                continue
+            # Reject '..' components (parent traversal)
+            if ".." in name.split("/"):
+                findings.append(_mk(
+                    "path_traversal", "critical", name, None,
+                    name[:200],
+                    "Tarball member contains '..' component — parent traversal risk",
+                ))
+                continue
+            # Reject drive letters / NTFS alternate data streams
+            if ":" in name:
+                findings.append(_mk(
+                    "path_traversal", "critical", name, None,
+                    name[:200],
+                    "Tarball member contains ':' — drive-letter or NTFS stream risk",
+                ))
+                continue
+            # Reject symlinks whose target is absolute or contains '..'
+            if member.issym():
+                target = member.linkname or ""
+                if target.startswith("/") or ".." in target.split("/"):
+                    findings.append(_mk(
+                        "path_traversal", "critical", name, None,
+                        f"symlink -> {target[:200]}",
+                        "Tarball symlink target escapes sandbox — path traversal risk",
+                    ))
+                continue  # skip further file-content scanning for symlinks
+            # Reject names that normalise differently (catches ./a/../b)
+            if os.path.normpath(name) != name:
+                findings.append(_mk(
+                    "path_traversal", "critical", name, None,
+                    name[:200],
+                    "Tarball member name normalises differently — path traversal risk",
+                ))
+                continue
+
             if not member.isfile():
-                continue  # skip dirs, symlinks, special files
+                continue  # skip dirs, special files after path checks
 
             path = member.name
 
