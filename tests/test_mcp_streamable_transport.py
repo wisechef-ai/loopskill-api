@@ -214,7 +214,13 @@ class TestStreamableHTTPTransport:
         elapsed = time.monotonic() - start
 
         assert call_resp.status_code == 200, f"tool call failed: {call_resp.text}"
-        assert elapsed < 8.0, f"tool took {elapsed:.1f}s — may be hitting a timeout"
+        # The tool sleeps 5s; the StreamableHTTP idle timeout is 1800s and the
+        # CF streaming timeout is 100s. The assertion's job is "did NOT hit a
+        # timeout", not "completed in exactly 8s". 8.0 was a 3s margin over the
+        # 5s sleep — too tight once pytest-cov instrumentation overhead is added
+        # (it flaked the coverage CI job). 20s keeps the intent: well under any
+        # real timeout, still fails loudly if the connection actually drops.
+        assert elapsed < 20.0, f"tool took {elapsed:.1f}s — may be hitting a timeout"
 
         body = _parse_sse_response(call_resp.text)
         assert "result" in body, f"unexpected response: {body}"

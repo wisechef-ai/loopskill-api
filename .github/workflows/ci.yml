@@ -21,10 +21,10 @@ jobs:
     name: Quality gate self-test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -89,23 +89,26 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - name: Run gate against scripts/ directory
         run: |
           python scripts/skill_quality_gate.py scripts/ || true
 
-  # Pre-existing pytest suite. Currently has known failures in test_auth.py
-  # (OAuth env setup) and test_upgrade.py (alembic against SQLite). These
-  # are tracked separately — the suite runs informationally for now and
-  # will be promoted to required once the existing flakes are fixed.
-  pytest-informational:
-    name: pytest (informational while flakes exist)
+  # Single pytest job (repo-topclass P4 — collapsed from the former
+  # pytest-informational + pytest-coverage jobs, which installed the same
+  # deps and ran overlapping tests). Runs the FULL suite with coverage as a
+  # HARD gate. The deploy-safety catalog-invariant trigger test runs as part
+  # of tests/ with WITH_POSTGRES=1 so the real Postgres trigger is exercised.
+  pytest:
+    name: pytest + coverage gate
     runs-on: ubuntu-latest
-    continue-on-error: true
+    # Hard cap: a hung test fails the job, not the 6h GitHub ceiling.
+    # Paired with pytest-timeout for a per-test cap.
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16
@@ -121,73 +124,10 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-
-      - name: Install deps
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f pyproject.toml ]; then pip install -e . || true; fi
-          pip install pytest pytest-asyncio pytest-cov coverage httpx fastapi sqlalchemy psycopg2-binary
-
-      - name: Run pytest (skill quality gate slice — guaranteed green)
-        env:
-          DATABASE_URL: "postgresql://ci:ci@localhost:5432/recipes_ci"
-          STRIPE_SECRET_KEY: "sk_test_dummy"
-          STRIPE_WEBHOOK_SECRET: "whsec_dummy"
-          ENVIRONMENT: test
-        run: |
-          # Always run the skill quality gate lib tests — these MUST stay green.
-          python -m pytest tests/test_skill_quality_gate_lib.py tests/test_publisher.py -q
-
-      - name: Run deploy-safety regression — catalog invariant trigger
-        env:
-          WITH_POSTGRES: "1"
-          POSTGRES_DSN: "postgresql://ci:ci@localhost:5432/postgres"
-        # The 2026-05-17 deploy of PR #113 broke because the catalog-invariant
-        # trigger function had a `%`-escape bug in raw SQL passing through
-        # psycopg2. Local SQLite tests passed (they skip the trigger). This
-        # gate runs the trigger via real Postgres before merge so the same
-        # class of bug fails CI, not production.
-        run: |
-          python -m pytest tests/test_catalog_invariant_trigger_psycopg2.py -v
-
-  # secfix_1905/F: coverage measurement gate.
-  # Ships the infrastructure (.coveragerc, --cov-fail-under threshold, artifact
-  # upload). Threshold is set at a measured floor; the 85%-on-app/ target is
-  # tracked as the secfix_1905 OUTCOME-goal follow-up.
-  pytest-coverage:
-    name: pytest coverage (--cov-fail-under gate)
-    runs-on: ubuntu-latest
-    # Hard cap: a hanging test must fail the job, not run until the 6h GitHub
-    # ceiling. Paired with pytest-timeout below for a per-test cap.
-    timeout-minutes: 15
-    continue-on-error: true  # informational until target threshold lands; tracking issue for 85%-on-app/
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: ci
-          POSTGRES_PASSWORD: ci
-          POSTGRES_DB: recipes_ci
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
@@ -199,26 +139,33 @@ jobs:
           if [ -f pyproject.toml ]; then pip install -e . || true; fi
           pip install pytest pytest-asyncio pytest-cov pytest-timeout coverage httpx fastapi sqlalchemy psycopg2-binary python-frontmatter
 
-      - name: Run full pytest with coverage
+      - name: Run full pytest with coverage (HARD gate)
         env:
           DATABASE_URL: "postgresql://ci:ci@localhost:5432/recipes_ci"
           STRIPE_SECRET_KEY: "sk_test_dummy"
           STRIPE_WEBHOOK_SECRET: "whsec_dummy"
           ENVIRONMENT: test
-        # --cov-fail-under threshold is set conservatively for this PR; the
-        # target is ≥85% per plan §3 Phase F. Tracking issue (secfix_1905
-        # OUTCOME-followup): close coverage gap on the 6 modules below 70%.
+          # The catalog-invariant trigger test (test_catalog_invariant_trigger_
+          # psycopg2.py) only exercises the real Postgres trigger when these
+          # are set — otherwise it skips. The 2026-05-17 PR #113 deploy broke
+          # on a %-escape bug in raw SQL that SQLite tests could not catch.
+          WITH_POSTGRES: "1"
+          POSTGRES_DSN: "postgresql://ci:ci@localhost:5432/postgres"
+        # Coverage threshold is a RATCHET: never regress. Measured 78.99% on
+        # 2026-05-19 (repo-topclass P4); gate set to floor(78) - 2 = 76 so a
+        # small unrelated dip doesn't red main, while any real drop below 76
+        # fails. Raise this number when coverage rises — never lower it.
         run: |
           # --timeout: a single hung test fails fast (thread dump) instead of
-          # stalling the whole job. --timeout-method=thread so blocking C calls
-          # (DB sockets) are also caught.
+          # stalling the whole job. --timeout-method=thread so blocking C
+          # calls (DB sockets) are also caught.
           python -m pytest tests/ \
             --cov=app \
             --cov-config=.coveragerc \
             --cov-report=term-missing \
             --cov-report=html \
             --cov-report=xml \
-            --cov-fail-under=50 \
+            --cov-fail-under=76 \
             --timeout=120 \
             --timeout-method=thread \
             --ignore=tests/migrations \
