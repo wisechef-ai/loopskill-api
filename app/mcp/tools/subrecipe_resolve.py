@@ -12,4 +12,5 @@ from sqlalchemy.orm import Session
 
 
 def recipes_subrecipe_resolve(db: Session, **_: Any) -> dict[str, Any]:  # noqa: ARG001
+    # Public-scope MCP tool: Phase C stub; returns fixed operator scope, no data exposure.
     return {"scope": "operator"}

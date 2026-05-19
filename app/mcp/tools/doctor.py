@@ -74,6 +74,7 @@ def recipes_doctor(db: Session, install_dir: str) -> dict[str, Any]:  # noqa: AR
     - ``install_dir_not_found`` — path shape is server-local but the directory
       does not exist on the server. This is a real "missing" finding.
     """
+    # Public-scope MCP tool: local filesystem audit tool; operates on caller-specified paths, no data privacy concern.
     if not install_dir:
         return {
             "ok": False,

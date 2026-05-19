@@ -13,6 +13,8 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
+from app.auth_ctx import AuthContext
+from app import authz
 from app.models import Cookbook
 from app.recipify import (
     ValidationError,
@@ -43,6 +45,7 @@ def recipes_recipify(
     visibility: str = "private",
     target_subrecipe_id: str | UUID | None = None,
     user_id: str | UUID | None = None,
+    ctx: AuthContext | None = None,
     **_: Any,
 ) -> dict[str, Any]:
     if not slug:
@@ -58,11 +61,19 @@ def recipes_recipify(
     cb_id = _coerce_uuid(target_cookbook_id)
     owner_id = _coerce_uuid(user_id)
 
+    # Phase B (Issue #7): use ctx for cookbook ownership; default to master
+    # for backwards compat (stdio, legacy callers without ctx).
+    if ctx is None:
+        ctx = AuthContext(scope="master")
+
     cb: Cookbook | None = None
     if cb_id is not None:
         cb = db.query(Cookbook).filter(Cookbook.id == cb_id).first()
         if cb is None:
             return {"error": f"cookbook_not_found: {cb_id}", "code": "cookbook_not_found"}
+        # Phase B (Issue #7): cookbook ownership check
+        if not authz.can_write_cookbook(ctx, cb):
+            return {"error": "cookbook_forbidden", "code": "cookbook_forbidden"}
     else:
         if owner_id is not None:
             cb = (

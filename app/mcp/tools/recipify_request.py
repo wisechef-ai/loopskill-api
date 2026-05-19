@@ -36,6 +36,7 @@ def recipes_request_recipe(
     Use when the user says 'recipify X', 'please add X to recipes',
     'we need a recipe for X'. Creates a GitHub wishlist issue.
     """
+    # Public-scope MCP tool: rate-limited wishlist request; no private data or ownership concern.
     if not target_name or len(target_name) > 128:
         return {"ok": False, "error": "target_name must be 1-128 characters"}
     if not why_useful or len(why_useful) > 2048:

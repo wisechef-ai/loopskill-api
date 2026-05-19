@@ -23,6 +23,7 @@ def recipes_recall(
     limit: int = 10,
     **_: Any,
 ) -> dict[str, Any]:
+    # Public-scope MCP tool: hybrid recall against public catalog only; tier filter is informational.
     if not query:
         return {"error": "query_required", "phase": "E"}
     return recall_skills(

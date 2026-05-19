@@ -27,7 +27,8 @@ def can_read_skill(ctx: "AuthContext", skill: Any) -> bool:
         return True
     if ctx.scope == "master":
         return True
-    if ctx.scope == "user" and ctx.user_id is not None and ctx.user_id == skill.skill_owner:
+    skill_owner = getattr(skill, "skill_owner", None)
+    if ctx.scope == "user" and ctx.user_id is not None and ctx.user_id == skill_owner:
         return True
     return False
 

@@ -24,6 +24,7 @@ from app.seeker import (
 
 
 def recipes_seeker(db: Session, **_: Any) -> dict[str, Any]:
+    # Public-scope MCP tool: read-only probe of caller's local vendor dirs; no server data exposed.
     paths = vendor_paths()
     vendors_found: dict[str, list[dict[str, Any]]] = {}
     all_installed = []

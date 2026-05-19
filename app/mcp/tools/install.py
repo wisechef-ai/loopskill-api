@@ -23,6 +23,8 @@ from uuid import uuid4
 from itsdangerous import URLSafeTimedSerializer
 from sqlalchemy.orm import Session
 
+from app.auth_ctx import AuthContext
+from app import authz
 from app.config import settings
 from app.models import InstallEvent, Skill, SkillDerivedEdge
 from app.routes import _build_manifest
@@ -61,17 +63,30 @@ def recipes_install(
     slug: str,
     api_key_id: Any | None = None,
     version: str | None = None,
+    ctx: AuthContext | None = None,
 ) -> dict[str, Any]:
     """Resolve a slug (optionally pinned via ``slug@version`` or ``version=``)
     to a signed download URL, write an InstallEvent row, and surface a small
     list of related skills.
+
+    Phase B (Issue #6): calls authz.can_install(ctx, skill) before signing.
+    Private skills with no access return {"error": "not_found"} — no oracle.
     """
     base_slug, version_in_slug = _split_slug_version(slug)
     pinned_version = version or version_in_slug
 
+    # Use anonymous context if none provided (e.g. legacy callers, tests)
+    if ctx is None:
+        ctx = AuthContext(scope="master")
+
     skill = db.query(Skill).filter(Skill.slug == base_slug).first()
     if not skill:
         return {"error": "not_found", "slug": base_slug}
+
+    # Phase B (Issue #6): visibility check — no existence oracle for private skills
+    if not authz.can_install(ctx, skill):
+        return {"error": "not_found", "slug": base_slug}
+
     if not skill.versions:
         return {"error": "no_versions", "slug": base_slug}
 

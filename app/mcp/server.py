@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import SessionLocal, get_db
+from app.auth_ctx import AuthContext
 from app.mcp.auth import validate_key
 from app.mcp.cookbook_status import get_cookbook_status, invalidate_cookbook_status
 from app.mcp.tools import (
@@ -292,8 +293,34 @@ def _tool_definitions() -> list[types.Tool]:
 ToolDispatch = Callable[[Session, dict[str, Any], dict[str, Any]], Awaitable[Any] | Any]
 
 
+def _ctx_from_caller(caller: dict[str, Any]) -> "AuthContext":
+    """Extract or reconstruct an AuthContext from a caller dict.
+
+    Phase B: the AuthContext is the canonical auth object. The caller dict
+    is kept for backwards compat with older code paths. If the validate_key
+    result already contains an 'auth_ctx' key we use it directly; otherwise
+    we reconstruct from the dict fields.
+    """
+    ctx = caller.get("auth_ctx")
+    if isinstance(ctx, AuthContext):
+        return ctx
+    # Reconstruct for legacy caller dicts (stdio fallback, old tests)
+    scope = caller.get("scope", "master")
+    # Remap legacy 'operator' scope to 'master' for stdio/fallback paths
+    if scope == "operator":
+        scope = "master"
+    return AuthContext(
+        scope=scope,  # type: ignore[arg-type]
+        user_id=caller.get("user_id"),
+        api_key_id=caller.get("api_key_id"),
+    )
+
+
 def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, Any]) -> Any:
     """Route a tool name to its implementation. Pure sync — no I/O outside the DB."""
+    # Phase B (Issue #5/#6/#7/#15): resolve AuthContext from caller.
+    ctx = _ctx_from_caller(caller)
+
     if name == "recipes_search":
         return recipes_search(
             db,
@@ -303,7 +330,12 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             limit=int(args.get("limit", 20)),
         )
     if name == "recipes_install":
-        return recipes_install(db, slug=args["slug"], api_key_id=caller.get("api_key_id"))
+        return recipes_install(
+            db,
+            slug=args["slug"],
+            api_key_id=caller.get("api_key_id"),
+            ctx=ctx,
+        )
     if name == "recipes_list_cookbook":
         return recipes_list_cookbook(
             db,
@@ -313,7 +345,7 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
     if name == "recipes_recall":
         return recipes_recall(db, **args)
     if name == "recipes_recipify":
-        return recipes_recipify(db, **args)
+        return recipes_recipify(db, ctx=ctx, **args)
     if name == "recipes_carousel_today":
         return recipes_carousel_today(db)
     if name == "recipes_subrecipe_resolve":
@@ -327,7 +359,7 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             db,
             cookbook_id=args["cookbook_id"],
             dry_run=args.get("dry_run", False),
-            caller=caller,
+            ctx=ctx,
         )
     if name == "recipes_feedback":
         return recipes_feedback(
@@ -555,6 +587,11 @@ def _authenticate(request: Request, db: Session = Depends(get_db)) -> dict[str, 
     if result["scope"] == "unauthorized":
         raise HTTPException(status_code=401, detail="Invalid or missing x-api-key header")
     request.state.mcp_caller = result
+    # Phase B (Issue #5): stamp auth_ctx — identical schema to REST path
+    auth_ctx = result.get("auth_ctx")
+    if auth_ctx is None:
+        auth_ctx = AuthContext.anonymous()
+    request.state.auth_ctx = auth_ctx
     return result
 
 
@@ -650,13 +687,17 @@ def _build_streamable_http_mount() -> Mount:
                 await response(scope, receive, send)
                 return
 
-            if key == settings.API_KEY:
-                # Master key — skip DB lookup, stash explicit operator caller.
+            import hmac as _hmac
+            if _hmac.compare_digest(key, settings.API_KEY):
+                # Master key — skip DB lookup, stash master caller + auth_ctx.
+                master_ctx = AuthContext(scope="master")
                 request.state.mcp_caller = {
-                    "scope": "operator",
+                    "scope": "master",
                     "user_id": None,
                     "api_key_id": None,
+                    "auth_ctx": master_ctx,
                 }
+                request.state.auth_ctx = master_ctx
             else:
                 # Non-master key — need DB lookup
                 from app.database import SessionLocal
@@ -674,6 +715,11 @@ def _build_streamable_http_mount() -> Mount:
                     await response(scope, receive, send)
                     return
                 request.state.mcp_caller = result
+                # Phase B (Issue #5): stamp auth_ctx on scope["state"]
+                auth_ctx = result.get("auth_ctx")
+                if auth_ctx is None:
+                    auth_ctx = AuthContext.anonymous()
+                request.state.auth_ctx = auth_ctx
         await mgr.handle_request(scope, receive, send)
 
     return Mount("/api/mcp/http", app=_asgi_app)

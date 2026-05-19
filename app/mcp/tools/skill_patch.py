@@ -45,6 +45,7 @@ def recipes_propose_skill_patch(
     Rate limited to 1 patch per 24h per (agent, skill).
     Returns dedup_hash and (eventually) pr_url.
     """
+    # Public-scope MCP tool: rate-limited patch proposal; validates against public skill catalog.
     if not slug:
         return {"ok": False, "error": "slug is required"}
     if not base_version:

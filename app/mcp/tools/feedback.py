@@ -39,6 +39,7 @@ def recipes_feedback(
     search, billing, or docs. Auto-creates a labelled GitHub issue.
     Rate limited per 24h.
     """
+    # Public-scope MCP tool: rate-limited user feedback submission; no private data exposed.
     valid_categories = {"ux", "search", "billing", "docs", "install", "other"}
     if category not in valid_categories:
         return {"ok": False, "error": f"invalid category; must be one of {sorted(valid_categories)}"}

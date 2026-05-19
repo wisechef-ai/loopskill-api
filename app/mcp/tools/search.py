@@ -44,6 +44,7 @@ def recipes_search(
     - ``backend = "hybrid"``  — literal + recall results unioned.
     - ``backend = "recall_only"`` — literal returned zero, recall provided all.
     """
+    # Public-scope MCP tool: searches the public skill catalog only; is_public filter applied internally.
     q = db.query(Skill).options(
         joinedload(Skill.versions),
         joinedload(Skill.creator),

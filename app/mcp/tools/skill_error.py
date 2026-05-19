@@ -49,6 +49,7 @@ def recipes_report_skill_error(
     or when an install/run fails. Auto-creates a labelled GitHub issue
     with the failure signature.
     """
+    # Public-scope MCP tool: rate-limited error report submission; no private data exposed.
     if not _is_opted_in():
         return {
             "ok": False,

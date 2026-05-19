@@ -212,7 +212,14 @@ class TestValidateKeyApiKeyId:
 
     def test_master_key_returns_null_api_key_id(self, db_session):
         result = validate_key(settings.API_KEY, db_session)
-        assert result == {"scope": "operator", "user_id": None, "api_key_id": None}
+        # Phase B (Issue #5): master key now returns scope='master' not 'operator'
+        assert result["scope"] == "master"
+        assert result["user_id"] is None
+        assert result["api_key_id"] is None
+        # auth_ctx should be present and correct
+        from app.auth_ctx import AuthContext
+        assert isinstance(result.get("auth_ctx"), AuthContext)
+        assert result["auth_ctx"].scope == "master"
 
     def test_unauthorized_returns_null_api_key_id(self, db_session):
         result = validate_key("not_a_real_key", db_session)
@@ -223,7 +230,8 @@ class TestValidateKeyApiKeyId:
     def test_user_scoped_key_returns_user_id_and_api_key_id(self, db_session):
         user, api_key = _make_user_and_key(db_session, "rec_alice_token")
         result = validate_key("rec_alice_token", db_session)
-        assert result["scope"] == "operator"
+        # Phase B (Issue #5): user key now returns scope='user' not 'operator'
+        assert result["scope"] == "user"
         assert result["user_id"] == user.id
         assert result["api_key_id"] == api_key.id
 
@@ -316,7 +324,10 @@ class TestInstallRecordsApiKeyId:
 
         server = build_mcp_server(db_factory=lambda: db_session)
         caller = {
-            "scope": "operator",
+            # Note: Phase B changed user key scope to "user" but install
+            # test uses legacy caller dict; _ctx_from_caller maps "operator" → "master"
+            # for backwards compat with the stdio fallback path. Use "user" for accuracy:
+            "scope": "user",
             "user_id": user_id,
             "api_key_id": api_key_id,
         }
@@ -404,11 +415,10 @@ class TestAuthenticateStashesCallerOnRequestState:
                 headers={"x-api-key": settings.API_KEY},
             )
         assert resp.status_code == 200
-        assert captured["mcp_caller"] == {
-            "scope": "operator",
-            "user_id": None,
-            "api_key_id": None,
-        }
+        # Phase B (Issue #5): master key now stashes scope='master'
+        assert captured["mcp_caller"]["scope"] == "master"
+        assert captured["mcp_caller"]["user_id"] is None
+        assert captured["mcp_caller"]["api_key_id"] is None
 
     def test_authenticate_user_key_stashes_full_caller(self, app, db_session):
         from app.mcp.server import _authenticate
@@ -431,7 +441,8 @@ class TestAuthenticateStashesCallerOnRequestState:
         assert resp.status_code == 200
         assert captured["mcp_caller"]["user_id"] == user.id
         assert captured["mcp_caller"]["api_key_id"] == api_key.id
-        assert captured["mcp_caller"]["scope"] == "operator"
+        # Phase B (Issue #5): user key now stashes scope='user'
+        assert captured["mcp_caller"]["scope"] == "user"
 
 
 # ── Streamable HTTP ASGI wrapper stashes caller on scope["state"] ──────────
@@ -506,11 +517,12 @@ class TestStreamableHTTPAuthGateStashesCaller:
                 },
             )
         assert resp.status_code == 204
-        assert captured["state"].get("mcp_caller") == {
-            "scope": "operator",
-            "user_id": None,
-            "api_key_id": None,
-        }
+        # Phase B (Issue #5): master key now stashes scope='master' in StreamableHTTP
+        mc = captured["state"].get("mcp_caller")
+        assert mc is not None
+        assert mc["scope"] == "master"
+        assert mc["user_id"] is None
+        assert mc["api_key_id"] is None
 
     def test_user_key_request_stashes_full_caller(self, app, db_session, monkeypatch):
         user, api_key = _make_user_and_key(db_session, "rec_frank_token")
@@ -572,7 +584,8 @@ class TestStreamableHTTPAuthGateStashesCaller:
         assert stashed is not None
         assert stashed["user_id"] == expected_user_id
         assert stashed["api_key_id"] == expected_api_key_id
-        assert stashed["scope"] == "operator"
+        # Phase B (Issue #5): user key now stashes scope='user'
+        assert stashed["scope"] == "user"
 
     def test_unauthorized_request_does_not_stash_caller(self, app, db_session, monkeypatch):
         """Unauthorized requests must short-circuit at the gate and never
@@ -630,21 +643,26 @@ class TestRecipesSyncReceivesCaller:
     kwarg must reflect the authenticated user — not the hardcoded master.
     """
 
-    def test_sync_receives_caller_from_request_context(self, db_session):
+    def test_sync_receives_ctx_from_request_context(self, db_session):
+        """Phase B (Issue #15): recipes_sync now takes ctx= (AuthContext),
+        not caller=. Verify the AuthContext is reconstructed from the caller
+        dict and passed correctly.
+        """
         captured: dict[str, Any] = {}
 
+        from app.auth_ctx import AuthContext
         from app.mcp import server as server_mod
 
-        def fake_sync(db, *, cookbook_id, dry_run=False, caller=None):
-            captured["caller"] = caller
+        def fake_sync(db, *, cookbook_id, dry_run=False, caller=None, ctx=None):
+            captured["ctx"] = ctx
             captured["dry_run"] = dry_run
-            return {"applied": False, "diff": []}
+            return {"applied": False, "changes": []}
 
         with patch.object(server_mod, "recipes_sync", fake_sync):
             server = build_mcp_server(db_factory=lambda: db_session)
             user, api_key = _make_user_and_key(db_session, "rec_sync_token")
             caller = {
-                "scope": "operator",
+                "scope": "user",
                 "user_id": user.id,
                 "api_key_id": api_key.id,
             }
@@ -654,7 +672,12 @@ class TestRecipesSyncReceivesCaller:
                 {"cookbook_id": str(uuid4()), "dry_run": True},
                 caller,
             )
-        assert captured["caller"] == caller
+        assert captured["ctx"] is not None, "ctx must be passed to recipes_sync"
+        assert isinstance(captured["ctx"], AuthContext), (
+            f"ctx must be AuthContext, got {type(captured['ctx'])}"
+        )
+        assert captured["ctx"].scope == "user"
+        assert captured["ctx"].user_id == user.id
         assert captured["dry_run"] is True
 
 

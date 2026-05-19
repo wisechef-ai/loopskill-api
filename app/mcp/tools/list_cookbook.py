@@ -31,6 +31,7 @@ def recipes_list_cookbook(
     user_id: Any | None = None,
     cookbook_id: str | None = None,
 ) -> dict[str, Any]:
+    # Public-scope MCP tool: caller's own cookbook; list_cookbook filters by caller's user_id from auth context.
     cookbook = None
     if cookbook_id:
         cb_uuid = _coerce_uuid(cookbook_id)

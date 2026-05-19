@@ -317,13 +317,15 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 _last_used_tracker.record(api_key_obj.id, datetime.now(_tz2.utc))
                 request.state.api_key_id = api_key_obj.id
                 request.state.api_key_user_id = api_key_obj.user_id
-                # auth_ctx: user scope (Phase A wiring; Phase B adds cookbook_scope)
+                # auth_ctx: user scope — Phase B stamps cookbook_scope from api_key.cookbook_id
                 from app.auth_ctx import AuthContext
                 from uuid import UUID as _UUID
                 request.state.auth_ctx = AuthContext(
                     scope="user",
                     user_id=api_key_obj.user_id,
                     api_key_id=api_key_obj.id,
+                    # secfix_1905/B: cookbook-scoped key restriction (Issue #13)
+                    cookbook_scope=api_key_obj.cookbook_id,
                     # secfix_1905/C: propagate sandbox execution privilege
                     is_sandbox_operator=bool(getattr(api_key_obj, "is_sandbox_operator", False)),
                 )

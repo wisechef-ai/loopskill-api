@@ -18,6 +18,8 @@ from uuid import UUID
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.auth_ctx import AuthContext
+from app import authz
 from app.models import Cookbook, CookbookSkill, Skill, SkillVersion
 
 
@@ -70,9 +72,19 @@ def recipes_sync(
     *,
     cookbook_id: str,
     dry_run: bool = False,
-    caller: dict[str, Any] | None = None,
+    caller: dict[str, Any] | None = None,  # kept for backwards compat; prefer ctx
+    ctx: AuthContext | None = None,
 ) -> dict[str, Any]:
-    """Synchronise a cookbook's skills to their latest published versions."""
+    """Synchronise a cookbook's skills to their latest published versions.
+
+    Phase B (Issue #15):
+    - (a) Uses db.commit() instead of db.flush() so writes persist.
+    - (b) Checks authz.can_write_cookbook(ctx, cb) before mutating.
+    """
+    # Resolve AuthContext: prefer ctx, fall back to master for legacy callers
+    if ctx is None:
+        ctx = AuthContext(scope="master")
+
     try:
         cb_uuid = UUID(cookbook_id)
     except (ValueError, AttributeError):
@@ -82,6 +94,10 @@ def recipes_sync(
     cb = db.query(Cookbook).filter(Cookbook.id == cb_uuid).first()
     if not cb:
         return {"error": "not_found", "cookbook_id": cookbook_id}
+
+    # Phase B (Issue #15b): cookbook ownership check
+    if not authz.can_write_cookbook(ctx, cb):
+        return {"error": "cookbook_forbidden", "cookbook_id": cookbook_id}
 
     outdated = _find_outdated_skills(db, cb_uuid)
 
@@ -118,7 +134,7 @@ def recipes_sync(
             CookbookSkill.skill_id == o["skill_id"],
         ).update({"pinned_version": o["to"]})
 
-    db.flush()
+    db.commit()  # Phase B (Issue #15a): commit, not flush
 
     # Build tarball URLs for the updated skills (same logic as recipes_install)
     install_urls = _build_install_urls(db, outdated)
