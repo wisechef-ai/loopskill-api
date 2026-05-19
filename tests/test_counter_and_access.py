@@ -20,8 +20,6 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.database import get_db
-from app.middleware import APIKeyMiddleware
 from app.models import APIKey, Base, InstallEvent, Skill, User
 
 
@@ -59,23 +57,18 @@ def db(engine_fixture) -> Generator[Session, None, None]:
 
 
 @pytest.fixture
-def app_with_middleware(db) -> FastAPI:
-    from app.routes import router as skills_router
-    from app.skill_routes import router as skill_router  # Phase E: skills moved
+def app_with_middleware(db, monkeypatch) -> FastAPI:
+    """Production-wired test app (shared builder).
 
-    app = FastAPI()
-    app.add_middleware(APIKeyMiddleware)
+    Previously this fixture hand-mounted only routes.py + skill_routes; it
+    forgot access_routes, so /api/skills/access fell through to the
+    /api/skills/{slug} handler and 404'd as "skill 'access' not found".
+    build_test_app mounts every router create_app mounts, so the access
+    endpoint resolves correctly.
+    """
+    from tests._app_factory import build_test_app
 
-    def _override_get_db():
-        try:
-            yield db
-        finally:
-            pass
-
-    app.dependency_overrides[get_db] = _override_get_db
-    app.include_router(skills_router)
-    app.include_router(skill_router, prefix="/api")  # Phase E: /skills/*
-    return app
+    return build_test_app(db_session=db, monkeypatch=monkeypatch)
 
 
 @pytest.fixture

@@ -440,7 +440,13 @@ def get_skill_detail(slug: str, request: Request, db: Session = Depends(get_db))
     # and by _auth_ctx_from_jwt_cookie (browser/cookie path for public skill-detail GETs).
     auth_ctx = getattr(request.state, "auth_ctx", None)
     caller_tier = auth_ctx.tier if auth_ctx is not None else None
-    caller_is_paid = _is_paid_tier(caller_tier)
+    # Master scope (admin / ops key) bypasses the paywall — it carries no
+    # subscription tier but must see the full body for self-test parity, as
+    # documented in this handler's docstring. Bug B fix (repo-topclass P1):
+    # the master key now actually reaches here because APIKeyMiddleware
+    # resolves x-api-key on the skill-detail GET branch.
+    caller_is_master = getattr(auth_ctx, "scope", None) == "master"
+    caller_is_paid = caller_is_master or _is_paid_tier(caller_tier)
     readme_payload = skill.readme if caller_is_paid else None
     external_payload = getattr(skill, "external_resources", None) if caller_is_paid else None
 

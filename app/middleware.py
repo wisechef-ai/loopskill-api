@@ -91,6 +91,72 @@ def _auth_ctx_from_jwt_cookie(request) -> "AuthContext":
     return AuthContext.anonymous()
 
 
+def _auth_ctx_from_api_key(request) -> "AuthContext | None":
+    """Opportunistically resolve an ``x-api-key`` header into an AuthContext.
+
+    Used on PUBLIC routes (``/api/skills/access``) and on public skill-detail
+    GETs, where the request is *allowed* without a key but, if a key IS
+    present, the caller's tier / scope must still be honoured. Before this
+    helper existed, both code paths short-circuited before the key was ever
+    inspected, so an authenticated agent was indistinguishable from an
+    anonymous one — ``/api/skills/access`` always reported ``user_tier=null``
+    and the skill-detail body paywall never opened for x-api-key callers.
+
+    Returns:
+        * ``AuthContext(scope="master")`` for the master key.
+        * ``AuthContext(scope="user", tier=…)`` for a valid ``rec_`` key.
+        * ``None`` when no key is present, the key is malformed, or the key
+          does not validate. ``None`` means "fall back to the JWT cookie /
+          anonymous path" — it never turns a public route into a 401.
+
+    This is read-only and never mutates request state; callers decide what to
+    stamp onto ``request.state.auth_ctx``.
+    """
+    from app.auth_ctx import AuthContext
+
+    key = request.headers.get("x-api-key")
+    if not key or not key.startswith(API_KEY_PREFIX):
+        # No key, or a cbt_ share token (handled only on cookbook routes) —
+        # nothing to resolve here.
+        return None
+
+    # Master key — timing-safe comparison, mirrors the main validation path.
+    if hmac.compare_digest(key, settings.API_KEY):
+        return AuthContext(scope="master")
+
+    from app.database import SessionLocal
+    from app.models import APIKey, User
+
+    db = SessionLocal()
+    try:
+        key_hash = hashlib.sha256(key.encode()).hexdigest()
+        api_key_obj = (
+            db.query(APIKey)
+            .filter(APIKey.key_hash == key_hash, APIKey.is_active == True)  # noqa: E712
+            .first()
+        )
+        if api_key_obj is None:
+            return None
+        user_obj = db.query(User).filter(User.id == api_key_obj.user_id).first()
+        tier: str | None = None
+        if user_obj and user_obj.subscription_status in ("active", "trialing"):
+            tier = user_obj.subscription_tier
+        return AuthContext(
+            scope="user",
+            user_id=api_key_obj.user_id,
+            api_key_id=api_key_obj.id,
+            cookbook_scope=api_key_obj.cookbook_id,
+            is_sandbox_operator=bool(getattr(api_key_obj, "is_sandbox_operator", False)),
+            tier=tier,
+        )
+    # Rationale: opportunistic auth on a public route must never crash the
+    # request — any lookup failure degrades to anonymous (return None).
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        db.close()
+
+
 def get_redis():
     """Get Redis client with lazy initialization, health check, and 30s backoff."""
     global _redis_client, _redis_available, _redis_next_retry_at
@@ -213,8 +279,20 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         if any(path.startswith(prefix) for prefix in self.JWT_AUTH_PREFIXES):
             return await call_next(request)
 
-        # Public endpoints — skip API key validation entirely (F4)
+        # Public endpoints — skip API key validation entirely (F4).
+        # Opportunistic auth: a key is NOT required here, but if one IS present
+        # the caller's scope/tier must still be honoured. Without this, routes
+        # like /api/skills/access read request.state.auth_ctx.tier and always
+        # saw None even for a valid key, because this branch returned before
+        # any auth_ctx was stamped. Bug A fix (repo-topclass P1).
         if any(path.startswith(prefix) for prefix in self.PUBLIC_PREFIXES):
+            api_key_ctx = _auth_ctx_from_api_key(request)
+            if api_key_ctx is not None:
+                request.state.auth_ctx = api_key_ctx
+            else:
+                # No / invalid key: still stamp an auth_ctx so handlers always
+                # have one. Honour a wr_jwt cookie if present, else anonymous.
+                request.state.auth_ctx = _auth_ctx_from_jwt_cookie(request)
             return await call_next(request)
 
         # Method-aware public POST endpoints (intent-survey: anonymous submit only)
@@ -264,12 +342,18 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 and not tail.startswith("_")
                 and tail not in self.PUBLIC_SKILL_DETAIL_AUTH_VERBS
             ):
-                # Issue #25 (secfix_1905/H): opportunistic JWT-cookie auth for
-                # public skill-detail GETs.  Browsers browsing the portal may
-                # carry a wr_jwt cookie but no x-api-key.  Stamp auth_ctx so
-                # routes can use request.state.auth_ctx.tier for the paywall
-                # without needing to re-implement the token lookup.
-                request.state.auth_ctx = _auth_ctx_from_jwt_cookie(request)
+                # Issue #25 (secfix_1905/H): opportunistic auth for public
+                # skill-detail GETs. Browsers carry a wr_jwt cookie; agents
+                # carry an x-api-key header. BOTH must be honoured so the
+                # Phase-B body paywall opens for any paid caller.
+                # Bug B fix (repo-topclass P1): previously only the cookie was
+                # read here, so a paid agent authenticating by x-api-key
+                # resolved as anonymous and saw readme=null.
+                api_key_ctx = _auth_ctx_from_api_key(request)
+                if api_key_ctx is not None:
+                    request.state.auth_ctx = api_key_ctx
+                else:
+                    request.state.auth_ctx = _auth_ctx_from_jwt_cookie(request)
                 return await call_next(request)
             # Two-segment public sub-resources: /api/skills/{slug}/related (Stage 1, G15).
             # Only the suffix is allowed-listed — the slug itself is not parsed for

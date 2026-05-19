@@ -20,52 +20,27 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
-def _make_app_with_middleware(db_session):
-    """Build a minimal FastAPI with the real APIKeyMiddleware wired in.
+def _make_app_with_middleware(db_session, monkeypatch):
+    """Build a production-wired test app via the shared builder.
 
-    The middleware calls ``SessionLocal()`` directly to look up the tier of
-    the requested skill (free vs paid gating). We monkey-patch that import
-    to return the test session instead, so the middleware sees the same
-    rows the test created.
+    Previously this hand-mounted only core_router + install_router, so
+    /api/skills/search (which lives in skill_routes.py post-Phase-E) was not
+    mounted and test_search_endpoint_remains_public got a 404. build_test_app
+    mounts every router create_app mounts.
     """
-    from app.middleware import APIKeyMiddleware
-    from app.routes import router as core_router
-    from app.install_routes import router as install_router  # Phase E: /skills/install
+    from tests._app_factory import build_test_app
 
-    app = FastAPI()
-    app.add_middleware(APIKeyMiddleware)
-    app.include_router(core_router)
-    app.include_router(install_router, prefix="/api")  # Phase E
-
-    from app.database import get_db
-
-    def _override_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = _override_db
-    return app
+    return build_test_app(db_session=db_session, monkeypatch=monkeypatch)
 
 
 @pytest.fixture
 def middleware_client(db_session, monkeypatch):
-    """TestClient with the real middleware AND middleware-side SessionLocal patched."""
-    # Patch the SessionLocal that the middleware imports inline. The middleware
-    # imports ``from app.database import SessionLocal`` at request time, so we
-    # replace it with a factory that returns the test session (without closing it).
+    """TestClient wired exactly like production (APIKeyMiddleware + all routers).
 
-    class _TestSessionFactory:
-        def __call__(self):
-            class _Wrap:
-                def query(self_inner, *a, **kw):
-                    return db_session.query(*a, **kw)
-                def close(self_inner):
-                    pass
-            return _Wrap()
-
-    import app.database as _dbmod
-    monkeypatch.setattr(_dbmod, "SessionLocal", _TestSessionFactory(), raising=True)
-
-    app = _make_app_with_middleware(db_session)
+    build_test_app repoints app.database.SessionLocal at the shared test
+    session, so the middleware's own session sees the rows the test created.
+    """
+    app = _make_app_with_middleware(db_session, monkeypatch)
     return TestClient(app)
 
 

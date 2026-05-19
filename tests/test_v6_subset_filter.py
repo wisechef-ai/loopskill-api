@@ -90,26 +90,40 @@ def seeded_db(engine_v6):
 
 
 @pytest.fixture(scope="module")
-def client_v6(seeded_db):
+def _v6_monkeypatch():
+    """Module-scoped MonkeyPatch — the default `monkeypatch` is function-scoped
+    and cannot be consumed by the module-scoped `client_v6` fixture.
+    """
+    from _pytest.monkeypatch import MonkeyPatch
+
+    mp = MonkeyPatch()
+    try:
+        yield mp
+    finally:
+        mp.undo()
+
+
+@pytest.fixture(scope="module")
+def client_v6(seeded_db, _v6_monkeypatch):
+    """Production-wired test client (shared builder).
+
+    Uses build_test_app so APIKeyMiddleware is mounted — the v6
+    external_resources field is paywalled and only resolves for a paid /
+    master caller, which requires the middleware to stamp auth_ctx from the
+    x-api-key header. The legacy hand-mounted app omitted the middleware, so
+    auth_ctx was never set and external_resources came back null.
+    """
     from app.config import settings
-    app = FastAPI()
+    from tests._app_factory import build_test_app
 
-    def override_db():
-        Session_ = sessionmaker(bind=seeded_db)
-        db = Session_()
-        try:
-            yield db
-        finally:
-            db.close()
-
-    from app.routes import router as core_router
-    from app.skill_routes import router as skill_router  # Phase E: search moved
-    app.include_router(core_router)
-    app.include_router(skill_router, prefix="/api")  # Phase E: /skills/search
-    app.dependency_overrides[get_db] = override_db
-
-    with TestClient(app, headers={"x-api-key": settings.API_KEY}) as c:
-        yield c
+    Session_ = sessionmaker(bind=seeded_db)
+    session = Session_()
+    app = build_test_app(db_session=session, monkeypatch=_v6_monkeypatch)
+    try:
+        with TestClient(app, headers={"x-api-key": settings.API_KEY}) as c:
+            yield c
+    finally:
+        session.close()
 
 
 # ── subset=pantry filter ─────────────────────────────────────────────────

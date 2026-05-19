@@ -44,75 +44,77 @@ def db_engine(tmp_path):
 
 @pytest.fixture()
 def seeded_app(db_engine, monkeypatch):
-    """Seed users + api keys for anon, free, pro, pro_plus, master."""
+    """Seed users + api keys for anon, free, pro, pro_plus, master.
+
+    Uses the shared build_test_app builder so the app is wired exactly like
+    production — APIKeyMiddleware included. Previously this fixture mounted
+    routers WITHOUT the middleware, so request.state.auth_ctx was never
+    populated and every authed caller (x-api-key OR wr_jwt cookie) resolved
+    as unpaid — the paywall tests all failed for that reason, not a real bug.
+    """
+    from tests._app_factory import build_test_app
+
     SessionLocal = sessionmaker(bind=db_engine, future=True)
-    app = FastAPI()
-    app.include_router(api_router)
-    app.include_router(skill_router, prefix="/api")  # Phase E: /skills/{slug}
+    # One long-lived session shared by the route handlers (via get_db) AND by
+    # APIKeyMiddleware / _auth_ctx_from_jwt_cookie (via the patched SessionLocal).
+    session = SessionLocal()
 
-    def _db():
-        s = SessionLocal()
-        try:
-            yield s
-        finally:
-            s.close()
-
-    app.dependency_overrides[get_db] = _db
-
-    now = datetime.now(timezone.utc)
     keys = {}
 
-    with SessionLocal() as session:
-        # Skill row
+    # Skill row
+    session.add(
+        Skill(
+            id=uuid.uuid4(),
+            slug="clean-architecture",
+            title="Test",
+            description="desc",
+            readme=SKILL_README,
+            is_public=True,
+            is_archived=False,
+            install_count=0,
+        )
+    )
+
+    user_specs = [
+        ("free", None, None),
+        ("pro", "cook", "active"),
+        ("pro_plus", "operator", "active"),
+    ]
+    for label, tier, status in user_specs:
+        uid = uuid.uuid4()
         session.add(
-            Skill(
-                id=uuid.uuid4(),
-                slug="clean-architecture",
-                title="Test",
-                description="desc",
-                readme=SKILL_README,
-                is_public=True,
-                is_archived=False,
-                install_count=0,
+            User(
+                id=uid,
+                email=f"{label}@test.local",
+                display_name=label,
+                github_id=int(uuid.uuid4().int) % 9_000_000 + 1_000_000,
+                subscription_tier=tier,
+                subscription_status=status,
             )
         )
-
-        user_specs = [
-            ("free", None, None),
-            ("pro", "cook", "active"),
-            ("pro_plus", "operator", "active"),
-        ]
-        for label, tier, status in user_specs:
-            uid = uuid.uuid4()
-            session.add(
-                User(
-                    id=uid,
-                    email=f"{label}@test.local",
-                    display_name=label,
-                    github_id=int(uuid.uuid4().int) % 9_000_000 + 1_000_000,
-                    subscription_tier=tier,
-                    subscription_status=status,
-                )
+        plaintext = f"rec_test_{label}_{uuid.uuid4().hex[:8]}"
+        hashed = hashlib.sha256(plaintext.encode()).hexdigest()
+        session.add(
+            APIKey(
+                id=uuid.uuid4(),
+                user_id=uid,
+                key_hash=hashed,
+                key_prefix=plaintext[:9],
+                is_active=True,
             )
-            plaintext = f"rec_test_{label}_{uuid.uuid4().hex[:8]}"
-            hashed = hashlib.sha256(plaintext.encode()).hexdigest()
-            session.add(
-                APIKey(
-                    id=uuid.uuid4(),
-                    user_id=uid,
-                    key_hash=hashed,
-                    key_prefix=plaintext[:9],
-                    is_active=True,
-                )
-            )
-            keys[label] = plaintext
-        session.commit()
+        )
+        keys[label] = plaintext
+    session.commit()
 
     from app.config import settings
     monkeypatch.setattr(settings, "API_KEY", "rec_admin_master_xyz_1234", raising=False)
     keys["admin"] = settings.API_KEY
 
-    return app, keys
+    app = build_test_app(db_session=session, monkeypatch=monkeypatch)
+    try:
+        yield app, keys
+    finally:
+        session.close()
 
 
 def test_anonymous_caller_gets_null_body(seeded_app):
