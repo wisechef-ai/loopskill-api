@@ -292,7 +292,7 @@ def trending_skills(
             db.query(Skill)
             .options(joinedload(Skill.versions), joinedload(Skill.creator))
             .join(subq, Skill.slug == subq.c.skill_slug)
-            .filter(Skill.is_public == True)  # noqa: E712
+            .filter(Skill.is_public == True, Skill.is_archived == False)  # noqa: E712
             .order_by(subq.c.install_count.desc())
         )
 
@@ -344,7 +344,7 @@ def get_full_skill_graph(db: Session = Depends(get_db)):
 
     public_skills = (
         db.query(Skill)
-        .filter(Skill.is_public == True)  # noqa: E712
+        .filter(Skill.is_public == True, Skill.is_archived == False)  # noqa: E712
         .all()
     )
     public_slug_set = {s.slug for s in public_skills}

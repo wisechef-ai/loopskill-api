@@ -414,7 +414,10 @@ def _make_install_url(skill_slug: str, version_id: UUID, version_semver: str) ->
     """
     from itsdangerous import URLSafeTimedSerializer
 
-    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET)
+    # Issue #27 (secfix_1905/I-followup): salt MUST match install_routes._download
+    # verifier (salt="recipes-skill-install"). Without this match, every cookbook
+    # install URL fails with "Invalid download token" — caught by codex re-pass.
+    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="recipes-skill-install")
     token = serializer.dumps({"slug": skill_slug, "version_id": str(version_id), "mode": "install"})
     public_origin = (
         getattr(settings, "PUBLIC_ORIGIN", None)

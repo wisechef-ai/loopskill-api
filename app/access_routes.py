@@ -72,7 +72,16 @@ def skill_access(
     if not s:
         raise HTTPException(status_code=404, detail=f"Skill '{skill}' not found")
 
-    user_tier = getattr(getattr(request.state, "auth_ctx", None), "tier", None)
+    # Issue HIGH (secfix_1905/I-followup, codex re-pass): access endpoint must not
+    # leak title/tier/license for private or archived skills. Treat them as 404 for
+    # anonymous and non-master callers. Master scope retains visibility for ops use.
+    auth_ctx = getattr(request.state, "auth_ctx", None)
+    is_master = getattr(auth_ctx, "scope", None) == "master"
+    is_archived = getattr(s, "is_archived", False)
+    if (not s.is_public or is_archived) and not is_master:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill}' not found")
+
+    user_tier = getattr(auth_ctx, "tier", None)
     user_rank = TIER_RANK.get(user_tier, 0)
     # Skills with no explicit tier default to pro — the marketplace baseline.
     skill_rank = TIER_RANK.get(s.tier, TIER_RANK["pro"])

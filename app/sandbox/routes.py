@@ -73,10 +73,18 @@ class SandboxStatusResponse(BaseModel):
 
 
 @router.get("/skills/{slug}/sandbox/status", response_model=SandboxStatusResponse)
-def sandbox_status(slug: str, db: Session = Depends(get_db)):
+def sandbox_status(slug: str, request: Request, db: Session = Depends(get_db)):
     """Check if a skill supports sandbox execution and return its profile."""
     skill = db.query(Skill).options(joinedload(Skill.versions)).filter(Skill.slug == slug).first()
     if not skill:
+        raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
+
+    # Issue HIGH (secfix_1905/I-followup, codex re-pass): don't reveal manifest
+    # contents (network/fs allow-lists, env_pass) for private or archived skills.
+    # Master scope retains visibility for ops use.
+    auth_ctx = getattr(request.state, "auth_ctx", None)
+    is_master = getattr(auth_ctx, "scope", None) == "master"
+    if (not skill.is_public or getattr(skill, "is_archived", False)) and not is_master:
         raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
 
     # Check latest version for skill_toml with [sandbox] block
@@ -139,6 +147,13 @@ def sandbox_run(
         )
     skill = db.query(Skill).options(joinedload(Skill.versions)).filter(Skill.slug == slug).first()
     if not skill:
+        raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
+
+    # Issue HIGH (secfix_1905/I-followup, codex re-pass): don't execute (or
+    # disclose existence of) private or archived skills. Master scope keeps
+    # access for incident response and triage.
+    is_master = getattr(auth_ctx, "scope", None) == "master"
+    if (not skill.is_public or getattr(skill, "is_archived", False)) and not is_master:
         raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
 
     # Find the right version

@@ -153,7 +153,9 @@ def _build_install_urls(db: Session, outdated: list[dict[str, Any]]) -> list[dic
     from app.config import settings
 
     try:
-        serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET)
+        # Issue #27 (secfix_1905/I-followup): salt MUST match install_routes._download
+        # verifier (salt="recipes-skill-install"). Caught by codex re-pass.
+        serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="recipes-skill-install")
     # Rationale: URLSafeTimedSerializer init can fail if SIGNING_SECRET is empty; return empty list
     except Exception:  # noqa: BLE001
         return []

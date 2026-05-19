@@ -105,7 +105,9 @@ def recipes_install(
     else:
         target = skill.versions[0]
 
-    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET)
+    # Issue #27 (secfix_1905/I-followup): salt MUST match install_routes._download
+    # verifier (salt="recipes-skill-install"). Caught by codex re-pass.
+    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="recipes-skill-install")
     token = serializer.dumps({"slug": base_slug, "version_id": str(target.id), "mode": "files"})
     public_origin = (
         getattr(settings, "PUBLIC_ORIGIN", None)

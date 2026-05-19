@@ -165,7 +165,12 @@ def _resolve_related(db: Session, skill: Skill) -> list:
         return []
 
     # Single query: pull all candidate public skills at once
-    rows = db.query(Skill).filter(Skill.slug.in_(candidates), Skill.is_public == True).all()
+    # secfix_1905/I-followup: also exclude archived skills.
+    rows = (
+        db.query(Skill)
+        .filter(Skill.slug.in_(candidates), Skill.is_public == True, Skill.is_archived == False)  # noqa: E712
+        .all()
+    )
     by_slug = {r.slug: r for r in rows}
 
     # Preserve declaration order, cap at limit
@@ -201,7 +206,12 @@ def _hydrate_skill_outs(db: Session, slugs: list[str]) -> list[dict]:
     """Resolve a list of slugs (preserving order) to public SkillOut dicts."""
     if not slugs:
         return []
-    rows = db.query(Skill).filter(Skill.slug.in_(slugs), Skill.is_public == True).all()
+    # secfix_1905/I-followup: also exclude archived skills.
+    rows = (
+        db.query(Skill)
+        .filter(Skill.slug.in_(slugs), Skill.is_public == True, Skill.is_archived == False)  # noqa: E712
+        .all()
+    )
     by_slug = {r.slug: r for r in rows}
     out = []
     for slug in slugs:
