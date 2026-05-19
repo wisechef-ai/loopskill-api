@@ -156,7 +156,14 @@ def test_make_install_url_token_is_valid():
     url = _make_install_url(skill_slug, version_id, "2.0.0")
 
     token = url.split("token=", 1)[1]
-    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET)
+    # _make_install_url signs with salt="recipes-skill-install" (the canonical
+    # install salt — see test_install_url_salt_consistency). The verifier MUST
+    # pass the same salt or itsdangerous raises BadSignature. The bare
+    # URLSafeTimedSerializer(secret) the test used before had no salt and so
+    # always failed against the salted producer.
+    serializer = URLSafeTimedSerializer(
+        settings.SIGNING_SECRET, salt="recipes-skill-install"
+    )
     data = serializer.loads(token, max_age=3600)
 
     assert data["slug"] == skill_slug

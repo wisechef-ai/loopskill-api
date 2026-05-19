@@ -16,6 +16,7 @@ TDD discipline per §0.5:
 from __future__ import annotations
 
 import hashlib
+import os
 from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import patch
@@ -681,12 +682,16 @@ class TestAuditPass:
 
     TOOLS_PATH = "app/mcp/tools"
 
+    # Repo root resolved from this test file's location — tests/ is one level
+    # below the repo root. Previously both audit tests hardcoded an absolute
+    # path to a since-deleted secfix_1905-B git worktree, so they passed only
+    # on the machine that worktree lived on and FileNotFoundError'd everywhere
+    # else (including CI).
+    _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
     def _iter_tool_files(self):
         """Yield (tool_name, file_path, source_lines) for each tool file."""
-        import os
-
-        wt = "/home/adam/.worktrees/recipes-api/secfix_1905-B"
-        tools_dir = os.path.join(wt, self.TOOLS_PATH)
+        tools_dir = os.path.join(self._REPO_ROOT, self.TOOLS_PATH)
         for fname in sorted(os.listdir(tools_dir)):
             if not fname.endswith(".py") or fname == "__init__.py":
                 continue
@@ -720,7 +725,7 @@ class TestAuditPass:
             ["grep", "-rP", r"authz\.can_", "app/mcp/"],
             capture_output=True,
             text=True,
-            cwd="/home/adam/.worktrees/recipes-api/secfix_1905-B",
+            cwd=self._REPO_ROOT,
         )
         hits = [
             line for line in result.stdout.splitlines() if line.strip()
