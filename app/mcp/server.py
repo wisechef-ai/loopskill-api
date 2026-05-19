@@ -585,7 +585,15 @@ def _authenticate(request: Request, db: Session = Depends(get_db)) -> dict[str, 
     """
     key = request.headers.get("x-api-key")
     result = validate_key(key, db)
-    if result["scope"] == "unauthorized":
+    # Reject both an unrecognised key ("unauthorized") AND a missing key
+    # ("anonymous"). The SSE / messages transports require an authenticated
+    # caller — anonymous is not a valid scope here. Previously only
+    # "unauthorized" was rejected, so a MISSING x-api-key fell through this
+    # gate into the long-lived server.run() loop instead of returning 401.
+    # In production the global APIKeyMiddleware masks this, but the router's
+    # own defense-in-depth gate must stand on its own. (Caught by the hung
+    # tests/test_mcp_server.py::test_sse_rejects_missing_api_key.)
+    if result["scope"] in ("unauthorized", "anonymous"):
         raise HTTPException(status_code=401, detail="Invalid or missing x-api-key header")
     request.state.mcp_caller = result
     # Phase B (Issue #5): stamp auth_ctx — identical schema to REST path

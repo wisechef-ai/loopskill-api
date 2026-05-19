@@ -165,6 +165,9 @@ jobs:
   pytest-coverage:
     name: pytest coverage (--cov-fail-under gate)
     runs-on: ubuntu-latest
+    # Hard cap: a hanging test must fail the job, not run until the 6h GitHub
+    # ceiling. Paired with pytest-timeout below for a per-test cap.
+    timeout-minutes: 15
     continue-on-error: true  # informational until target threshold lands; tracking issue for 85%-on-app/
     services:
       postgres:
@@ -194,7 +197,7 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           if [ -f pyproject.toml ]; then pip install -e . || true; fi
-          pip install pytest pytest-asyncio pytest-cov coverage httpx fastapi sqlalchemy psycopg2-binary python-frontmatter
+          pip install pytest pytest-asyncio pytest-cov pytest-timeout coverage httpx fastapi sqlalchemy psycopg2-binary python-frontmatter
 
       - name: Run full pytest with coverage
         env:
@@ -206,6 +209,9 @@ jobs:
         # target is ≥85% per plan §3 Phase F. Tracking issue (secfix_1905
         # OUTCOME-followup): close coverage gap on the 6 modules below 70%.
         run: |
+          # --timeout: a single hung test fails fast (thread dump) instead of
+          # stalling the whole job. --timeout-method=thread so blocking C calls
+          # (DB sockets) are also caught.
           python -m pytest tests/ \
             --cov=app \
             --cov-config=.coveragerc \
@@ -213,6 +219,8 @@ jobs:
             --cov-report=html \
             --cov-report=xml \
             --cov-fail-under=50 \
+            --timeout=120 \
+            --timeout-method=thread \
             --ignore=tests/migrations \
             --ignore=scripts \
             -q

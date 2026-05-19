@@ -174,19 +174,28 @@ jobs:
         if: ${{ inputs.skip_verify != 'true' }}
         run: |
           set -e
-          sleep 5  # CF edge propagation
+          sleep 20  # CF edge propagation + service restart settle
+          # Each route gets up to 4 attempts with backoff so a transient 5xx
+          # mid-restart or a slow CF edge does not red a healthy deploy.
           FAIL=0
           for path in /api/mcp/healthz /api/mcp/sse /api/cookbooks /api/skills/_publish; do
-            CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://recipes.wisechef.ai${path}" --max-time 15 || echo "000")
+            CODE="000"
+            for attempt in 1 2 3 4; do
+              CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://recipes.wisechef.ai${path}" --max-time 15 || echo "000")
+              # 200 OK; 401/403 OK (auth-gated route, but service is up); 405 OK on POST endpoints probed via GET
+              case "$CODE" in
+                2*|401|403|405) break ;;
+              esac
+              [ "$attempt" -lt 4 ] && sleep $((attempt * 8))
+            done
             printf "  %-32s %s\n" "$path" "$CODE"
-            # 200 OK; 401/403 OK (auth-gated route, but service is up); 405 OK on POST endpoints probed via GET
             case "$CODE" in
               2*|401|403|405) ;;
               *) FAIL=$((FAIL + 1)) ;;
             esac
           done
           if [ "$FAIL" -gt 0 ]; then
-            echo "::error::$FAIL routes returned unexpected status"
+            echo "::error::$FAIL routes returned unexpected status after retries"
             exit 1
           fi
           echo "All routes returned acceptable status."
