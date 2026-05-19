@@ -73,7 +73,6 @@ dmypy.json
 .gitnexus
 
 # gitnexus auto-generated, regenerated locally on `npx gitnexus analyze`
-AGENTS.md
 CLAUDE.md
 .claude/
 .gitnexus/
@@ -82,3 +81,4 @@ CLAUDE.md
 *.bak
 .venv
 test_dev.db
+test.db

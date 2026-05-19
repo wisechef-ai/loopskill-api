@@ -13,8 +13,8 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
-from app.auth_ctx import AuthContext
 from app import authz
+from app.auth_ctx import AuthContext
 from app.models import Cookbook
 from app.recipify import (
     ValidationError,
@@ -48,6 +48,7 @@ def recipes_recipify(
     ctx: AuthContext | None = None,
     **_: Any,
 ) -> dict[str, Any]:
+    """Convert a SKILL.md draft into a CookbookSkill row."""
     if not slug:
         return {"error": "slug is required", "code": "missing_slug"}
     if not content:
@@ -83,8 +84,7 @@ def recipes_recipify(
                 .first()
             )
         if cb is None:
-            cb = Cookbook(id=uuid4(), name="MCP Cookbook",
-                          cookbook_owner=owner_id, is_base=False)
+            cb = Cookbook(id=uuid4(), name="MCP Cookbook", cookbook_owner=owner_id, is_base=False)
             db.add(cb)
             db.commit()
             db.refresh(cb)

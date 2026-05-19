@@ -8,9 +8,9 @@ The router lives under `/api/graph/` so the middleware can grant blanket
 public access via PUBLIC_PREFIXES. The POST endpoint validates the master
 API key inline because the middleware exempted the prefix.
 """
+
 from __future__ import annotations
 
-from typing import Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -21,7 +21,6 @@ from app.config import settings
 from app.database import get_db
 from app.graph_extension import EDGE_TYPES, edges_for
 from app.models import Skill, SkillReplacement
-
 
 router = APIRouter(prefix="/api/graph", tags=["graph"])
 
@@ -36,18 +35,19 @@ class GraphEdge(BaseModel):
 class ReplacementIn(BaseModel):
     source_slug: str = Field(..., description="Slug being replaced")
     target_slug: str = Field(..., description="Slug doing the replacing")
-    reason: Optional[str] = Field(None, description="Curator note for audit log")
+    reason: str | None = Field(None, description="Curator note for audit log")
 
 
 class ReplacementOut(BaseModel):
     source_slug: str
     target_slug: str
-    reason: Optional[str]
-    created_by: Optional[str]
+    reason: str | None
+    created_by: str | None
     created_at: str
 
 
 # ── Read: GET /api/graph/related ──────────────────────────────────────────
+
 
 @router.get("/related", response_model=list[GraphEdge])
 def graph_related(
@@ -78,6 +78,7 @@ def graph_related(
 
 # ── Write: POST /api/graph/replacements (master-only) ─────────────────────
 
+
 def _require_master(request: Request) -> None:
     """Inline master-key gate.
 
@@ -97,6 +98,7 @@ def create_replacement(
     request: Request,
     db: Session = Depends(get_db),
 ):
+    """Create a skill replacement record (master-only)."""
     _require_master(request)
 
     if body.source_slug == body.target_slug:
@@ -158,11 +160,13 @@ def list_replacements(db: Session = Depends(get_db)):
         tgt = db.query(Skill).filter(Skill.id == repl.target_id).first()
         if not tgt:
             continue
-        out.append(ReplacementOut(
-            source_slug=src_slug,
-            target_slug=tgt.slug,
-            reason=repl.reason,
-            created_by=repl.created_by,
-            created_at=repl.created_at.isoformat() if repl.created_at else "",
-        ))
+        out.append(
+            ReplacementOut(
+                source_slug=src_slug,
+                target_slug=tgt.slug,
+                reason=repl.reason,
+                created_by=repl.created_by,
+                created_at=repl.created_at.isoformat() if repl.created_at else "",
+            )
+        )
     return out

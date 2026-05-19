@@ -8,8 +8,7 @@ Flow:
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 from uuid import uuid4
 
@@ -36,10 +35,12 @@ GOOGLE_API_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 
 class AuthError(Exception):
     """Raised on authentication failures."""
+
     pass
 
 
 # ── GitHub helpers ───────────────────────────────────────────────────────
+
 
 def get_github_auth_url(state: str, redirect_uri: str) -> str:
     """Build the GitHub OAuth authorization URL."""
@@ -114,6 +115,7 @@ async def exchange_github_code(code: str) -> dict:
 
 # ── Google helpers ───────────────────────────────────────────────────────
 
+
 def get_google_auth_url(state: str, redirect_uri: str) -> str:
     """Build the Google OAuth authorization URL."""
     params = {
@@ -174,6 +176,7 @@ async def exchange_google_code(code: str) -> dict:
 
 
 # ── User persistence ─────────────────────────────────────────────────────
+
 
 def find_or_create_user(db: Session, github_data: dict) -> User:
     """Backward-compatible alias for find_or_create_user_by_github."""
@@ -240,20 +243,21 @@ def find_or_create_user_by_google(db: Session, google_data: dict) -> User:
 
 # ── JWT management ───────────────────────────────────────────────────────
 
+
 def create_jwt(user: User) -> str:
     """Issue a JWT for the given user."""
     payload = {
         "sub": str(user.id),
         "email": user.email,
         "display_name": user.display_name,
-        "exp": datetime.now(timezone.utc) + timedelta(hours=settings.JWT_EXPIRATION_HOURS),
-        "iat": datetime.now(timezone.utc),
+        "exp": datetime.now(UTC) + timedelta(hours=settings.JWT_EXPIRATION_HOURS),
+        "iat": datetime.now(UTC),
         "iss": "wiserecipes",
     }
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
-def verify_jwt(token: str) -> Optional[dict]:
+def verify_jwt(token: str) -> dict | None:
     """Verify and decode a JWT. Returns payload or None."""
     try:
         payload = jwt.decode(
@@ -271,13 +275,14 @@ def verify_jwt(token: str) -> Optional[dict]:
         return None
 
 
-def get_user_from_jwt(db: Session, token: str) -> Optional[User]:
+def get_user_from_jwt(db: Session, token: str) -> User | None:
     """Verify JWT and return the User object."""
     payload = verify_jwt(token)
     if not payload:
         return None
 
     from uuid import UUID
+
     try:
         user_id = UUID(payload["sub"])
     except (ValueError, KeyError):

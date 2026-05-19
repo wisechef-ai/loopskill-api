@@ -9,8 +9,8 @@ Uses bubblewrap (bwrap) or firejail to isolate skill setup/execution with:
 Triggered when a skill's skill.toml declares a [sandbox] block.
 """
 
-from app.sandbox.runner import SandboxRunner, SandboxResult
-from app.sandbox.profile import SandboxProfile
 from app.sandbox.domain_proxy import DomainProxy
+from app.sandbox.profile import SandboxProfile
+from app.sandbox.runner import SandboxResult, SandboxRunner
 
 __all__ = ["SandboxRunner", "SandboxResult", "SandboxProfile", "DomainProxy"]

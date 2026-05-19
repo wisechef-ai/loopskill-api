@@ -9,15 +9,15 @@ attacker cannot map a hash back to a customer because the hash is keyed
 by HEARTBEAT_PEPPER. There are NO other columns that could identify a
 device — by construction, not policy.
 """
+
 from __future__ import annotations
 
 import hashlib
 import logging
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -31,6 +31,7 @@ router = APIRouter(prefix="/api/v1", tags=["fleet"])
 
 class HeartbeatPayload(BaseModel):
     """Strict 2-field schema — extra fields are rejected (HTTP 422)."""
+
     model_config = ConfigDict(extra="forbid")
 
     salt: str = Field(
@@ -49,6 +50,7 @@ def _hash_salt(salt: str) -> bytes:
 
 @router.post("/heartbeat", status_code=201)
 def post_heartbeat(payload: HeartbeatPayload, db: Session = Depends(get_db)):
+    """Record a heartbeat ping from an installed agent."""
     salt_hash = _hash_salt(payload.salt)
     row = FleetPing(salt_hash=salt_hash, last_seen_day=payload.last_seen_day)
     try:
@@ -76,19 +78,14 @@ def fleet_weekly(request: Request, db: Session = Depends(get_db)):
     the table itself, which would also need to add a PII column).
     """
     _require_admin(request)
-    rows = (
-        db.query(
-            FleetPing.last_seen_day,
-            FleetPing.salt_hash,
-        ).all()
-    )
+    rows = db.query(
+        FleetPing.last_seen_day,
+        FleetPing.salt_hash,
+    ).all()
     # Bucket distinct salt_hashes by ISO year-week
     buckets: dict[str, set[bytes]] = {}
     for day, h in rows:
         iso_year, iso_week, _ = day.isocalendar()
         key = f"{iso_year}-W{iso_week:02d}"
         buckets.setdefault(key, set()).add(bytes(h))
-    return [
-        {"week": week, "active_count": len(hashes)}
-        for week, hashes in sorted(buckets.items())
-    ]
+    return [{"week": week, "active_count": len(hashes)} for week, hashes in sorted(buckets.items())]

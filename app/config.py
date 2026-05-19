@@ -95,7 +95,7 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = ""
 
     # OAuth redirect base URL (used to build callback URLs)
-    OAUTH_REDIRECT_BASE: str = ""  # e.g. https://recipes.wisechef.ai 
+    OAUTH_REDIRECT_BASE: str = ""  # e.g. https://recipes.wisechef.ai
 
     # JWT for creator auth
     JWT_SECRET: str = "wr-jwt-secret-change-me"

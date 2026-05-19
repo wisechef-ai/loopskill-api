@@ -8,13 +8,14 @@ The handler is intentionally permissive about callers — it only validates
 shape + content. Identity is the agent_fp_anon hash; we never tie a report
 to a user account.
 """
+
 from __future__ import annotations
 
 import re
 import threading
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -25,7 +26,6 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import IncidentReport, Skill
 
-
 router = APIRouter(prefix="/api/feedback", tags=["feedback"])
 
 
@@ -35,13 +35,13 @@ router = APIRouter(prefix="/api/feedback", tags=["feedback"])
 
 _FORBIDDEN_PATTERN = re.compile(
     r"("
-    r"rec_[0-9a-f]{16,}"          # API keys
-    r"|api[_-]?key"                # any "api_key" / "api-key" mention
+    r"rec_[0-9a-f]{16,}"  # API keys
+    r"|api[_-]?key"  # any "api_key" / "api-key" mention
     r"|secret"
     r"|password"
-    r"|bearer\s"                   # auth headers
-    r"|/home/"                     # *nix home paths
-    r"|/Users/"                    # macOS home paths
+    r"|bearer\s"  # auth headers
+    r"|/home/"  # *nix home paths
+    r"|/Users/"  # macOS home paths
     r")",
     re.IGNORECASE,
 )
@@ -132,6 +132,7 @@ class IncidentOut(BaseModel):
 
 # ── Endpoint ────────────────────────────────────────────────────────────
 
+
 @router.post(
     "/incident",
     response_model=IncidentOut,
@@ -141,7 +142,8 @@ def post_incident(
     payload: IncidentIn,
     db: Session = Depends(get_db),
 ) -> IncidentOut:
-    raw = payload.model_dump(mode="python")
+    """Submit an incident report for a skill execution failure."""
+    raw = payload.model_dump(mode="python")  # noqa: F841 — kept for downstream audit walk; remove if unused after follow-up
     # The audit walks string fields; UUID/datetime/int are serialized to str
     # for the regex check below.
     flat: dict[str, Any] = {
@@ -149,9 +151,7 @@ def post_incident(
         "agent_fp_anon": payload.agent_fp_anon,
         "command": payload.command or "",
         "stack_trace_top": payload.stack_trace_top or "",
-        "env_fingerprint": {
-            k: str(v) for k, v in payload.env_fingerprint.items()
-        },
+        "env_fingerprint": {k: str(v) for k, v in payload.env_fingerprint.items()},
     }
     hit = audit_payload(flat)
     if hit:
@@ -173,7 +173,7 @@ def post_incident(
 
     occurred = payload.occurred_at
     if occurred.tzinfo is None:
-        occurred = occurred.replace(tzinfo=timezone.utc)
+        occurred = occurred.replace(tzinfo=UTC)
 
     report = IncidentReport(
         skill_id=payload.skill_id,

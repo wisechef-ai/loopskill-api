@@ -24,12 +24,12 @@ This module adds three more, all surfaced through GET /api/graph/related:
 
 Public access (no auth) — keep the API consistent with /api/skills/{slug}/graph.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
-from typing import Optional
-from uuid import UUID as _UUID, uuid4
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
@@ -41,7 +41,6 @@ from app.models import (
     SkillDerivedEdge,
     SkillReplacement,
 )
-
 
 # ── Tunables (B.5) ────────────────────────────────────────────────────────
 
@@ -72,6 +71,7 @@ EDGE_TYPES = {
 
 # ── Defensive table/column probes ─────────────────────────────────────────
 
+
 def _table_exists(db: Session, table_name: str) -> bool:
     """Return True iff the given table exists in the bound database.
 
@@ -82,7 +82,8 @@ def _table_exists(db: Session, table_name: str) -> bool:
     insp = inspect(bind)
     try:
         return insp.has_table(table_name)
-    except Exception:
+    # Rationale: table existence probe; older DBs may not have all tables yet
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -92,11 +93,10 @@ def _column_exists(db: Session, table_name: str, column_name: str) -> bool:
     try:
         cols = {c["name"] for c in insp.get_columns(table_name)}
         return column_name in cols
-    except Exception:
+    # Rationale: column existence probe; any SQLAlchemy inspector error → assume absent
+    except Exception:  # noqa: BLE001
         return False
 
-
-# ── Edge derivers ─────────────────────────────────────────────────────────
 
 def failed_after_edges(
     db: Session,
@@ -121,8 +121,10 @@ def failed_after_edges(
     #   skill_slug, signature, occurred_at  (per B.1 spec)
     # Defensive: tolerate either `failed_at` or `occurred_at`.
     ts_col = (
-        "occurred_at" if _column_exists(db, "incident_reports", "occurred_at")
-        else "failed_at" if _column_exists(db, "incident_reports", "failed_at")
+        "occurred_at"
+        if _column_exists(db, "incident_reports", "occurred_at")
+        else "failed_at"
+        if _column_exists(db, "incident_reports", "failed_at")
         else "created_at"
     )
 
@@ -132,12 +134,11 @@ def failed_after_edges(
     # latter has no native INTERVAL type).
     try:
         incident_rows = db.execute(
-            text(
-                f"SELECT {ts_col} FROM incident_reports WHERE skill_slug = :slug"
-            ),
+            text(f"SELECT {ts_col} FROM incident_reports WHERE skill_slug = :slug"),
             {"slug": skill_slug},
         ).fetchall()
-    except Exception:
+    # Rationale: incident_reports table may not exist on older schema; return empty list
+    except Exception:  # noqa: BLE001
         return []
 
     if not incident_rows:
@@ -152,7 +153,7 @@ def failed_after_edges(
     # portable across dialects with mixed tz-awareness.
     def _naive(dt: datetime) -> datetime:
         if dt.tzinfo is not None:
-            return dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt.astimezone(UTC).replace(tzinfo=None)
         return dt
 
     norm: list[datetime] = []
@@ -189,9 +190,7 @@ def failed_after_edges(
         for predecessor_slug, ie_at in install_rows:
             if ie_at is None:
                 continue
-            ie_dt = ie_at if isinstance(ie_at, datetime) else (
-                datetime.fromisoformat(str(ie_at))
-            )
+            ie_dt = ie_at if isinstance(ie_at, datetime) else (datetime.fromisoformat(str(ie_at)))
             ie_dt = _naive(ie_dt)
             if window_start <= ie_dt <= incident_at and predecessor_slug not in seen_for_incident:
                 counts[predecessor_slug] += 1
@@ -203,12 +202,14 @@ def failed_after_edges(
         weight = float(hits) / float(total) if total else 0.0
         if weight < min_weight:
             continue
-        out.append({
-            "skill_slug": predecessor_slug,
-            "edge_type": "failed_after",
-            "weight": round(weight, 4),
-            "evidence_count": int(hits),
-        })
+        out.append(
+            {
+                "skill_slug": predecessor_slug,
+                "edge_type": "failed_after",
+                "weight": round(weight, 4),
+                "evidence_count": int(hits),
+            }
+        )
     out.sort(key=lambda e: e["weight"], reverse=True)
     return out
 
@@ -239,7 +240,8 @@ def arch_compatible_edges(
     )
     try:
         rows = db.execute(sql).fetchall()
-    except Exception:
+    # Rationale: co-install query uses install_events table which may not exist on all DBs
+    except Exception:  # noqa: BLE001
         return []
 
     by_slug: dict[str, set] = defaultdict(set)
@@ -261,12 +263,14 @@ def arch_compatible_edges(
         weight = len(inter) / len(union)
         if weight < min_weight or weight <= 0:
             continue
-        out.append({
-            "skill_slug": other_slug,
-            "edge_type": "arch_compatible_with",
-            "weight": round(weight, 4),
-            "evidence_count": len(inter),
-        })
+        out.append(
+            {
+                "skill_slug": other_slug,
+                "edge_type": "arch_compatible_with",
+                "weight": round(weight, 4),
+                "evidence_count": len(inter),
+            }
+        )
     out.sort(key=lambda e: e["weight"], reverse=True)
     return out
 
@@ -300,12 +304,14 @@ def replaced_by_edges(
     for _repl, tgt in manual_rows:
         if 1.0 < min_weight:
             continue
-        out.append({
-            "skill_slug": tgt.slug,
-            "edge_type": "replaced_by",
-            "weight": 1.0,
-            "evidence_count": 1,
-        })
+        out.append(
+            {
+                "skill_slug": tgt.slug,
+                "edge_type": "replaced_by",
+                "weight": 1.0,
+                "evidence_count": 1,
+            }
+        )
 
     # Auto-detected (pending) candidates
     if include_candidates:
@@ -327,18 +333,21 @@ def replaced_by_edges(
             weight = round(min(0.9, (inc + cow) / 2.0), 4)
             if weight < min_weight:
                 continue
-            out.append({
-                "skill_slug": tgt.slug,
-                "edge_type": "replaced_by",
-                "weight": weight,
-                "evidence_count": int(ev.get("incident_count", 0)),
-            })
+            out.append(
+                {
+                    "skill_slug": tgt.slug,
+                    "edge_type": "replaced_by",
+                    "weight": weight,
+                    "evidence_count": int(ev.get("incident_count", 0)),
+                }
+            )
 
     out.sort(key=lambda e: e["weight"], reverse=True)
     return out
 
 
 # ── Existing-edge surfacers (project the G15-G17 storage onto the new contract)
+
 
 def declared_edges(db: Session, skill_slug: str, min_weight: float = 0.0) -> list[dict]:
     """Project Skill.related_skills (G15) onto the public contract."""
@@ -353,12 +362,14 @@ def declared_edges(db: Session, skill_slug: str, min_weight: float = 0.0) -> lis
             continue
         if 1.0 < min_weight:
             continue
-        out.append({
-            "skill_slug": slug.strip().lower(),
-            "edge_type": "related_skills",
-            "weight": 1.0,
-            "evidence_count": 1,
-        })
+        out.append(
+            {
+                "skill_slug": slug.strip().lower(),
+                "edge_type": "related_skills",
+                "weight": 1.0,
+                "evidence_count": 1,
+            }
+        )
     return out
 
 
@@ -375,32 +386,32 @@ def _signal_edges(
     bundled in `signals`. We split them out here so the new endpoint can
     answer queries like "edges based on tag_overlap only".
     """
-    rows = (
-        db.query(SkillDerivedEdge)
-        .filter(SkillDerivedEdge.source_slug == skill_slug)
-        .all()
-    )
+    rows = db.query(SkillDerivedEdge).filter(SkillDerivedEdge.source_slug == skill_slug).all()
     out: list[dict] = []
     for r in rows:
         sig = r.signals or {}
         weight = float(sig.get(signal_key) or 0.0)
         if weight <= 0 or weight < min_weight:
             continue
-        out.append({
-            "skill_slug": r.target_slug,
-            "edge_type": edge_type,
-            "weight": round(weight, 4),
-            "evidence_count": 1,
-        })
+        out.append(
+            {
+                "skill_slug": r.target_slug,
+                "edge_type": edge_type,
+                "weight": round(weight, 4),
+                "evidence_count": 1,
+            }
+        )
     out.sort(key=lambda e: e["weight"], reverse=True)
     return out
 
 
 def tag_overlap_edges(db: Session, skill_slug: str, min_weight: float = 0.0):
+    """Return tag-overlap edges for a skill."""
     return _signal_edges(db, skill_slug, "jaccard", "tag_overlap", min_weight)
 
 
 def co_install_edges(db: Session, skill_slug: str, min_weight: float = 0.0):
+    """Return co-install edges for a skill."""
     return _signal_edges(db, skill_slug, "coinstall", "co_install", min_weight)
 
 
@@ -435,7 +446,8 @@ def category_sibling_edges(
         # If Cognee is wired into this deployment, plug its query in here.
         # We don't ship the integration in this PR — empty the result and
         # fall through to the DB path so the contract stays consistent.
-    except Exception:
+    # Rationale: Cognee is an optional dependency; ImportError expected on most deployments
+    except Exception:  # noqa: BLE001
         pass
 
     siblings = (
@@ -452,16 +464,19 @@ def category_sibling_edges(
     if fallback_weight < min_weight:
         return []
     for s in siblings:
-        out.append({
-            "skill_slug": s.slug,
-            "edge_type": "category_sibling",
-            "weight": fallback_weight,
-            "evidence_count": 1,
-        })
+        out.append(
+            {
+                "skill_slug": s.slug,
+                "edge_type": "category_sibling",
+                "weight": fallback_weight,
+                "evidence_count": 1,
+            }
+        )
     return out
 
 
 # ── Dispatch ──────────────────────────────────────────────────────────────
+
 
 def edges_for(
     db: Session,
@@ -489,6 +504,7 @@ def edges_for(
 
 # ── Replacement-candidate sweep (cron entry point) ────────────────────────
 
+
 def sweep_replacement_candidates(db: Session) -> int:
     """Walk recent incidents and propose replacement candidates for review.
 
@@ -505,12 +521,14 @@ def sweep_replacement_candidates(db: Session) -> int:
     if not _table_exists(db, "incident_reports"):
         return 0
 
-    since = datetime.now(timezone.utc) - REPLACEMENT_LOOKBACK
+    since = datetime.now(UTC) - REPLACEMENT_LOOKBACK
 
     # Per-slug recent incident counts. Defensive about the timestamp column.
     ts_col = (
-        "occurred_at" if _column_exists(db, "incident_reports", "occurred_at")
-        else "failed_at" if _column_exists(db, "incident_reports", "failed_at")
+        "occurred_at"
+        if _column_exists(db, "incident_reports", "occurred_at")
+        else "failed_at"
+        if _column_exists(db, "incident_reports", "failed_at")
         else "created_at"
     )
     try:
@@ -521,7 +539,8 @@ def sweep_replacement_candidates(db: Session) -> int:
             ),
             {"since": since},
         ).fetchall()
-    except Exception:
+    # Rationale: incident_reports table may not exist on older DBs; return 0 count
+    except Exception:  # noqa: BLE001
         return 0
     incident_counts: dict[str, int] = {slug: int(n) for slug, n in rows if slug}
     if not incident_counts:
@@ -530,8 +549,7 @@ def sweep_replacement_candidates(db: Session) -> int:
 
     inserted = 0
     skills_by_slug = {
-        s.slug: s
-        for s in db.query(Skill).filter(Skill.slug.in_(list(incident_counts.keys()))).all()
+        s.slug: s for s in db.query(Skill).filter(Skill.slug.in_(list(incident_counts.keys()))).all()
     }
     for slug, count in incident_counts.items():
         share = count / total if total else 0.0
@@ -555,9 +573,7 @@ def sweep_replacement_candidates(db: Session) -> int:
             other_count = incident_counts.get(e.target_slug, 0)
             if other_count >= count:
                 continue
-            tgt = (
-                db.query(Skill).filter(Skill.slug == e.target_slug).first()
-            )
+            tgt = db.query(Skill).filter(Skill.slug == e.target_slug).first()
             if not tgt:
                 continue
 
@@ -583,19 +599,21 @@ def sweep_replacement_candidates(db: Session) -> int:
             if existing_manual:
                 continue
 
-            db.add(ReplacementCandidate(
-                id=uuid4(),
-                source_id=src.id,
-                target_id=tgt.id,
-                evidence_json={
-                    "incident_count": count,
-                    "incident_share": round(share, 4),
-                    "co_invoke_weight": round(cow, 4),
-                    "alternative_incident_count": other_count,
-                    "window_days": REPLACEMENT_LOOKBACK.days,
-                },
-                status="pending",
-            ))
+            db.add(
+                ReplacementCandidate(
+                    id=uuid4(),
+                    source_id=src.id,
+                    target_id=tgt.id,
+                    evidence_json={
+                        "incident_count": count,
+                        "incident_share": round(share, 4),
+                        "co_invoke_weight": round(cow, 4),
+                        "alternative_incident_count": other_count,
+                        "window_days": REPLACEMENT_LOOKBACK.days,
+                    },
+                    status="pending",
+                )
+            )
             inserted += 1
             break  # one candidate per source per sweep — keep review queue tractable
     db.flush()

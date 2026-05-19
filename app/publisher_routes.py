@@ -15,14 +15,13 @@ import hashlib
 import logging
 import os
 import re
-import stat
 import tomllib
 from pathlib import Path
 from uuid import UUID, uuid4
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, load_der_public_key
+from cryptography.hazmat.primitives.serialization import load_der_public_key
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
@@ -30,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models import Cookbook, CookbookSkill, Creator, Skill, SkillVersion
+from app.models import CookbookSkill, Creator, Skill, SkillVersion
 from app.security_scan import scan_tarball
 from app.sync_fanout import emit_cookbook_event
 
@@ -116,7 +115,8 @@ def _verify_ed25519(pubkey_bytes: bytes, signature_bytes: bytes, data: bytes) ->
             # Assume DER SubjectPublicKeyInfo
             pub = load_der_public_key(pubkey_bytes)
         pub.verify(signature_bytes, data)
-    except (InvalidSignature, ValueError, TypeError, Exception) as exc:
+    # Rationale: cryptographic verify can raise many exception types; catch all as invalid_signature
+    except (InvalidSignature, ValueError, TypeError, Exception) as exc:  # noqa: BLE001
         logger.debug("ed25519 verify failed: %s", exc)
         raise HTTPException(status_code=400, detail="invalid_signature")
 
@@ -200,17 +200,28 @@ async def publish_skill(
             detail={
                 "error": "security_scan_failed",
                 "findings": [
-                    {"class": f.pattern_class, "file": f.file_path, "line": f.line_no,
-                     "snippet": f.snippet[:200], "why": f.rationale}
+                    {
+                        "class": f.pattern_class,
+                        "file": f.file_path,
+                        "line": f.line_no,
+                        "snippet": f.snippet[:200],
+                        "why": f.rationale,
+                    }
                     for f in high_findings
                 ],
             },
         )
     # medium/low findings are returned in the success response as warnings
     warnings = [
-        {"class": f.pattern_class, "file": f.file_path, "line": f.line_no,
-         "snippet": f.snippet[:200], "why": f.rationale}
-        for f in findings if f.severity in ("medium", "low")
+        {
+            "class": f.pattern_class,
+            "file": f.file_path,
+            "line": f.line_no,
+            "snippet": f.snippet[:200],
+            "why": f.rationale,
+        }
+        for f in findings
+        if f.severity in ("medium", "low")
     ]
 
     # ── 5a. A.7 discipline linter (BLOCKING pre-check) ──────────────────
@@ -220,10 +231,12 @@ async def publish_skill(
     # publish entirely with HTTP 422 if any violation is found.
     try:
         import sys as _sys
+
         _repo_root = str(Path(__file__).resolve().parent.parent)
         if _repo_root not in _sys.path:
             _sys.path.insert(0, _repo_root)
         from scripts.skill_discipline_linter import lint_tarball_bytes as _discipline_lint
+
         discipline_result = _discipline_lint(tarball_bytes)
         if not discipline_result["ok"]:
             raise HTTPException(
@@ -244,6 +257,7 @@ async def publish_skill(
     # ssh_user_combo, discord_mention, real credentials, hetzner_internal.
     try:
         from app.skill_quality_gate import scan_tarball_bytes as _gate_scan
+
         gate_findings = _gate_scan(tarball_bytes)
         gate_blocks = [f for f in gate_findings if f["severity"] == "block"]
         if gate_blocks:
@@ -262,10 +276,7 @@ async def publish_skill(
                 },
             )
         # Append non-blocking gate warnings to the response warnings list
-        warnings.extend([
-            {**f, "source": "quality_gate"}
-            for f in gate_findings if f["severity"] == "warn"
-        ])
+        warnings.extend([{**f, "source": "quality_gate"} for f in gate_findings if f["severity"] == "warn"])
     except ImportError:
         # Module not installed yet (rolling deploy) — fail open with a log line
         logger.warning("skill_quality_gate not importable; skipping gate scan")
@@ -293,13 +304,12 @@ async def publish_skill(
         creator_for_new_skill = None
         if not is_master_for_create and api_key_user_id_for_create != "MISSING":
             creator_for_new_skill = (
-                db.query(Creator)
-                .filter(Creator.user_id == api_key_user_id_for_create)
-                .first()
+                db.query(Creator).filter(Creator.user_id == api_key_user_id_for_create).first()
             )
             if creator_for_new_skill is None:
                 # Auto-create a Creator row for this user
                 from app.models import User
+
                 user_obj = db.query(User).filter(User.id == api_key_user_id_for_create).first()
                 creator_slug = str(api_key_user_id_for_create).replace("-", "")[:32]
                 creator_for_new_skill = Creator(
@@ -381,7 +391,8 @@ async def publish_skill(
             skill_obj.archived_at = None
         logger.info(
             "publish: unarchived skill %s on publish of v%s (was hidden from catalog)",
-            slug, semver,
+            slug,
+            semver,
         )
 
     # ── 8. Compute final sha256 (hex) ────────────────────────────────────
@@ -426,7 +437,9 @@ async def publish_skill(
     # Synchronous — to_tsvector is <10ms in postgres.
     try:
         from app.search_index import reindex_bm25
+
         reindex_bm25(skill_obj.slug, db)
+    # Rationale: BM25 reindex is non-critical at publish time; failure → log and continue
     except Exception:
         logger.exception("BM25 reindex failed for %s (non-fatal)", skill_obj.slug)
 
@@ -456,6 +469,7 @@ async def publish_skill(
                 },
             )
             db.commit()
+    # Rationale: fanout is non-critical at publish time; any error → log and return response
     except Exception:
         logger.exception("phase-D fan-out failed for %s@%s (non-fatal)", slug, semver)
 

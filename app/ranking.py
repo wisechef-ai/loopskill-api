@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import math
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 from sqlalchemy.orm import Session
 
@@ -71,7 +70,8 @@ def score_bm25(query: str, skill, db: Session | None = None) -> float:
     else:
         try:
             related_str = " ".join(str(x) for x in related)
-        except Exception:
+        # Rationale: related field may be an unconventional iterable; join failure → empty string
+        except Exception:  # noqa: BLE001
             related_str = ""
     # Title is weighted 3x, description 1x, tags 2x — title matches dominate.
     title_score = _bm25_score_text(qt, title) * 3.0

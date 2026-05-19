@@ -31,6 +31,7 @@ def recipes_list_cookbook(
     user_id: Any | None = None,
     cookbook_id: str | None = None,
 ) -> dict[str, Any]:
+    """Return the caller's cookbook and skill provenance rows."""
     # Public-scope MCP tool: caller's own cookbook; list_cookbook filters by caller's user_id from auth context.
     cookbook = None
     if cookbook_id:
@@ -62,14 +63,8 @@ def recipes_list_cookbook(
             "id": str(cookbook.id),
             "name": cookbook.name,
             "is_base": bool(cookbook.is_base),
-            "parent_cookbook_id": (
-                str(cookbook.parent_cookbook_id)
-                if cookbook.parent_cookbook_id
-                else None
-            ),
-            "owner": (
-                str(cookbook.cookbook_owner) if cookbook.cookbook_owner else None
-            ),
+            "parent_cookbook_id": (str(cookbook.parent_cookbook_id) if cookbook.parent_cookbook_id else None),
+            "owner": (str(cookbook.cookbook_owner) if cookbook.cookbook_owner else None),
         },
         "skills": [
             {

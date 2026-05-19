@@ -27,16 +27,35 @@ Final line count (Phase E): ~150 lines. Plan target was ≤80 aspirationally;
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
-from sqlalchemy import func
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
+# ── Phase E: backwards-compat re-exports ────────────────────────────────────
+# Callers doing `from app.routes import <name>` continue to work for one
+# release window. Tracked for removal in secfix_1906.
+from app._skill_helpers import (  # noqa: F401
+    _UTM_COOKIE_MAX_AGE,
+    _UTM_COOKIE_NAME,
+    _UTM_REF_ALLOWLIST,
+    GRAPH_RAIL_CAP,
+    RELATED_SKILLS_CAP,
+    _build_manifest,
+    _count_today_installs,
+    _hydrate_skill_outs,
+    _install_counts_for,
+    _resolve_caller_tier,
+    _resolve_caller_tier_for_install,
+    _resolve_related,
+    _set_utm_ref_cookie,
+    _skill_to_out,
+)
+from app.access_routes import TIER_INSTALL_LIMITS, TIER_RANK  # noqa: F401
 from app.database import get_db
+from app.install_routes import download_tarball  # noqa: F401
 from app.models import (
     InstallEvent,
     Skill,
@@ -50,37 +69,15 @@ from app.schemas import (
     TelemetryEventOut,
     TelemetryIn,
 )
-
-# ── Phase E: backwards-compat re-exports ────────────────────────────────────
-# Callers doing `from app.routes import <name>` continue to work for one
-# release window. Tracked for removal in secfix_1906.
-from app._skill_helpers import (  # noqa: F401
-    _build_manifest,
-    _skill_to_out,
-    _install_counts_for,
-    _set_utm_ref_cookie,
-    _count_today_installs,
-    _resolve_related,
-    _hydrate_skill_outs,
-    _resolve_caller_tier,
-    _resolve_caller_tier_for_install,
-    RELATED_SKILLS_CAP,
-    GRAPH_RAIL_CAP,
-    _UTM_REF_ALLOWLIST,
-    _UTM_COOKIE_NAME,
-    _UTM_COOKIE_MAX_AGE,
-)
 from app.skill_routes import (  # noqa: F401
-    search_skills,
-    trending_skills,
     get_full_skill_graph,
     get_skill_detail,
     get_skill_external,
-    get_skill_related,
     get_skill_graph,
+    get_skill_related,
+    search_skills,
+    trending_skills,
 )
-from app.install_routes import download_tarball  # noqa: F401
-from app.access_routes import TIER_RANK, TIER_INSTALL_LIMITS  # noqa: F401
 from app.utm_redirects import utm_router  # noqa: F401
 
 # ── Router declaration ───────────────────────────────────────────────────────
@@ -91,6 +88,7 @@ VERSION = "0.4.0"
 
 # WIS-903: Retired skill registry (used by telemetry endpoint)
 from pathlib import Path as _Path
+
 _RETIREMENT_FILE = _Path(__file__).resolve().parent.parent / "retired-skills.txt"
 _RETIRED_SKILLS: dict[str, str] = {}
 if _RETIREMENT_FILE.exists():
@@ -103,6 +101,7 @@ if _RETIREMENT_FILE.exists():
 
 
 # ── Telemetry ───────────────────────────────────────────────────────────────
+
 
 @router.post("/telemetry", status_code=201, tags=["telemetry"], response_model=TelemetryEventOut)
 def post_telemetry(
@@ -184,6 +183,7 @@ def post_telemetry(
 
 # ── Marketplace stats ────────────────────────────────────────────────────────
 
+
 @router.get("/stats", tags=["meta"])
 def marketplace_stats(db: Session = Depends(get_db)):
     """Public marketplace transparency stats — totals, top categories, top skills.
@@ -198,10 +198,7 @@ def marketplace_stats(db: Session = Depends(get_db)):
 
     # Tier breakdown
     tier_rows = (
-        db.query(Skill.tier, _f.count(Skill.id))
-        .filter(Skill.is_public == True)
-        .group_by(Skill.tier)
-        .all()
+        db.query(Skill.tier, _f.count(Skill.id)).filter(Skill.is_public == True).group_by(Skill.tier).all()
     )
     by_tier = {t or "uncategorized": int(c) for t, c in tier_rows}
 
@@ -227,21 +224,18 @@ def marketplace_stats(db: Session = Depends(get_db)):
     top_installed = [{"slug": s, "installs": int(c)} for s, c in top_rows]
 
     # Recent installs (last 7d)
-    recent_window = datetime.now(timezone.utc) - timedelta(days=7)
+    recent_window = datetime.now(UTC) - timedelta(days=7)
     installs_7d = (
-        db.query(_f.count(InstallEvent.id))
-        .filter(InstallEvent.created_at >= recent_window)
-        .scalar()
-        or 0
+        db.query(_f.count(InstallEvent.id)).filter(InstallEvent.created_at >= recent_window).scalar() or 0
     )
 
     # Trending pairs (Stage 2, G16): top-weighted derived edges, deduplicated
     # to undirected pairs. Quietly returns [] when the edge table is empty.
     try:
         from app.models import SkillDerivedEdge
+
         edge_rows = (
-            db.query(SkillDerivedEdge.source_slug, SkillDerivedEdge.target_slug,
-                     SkillDerivedEdge.weight)
+            db.query(SkillDerivedEdge.source_slug, SkillDerivedEdge.target_slug, SkillDerivedEdge.weight)
             .order_by(SkillDerivedEdge.weight.desc())
             .limit(200)  # over-fetch, dedupe pulls roughly half
             .all()
@@ -256,7 +250,8 @@ def marketplace_stats(db: Session = Depends(get_db)):
             trending_pairs.append({"a": key[0], "b": key[1], "weight": float(w)})
             if len(trending_pairs) >= 10:
                 break
-    except Exception:
+    # Rationale: optional analytics query; any DB/type error → empty trending list
+    except Exception:  # noqa: BLE001
         trending_pairs = []
 
     return {
@@ -267,11 +262,12 @@ def marketplace_stats(db: Session = Depends(get_db)):
         "by_category": by_category,
         "top_installed": top_installed,
         "trending_pairs": trending_pairs,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
     }
 
 
 # ── WiseChef Demo CTA ────────────────────────────────────────────────────────
+
 
 @router.get("/wisechef/demo-cta", response_model=DemoCTAOut, tags=["wisechef"])
 def demo_cta():
@@ -303,9 +299,13 @@ def submit_demo_request(
     Stores in wisechef_demo_requests table for follow-up.
     """
     # Check for duplicate email
-    existing = db.query(WiseChefDemoRequest).filter(
-        WiseChefDemoRequest.email == body.email,
-    ).first()
+    existing = (
+        db.query(WiseChefDemoRequest)
+        .filter(
+            WiseChefDemoRequest.email == body.email,
+        )
+        .first()
+    )
     if existing:
         return DemoRequestOut(
             id=existing.id,

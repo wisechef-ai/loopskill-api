@@ -6,6 +6,7 @@ and composable across REST routes, MCP tools, and sandbox handlers.
 
 100% line coverage required (see test_secfix_1905_a_authz.py).
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
     from app.auth_ctx import AuthContext
 
 
-def can_read_skill(ctx: "AuthContext", skill: Any) -> bool:
+def can_read_skill(ctx: AuthContext, skill: Any) -> bool:
     """Return True if ctx may read/view the given skill.
 
     Access rules:
@@ -33,7 +34,7 @@ def can_read_skill(ctx: "AuthContext", skill: Any) -> bool:
     return False
 
 
-def can_install(ctx: "AuthContext", skill: Any) -> bool:
+def can_install(ctx: AuthContext, skill: Any) -> bool:
     """Return True if ctx may install the given skill.
 
     Same rules as can_read_skill — install requires at least read access.
@@ -41,7 +42,7 @@ def can_install(ctx: "AuthContext", skill: Any) -> bool:
     return can_read_skill(ctx, skill)
 
 
-def can_write_cookbook(ctx: "AuthContext", cookbook: Any) -> bool:
+def can_write_cookbook(ctx: AuthContext, cookbook: Any) -> bool:
     """Return True if ctx may write (modify) the given cookbook.
 
     Access rules:
@@ -62,7 +63,7 @@ def can_write_cookbook(ctx: "AuthContext", cookbook: Any) -> bool:
     return False
 
 
-def can_call_admin_mcp_tool(ctx: "AuthContext") -> bool:
+def can_call_admin_mcp_tool(ctx: AuthContext) -> bool:
     """Return True if ctx may call an admin-level MCP tool.
 
     Only master-scope callers may use admin tools.
@@ -70,7 +71,7 @@ def can_call_admin_mcp_tool(ctx: "AuthContext") -> bool:
     return ctx.scope == "master"
 
 
-def can_run_sandbox(ctx: "AuthContext") -> bool:
+def can_run_sandbox(ctx: AuthContext) -> bool:
     """Return True if ctx may execute sandbox runs.
 
     Access rules:

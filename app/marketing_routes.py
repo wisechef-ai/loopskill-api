@@ -7,6 +7,7 @@ of hardcoded numbers. Drift is mechanically impossible.
 Phase F extends this with the full marketing snapshot (tier names + endpoints +
 tool list) read from config/recipes-marketing.yaml.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
@@ -83,8 +84,9 @@ def marketing_snapshot(db: Session = Depends(get_db)) -> dict:
     counts are live-overlaid. Drift watchdog (recipes-publish-watchdog cron,
     every 4h) verifies the yaml matches DB and surfaces.
     """
-    import yaml
     from pathlib import Path
+
+    import yaml
 
     yaml_path = Path(__file__).resolve().parent.parent / "config" / "recipes-marketing.yaml"
     try:

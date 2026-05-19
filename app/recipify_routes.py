@@ -8,13 +8,14 @@ Auth: x-api-key — Cook+ tier required (Free → 401).
 Operator with target_subrecipe_id forwards to Phase-C subrecipe scope when wired
 (currently writes to the cookbook level with a stub note).
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Literal, Optional
+from typing import Literal
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -36,9 +37,9 @@ router = APIRouter(prefix="/api", tags=["recipify"])
 class RecipifyIn(BaseModel):
     slug: str
     content: str
-    target_cookbook_id: Optional[UUID] = None
+    target_cookbook_id: UUID | None = None
     visibility: Literal["private", "public_pending_review"] = "private"
-    target_subrecipe_id: Optional[UUID] = None
+    target_subrecipe_id: UUID | None = None
 
 
 class RecipifyOut(BaseModel):
@@ -49,9 +50,7 @@ class RecipifyOut(BaseModel):
     status: Literal["created", "updated"]
 
 
-def _resolve_or_create_cookbook(
-    db: Session, ctx: CookbookCtx, target_cookbook_id: UUID | None
-) -> Cookbook:
+def _resolve_or_create_cookbook(db: Session, ctx: CookbookCtx, target_cookbook_id: UUID | None) -> Cookbook:
     if target_cookbook_id is not None:
         cb = db.query(Cookbook).filter(Cookbook.id == target_cookbook_id).first()
         if cb is None:
@@ -85,6 +84,7 @@ def recipify(
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
+    """Validate and store a new SKILL.md draft as a CookbookSkill."""
     if body.target_subrecipe_id is not None and ctx.tier != "operator" and not ctx.is_master:
         raise HTTPException(status_code=403, detail="subrecipe_requires_operator")
 
@@ -115,8 +115,7 @@ def recipify(
     if body.target_subrecipe_id is not None:
         # Phase-C wiring is a stub: scope row stays at the cookbook level.
         logger.info(
-            "recipify: subrecipe scope requested (%s) — Phase C not wired, "
-            "wrote at cookbook scope instead.",
+            "recipify: subrecipe scope requested (%s) — Phase C not wired, wrote at cookbook scope instead.",
             body.target_subrecipe_id,
         )
 

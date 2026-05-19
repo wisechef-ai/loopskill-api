@@ -8,15 +8,16 @@ INSERT attempts on the common case), but the unique index is the authoritative
 guard against concurrent runs.  If two cron instances race past the count check,
 the second batch of INSERTs will hit IntegrityError which is silently discarded.
 """
+
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import CarouselEntry
 from app.carousel.selector import select_top_7
+from app.models import CarouselEntry
 
 
 def daily_carousel_job(db: Session, today: date | None = None) -> int:
@@ -29,11 +30,11 @@ def daily_carousel_job(db: Session, today: date | None = None) -> int:
         today: target date.  Defaults to today UTC.
     """
     if today is None:
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
 
     # Idempotency fast-path — skip if any entries exist for this date
-    today_dt_start = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
-    today_dt_end = datetime.combine(today, datetime.max.time(), tzinfo=timezone.utc)
+    today_dt_start = datetime.combine(today, datetime.min.time(), tzinfo=UTC)
+    today_dt_end = datetime.combine(today, datetime.max.time(), tzinfo=UTC)
 
     existing_count = (
         db.query(CarouselEntry)
@@ -56,7 +57,7 @@ def daily_carousel_job(db: Session, today: date | None = None) -> int:
             skill_id=item["skill_id"],
             featured_date=item["featured_date"],
             position=item["slot"] - 1,  # keep backward-compat position (0-indexed)
-            slot=item["slot"],          # 1-indexed D1 column
+            slot=item["slot"],  # 1-indexed D1 column
             role=item["role"],
             tagline=item["tagline"],
             score=item["score_value"],

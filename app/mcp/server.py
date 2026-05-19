@@ -17,8 +17,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 import mcp.types as types
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -28,26 +29,26 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from sqlalchemy.orm import Session
 
+from app.auth_ctx import AuthContext
 from app.config import settings
 from app.database import SessionLocal, get_db
-from app.auth_ctx import AuthContext
 from app.mcp.auth import validate_key
 from app.mcp.cookbook_status import get_cookbook_status, invalidate_cookbook_status
 from app.mcp.tools import (
     recipes_carousel_today,
     recipes_doctor,
+    recipes_feedback,
     recipes_install,
     recipes_list_cookbook,
+    recipes_propose_skill_patch,
     recipes_recall,
     recipes_recipify,
+    recipes_report_skill_error,
+    recipes_request_recipe,
     recipes_search,
     recipes_seeker,
     recipes_subrecipe_resolve,
     recipes_sync,
-    recipes_feedback,
-    recipes_request_recipe,
-    recipes_report_skill_error,
-    recipes_propose_skill_patch,
 )
 
 logger = logging.getLogger("wiserecipes.mcp")
@@ -293,7 +294,7 @@ def _tool_definitions() -> list[types.Tool]:
 ToolDispatch = Callable[[Session, dict[str, Any], dict[str, Any]], Awaitable[Any] | Any]
 
 
-def _ctx_from_caller(caller: dict[str, Any]) -> "AuthContext":
+def _ctx_from_caller(caller: dict[str, Any]) -> AuthContext:
     """Extract or reconstruct an AuthContext from a caller dict.
 
     Phase B: the AuthContext is the canonical auth object. The caller dict
@@ -597,6 +598,7 @@ def _authenticate(request: Request, db: Session = Depends(get_db)) -> dict[str, 
 
 @router.get("/healthz")
 def mcp_healthz() -> dict[str, Any]:
+    """Return MCP server health info including registered tool names."""
     return {
         "name": SERVER_NAME,
         "version": SERVER_VERSION,
@@ -632,9 +634,7 @@ async def mcp_messages(
     """POST endpoint paired with the SSE channel. Auth re-checked here so
     a stale session-id from another caller can't piggyback."""
     try:
-        await _sse_transport.handle_post_message(
-            request.scope, request.receive, request._send
-        )
+        await _sse_transport.handle_post_message(request.scope, request.receive, request._send)
     except Exception as exc:  # noqa: BLE001
         logger.warning("mcp message dispatch failed: %s", exc)
         return JSONResponse({"detail": "bad message"}, status_code=400)
@@ -688,6 +688,7 @@ def _build_streamable_http_mount() -> Mount:
                 return
 
             import hmac as _hmac
+
             if _hmac.compare_digest(key, settings.API_KEY):
                 # Master key — skip DB lookup, stash master caller + auth_ctx.
                 master_ctx = AuthContext(scope="master")
@@ -741,6 +742,7 @@ async def run_streamable_http():
 
 
 # ── stdio entry point ──────────────────────────────────────────────────────
+
 
 async def run_stdio() -> None:  # pragma: no cover - exercised via __main__
     """Run the MCP server on stdio (for Claude Desktop & similar)."""

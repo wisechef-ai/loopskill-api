@@ -1,14 +1,13 @@
 """Pydantic schemas for request/response validation."""
 
 from datetime import datetime
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
-from pydantic import StringConstraints
-from typing import Annotated, Optional
-
+from pydantic import BaseModel, EmailStr, Field, StringConstraints, field_validator
 
 # ── Skills ──────────────────────────────────────────────────────────────
+
 
 class SkillOut(BaseModel):
     id: UUID
@@ -74,6 +73,7 @@ class SkillAccessOut(BaseModel):
     The optional `fork_eligible` request param requires Operator+ on top of
     skill-tier access.
     """
+
     slug: str
     title: str
     has_access: bool
@@ -88,6 +88,7 @@ class SkillAccessOut(BaseModel):
 
 
 # ── Search ──────────────────────────────────────────────────────────────
+
 
 class SkillSearchResult(BaseModel):
     results: list[SkillOut]
@@ -144,9 +145,7 @@ class TelemetryIn(BaseModel):
     @classmethod
     def validate_event_type(cls, v: str) -> str:
         if v not in TELEMETRY_EVENT_TYPES:
-            raise ValueError(
-                f"event_type must be one of {sorted(TELEMETRY_EVENT_TYPES)}, got {v!r}"
-            )
+            raise ValueError(f"event_type must be one of {sorted(TELEMETRY_EVENT_TYPES)}, got {v!r}")
         return v
 
     @field_validator("duration_seconds")
@@ -168,19 +167,19 @@ class TelemetryIn(BaseModel):
     @classmethod
     def validate_agent_hash(cls, v: str | None) -> str | None:
         if v is not None and not _AGENT_HASH_RE.match(v):
-            raise ValueError(
-                "agent_class_hash must match ^[a-f0-9]{8,64}$"
-            )
+            raise ValueError("agent_class_hash must match ^[a-f0-9]{8,64}$")
         return v
 
 
 class TelemetryEventOut(BaseModel):
     """Response for POST /api/telemetry."""
+
     status: str
     event_id: str
 
 
 # ── Carousel ────────────────────────────────────────────────────────────
+
 
 class CarouselEntryOut(BaseModel):
     skill_slug: str
@@ -190,13 +189,14 @@ class CarouselEntryOut(BaseModel):
     position: int = 0
     featured_date: datetime
     first_featured_at: datetime | None = None  # day this skill's current cohort entered carousel
-    archives_at: datetime | None = None        # when it rotates out (05:00 London on day+7)
-    seconds_until_archive: int | None = None   # convenience for UI countdown
+    archives_at: datetime | None = None  # when it rotates out (05:00 London on day+7)
+    seconds_until_archive: int | None = None  # convenience for UI countdown
 
     model_config = {"from_attributes": True}
 
 
 # ── Recipes ─────────────────────────────────────────────────────────────
+
 
 class RecipeOut(BaseModel):
     id: UUID
@@ -214,6 +214,7 @@ class RecipeOut(BaseModel):
 
 # ── API Library ─────────────────────────────────────────────────────────
 
+
 class APILibraryOut(BaseModel):
     id: UUID
     slug: str
@@ -230,6 +231,7 @@ class APILibraryOut(BaseModel):
 
 # ── Install ─────────────────────────────────────────────────────────────
 
+
 class InstallResponse(BaseModel):
     slug: str
     version: str
@@ -242,6 +244,7 @@ class InstallResponse(BaseModel):
 
 # ── Health ──────────────────────────────────────────────────────────────
 
+
 class HealthOut(BaseModel):
     status: str
     version: str
@@ -251,14 +254,16 @@ class HealthOut(BaseModel):
     # in the last 24h" (cold/empty DB, e.g. tests) — treat as "no signal" not
     # "unhealthy". A value above ~600s on a live deployment is the early signal
     # that wiped out 17h on 2026-05-12 (webhook signing-secret drift incident).
-    stripe_webhook_lag_seconds: Optional[float] = None
-    stripe_last_event_at: Optional[str] = None  # ISO 8601 UTC, or None
+    stripe_webhook_lag_seconds: float | None = None
+    stripe_last_event_at: str | None = None  # ISO 8601 UTC, or None
 
 
 # ── Demo CTA ────────────────────────────────────────────────────────────
 
+
 class DemoCTAOut(BaseModel):
     """Response for GET /api/wisechef/demo-cta."""
+
     headline: str
     subheadline: str
     cta_text: str
@@ -269,6 +274,7 @@ class DemoCTAOut(BaseModel):
 
 class DemoRequestIn(BaseModel):
     """POST body for demo request."""
+
     email: EmailStr
     company_name: str | None = None
     company_size: str | None = Field(None, pattern=r"^\d+-\d+$|^\d+\+$")

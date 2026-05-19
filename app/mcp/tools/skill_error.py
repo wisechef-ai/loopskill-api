@@ -4,19 +4,18 @@ Report that an installed recipe is broken, has wrong instructions, or fails
 on this host. Wraps the same helpers as POST /api/v1/skill-error without
 making an HTTP round-trip.
 """
+
 from __future__ import annotations
 
 import hashlib
 import logging
 import os
 import re
-import time
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from app import github_dispatch, feedback_ratelimit
+from app import feedback_ratelimit, github_dispatch
 from app.models import IncidentReport, Skill
 
 logger = logging.getLogger(__name__)
@@ -67,9 +66,7 @@ def recipes_report_skill_error(
     if skill is None:
         return {"ok": False, "error": f"skill not found: {slug}"}
 
-    identity = f"api_key:{api_key_id}" if api_key_id else (
-        f"agent:{agent_id}" if agent_id else "unknown"
-    )
+    identity = f"api_key:{api_key_id}" if api_key_id else (f"agent:{agent_id}" if agent_id else "unknown")
 
     # Compute composite signature for dedup/ratelimit
     composite_sig = _sha256(slug, signature.lower())
@@ -83,11 +80,16 @@ def recipes_report_skill_error(
     if not rl.allowed:
         if rl.deduped:
             return {
-                "ok": True, "id": "", "issue_url": rl.issue_url,
-                "deduped": True, "accepted": True, "anonymized": True,
+                "ok": True,
+                "id": "",
+                "issue_url": rl.issue_url,
+                "deduped": True,
+                "accepted": True,
+                "anonymized": True,
             }
         return {
-            "ok": False, "error": "rate_limit_exceeded",
+            "ok": False,
+            "error": "rate_limit_exceeded",
             "force_available": rl.force_available,
         }
 
@@ -100,7 +102,7 @@ def recipes_report_skill_error(
         error_signature=signature.lower(),
         env_fingerprint={},
         agent_fp_anon=agent_id or "mcp-tool",
-        occurred_at=datetime.now(timezone.utc),
+        occurred_at=datetime.now(UTC),
         command=None,
         exit_code=None,
         stack_trace_top=details,
@@ -109,16 +111,19 @@ def recipes_report_skill_error(
     db.commit()
     db.refresh(report)
 
-    gh_url = github_dispatch.dispatch_event(
-        "skill-error",
-        {
-            "id": str(report.id),
-            "skill_slug": slug,
-            "error_signature": signature.lower(),
-            "agent_fp_anon": agent_id or "mcp-tool",
-            "signature": composite_sig,
-        },
-    ) or ""
+    gh_url = (
+        github_dispatch.dispatch_event(
+            "skill-error",
+            {
+                "id": str(report.id),
+                "skill_slug": slug,
+                "error_signature": signature.lower(),
+                "agent_fp_anon": agent_id or "mcp-tool",
+                "signature": composite_sig,
+            },
+        )
+        or ""
+    )
 
     if gh_url:
         feedback_ratelimit.update_dedup_url(composite_sig, gh_url)

@@ -15,15 +15,15 @@ Rate tiers (locked-in for life):
 """
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import Creator, CreatorPayout, InstallEvent, Skill, User
-from app.stripe_service import create_transfer, StripeConnectError
+from app.models import Creator, CreatorPayout, InstallEvent, Skill
+from app.stripe_service import StripeConnectError, create_transfer
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def compute_monthly_payouts(
     Returns:
         List of payout records created/computed
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Default period: previous calendar month
     if not period_start:
@@ -101,10 +101,13 @@ def compute_monthly_payouts(
         ORDER BY c.id, install_count DESC
     """)
 
-    results = db.execute(query, {
-        "period_start": period_start,
-        "period_end": period_end,
-    }).fetchall()
+    results = db.execute(
+        query,
+        {
+            "period_start": period_start,
+            "period_end": period_end,
+        },
+    ).fetchall()
 
     if not results:
         logger.info("No installs found for this period — nothing to pay out")
@@ -139,15 +142,17 @@ def compute_monthly_payouts(
         gross_cents = row.install_count * REVENUE_PER_INSTALL_CENTS
         creator_share_cents = round(gross_cents * rate)
 
-        creator_totals[creator_id]["skills"].append({
-            "skill_id": str(row.skill_id),
-            "slug": row.skill_slug,
-            "tier": row.skill_tier,
-            "installs": row.install_count,
-            "rate": rate,
-            "gross_cents": gross_cents,
-            "creator_share_cents": creator_share_cents,
-        })
+        creator_totals[creator_id]["skills"].append(
+            {
+                "skill_id": str(row.skill_id),
+                "slug": row.skill_slug,
+                "tier": row.skill_tier,
+                "installs": row.install_count,
+                "rate": rate,
+                "gross_cents": gross_cents,
+                "creator_share_cents": creator_share_cents,
+            }
+        )
         creator_totals[creator_id]["total_installs"] += row.install_count
         creator_totals[creator_id]["total_gross_cents"] += gross_cents
         creator_totals[creator_id]["total_creator_share_cents"] += creator_share_cents
@@ -157,7 +162,9 @@ def compute_monthly_payouts(
     for creator_id, data in creator_totals.items():
         if data["total_creator_share_cents"] < 100:
             # Skip sub-€1 payouts (Stripe minimum)
-            logger.info(f"Skipping payout for {data['display_name']}: {data['total_creator_share_cents']} cents below minimum")
+            logger.info(
+                f"Skipping payout for {data['display_name']}: {data['total_creator_share_cents']} cents below minimum"
+            )
             continue
 
         payout_record = {
@@ -207,10 +214,12 @@ def compute_monthly_payouts(
                     if transfer:
                         payout.stripe_transfer_id = transfer.id
                         payout.status = "paid"
-                        payout.paid_at = datetime.now(timezone.utc)
+                        payout.paid_at = datetime.now(UTC)
                         payout_record["stripe_transfer_id"] = transfer.id
                         payout_record["status"] = "paid"
-                        logger.info(f"Transfer {transfer.id} for {data['display_name']}: {data['total_creator_share_cents']} cents")
+                        logger.info(
+                            f"Transfer {transfer.id} for {data['display_name']}: {data['total_creator_share_cents']} cents"
+                        )
                 except StripeConnectError as e:
                     logger.error(f"Transfer failed for {data['display_name']}: {e}")
                     payout.status = "failed"
@@ -227,54 +236,69 @@ def compute_monthly_payouts(
 
         payouts.append(payout_record)
 
-    logger.info(f"Payout computation complete: {len(payouts)} payouts, "
-                f"{sum(p['creator_share_cents'] for p in payouts)} total cents")
+    logger.info(
+        f"Payout computation complete: {len(payouts)} payouts, "
+        f"{sum(p['creator_share_cents'] for p in payouts)} total cents"
+    )
     return payouts
 
 
 def get_creator_earnings(db: Session, user_id) -> dict:
     """Get earnings summary for a creator."""
-    from uuid import UUID
 
     # Total payouts
-    totals = db.query(
-        func.coalesce(func.sum(CreatorPayout.installs_count), 0).label("total_installs"),
-        func.coalesce(func.sum(CreatorPayout.gross_revenue_cents), 0).label("total_gross"),
-        func.coalesce(func.sum(CreatorPayout.creator_share_cents), 0).label("total_earned"),
-        func.count(CreatorPayout.id).label("payout_count"),
-    ).filter(
-        CreatorPayout.creator_id == user_id,
-        CreatorPayout.status.in_(["pending", "paid"]),
-    ).first()
+    totals = (
+        db.query(
+            func.coalesce(func.sum(CreatorPayout.installs_count), 0).label("total_installs"),
+            func.coalesce(func.sum(CreatorPayout.gross_revenue_cents), 0).label("total_gross"),
+            func.coalesce(func.sum(CreatorPayout.creator_share_cents), 0).label("total_earned"),
+            func.count(CreatorPayout.id).label("payout_count"),
+        )
+        .filter(
+            CreatorPayout.creator_id == user_id,
+            CreatorPayout.status.in_(["pending", "paid"]),
+        )
+        .first()
+    )
 
     # Pending amount
-    pending = db.query(
-        func.coalesce(func.sum(CreatorPayout.creator_share_cents), 0),
-    ).filter(
-        CreatorPayout.creator_id == user_id,
-        CreatorPayout.status == "pending",
-    ).scalar()
+    pending = (
+        db.query(
+            func.coalesce(func.sum(CreatorPayout.creator_share_cents), 0),
+        )
+        .filter(
+            CreatorPayout.creator_id == user_id,
+            CreatorPayout.status == "pending",
+        )
+        .scalar()
+    )
 
     # Paid amount
-    paid = db.query(
-        func.coalesce(func.sum(CreatorPayout.creator_share_cents), 0),
-    ).filter(
-        CreatorPayout.creator_id == user_id,
-        CreatorPayout.status == "paid",
-    ).scalar()
+    paid = (
+        db.query(
+            func.coalesce(func.sum(CreatorPayout.creator_share_cents), 0),
+        )
+        .filter(
+            CreatorPayout.creator_id == user_id,
+            CreatorPayout.status == "paid",
+        )
+        .scalar()
+    )
 
     # This month's installs (for live dashboard)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-    month_installs = db.query(func.count(InstallEvent.id)).join(
-        Skill, Skill.id == InstallEvent.skill_id
-    ).join(
-        Creator, Creator.id == Skill.creator_id
-    ).filter(
-        Creator.user_id == user_id,
-        InstallEvent.created_at >= month_start,
-    ).scalar()
+    month_installs = (
+        db.query(func.count(InstallEvent.id))
+        .join(Skill, Skill.id == InstallEvent.skill_id)
+        .join(Creator, Creator.id == Skill.creator_id)
+        .filter(
+            Creator.user_id == user_id,
+            InstallEvent.created_at >= month_start,
+        )
+        .scalar()
+    )
 
     return {
         "total_installs": totals.total_installs,

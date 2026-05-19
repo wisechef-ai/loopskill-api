@@ -20,6 +20,7 @@ This module exposes:
     load_bucket_file(path)   -> dict   # parsed + stripped definition
     strip_comments(obj)      -> obj    # walk-and-drop _-prefixed keys
 """
+
 from __future__ import annotations
 
 import json
@@ -34,9 +35,7 @@ def strip_comments(obj: Any) -> Any:
     """
     if isinstance(obj, dict):
         return {
-            k: strip_comments(v)
-            for k, v in obj.items()
-            if not (isinstance(k, str) and k.startswith("_"))
+            k: strip_comments(v) for k, v in obj.items() if not (isinstance(k, str) and k.startswith("_"))
         }
     if isinstance(obj, list):
         return [strip_comments(v) for v in obj]

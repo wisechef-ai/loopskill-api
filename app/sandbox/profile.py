@@ -18,10 +18,8 @@ from __future__ import annotations
 import ipaddress
 import os
 import re
-import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 try:
     import tomllib
@@ -50,11 +48,12 @@ class SandboxProfile:
     env_pass: list[str] = field(default_factory=lambda: ["PATH", "LANG", "HOME"])
 
     @classmethod
-    def from_manifest(cls, skill_toml: str) -> "SandboxProfile":
+    def from_manifest(cls, skill_toml: str) -> SandboxProfile:
         """Parse a skill.toml string and extract the [sandbox] block."""
         try:
             data = tomllib.loads(skill_toml)
-        except Exception as exc:
+        # Rationale: TOML parse error for sandbox profile → re-raise as ValueError with context
+        except Exception as exc:  # noqa: BLE001
             raise ValueError(f"Invalid TOML in skill manifest: {exc}") from exc
 
         sandbox = data.get("sandbox", {})
@@ -68,7 +67,7 @@ class SandboxProfile:
         )
 
     @classmethod
-    def default(cls) -> "SandboxProfile":
+    def default(cls) -> SandboxProfile:
         """Conservative default profile — no network, no writes, 256MB, 60s."""
         return cls(
             network_allow=[],
@@ -89,7 +88,7 @@ class SandboxProfile:
 
         # RFC 1035 hostname label pattern: 1-63 chars, alphanumeric + hyphen,
         # no leading/trailing hyphen.
-        _LABEL_RE = re.compile(r'^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$|^[a-z0-9]$', re.IGNORECASE)
+        _LABEL_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$|^[a-z0-9]$", re.IGNORECASE)
 
         # Check network domains look reasonable
         for host in self.network_allow:
@@ -113,20 +112,14 @@ class SandboxProfile:
                     raise
                 # Not an IP literal — apply hostname rules.
                 if host.lower() == "localhost":
-                    raise ValueError(
-                        f"Disallowed hostname in network_allow: {host!r} (loopback alias)"
-                    )
+                    raise ValueError(f"Disallowed hostname in network_allow: {host!r} (loopback alias)")
                 # Validate RFC 1035 hostname structure.
                 if len(host) > 253:
-                    raise ValueError(
-                        f"network_allow hostname too long (>253 chars): {host!r}"
-                    )
+                    raise ValueError(f"network_allow hostname too long (>253 chars): {host!r}")
                 labels = host.split(".")
                 for label in labels:
                     if not label:
-                        raise ValueError(
-                            f"network_allow hostname has empty label: {host!r}"
-                        )
+                        raise ValueError(f"network_allow hostname has empty label: {host!r}")
                     if not _LABEL_RE.match(label):
                         raise ValueError(
                             f"network_allow hostname label fails RFC 1035 rules: {label!r} in {host!r}"

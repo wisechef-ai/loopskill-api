@@ -5,25 +5,24 @@ Validation pipeline (fail-fast, 400 on any failure):
 
 Auth: x-api-key via APIKeyMiddleware (standard rec_* key).
 """
+
 from __future__ import annotations
 
 import hashlib
 import logging
-from typing import Optional
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app import feedback_ratelimit, github_dispatch
 from app.database import get_db
 from app.models import SkillPatch
-from app import github_dispatch, feedback_ratelimit
 from app.skill_patch_validation import (
-    validate_path,
-    scan_forbidden,
-    check_size,
     canonical_hash,
+    check_size,
+    scan_forbidden,
+    validate_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,7 +32,8 @@ router = APIRouter(prefix="/api/v1", tags=["skill-patch"])
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _get_identity(request: Request, agent_id: Optional[str] = None) -> str:
+
+def _get_identity(request: Request, agent_id: str | None = None) -> str:
     """Resolve caller identity for rate-limiting (same pattern as feedback_v1_routes)."""
     state = getattr(request, "state", None)
     if state:
@@ -42,9 +42,7 @@ def _get_identity(request: Request, agent_id: Optional[str] = None) -> str:
             return str(api_key_id)
     if agent_id:
         return f"agent:{agent_id}"
-    forwarded = getattr(getattr(request, "headers", None), "get", lambda k, d="": d)(
-        "x-forwarded-for", ""
-    )
+    forwarded = getattr(getattr(request, "headers", None), "get", lambda k, d="": d)("x-forwarded-for", "")
     if forwarded:
         return f"ip:{forwarded.split(',')[0].strip()}"
     client = getattr(request, "client", None)
@@ -63,6 +61,7 @@ def _get_api_key_h(request: Request) -> str:
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
+
 class FileEntry(BaseModel):
     path: str
     content: str
@@ -73,11 +72,12 @@ class SkillPatchRequest(BaseModel):
     base_version: str = Field(min_length=1, max_length=64)
     files: list[FileEntry]
     rationale: str = Field(min_length=1, max_length=2000)
-    evidence_install_id: Optional[str] = Field(default=None, max_length=128)
-    agent_id_anon: Optional[str] = Field(default=None, max_length=128)
+    evidence_install_id: str | None = Field(default=None, max_length=128)
+    agent_id_anon: str | None = Field(default=None, max_length=128)
 
 
 # ── Endpoint ──────────────────────────────────────────────────────────────────
+
 
 @router.post("/skill-patch", status_code=status.HTTP_200_OK)
 def post_skill_patch(
@@ -149,18 +149,19 @@ def post_skill_patch(
             detail={
                 "ok": False,
                 "error": "rate_limit_exceeded",
-                "detail": (
-                    "Maximum 1 patch per 24h per (agent, skill). "
-                    "Wait before re-submitting."
-                ),
+                "detail": ("Maximum 1 patch per 24h per (agent, skill). Wait before re-submitting."),
             },
         )
 
     # ── R4: Dedup ────────────────────────────────────────────────────────────
-    existing = db.query(SkillPatch).filter(
-        SkillPatch.dedup_hash == dedup_h,
-        SkillPatch.status.in_(["pending", "opened"]),
-    ).first()
+    existing = (
+        db.query(SkillPatch)
+        .filter(
+            SkillPatch.dedup_hash == dedup_h,
+            SkillPatch.status.in_(["pending", "opened"]),
+        )
+        .first()
+    )
     if existing:
         return {
             "ok": True,
@@ -171,9 +172,7 @@ def post_skill_patch(
 
     # ── Persist ──────────────────────────────────────────────────────────────
     api_key_h = _get_api_key_h(request)
-    anon_hash = hashlib.sha256(
-        (payload.agent_id_anon or api_key_h or "anon").encode()
-    ).hexdigest()
+    anon_hash = hashlib.sha256((payload.agent_id_anon or api_key_h or "anon").encode()).hexdigest()
 
     row = SkillPatch(
         api_key_h=api_key_h or None,
@@ -191,9 +190,7 @@ def post_skill_patch(
     db.refresh(row)
 
     # ── GitHub dispatch (best-effort) ────────────────────────────────────────
-    sig = hashlib.sha256(
-        f"{payload.slug}|{dedup_h}".encode()
-    ).hexdigest()
+    sig = hashlib.sha256(f"{payload.slug}|{dedup_h}".encode()).hexdigest()
     github_dispatch.dispatch_event(
         "skill-patch",
         {

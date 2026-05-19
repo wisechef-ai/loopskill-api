@@ -11,6 +11,7 @@ from feedback_routes. The difference from /api/feedback/incident is:
   3. skill_slug-based lookup (CLI sends slug, not UUID)
   4. Opt-in enforcement
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -20,18 +21,17 @@ import re
 import threading
 import time
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
-from app.config import settings
+from app import feedback_ratelimit, github_dispatch
 from app.database import get_db
 from app.models import IncidentReport, Skill
-from app import github_dispatch, feedback_ratelimit
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ router = APIRouter(prefix="/api/v1", tags=["skill-errors"])
 
 
 # ── Opt-in check ────────────────────────────────────────────────────────
+
 
 def _is_opted_in() -> bool:
     """Check if error reporting is enabled via env var. Default OFF."""
@@ -49,7 +50,7 @@ def _is_opted_in() -> bool:
 
 try:
     from presidio_analyzer import AnalyzerEngine
-    from presidio_analyzer.nlp_engine import NlpEngineProvider
+    from presidio_analyzer.nlp_engine import NlpEngineProvider  # noqa: F401 — kept for optional NER feature, imported defensively
 
     _analyzer = AnalyzerEngine()
     _PRESIDIO_AVAILABLE = True
@@ -61,9 +62,17 @@ except ImportError:
 
 # Custom WiseChess PII patterns — internal names/infra that Presidio won't catch
 _WISECHEF_NAMES = {
-    "adam", "bombilla", "marco", "karol", "olek", "mariusz",
-    "tori", "wise", "chef",  # agent names
-    "adam krawczyk", "artur krawczyk",
+    "adam",
+    "bombilla",
+    "marco",
+    "karol",
+    "olek",
+    "mariusz",
+    "tori",
+    "wise",
+    "chef",  # agent names
+    "adam krawczyk",
+    "artur krawczyk",
 }
 
 _WISECHEF_INFRA_PATTERNS = [
@@ -96,8 +105,9 @@ def _anonymize_text(text: str) -> str:
             results = _analyzer.analyze(text=text, language="en")
             # Replace from end to preserve indices
             for r in sorted(results, key=lambda x: x.start, reverse=True):
-                result = result[:r.start] + _REDACTED + result[r.end:]
-        except Exception as e:
+                result = result[: r.start] + _REDACTED + result[r.end :]
+        # Rationale: Presidio PII analyzer is optional; any analysis error → skip redaction
+        except Exception as e:  # noqa: BLE001
             logger.warning("Presidio analysis failed: %s", e)
 
     # Phase 2: Custom WiseChef patterns
@@ -106,7 +116,7 @@ def _anonymize_text(text: str) -> str:
 
     # Phase 3: Name scrubbing (word-boundary matching)
     for name in _WISECHEF_NAMES:
-        result = re.sub(r'\b' + re.escape(name) + r'\b', _REDACTED, result, flags=re.IGNORECASE)
+        result = re.sub(r"\b" + re.escape(name) + r"\b", _REDACTED, result, flags=re.IGNORECASE)
 
     return result
 
@@ -118,8 +128,7 @@ def _anonymize_payload(data: dict[str, Any]) -> dict[str, Any]:
         if isinstance(v, str):
             result[k] = _anonymize_text(v)
         elif isinstance(v, dict):
-            result[k] = {kk: _anonymize_text(str(vv)) if isinstance(vv, str) else vv
-                         for kk, vv in v.items()}
+            result[k] = {kk: _anonymize_text(str(vv)) if isinstance(vv, str) else vv for kk, vv in v.items()}
         else:
             result[k] = v
     return result
@@ -181,11 +190,12 @@ _HEX_RE = re.compile(r"^[0-9a-f]+$")
 
 class SkillErrorIn(BaseModel):
     """Payload for skill error reports. Uses skill_slug for CLI convenience."""
+
     skill_slug: str = Field(min_length=1, max_length=128)
     error_signature: str = Field(min_length=8, max_length=128)
     env_fingerprint: dict[str, Any] = {}
     agent_fp_anon: str = Field(min_length=8, max_length=128)
-    occurred_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    occurred_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     command: str | None = Field(default=None, max_length=2048)
     exit_code: int | None = None
     stack_trace_top: str | None = Field(default=None, max_length=2048)
@@ -218,6 +228,7 @@ class SkillErrorOut(BaseModel):
 
 # ── Endpoint ────────────────────────────────────────────────────────────
 
+
 @router.post(
     "/skill-error",
     response_model=SkillErrorOut,
@@ -227,6 +238,7 @@ def post_skill_error(
     payload: SkillErrorIn,
     db: Session = Depends(get_db),
 ) -> SkillErrorOut:
+    """Submit a skill execution error report with optional PII redaction."""
     # Opt-in check
     if not _is_opted_in():
         raise HTTPException(
@@ -266,9 +278,7 @@ def post_skill_error(
 
     # Cross-tool ceiling check (Stream 1: shared 30/24h bucket)
     _cross_identity = payload.agent_fp_anon
-    _cross_sig = hashlib.sha256(
-        f"{payload.skill_slug}|{payload.error_signature}".encode()
-    ).hexdigest()
+    _cross_sig = hashlib.sha256(f"{payload.skill_slug}|{payload.error_signature}".encode()).hexdigest()
     _cross_rl = feedback_ratelimit.check_and_record(
         identity=_cross_identity,
         tool="skill-error",
@@ -282,7 +292,7 @@ def post_skill_error(
 
     occurred = payload.occurred_at
     if occurred.tzinfo is None:
-        occurred = occurred.replace(tzinfo=timezone.utc)
+        occurred = occurred.replace(tzinfo=UTC)
 
     report = IncidentReport(
         skill_id=skill.id,
@@ -299,9 +309,7 @@ def post_skill_error(
     db.refresh(report)
 
     # Compute composite signature and fire GitHub dispatch (Stream 1)
-    composite_sig = hashlib.sha256(
-        f"{payload.skill_slug}|{payload.error_signature}".encode()
-    ).hexdigest()
+    composite_sig = hashlib.sha256(f"{payload.skill_slug}|{payload.error_signature}".encode()).hexdigest()
     github_dispatch.dispatch_event(
         "skill-error",
         {

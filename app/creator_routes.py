@@ -13,17 +13,14 @@ Endpoints:
   POST /api/stripe/webhook       — Stripe webhook handler
 """
 
-import hashlib
 import logging
 import secrets
-from datetime import datetime, timezone
-from uuid import UUID
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool  # Issue #18
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth import (
@@ -33,21 +30,16 @@ from app.auth import (
     find_or_create_user,
     get_github_auth_url,
     get_user_from_jwt,
-    verify_jwt,
 )
 from app.config import settings
 from app.database import get_db
-from app.models import Creator, CreatorPayout, Skill, User
+from app.models import Creator, CreatorPayout, User
 from app.payout_engine import compute_monthly_payouts, get_creator_earnings
 from app.stripe_service import (
     StripeConnectError,
-    create_connect_account,
-    create_dashboard_link,
-    create_onboarding_link,
-    get_account_status,
     verify_webhook_signature,
 )
-from app.vat import VATResult, calculate_vat, generate_vat_moss_report
+from app.vat import calculate_vat, generate_vat_moss_report
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +47,7 @@ router = APIRouter(prefix="/api", tags=["creator"])
 
 
 # ── Auth Dependency ─────────────────────────────────────────────────────
+
 
 def _get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     """Extract and verify JWT from Authorization header."""
@@ -75,6 +68,7 @@ def _get_api_key(request: Request) -> str:
 
 
 # ── Pydantic Models ─────────────────────────────────────────────────────
+
 
 class CreatorProfile(BaseModel):
     id: str
@@ -161,6 +155,7 @@ class VATMOSSReportResponse(BaseModel):
 
 # ── GitHub OAuth ────────────────────────────────────────────────────────
 
+
 @router.get("/auth/github")
 def github_auth_redirect(
     redirect_uri: str = Query(..., description="Frontend callback URL"),
@@ -207,6 +202,7 @@ async def github_callback(
 
 # ── Direct token exchange (for frontend SDKs) ──────────────────────────
 
+
 class TokenExchangeRequest(BaseModel):
     code: str
     state: str
@@ -242,6 +238,7 @@ async def exchange_token(
 
 # ── Profile ─────────────────────────────────────────────────────────────
 
+
 @router.get("/auth/me", response_model=CreatorProfile)
 def get_me(
     request: Request,
@@ -274,6 +271,7 @@ def get_me(
 # NOTE: The webhook handler below still processes subscription events — that's
 # the *subscription billing* flow (checkout.session.completed etc.) which is
 # separate from the creator-payout Stripe Connect flow that's being killed.
+
 
 @router.post("/stripe/onboard")
 def stripe_onboard(
@@ -320,6 +318,7 @@ def stripe_dashboard_link(
 
 
 # ── Creator Earnings ────────────────────────────────────────────────────
+
 
 @router.get("/creator/earnings", response_model=EarningsResponse)
 def creator_earnings(
@@ -370,6 +369,7 @@ def creator_payouts(
 
 # ── VAT MOSS ────────────────────────────────────────────────────────────
 
+
 @router.post("/vat/calculate", response_model=VATCalculateResponse)
 def vat_calculate(body: VATCalculateRequest):
     """Calculate VAT MOSS for a given amount and buyer location."""
@@ -404,8 +404,8 @@ def vat_moss_report(
         raise HTTPException(status_code=403, detail="Admin access required")
 
     # Aggregate payouts by country for the current month
-    now = datetime.now(timezone.utc)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    now = datetime.now(UTC)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)  # noqa: F841 — kept for future aggregation by month
 
     # For now, return a sample report structure
     # TODO: aggregate real transaction data by buyer country when billing is live
@@ -417,6 +417,7 @@ def vat_moss_report(
 
 
 # ── Admin: Payout Runner ────────────────────────────────────────────────
+
 
 @router.post("/admin/payouts/run", response_model=PayoutRunResponse)
 def run_payouts(
@@ -431,7 +432,8 @@ def run_payouts(
 
     try:
         payouts = compute_monthly_payouts(db, dry_run=dry_run)
-    except Exception as e:
+    # Rationale: payout computation can raise arbitrary errors; surface as 500 instead of crash
+    except Exception as e:  # noqa: BLE001
         logger.error(f"Payout run failed: {e}")
         raise HTTPException(status_code=500, detail=f"Payout computation failed: {str(e)}")
 
@@ -443,6 +445,7 @@ def run_payouts(
 
 
 # ── Stripe Webhook ──────────────────────────────────────────────────────
+
 
 @router.post("/stripe/webhook")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
@@ -470,11 +473,12 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 
     # Idempotency check — replays are no-ops
     from app.subscription_service import (
-        record_event_or_skip,
         handle_checkout_completed,
-        handle_subscription_event,
         handle_invoice_payment_succeeded,
+        handle_subscription_event,
+        record_event_or_skip,
     )
+
     if not record_event_or_skip(event, db):
         logger.info(f"Replay of event {event_id} ({event_type}) — skipped")
         return {"received": True, "already_processed": True, "event_id": event_id}
@@ -506,16 +510,22 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         account_id = data["id"]
         user = db.query(User).filter(User.stripe_connect_id == account_id).first()
         if user:
-            logger.info(f"Stripe account updated for user {user.id}: "
-                       f"charges_enabled={data.get('charges_enabled')}, "
-                       f"payouts_enabled={data.get('payouts_enabled')}")
+            logger.info(
+                f"Stripe account updated for user {user.id}: "
+                f"charges_enabled={data.get('charges_enabled')}, "
+                f"payouts_enabled={data.get('payouts_enabled')}"
+            )
 
     elif event_type == "transfer.failed":
         data = event["data"]["object"]
         transfer_id = data["id"]
-        payout = db.query(CreatorPayout).filter(
-            CreatorPayout.stripe_transfer_id == transfer_id,
-        ).first()
+        payout = (
+            db.query(CreatorPayout)
+            .filter(
+                CreatorPayout.stripe_transfer_id == transfer_id,
+            )
+            .first()
+        )
         if payout:
             payout.status = "failed"
             db.commit()
@@ -524,12 +534,16 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     elif event_type == "transfer.paid":
         data = event["data"]["object"]
         transfer_id = data["id"]
-        payout = db.query(CreatorPayout).filter(
-            CreatorPayout.stripe_transfer_id == transfer_id,
-        ).first()
+        payout = (
+            db.query(CreatorPayout)
+            .filter(
+                CreatorPayout.stripe_transfer_id == transfer_id,
+            )
+            .first()
+        )
         if payout:
             payout.status = "paid"
-            payout.paid_at = datetime.now(timezone.utc)
+            payout.paid_at = datetime.now(UTC)
             db.commit()
             logger.info(f"Transfer {transfer_id} confirmed for payout {payout.id}")
 

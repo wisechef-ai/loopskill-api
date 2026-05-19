@@ -5,11 +5,12 @@ webhook handlers call `get_role_client()` synchronously without having to
 await the bot. Returns None when the bot isn't running (token absent),
 making `_maybe_sync_discord_role` a graceful no-op.
 """
+
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
-_client: Optional[Any] = None
+_client: Any | None = None
 
 
 def set_role_client(client: Any | None) -> None:

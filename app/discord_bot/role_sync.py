@@ -9,6 +9,7 @@ Roles:
 Only `active` (or `trialing`) subscriptions count — anything else
 (canceled, past_due, unpaid, paused) drops the user back to Free.
 """
+
 from __future__ import annotations
 
 import logging
@@ -24,12 +25,12 @@ ACTIVE_STATUSES = frozenset({"active", "trialing"})
 # Legacy slug aliases kept for the 30-day shim window (RCP-INCIDENT-2026-05-11, remove after 2026-06-10).
 # Do NOT rename Discord role names here — that's a separate ops task.
 TIER_TO_ROLE = {
-    "pro_plus": "Pro+",   # canonical (Phase 5)
-    "pro": "Pro",         # canonical (Phase 5)
+    "pro_plus": "Pro+",  # canonical (Phase 5)
+    "pro": "Pro",  # canonical (Phase 5)
     # Legacy aliases:
-    "operator": "Pro+",   # Phase 5 legacy
-    "studio": "Pro+",     # Phase 3 legacy
-    "cook": "Pro",        # Phase 5 legacy
+    "operator": "Pro+",  # Phase 5 legacy
+    "studio": "Pro+",  # Phase 3 legacy
+    "cook": "Pro",  # Phase 5 legacy
 }
 
 
@@ -55,11 +56,7 @@ def role_for_user(
         return base
 
     roles = [base]
-    threshold = (
-        author_threshold
-        if author_threshold is not None
-        else settings.DISCORD_AUTHOR_THRESHOLD
-    )
+    threshold = author_threshold if author_threshold is not None else settings.DISCORD_AUTHOR_THRESHOLD
     score = getattr(user, "creator_track_record_score", None) or 0
     if score >= threshold:
         roles.append("Author")

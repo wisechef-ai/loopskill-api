@@ -9,13 +9,13 @@ Routes (mounted under /api/cookbooks/{cookbook_id}/share-tokens):
 Auth: rec_-key user must own the cookbook (or master key).
 Scope enforcement via enforce_cbt_scope() helper.
 """
+
 from __future__ import annotations
 
 import hashlib
 import logging
 import secrets
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Cookbook, CookbookShareToken, User
+from app.models import Cookbook, CookbookShareToken
 
 logger = logging.getLogger(__name__)
 router = APIRouter(
@@ -34,31 +34,33 @@ router = APIRouter(
 
 # ── Schemas ──────────────────────────────────────────────────────────────
 
+
 class ShareTokenCreateIn(BaseModel):
-    name: Optional[str] = None
-    scope: Optional[str] = "edit"
+    name: str | None = None
+    scope: str | None = "edit"
 
 
 class ShareTokenOut(BaseModel):
     id: str
-    token: Optional[str] = None  # Only populated on create/rotate
+    token: str | None = None  # Only populated on create/rotate
     prefix: str
     scope: str
-    name: Optional[str] = None
-    created_at: Optional[datetime] = None
+    name: str | None = None
+    created_at: datetime | None = None
 
 
 class ShareTokenListItem(BaseModel):
     id: str
     prefix: str
-    name: Optional[str] = None
+    name: str | None = None
     scope: str
-    created_at: Optional[datetime] = None
+    created_at: datetime | None = None
     is_active: bool
-    last_used_at: Optional[datetime] = None
+    last_used_at: datetime | None = None
 
 
 # ── Scope enforcement helper ────────────────────────────────────────────
+
 
 def enforce_cbt_scope(request: Request) -> None:
     """Raise 403 if a cbt_ token is being used outside its scope.
@@ -92,7 +94,9 @@ def enforce_cbt_scope(request: Request) -> None:
 
 
 def _get_cookbook_and_check_scope(
-    request: Request, db: Session, cookbook_id: str,
+    request: Request,
+    db: Session,
+    cookbook_id: str,
 ) -> Cookbook:
     """Load cookbook and enforce cbt_ scope rules.
 
@@ -131,6 +135,7 @@ def _get_cookbook_and_check_scope(
 
 
 # ── Auth helpers ─────────────────────────────────────────────────────────
+
 
 def _require_owner(request: Request, db: Session, cookbook_id: str) -> Cookbook:
     """Require that the caller owns the cookbook (rec_ key user) or is master.
@@ -179,6 +184,7 @@ def _generate_token(cookbook_id: UUID) -> tuple[str, str, str]:
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────
+
 
 @router.post("", status_code=201)
 def create_share_token(
@@ -273,8 +279,8 @@ def rotate_share_token(
             CookbookShareToken.cookbook_id == cb.id,
         )
         .with_for_update()  # SECURITY: serialize concurrent rotates so two
-                            # parallel calls cannot both produce a new active
-                            # row. The lock is dropped on commit/rollback.
+        # parallel calls cannot both produce a new active
+        # row. The lock is dropped on commit/rollback.
         .first()
     )
     if old is None or not old.is_active:

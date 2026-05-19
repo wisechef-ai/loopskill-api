@@ -8,10 +8,11 @@ Handles:
 
 API version pinned to 2026-01-28.clover (set globally via stripe.api_version).
 """
+
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,7 @@ _TIERS_YAML = Path(__file__).resolve().parent.parent / "config" / "tiers.yaml"
 
 
 # ── SSOT tier config helpers ─────────────────────────────────────────────
+
 
 @lru_cache(maxsize=1)
 def _load_tiers_yaml() -> dict:
@@ -78,7 +80,9 @@ def _load_tier_price_ids() -> dict[str, str]:
                         "Tier %r resolved Stripe price via LEGACY env var %s "
                         "(canonical %s was empty). Set the canonical var in .env "
                         "to silence this — legacy fallback removed after 2026-06-10.",
-                        db_slug, legacy, env_name,
+                        db_slug,
+                        legacy,
+                        env_name,
                     )
                     val = legacy_val
         if val:
@@ -90,8 +94,7 @@ def _load_tier_price_ids() -> dict[str, str]:
 def _load_tier_usd_price() -> dict[str, float]:
     """Return {db_slug: price_usd} from config/tiers.yaml."""
     tiers = _load_tiers_yaml()
-    return {slug: float(meta["price_usd"]) for slug, meta in tiers.items()
-            if "price_usd" in meta}
+    return {slug: float(meta["price_usd"]) for slug, meta in tiers.items() if "price_usd" in meta}
 
 
 # ── Tier → Price ID mapping (loaded from SSOT config/tiers.yaml) ──────────
@@ -105,9 +108,9 @@ TIER_PRICE_IDS: dict[str, str] = _load_tier_price_ids()
 TIER_USD_PRICE: dict[str, float] = {
     **_load_tier_usd_price(),
     # Legacy aliases — pro=20, pro_plus=100
-    "cook": _load_tier_usd_price().get("pro", 20.0),       # legacy alias → pro
+    "cook": _load_tier_usd_price().get("pro", 20.0),  # legacy alias → pro
     "operator": _load_tier_usd_price().get("pro_plus", 100.0),  # legacy alias → pro_plus
-    "studio": _load_tier_usd_price().get("pro_plus", 100.0),    # legacy alias → pro_plus
+    "studio": _load_tier_usd_price().get("pro_plus", 100.0),  # legacy alias → pro_plus
 }
 
 
@@ -116,6 +119,7 @@ class SubscriptionError(Exception):
 
 
 # ── Backwards-compat slug normalisation ─────────────────────────────────
+
 
 def _normalise_tier(tier: str | None) -> str | None:
     """Translate legacy slugs to canonical names.
@@ -132,13 +136,15 @@ def _normalise_tier(tier: str | None) -> str | None:
         logger.warning(
             "DEPRECATION: tier slug %r received — normalising to %r. "
             "This shim will be removed after 2026-06-10 (RCP-INCIDENT-2026-05-11).",
-            tier, canonical
+            tier,
+            canonical,
         )
         return canonical
     return tier
 
 
 # ── Customer Management ──────────────────────────────────────────────────
+
 
 def get_or_create_customer(user: User, db: Session) -> str:
     """Idempotently create a Stripe Customer for the user.
@@ -167,6 +173,7 @@ def get_or_create_customer(user: User, db: Session) -> str:
 
 
 # ── Checkout Session Creation ────────────────────────────────────────────
+
 
 def create_checkout_session(
     user: User,
@@ -234,17 +241,23 @@ def create_checkout_session(
                 discounts.append({"promotion_code": promo_id})
                 logger.info(
                     "Pre-applied promotion code %s (id=%s) for user %s tier %s",
-                    normalized, promo_id, user.id, tier,
+                    normalized,
+                    promo_id,
+                    user.id,
+                    tier,
                 )
             else:
                 logger.info(
                     "Promotion code %r not found / inactive — ignoring (user %s)",
-                    normalized, user.id,
+                    normalized,
+                    user.id,
                 )
         except Exception as e:  # noqa: BLE001 — never block checkout on a bad code
             logger.warning(
                 "Promotion code lookup failed for %r (user %s): %s",
-                normalized, user.id, e,
+                normalized,
+                user.id,
+                e,
             )
 
     checkout_kwargs: dict[str, Any] = dict(
@@ -287,6 +300,7 @@ def create_checkout_session(
 
 # ── Webhook Idempotency ──────────────────────────────────────────────────
 
+
 def record_event_or_skip(event: dict, db: Session) -> bool:
     """Insert event id into dedup table; return True if first time, False if replay.
 
@@ -298,7 +312,7 @@ def record_event_or_skip(event: dict, db: Session) -> bool:
         event_id=event["id"],
         event_type=event.get("type", ""),
         livemode=event.get("livemode"),
-        processed_at=datetime.now(timezone.utc),
+        processed_at=datetime.now(UTC),
     )
     try:
         with db.begin_nested():
@@ -311,6 +325,7 @@ def record_event_or_skip(event: dict, db: Session) -> bool:
 
 
 # ── Subscription Lifecycle ───────────────────────────────────────────────
+
 
 def _user_from_subscription_metadata(sub_or_session: dict, db: Session) -> User | None:
     """Resolve user via metadata.wiserecipes_user_id, falling back to customer match."""
@@ -339,7 +354,7 @@ def _apply_subscription_state(user: User, sub: dict, db: Session) -> None:
     user.subscription_status = sub.get("status")
     period_end = sub.get("current_period_end")
     if period_end:
-        user.subscription_current_period_end = datetime.fromtimestamp(period_end, tz=timezone.utc)
+        user.subscription_current_period_end = datetime.fromtimestamp(period_end, tz=UTC)
     items = (sub.get("items") or {}).get("data") or []
     if items:
         price = items[0].get("price") or {}
@@ -364,6 +379,7 @@ def _maybe_sync_discord_role(user: User) -> None:
     """
     try:
         from app.discord_bot.client_singleton import get_role_client
+
         client = get_role_client()
         if client is None or not user.discord_user_id:
             return
@@ -472,8 +488,13 @@ def handle_subscription_event(event: dict, db: Session) -> dict:
         user.utm_ref = utm_ref[:32]
         db.commit()
     _maybe_sync_discord_role(user)
-    logger.info("Subscription %s for user %s: status=%s tier=%s",
-                event_type, user.id, user.subscription_status, user.subscription_tier)
+    logger.info(
+        "Subscription %s for user %s: status=%s tier=%s",
+        event_type,
+        user.id,
+        user.subscription_status,
+        user.subscription_tier,
+    )
 
     # Tier-change alert: only fire when the tier actually moved (Pro→Pro+ etc).
     # Skip for noise events (status: past_due → active churn-recovery, billing
@@ -502,6 +523,7 @@ def handle_subscription_event(event: dict, db: Session) -> dict:
 
 
 # ── Downgrade (Pro+ → Pro) ───────────────────────────────────────────────
+
 
 def downgrade_pro_plus_to_pro(user: User, db: Session) -> dict[str, Any]:
     """Switch a Pro+ subscriber to Pro with proration.
@@ -581,6 +603,7 @@ def downgrade_studio_to_cook(user: User, db: Session) -> dict[str, Any]:
 
 # ── Webhook Signature Verification ───────────────────────────────────────
 
+
 def verify_subscription_webhook(payload: bytes, sig_header: str) -> dict:
     """Verify a webhook intended for the subscription endpoint.
 
@@ -591,15 +614,19 @@ def verify_subscription_webhook(payload: bytes, sig_header: str) -> dict:
         raise SubscriptionError("STRIPE_WEBHOOK_SECRET not configured")
     try:
         return stripe.Webhook.construct_event(
-            payload, sig_header, settings.STRIPE_WEBHOOK_SECRET,
+            payload,
+            sig_header,
+            settings.STRIPE_WEBHOOK_SECRET,
         )
     except stripe.error.SignatureVerificationError as e:
         raise SubscriptionError(f"Invalid signature: {e}") from e
+    # Rationale: Stripe SDK may throw non-SignatureVerificationError on bad payload; wrap all
     except Exception as e:
         raise SubscriptionError(f"Webhook verification failed: {e}") from e
 
 
 # ── Referral payout accrual (WIS-660) ────────────────────────────────────
+
 
 def _accrue_referral_on_first_payment(user: User, db: Session) -> dict | None:
     """Accrue referrer's share to creator_payouts on user's first payment.
@@ -615,11 +642,7 @@ def _accrue_referral_on_first_payment(user: User, db: Session) -> dict | None:
     Returns a dict describing the new payout, or None if no referral exists,
     no subscription is found, or the payout was already accrued.
     """
-    referral = (
-        db.query(Referral)
-        .filter(Referral.referred_user_id == user.id)
-        .first()
-    )
+    referral = db.query(Referral).filter(Referral.referred_user_id == user.id).first()
     if not referral:
         return None
     if referral.status == "converted":
@@ -647,13 +670,14 @@ def _accrue_referral_on_first_payment(user: User, db: Session) -> dict | None:
         return None
 
     from decimal import Decimal
+
     rate = referral.rate or Decimal("0.50")
     reward_cents = int(int(amount) * float(rate))
 
     # Mark referral converted.
     referral.status = "converted"
     referral.reward_cents = reward_cents
-    referral.converted_at = datetime.now(timezone.utc)
+    referral.converted_at = datetime.now(UTC)
 
     # Create payout row. amount_cents and creator_share_cents both carry
     # the reward — amount_cents is the WIS-660 multi-source field, and
@@ -672,7 +696,9 @@ def _accrue_referral_on_first_payment(user: User, db: Session) -> dict | None:
     db.refresh(payout)
     logger.info(
         "Accrued referral payout: referrer=%s amount=%d cents rate=%s",
-        referrer.id, reward_cents, rate,
+        referrer.id,
+        reward_cents,
+        rate,
     )
     return {"payout_id": str(payout.id), "creator_share_cents": reward_cents}
 

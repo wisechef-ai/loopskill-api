@@ -10,10 +10,9 @@ Endpoints:
 
 import logging
 import secrets
-from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -28,7 +27,6 @@ from app.auth import (
     get_google_auth_url,
     verify_jwt,
 )
-from app.tier_labels import _is_pro_plus_tier, _is_paid_tier
 from app.config import settings
 from app.database import get_db
 from app.referral import (
@@ -37,6 +35,7 @@ from app.referral import (
     ensure_referral_code,
     process_referral_cookie,
 )
+from app.tier_labels import _is_paid_tier, _is_pro_plus_tier
 
 logger = logging.getLogger(__name__)
 
@@ -108,8 +107,9 @@ def _stamp_referral_cookie(response, ref: str | None) -> None:
 
 # ── GitHub OAuth ─────────────────────────────────────────────────────────
 
+
 @router.get("/github/login")
-async def github_login(request: Request, next: Optional[str] = None, ref: Optional[str] = None):
+async def github_login(request: Request, next: str | None = None, ref: str | None = None):
     """Initiate GitHub OAuth flow. Preserves optional `next` query param via cookie.
 
     Optional `ref=CODE` query param is stamped as a 30-day cookie so the
@@ -134,8 +134,12 @@ async def github_login(request: Request, next: Optional[str] = None, ref: Option
     )
     if next:
         response.set_cookie(
-            key="oauth_next", value=next, max_age=600, httponly=True,
-            secure=settings.COOKIES_SECURE, samesite="lax",
+            key="oauth_next",
+            value=next,
+            max_age=600,
+            httponly=True,
+            secure=settings.COOKIES_SECURE,
+            samesite="lax",
         )
     _stamp_referral_cookie(response, ref)
     return response
@@ -144,8 +148,8 @@ async def github_login(request: Request, next: Optional[str] = None, ref: Option
 @router.get("/github/callback")
 async def github_callback(
     request: Request,
-    code: Optional[str] = None,
-    state: Optional[str] = None,
+    code: str | None = None,
+    state: str | None = None,
     db: Session = Depends(get_db),
 ):
     """Handle GitHub OAuth callback. Exchanges code, creates user, sets JWT cookie."""
@@ -187,8 +191,9 @@ async def github_callback(
 
 # ── Google OAuth ─────────────────────────────────────────────────────────
 
+
 @router.get("/google/login")
-async def google_login(request: Request, next: Optional[str] = None, ref: Optional[str] = None):
+async def google_login(request: Request, next: str | None = None, ref: str | None = None):
     """Initiate Google OAuth flow. Preserves optional `next` query param via cookie.
 
     Optional `ref=CODE` query param is stamped as a 30-day cookie (WIS-660).
@@ -211,8 +216,12 @@ async def google_login(request: Request, next: Optional[str] = None, ref: Option
     )
     if next:
         response.set_cookie(
-            key="oauth_next", value=next, max_age=600, httponly=True,
-            secure=settings.COOKIES_SECURE, samesite="lax",
+            key="oauth_next",
+            value=next,
+            max_age=600,
+            httponly=True,
+            secure=settings.COOKIES_SECURE,
+            samesite="lax",
         )
     _stamp_referral_cookie(response, ref)
     return response
@@ -221,8 +230,8 @@ async def google_login(request: Request, next: Optional[str] = None, ref: Option
 @router.get("/google/callback")
 async def google_callback(
     request: Request,
-    code: Optional[str] = None,
-    state: Optional[str] = None,
+    code: str | None = None,
+    state: str | None = None,
     db: Session = Depends(get_db),
 ):
     """Handle Google OAuth callback. Exchanges code, creates user, sets JWT cookie."""
@@ -263,6 +272,7 @@ async def google_callback(
 
 # ── Current user ─────────────────────────────────────────────────────────
 
+
 @router.get("/me")
 async def get_me(
     request: Request,
@@ -274,7 +284,7 @@ async def get_me(
     1. wr_jwt cookie
     2. Authorization: Bearer *** header
     """
-    token: Optional[str] = None
+    token: str | None = None
 
     # Try cookie first
     token = request.cookies.get(JWT_COOKIE_NAME)
@@ -293,12 +303,14 @@ async def get_me(
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     from uuid import UUID
+
     try:
         user_id = UUID(payload["sub"])
     except (ValueError, KeyError):
         raise HTTPException(status_code=401, detail="Invalid token payload")
 
     from app.models import User
+
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
@@ -316,27 +328,38 @@ async def get_me(
         "subscription_tier": user.subscription_tier,
         "subscription_status": user.subscription_status,
         "subscription_current_period_end": (
-            user.subscription_current_period_end.isoformat()
-            if user.subscription_current_period_end else None
+            user.subscription_current_period_end.isoformat() if user.subscription_current_period_end else None
         ),
         # WIS-902: Tier feature flags for frontend tier-conditional UX
         "features": {
             "full_catalog_install": _is_paid_tier(user.subscription_tier),
             "install_rate_limit": {
-                "free": 5, "pro": 100, "pro_plus": None,
+                "free": 5,
+                "pro": 100,
+                "pro_plus": None,
                 # Legacy aliases for 30-day shim window (RCP-INCIDENT-2026-05-11)
-                "cook": 100, "operator": None, "studio": None,
+                "cook": 100,
+                "operator": None,
+                "studio": None,
             }.get(user.subscription_tier, 5),
             "recipify": _is_paid_tier(user.subscription_tier),
             "cookbook_limit": {
-                "free": 0, "pro": 1, "pro_plus": None,
+                "free": 0,
+                "pro": 1,
+                "pro_plus": None,
                 # Legacy aliases for 30-day shim window (RCP-INCIDENT-2026-05-11)
-                "cook": 1, "operator": None, "studio": None,
+                "cook": 1,
+                "operator": None,
+                "studio": None,
             }.get(user.subscription_tier, 0),
             "cookbook_skill_cap": {
-                "free": 0, "pro": 25, "pro_plus": None,
+                "free": 0,
+                "pro": 25,
+                "pro_plus": None,
                 # Legacy aliases for 30-day shim window (RCP-INCIDENT-2026-05-11)
-                "cook": 25, "operator": None, "studio": None,
+                "cook": 25,
+                "operator": None,
+                "studio": None,
             }.get(user.subscription_tier, 0),
             "fleet_sync": _is_pro_plus_tier(user.subscription_tier),
             "fleet_seeker": _is_pro_plus_tier(user.subscription_tier),
@@ -347,6 +370,7 @@ async def get_me(
 
 # ── Reusable dependency for other routers ────────────────────────────────
 
+
 def get_current_user_optional(request: Request, db: Session = Depends(get_db)) -> Optional["User"]:
     """Resolve the authenticated user from cookie/header, or return None.
 
@@ -355,10 +379,11 @@ def get_current_user_optional(request: Request, db: Session = Depends(get_db)) -
     valid JWT is present — the route is responsible for raising HTTPException
     when authentication is required.
     """
-    from app.models import User
     from uuid import UUID
 
-    token: Optional[str] = request.cookies.get(JWT_COOKIE_NAME)
+    from app.models import User
+
+    token: str | None = request.cookies.get(JWT_COOKIE_NAME)
     if not token:
         auth_header = request.headers.get("authorization", "")
         if auth_header.lower().startswith("bearer "):

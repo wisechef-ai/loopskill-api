@@ -39,7 +39,7 @@ _LIKELY_REMOTE_PREFIXES = (
 
 def _scan_file_for_paths(path: str) -> list[str]:
     try:
-        with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+        with open(path, encoding="utf-8", errors="ignore") as fh:
             text = fh.read()
     except OSError:
         return []
@@ -120,7 +120,7 @@ def recipes_doctor(db: Session, install_dir: str) -> dict[str, Any]:  # noqa: AR
     meta_valid = False
     if has_meta:
         try:
-            with open(meta_json, "r", encoding="utf-8") as fh:
+            with open(meta_json, encoding="utf-8") as fh:
                 json.load(fh)
             meta_valid = True
         except (OSError, json.JSONDecodeError):

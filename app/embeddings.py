@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import math
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 EMBED_DIM = 384
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
@@ -28,7 +28,8 @@ def _get_model():
         from sentence_transformers import SentenceTransformer
 
         _model = SentenceTransformer(MODEL_NAME)
-    except Exception:
+    # Rationale: SentenceTransformers is optional; any import/load error → use hash fallback
+    except Exception:  # noqa: BLE001
         _model_load_failed = True
         _model = None
     return _model
@@ -74,7 +75,8 @@ def embed_skill(skill) -> list[float]:
     else:
         try:
             related_str = ",".join(str(x) for x in related)
-        except Exception:
+        # Rationale: related field may be non-standard iterable; failure → empty string
+        except Exception:  # noqa: BLE001
             related_str = ""
     text = f"{title}\n\n{description}\n{related_str}"
     return embed_text(text)

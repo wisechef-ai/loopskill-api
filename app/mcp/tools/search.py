@@ -45,18 +45,20 @@ def recipes_search(
     - ``backend = "recall_only"`` — literal returned zero, recall provided all.
     """
     # Public-scope MCP tool: searches the public skill catalog only; is_public filter applied internally.
-    q = db.query(Skill).options(
-        joinedload(Skill.versions),
-        joinedload(Skill.creator),
-    ).filter(
-        Skill.is_public == True,  # noqa: E712
-        Skill.is_archived == False,  # noqa: E712
+    q = (
+        db.query(Skill)
+        .options(
+            joinedload(Skill.versions),
+            joinedload(Skill.creator),
+        )
+        .filter(
+            Skill.is_public == True,  # noqa: E712
+            Skill.is_archived == False,  # noqa: E712
+        )
     )
 
     if query:
-        q = q.filter(
-            (Skill.title.ilike(f"%{query}%")) | (Skill.description.ilike(f"%{query}%"))
-        )
+        q = q.filter((Skill.title.ilike(f"%{query}%")) | (Skill.description.ilike(f"%{query}%")))
     if category:
         q = q.filter(Skill.category == category)
     if tier:
@@ -68,10 +70,7 @@ def recipes_search(
     rows = q.limit(capped_limit).all()
 
     counts = _install_counts_for(db, [s.id for s in rows])
-    keyword_results = [
-        _skill_to_out(s, *counts.get(s.id, (0, 0))).model_dump(mode="json")
-        for s in rows
-    ]
+    keyword_results = [_skill_to_out(s, *counts.get(s.id, (0, 0))).model_dump(mode="json") for s in rows]
 
     backend = "keyword"
     augmented = False
@@ -102,13 +101,17 @@ def recipes_search(
             ]
 
             if extra_slugs:
-                extra_q = db.query(Skill).options(
-                    joinedload(Skill.versions),
-                    joinedload(Skill.creator),
-                ).filter(
-                    Skill.is_public == True,  # noqa: E712
-                    Skill.is_archived == False,  # noqa: E712
-                    Skill.slug.in_(extra_slugs),
+                extra_q = (
+                    db.query(Skill)
+                    .options(
+                        joinedload(Skill.versions),
+                        joinedload(Skill.creator),
+                    )
+                    .filter(
+                        Skill.is_public == True,  # noqa: E712
+                        Skill.is_archived == False,  # noqa: E712
+                        Skill.slug.in_(extra_slugs),
+                    )
                 )
                 if category:
                     extra_q = extra_q.filter(Skill.category == category)

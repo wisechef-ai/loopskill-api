@@ -13,11 +13,9 @@ Also exports:
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, timezone
-from uuid import uuid4
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app._skill_helpers import (
@@ -37,6 +35,7 @@ router = APIRouter(tags=["skills"])
 
 # WIS-903: Retired skill registry (shared with routes.py)
 from pathlib import Path as _Path
+
 _RETIREMENT_FILE = _Path(__file__).resolve().parent.parent / "retired-skills.txt"
 _RETIRED_SKILLS: dict[str, str] = {}
 if _RETIREMENT_FILE.exists():
@@ -133,16 +132,17 @@ def install_skill(
         today_count = _count_today_installs(db, api_key_id)
         if today_count >= install_limit:
             remaining = 0
-            reset_at = (datetime.now(timezone.utc).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            ) + timedelta(days=1)).isoformat()
+            reset_at = (
+                datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+            ).isoformat()
 
             from fastapi.responses import JSONResponse as _JRP
+
             return _JRP(
                 status_code=429,
                 content={
                     "detail": f"Install rate limit exceeded ({install_limit}/day for {caller_tier or 'free'} tier). "
-                              f"Upgrade to {display_label('pro_plus')} for unlimited installs.",
+                    f"Upgrade to {display_label('pro_plus')} for unlimited installs.",
                     "tier": caller_tier,
                     "limit": install_limit,
                     "remaining": remaining,
@@ -152,9 +152,15 @@ def install_skill(
                     "X-RateLimit-Limit": str(install_limit),
                     "X-RateLimit-Remaining": "0",
                     "X-RateLimit-Reset": reset_at,
-                    "Retry-After": str(int((datetime.now(timezone.utc).replace(
-                        hour=0, minute=0, second=0, microsecond=0
-                    ) + timedelta(days=1) - datetime.now(timezone.utc)).total_seconds())),
+                    "Retry-After": str(
+                        int(
+                            (
+                                datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+                                + timedelta(days=1)
+                                - datetime.now(UTC)
+                            ).total_seconds()
+                        )
+                    ),
                 },
             )
 
@@ -178,6 +184,7 @@ def install_skill(
 
     # Generate a signed token (HMAC-style with itsdangerous)
     from itsdangerous import URLSafeTimedSerializer
+
     from app.config import settings
 
     serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET)
@@ -195,6 +202,7 @@ def install_skill(
 
     # Log install event
     from uuid import uuid4 as _uuid4
+
     api_key_id = getattr(request.state, "api_key_id", None)
     event = InstallEvent(
         id=_uuid4(),
@@ -231,11 +239,12 @@ def install_skill(
         tarball_url=tarball_url,
         checksum_sha256=latest.checksum_sha256,
         size_bytes=latest.tarball_size_bytes,
-        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        expires_at=datetime.now(UTC) + timedelta(hours=1),
         manifest=_build_manifest(latest, skill),
     )
     if resp_headers or ref:
         from fastapi.responses import JSONResponse as _JR
+
         json_resp = _JR(content=resp.model_dump(mode="json"), headers=resp_headers)
         _set_utm_ref_cookie(json_resp, ref)
         return json_resp
@@ -248,7 +257,8 @@ def download_tarball(
     db: Session = Depends(get_db),
 ):
     """Verify signed token and return tarball info."""
-    from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+    from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+
     from app.config import settings
 
     serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET)
@@ -268,8 +278,9 @@ def download_tarball(
 
     # Stream the actual tarball file. Path is recorded at publish-time as
     # absolute (e.g. /var/lib/recipes-skills/agent-rescue/1.1.0.tar.gz).
-    from fastapi.responses import FileResponse
     import pathlib as _pl
+
+    from fastapi.responses import FileResponse
 
     tar_path = _pl.Path(version.tarball_path) if version.tarball_path else None
     if not tar_path or not tar_path.is_file():

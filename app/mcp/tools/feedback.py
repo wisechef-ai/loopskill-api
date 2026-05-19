@@ -3,15 +3,16 @@
 Send user feedback about recipes.wisechef.ai. Reuses the same
 signature/ratelimit/dispatch helpers as POST /api/v1/feedback.
 """
+
 from __future__ import annotations
 
 import hashlib
 import logging
-from typing import Any, Literal
+from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app import github_dispatch, feedback_ratelimit
+from app import feedback_ratelimit, github_dispatch
 from app.models import FeedbackSubmission
 
 logger = logging.getLogger(__name__)
@@ -48,9 +49,7 @@ def recipes_feedback(
         return {"ok": False, "error": "message must be 1-4096 characters"}
 
     ctx = context or {}
-    identity = f"api_key:{api_key_id}" if api_key_id else (
-        f"agent:{agent_id}" if agent_id else "unknown"
-    )
+    identity = f"api_key:{api_key_id}" if api_key_id else (f"agent:{agent_id}" if agent_id else "unknown")
     sig = _sha256(category, message)
 
     rl = feedback_ratelimit.check_and_record(
@@ -64,17 +63,23 @@ def recipes_feedback(
     if not rl.allowed:
         if rl.deduped:
             return {
-                "ok": True, "id": "", "issue_url": rl.issue_url,
-                "deduped": True, "last_submissions": [], "force_available": False,
+                "ok": True,
+                "id": "",
+                "issue_url": rl.issue_url,
+                "deduped": True,
+                "last_submissions": [],
+                "force_available": False,
             }
         if rl.loop_block:
             return {
-                "ok": False, "error": "loop_detector_cooldown",
+                "ok": False,
+                "error": "loop_detector_cooldown",
                 "retry_at": rl.retry_at.isoformat() if rl.retry_at else None,
                 "force_available": False,
             }
         return {
-            "ok": False, "error": "rate_limit_exceeded",
+            "ok": False,
+            "error": "rate_limit_exceeded",
             "force_available": rl.force_available,
             "last_submissions": rl.last_submissions,
         }
@@ -92,17 +97,20 @@ def recipes_feedback(
     db.commit()
     db.refresh(row)
 
-    gh_url = github_dispatch.dispatch_event(
-        "feedback",
-        {
-            "id": str(row.id),
-            "category": category,
-            "message": message,
-            "context": ctx,
-            "agent_id": agent_id,
-            "signature": sig,
-        },
-    ) or ""
+    gh_url = (
+        github_dispatch.dispatch_event(
+            "feedback",
+            {
+                "id": str(row.id),
+                "category": category,
+                "message": message,
+                "context": ctx,
+                "agent_id": agent_id,
+                "signature": sig,
+            },
+        )
+        or ""
+    )
 
     if gh_url:
         row.issue_url = gh_url

@@ -12,7 +12,7 @@ removal in secfix_1906).
 from __future__ import annotations
 
 import tomllib
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from sqlalchemy import case, func
@@ -22,7 +22,6 @@ from app.models import (
     APIKey,
     InstallEvent,
     Skill,
-    StripeEventId,
     User,
 )
 from app.schemas import SkillOut
@@ -42,7 +41,7 @@ RELATED_SKILLS_CAP = 10
 GRAPH_RAIL_CAP = 10
 
 
-def _build_manifest(latest: "SkillVersion", skill: Skill) -> dict:
+def _build_manifest(latest: SkillVersion, skill: Skill) -> dict:
     """F-API-14: Build manifest dict from skill.toml for install response."""
     toml_text = latest.skill_toml or ""
     try:
@@ -52,7 +51,8 @@ def _build_manifest(latest: "SkillVersion", skill: Skill) -> dict:
             "tags": toml_data.get("tags", []),
             "tier": toml_data.get("tier"),
         }
-    except Exception:
+    # Rationale: TOML may be malformed or empty; any parse/key error → safe defaults
+    except Exception:  # noqa: BLE001
         return {"category": skill.category}
 
 
@@ -92,14 +92,12 @@ def _install_counts_for(db: Session, skill_ids: list) -> dict:
     """
     if not skill_ids:
         return {}
-    since_7d = datetime.now(timezone.utc) - timedelta(days=7)
+    since_7d = datetime.now(UTC) - timedelta(days=7)
     rows = (
         db.query(
             InstallEvent.skill_id,
             func.count(InstallEvent.id).label("total"),
-            func.sum(
-                case((InstallEvent.created_at >= since_7d, 1), else_=0)
-            ).label("last_7d"),
+            func.sum(case((InstallEvent.created_at >= since_7d, 1), else_=0)).label("last_7d"),
         )
         .filter(InstallEvent.skill_id.in_(skill_ids))
         .group_by(InstallEvent.skill_id)
@@ -125,16 +123,15 @@ def _count_today_installs(db: Session, api_key_id) -> int:
     """Count installs today for a given API key ID."""
     if api_key_id is None:
         return 0
-    today_start = datetime.now(timezone.utc).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
+    today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     return (
         db.query(func.count(InstallEvent.id))
         .filter(
             InstallEvent.api_key_id == api_key_id,
             InstallEvent.created_at >= today_start,
         )
-        .scalar() or 0
+        .scalar()
+        or 0
     )
 
 
@@ -169,11 +166,7 @@ def _resolve_related(db: Session, skill: Skill) -> list:
         return []
 
     # Single query: pull all candidate public skills at once
-    rows = (
-        db.query(Skill)
-        .filter(Skill.slug.in_(candidates), Skill.is_public == True)
-        .all()
-    )
+    rows = db.query(Skill).filter(Skill.slug.in_(candidates), Skill.is_public == True).all()
     by_slug = {r.slug: r for r in rows}
 
     # Preserve declaration order, cap at limit
@@ -183,21 +176,23 @@ def _resolve_related(db: Session, skill: Skill) -> list:
         if not r:
             continue
         latest = r.versions[0].semver if r.versions else None
-        out.append({
-            "id": r.id,
-            "slug": r.slug,
-            "title": r.title,
-            "description": r.description,
-            "category": r.category,
-            "tier": r.tier,
-            "is_public": r.is_public,
-            "creator_name": r.creator.name if r.creator else None,
-            "creator_handle": r.creator.handle if r.creator else None,
-            "creator_url": r.creator.url if r.creator else None,
-            "latest_version": latest,
-            "created_at": r.created_at,
-            "updated_at": r.updated_at,
-        })
+        out.append(
+            {
+                "id": r.id,
+                "slug": r.slug,
+                "title": r.title,
+                "description": r.description,
+                "category": r.category,
+                "tier": r.tier,
+                "is_public": r.is_public,
+                "creator_name": r.creator.name if r.creator else None,
+                "creator_handle": r.creator.handle if r.creator else None,
+                "creator_url": r.creator.url if r.creator else None,
+                "latest_version": latest,
+                "created_at": r.created_at,
+                "updated_at": r.updated_at,
+            }
+        )
         if len(out) >= RELATED_SKILLS_CAP:
             break
     return out
@@ -207,11 +202,7 @@ def _hydrate_skill_outs(db: Session, slugs: list[str]) -> list[dict]:
     """Resolve a list of slugs (preserving order) to public SkillOut dicts."""
     if not slugs:
         return []
-    rows = (
-        db.query(Skill)
-        .filter(Skill.slug.in_(slugs), Skill.is_public == True)
-        .all()
-    )
+    rows = db.query(Skill).filter(Skill.slug.in_(slugs), Skill.is_public == True).all()
     by_slug = {r.slug: r for r in rows}
     out = []
     for slug in slugs:
@@ -219,21 +210,23 @@ def _hydrate_skill_outs(db: Session, slugs: list[str]) -> list[dict]:
         if not r:
             continue
         latest = r.versions[0].semver if r.versions else None
-        out.append({
-            "id": r.id,
-            "slug": r.slug,
-            "title": r.title,
-            "description": r.description,
-            "category": r.category,
-            "tier": r.tier,
-            "is_public": r.is_public,
-            "creator_name": r.creator.name if r.creator else None,
-            "creator_handle": r.creator.handle if r.creator else None,
-            "creator_url": r.creator.url if r.creator else None,
-            "latest_version": latest,
-            "created_at": r.created_at,
-            "updated_at": r.updated_at,
-        })
+        out.append(
+            {
+                "id": r.id,
+                "slug": r.slug,
+                "title": r.title,
+                "description": r.description,
+                "category": r.category,
+                "tier": r.tier,
+                "is_public": r.is_public,
+                "creator_name": r.creator.name if r.creator else None,
+                "creator_handle": r.creator.handle if r.creator else None,
+                "creator_url": r.creator.url if r.creator else None,
+                "latest_version": latest,
+                "created_at": r.created_at,
+                "updated_at": r.updated_at,
+            }
+        )
     return out
 
 
@@ -264,6 +257,7 @@ def _resolve_caller_tier(db: Session, request) -> str | None:
         if key == settings.API_KEY:
             return "pro_plus"
         import hashlib
+
         key_hash = hashlib.sha256(key.encode()).hexdigest()
         api_key_obj = (
             db.query(APIKey)
@@ -285,11 +279,13 @@ def _resolve_caller_tier(db: Session, request) -> str | None:
     if token:
         try:
             from app.auth_routes import verify_jwt  # local import to avoid cycles
+
             payload = verify_jwt(token)
         except Exception:  # noqa: BLE001
             payload = None
         if payload:
             from uuid import UUID
+
             try:
                 user_id = UUID(payload["sub"])
             except (ValueError, KeyError, TypeError):

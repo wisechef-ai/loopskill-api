@@ -5,6 +5,7 @@ fail-soft — any exception is caught so the service always starts.
 
 Phase 4: Stripe webhook endpoint smoke test.
 """
+
 from __future__ import annotations
 
 import logging
@@ -46,7 +47,8 @@ def post_tori_alert(message: str) -> None:
                     resp.status_code,
                     resp.text[:200],
                 )
-    except Exception:
+    # Rationale: alert delivery is best-effort; any HTTP/network error must not crash boot
+    except Exception:  # noqa: BLE001
         logger.exception("tori alert delivery failed")
 
 
@@ -70,6 +72,7 @@ async def verify_stripe_webhook_endpoint() -> None:
 
     try:
         import stripe
+
         stripe.api_key = settings.STRIPE_SECRET_KEY
         stripe.api_version = "2026-01-28.clover"
 
@@ -81,9 +84,7 @@ async def verify_stripe_webhook_endpoint() -> None:
                 f"on `{EXPECTED_WEBHOOK_URL}` — webhooks may fail to verify. "
                 "Check .env and rotate the secret if needed."
             )
-            logger.critical(
-                "verify_stripe_webhook_endpoint: WR_STRIPE_WEBHOOK_SECRET invalid format"
-            )
+            logger.critical("verify_stripe_webhook_endpoint: WR_STRIPE_WEBHOOK_SECRET invalid format")
             post_tori_alert(msg)
 
         # ── 2. Check registered endpoints ─────────────────────────────────────
@@ -110,9 +111,9 @@ async def verify_stripe_webhook_endpoint() -> None:
             return v
 
         matching = [
-            ep for ep in (endpoint_data or [])
-            if _field(ep, "url") == EXPECTED_WEBHOOK_URL
-            and _field(ep, "status") == "enabled"
+            ep
+            for ep in (endpoint_data or [])
+            if _field(ep, "url") == EXPECTED_WEBHOOK_URL and _field(ep, "status") == "enabled"
         ]
         count = len(matching)
         if count == 1:
@@ -144,7 +145,8 @@ async def verify_stripe_webhook_endpoint() -> None:
             )
             post_tori_alert(msg)
 
-    except Exception:
+    # Rationale: Stripe API check is fail-soft; any SDK/network error logs warning and continues
+    except Exception:  # noqa: BLE001
         logger.warning(
             "verify_stripe_webhook_endpoint: check failed (non-fatal) — service will continue",
             exc_info=True,

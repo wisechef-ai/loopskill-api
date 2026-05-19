@@ -26,22 +26,26 @@ router = APIRouter(tags=["skills"])
 # Phase 5 (RCP-INCIDENT-2026-05-11): canonical slugs are 'pro' and 'pro_plus'.
 # Legacy slugs kept for backwards compat until 2026-06-10.
 TIER_RANK = {
-    None: 0, "free": 0,
-    "pro": 1, "cook": 1,           # cook=legacy alias for pro
-    "pro_plus": 2, "operator": 2, "studio": 3,  # operator/studio=legacy for pro_plus
+    None: 0,
+    "free": 0,
+    "pro": 1,
+    "cook": 1,  # cook=legacy alias for pro
+    "pro_plus": 2,
+    "operator": 2,
+    "studio": 3,  # operator/studio=legacy for pro_plus
 }
 
 # WIS-902: Tier-aware install rate limits (installs per day per API key).
 # Free/anon: 5, Pro: 100, Pro+: unlimited.
 TIER_INSTALL_LIMITS: dict[str | None, int | None] = {
-    None: 5,        # anonymous / no API key
-    "free": 5,      # free-tier user
-    "pro": 100,     # Pro subscriber
+    None: 5,  # anonymous / no API key
+    "free": 5,  # free-tier user
+    "pro": 100,  # Pro subscriber
     "pro_plus": None,  # unlimited
     # Legacy aliases:
-    "cook": 100,    # legacy alias → pro
+    "cook": 100,  # legacy alias → pro
     "operator": None,  # legacy alias → pro_plus
-    "studio": None,    # legacy alias → pro_plus
+    "studio": None,  # legacy alias → pro_plus
 }
 
 

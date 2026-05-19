@@ -5,52 +5,54 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.config import settings
+from app.access_routes import router as access_router  # Phase E: access split
 from app.admin_routes import router as admin_router
-from app.auth_routes import router as auth_router
 from app.api_key_routes import router as api_key_router
+from app.auth_routes import router as auth_router
 from app.buckets_routes import router as buckets_router
+from app.canary import router as canary_router
 from app.carousel.routes import router as carousel_router
 from app.checkout_routes import router as checkout_router
+from app.config import settings
+from app.cookbook_routes import router as cookbook_router
 from app.creator_routes import router as creator_router
 from app.database import engine
-from app.buckets_routes import router as buckets_router
 from app.discord_bot import bot as discord_bot
 from app.feedback_routes import router as feedback_router
-from app.canary import router as canary_router
-from app.cookbook_routes import router as cookbook_router
+from app.feedback_v1_routes import router as feedback_v1_router
 from app.forks_routes import router as forks_router
 from app.graph_routes import router as graph_router
+from app.health_routes import router as health_router  # Phase E: health split
 from app.heartbeat_routes import router as heartbeat_router
+from app.install_routes import router as install_router  # Phase E: install split
 from app.intent_survey_routes import router as intent_survey_router
+from app.marketing_routes import router as marketing_router
 from app.mcp.server import (
     router as mcp_router,
+)
+from app.mcp.server import (
     run_streamable_http,
-    get_http_session_manager,
 )
 from app.middleware import APIKeyMiddleware, BucketHostMiddleware, RateLimitMiddleware
 from app.models import Base
 from app.publisher_routes import router as publisher_router
 from app.recall_routes import router as recall_router
+from app.recipe_routes import router as recipe_router  # Phase E: recipe split
 from app.recipify_routes import router as recipify_router
 from app.referral_routes import router as referral_router
-from app.routes import router
-from app.routes import utm_router  # backwards-compat: routes.py re-exports from utm_redirects
-from app.health_routes import router as health_router  # Phase E: health split
-from app.access_routes import router as access_router  # Phase E: access split
-from app.recipe_routes import router as recipe_router  # Phase E: recipe split
-from app.install_routes import router as install_router  # Phase E: install split
-from app.skill_routes import router as skill_router  # Phase E: skill split
-from app.marketing_routes import router as marketing_router
+from app.routes import (
+    router,
+    utm_router,  # backwards-compat: routes.py re-exports from utm_redirects
+)
 from app.sandbox.routes import router as sandbox_router
-from app.skill_error_routes import router as skill_error_router
-from app.transparency_routes import router as transparency_router
-from app.feedback_v1_routes import router as feedback_v1_router
-from app.skill_patch_routes import router as skill_patch_router
-from app.sse_routes import router as sse_router
 from app.share_token_routes import router as share_token_router
+from app.skill_error_routes import router as skill_error_router
+from app.skill_patch_routes import router as skill_patch_router
+from app.skill_routes import router as skill_router  # Phase E: skill split
+from app.sse_routes import router as sse_router
 from app.startup_checks import verify_stripe_webhook_endpoint  # Phase 4
 from app.sync_fanout import get_fanout
+from app.transparency_routes import router as transparency_router
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +70,7 @@ async def lifespan(app: FastAPI):
     fanout = get_fanout()
     try:
         await fanout.start_listener()
+    # Rationale: fanout LISTEN worker is non-critical; boot must succeed even if Redis/PG unavailable
     except Exception:
         logger.exception("fanout: failed to start LISTEN/NOTIFY worker (non-fatal)")
     # Phase 1 (v7.1): start StreamableHTTP session manager task group.
@@ -78,16 +81,19 @@ async def lifespan(app: FastAPI):
     finally:
         try:
             await streamable_http_cm.__aexit__(None, None, None)
+        # Rationale: MCP StreamableHTTP shutdown is best-effort; log but don't block
         except Exception:
             logger.exception("streamable_http: failed to shut down cleanly")
         try:
             await fanout.stop_listener()
+        # Rationale: fanout stop is best-effort; log but don't block app shutdown
         except Exception:
             logger.exception("fanout: failed to stop LISTEN/NOTIFY worker")
         await discord_bot.stop_bot(bot_task)
 
 
 def create_app() -> FastAPI:
+    """Create and configure the FastAPI application instance."""
     app = FastAPI(
         title="WiseRecipes API",
         version="0.4.0",
@@ -107,43 +113,44 @@ def create_app() -> FastAPI:
 
     app.include_router(router)
     app.include_router(utm_router)  # marketing_1205: /x/<slug>, /li/<slug> etc.
-    app.include_router(health_router, prefix="/api")  # Phase E: /api/healthz
-    app.include_router(access_router, prefix="/api")  # Phase E: /api/skills/access
-    app.include_router(recipe_router, prefix="/api")  # Phase E: /api/recipes/, /api/api-library/
-    app.include_router(install_router, prefix="/api")  # Phase E: /api/skills/install, /api/skills/_download
-    app.include_router(skill_router, prefix="/api")  # Phase E: /api/skills/*
-    app.include_router(admin_router)
-    app.include_router(auth_router)
-    app.include_router(carousel_router, prefix="/api")
-    app.include_router(sandbox_router)
-    app.include_router(creator_router)
-    app.include_router(publisher_router)
-    app.include_router(checkout_router)
-    app.include_router(api_key_router)
-    app.include_router(feedback_router)
-    app.include_router(canary_router)
-    app.include_router(forks_router)
-    app.include_router(cookbook_router)
-    app.include_router(graph_router)
-    app.include_router(buckets_router)
-    app.include_router(heartbeat_router)
-    app.include_router(intent_survey_router)
-    app.include_router(skill_error_router)
-    app.include_router(transparency_router)
-    app.include_router(feedback_v1_router)
-    app.include_router(skill_patch_router)
-    app.include_router(recall_router)
-    app.include_router(recipify_router)
-    app.include_router(referral_router)
-    app.include_router(marketing_router)
-    app.include_router(sse_router)
-    app.include_router(share_token_router)
-    app.include_router(mcp_router)
+    app.include_router(health_router, prefix="/api", tags=["meta"])
+    app.include_router(access_router, prefix="/api", tags=["skills"])
+    app.include_router(recipe_router, prefix="/api", tags=["recipes"])
+    app.include_router(install_router, prefix="/api", tags=["skills"])
+    app.include_router(skill_router, prefix="/api", tags=["skills"])
+    app.include_router(admin_router, tags=["admin"])
+    app.include_router(auth_router, tags=["auth"])
+    app.include_router(carousel_router, prefix="/api", tags=["carousel"])
+    app.include_router(sandbox_router, tags=["sandbox"])
+    app.include_router(creator_router, tags=["creator"])
+    app.include_router(publisher_router, tags=["publisher"])
+    app.include_router(checkout_router, tags=["billing"])
+    app.include_router(api_key_router, tags=["api-keys"])
+    app.include_router(feedback_router, tags=["feedback"])
+    app.include_router(canary_router, tags=["canary"])
+    app.include_router(forks_router, tags=["forks"])
+    app.include_router(cookbook_router, tags=["cookbooks"])
+    app.include_router(graph_router, tags=["graph"])
+    app.include_router(buckets_router, tags=["buckets"])
+    app.include_router(heartbeat_router, tags=["heartbeat"])
+    app.include_router(intent_survey_router, tags=["surveys"])
+    app.include_router(skill_error_router, tags=["skill-errors"])
+    app.include_router(transparency_router, tags=["transparency"])
+    app.include_router(feedback_v1_router, tags=["feedback"])
+    app.include_router(skill_patch_router, tags=["skill-patches"])
+    app.include_router(recall_router, tags=["recall"])
+    app.include_router(recipify_router, tags=["recipify"])
+    app.include_router(referral_router, tags=["referral"])
+    app.include_router(marketing_router, tags=["marketing"])
+    app.include_router(sse_router, tags=["sse"])
+    app.include_router(share_token_router, tags=["share"])
+    app.include_router(mcp_router, tags=["mcp"])
 
     # Phase 1 (v7.1): Mount StreamableHTTP ASGI sub-app at /api/mcp/http.
     # Must happen after include_router(mcp_router) so the session manager's
     # MCP server is built from the same build_mcp_server() factory.
     from app.mcp.server import _build_streamable_http_mount
+
     app.router.routes.append(_build_streamable_http_mount())
 
     @app.get("/", tags=["meta"])

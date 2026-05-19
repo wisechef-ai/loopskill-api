@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, joinedload
@@ -26,10 +25,11 @@ router = APIRouter(prefix="/api", tags=["sandbox"])
 
 # Shared runner instance (workspace can be configured via env)
 SANDBOX_WORKSPACE = os.environ.get("WR_SANDBOX_WORKSPACE", "/var/lib/wiserecipes/sandboxes")
-_runner: Optional[SandboxRunner] = None
+_runner: SandboxRunner | None = None
 
 
 def get_runner() -> SandboxRunner:
+    """Return the singleton SandboxRunner instance, creating it if needed."""
     global _runner
     if _runner is None:
         _runner = SandboxRunner(workspace=SANDBOX_WORKSPACE)
@@ -38,15 +38,18 @@ def get_runner() -> SandboxRunner:
 
 # ── Schemas ──────────────────────────────────────────────────────────────
 
+
 class SandboxRunRequest(BaseModel):
     """Request body for POST /api/skills/{slug}/sandbox/run."""
+
     entrypoint: str = Field("setup.sh", description="Script to execute inside sandbox")
-    version: Optional[str] = Field(None, description="Specific version (default: latest)")
-    env: Optional[dict[str, str]] = Field(None, description="Extra env vars for sandbox")
+    version: str | None = Field(None, description="Specific version (default: latest)")
+    env: dict[str, str] | None = Field(None, description="Extra env vars for sandbox")
 
 
 class SandboxRunResponse(BaseModel):
     """Response for sandbox execution."""
+
     sandbox_id: str
     exit_code: int
     stdout: str
@@ -54,28 +57,25 @@ class SandboxRunResponse(BaseModel):
     timed_out: bool
     duration_seconds: float
     success: bool
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class SandboxStatusResponse(BaseModel):
     """Response for sandbox status check."""
+
     slug: str
     sandbox_supported: bool
-    profile: Optional[dict] = None
+    profile: dict | None = None
     validation_warnings: list[str] = Field(default_factory=list)
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────
 
+
 @router.get("/skills/{slug}/sandbox/status", response_model=SandboxStatusResponse)
 def sandbox_status(slug: str, db: Session = Depends(get_db)):
     """Check if a skill supports sandbox execution and return its profile."""
-    skill = (
-        db.query(Skill)
-        .options(joinedload(Skill.versions))
-        .filter(Skill.slug == slug)
-        .first()
-    )
+    skill = db.query(Skill).options(joinedload(Skill.versions)).filter(Skill.slug == slug).first()
     if not skill:
         raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
 
@@ -133,14 +133,11 @@ def sandbox_run(
     if auth_ctx is None or not authz.can_run_sandbox(auth_ctx):
         return JSONResponse(
             status_code=403,
-            content={"detail": "Forbidden: sandbox execution requires master scope or is_sandbox_operator=True"},
+            content={
+                "detail": "Forbidden: sandbox execution requires master scope or is_sandbox_operator=True"
+            },
         )
-    skill = (
-        db.query(Skill)
-        .options(joinedload(Skill.versions))
-        .filter(Skill.slug == slug)
-        .first()
-    )
+    skill = db.query(Skill).options(joinedload(Skill.versions)).filter(Skill.slug == slug).first()
     if not skill:
         raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
 
@@ -201,16 +198,18 @@ def sandbox_run(
     event = TelemetryEvent(
         event_type="sandbox_run",
         skill_slug=slug,
-        payload=json.dumps({
-            "sandbox_id": result.sandbox_id,
-            "entrypoint": body.entrypoint,
-            "version": version.semver,
-            "exit_code": result.exit_code,
-            "timed_out": result.timed_out,
-            "duration_seconds": round(result.duration_seconds, 3),
-            "success": result.success,
-            "error": result.error,
-        }),
+        payload=json.dumps(
+            {
+                "sandbox_id": result.sandbox_id,
+                "entrypoint": body.entrypoint,
+                "version": version.semver,
+                "exit_code": result.exit_code,
+                "timed_out": result.timed_out,
+                "duration_seconds": round(result.duration_seconds, 3),
+                "success": result.success,
+                "error": result.error,
+            }
+        ),
     )
     db.add(event)
     db.commit()
@@ -229,13 +228,15 @@ def sandbox_run(
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
+
 def _parse_toml_keys(toml_str: str) -> set[str]:
     """Extract top-level table names from a TOML string (lightweight parser)."""
     import re
+
     return {m.group(1) for m in re.finditer(r"^\[(\w+)\]", toml_str, re.MULTILINE)}
 
 
-def _resolve_skill_dir(slug: str, version: SkillVersion) -> Optional[str]:
+def _resolve_skill_dir(slug: str, version: SkillVersion) -> str | None:
     """Resolve the host directory for a skill checkout.
 
     Checks:

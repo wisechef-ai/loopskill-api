@@ -8,6 +8,7 @@ from app.mcp.server import run_stdio
 
 
 def main() -> None:
+    """Entry point: run the MCP server over stdio."""
     asyncio.run(run_stdio())
 
 

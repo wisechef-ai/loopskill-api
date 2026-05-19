@@ -44,10 +44,10 @@ logger = logging.getLogger(__name__)
 _HTTP_TIMEOUT_S = 5.0
 
 # Hex colors used in the Discord embed strip on the left edge.
-_COLOR_NEW_SUB = 0x22C55E       # green — new revenue
-_COLOR_UPGRADE = 0xD4A017       # gold — upsell
-_COLOR_CANCEL = 0xEF4444        # red  — churn
-_COLOR_OTHER = 0x6B7280         # grey — informational
+_COLOR_NEW_SUB = 0x22C55E  # green — new revenue
+_COLOR_UPGRADE = 0xD4A017  # gold — upsell
+_COLOR_CANCEL = 0xEF4444  # red  — churn
+_COLOR_OTHER = 0x6B7280  # grey — informational
 
 
 def post_revenue_event(
@@ -168,17 +168,21 @@ def _build_embed_payload(
     if tier:
         fields.append({"name": "Tier", "value": tier_display, "inline": True})
     if amount_usd is not None:
-        fields.append({
-            "name": "MRR impact",
-            "value": f"${amount_usd:.2f}/mo",
-            "inline": True,
-        })
+        fields.append(
+            {
+                "name": "MRR impact",
+                "value": f"${amount_usd:.2f}/mo",
+                "inline": True,
+            }
+        )
     if user_id:
-        fields.append({
-            "name": "User ID",
-            "value": f"`{user_id}`",
-            "inline": False,
-        })
+        fields.append(
+            {
+                "name": "User ID",
+                "value": f"`{user_id}`",
+                "inline": False,
+            }
+        )
     for line in extra_lines:
         if line:
             fields.append({"name": "\u200b", "value": line, "inline": False})

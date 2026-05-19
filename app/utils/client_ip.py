@@ -7,7 +7,7 @@ IP so spoofed headers cannot hijack rate-limit buckets or telemetry.
 """
 
 import ipaddress
-from typing import Sequence
+from collections.abc import Sequence
 
 from starlette.requests import Request
 

@@ -8,6 +8,7 @@ Caching: Redis with 60 s TTL, keyed on ``cookbook_status:<user_id>``.
 If Redis is unavailable (e.g., in the test environment), caching is skipped
 gracefully.
 """
+
 from __future__ import annotations
 
 import json
@@ -32,7 +33,8 @@ def _redis_client():  # pragma: no cover — optional dependency
 
         url = getattr(redis, "_recipes_url", None)
         return redis.from_url(url) if url else None
-    except Exception:
+    # Rationale: Redis is optional; any import/connection error → return None (DB will serve)
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -63,7 +65,8 @@ def get_cookbook_status(db: Session, user_id: UUID | str | None) -> dict[str, An
             if cached:
                 data = json.loads(cached)
                 return data if data else None
-    except Exception:
+    # Rationale: Redis cache read is best-effort; any error → fall through to DB query
+    except Exception:  # noqa: BLE001
         logger.debug("Redis cache read failed, proceeding with query")
 
     # ── DB query ─────────────────────────────────────────────────────────
@@ -139,7 +142,8 @@ def invalidate_cookbook_status(user_id: UUID | str | None) -> None:
         rds = _redis_client()
         if rds:
             rds.delete(f"cookbook_status:{user_id}")
-    except Exception:
+    # Rationale: Redis cache invalidation is non-critical; any error → log and continue
+    except Exception:  # noqa: BLE001
         logger.debug("Redis cache invalidation failed (non-critical)")
 
 
@@ -148,5 +152,6 @@ def _cache_set(cache_key: str, data: dict) -> None:
         rds = _redis_client()
         if rds:
             rds.setex(cache_key, _TTL, json.dumps(data, default=str))
-    except Exception:
+    # Rationale: Redis cache write is best-effort; any error → log and continue
+    except Exception:  # noqa: BLE001
         logger.debug("Redis cache write failed (non-critical)")

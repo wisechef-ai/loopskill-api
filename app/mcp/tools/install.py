@@ -16,15 +16,15 @@ Stream 4 additions:
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
 from itsdangerous import URLSafeTimedSerializer
 from sqlalchemy.orm import Session
 
-from app.auth_ctx import AuthContext
 from app import authz
+from app.auth_ctx import AuthContext
 from app.config import settings
 from app.models import InstallEvent, Skill, SkillDerivedEdge
 from app.routes import _build_manifest
@@ -106,17 +106,13 @@ def recipes_install(
         target = skill.versions[0]
 
     serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET)
-    token = serializer.dumps(
-        {"slug": base_slug, "version_id": str(target.id), "mode": "files"}
-    )
+    token = serializer.dumps({"slug": base_slug, "version_id": str(target.id), "mode": "files"})
     public_origin = (
         getattr(settings, "PUBLIC_ORIGIN", None)
         or os.environ.get("RECIPES_PUBLIC_ORIGIN")
         or "https://recipes.wisechef.ai"
     )
-    tarball_url = (
-        public_origin.rstrip("/") + "/api/skills/_download?token=" + token
-    )
+    tarball_url = public_origin.rstrip("/") + "/api/skills/_download?token=" + token
 
     db.add(
         InstallEvent(
@@ -139,9 +135,7 @@ def recipes_install(
         "tarball_url": tarball_url,
         "checksum_sha256": target.checksum_sha256,
         "size_bytes": target.tarball_size_bytes,
-        "expires_at": (
-            datetime.now(timezone.utc) + timedelta(hours=1)
-        ).isoformat(),
+        "expires_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
         "manifest": _build_manifest(target, skill),
         "related_skills": related,
     }

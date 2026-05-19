@@ -25,6 +25,7 @@ Usage:
 
 Exits 0 on success, prints summary plus per-row diff.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -34,18 +35,64 @@ import sys
 from app.database import SessionLocal
 from app.models import Skill
 
-
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 # Acronyms that should stay uppercase in title-case derivation. Lowercased on
 # input. Order doesn't matter; this is a membership check.
-_ACRONYMS = frozenset({
-    "ai", "ci", "cd", "cli", "api", "ui", "ux", "id", "os", "pr", "qa", "ml",
-    "llm", "mcp", "rest", "sdk", "tts", "stt", "rag", "rl", "db", "fs",
-    "gpu", "cpu", "io", "url", "uri", "http", "https", "json", "yaml", "xml",
-    "js", "ts", "css", "html", "sql", "vps", "dns", "tls", "ssl", "ssh",
-    "rss", "fyi", "ack", "pm", "qa", "wip", "tdd", "bdd", "dx",
-})
+_ACRONYMS = frozenset(
+    {
+        "ai",
+        "ci",
+        "cd",
+        "cli",
+        "api",
+        "ui",
+        "ux",
+        "id",
+        "os",
+        "pr",
+        "qa",
+        "ml",
+        "llm",
+        "mcp",
+        "rest",
+        "sdk",
+        "tts",
+        "stt",
+        "rag",
+        "rl",
+        "db",
+        "fs",
+        "gpu",
+        "cpu",
+        "io",
+        "url",
+        "uri",
+        "http",
+        "https",
+        "json",
+        "yaml",
+        "xml",
+        "js",
+        "ts",
+        "css",
+        "html",
+        "sql",
+        "vps",
+        "dns",
+        "tls",
+        "ssl",
+        "ssh",
+        "rss",
+        "fyi",
+        "ack",
+        "pm",
+        "wip",
+        "tdd",
+        "bdd",
+        "dx",
+    }
+)
 
 # Known CLI-tool prefixes. If slug starts with one of these followed by `-`,
 # we preserve the tool name lowercase and treat the rest as the action.
@@ -146,7 +193,10 @@ def main() -> int:
             readme = getattr(s, "readme", None) or ""
             if _parse_frontmatter_field(readme, "title"):
                 source = "frontmatter:title"
-            elif _parse_frontmatter_field(readme, "name") and _parse_frontmatter_field(readme, "name") != s.slug:
+            elif (
+                _parse_frontmatter_field(readme, "name")
+                and _parse_frontmatter_field(readme, "name") != s.slug
+            ):
                 source = "frontmatter:name"
             else:
                 source = "slug→title-case"

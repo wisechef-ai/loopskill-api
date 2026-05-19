@@ -26,9 +26,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import socket
-import ssl
-from typing import Optional
-from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +66,8 @@ class DomainProxy:
     def __init__(self, allowed_domains: list[str], bind_host: str = "127.0.0.1"):
         self.allowed_domains = allowed_domains
         self.bind_host = bind_host
-        self.port: Optional[int] = None
-        self._server: Optional[asyncio.Server] = None
+        self.port: int | None = None
+        self._server: asyncio.Server | None = None
         self._connections: set[asyncio.Task] = set()
 
     async def start(self) -> int:
@@ -106,21 +103,23 @@ class DomainProxy:
             await self._proxy_connection(reader, writer)
         except asyncio.CancelledError:
             pass
-        except Exception as exc:
+        # Rationale: individual proxy connections fail independently; log at debug, never crash server
+        except Exception as exc:  # noqa: BLE001
             logger.debug(f"Proxy connection error: {exc}")
         finally:
             self._connections.discard(task)
             try:
                 writer.close()
                 await writer.wait_closed()
-            except Exception:
+            # Rationale: writer.close() can raise if transport already closed; suppress
+            except Exception:  # noqa: BLE001
                 pass
 
     async def _proxy_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Process a single proxy connection."""
         try:
             request_line = await asyncio.wait_for(reader.readline(), timeout=30.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return
 
         if not request_line:
@@ -160,7 +159,7 @@ class DomainProxy:
         while True:
             try:
                 header_line = await asyncio.wait_for(reader.readline(), timeout=10.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 break
             if header_line == b"\r\n" or header_line == b"\n" or not header_line:
                 break
@@ -178,7 +177,7 @@ class DomainProxy:
                 asyncio.open_connection(hostname, port),
                 timeout=10.0,
             )
-        except (asyncio.TimeoutError, OSError, socket.gaierror) as exc:
+        except (TimeoutError, OSError, socket.gaierror) as exc:
             logger.info(f"Proxy CONNECT to {hostname}:{port} failed: {exc}")
             writer.write(CONNECT_ERROR_RESPONSE)
             await writer.drain()
@@ -193,7 +192,9 @@ class DomainProxy:
         # Bidirectional pipe
         await self._pipe(reader, upstream_writer, upstream_reader, writer)
 
-    async def _handle_http(self, request_line: str, uri: str, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+    async def _handle_http(
+        self, request_line: str, uri: str, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ):
         """Handle a plain HTTP request through the proxy."""
         # Read remaining headers to find Host
         headers = {}
@@ -215,6 +216,7 @@ class DomainProxy:
             # Try to extract from URI
             if "://" in uri:
                 from urllib.parse import urlparse
+
                 parsed = urlparse(uri)
                 hostname = parsed.hostname or ""
 
@@ -231,7 +233,7 @@ class DomainProxy:
                 asyncio.open_connection(hostname, port),
                 timeout=10.0,
             )
-        except (asyncio.TimeoutError, OSError) as exc:
+        except (TimeoutError, OSError):
             writer.write(CONNECT_ERROR_RESPONSE)
             await writer.drain()
             return
@@ -253,6 +255,7 @@ class DomainProxy:
         client_writer: asyncio.StreamWriter,
     ):
         """Bidirectional data pipe between client and upstream."""
+
         async def forward(src: asyncio.StreamReader, dst: asyncio.StreamWriter):
             try:
                 while True:
@@ -267,7 +270,8 @@ class DomainProxy:
                 try:
                     dst.close()
                     await dst.wait_closed()
-                except Exception:
+                # Rationale: connection teardown; transport may already be gone
+                except Exception:  # noqa: BLE001
                     pass
 
         await asyncio.gather(

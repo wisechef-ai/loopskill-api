@@ -18,13 +18,12 @@ Usage:
 
 Exits 0 on success, prints a one-line summary plus per-row diff to stdout.
 """
+
 from __future__ import annotations
 
 import argparse
 import sys
-from datetime import datetime, timedelta, timezone
-
-from sqlalchemy import select
+from datetime import UTC, datetime, timedelta
 
 from app.database import SessionLocal
 from app.models import CarouselEntry, Skill
@@ -40,13 +39,17 @@ def derive_tagline(skill: Skill) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Backfill carousel taglines from skill.description.")
-    parser.add_argument("days", nargs="?", type=int, default=1,
-                        help="Number of days back from today (UTC) to backfill (default: 1 = today only).")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Print proposed changes without committing.")
+    parser.add_argument(
+        "days",
+        nargs="?",
+        type=int,
+        default=1,
+        help="Number of days back from today (UTC) to backfill (default: 1 = today only).",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Print proposed changes without committing.")
     args = parser.parse_args()
 
-    end_dt = datetime.now(timezone.utc).replace(hour=23, minute=59, second=59, microsecond=999999)
+    end_dt = datetime.now(UTC).replace(hour=23, minute=59, second=59, microsecond=999999)
     start_dt = (end_dt - timedelta(days=args.days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
     db = SessionLocal()

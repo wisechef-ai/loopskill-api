@@ -66,25 +66,30 @@ def fetch_latest_github(release_source: str, *, _http=None) -> str | None:
     """``github.com/owner/repo`` → query GitHub releases for ``tag_name``."""
     if _http is None:
         import httpx
+
         _http = httpx
     src = release_source.strip()
     src = src.replace("https://", "").replace("http://", "")
     if not src.startswith("github.com/"):
         return None
-    repo = src[len("github.com/"):].strip("/")
+    repo = src[len("github.com/") :].strip("/")
     if repo.count("/") != 1:
         return None
     try:
-        r = _http.get(f"https://api.github.com/repos/{repo}/releases/latest",
-                      timeout=8.0,
-                      headers={"Accept": "application/vnd.github+json"})
-    except Exception:
+        r = _http.get(
+            f"https://api.github.com/repos/{repo}/releases/latest",
+            timeout=8.0,
+            headers={"Accept": "application/vnd.github+json"},
+        )
+    # Rationale: network call to GitHub API; any HTTP/connection error → return None
+    except Exception:  # noqa: BLE001
         return None
     if getattr(r, "status_code", 0) != 200:
         return None
     try:
         data = r.json()
-    except Exception:
+    # Rationale: response parsing; malformed JSON → return None
+    except Exception:  # noqa: BLE001
         return None
     return data.get("tag_name") or data.get("name")
 
@@ -99,8 +104,7 @@ def _route(bump: str) -> str:
     return "noop"
 
 
-def scan_recipe(path: Path, *, _http=None,
-                _fetch=fetch_latest_github) -> list[StalenessFinding]:
+def scan_recipe(path: Path, *, _http=None, _fetch=fetch_latest_github) -> list[StalenessFinding]:
     """Scan a single ``recipes/<slug>/recipe.yaml`` for stale binaries."""
     try:
         doc = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -123,44 +127,62 @@ def scan_recipe(path: Path, *, _http=None,
         bump = classify(pinned, latest)
         if bump == "none":
             continue
-        findings.append(StalenessFinding(
-            skill_slug=slug, binary=binary.get("name") or "?",
-            pinned=pinned, latest=latest, bump=bump, action=_route(bump),
-        ))
+        findings.append(
+            StalenessFinding(
+                skill_slug=slug,
+                binary=binary.get("name") or "?",
+                pinned=pinned,
+                latest=latest,
+                bump=bump,
+                action=_route(bump),
+            )
+        )
 
     return findings
 
 
 def open_auto_merge_pr(finding: StalenessFinding, *, _printer=print) -> None:
     """Print intent for now — real auto-merge needs CI hooks the plan defers."""
-    _printer(json.dumps({
-        "intent": "auto-merge-pr",
-        "skill": finding.skill_slug,
-        "binary": finding.binary,
-        "from": finding.pinned,
-        "to": finding.latest,
-    }))
+    _printer(
+        json.dumps(
+            {
+                "intent": "auto-merge-pr",
+                "skill": finding.skill_slug,
+                "binary": finding.binary,
+                "from": finding.pinned,
+                "to": finding.latest,
+            }
+        )
+    )
 
 
 def flag_publisher(finding: StalenessFinding, *, _printer=print) -> None:
-    _printer(json.dumps({
-        "intent": "publisher-flag",
-        "skill": finding.skill_slug,
-        "binary": finding.binary,
-        "from": finding.pinned,
-        "to": finding.latest,
-        "ack_window_days": 14,
-    }))
+    _printer(
+        json.dumps(
+            {
+                "intent": "publisher-flag",
+                "skill": finding.skill_slug,
+                "binary": finding.binary,
+                "from": finding.pinned,
+                "to": finding.latest,
+                "ack_window_days": 14,
+            }
+        )
+    )
 
 
 def require_human(finding: StalenessFinding, *, _printer=print) -> None:
-    _printer(json.dumps({
-        "intent": "human-required",
-        "skill": finding.skill_slug,
-        "binary": finding.binary,
-        "from": finding.pinned,
-        "to": finding.latest,
-    }))
+    _printer(
+        json.dumps(
+            {
+                "intent": "human-required",
+                "skill": finding.skill_slug,
+                "binary": finding.binary,
+                "from": finding.pinned,
+                "to": finding.latest,
+            }
+        )
+    )
 
 
 def dispatch(findings: list[StalenessFinding], *, _printer=print) -> None:
@@ -173,8 +195,7 @@ def dispatch(findings: list[StalenessFinding], *, _printer=print) -> None:
             require_human(f, _printer=_printer)
 
 
-def run(catalog_root: Path, *, _http=None,
-        _fetch=fetch_latest_github, _printer=print) -> dict[str, Any]:
+def run(catalog_root: Path, *, _http=None, _fetch=fetch_latest_github, _printer=print) -> dict[str, Any]:
     findings: list[StalenessFinding] = []
     for recipe in sorted(catalog_root.rglob("recipe.yaml")):
         findings.extend(scan_recipe(recipe, _http=_http, _fetch=_fetch))
@@ -183,11 +204,13 @@ def run(catalog_root: Path, *, _http=None,
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="version_staleness",
-                                 description="F.8 daily version-staleness sweep.")
-    ap.add_argument("--catalog", type=Path,
-                    default=Path(__file__).resolve().parents[2] / "recipes",
-                    help="Root directory containing recipe.yaml files (default: <repo>/recipes).")
+    ap = argparse.ArgumentParser(prog="version_staleness", description="F.8 daily version-staleness sweep.")
+    ap.add_argument(
+        "--catalog",
+        type=Path,
+        default=Path(__file__).resolve().parents[2] / "recipes",
+        help="Root directory containing recipe.yaml files (default: <repo>/recipes).",
+    )
     ap.add_argument("--json", action="store_true", help="Emit findings as JSON.")
     args = ap.parse_args(argv)
 

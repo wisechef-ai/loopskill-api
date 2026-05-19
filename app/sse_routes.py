@@ -22,14 +22,14 @@ mitigation from the premortem:
   * ``Last-Event-Id`` (a numeric envelope id) replays missed events from
     the in-memory ring buffer in :class:`app.sync_fanout.Fanout`.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -72,21 +72,18 @@ async def _gate_release(app) -> None:
 
 
 def _format_event(envelope: dict) -> str:
-    return (
-        f"id: {envelope['id']}\n"
-        f"event: cookbook_event\n"
-        f"data: {json.dumps(envelope['data'])}\n\n"
-    )
+    return f"id: {envelope['id']}\nevent: cookbook_event\ndata: {json.dumps(envelope['data'])}\n\n"
 
 
 @router.get("/{cookbook_id}/sync/sse")
 async def cookbook_sync_sse(
     cookbook_id: str,
     request: Request,
-    last_event_id: Optional[str] = Header(default=None, alias="Last-Event-Id"),
+    last_event_id: str | None = Header(default=None, alias="Last-Event-Id"),
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
+    """Stream Server-Sent Events for real-time cookbook sync updates."""
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
     cid = str(cb.id)
     # Release the DB session before the (potentially long-lived) stream
@@ -125,11 +122,9 @@ async def cookbook_sync_sse(
                 if await request.is_disconnected():
                     break
                 try:
-                    envelope = await asyncio.wait_for(
-                        queue.get(), timeout=SSE_HEARTBEAT_SECONDS
-                    )
+                    envelope = await asyncio.wait_for(queue.get(), timeout=SSE_HEARTBEAT_SECONDS)
                     yield _format_event(envelope)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield "event: ping\ndata: {}\n\n"
         finally:
             await fanout.unsubscribe(cid, queue)

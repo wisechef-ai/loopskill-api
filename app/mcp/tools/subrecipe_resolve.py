@@ -12,5 +12,6 @@ from sqlalchemy.orm import Session
 
 
 def recipes_subrecipe_resolve(db: Session, **_: Any) -> dict[str, Any]:  # noqa: ARG001
+    """Phase C stub: resolve a sub-recipe key to a scope."""
     # Public-scope MCP tool: Phase C stub; returns fixed operator scope, no data exposure.
     return {"scope": "operator"}

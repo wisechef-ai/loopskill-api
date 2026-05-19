@@ -10,18 +10,17 @@ Phase C (top1pct_1105):
 Original WIS-640: users need a `rec_*` key to use the meta-skill or any /api/* route.
 Key format: rec_live_<32 random urlsafe chars>
 """
+
 from __future__ import annotations
 
 import hashlib
 import logging
 import secrets
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth_routes import get_current_user_optional
@@ -65,13 +64,15 @@ def _require_user(user: User | None) -> User:
 
 # ── Pydantic schemas ──────────────────────────────────────────────────────
 
+
 class CreateKeyIn(BaseModel):
-    label: Optional[str] = None       # human label ≤100 chars
-    cookbook_id: Optional[str] = None  # UUID of an owned cookbook
-    name: Optional[str] = None         # legacy alias for label
+    label: str | None = None  # human label ≤100 chars
+    cookbook_id: str | None = None  # UUID of an owned cookbook
+    name: str | None = None  # legacy alias for label
 
 
 # ── Install count aggregation helper ─────────────────────────────────────
+
 
 def _fetch_install_counts(db: Session, key_ids: list[UUID]) -> dict[UUID, dict]:
     """Return {key_id: {total: int, last_7d: int}} for a list of key IDs.
@@ -85,18 +86,18 @@ def _fetch_install_counts(db: Session, key_ids: list[UUID]) -> dict[UUID, dict]:
     result: dict[UUID, dict] = {kid: {"total": 0, "last_7d": 0} for kid in key_ids}
 
     from datetime import timedelta
-    from sqlalchemy import case, func as sqlfunc
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    from sqlalchemy import case
+    from sqlalchemy import func as sqlfunc
+
+    cutoff = datetime.now(UTC) - timedelta(days=7)
 
     try:
         rows = (
             db.query(
                 InstallEvent.api_key_id,
                 sqlfunc.count().label("total"),
-                sqlfunc.sum(
-                    case((InstallEvent.created_at >= cutoff, 1), else_=0)
-                ).label("last_7d"),
+                sqlfunc.sum(case((InstallEvent.created_at >= cutoff, 1), else_=0)).label("last_7d"),
             )
             .filter(InstallEvent.api_key_id.in_(key_ids))
             .group_by(InstallEvent.api_key_id)
@@ -117,13 +118,15 @@ def _fetch_install_counts(db: Session, key_ids: list[UUID]) -> dict[UUID, dict]:
                     "total": int(row[1] or 0),
                     "last_7d": int(row[2] or 0),
                 }
-    except Exception as exc:
+    # Rationale: install-count aggregation is non-critical; any DB error → log and return partial
+    except Exception as exc:  # noqa: BLE001
         logger.warning("install_count aggregation failed: %s", exc)
 
     return result
 
 
 # ── Routes ────────────────────────────────────────────────────────────────
+
 
 @router.post("/api-keys")
 async def create_api_key(
@@ -147,7 +150,8 @@ async def create_api_key(
     body: dict = {}
     try:
         body = await request.json()
-    except Exception:
+    # Rationale: request body is optional for key creation; malformed JSON → use defaults
+    except Exception:  # noqa: BLE001
         pass
     if not isinstance(body, dict):
         body = {}
@@ -175,11 +179,7 @@ async def create_api_key(
         except (ValueError, TypeError):
             raise HTTPException(status_code=400, detail="invalid_cookbook_id")
 
-        cb = (
-            db.query(Cookbook)
-            .filter(Cookbook.id == cookbook_id, Cookbook.cookbook_owner == user.id)
-            .first()
-        )
+        cb = db.query(Cookbook).filter(Cookbook.id == cookbook_id, Cookbook.cookbook_owner == user.id).first()
         if not cb:
             raise HTTPException(status_code=404, detail="cookbook_not_found")
 
@@ -196,7 +196,7 @@ async def create_api_key(
         user_id=user.id,
         key_prefix=prefix12,
         key_hash=key_hash,
-        name=label,     # keep `name` populated for backwards-compat reads
+        name=label,  # keep `name` populated for backwards-compat reads
         label=label,
         cookbook_id=cookbook_id,
         is_active=True,
@@ -207,7 +207,11 @@ async def create_api_key(
 
     logger.info(
         "Created API key %s for user %s (tier=%s cap=%d active=%d cookbook=%s)",
-        new_key.id, user.id, tier, cap, active_count + 1,
+        new_key.id,
+        user.id,
+        tier,
+        cap,
+        active_count + 1,
         str(cookbook_id) if cookbook_id else "none",
     )
 
@@ -238,12 +242,7 @@ async def list_api_keys(
       - install_count_7d   (installs in the last 7 days)
     """
     user = _require_user(user)
-    keys = (
-        db.query(APIKey)
-        .filter(APIKey.user_id == user.id)
-        .order_by(APIKey.created_at.desc())
-        .all()
-    )
+    keys = db.query(APIKey).filter(APIKey.user_id == user.id).order_by(APIKey.created_at.desc()).all()
 
     # Aggregate install counts in one query
     key_ids = [k.id for k in keys if k.id is not None]
@@ -281,11 +280,7 @@ async def revoke_api_key(
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="invalid_key_id")
 
-    key = (
-        db.query(APIKey)
-        .filter(APIKey.id == key_uuid, APIKey.user_id == user.id)
-        .first()
-    )
+    key = db.query(APIKey).filter(APIKey.id == key_uuid, APIKey.user_id == user.id).first()
     if key and key.is_active:
         key.is_active = False
         db.commit()

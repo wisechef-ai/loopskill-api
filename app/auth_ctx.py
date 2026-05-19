@@ -8,10 +8,11 @@ Phase A: scaffold + middleware wiring.
 Phase B: MCP tools adopt ctx parameter.
 Phase C: sandbox uses ctx.is_sandbox_operator.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal
 from uuid import UUID
 
 Scope = Literal["anonymous", "user", "operator", "master", "cbt_token"]
@@ -31,13 +32,13 @@ class AuthContext:
     """
 
     scope: Scope
-    user_id: Optional[UUID] = None
-    api_key_id: Optional[UUID] = None
-    cookbook_scope: Optional[UUID] = None  # cookbook-scoped key restriction
-    tier: Optional[str] = None
+    user_id: UUID | None = None
+    api_key_id: UUID | None = None
+    cookbook_scope: UUID | None = None  # cookbook-scoped key restriction
+    tier: str | None = None
     is_sandbox_operator: bool = False
 
     @classmethod
-    def anonymous(cls) -> "AuthContext":
+    def anonymous(cls) -> AuthContext:
         """Return an anonymous (unauthenticated) context."""
         return cls(scope="anonymous")

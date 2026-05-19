@@ -18,6 +18,7 @@ For each `patch_candidates` row with status='pending':
 
 Run as `python -m app.crons.patch_drafter`.
 """
+
 from __future__ import annotations
 
 import json
@@ -25,15 +26,15 @@ import logging
 import os
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models import IncidentReport, PatchCandidate, Skill, SkillVersion
-
 
 log = logging.getLogger("recipes.patch_drafter")
 
@@ -70,18 +71,26 @@ def _resolve_proposal_dir() -> Path:
     raise RuntimeError("no writable proposal directory available")
 
 
-def call_litellm(prompt: str, *, master_key: str,
-                 url: str = LITELLM_URL,
-                 model: str = LITELLM_MODEL,
-                 timeout_s: float = 60.0) -> str:
+def call_litellm(
+    prompt: str,
+    *,
+    master_key: str,
+    url: str = LITELLM_URL,
+    model: str = LITELLM_MODEL,
+    timeout_s: float = 60.0,
+) -> str:
     """POST to local litellm proxy. Returns content text. Raises on HTTP error."""
-    body = json.dumps({
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 2048,
-    }).encode("utf-8")
+    body = json.dumps(
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 2048,
+        }
+    ).encode("utf-8")
     req = urllib.request.Request(
-        url=url, data=body, method="POST",
+        url=url,
+        data=body,
+        method="POST",
         headers={
             "content-type": "application/json",
             "authorization": f"Bearer {master_key}",
@@ -96,19 +105,12 @@ def parse_draft(content: str) -> DraftResult:
     """Cheap structural check — must contain a unified diff fence AND a
     fenced test block. We don't try to apply the diff here; the canary
     STATIC gate runs the test against old + new skill source."""
-    has_patch = (
-        "```diff" in content
-        or "--- a/" in content and "+++ b/" in content
-    )
-    has_test = (
-        "```python" in content and "def test_" in content
-        or "```pytest" in content
-    )
+    has_patch = "```diff" in content or "--- a/" in content and "+++ b/" in content
+    has_test = "```python" in content and "def test_" in content or "```pytest" in content
     return DraftResult(has_patch=has_patch, has_test=has_test, body=content)
 
 
-def _build_prompt(skill: Skill, version: SkillVersion | None,
-                  reports: list[IncidentReport]) -> str:
+def _build_prompt(skill: Skill, version: SkillVersion | None, reports: list[IncidentReport]) -> str:
     lines = [
         f"# Skill: {skill.slug} ({skill.title})",
         f"Latest version: {version.semver if version else 'unknown'}",
@@ -122,13 +124,15 @@ def _build_prompt(skill: Skill, version: SkillVersion | None,
         lines.append(f"- exit_code: {r.exit_code}")
         lines.append(f"- command: {r.command}")
         lines.append(f"- stack:\n```\n{r.stack_trace_top}\n```")
-    lines.extend([
-        "",
-        "Produce:",
-        "1. A unified-diff patch in ```diff fenced block. ",
-        "2. A runnable regression test (pytest) in ```python that fails on old, passes on new.",
-        "If you can't produce a runnable test, say so explicitly and STOP.",
-    ])
+    lines.extend(
+        [
+            "",
+            "Produce:",
+            "1. A unified-diff patch in ```diff fenced block. ",
+            "2. A runnable regression test (pytest) in ```python that fails on old, passes on new.",
+            "If you can't produce a runnable test, say so explicitly and STOP.",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -141,8 +145,7 @@ def _latest_version(db: Session, skill_id: Any) -> SkillVersion | None:
     )
 
 
-def _top_reports(db: Session, skill_id: Any, signature: str,
-                 limit: int = 3) -> list[IncidentReport]:
+def _top_reports(db: Session, skill_id: Any, signature: str, limit: int = 3) -> list[IncidentReport]:
     return (
         db.query(IncidentReport)
         .filter(
@@ -186,8 +189,7 @@ def draft_patch(
     return result
 
 
-def run_once(db: Session | None = None,
-             llm_call: Callable[[str], str] | None = None) -> dict[str, int]:
+def run_once(db: Session | None = None, llm_call: Callable[[str], str] | None = None) -> dict[str, int]:
     own_session = db is None
     db = db or SessionLocal()
     if llm_call is None:
@@ -198,14 +200,11 @@ def run_once(db: Session | None = None,
 
     drafted = rejected = errored = 0
     try:
-        pending = (
-            db.query(PatchCandidate)
-            .filter(PatchCandidate.status == "pending")
-            .all()
-        )
+        pending = db.query(PatchCandidate).filter(PatchCandidate.status == "pending").all()
         for cand in pending:
             try:
                 result = draft_patch(cand, db=db, llm_call=llm_call)
+            # Rationale: per-candidate failure must not abort the batch; log and continue
             except Exception as e:
                 log.exception("drafting failed for %s: %s", cand.id, e)
                 errored += 1
@@ -220,8 +219,7 @@ def run_once(db: Session | None = None,
     finally:
         if own_session:
             db.close()
-    log.info("drafter run: drafted=%d rejected=%d errored=%d",
-             drafted, rejected, errored)
+    log.info("drafter run: drafted=%d rejected=%d errored=%d", drafted, rejected, errored)
     return {"drafted": drafted, "rejected": rejected, "errored": errored}
 
 

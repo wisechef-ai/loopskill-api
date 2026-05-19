@@ -5,13 +5,15 @@ instead of hardcoding 'Pro' or 'Pro+'.
 Helpers _is_paid_tier() and _is_pro_plus_tier() handle legacy slugs
 transparently for the 30-day backwards-compat window (RCP-INCIDENT-2026-05-11).
 """
+
 import logging
-import yaml
 from functools import lru_cache
 from pathlib import Path
 
+import yaml
+
 # config/tiers.yaml lives two levels up from app/
-TIERS_YAML = Path(__file__).resolve().parent.parent / 'config' / 'tiers.yaml'
+TIERS_YAML = Path(__file__).resolve().parent.parent / "config" / "tiers.yaml"
 
 logger = logging.getLogger(__name__)
 
@@ -19,16 +21,16 @@ logger = logging.getLogger(__name__)
 # Accepted transparently for 30 days after migration (remove after 2026-06-10).
 # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
 _LEGACY_SLUG_MAP: dict[str, str] = {
-    "studio": "pro_plus",    # Phase 3 legacy
+    "studio": "pro_plus",  # Phase 3 legacy
     "operator": "pro_plus",  # Phase 5 legacy
-    "cook": "pro",           # Phase 5 legacy
+    "cook": "pro",  # Phase 5 legacy
 }
 
 
 @lru_cache(maxsize=1)
 def _tiers() -> dict:
     with open(TIERS_YAML) as f:
-        return yaml.safe_load(f)['tiers']
+        return yaml.safe_load(f)["tiers"]
 
 
 def _canonical(slug: str) -> str:
@@ -42,7 +44,7 @@ def display_label(db_slug: str) -> str:
     Accepts legacy slugs 'studio', 'operator', 'cook' transparently.
     """
     canonical = _canonical(db_slug)
-    return _tiers().get(canonical, {}).get('display_name', canonical.title())
+    return _tiers().get(canonical, {}).get("display_name", canonical.title())
 
 
 def _is_paid_tier(tier: str | None) -> bool:

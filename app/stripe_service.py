@@ -11,7 +11,6 @@ import logging
 from typing import Any
 
 import stripe
-from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import User
@@ -24,6 +23,7 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 
 class StripeConnectError(Exception):
     """Raised when Stripe Connect operations fail."""
+
     pass
 
 
@@ -164,6 +164,7 @@ def verify_webhook_signature(payload: bytes, sig_header: str) -> dict:
         # Walk the tree manually because Stripe 15.x objects are dict-like
         # but not directly JSON-serializable, and contain Decimals.
         from decimal import Decimal as _Decimal
+
         def _to_plain(o):
             if hasattr(o, "to_dict"):
                 return _to_plain(o.to_dict())
@@ -178,8 +179,10 @@ def verify_webhook_signature(payload: bytes, sig_header: str) -> dict:
                     return int(o)
                 return float(o)
             return o
+
         return _to_plain(event)
     except stripe.error.SignatureVerificationError:
         raise StripeConnectError("Invalid webhook signature")
-    except Exception as e:
+    # Rationale: Stripe SDK can throw various errors; wrap all as StripeConnectError
+    except Exception as e:  # noqa: BLE001
         raise StripeConnectError(f"Webhook parsing failed: {e}")

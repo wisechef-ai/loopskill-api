@@ -4,6 +4,7 @@ Sends a repository_dispatch event to wisechef-ai/recipes-api.
 Never raises — failure is logged and returns None so the API write is durable
 even when GitHub is unavailable.
 """
+
 from __future__ import annotations
 
 import logging
@@ -34,13 +35,15 @@ def dispatch_event(event_type: str, payload: dict[str, Any]) -> str | None:
         return None
 
     try:
-        import urllib.request
         import json as _json
+        import urllib.request
 
-        body = _json.dumps({
-            "event_type": event_type,
-            "client_payload": payload,
-        }).encode()
+        body = _json.dumps(
+            {
+                "event_type": event_type,
+                "client_payload": payload,
+            }
+        ).encode()
 
         req = urllib.request.Request(
             _DISPATCH_URL,
@@ -55,12 +58,11 @@ def dispatch_event(event_type: str, payload: dict[str, Any]) -> str | None:
         )
 
         import urllib.error
+
         try:
             with urllib.request.urlopen(req, timeout=10) as resp:
                 status = resp.status
-                logger.info(
-                    "github dispatch sent: event_type=%s status=%s", event_type, status
-                )
+                logger.info("github dispatch sent: event_type=%s status=%s", event_type, status)
         except urllib.error.HTTPError as e:
             logger.warning(
                 "github dispatch HTTP error: event_type=%s status=%s body=%s",

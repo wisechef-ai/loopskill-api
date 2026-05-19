@@ -3,14 +3,13 @@
 Handles referral code generation, cookie extraction, and referral linking.
 """
 
+import logging
 import random
 import string
-import logging
 
 from sqlalchemy.orm import Session
 
-from app.models import User, Referral
-from datetime import datetime, timezone
+from app.models import Referral, User
 
 logger = logging.getLogger(__name__)
 
@@ -76,12 +75,9 @@ def process_referral_cookie(
         return existing
 
     # Determine rate: first 50 referrers get 50%, rest get 30%
-    referrer_rank = (
-        db.query(Referral)
-        .filter(Referral.referrer_user_id == referrer.id)
-        .count()
-    )
+    referrer_rank = db.query(Referral).filter(Referral.referrer_user_id == referrer.id).count()
     from decimal import Decimal
+
     rate = Decimal("0.50") if referrer_rank < 50 else Decimal("0.30")
 
     referral = Referral(
@@ -101,7 +97,10 @@ def process_referral_cookie(
     db.refresh(referral)
     logger.info(
         "Created referral: referrer=%s referred=%s code=%s rate=%s",
-        referrer.id, new_user.id, ref_code, rate,
+        referrer.id,
+        new_user.id,
+        ref_code,
+        rate,
     )
     return referral
 

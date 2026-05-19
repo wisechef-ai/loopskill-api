@@ -6,6 +6,7 @@ today. Idempotent.
 Schedule: see `deploy/cron.d` (or systemd timer); manual invocation:
     python -m app.crons.fleet_ping_pruner
 """
+
 from __future__ import annotations
 
 import logging
@@ -25,9 +26,7 @@ def prune(reference_day: date | None = None) -> int:
     db = SessionLocal()
     try:
         deleted = (
-            db.query(FleetPing)
-            .filter(FleetPing.last_seen_day < cutoff)
-            .delete(synchronize_session=False)
+            db.query(FleetPing).filter(FleetPing.last_seen_day < cutoff).delete(synchronize_session=False)
         )
         db.commit()
         logger.info("fleet_ping_pruner: removed %d rows older than %s", deleted, cutoff)

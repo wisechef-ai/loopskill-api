@@ -19,17 +19,18 @@ Wire format per SPRINT4_CONTRACT.md:
   ]
 }
 """
+
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.models import CarouselEntry, Skill
+from app.models import CarouselEntry
 
 router = APIRouter(tags=["carousel"])
 
@@ -37,6 +38,7 @@ _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 # ── Response schemas ──────────────────────────────────────────────────────
+
 
 class SkillBrief(BaseModel):
     slug: str
@@ -64,10 +66,11 @@ class CarouselResponse(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
+
 def _entries_for_date(target_date: date, db: Session) -> list[CarouselEntry]:
     """Fetch carousel entries for a given date, ordered by slot then position."""
-    dt_start = datetime.combine(target_date, datetime.min.time(), tzinfo=timezone.utc)
-    dt_end = datetime.combine(target_date, datetime.max.time(), tzinfo=timezone.utc)
+    dt_start = datetime.combine(target_date, datetime.min.time(), tzinfo=UTC)
+    dt_end = datetime.combine(target_date, datetime.max.time(), tzinfo=UTC)
 
     return (
         db.query(CarouselEntry)
@@ -113,10 +116,11 @@ def _build_response(target_date: date, entries: list[CarouselEntry]) -> Carousel
 
 # ── Endpoints ─────────────────────────────────────────────────────────────
 
+
 @router.get("/carousel/today", response_model=CarouselResponse)
 def get_carousel_today(db: Session = Depends(get_db)):
     """Return today's carousel (UTC date)."""
-    today = datetime.now(timezone.utc).date()
+    today = datetime.now(UTC).date()
     entries = _entries_for_date(today, db)
     if not entries:
         raise HTTPException(status_code=404, detail="No carousel entries for today")

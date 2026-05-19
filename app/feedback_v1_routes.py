@@ -7,6 +7,7 @@ Both endpoints:
   - Persist to the DB (durable write first).
   - Fire a GitHub repository_dispatch event (best-effort; failure != 500).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -19,9 +20,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app import feedback_ratelimit, github_dispatch
 from app.database import get_db
 from app.models import FeedbackSubmission, RecipifyRequest
-from app import github_dispatch, feedback_ratelimit
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ router = APIRouter(prefix="/api/v1", tags=["feedback-v1"])
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _get_identity(request: Request, agent_id: str | None) -> str:
     """Resolve caller identity for rate-limiting.
@@ -43,9 +45,7 @@ def _get_identity(request: Request, agent_id: str | None) -> str:
     if agent_id:
         return f"agent:{agent_id}"
     # Fall back to peer IP
-    forwarded = getattr(getattr(request, "headers", None), "get", lambda k, d="": d)(
-        "x-forwarded-for", ""
-    )
+    forwarded = getattr(getattr(request, "headers", None), "get", lambda k, d="": d)("x-forwarded-for", "")
     if forwarded:
         return f"ip:{forwarded.split(',')[0].strip()}"
     client = getattr(request, "client", None)
@@ -68,6 +68,7 @@ def _sha256(*parts: str) -> str:
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
+
 
 class RecipifyRequestIn(BaseModel):
     target_name: str = Field(min_length=1, max_length=128)
@@ -105,6 +106,7 @@ class FeedbackOut(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+
 @router.post(
     "/recipify-request",
     response_model=RecipifyRequestOut,
@@ -115,6 +117,7 @@ def post_recipify_request(
     request: Request,
     db: Session = Depends(get_db),
 ) -> RecipifyRequestOut:
+    """Submit a recipify (skill creation) request."""
     identity = _get_identity(request, payload.agent_id)
     sig = _sha256(payload.target_name, payload.why_useful)
     api_key_id = _get_api_key_id(request)
@@ -165,17 +168,20 @@ def post_recipify_request(
     db.refresh(row)
 
     # GitHub dispatch (best-effort)
-    gh_url = github_dispatch.dispatch_event(
-        "recipify-request",
-        {
-            "id": str(row.id),
-            "target_name": payload.target_name,
-            "why_useful": payload.why_useful,
-            "suggested_sources": payload.suggested_sources,
-            "agent_id": payload.agent_id,
-            "signature": sig,
-        },
-    ) or ""
+    gh_url = (
+        github_dispatch.dispatch_event(
+            "recipify-request",
+            {
+                "id": str(row.id),
+                "target_name": payload.target_name,
+                "why_useful": payload.why_useful,
+                "suggested_sources": payload.suggested_sources,
+                "agent_id": payload.agent_id,
+                "signature": sig,
+            },
+        )
+        or ""
+    )
 
     if gh_url:
         row.issue_url = gh_url
@@ -196,6 +202,7 @@ def post_feedback(
     request: Request,
     db: Session = Depends(get_db),
 ) -> FeedbackOut:
+    """Submit a feedback entry for a skill or recipe."""
     identity = _get_identity(request, payload.agent_id)
     sig = _sha256(payload.category, payload.message)
     api_key_id = _get_api_key_id(request)
@@ -248,17 +255,20 @@ def post_feedback(
     db.refresh(row)
 
     # GitHub dispatch (best-effort)
-    gh_url = github_dispatch.dispatch_event(
-        "feedback",
-        {
-            "id": str(row.id),
-            "category": payload.category,
-            "message": payload.message,
-            "context": payload.context,
-            "agent_id": payload.agent_id,
-            "signature": sig,
-        },
-    ) or ""
+    gh_url = (
+        github_dispatch.dispatch_event(
+            "feedback",
+            {
+                "id": str(row.id),
+                "category": payload.category,
+                "message": payload.message,
+                "context": payload.context,
+                "agent_id": payload.agent_id,
+                "signature": sig,
+            },
+        )
+        or ""
+    )
 
     if gh_url:
         row.issue_url = gh_url

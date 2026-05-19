@@ -5,6 +5,7 @@ for incoming skill-patch submissions.
 
 All functions are synchronous and import-safe (no FastAPI, no SQLAlchemy).
 """
+
 from __future__ import annotations
 
 import fnmatch
@@ -15,10 +16,12 @@ from typing import Any
 # ── R1: Path allowlist / blocklist ────────────────────────────────────────
 
 # Exact-match allowed paths
-PATH_ALLOWLIST_EXACT: frozenset[str] = frozenset({
-    "SKILL.md",
-    "recipe.yaml.frontmatter",
-})
+PATH_ALLOWLIST_EXACT: frozenset[str] = frozenset(
+    {
+        "SKILL.md",
+        "recipe.yaml.frontmatter",
+    }
+)
 
 # Glob patterns for allowed paths.
 #
@@ -92,15 +95,15 @@ def validate_path(path: str) -> tuple[bool, str]:
 # ── R2: Forbidden-token scan ──────────────────────────────────────────────
 
 _FORBIDDEN_PATTERNS: list[re.Pattern] = [
-    re.compile(r'\bcurl\s+[^|]*\|\s*(ba)?sh', re.IGNORECASE | re.MULTILINE),
-    re.compile(r'\bwget\s+[^|]*\|\s*(ba)?sh', re.IGNORECASE | re.MULTILINE),
-    re.compile(r'\beval\s*\(', re.IGNORECASE | re.MULTILINE),
-    re.compile(r'\bbase64\s+-d\b', re.IGNORECASE | re.MULTILINE),
-    re.compile(r'\bchmod\s+\+x\b', re.IGNORECASE | re.MULTILINE),
-    re.compile(r'\bnc\s+-e\b', re.IGNORECASE | re.MULTILINE),
-    re.compile(r'\bpython\s+-c\s+', re.IGNORECASE | re.MULTILINE),
-    re.compile(r'\|\s*sh\b', re.IGNORECASE | re.MULTILINE),
-    re.compile(r'\bsetsid\s+nohup', re.IGNORECASE | re.MULTILINE),
+    re.compile(r"\bcurl\s+[^|]*\|\s*(ba)?sh", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"\bwget\s+[^|]*\|\s*(ba)?sh", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"\beval\s*\(", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"\bbase64\s+-d\b", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"\bchmod\s+\+x\b", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"\bnc\s+-e\b", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"\bpython\s+-c\s+", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"\|\s*sh\b", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"\bsetsid\s+nohup", re.IGNORECASE | re.MULTILINE),
 ]
 
 # Human-readable names for each pattern (same order as _FORBIDDEN_PATTERNS)
@@ -144,8 +147,7 @@ def check_size(files: list[dict[str, Any]]) -> tuple[bool, str]:
     """
     if len(files) > MAX_FILES:
         return False, (
-            f"too many files: {len(files)} (max {MAX_FILES}). "
-            "Split into smaller patches by topic."
+            f"too many files: {len(files)} (max {MAX_FILES}). Split into smaller patches by topic."
         )
 
     total_lines = 0
@@ -169,6 +171,7 @@ def check_size(files: list[dict[str, Any]]) -> tuple[bool, str]:
 
 
 # ── R4: Canonical hash (dedup) ────────────────────────────────────────────
+
 
 def canonical_hash(slug: str, files: list[dict[str, Any]]) -> str:
     """Compute a stable dedup hash for a skill-patch submission.

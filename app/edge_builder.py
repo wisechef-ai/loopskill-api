@@ -18,18 +18,17 @@ installed each skill in the last 30 days.
 
 The builder is idempotent: `persist_edges()` truncates and replaces.
 """
+
 from __future__ import annotations
 
-import json
 import tomllib
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
-from typing import Iterable
+from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-from app.models import InstallEvent, Skill, SkillDerivedEdge, SkillVersion
-
+from app.models import InstallEvent, Skill, SkillDerivedEdge
 
 # ── Tunables ──────────────────────────────────────────────────────────────
 
@@ -60,6 +59,7 @@ W_COINSTALL_V2 = 0.1
 
 # ── Pure helpers ──────────────────────────────────────────────────────────
 
+
 def jaccard(a: Iterable[str], b: Iterable[str]) -> float:
     """Jaccard similarity |A∩B| / |A∪B|. Empty set on either side → 0."""
     sa, sb = set(a), set(b)
@@ -83,7 +83,8 @@ def extract_tags(skill: Skill) -> list[str]:
         return []
     try:
         data = tomllib.loads(latest.skill_toml)
-    except Exception:
+    # Rationale: TOML parse failure for skill tags → return empty tag list
+    except Exception:  # noqa: BLE001
         return []
     raw = data.get("skill", {}).get("tags", [])
     if not isinstance(raw, list):
@@ -103,7 +104,8 @@ def extract_related_skills(skill: Skill) -> list[str]:
         return []
     try:
         data = tomllib.loads(latest.skill_toml)
-    except Exception:
+    # Rationale: TOML parse failure for related_skills → return empty list
+    except Exception:  # noqa: BLE001
         return []
     raw = data.get("skill", {}).get("related_skills", [])
     if not isinstance(raw, list):
@@ -120,9 +122,8 @@ def extract_related_skills(skill: Skill) -> list[str]:
 
 # ── Co-install signal ─────────────────────────────────────────────────────
 
-def _coinstall_index(
-    db: Session, since: datetime
-) -> dict[str, set]:
+
+def _coinstall_index(db: Session, since: datetime) -> dict[str, set]:
     """slug → set of api_key_ids that installed it within the window.
 
     api_key_id may be None for anonymous installs; we ignore those (they
@@ -148,6 +149,7 @@ def _coinstall_score(slug_a: str, slug_b: str, idx: dict[str, set]) -> float:
 
 
 # ── Edge construction ─────────────────────────────────────────────────────
+
 
 def build_edges(db: Session, *, use_declared: bool = True) -> list[dict]:
     """Compute all edges across the public skill catalog.
@@ -177,16 +179,18 @@ def build_edges(db: Session, *, use_declared: bool = True) -> list[dict]:
     # Precompute per-skill features once
     feats = []
     for s in skills:
-        feats.append({
-            "skill": s,
-            "slug": s.slug,
-            "tags": set(extract_tags(s)),
-            "category": s.category,
-            "related": set(extract_related_skills(s)),
-        })
+        feats.append(
+            {
+                "skill": s,
+                "slug": s.slug,
+                "tags": set(extract_tags(s)),
+                "category": s.category,
+                "related": set(extract_related_skills(s)),
+            }
+        )
 
     # Co-install index (single query)
-    since = datetime.now(timezone.utc) - timedelta(days=COINSTALL_WINDOW_DAYS)
+    since = datetime.now(UTC) - timedelta(days=COINSTALL_WINDOW_DAYS)
     coinstall_idx = _coinstall_index(db, since)
 
     # Score every unordered pair, write directed rows for each side
@@ -201,11 +205,7 @@ def build_edges(db: Session, *, use_declared: bool = True) -> list[dict]:
             j_score = jaccard(fa["tags"], fb["tags"])
             c_score = 1.0 if (fa["category"] and fa["category"] == fb["category"]) else 0.0
             ci_score = _coinstall_score(fa["slug"], fb["slug"], coinstall_idx)
-            d_score = (
-                1.0
-                if (fb["slug"] in fa["related"] or fa["slug"] in fb["related"])
-                else 0.0
-            )
+            d_score = 1.0 if (fb["slug"] in fa["related"] or fa["slug"] in fb["related"]) else 0.0
 
             if use_declared:
                 weight = (
@@ -215,11 +215,7 @@ def build_edges(db: Session, *, use_declared: bool = True) -> list[dict]:
                     + W_COINSTALL_V2 * ci_score
                 )
             else:
-                weight = (
-                    W_JACCARD * j_score
-                    + W_CATEGORY * c_score
-                    + W_COINSTALL * ci_score
-                )
+                weight = W_JACCARD * j_score + W_CATEGORY * c_score + W_COINSTALL * ci_score
 
             if weight < WEIGHT_THRESHOLD:
                 continue
@@ -231,18 +227,22 @@ def build_edges(db: Session, *, use_declared: bool = True) -> list[dict]:
             }
             if use_declared:
                 signals["declared"] = d_score
-            edges_by_source[fa["slug"]].append({
-                "source_slug": fa["slug"],
-                "target_slug": fb["slug"],
-                "weight": round(weight, 4),
-                "signals": signals,
-            })
-            edges_by_source[fb["slug"]].append({
-                "source_slug": fb["slug"],
-                "target_slug": fa["slug"],
-                "weight": round(weight, 4),
-                "signals": signals,
-            })
+            edges_by_source[fa["slug"]].append(
+                {
+                    "source_slug": fa["slug"],
+                    "target_slug": fb["slug"],
+                    "weight": round(weight, 4),
+                    "signals": signals,
+                }
+            )
+            edges_by_source[fb["slug"]].append(
+                {
+                    "source_slug": fb["slug"],
+                    "target_slug": fa["slug"],
+                    "weight": round(weight, 4),
+                    "signals": signals,
+                }
+            )
 
     # Apply per-source top-K cap by weight
     final: list[dict] = []
@@ -262,21 +262,24 @@ def persist_edges(db: Session, edges: list[dict]) -> int:
     db.flush()
 
     rows = []
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for e in edges:
-        rows.append(SkillDerivedEdge(
-            source_slug=e["source_slug"],
-            target_slug=e["target_slug"],
-            weight=float(e["weight"]),
-            signals=e.get("signals") or {},
-            last_built_at=now,
-        ))
+        rows.append(
+            SkillDerivedEdge(
+                source_slug=e["source_slug"],
+                target_slug=e["target_slug"],
+                weight=float(e["weight"]),
+                signals=e.get("signals") or {},
+                last_built_at=now,
+            )
+        )
     db.add_all(rows)
     db.flush()
     return len(rows)
 
 
 # ── Dry-run safety gate (Stream 4) ───────────────────────────────────────
+
 
 def dry_run_compare(db: Session) -> dict:
     """Compare legacy (use_declared=False) vs new (use_declared=True) edge sets.
@@ -303,10 +306,6 @@ def dry_run_compare(db: Session) -> dict:
         "added": len(added),
         "delta_pct": round(delta_pct, 2),
         "breaking": delta_pct > 20.0,
-        "removed_sample": [
-            {"source_slug": s, "target_slug": t} for (s, t) in list(removed)[:10]
-        ],
-        "added_sample": [
-            {"source_slug": s, "target_slug": t} for (s, t) in list(added)[:10]
-        ],
+        "removed_sample": [{"source_slug": s, "target_slug": t} for (s, t) in list(removed)[:10]],
+        "added_sample": [{"source_slug": s, "target_slug": t} for (s, t) in list(added)[:10]],
     }

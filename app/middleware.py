@@ -7,9 +7,10 @@ Falls back to in-memory if Redis is unavailable (graceful degradation).
 
 import hashlib
 import hmac
-import time
 import logging
+import time
 from collections import defaultdict
+from datetime import UTC
 
 import redis
 from fastapi import Request
@@ -20,8 +21,8 @@ from app.utils.client_ip import _real_client_ip as _real_client_ip_from_utils  #
 
 logger = logging.getLogger("wiserecipes.middleware")
 
-API_KEY_PREFIX="rec_"
-API_KEY_LENGTH=36  # rec_ (4) + 32 hex chars
+API_KEY_PREFIX = "rec_"
+API_KEY_LENGTH = 36  # rec_ (4) + 32 hex chars
 
 # Shared Redis client (lazy init)
 _redis_client = None
@@ -62,7 +63,12 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     auth endpoints (JWT-based), Stripe webhooks, and public carousel endpoints."""
 
     EXEMPT_PATHS = {
-        "/docs", "/openapi.json", "/redoc", "/healthz", "/", "/api/healthz",
+        "/docs",
+        "/openapi.json",
+        "/redoc",
+        "/healthz",
+        "/",
+        "/api/healthz",
         "/api/health/transparency",  # Stream 0: public transparency scorecard
     }
     # Prefixes for paths that use JWT auth instead of API key
@@ -161,7 +167,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         # installs are still rate-limited per IP by the RateLimitMiddleware so
         # this is not an abuse vector.
         if request.method == "GET" and path.startswith("/api/skills/"):
-            tail = path[len("/api/skills/"):]
+            tail = path[len("/api/skills/") :]
             # Public full-graph dump (no slug, single segment)
             if tail == "graph":
                 return await call_next(request)
@@ -188,10 +194,15 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                     request.state.is_anonymous_free_install = True
                     # auth_ctx: anonymous caller (Phase A wiring)
                     from app.auth_ctx import AuthContext
+
                     request.state.auth_ctx = AuthContext.anonymous()
                     return await call_next(request)
             # Single segment, no underscore prefix, not a known auth verb.
-            if "/" not in tail and not tail.startswith("_") and tail not in self.PUBLIC_SKILL_DETAIL_AUTH_VERBS:
+            if (
+                "/" not in tail
+                and not tail.startswith("_")
+                and tail not in self.PUBLIC_SKILL_DETAIL_AUTH_VERBS
+            ):
                 return await call_next(request)
             # Two-segment public sub-resources: /api/skills/{slug}/related (Stage 1, G15).
             # Only the suffix is allowed-listed — the slug itself is not parsed for
@@ -210,6 +221,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         key = request.headers.get("x-api-key")
         if not key:
             from fastapi.responses import JSONResponse
+
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid or missing x-api-key header"},
@@ -224,6 +236,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             # ONLY — anything else is 403 with no info leak.
             if not request.url.path.startswith("/api/cookbooks/"):
                 from fastapi.responses import JSONResponse
+
                 return JSONResponse(
                     status_code=403,
                     content={"detail": "Share tokens can only access cookbook routes"},
@@ -232,14 +245,17 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             parts = key.split("_")
             if len(parts) != 3 or len(parts[1]) != 8 or len(parts[2]) != 32:
                 from fastapi.responses import JSONResponse
+
                 return JSONResponse(
                     status_code=401,
                     content={"detail": "Invalid share token format"},
                 )
             cookbook_prefix_8 = parts[1]
+            from datetime import datetime
+
             from app.database import SessionLocal
             from app.models import CookbookShareToken
-            from datetime import datetime, timezone as _tz
+
             db = SessionLocal()
             try:
                 candidates = (
@@ -258,12 +274,13 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                         break
                 if match is None:
                     from fastapi.responses import JSONResponse
+
                     return JSONResponse(
                         status_code=401,
                         content={"detail": "Invalid or revoked share token"},
                     )
                 # Found valid share token
-                match.last_used_at = datetime.now(_tz.utc)
+                match.last_used_at = datetime.now(UTC)
                 db.commit()
                 request.state.cookbook_token_scope = match.scope
                 request.state.cookbook_token_cookbook_id = match.cookbook_id
@@ -275,6 +292,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 request.state.is_cbt_token = True
                 # auth_ctx: cbt_token scope
                 from app.auth_ctx import AuthContext
+
                 request.state.auth_ctx = AuthContext(
                     scope="cbt_token",
                     cookbook_scope=match.cookbook_id,
@@ -285,6 +303,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
         if not key.startswith(API_KEY_PREFIX):
             from fastapi.responses import JSONResponse
+
             return JSONResponse(
                 status_code=401,
                 content={"detail": f"API key must start with '{API_KEY_PREFIX}'"},
@@ -296,30 +315,39 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             request.state.api_key_user_id = None
             # auth_ctx: master scope
             from app.auth_ctx import AuthContext
+
             request.state.auth_ctx = AuthContext(scope="master")
             return await call_next(request)
 
         # Production: hash the key and look up in api_keys table
         from app.database import SessionLocal
         from app.models import APIKey
+
         key_hash = hashlib.sha256(key.encode()).hexdigest()
         db = SessionLocal()
         try:
-            api_key_obj = db.query(APIKey).filter(
-                APIKey.key_hash == key_hash,
-                APIKey.is_active == True,
-            ).first()
+            api_key_obj = (
+                db.query(APIKey)
+                .filter(
+                    APIKey.key_hash == key_hash,
+                    APIKey.is_active == True,
+                )
+                .first()
+            )
             if api_key_obj:
                 # Issue #17: instead of committing to DB on every request,
                 # push to Redis-batched tracker (drained by crons/drain_last_used.py).
+                from datetime import datetime
+
                 from app.last_used_tracker import tracker as _last_used_tracker
-                from datetime import datetime, timezone as _tz2
-                _last_used_tracker.record(api_key_obj.id, datetime.now(_tz2.utc))
+
+                _last_used_tracker.record(api_key_obj.id, datetime.now(UTC))
                 request.state.api_key_id = api_key_obj.id
                 request.state.api_key_user_id = api_key_obj.user_id
                 # auth_ctx: user scope — Phase B stamps cookbook_scope from api_key.cookbook_id
+
                 from app.auth_ctx import AuthContext
-                from uuid import UUID as _UUID
+
                 request.state.auth_ctx = AuthContext(
                     scope="user",
                     user_id=api_key_obj.user_id,
@@ -334,6 +362,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             db.close()
 
         from fastapi.responses import JSONResponse
+
         return JSONResponse(
             status_code=401,
             content={"detail": "Invalid API key"},
@@ -363,11 +392,7 @@ class BucketHostMiddleware(BaseHTTPMiddleware):
 
         db = SessionLocal()
         try:
-            bucket = (
-                db.query(Bucket)
-                .filter(Bucket.custom_domain == host)
-                .first()
-            )
+            bucket = db.query(Bucket).filter(Bucket.custom_domain == host).first()
             if bucket:
                 request.state.bucket_id = str(bucket.id)
                 request.state.bucket_slug = bucket.slug
@@ -400,7 +425,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     #   sign-in once Cloudflare's pop has 60 hits in the window. The OAuth
     #   provider already enforces per-app rate limits server-side; double-
     #   limiting here breaks login without adding security.
-    EXEMPT_PATHS = {"/docs", "/openapi.json", "/redoc", "/healthz", "/", "/api/healthz", "/api/health/transparency"}
+    EXEMPT_PATHS = {
+        "/docs",
+        "/openapi.json",
+        "/redoc",
+        "/healthz",
+        "/",
+        "/api/healthz",
+        "/api/health/transparency",
+    }
     EXEMPT_PREFIXES = ("/api/auth/github/", "/api/auth/google/")
 
     def __init__(self, app, max_requests: int = 60, window_seconds: int = 60):
@@ -469,6 +502,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         if not allowed:
             from fastapi.responses import JSONResponse
+
             return JSONResponse(
                 status_code=429,
                 content={"detail": "Rate limit exceeded. Try again later."},

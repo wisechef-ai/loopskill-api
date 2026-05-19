@@ -23,6 +23,7 @@ def recipes_recall(
     limit: int = 10,
     **_: Any,
 ) -> dict[str, Any]:
+    """Hybrid BM25 + vector skill recall ranked for the caller's tier."""
     # Public-scope MCP tool: hybrid recall against public catalog only; tier filter is informational.
     if not query:
         return {"error": "query_required", "phase": "E"}

@@ -18,19 +18,19 @@ Tarball storage: production path is settings.RECIPES_FORKS_DIR (default
 The signed install URL embeds the fork_id + version_id; /api/forks/_download
 verifies the HMAC and streams the bytes.
 """
+
 from __future__ import annotations
 
 import hashlib
 import logging
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models import APIKey, ForkVersion, Skill, SkillFork, User
+from app.models import ForkVersion, Skill, SkillFork, User
 from app.tier_labels import _is_pro_plus_tier
 
 logger = logging.getLogger(__name__)
@@ -84,10 +84,11 @@ def _slugify(name: str) -> str:
 
 # ── Tier gate ────────────────────────────────────────────────────────────
 
+
 class TierContext(BaseModel):
-    user_id: Optional[UUID] = None  # None = master key
+    user_id: UUID | None = None  # None = master key
     is_master: bool = False
-    tier: Optional[str] = None
+    tier: str | None = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -119,10 +120,11 @@ def require_operator(request: Request, db: Session = Depends(get_db)) -> TierCon
 
 # ── Schemas ──────────────────────────────────────────────────────────────
 
+
 class ForkCreateIn(BaseModel):
     source_slug: str
     name: str
-    readme: Optional[str] = None
+    readme: str | None = None
 
 
 class ForkVersionOut(BaseModel):
@@ -130,7 +132,7 @@ class ForkVersionOut(BaseModel):
     semver: str
     tarball_size_bytes: int
     checksum_sha256: str
-    changelog: Optional[str] = None
+    changelog: str | None = None
     created_at: datetime
 
 
@@ -138,18 +140,17 @@ class ForkOut(BaseModel):
     id: str
     user_id: str
     source_skill_id: str
-    source_slug: Optional[str] = None
+    source_slug: str | None = None
     name: str
     slug: str
-    readme: Optional[str] = None
-    visibility: Optional[str] = None
+    readme: str | None = None
+    visibility: str | None = None
     created_at: datetime
-    latest_version_id: Optional[str] = None
+    latest_version_id: str | None = None
     versions: list[ForkVersionOut] = []
 
 
-def _to_out(fork: SkillFork, source_slug: Optional[str] = None,
-            include_versions: bool = True) -> ForkOut:
+def _to_out(fork: SkillFork, source_slug: str | None = None, include_versions: bool = True) -> ForkOut:
     versions = []
     if include_versions and fork.versions:
         versions = [
@@ -180,12 +181,14 @@ def _to_out(fork: SkillFork, source_slug: Optional[str] = None,
 
 # ── Endpoints ────────────────────────────────────────────────────────────
 
+
 @router.post("/create", status_code=201)
 def create_fork(
     body: ForkCreateIn,
     db: Session = Depends(get_db),
     ctx: TierContext = Depends(require_operator),
 ):
+    """Create a new private fork of an existing skill."""
     if ctx.is_master:
         raise HTTPException(status_code=400, detail="master key cannot create user-owned forks")
 
@@ -227,6 +230,7 @@ def list_forks(
     db: Session = Depends(get_db),
     ctx: TierContext = Depends(require_operator),
 ):
+    """List all forks owned by the authenticated operator."""
     if ctx.is_master:
         # Master key is admin — returning the entire fork table would be a
         # surprise; require a real user_id for this endpoint.
@@ -242,18 +246,10 @@ def list_forks(
         .all()
     )
     source_ids = {r.source_skill_id for r in rows}
-    sources = (
-        db.query(Skill.id, Skill.slug)
-        .filter(Skill.id.in_(source_ids))
-        .all()
-        if source_ids else []
-    )
+    sources = db.query(Skill.id, Skill.slug).filter(Skill.id.in_(source_ids)).all() if source_ids else []
     by_id = {sid: slug for sid, slug in sources}
     return {
-        "forks": [
-            _to_out(r, source_slug=by_id.get(r.source_skill_id)).model_dump(mode="json")
-            for r in rows
-        ]
+        "forks": [_to_out(r, source_slug=by_id.get(r.source_skill_id)).model_dump(mode="json") for r in rows]
     }
 
 
@@ -277,10 +273,11 @@ async def upload_fork_version(
     request: Request,
     tarball: UploadFile = File(...),
     semver: str = Form(...),
-    changelog: Optional[str] = Form(None),
+    changelog: str | None = Form(None),
     db: Session = Depends(get_db),
     ctx: TierContext = Depends(require_operator),
 ):
+    """Upload a new version tarball to an existing fork."""
     fork = _resolve_owned_fork(db, ctx, fork_id)
     if fork.visibility is None:
         raise HTTPException(status_code=404, detail="fork_not_found")
@@ -358,19 +355,17 @@ def install_fork(
 
     if not fork.latest_version_id:
         raise HTTPException(status_code=404, detail="no_versions")
-    version = (
-        db.query(ForkVersion)
-        .filter(ForkVersion.id == fork.latest_version_id)
-        .first()
-    )
+    version = db.query(ForkVersion).filter(ForkVersion.id == fork.latest_version_id).first()
     if not version:
         raise HTTPException(status_code=404, detail="no_versions")
 
     serializer = _make_install_serializer()
-    token = serializer.dumps({
-        "fork_id": str(fork.id),
-        "version_id": str(version.id),
-    })
+    token = serializer.dumps(
+        {
+            "fork_id": str(fork.id),
+            "version_id": str(version.id),
+        }
+    )
 
     public_origin = (
         getattr(settings, "PUBLIC_ORIGIN", None)
@@ -378,7 +373,7 @@ def install_fork(
         or "https://recipes.wisechef.ai"
     )
     url = public_origin.rstrip("/") + f"/api/forks/_download?token={token}"
-    expires_at = datetime.now(timezone.utc) + timedelta(seconds=INSTALL_TOKEN_TTL_SECONDS)
+    expires_at = datetime.now(UTC) + timedelta(seconds=INSTALL_TOKEN_TTL_SECONDS)
     return {
         "fork_id": str(fork.id),
         "slug": fork.slug,
@@ -406,11 +401,7 @@ def download_fork(token: str, db: Session = Depends(get_db)):
         version_uuid = UUID(data["version_id"])
     except (ValueError, KeyError, TypeError):
         raise HTTPException(status_code=401, detail="invalid_token")
-    version = (
-        db.query(ForkVersion)
-        .filter(ForkVersion.id == version_uuid)
-        .first()
-    )
+    version = db.query(ForkVersion).filter(ForkVersion.id == version_uuid).first()
     if not version:
         raise HTTPException(status_code=404, detail="version_not_found")
 

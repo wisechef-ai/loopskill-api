@@ -10,6 +10,7 @@ Windows (all enforced; any one fail -> block):
 Identity = api_key_id from middleware; fallback: agent_id; then peer IP.
 All state is in-process (no Redis). Production should swap to a shared backend.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -17,8 +18,7 @@ import logging
 import threading
 import time
 from collections import defaultdict
-from datetime import datetime, timezone, timedelta
-from typing import Any
+from datetime import UTC, datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ CROSS_TOOL_MAX = 30
 CROSS_TOOL_WINDOW_S = 24 * 3600  # 24h
 
 LOOP_THRESHOLD = 3
-LOOP_WINDOW_S = 5 * 60   # 5 min
+LOOP_WINDOW_S = 5 * 60  # 5 min
 LOOP_COOLDOWN_S = 15 * 60  # 15 min
 
 # skill-error per-tool shares the same per-tool ceiling
@@ -51,9 +51,9 @@ SKILL_ERROR_WINDOW_S = 3600  # still 1-hour backstop for skill-error
 # heavier than plain feedback. Loop detector fires at 2 hits in 30 min.
 TOOL_OVERRIDES: dict[str, dict] = {
     "skill-patch": {
-        "per_tool_max": 1,           # 1 patch per 24h per (identity, slug)
-        "loop_threshold": 2,         # loop fires at 2 rapid hits (not 3)
-        "loop_window_s": 1800,       # 30-min window for loop detection
+        "per_tool_max": 1,  # 1 patch per 24h per (identity, slug)
+        "loop_threshold": 2,  # loop fires at 2 rapid hits (not 3)
+        "loop_window_s": 1800,  # 30-min window for loop detection
     },
 }
 
@@ -99,10 +99,17 @@ def make_signature(*parts: str) -> str:
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
+
 class RateLimitResult:
     __slots__ = (
-        "allowed", "deduped", "issue_url", "hard_block", "force_available",
-        "last_submissions", "retry_at", "loop_block",
+        "allowed",
+        "deduped",
+        "issue_url",
+        "hard_block",
+        "force_available",
+        "last_submissions",
+        "retry_at",
+        "loop_block",
     )
 
     def __init__(self):
@@ -119,7 +126,7 @@ class RateLimitResult:
 def check_and_record(
     *,
     identity: str,
-    tool: str,          # "feedback" | "recipify-request" | "skill-error" | "skill-patch"
+    tool: str,  # "feedback" | "recipify-request" | "skill-error" | "skill-patch"
     signature: str,
     issue_url: str = "",
     force: bool = False,
@@ -136,7 +143,7 @@ def check_and_record(
     """
     result = RateLimitResult()
     now = time.monotonic()
-    wall_now = datetime.now(timezone.utc)
+    wall_now = datetime.now(UTC)
 
     # Resolve per-tool overrides (or fall back to module defaults)
     _overrides = TOOL_OVERRIDES.get(tool, {})
@@ -165,9 +172,7 @@ def check_and_record(
             if not (force and confirmation):
                 result.allowed = False
                 result.loop_block = True
-                result.retry_at = wall_now + timedelta(
-                    seconds=max(0, cooldown_expiry - now)
-                )
+                result.retry_at = wall_now + timedelta(seconds=max(0, cooldown_expiry - now))
                 return result
             # force+confirmation overrides cooldown — proceed
 

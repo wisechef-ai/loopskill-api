@@ -8,18 +8,21 @@ Usage:
     from app.services.anonymizer import anonymize, Finding
     cleaned_text, findings = anonymize(raw_text, user_facing=False)
 """
+
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
-from typing import List, Tuple
-
+from dataclasses import dataclass
 
 ADAM_TOKENS: list[str] = ["Adam", "Bombilla", "Marco", "Karol", "Olek", "Mariusz"]
 
 INFRA_REFS: list[str] = [
-    "wisechef-agents", "wisechef-hq", "paperclip", "obsidian-vault",
-    "adam-xps", "wisevision",
+    "wisechef-agents",
+    "wisechef-hq",
+    "paperclip",
+    "obsidian-vault",
+    "adam-xps",
+    "wisevision",
 ]
 
 _PATHS: list[str] = ["/home/adam/", "/Users/adam/", "$HOME/"]
@@ -35,14 +38,15 @@ _EMAIL_RE = re.compile(
 @dataclass
 class Finding:
     """A single redaction finding."""
-    category: str       # adam_token | infra_ref | path | agent_name | email
+
+    category: str  # adam_token | infra_ref | path | agent_name | email
     original: str
     replacement: str
     start: int
     end: int
 
 
-def anonymize(text: str, user_facing: bool = False) -> Tuple[str, List[Finding]]:
+def anonymize(text: str, user_facing: bool = False) -> tuple[str, list[Finding]]:
     """Replace sensitive tokens in *text* and return (cleaned, findings).
 
     Rules applied in order (positions shift as replacements happen, so we
@@ -102,13 +106,15 @@ def anonymize(text: str, user_facing: bool = False) -> Tuple[str, List[Finding]]
     findings: list[Finding] = []
     result = text
     for start, end, original, replacement, category in reversed(deduped):
-        findings.append(Finding(
-            category=category,
-            original=original,
-            replacement=replacement,
-            start=start,
-            end=end,
-        ))
+        findings.append(
+            Finding(
+                category=category,
+                original=original,
+                replacement=replacement,
+                start=start,
+                end=end,
+            )
+        )
         result = result[:start] + replacement + result[end:]
 
     # Reverse findings back to left-to-right order

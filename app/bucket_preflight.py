@@ -19,10 +19,12 @@ Each check is a plain function returning `list[str]` of problems. The
 aggregator `run_preflight` combines them. Helpers are pure and importable
 from tests.
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -123,7 +125,8 @@ def _parse_recipe_blob_for_skill(db: Session, skill: Skill) -> dict | None:
         data = yaml.safe_load(blob)
         if isinstance(data, dict):
             return data
-    except Exception:
+    # Rationale: YAML parsing is optional; any import/parse error → return None
+    except Exception:  # noqa: BLE001
         pass
     return None
 
@@ -166,15 +169,13 @@ def check_port_conflicts(skill_recipes: list[dict], host_ports: Iterable[int]) -
                 continue
             if port_int in seen:
                 problems.append(
-                    f"port_conflict:port={port_int} claimed by both "
-                    f"{seen[port_int]} and {entry['slug']}"
+                    f"port_conflict:port={port_int} claimed by both {seen[port_int]} and {entry['slug']}"
                 )
             else:
                 seen[port_int] = entry["slug"]
             if port_int in host_set:
                 problems.append(
-                    f"port_conflict:port={port_int} already in use on host "
-                    f"(claimed by {entry['slug']})"
+                    f"port_conflict:port={port_int} already in use on host (claimed by {entry['slug']})"
                 )
     return problems
 
@@ -199,16 +200,12 @@ def check_env_collisions(skill_recipes: list[dict], host_env: dict) -> list[str]
             if not name:
                 continue
             if name in seen and seen[name] != entry["slug"]:
-                problems.append(
-                    f"env_collision:{name} required by both "
-                    f"{seen[name]} and {entry['slug']}"
-                )
+                problems.append(f"env_collision:{name} required by both {seen[name]} and {entry['slug']}")
             else:
                 seen[name] = entry["slug"]
             host_value = host_env.get(name)
             if host_value is not None and value is not None and host_value != value:
                 problems.append(
-                    f"env_collision:{name} host value differs from "
-                    f"{entry['slug']} declared value"
+                    f"env_collision:{name} host value differs from {entry['slug']} declared value"
                 )
     return problems

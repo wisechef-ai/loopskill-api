@@ -15,17 +15,14 @@ Pipeline:
 
 from __future__ import annotations
 
-import math
 import re
-from typing import Iterable
 from uuid import UUID, uuid4
 
 import yaml
 from sqlalchemy.orm import Session
 
-from app.embeddings import embed_text, embed_skill, cosine
+from app.embeddings import cosine, embed_skill, embed_text
 from app.models import Cookbook, CookbookSkill, Skill
-
 
 CANONICAL_CATEGORIES = [
     "research",
@@ -49,6 +46,7 @@ class ValidationError(ValueError):
 
 
 # ── 1) Frontmatter validation ────────────────────────────────────────────
+
 
 def validate_frontmatter(text: str) -> dict:
     """Parse + validate YAML frontmatter from a SKILL.md string.
@@ -79,10 +77,7 @@ def validate_frontmatter(text: str) -> dict:
 
     name = meta["name"]
     if not isinstance(name, str) or not SLUG_RE.match(name):
-        raise ValidationError(
-            "frontmatter 'name' must match ^[a-z0-9_-]{1,64}$ "
-            f"(got: {name!r})"
-        )
+        raise ValidationError(f"frontmatter 'name' must match ^[a-z0-9_-]{{1,64}}$ (got: {name!r})")
 
     desc = meta["description"]
     if not isinstance(desc, str) or not desc.strip():
@@ -97,29 +92,106 @@ def validate_frontmatter(text: str) -> dict:
 # Categories are checked in priority order; the first whose keyword set hits
 # the highest count wins. Ties resolve to the earlier entry.
 _CATEGORY_KEYWORDS: list[tuple[str, list[str]]] = [
-    ("code-review", ["code review", "pr review", "pull request", "lint",
-                     "static analysis", "audit", "security scan", "vulnerability",
-                     "code-quality", "code quality"]),
-    ("data", ["scrap", "etl", "scraping", "extract", "pipeline", "analytics",
-              "ml ", "machine learning", "dataset", "ingest", "warehouse",
-              "proxy rotation", "crawl"]),
-    ("ops", ["devops", "deploy", "infra", "infrastructure", "kubernetes",
-             "k8s", "monitoring", "observability", "ci/cd", "terraform",
-             "docker", "platform"]),
-    ("marketing", ["seo", "ad campaign", "ads ", "lead gen", "lead-gen",
-                   "marketing", "newsletter", "growth"]),
-    ("content", ["copywrit", "blog post", "creative", "image gen", "video",
-                 "illustration", "creative writing", "content"]),
-    ("agency", ["client deliverable", "proposal", "scoping", "consulting",
-                "agency", "client report"]),
-    ("automation", ["workflow", "scheduler", "cron", "bot ", "automation",
-                    "orchestrat"]),
-    ("research", ["research", "discovery", "literature", "knowledge harvest",
-                  "knowledge base", "literature review"]),
-    ("dev-tools", ["ide", "cli", "code generator", "scaffold", "developer tool",
-                   "dev tool", "boilerplate", "linter config", "formatter"]),
-    ("productivity", ["calendar", "email", "notes", "todo", "personal",
-                      "productivity", "general utility", "communication"]),
+    (
+        "code-review",
+        [
+            "code review",
+            "pr review",
+            "pull request",
+            "lint",
+            "static analysis",
+            "audit",
+            "security scan",
+            "vulnerability",
+            "code-quality",
+            "code quality",
+        ],
+    ),
+    (
+        "data",
+        [
+            "scrap",
+            "etl",
+            "scraping",
+            "extract",
+            "pipeline",
+            "analytics",
+            "ml ",
+            "machine learning",
+            "dataset",
+            "ingest",
+            "warehouse",
+            "proxy rotation",
+            "crawl",
+        ],
+    ),
+    (
+        "ops",
+        [
+            "devops",
+            "deploy",
+            "infra",
+            "infrastructure",
+            "kubernetes",
+            "k8s",
+            "monitoring",
+            "observability",
+            "ci/cd",
+            "terraform",
+            "docker",
+            "platform",
+        ],
+    ),
+    (
+        "marketing",
+        ["seo", "ad campaign", "ads ", "lead gen", "lead-gen", "marketing", "newsletter", "growth"],
+    ),
+    (
+        "content",
+        [
+            "copywrit",
+            "blog post",
+            "creative",
+            "image gen",
+            "video",
+            "illustration",
+            "creative writing",
+            "content",
+        ],
+    ),
+    ("agency", ["client deliverable", "proposal", "scoping", "consulting", "agency", "client report"]),
+    ("automation", ["workflow", "scheduler", "cron", "bot ", "automation", "orchestrat"]),
+    (
+        "research",
+        ["research", "discovery", "literature", "knowledge harvest", "knowledge base", "literature review"],
+    ),
+    (
+        "dev-tools",
+        [
+            "ide",
+            "cli",
+            "code generator",
+            "scaffold",
+            "developer tool",
+            "dev tool",
+            "boilerplate",
+            "linter config",
+            "formatter",
+        ],
+    ),
+    (
+        "productivity",
+        [
+            "calendar",
+            "email",
+            "notes",
+            "todo",
+            "personal",
+            "productivity",
+            "general utility",
+            "communication",
+        ],
+    ),
 ]
 
 
@@ -127,8 +199,24 @@ def _tokenize_tags(text: str) -> list[str]:
     words = re.findall(r"[a-z][a-z0-9-]{2,}", text.lower())
     seen: list[str] = []
     for w in words:
-        if w in {"the", "and", "for", "with", "from", "into", "this", "that",
-                 "are", "was", "your", "our", "any", "all", "use", "uses"}:
+        if w in {
+            "the",
+            "and",
+            "for",
+            "with",
+            "from",
+            "into",
+            "this",
+            "that",
+            "are",
+            "was",
+            "your",
+            "our",
+            "any",
+            "all",
+            "use",
+            "uses",
+        }:
             continue
         if w not in seen:
             seen.append(w)
@@ -165,6 +253,7 @@ def classify_skill(text: str) -> dict:
 
 # ── 3) Related-skills inference ──────────────────────────────────────────
 
+
 def _decode_existing_embedding(raw) -> list[float] | None:
     if raw is None:
         return None
@@ -172,9 +261,11 @@ def _decode_existing_embedding(raw) -> list[float] | None:
         return [float(x) for x in raw]
     if isinstance(raw, str):
         import json as _json
+
         try:
             return [float(x) for x in _json.loads(raw)]
-        except Exception:
+        # Rationale: JSON parsing of embedding from string; any error → return None
+        except Exception:  # noqa: BLE001
             return None
     return None
 
@@ -213,6 +304,7 @@ def infer_related_skills(
 
 
 # ── 4) Write helpers ─────────────────────────────────────────────────────
+
 
 def write_cookbook_skill(
     slug: str,

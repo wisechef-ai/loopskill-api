@@ -16,21 +16,23 @@ Selector steps:
   5. Assign role per contract rules
   6. Tagline = first 80 chars of skill.description
 """
+
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
-from app.models import CarouselEntry, Skill
+from app.models import Skill
 
 if TYPE_CHECKING:
     pass
 
 
 # ── Scoring ────────────────────────────────────────────────────────────────
+
 
 def _recency_decay(created_at: datetime | None, today: date) -> float:
     """exp(-days_since_created / 30). Returns 1.0 when created_at is None."""
@@ -53,7 +55,7 @@ def score(skill: Skill, today: date) -> float:
     + 0.2 * (rating_avg or 3.0) / 5.0
     + 0.1 * (1.0 if vertical=='agency' else 0.5)
     """
-    install_count = (skill.install_count or 0)  # None → 0 (D1 optional)
+    install_count = skill.install_count or 0  # None → 0 (D1 optional)
     popularity = 0.4 * math.log10(install_count + 1)
 
     recency = 0.3 * _recency_decay(skill.created_at, today)
@@ -69,15 +71,12 @@ def score(skill: Skill, today: date) -> float:
 
 # ── Role assignment ────────────────────────────────────────────────────────
 
+
 def _is_new(skill: Skill, today: date) -> bool:
     """True if skill.created_at is within the last 30 days."""
     if skill.created_at is None:
         return False
-    created_date = (
-        skill.created_at.date()
-        if isinstance(skill.created_at, datetime)
-        else skill.created_at
-    )
+    created_date = skill.created_at.date() if isinstance(skill.created_at, datetime) else skill.created_at
     return (today - created_date).days <= 30
 
 
@@ -140,6 +139,7 @@ def _assign_role(slot: int, skill: Skill, db: Session, today: date) -> str:
 
 # ── Selector ───────────────────────────────────────────────────────────────
 
+
 def select_top_7(db: Session, today: date) -> list[dict]:
     """Return a list of up to 7 dicts ready to write as CarouselEntry rows.
 
@@ -160,19 +160,13 @@ def select_top_7(db: Session, today: date) -> list[dict]:
     )
 
     # Step 2: compute scores
-    scored: list[tuple[float, Skill]] = [
-        (score(s, today), s) for s in candidates
-    ]
+    scored: list[tuple[float, Skill]] = [(score(s, today), s) for s in candidates]
 
     # Step 3: sort descending; tie-break by created_at DESC, then slug ASC
     def sort_key(item: tuple[float, Skill]):
         s_val, sk = item
         # negate score for desc order; negate created_at timestamp for desc; slug asc
-        created_ts = (
-            sk.created_at.timestamp()
-            if sk.created_at is not None
-            else 0.0
-        )
+        created_ts = sk.created_at.timestamp() if sk.created_at is not None else 0.0
         return (-s_val, -created_ts, sk.slug)
 
     scored.sort(key=sort_key)
@@ -180,7 +174,7 @@ def select_top_7(db: Session, today: date) -> list[dict]:
     # Step 4: take top 7
     top7 = scored[:7]
 
-    today_dt = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
+    today_dt = datetime.combine(today, datetime.min.time(), tzinfo=UTC)
 
     result = []
     for slot_idx, (score_val, skill) in enumerate(top7, start=1):

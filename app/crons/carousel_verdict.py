@@ -9,8 +9,12 @@ Verdict logic:
 For now: log the decisions only — wiring the actual writes is a follow-up
 once we've observed real telemetry on the live carousel.
 """
+
 from __future__ import annotations
-import os, sys, datetime as dt
+
+import datetime as dt
+import os
+
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
@@ -25,7 +29,8 @@ def main():
     session = Session()
     try:
         target_date = (dt.datetime.utcnow() - dt.timedelta(days=7)).date()
-        rows = session.execute(text("""
+        rows = session.execute(
+            text("""
             SELECT s.id, s.slug, s.title, s.category,
                    COUNT(DISTINCT ie.id) FILTER (WHERE ie.created_at > :cutoff) AS recent_installs
               FROM carousel_entries ce
@@ -33,7 +38,9 @@ def main():
          LEFT JOIN install_events ie ON ie.skill_id = s.id
              WHERE ce.featured_date = :d
              GROUP BY s.id
-        """), {"d": target_date, "cutoff": dt.datetime.utcnow() - dt.timedelta(days=7)}).all()
+        """),
+            {"d": target_date, "cutoff": dt.datetime.utcnow() - dt.timedelta(days=7)},
+        ).all()
 
         if not rows:
             print(f"[verdict] no carousel entries for {target_date}, nothing to judge")
@@ -59,8 +66,10 @@ def main():
             else:
                 verdict = "HOLD"
                 holds += 1
-            print(f"[verdict] {r.slug:30s} cat={cat:14s} v={r.recent_installs} "
-                  f"(med {median}) ratio={ratio:.2f} → {verdict}")
+            print(
+                f"[verdict] {r.slug:30s} cat={cat:14s} v={r.recent_installs} "
+                f"(med {median}) ratio={ratio:.2f} → {verdict}"
+            )
 
         print(f"[verdict] {target_date}: {promotions} promote, {holds} hold, {archives} archive")
     finally:

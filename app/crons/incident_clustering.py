@@ -13,18 +13,18 @@ have already entered the canary pipeline keep their downstream status.
 
 Run as `python -m app.crons.incident_clustering` from a systemd timer.
 """
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models import IncidentReport, PatchCandidate
-
 
 log = logging.getLogger("recipes.incident_clustering")
 
@@ -40,11 +40,15 @@ class Cluster:
     distinct_agents: int
 
 
-def find_clusters(db: Session, *, now: datetime | None = None,
-                  threshold: int = CLUSTER_THRESHOLD,
-                  window_hours: int = WINDOW_HOURS) -> list[Cluster]:
+def find_clusters(
+    db: Session,
+    *,
+    now: datetime | None = None,
+    threshold: int = CLUSTER_THRESHOLD,
+    window_hours: int = WINDOW_HOURS,
+) -> list[Cluster]:
     """Return clusters whose count and distinct-agent count both meet threshold."""
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     cutoff = now - timedelta(hours=window_hours)
 
     rows = (
@@ -70,15 +74,14 @@ def find_clusters(db: Session, *, now: datetime | None = None,
     ]
 
 
-def upsert_candidate(db: Session, cluster: Cluster, *,
-                     now: datetime | None = None) -> PatchCandidate:
+def upsert_candidate(db: Session, cluster: Cluster, *, now: datetime | None = None) -> PatchCandidate:
     """Insert or update a patch_candidate for this cluster.
 
     Status only flips to 'pending' when a row is being created. If a
     candidate already exists in any non-terminal state we leave its
     status alone — only the metrics + last_clustered_at advance.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     existing = (
         db.query(PatchCandidate)
         .filter(

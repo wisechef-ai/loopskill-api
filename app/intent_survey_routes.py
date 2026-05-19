@@ -3,10 +3,11 @@
 POST /api/intent-survey            — anonymous, accepts {q1..q5}
 GET  /api/intent-survey/results    — admin-gated (x-api-key), aggregate counts
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Literal, Optional
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -28,10 +29,10 @@ Q4Choice = Literal["agency", "solo", "dev", "curious"]
 
 class IntentSurveyIn(BaseModel):
     q1: Q1Choice = Field(..., description="Would you pay €100/mo for Pro+?")
-    q2: Optional[str] = Field(default=None, max_length=2000)
-    q3: Optional[str] = Field(default=None, max_length=2000)
+    q2: str | None = Field(default=None, max_length=2000)
+    q3: str | None = Field(default=None, max_length=2000)
     q4: Q4Choice = Field(..., description="Which best describes you?")
-    q5: Optional[str] = Field(default=None, max_length=512)
+    q5: str | None = Field(default=None, max_length=512)
 
 
 @router.post("/intent-survey", status_code=201)
@@ -65,13 +66,13 @@ def intent_survey_results(
 
     q1_rows = (
         db.query(IntentSurveyResponse.q1, func.count(IntentSurveyResponse.id))
-          .group_by(IntentSurveyResponse.q1)
-          .all()
+        .group_by(IntentSurveyResponse.q1)
+        .all()
     )
     q4_rows = (
         db.query(IntentSurveyResponse.q4, func.count(IntentSurveyResponse.id))
-          .group_by(IntentSurveyResponse.q4)
-          .all()
+        .group_by(IntentSurveyResponse.q4)
+        .all()
     )
 
     return {

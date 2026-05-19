@@ -14,9 +14,9 @@ import logging
 import os
 import re
 import sys
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable
 
 import yaml
 
@@ -243,38 +243,44 @@ def diff_against_catalog(
     for inst in installed:
         cat = catalog_by_slug.get(inst.name)
         if cat is None:
-            recs.append(Recommendation(
-                vendor=inst.vendor,
-                slug=inst.name,
-                installed_version=inst.version,
-                catalog_version=None,
-                reason="missing",
-            ))
+            recs.append(
+                Recommendation(
+                    vendor=inst.vendor,
+                    slug=inst.name,
+                    installed_version=inst.version,
+                    catalog_version=None,
+                    reason="missing",
+                )
+            )
             continue
 
         cat_version = _catalog_version(cat)
         cmp = _compare_versions(inst.version, cat_version)
         if cmp < 0:
-            recs.append(Recommendation(
-                vendor=inst.vendor,
-                slug=inst.name,
-                installed_version=inst.version,
-                catalog_version=cat_version,
-                reason="newer",
-            ))
+            recs.append(
+                Recommendation(
+                    vendor=inst.vendor,
+                    slug=inst.name,
+                    installed_version=inst.version,
+                    catalog_version=cat_version,
+                    reason="newer",
+                )
+            )
             continue
         # Equal version — surface a recommendation only if the catalog's
         # quality signal (rating_avg) suggests there's a meaningful gap.
         if cmp == 0:
             rating = getattr(cat, "rating_avg", None)
             if rating is not None and rating >= 4.5:
-                recs.append(Recommendation(
-                    vendor=inst.vendor,
-                    slug=inst.name,
-                    installed_version=inst.version,
-                    catalog_version=cat_version,
-                    reason="better-quality",
-                ))
+                recs.append(
+                    Recommendation(
+                        vendor=inst.vendor,
+                        slug=inst.name,
+                        installed_version=inst.version,
+                        catalog_version=cat_version,
+                        reason="better-quality",
+                    )
+                )
     return recs
 
 
@@ -284,4 +290,5 @@ def recommendation_to_dict(rec: Recommendation) -> dict:
 
 
 def installed_to_dict(inst: InstalledSkill) -> dict:
+    """Convert an InstalledSkill dataclass to a plain dict."""
     return asdict(inst)

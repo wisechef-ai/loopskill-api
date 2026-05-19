@@ -20,7 +20,7 @@ Also exports:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -46,6 +46,7 @@ router = APIRouter(tags=["skills"])
 
 # WIS-903: Retired skill registry (loaded at import time, shared pattern)
 from pathlib import Path as _Path
+
 _RETIREMENT_FILE = _Path(__file__).resolve().parent.parent / "retired-skills.txt"
 _RETIRED_SKILLS: dict[str, str] = {}
 if _RETIREMENT_FILE.exists():
@@ -61,26 +62,37 @@ if _RETIREMENT_FILE.exists():
 def search_skills(
     q: str | None = Query(None, description="Full-text search on title + description"),
     category: str | None = Query(None),
-    vertical: str | None = Query(None, pattern="^(marketing|code|web-scraping|ops|sales|sim-robotics)$",
-                                  description="Filter by Plan v5.4 vertical"),
-    tier: str | None = Query(None, pattern="^(free|pro|pro_plus|cook|operator|studio)$", description="Filter by access tier (DB: free|cook|operator|studio; display: free|pro|pro_plus — accepted as aliases via Phase A map)"),
-    subset: str | None = Query(None, pattern="^(pantry|menu|cookbook)$",
-                                description="v6: filter by catalog subset (pantry=original 3rd-party, menu=public custom, cookbook=private)"),
-    variant: str | None = Query(None, pattern="^(original|custom)$",
-                                 description="v6: filter by skill_variant"),
+    vertical: str | None = Query(
+        None,
+        pattern="^(marketing|code|web-scraping|ops|sales|sim-robotics)$",
+        description="Filter by Plan v5.4 vertical",
+    ),
+    tier: str | None = Query(
+        None,
+        pattern="^(free|pro|pro_plus|cook|operator|studio)$",
+        description="Filter by access tier (DB: free|cook|operator|studio; display: free|pro|pro_plus — accepted as aliases via Phase A map)",
+    ),
+    subset: str | None = Query(
+        None,
+        pattern="^(pantry|menu|cookbook)$",
+        description="v6: filter by catalog subset (pantry=original 3rd-party, menu=public custom, cookbook=private)",
+    ),
+    variant: str | None = Query(
+        None, pattern="^(original|custom)$", description="v6: filter by skill_variant"
+    ),
     sort: str = Query("updated_at", pattern="^(updated_at|created_at|title|quality_score)$"),
     min_quality: float | None = Query(
         None,
         ge=0,
         le=10,
         description="quality_1705 Phase C — filter skills with quality_score >= N. "
-                    "Skills without a computed quality_score are excluded when this is set.",
+        "Skills without a computed quality_score are excluded when this is set.",
     ),
     hybrid: bool = Query(
         True,
         description="issue #111: when the literal keyword pass returns fewer than "
-                    "``hybrid_min_keyword_hits`` results, augment with hybrid recall "
-                    "(BM25 + vector) results. Set hybrid=false to force pure keyword.",
+        "``hybrid_min_keyword_hits`` results, augment with hybrid recall "
+        "(BM25 + vector) results. Set hybrid=false to force pure keyword.",
     ),
     hybrid_min_keyword_hits: int = Query(
         3,
@@ -93,15 +105,17 @@ def search_skills(
     db: Session = Depends(get_db),
 ):
     """Full-text skill search with hybrid recall fallback."""
-    query = db.query(Skill).options(
-        joinedload(Skill.versions),
-        joinedload(Skill.creator),
-    ).filter(Skill.is_public == True, Skill.is_archived == False)
+    query = (
+        db.query(Skill)
+        .options(
+            joinedload(Skill.versions),
+            joinedload(Skill.creator),
+        )
+        .filter(Skill.is_public == True, Skill.is_archived == False)
+    )
 
     if q:
-        query = query.filter(
-            (Skill.title.ilike(f"%{q}%")) | (Skill.description.ilike(f"%{q}%"))
-        )
+        query = query.filter((Skill.title.ilike(f"%{q}%")) | (Skill.description.ilike(f"%{q}%")))
     if category:
         query = query.filter(Skill.category == category)
     if vertical:
@@ -144,10 +158,7 @@ def search_skills(
     if results:
         # Issue #19: single batched query for all results instead of N per-row queries.
         counts = _install_counts_for(db, [s.id for s in results])
-        keyword_skill_outs = [
-            _skill_to_out(s, *counts.get(s.id, (0, 0)))
-            for s in results
-        ]
+        keyword_skill_outs = [_skill_to_out(s, *counts.get(s.id, (0, 0))) for s in results]
 
     # issue #111: hybrid fallback for broad multi-keyword queries.
     # When the literal ILIKE pass returns fewer than ``hybrid_min_keyword_hits``
@@ -192,13 +203,17 @@ def search_skills(
             ]
 
             if extra_slugs:
-                extra_q = db.query(Skill).options(
-                    joinedload(Skill.versions),
-                    joinedload(Skill.creator),
-                ).filter(
-                    Skill.is_public == True,  # noqa: E712
-                    Skill.is_archived == False,  # noqa: E712
-                    Skill.slug.in_(extra_slugs),
+                extra_q = (
+                    db.query(Skill)
+                    .options(
+                        joinedload(Skill.versions),
+                        joinedload(Skill.creator),
+                    )
+                    .filter(
+                        Skill.is_public == True,  # noqa: E712
+                        Skill.is_archived == False,  # noqa: E712
+                        Skill.slug.in_(extra_slugs),
+                    )
                 )
                 # Re-apply the same hygiene + quality filters used above so we
                 # don't widen the surface by accident.
@@ -214,16 +229,14 @@ def search_skills(
 
                 if ordered_extras:
                     extra_counts = _install_counts_for(db, [s.id for s in ordered_extras])
-                    extra_outs = [
-                        _skill_to_out(s, *extra_counts.get(s.id, (0, 0)))
-                        for s in ordered_extras
-                    ]
-                    final_outs = (keyword_skill_outs + extra_outs)[: page_size]
+                    extra_outs = [_skill_to_out(s, *extra_counts.get(s.id, (0, 0))) for s in ordered_extras]
+                    final_outs = (keyword_skill_outs + extra_outs)[:page_size]
                     final_total = total + len(extra_outs)
                     augmented = True
                     backend = "recall_only" if not results else "hybrid"
         except Exception:  # noqa: BLE001 — never let hybrid kill the literal pass
             import logging
+
             logging.getLogger(__name__).exception(
                 "hybrid search fallback failed; returning literal results only"
             )
@@ -258,7 +271,7 @@ def trending_skills(
     # Start the widening at (or after) the user's requested window.
     start_idx = fallback_chain.index(period)
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     def _query_for(window: str):
         filters = [
@@ -266,9 +279,7 @@ def trending_skills(
             TelemetryEvent.skill_slug.isnot(None),
         ]
         if window != "all":
-            filters.append(
-                TelemetryEvent.created_at >= now - timedelta(days=since_map[window])
-            )
+            filters.append(TelemetryEvent.created_at >= now - timedelta(days=since_map[window]))
         subq = (
             db.query(
                 TelemetryEvent.skill_slug,
@@ -313,9 +324,7 @@ def trending_skills(
 
     counts = _install_counts_for(db, [s.id for s in results])
     return SkillSearchResult(
-        results=[
-            _skill_to_out(s, *counts.get(s.id, (0, 0))) for s in results
-        ],
+        results=[_skill_to_out(s, *counts.get(s.id, (0, 0))) for s in results],
         total=total,
         page=page,
         page_size=page_size,
@@ -355,9 +364,7 @@ def get_full_skill_graph(db: Session = Depends(get_db)):
     # Pull all directed edges, deduplicate to undirected, drop edges that
     # touch a non-public node (defence in depth — builder already filters).
     edge_rows = (
-        db.query(SkillDerivedEdge.source_slug,
-                 SkillDerivedEdge.target_slug,
-                 SkillDerivedEdge.weight)
+        db.query(SkillDerivedEdge.source_slug, SkillDerivedEdge.target_slug, SkillDerivedEdge.weight)
         .order_by(SkillDerivedEdge.weight.desc())
         .all()
     )
@@ -397,17 +404,13 @@ def get_skill_detail(slug: str, request: Request, db: Session = Depends(get_db))
     )
     if not skill:
         # Phase J — check skill_aliases for a non-expired redirect.
-        alias = (
-            db.query(SkillAlias)
-            .filter(SkillAlias.old_slug == slug)
-            .one_or_none()
-        )
+        alias = db.query(SkillAlias).filter(SkillAlias.old_slug == slug).one_or_none()
         if alias is not None:
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             expires = alias.expires_at
             # SQLite returns naive datetimes; treat naive as UTC for comparison.
             if expires is not None and expires.tzinfo is None:
-                expires = expires.replace(tzinfo=timezone.utc)
+                expires = expires.replace(tzinfo=UTC)
             if expires is None or expires > now:
                 return JSONResponse(
                     status_code=301,
@@ -436,9 +439,7 @@ def get_skill_detail(slug: str, request: Request, db: Session = Depends(get_db))
     caller_tier = _resolve_caller_tier(db, request)
     caller_is_paid = _is_paid_tier(caller_tier)
     readme_payload = skill.readme if caller_is_paid else None
-    external_payload = (
-        getattr(skill, "external_resources", None) if caller_is_paid else None
-    )
+    external_payload = getattr(skill, "external_resources", None) if caller_is_paid else None
 
     return SkillDetailOut(
         id=skill.id,
@@ -492,11 +493,15 @@ def get_skill_external(slug: str, db: Session = Depends(get_db)):
 
     Issue #16: added is_public + is_archived guard matching get_skill_detail.
     """
-    skill = db.query(Skill).filter(
-        Skill.slug == slug,
-        Skill.is_public == True,   # noqa: E712
-        Skill.is_archived == False,  # noqa: E712
-    ).first()
+    skill = (
+        db.query(Skill)
+        .filter(
+            Skill.slug == slug,
+            Skill.is_public == True,  # noqa: E712
+            Skill.is_archived == False,  # noqa: E712
+        )
+        .first()
+    )
     if not skill:
         raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
     resources = getattr(skill, "external_resources", None) or []
@@ -569,11 +574,13 @@ def get_skill_graph(slug: str, db: Session = Depends(get_db)):
         if e.target_slug == slug:
             continue
         derived_slugs.append(e.target_slug)
-        edge_meta.append({
-            "slug": e.target_slug,
-            "weight": float(e.weight),
-            "signals": e.signals or {},
-        })
+        edge_meta.append(
+            {
+                "slug": e.target_slug,
+                "weight": float(e.weight),
+                "signals": e.signals or {},
+            }
+        )
         if len(derived_slugs) >= GRAPH_RAIL_CAP:
             break
 

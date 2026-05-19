@@ -17,6 +17,7 @@ Two transports:
 The publisher should always go through :func:`emit_cookbook_event`, which
 selects the right transport based on the database dialect.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,9 +40,7 @@ class Fanout:
 
     def __init__(self) -> None:
         self._subs: dict[str, set[asyncio.Queue]] = defaultdict(set)
-        self._backlog: dict[str, deque[tuple[int, dict]]] = defaultdict(
-            lambda: deque(maxlen=self.BACKLOG)
-        )
+        self._backlog: dict[str, deque[tuple[int, dict]]] = defaultdict(lambda: deque(maxlen=self.BACKLOG))
         self._next_id = 0
         self._lock = asyncio.Lock()
         self._listener_conn: Any = None
@@ -99,7 +98,7 @@ class Fanout:
         asyncpg_url = url
         for prefix in ("postgresql+psycopg2://", "postgresql+asyncpg://", "postgres://"):
             if asyncpg_url.startswith(prefix):
-                asyncpg_url = "postgresql://" + asyncpg_url[len(prefix):]
+                asyncpg_url = "postgresql://" + asyncpg_url[len(prefix) :]
                 break
         self._listener_conn = await asyncpg.connect(asyncpg_url)
         await self._listener_conn.add_listener("cookbook_events", self._on_notify)
@@ -108,6 +107,7 @@ class Fanout:
     def _on_notify(self, _conn, _pid, _channel, payload: str) -> None:
         try:
             evt = json.loads(payload)
+        # Rationale: NOTIFY payload must be valid JSON; bad payload → log and skip
         except Exception:
             logger.exception("fanout: bad NOTIFY payload %r", payload)
             return
@@ -119,6 +119,7 @@ class Fanout:
         if self._listener_conn is not None:
             try:
                 await self._listener_conn.close()
+            # Rationale: listener connection close is best-effort; log but don't block shutdown
             except Exception:
                 logger.exception("fanout: error closing listener connection")
             self._listener_conn = None
@@ -128,6 +129,7 @@ _fanout: Fanout | None = None
 
 
 def get_fanout() -> Fanout:
+    """Return the global Fanout singleton, creating it if needed."""
     global _fanout
     if _fanout is None:
         _fanout = Fanout()
@@ -148,7 +150,8 @@ async def publish_event(cookbook_id: str, event: dict) -> int:
 def _is_postgres(db: Session) -> bool:
     try:
         return db.bind.dialect.name == "postgresql"
-    except Exception:
+    # Rationale: dialect probe; bind may not support .dialect.name on all engines
+    except Exception:  # noqa: BLE001
         return False
 
 
@@ -171,6 +174,7 @@ async def emit_cookbook_event(db: Session, cookbook_ids: list[str], event: dict)
                 text("SELECT pg_notify('cookbook_events', :p)"),
                 {"p": json.dumps(payload)},
             )
+        # Rationale: pg_notify failure is non-fatal; fanout may be degraded but service continues
         except Exception:
             logger.exception("fanout: pg_notify failed")
     else:

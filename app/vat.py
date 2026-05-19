@@ -13,7 +13,6 @@ Strategy for WiseRecipes:
 
 import logging
 from dataclasses import dataclass
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +27,7 @@ EU_VAT_RATES: dict[str, float] = {
     "CZ": 0.21,  # Czech Republic
     "DK": 0.25,  # Denmark
     "EE": 0.22,  # Estonia
-    "FI": 0.255, # Finland
+    "FI": 0.255,  # Finland
     "FR": 0.20,  # France
     "DE": 0.19,  # Germany
     "GR": 0.24,  # Greece
@@ -55,22 +54,23 @@ EU_COUNTRY_CODES = set(EU_VAT_RATES.keys())
 @dataclass
 class VATResult:
     """Result of VAT calculation."""
+
     country_code: str
     is_eu: bool
     is_b2b: bool
     vat_rate: float
     vat_cents: int
     gross_cents: int  # original amount
-    net_cents: int    # amount after VAT removal
+    net_cents: int  # amount after VAT removal
     reverse_charge: bool
-    vat_number: Optional[str] = None
+    vat_number: str | None = None
 
 
 def calculate_vat(
     gross_amount_cents: int,
     buyer_country_code: str,
     is_b2b: bool = False,
-    vat_number: Optional[str] = None,
+    vat_number: str | None = None,
 ) -> VATResult:
     """Calculate VAT MOSS for a digital service sale.
 
@@ -158,7 +158,7 @@ def _validate_vat_number(country_code: str, vat_number: str) -> bool:
             return False
 
     # After prefix, should be 5-15 alphanumeric characters
-    number_part = cleaned[len(country_code):]
+    number_part = cleaned[len(country_code) :]
     if len(number_part) < 5 or len(number_part) > 15:
         return False
 
@@ -185,15 +185,17 @@ def generate_vat_moss_report(payouts_by_country: dict[str, int]) -> list[dict]:
         net_cents = round(gross_cents / (1 + vat_rate))
         vat_cents = gross_cents - net_cents
 
-        report.append({
-            "country_code": country,
-            "vat_rate": round(vat_rate * 100, 1),
-            "gross_cents": gross_cents,
-            "net_cents": net_cents,
-            "vat_cents": vat_cents,
-            "gross_eur": round(gross_cents / 100, 2),
-            "net_eur": round(net_cents / 100, 2),
-            "vat_eur": round(vat_cents / 100, 2),
-        })
+        report.append(
+            {
+                "country_code": country,
+                "vat_rate": round(vat_rate * 100, 1),
+                "gross_cents": gross_cents,
+                "net_cents": net_cents,
+                "vat_cents": vat_cents,
+                "gross_eur": round(gross_cents / 100, 2),
+                "net_eur": round(net_cents / 100, 2),
+                "vat_eur": round(vat_cents / 100, 2),
+            }
+        )
 
     return report

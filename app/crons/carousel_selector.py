@@ -22,8 +22,14 @@ Run from the API container:
 
 Schedule via systemd timer or external cron at 23:55 UTC.
 """
+
 from __future__ import annotations
-import os, sys, math, datetime as dt, random
+
+import datetime as dt
+import os
+import random
+import sys
+
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
@@ -48,6 +54,7 @@ W_EDITORIAL = 0.10
 # slot1_quality_check mirrors the contract in skill `carousel-content-quality-gate`.
 
 import re as _re
+
 
 def derive_tagline(p: dict) -> str:
     """Return the tagline a candidate would publish. description-first.
@@ -97,8 +104,6 @@ def assign_role(slot_1idx: int, p: dict | None = None) -> str:
     return "new-capability"
 
 
-
-
 def main():
     engine = create_engine(DATABASE_URL)
     Session = sessionmaker(bind=engine)
@@ -118,7 +123,8 @@ def main():
             return
 
         # Pull eligible skills with telemetry rollups (telemetry joined by slug)
-        rows = session.execute(text("""
+        rows = session.execute(
+            text("""
             SELECT s.id, s.slug, s.title, s.description, s.category, s.creator_id, s.tier,
                    COUNT(DISTINCT ie.id) FILTER (WHERE ie.created_at > :vc) AS recent_installs,
                    COUNT(DISTINCT ie.id) AS total_installs,
@@ -141,13 +147,16 @@ def main():
                  )
                )
              GROUP BY s.id
-        """), {"vc": velocity_cutoff, "cut": cutoff, "force": FORCE}).all()
+        """),
+            {"vc": velocity_cutoff, "cut": cutoff, "force": FORCE},
+        ).all()
 
         if not rows:
             # Eligibility filter excluded everything — fall back to no-history mode
             # so the carousel never goes dark. Logs the fact for visibility.
             print(f"[carousel] {target_date}: 0 eligible after history filter, retrying with FORCE=1")
-            rows = session.execute(text("""
+            rows = session.execute(
+                text("""
                 SELECT s.id, s.slug, s.title, s.description, s.category, s.creator_id, s.tier,
                        COUNT(DISTINCT ie.id) FILTER (WHERE ie.created_at > :vc) AS recent_installs,
                        COUNT(DISTINCT ie.id) AS total_installs,
@@ -163,7 +172,9 @@ def main():
                    AND lower(trim(s.description)) <> lower(trim(s.title))
                    AND lower(trim(s.description)) <> lower(trim(s.slug))
                  GROUP BY s.id
-            """), {"vc": velocity_cutoff}).all()
+            """),
+                {"vc": velocity_cutoff},
+            ).all()
             if not rows:
                 print(f"[carousel] {target_date}: 0 public skills exist, aborting")
                 return
@@ -174,18 +185,20 @@ def main():
         for r in rows:
             velocity = r.recent_installs / max_velocity
             success = float(r.success_rate or 0.7)
-            scored.append({
-                "skill_id": r.id,
-                "slug": r.slug,
-                "title": r.title,
-                "description": r.description,
-                "category": r.category or "uncategorized",
-                "creator_id": r.creator_id,
-                "tier": r.tier,
-                "velocity": velocity,
-                "success": success,
-                "score_base": W_VELOCITY * velocity + W_SUCCESS * success,
-            })
+            scored.append(
+                {
+                    "skill_id": r.id,
+                    "slug": r.slug,
+                    "title": r.title,
+                    "description": r.description,
+                    "category": r.category or "uncategorized",
+                    "creator_id": r.creator_id,
+                    "tier": r.tier,
+                    "velocity": velocity,
+                    "success": success,
+                    "score_base": W_VELOCITY * velocity + W_SUCCESS * success,
+                }
+            )
 
         # Pick 7 with diversity
         random.shuffle(scored)  # break ties stochastically
@@ -236,10 +249,16 @@ def main():
                     os.makedirs(rejects_dir, exist_ok=True)
                     log_path = os.path.join(rejects_dir, f"{target_date}.log")
                     with open(log_path, "a") as fh:
-                        fh.write(f'{{"date": "{target_date}", "slug": "{picked[0].get("slug","")}", "drop_reason": "{reason}"}}\n')
-                except Exception as _logerr:
+                        fh.write(
+                            f'{{"date": "{target_date}", "slug": "{picked[0].get("slug", "")}", "drop_reason": "{reason}"}}\n'
+                        )
+                # Rationale: reject-log is best-effort; filesystem errors must not crash the cron
+                except Exception as _logerr:  # noqa: BLE001
                     print(f"[carousel] WARN: could not log slot-1 reject: {_logerr}", file=sys.stderr)
-                print(f"[carousel] slot-1 rejected: {picked[0].get('slug','?')} reason={reason}", file=sys.stderr)
+                print(
+                    f"[carousel] slot-1 rejected: {picked[0].get('slug', '?')} reason={reason}",
+                    file=sys.stderr,
+                )
                 # Promote the next candidate by removing index 0
                 if len(picked) > 1:
                     picked = picked[1:]
@@ -247,34 +266,43 @@ def main():
                     break
                 attempts += 1
             if attempts >= 5:
-                print(f"[carousel] WARN: slot-1 quality gate exhausted retries on {target_date}", file=sys.stderr)
+                print(
+                    f"[carousel] WARN: slot-1 quality gate exhausted retries on {target_date}",
+                    file=sys.stderr,
+                )
 
         # Insert with slot (1-indexed), role, score, and description-derived tagline
         for idx, p in enumerate(picked):
             slot_1idx = idx + 1
             tagline = derive_tagline(p)
             role = assign_role(slot_1idx, p)
-            session.execute(text("""
+            session.execute(
+                text("""
                 INSERT INTO carousel_entries
                   (id, skill_id, featured_date, position, slot, role, score, tagline)
                 VALUES
                   (gen_random_uuid(), :sid, :d, :pos, :slot, :role, :score, :tag)
                 ON CONFLICT DO NOTHING
-            """), {
-                "sid": p["skill_id"],
-                "d": target_date,
-                "pos": idx,             # backward-compat 0-indexed
-                "slot": slot_1idx,      # 1-indexed
-                "role": role,
-                "score": float(p.get("final_score", 0.0)),
-                "tag": tagline,
-            })
+            """),
+                {
+                    "sid": p["skill_id"],
+                    "d": target_date,
+                    "pos": idx,  # backward-compat 0-indexed
+                    "slot": slot_1idx,  # 1-indexed
+                    "role": role,
+                    "score": float(p.get("final_score", 0.0)),
+                    "tag": tagline,
+                },
+            )
         session.commit()
 
         print(f"[carousel] {target_date}: filled {len(picked)} slots")
         for slot, p in enumerate(picked):
-            print(f"  slot {slot}: {p['slug']:30s} score={p['final_score']:.3f} "
-                  f"(v={p['velocity']:.2f} s={p['success']:.2f} d={p['diversity']:.2f})")
+            print(
+                f"  slot {slot}: {p['slug']:30s} score={p['final_score']:.3f} "
+                f"(v={p['velocity']:.2f} s={p['success']:.2f} d={p['diversity']:.2f})"
+            )
+    # Rationale: outer try/except for cron top-level; DB commit failure must log+reraise
     except Exception as e:
         session.rollback()
         print(f"[carousel] ERROR: {e}", file=sys.stderr)

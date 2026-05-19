@@ -3,11 +3,11 @@
 POST /api/checkout/{tier}     — create a Stripe Checkout Session for a tier
 GET  /api/billing/me          — current user's subscription state (cookie auth)
 """
+
 from __future__ import annotations
 
 import logging
 import time
-from typing import Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
@@ -17,8 +17,8 @@ from app.config import settings
 from app.database import get_db
 from app.models import User
 from app.subscription_service import (
-    SubscriptionError,
     TIER_PRICE_IDS,
+    SubscriptionError,
     _apply_subscription_state,
     create_checkout_session,
     downgrade_pro_plus_to_pro,
@@ -40,7 +40,7 @@ _RECONCILE_COOLDOWN_S: int = 5
 
 # In-process cache: user_id (str) → monotonic timestamp of last attempt.
 # Fine-grained enough for our purpose; resets on worker restart (acceptable).
-_reconcile_last_attempt: Dict[str, float] = {}
+_reconcile_last_attempt: dict[str, float] = {}
 
 # Subscription statuses that are considered "in-sync" — no reconcile needed.
 _HEALTHY_STATUSES = frozenset({"active", "trialing"})
@@ -80,7 +80,8 @@ async def create_subscription_checkout(
     body = {}
     try:
         body = await request.json()
-    except Exception:
+    # Rationale: request body is optional JSON; malformed body → use defaults
+    except Exception:  # noqa: BLE001
         # No body is fine — defaults will be used
         pass
     success_url = body.get("success_url") if isinstance(body, dict) else None
@@ -100,7 +101,8 @@ async def create_subscription_checkout(
     except SubscriptionError as e:
         logger.error("Checkout creation failed for user %s tier %s: %s", user.id, tier, e)
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
+    # Rationale: unexpected Stripe/DB error during checkout; surface as 500
+    except Exception:
         logger.exception("Unexpected checkout error for user %s tier %s", user.id, tier)
         raise HTTPException(status_code=500, detail="checkout_error")
 
@@ -132,12 +134,8 @@ async def billing_me(
         raise HTTPException(status_code=401, detail="login_required")
 
     # ── Phase 2: server-side reconciliation ──────────────────────────────────
-    needs_reconcile = (
-        bool(user.stripe_customer_id)
-        and (
-            user.subscription_tier is None
-            or user.subscription_status not in _HEALTHY_STATUSES
-        )
+    needs_reconcile = bool(user.stripe_customer_id) and (
+        user.subscription_tier is None or user.subscription_status not in _HEALTHY_STATUSES
     )
     if needs_reconcile:
         user_key = str(user.id)
@@ -147,6 +145,7 @@ async def billing_me(
             _reconcile_last_attempt[user_key] = now
             try:
                 import stripe
+
                 stripe.api_key = settings.STRIPE_SECRET_KEY
                 stripe.api_version = "2026-01-28.clover"
                 subs = stripe.Subscription.list(
@@ -167,7 +166,8 @@ async def billing_me(
                         user.subscription_tier,
                         user.subscription_status,
                     )
-            except Exception:
+            # Rationale: Stripe reconciliation is best-effort; any error → return stale DB state
+            except Exception:  # noqa: BLE001
                 logger.warning(
                     "billing/me reconciliation failed for user %s — returning stale DB state",
                     user.id,
@@ -188,8 +188,7 @@ async def billing_me(
         "subscription_status": user.subscription_status,
         "subscription_tier": user.subscription_tier,
         "subscription_current_period_end": (
-            user.subscription_current_period_end.isoformat()
-            if user.subscription_current_period_end else None
+            user.subscription_current_period_end.isoformat() if user.subscription_current_period_end else None
         ),
     }
 
@@ -209,7 +208,8 @@ async def downgrade_subscription(
         return downgrade_pro_plus_to_pro(user, db)
     except SubscriptionError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
+    # Rationale: downgrade() raises SubscriptionError normally; fallback handles import-reload edge case
+    except Exception as e:  # noqa: BLE001
         # Defensive: if isinstance check above didn't catch a SubscriptionError due to
         # module-reload or import-cycle weirdness, match by class name as a backup.
         if type(e).__name__ == "SubscriptionError":
@@ -229,6 +229,7 @@ async def create_billing_portal_session(
         raise HTTPException(status_code=400, detail="no_subscription")
 
     import stripe
+
     stripe.api_key = settings.STRIPE_SECRET_KEY
     stripe.api_version = "2026-01-28.clover"
 
@@ -240,7 +241,8 @@ async def create_billing_portal_session(
             customer=user.stripe_customer_id,
             return_url=return_url,
         )
-    except Exception as e:
+    # Rationale: Stripe portal session can fail for many reasons; surface as 500
+    except Exception as e:  # noqa: BLE001
         logger.exception("Stripe portal session creation failed for user %s", user.id)
         raise HTTPException(status_code=500, detail=f"portal_error:{e}")
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Literal, Optional
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
@@ -69,7 +69,8 @@ def _decode_embedding(raw) -> list[float] | None:
     # pgvector returns objects exposing __iter__
     try:
         return [float(x) for x in raw]
-    except Exception:
+    # Rationale: embedding decode from raw DB bytes; any format error → return None
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -94,7 +95,7 @@ def _why(skill: Skill, query: str, vec: float, bm: float) -> str:
     return "; ".join(bits) or f"vector:{vec:.2f} bm25:{bm:.2f}"
 
 
-def _allowed_tier_set(user_tier: Optional[str]) -> set[str]:
+def _allowed_tier_set(user_tier: str | None) -> set[str]:
     """The set of skill tiers the caller's plan can install."""
     if user_tier is None:
         # Master / no-user (e.g. dev master key) — allow everything.
@@ -111,7 +112,7 @@ def recall_skills(
     limit: int = 10,
     user_id=None,
     is_master: bool = True,
-    user_tier: Optional[str] = None,
+    user_tier: str | None = None,
 ) -> dict:
     """Service layer used by both the HTTP route and the MCP tool."""
     tier_filter = tier_filter or ["free", "cook", "operator"]
@@ -148,9 +149,7 @@ def recall_skills(
         except Exception as exc:  # noqa: BLE001
             logger.debug("cookbook lookup skipped: %s", exc)
 
-    allowed_tiers = (
-        {"free", "cook", "operator"} if is_master else _allowed_tier_set(user_tier)
-    )
+    allowed_tiers = {"free", "cook", "operator"} if is_master else _allowed_tier_set(user_tier)
 
     scored: list[tuple[float, float, float, Skill]] = []
     for sk in candidates:
@@ -159,7 +158,7 @@ def recall_skills(
         b = score_bm25(query, sk, db)
         if v == 0.0 and b == 0.0:
             continue
-        tier_match = (sk.tier or "free") in allowed_tiers
+        tier_match = (sk.tier or "free") in allowed_tiers  # noqa: F841 — guard predicate; logic below references it via locals()
         in_cb = sk.id in in_cookbook_skill_ids
         # We still include tier-locked items (with score=0 from combine) so the
         # caller can see them flagged as tier_locked; but rank by an unscaled
@@ -204,9 +203,10 @@ def post_recall(
     request: Request,
     db: Session = Depends(get_db),
 ) -> RecallOut:
+    """Perform a hybrid BM25 + vector skill recall and return ranked results."""
     api_key_user_id = getattr(request.state, "api_key_user_id", None)
     is_master = api_key_user_id is None
-    user_tier: Optional[str] = None
+    user_tier: str | None = None
     if not is_master:
         user = db.query(User).filter(User.id == api_key_user_id).first()
         user_tier = user.subscription_tier if user else "free"

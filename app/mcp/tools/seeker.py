@@ -24,6 +24,7 @@ from app.seeker import (
 
 
 def recipes_seeker(db: Session, **_: Any) -> dict[str, Any]:
+    """Probe local vendor skill directories and diff against the public catalog."""
     # Public-scope MCP tool: read-only probe of caller's local vendor dirs; no server data exposed.
     paths = vendor_paths()
     vendors_found: dict[str, list[dict[str, Any]]] = {}
@@ -38,11 +39,7 @@ def recipes_seeker(db: Session, **_: Any) -> dict[str, Any]:
         vendors_found[name] = [installed_to_dict(s) for s in skills]
         all_installed.extend(skills)
 
-    catalog = (
-        db.query(Skill)
-        .filter(Skill.is_public.is_(True))
-        .all()
-    )
+    catalog = db.query(Skill).filter(Skill.is_public.is_(True)).all()
     recs = diff_against_catalog(all_installed, catalog)
 
     return {

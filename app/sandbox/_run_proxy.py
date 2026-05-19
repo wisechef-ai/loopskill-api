@@ -7,9 +7,8 @@ Prints the listening port to stdout on the first line, then runs until killed.
 """
 
 import asyncio
-import signal
-import sys
 import os
+import sys
 
 # Add parent to path so we can import the proxy module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

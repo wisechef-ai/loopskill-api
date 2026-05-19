@@ -23,20 +23,20 @@ Schema (response):
 The endpoint is unauthenticated and cached 60s in-process. Same disclosure
 level as a status page.
 """
+
 from __future__ import annotations
 
+import json
 import logging
 import os
 import statistics
 import threading
 import time
-from datetime import datetime, timedelta, timezone
-from typing import Any
-
+import urllib.error
 import urllib.parse
 import urllib.request
-import urllib.error
-import json
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
@@ -79,9 +79,7 @@ def _compute_install_count_drift(db: Session) -> int:
         .all()
     )
     install_q = (
-        db.query(InstallEvent.skill_slug, func.count().label("c"))
-        .group_by(InstallEvent.skill_slug)
-        .all()
+        db.query(InstallEvent.skill_slug, func.count().label("c")).group_by(InstallEvent.skill_slug).all()
     )
     truth: dict[str, int] = {}
     for slug, count in telemetry_q:
@@ -101,7 +99,7 @@ def _compute_install_count_drift(db: Session) -> int:
 
 def _compute_skill_error_rate_7d(db: Session) -> float:
     """errors_7d / installs_7d, 0..1. Returns 0.0 if denominator is 0."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    cutoff = datetime.now(UTC) - timedelta(days=7)
     installs = (
         db.query(func.count(TelemetryEvent.id))
         .filter(TelemetryEvent.event_type == "install")
@@ -115,12 +113,10 @@ def _compute_skill_error_rate_7d(db: Session) -> float:
         from app.models import IncidentReport
 
         errors = (
-            db.query(func.count(IncidentReport.id))
-            .filter(IncidentReport.created_at >= cutoff)
-            .scalar()
-            or 0
+            db.query(func.count(IncidentReport.id)).filter(IncidentReport.created_at >= cutoff).scalar() or 0
         )
-    except Exception:
+    # Rationale: IncidentReport table may not exist on older DBs; return 0 as safe default
+    except Exception:  # noqa: BLE001
         errors = 0
 
     if installs <= 0:
@@ -131,11 +127,9 @@ def _compute_skill_error_rate_7d(db: Session) -> float:
 def _compute_feedback_volume_7d(db: Session) -> int:
     if FeedbackSubmission is None:
         return 0
-    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    cutoff = datetime.now(UTC) - timedelta(days=7)
     return (
-        db.query(func.count(FeedbackSubmission.id))
-        .filter(FeedbackSubmission.created_at >= cutoff)
-        .scalar()
+        db.query(func.count(FeedbackSubmission.id)).filter(FeedbackSubmission.created_at >= cutoff).scalar()
         or 0
     )
 
@@ -150,16 +144,13 @@ def _compute_median_issue_resolution_h() -> float | None:
     pat = os.environ.get("GITHUB_DISPATCH_PAT") or os.environ.get("GITHUB_TOKEN")
     if not pat:
         return None
-    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    cutoff = datetime.now(UTC) - timedelta(days=30)
     q = (
         "repo:wisechef-ai/recipes-api"
         " is:issue is:closed label:agent-reported"
         f" closed:>{cutoff.strftime('%Y-%m-%d')}"
     )
-    url = (
-        "https://api.github.com/search/issues?per_page=100&q="
-        + urllib.parse.quote(q, safe="")
-    )
+    url = "https://api.github.com/search/issues?per_page=100&q=" + urllib.parse.quote(q, safe="")
     req = urllib.request.Request(
         url,
         headers={
@@ -211,7 +202,7 @@ def _build_payload(db: Session) -> dict[str, Any]:
         "feedback_volume_7d": _compute_feedback_volume_7d(db),
         "median_issue_resolution_h": _compute_median_issue_resolution_h(),
         "last_backfill_at": (_compute_last_backfill_at() or None),
-        "computed_at": datetime.now(timezone.utc).isoformat(),
+        "computed_at": datetime.now(UTC).isoformat(),
         "ttl_seconds": _CACHE_TTL_S,
     }
 

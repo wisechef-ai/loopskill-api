@@ -14,12 +14,12 @@ Tier gate: middleware stamps api_key_user_id on request.state. The static master
 key bypasses tier checks. Free / no-tier users receive 401 on create. Cook tier
 is capped at 1 cookbook (403 on second). Operator and studio are unlimited.
 """
+
 from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 import yaml
@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import Cookbook, CookbookSkill, Skill, SkillVersion, User
-from app.tier_labels import _is_pro_plus_tier, _is_paid_tier
+from app.tier_labels import _is_paid_tier
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cookbooks", tags=["cookbooks"])
@@ -40,8 +40,8 @@ router = APIRouter(prefix="/api/cookbooks", tags=["cookbooks"])
 # functions (_is_paid_tier, _is_operator_tier) defined in tier_labels.py which
 # transparently accept the legacy 'studio' slug for 30 days. These set
 # constants remain for reference/documentation only — do not use for gate checks.
-COOKBOOK_TIERS = {"pro", "pro_plus"}   # canonical; legacy slugs handled via shim
-UNLIMITED_TIERS = {"pro_plus"}          # canonical; legacy slugs handled via shim
+COOKBOOK_TIERS = {"pro", "pro_plus"}  # canonical; legacy slugs handled via shim
+UNLIMITED_TIERS = {"pro_plus"}  # canonical; legacy slugs handled via shim
 ACTIVE_SUB_STATUSES = {"active", "trialing"}
 ALLOWED_SOURCES = {"forked", "custom-added", "overridden", "disabled"}
 
@@ -50,6 +50,7 @@ COOK_SKILL_CAP = 25
 
 
 # ── CBT scope enforcement for cookbook routes ─────────────────────────────
+
 
 def _enforce_cbt_scope_for_cookbook_route(request: Request, cookbook_id: str) -> None:
     """Enforce cbt_ token scope for cookbook-level routes.
@@ -93,14 +94,15 @@ def _enforce_cbt_scope_for_cookbook_route(request: Request, cookbook_id: str) ->
 
 # ── Tier gate ────────────────────────────────────────────────────────────
 
+
 class CookbookCtx(BaseModel):
-    user_id: Optional[UUID] = None
+    user_id: UUID | None = None
     is_master: bool = False
-    tier: Optional[str] = None
+    tier: str | None = None
     # SECURITY: when populated, this caller authenticated via a cbt_ share token
     # scoped to this single cookbook. Route-level checks must enforce that any
     # cb the request acts on equals this value, and must block writes if scope='read'.
-    cbt_cookbook_id: Optional[UUID] = None
+    cbt_cookbook_id: UUID | None = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -141,34 +143,36 @@ def require_cookbook_tier(request: Request, db: Session = Depends(get_db)) -> Co
 
 # ── Schemas ──────────────────────────────────────────────────────────────
 
+
 class CookbookCreateIn(BaseModel):
     name: str
-    description: Optional[str] = None
+    description: str | None = None
 
 
 class SkillAddIn(BaseModel):
     slug: str
-    source: Optional[str] = "custom-added"
+    source: str | None = "custom-added"
 
 
 class CookbookSkillOut(BaseModel):
     slug: str
     source: str
-    pinned_version: Optional[str] = None
-    added_at: Optional[datetime] = None
+    pinned_version: str | None = None
+    added_at: datetime | None = None
 
 
 class CookbookOut(BaseModel):
     id: str
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     is_base: bool
-    parent_cookbook_id: Optional[str] = None
-    cookbook_owner: Optional[str] = None
-    created_at: Optional[datetime] = None
+    parent_cookbook_id: str | None = None
+    cookbook_owner: str | None = None
+    created_at: datetime | None = None
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
+
 
 def _resolve_owned_cookbook(db: Session, ctx: CookbookCtx, cookbook_id: str) -> Cookbook:
     try:
@@ -184,8 +188,9 @@ def _resolve_owned_cookbook(db: Session, ctx: CookbookCtx, cookbook_id: str) -> 
     return cb
 
 
-def _skills_for(db: Session, cookbook_id: UUID, include_disabled: bool = True
-                ) -> list[tuple[CookbookSkill, Skill]]:
+def _skills_for(
+    db: Session, cookbook_id: UUID, include_disabled: bool = True
+) -> list[tuple[CookbookSkill, Skill]]:
     q = (
         db.query(CookbookSkill, Skill)
         .join(Skill, Skill.id == CookbookSkill.skill_id)
@@ -210,12 +215,14 @@ def _to_cb_out(cb: Cookbook) -> dict:
 
 # ── Endpoints ────────────────────────────────────────────────────────────
 
+
 @router.post("", status_code=201)
 def create_cookbook(
     body: CookbookCreateIn,
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
+    """Create a new cookbook for the authenticated user."""
     if ctx.is_master:
         raise HTTPException(status_code=400, detail="master key cannot create user-owned cookbooks")
 
@@ -224,11 +231,7 @@ def create_cookbook(
         raise HTTPException(status_code=422, detail="invalid_name")
 
     if ctx.tier == "pro" or ctx.tier == "cook":  # cook=legacy alias, remove after 2026-06-10
-        existing = (
-            db.query(Cookbook)
-            .filter(Cookbook.cookbook_owner == ctx.user_id)
-            .count()
-        )
+        existing = db.query(Cookbook).filter(Cookbook.cookbook_owner == ctx.user_id).count()
         if existing >= 1:
             raise HTTPException(
                 status_code=403,
@@ -253,6 +256,7 @@ def list_cookbooks(
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
+    """List all cookbooks for the authenticated user."""
     if ctx.is_master:
         return {"cookbooks": []}
 
@@ -272,6 +276,7 @@ def get_cookbook(
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
+    """Return a single cookbook by ID, including its skill list."""
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
     rows = _skills_for(db, cb.id, include_disabled=True)
@@ -296,6 +301,7 @@ def add_skill_to_cookbook(
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
+    """Add a skill to the specified cookbook."""
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
 
@@ -372,6 +378,7 @@ def remove_skill_from_cookbook(
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
+    """Remove a skill from the specified cookbook."""
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
 
@@ -449,13 +456,15 @@ def install_cookbook(
                 .first()
             )
 
-        skills_payload.append({
-            "slug": skill.slug,
-            "version": version.semver if version else None,
-            "tarball_url": _make_install_url(skill.slug, version.id, version.semver) if version else None,
-            "checksum_sha256": version.checksum_sha256 if version else None,
-            "source": cs.source,
-        })
+        skills_payload.append(
+            {
+                "slug": skill.slug,
+                "version": version.semver if version else None,
+                "tarball_url": _make_install_url(skill.slug, version.id, version.semver) if version else None,
+                "checksum_sha256": version.checksum_sha256 if version else None,
+                "source": cs.source,
+            }
+        )
 
     return {
         "cookbook_id": str(cb.id),
@@ -471,6 +480,7 @@ def cookbook_manifest(
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
+    """Return the install manifest for all skills in a cookbook."""
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
     rows = _skills_for(db, cb.id, include_disabled=True)
@@ -495,21 +505,22 @@ def cookbook_manifest(
 def cookbook_sync(
     cookbook_id: str,
     request: Request,
-    since: Optional[str] = None,
+    since: str | None = None,
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
+    """Return skills updated since the given timestamp for sync."""
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
 
-    since_dt: Optional[datetime] = None
+    since_dt: datetime | None = None
     if since:
         try:
             since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
         except ValueError:
             raise HTTPException(status_code=422, detail="invalid_since")
         if since_dt.tzinfo is None:
-            since_dt = since_dt.replace(tzinfo=timezone.utc)
+            since_dt = since_dt.replace(tzinfo=UTC)
 
     q = (
         db.query(CookbookSkill, Skill)

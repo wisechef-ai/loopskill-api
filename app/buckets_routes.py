@@ -14,13 +14,13 @@ Endpoints:
   GET    /api/buckets/{slug}/manifest
   GET    /api/buckets/{id}/jobs/{job_id}
 """
+
 from __future__ import annotations
 
 import logging
 import re
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
@@ -61,15 +61,15 @@ def _require_studio(user: User | None) -> User:
 
 class BucketCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    description: Optional[str] = None
+    description: str | None = None
     visibility: str = Field(default="private")
     pin_mode: str = Field(default="latest-stable")
 
 
 class BucketSkillAddRequest(BaseModel):
-    skill_id: Optional[str] = None
-    fork_id: Optional[str] = None
-    version_pin: Optional[str] = None
+    skill_id: str | None = None
+    fork_id: str | None = None
+    version_pin: str | None = None
     install_order: int = 100
 
 
@@ -123,6 +123,7 @@ async def create_bucket(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
+    """Create a new skill bucket for the authenticated studio user."""
     user = _require_studio(user)
     if req.visibility not in {"private", "team", "public"}:
         raise HTTPException(status_code=400, detail="invalid_visibility")
@@ -157,13 +158,9 @@ async def list_buckets(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
+    """List all skill buckets owned by the authenticated studio user."""
     user = _require_studio(user)
-    buckets = (
-        db.query(Bucket)
-        .filter(Bucket.owner_id == user.id)
-        .order_by(Bucket.created_at.desc())
-        .all()
-    )
+    buckets = db.query(Bucket).filter(Bucket.owner_id == user.id).order_by(Bucket.created_at.desc()).all()
     return {"buckets": [_bucket_dict(b) for b in buckets]}
 
 
@@ -174,14 +171,15 @@ async def add_skill_to_bucket(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
+    """Add a skill to the specified bucket."""
     user = _require_studio(user)
     bucket = _resolve_bucket_or_404(db, bucket_id, user)
 
     if not req.skill_id and not req.fork_id:
         raise HTTPException(status_code=400, detail="skill_id_or_fork_id_required")
 
-    skill_uuid: Optional[UUID] = None
-    fork_uuid: Optional[UUID] = None
+    skill_uuid: UUID | None = None
+    fork_uuid: UUID | None = None
     if req.skill_id:
         try:
             skill_uuid = UUID(req.skill_id)
@@ -227,6 +225,7 @@ async def remove_skill_from_bucket(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
+    """Remove a skill from the specified bucket."""
     user = _require_studio(user)
     bucket = _resolve_bucket_or_404(db, bucket_id, user)
     try:
@@ -291,14 +290,17 @@ async def apply_bucket(
             # downstream queries can filter by status='applying' once the
             # install_events.status column lands in F.6.
             client_ip=bucket_annotation,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         db.add(ev)
     db.commit()
 
     logger.info(
         "bucket_apply bucket=%s job=%s skills=%d owner=%s",
-        bucket.id, job_id, len(skills), user.id,
+        bucket.id,
+        job_id,
+        len(skills),
+        user.id,
     )
     return {
         "status": "applying",

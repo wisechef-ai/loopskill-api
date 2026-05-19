@@ -20,20 +20,14 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 import os
 import select
-import shlex
 import shutil
 import subprocess
-import tempfile
 import time
 import uuid
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Optional
 
 from app.sandbox.profile import SandboxProfile
 
@@ -48,6 +42,7 @@ MAX_OUTPUT_BYTES = 1 * 1024 * 1024  # 1 MB
 
 class SandboxError(RuntimeError):
     """Raised when the sandbox runner encounters an unrecoverable error."""
+
     pass
 
 
@@ -61,8 +56,8 @@ class SandboxResult:
     timed_out: bool
     duration_seconds: float
     sandbox_id: str
-    memory_used_mb: Optional[float] = None
-    error: Optional[str] = None
+    memory_used_mb: float | None = None
+    error: str | None = None
 
     @property
     def success(self) -> bool:
@@ -112,8 +107,8 @@ class SandboxRunner:
         skill_dir: str,
         entrypoint: str,
         profile: SandboxProfile,
-        skill_slug: Optional[str] = None,
-        env: Optional[dict[str, str]] = None,
+        skill_slug: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> SandboxResult:
         """Run a skill script inside a sandbox.
 
@@ -176,14 +171,11 @@ class SandboxRunner:
 
         try:
             if self._backend == "firejail":
-                return self._run_firejail(
-                    skill_dir, entrypoint, profile, sandbox_id, env, start_time
-                )
+                return self._run_firejail(skill_dir, entrypoint, profile, sandbox_id, env, start_time)
             else:
-                return self._run_bwrap(
-                    skill_dir, entrypoint, profile, sandbox_id, env, start_time
-                )
-        except Exception as exc:
+                return self._run_bwrap(skill_dir, entrypoint, profile, sandbox_id, env, start_time)
+        # Rationale: top-level sandbox dispatch; any backend failure returns error SandboxResult
+        except Exception as exc:  # noqa: BLE001
             duration = time.monotonic() - start_time
             return SandboxResult(
                 exit_code=-1,
@@ -201,7 +193,7 @@ class SandboxRunner:
         entrypoint: str,
         profile: SandboxProfile,
         sandbox_id: str,
-        env: Optional[dict[str, str]],
+        env: dict[str, str] | None,
         start_time: float,
     ) -> SandboxResult:
         """Execute using firejail backend.
@@ -221,8 +213,11 @@ class SandboxRunner:
             try:
                 proxy = self._start_domain_proxy_sync(profile.network_allow)
                 proxy_port = proxy["port"]
-                logger.info(f"Sandbox {sandbox_id}: domain proxy on port {proxy_port} allowing {profile.network_allow}")
-            except Exception as exc:
+                logger.info(
+                    f"Sandbox {sandbox_id}: domain proxy on port {proxy_port} allowing {profile.network_allow}"
+                )
+            # Rationale: proxy startup failure → fail CLOSED per Issue #8; no unrestricted network
+            except Exception as exc:  # noqa: BLE001
                 # Issue #8 fix: fail CLOSED — never run with unrestricted network.
                 return SandboxResult(
                     exit_code=-1,
@@ -241,11 +236,16 @@ class SandboxRunner:
                 shutil.copytree(skill_dir, staged_dir)
                 # Ensure entrypoint is executable
                 os.chmod(os.path.join(staged_dir, entrypoint), 0o755)
-            except Exception as exc:
+            # Rationale: staging failure (copytree/chmod) → fail-closed SandboxResult
+            except Exception as exc:  # noqa: BLE001
                 return SandboxResult(
-                    exit_code=-1, stdout="", stderr=str(exc),
-                    timed_out=False, duration_seconds=time.monotonic() - start_time,
-                    sandbox_id=sandbox_id, error=f"Staging failed: {exc}",
+                    exit_code=-1,
+                    stdout="",
+                    stderr=str(exc),
+                    timed_out=False,
+                    duration_seconds=time.monotonic() - start_time,
+                    sandbox_id=sandbox_id,
+                    error=f"Staging failed: {exc}",
                 )
 
             # Build firejail args
@@ -326,7 +326,7 @@ class SandboxRunner:
         entrypoint: str,
         profile: SandboxProfile,
         sandbox_id: str,
-        env: Optional[dict[str, str]],
+        env: dict[str, str] | None,
         start_time: float,
     ) -> SandboxResult:
         """Execute using bubblewrap backend (fallback).
@@ -340,7 +340,8 @@ class SandboxRunner:
             try:
                 proxy = self._start_domain_proxy_sync(profile.network_allow)
                 proxy_port = proxy["port"]
-            except Exception as exc:
+            # Rationale: proxy startup failure → fail CLOSED per Issue #8; no unrestricted network
+            except Exception as exc:  # noqa: BLE001
                 # Issue #8 fix: fail CLOSED — never run with unrestricted network.
                 return SandboxResult(
                     exit_code=-1,
@@ -455,11 +456,10 @@ class SandboxRunner:
             remaining_stderr = b""
             try:
                 remaining_stderr = proc.stderr.read()
-            except Exception:
+            # Rationale: stderr pipe may already be closed on timeout; ignore
+            except Exception:  # noqa: BLE001
                 pass
-            raise SandboxError(
-                f"proxy did not emit port within 5s; stderr={remaining_stderr!r}"
-            )
+            raise SandboxError(f"proxy did not emit port within 5s; stderr={remaining_stderr!r}")
 
         try:
             port = int(port_line.strip())
@@ -477,10 +477,12 @@ class SandboxRunner:
             try:
                 proc.terminate()
                 proc.wait(timeout=5)
-            except Exception:
+            # Rationale: terminate() may fail if process already exited; fall back to kill
+            except Exception:  # noqa: BLE001
                 try:
                     proc.kill()
-                except Exception:
+                # Rationale: kill() can fail if process already gone; nothing to do
+                except Exception:  # noqa: BLE001
                     pass
 
     @staticmethod
@@ -500,9 +502,7 @@ class SandboxRunner:
         result = "\n".join(filtered).strip()
         return result[:MAX_OUTPUT_BYTES]
 
-    def _prepare_bwrap_root(
-        self, skill_dir: str, sandbox_root: str, profile: SandboxProfile
-    ) -> None:
+    def _prepare_bwrap_root(self, skill_dir: str, sandbox_root: str, profile: SandboxProfile) -> None:
         """Copy skill files into sandbox root and create writable dirs (for bwrap)."""
         for item in os.listdir(skill_dir):
             src = os.path.join(skill_dir, item)
@@ -530,5 +530,6 @@ class SandboxRunner:
         try:
             if os.path.exists(sandbox_root):
                 shutil.rmtree(sandbox_root, ignore_errors=True)
-        except Exception as exc:
+        # Rationale: cleanup is best-effort; log warning if rmtree fails but never crash
+        except Exception as exc:  # noqa: BLE001
             logger.warning(f"Failed to cleanup sandbox {sandbox_root}: {exc}")

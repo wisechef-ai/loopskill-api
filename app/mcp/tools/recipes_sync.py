@@ -9,6 +9,7 @@ With ``dry_run=True``: returns the diff only — no DB mutations.
 
 Adam directive 2026-05-07: default ``dry_run=False`` is NON-NEGOTIABLE.
 """
+
 from __future__ import annotations
 
 import os
@@ -18,8 +19,8 @@ from uuid import UUID
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.auth_ctx import AuthContext
 from app import authz
+from app.auth_ctx import AuthContext
 from app.models import Cookbook, CookbookSkill, Skill, SkillVersion
 
 
@@ -145,9 +146,7 @@ def recipes_sync(
     return result
 
 
-def _build_install_urls(
-    db: Session, outdated: list[dict[str, Any]]
-) -> list[dict[str, str]]:
+def _build_install_urls(db: Session, outdated: list[dict[str, Any]]) -> list[dict[str, str]]:
     """Return one-shot tarball URLs for each updated skill."""
     from itsdangerous import URLSafeTimedSerializer
 
@@ -155,7 +154,8 @@ def _build_install_urls(
 
     try:
         serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET)
-    except Exception:
+    # Rationale: URLSafeTimedSerializer init can fail if SIGNING_SECRET is empty; return empty list
+    except Exception:  # noqa: BLE001
         return []
 
     public_origin = (
@@ -170,16 +170,12 @@ def _build_install_urls(
         if not skill or not skill.versions:
             continue
         latest = skill.versions[0]
-        token = serializer.dumps(
-            {"slug": o["slug"], "version_id": str(latest.id), "mode": "files"}
-        )
+        token = serializer.dumps({"slug": o["slug"], "version_id": str(latest.id), "mode": "files"})
         urls.append(
             {
                 "slug": o["slug"],
                 "version": o["to"],
-                "tarball_url": (
-                    public_origin.rstrip("/") + "/api/skills/_download?token=" + token
-                ),
+                "tarball_url": (public_origin.rstrip("/") + "/api/skills/_download?token=" + token),
             }
         )
 

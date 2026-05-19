@@ -5,11 +5,13 @@ install_events, telemetry_events, carousel_entries, referrals, creator_payouts,
 wisechef_demo_requests. Plus supporting tables: creators, orgs, recipes, api_library.
 """
 
-from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy import (
+    JSON,
+    BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -17,9 +19,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    JSON,
-    BigInteger,
-    CheckConstraint,
     LargeBinary,
     Numeric,
     String,
@@ -37,6 +36,7 @@ class Base(DeclarativeBase):
 
 # ── Users & Auth ─────────────────────────────────────────────────────────
 
+
 class User(Base):
     __tablename__ = "users"
 
@@ -49,7 +49,9 @@ class User(Base):
     stripe_connect_id = Column(String(255), nullable=True)  # Stripe Connect Express account ID
     # ── Subscription billing (Cook/Operator/Studio tiers) ─────────────────
     stripe_customer_id = Column(String(255), unique=True, nullable=True, index=True)
-    subscription_status = Column(String(32), nullable=True, index=True)  # active, past_due, canceled, incomplete, trialing, unpaid, paused
+    subscription_status = Column(
+        String(32), nullable=True, index=True
+    )  # active, past_due, canceled, incomplete, trialing, unpaid, paused
     subscription_tier = Column(String(32), nullable=True)  # free, cook, operator
     subscription_id = Column(String(255), nullable=True)  # Stripe subscription id
     subscription_current_period_end = Column(DateTime(timezone=True), nullable=True)
@@ -87,11 +89,11 @@ class APIKey(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
-    key_prefix = Column(String(12), nullable=False)          # first 8 chars for lookup
-    key_hash = Column(String(255), nullable=False)            # full sha256 of key
-    name = Column(String(255), nullable=True)                 # label like "production"
+    key_prefix = Column(String(12), nullable=False)  # first 8 chars for lookup
+    key_hash = Column(String(255), nullable=False)  # full sha256 of key
+    name = Column(String(255), nullable=True)  # label like "production"
     # Phase C — per-cookbook scoping + human label
-    label = Column(String(100), nullable=True)                # human label e.g. "ACME client"
+    label = Column(String(100), nullable=True)  # human label e.g. "ACME client"
     cookbook_id = Column(
         UUID(as_uuid=True),
         ForeignKey("cookbooks.id", ondelete="SET NULL"),
@@ -108,6 +110,7 @@ class APIKey(Base):
 
 
 # ── Creators & Orgs ─────────────────────────────────────────────────────
+
 
 class Creator(Base):
     __tablename__ = "creators"
@@ -146,6 +149,7 @@ class Org(Base):
 
 
 # ── Skills & Versions ───────────────────────────────────────────────────
+
 
 class Skill(Base):
     __tablename__ = "skills"
@@ -228,7 +232,8 @@ class Skill(Base):
     creator = relationship("Creator", back_populates="skills")
     org = relationship("Org", back_populates="skills")
     versions = relationship(
-        "SkillVersion", back_populates="skill",
+        "SkillVersion",
+        back_populates="skill",
         order_by="SkillVersion.created_at.desc()",
     )
     carousel_entries = relationship("CarouselEntry", back_populates="skill")
@@ -250,12 +255,11 @@ class SkillVersion(Base):
 
     skill = relationship("Skill", back_populates="versions")
 
-    __table_args__ = (
-        UniqueConstraint("skill_id", "semver", name="uq_skill_version"),
-    )
+    __table_args__ = (UniqueConstraint("skill_id", "semver", name="uq_skill_version"),)
 
 
 # ── Events ──────────────────────────────────────────────────────────────
+
 
 class InstallEvent(Base):
     __tablename__ = "install_events"
@@ -304,6 +308,7 @@ class TelemetryEvent(Base):
 
 # ── Carousel ────────────────────────────────────────────────────────────
 
+
 class CarouselEntry(Base):
     __tablename__ = "carousel_entries"
 
@@ -315,15 +320,16 @@ class CarouselEntry(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     # Sprint 4 — carousel scoring output columns (added via migration a7f7db696591)
-    slot = Column(Integer, nullable=True)       # 1-indexed slot in today's carousel (1..7)
-    role = Column(String(64), nullable=True)   # new-capability | replaces | experimental
-    verdict = Column(String(32), nullable=True) # promote | hold | archive — set by verdict cron
-    score = Column(Float, nullable=True)        # scoring algo output 0..10
+    slot = Column(Integer, nullable=True)  # 1-indexed slot in today's carousel (1..7)
+    role = Column(String(64), nullable=True)  # new-capability | replaces | experimental
+    verdict = Column(String(32), nullable=True)  # promote | hold | archive — set by verdict cron
+    score = Column(Float, nullable=True)  # scoring algo output 0..10
 
     skill = relationship("Skill", back_populates="carousel_entries")
 
 
 # ── Recipes ─────────────────────────────────────────────────────────────
+
 
 class Recipe(Base):
     __tablename__ = "recipes"
@@ -345,6 +351,7 @@ class Recipe(Base):
 
 # ── API Library ─────────────────────────────────────────────────────────
 
+
 class APILibraryEntry(Base):
     __tablename__ = "api_library"
 
@@ -360,6 +367,7 @@ class APILibraryEntry(Base):
 
 
 # ── Payouts ─────────────────────────────────────────────────────────────
+
 
 class CreatorPayout(Base):
     __tablename__ = "creator_payouts"
@@ -392,13 +400,16 @@ class CreatorPayout(Base):
 
 # ── Referrals ───────────────────────────────────────────────────────────
 
+
 class Referral(Base):
     __tablename__ = "referrals"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     referrer_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     referred_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
-    referral_code = Column(String(64), nullable=False, index=True)  # referrer's code; non-unique (a referrer can be linked to many referred users)
+    referral_code = Column(
+        String(64), nullable=False, index=True
+    )  # referrer's code; non-unique (a referrer can be linked to many referred users)
     referred_email = Column(String(512), nullable=True)
     status = Column(String(32), default="pending")  # pending, signed_up, converted
     reward_cents = Column(Integer, nullable=True)
@@ -410,6 +421,7 @@ class Referral(Base):
 
 
 # ── WiseChef Demo Requests ──────────────────────────────────────────────
+
 
 class WiseChefDemoRequest(Base):
     __tablename__ = "wisechef_demo_requests"
@@ -427,6 +439,7 @@ class WiseChefDemoRequest(Base):
 
 # ── Skill aliases (Phase J — chef→maestro rename) ───────────────────────
 
+
 class SkillAlias(Base):
     """Old-slug → new-slug redirect for renamed skills.
 
@@ -434,6 +447,7 @@ class SkillAlias(Base):
     don't carry forward unbounded compatibility shims. After expiry, requests
     for the old slug fall through to a 404.
     """
+
     __tablename__ = "skill_aliases"
 
     old_slug = Column(String(255), primary_key=True)
@@ -452,6 +466,7 @@ Payout = CreatorPayout
 
 # ── Skill Graph Stage 2 (G16) — derived edges ───────────────────────────
 
+
 class SkillDerivedEdge(Base):
     """Edges between skills derived by the offline edge-builder.
 
@@ -469,6 +484,7 @@ class SkillDerivedEdge(Base):
     source_slug stay simple and indexable. The /api/stats trending_pairs view
     deduplicates back to undirected pairs.
     """
+
     __tablename__ = "skill_derived_edges"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -478,12 +494,11 @@ class SkillDerivedEdge(Base):
     signals = Column(JSON, nullable=True)  # {jaccard, category, coinstall}
     last_built_at = Column(DateTime, server_default=func.now(), nullable=False)
 
-    __table_args__ = (
-        UniqueConstraint("source_slug", "target_slug", name="uq_skill_edge_pair"),
-    )
+    __table_args__ = (UniqueConstraint("source_slug", "target_slug", name="uq_skill_edge_pair"),)
 
 
 # ── Auto-improve incident network (Phase B) ─────────────────────────────
+
 
 class IncidentReport(Base):
     """B.3 — Anonymous failure reports submitted by `recipes-auto-improve`.
@@ -492,6 +507,7 @@ class IncidentReport(Base):
     is sha256 of the top-5 stack frames. Indexed for clustering by signature
     and for per-skill recency.
     """
+
     __tablename__ = "incident_reports"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -515,6 +531,7 @@ class PatchCandidate(Base):
         canary   → rolled_back (auto-rollback fired)
         any      → rejected   (manual queue, no runnable test)
     """
+
     __tablename__ = "patch_candidates"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -527,12 +544,11 @@ class PatchCandidate(Base):
     last_clustered_at = Column(DateTime(timezone=True), nullable=True)
     proposal_path = Column(Text, nullable=True)
 
-    __table_args__ = (
-        UniqueConstraint("skill_id", "error_signature", name="uq_patch_candidate_sig"),
-    )
+    __table_args__ = (UniqueConstraint("skill_id", "error_signature", name="uq_patch_candidate_sig"),)
 
 
 # ── Operator-tier forks (Phase D.1) ──────────────────────────────────────
+
 
 class SkillFork(Base):
     """A user's editable copy of a public skill.
@@ -541,6 +557,7 @@ class SkillFork(Base):
     keyed on (user_id, slug). Soft-deletes set visibility=NULL and clear
     readme so the row remains for audit but no longer surfaces in lists.
     """
+
     __tablename__ = "skill_forks"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -586,6 +603,7 @@ class ForkVersion(Base):
 
 # ── Skill graph extension (Phase B.5) ────────────────────────────────────
 
+
 class SkillReplacement(Base):
     """Manual curator-edited skill replacement edges (B.5).
 
@@ -593,6 +611,7 @@ class SkillReplacement(Base):
     superseded by skill B. Surfaced through GET /api/graph/related as the
     `replaced_by` edge type alongside auto-detected candidates.
     """
+
     __tablename__ = "skill_replacements"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -602,9 +621,7 @@ class SkillReplacement(Base):
     created_by = Column(String(255), nullable=True)  # curator label / "master"
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    __table_args__ = (
-        UniqueConstraint("source_id", "target_id", name="uq_skill_replacement_pair"),
-    )
+    __table_args__ = (UniqueConstraint("source_id", "target_id", name="uq_skill_replacement_pair"),)
 
 
 class ReplacementCandidate(Base):
@@ -615,21 +632,23 @@ class ReplacementCandidate(Base):
     lower incident rate. Council/Adam confirm before any candidate becomes a
     SkillReplacement.
     """
+
     __tablename__ = "replacement_candidates"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     source_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
     target_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
     evidence_json = Column(JSON, nullable=True)  # incident rates, co-invoke weight, sample count
-    status = Column(String(32), nullable=False, default="pending", index=True)  # pending | approved | rejected
+    status = Column(
+        String(32), nullable=False, default="pending", index=True
+    )  # pending | approved | rejected
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    __table_args__ = (
-        UniqueConstraint("source_id", "target_id", name="uq_replacement_candidate_pair"),
-    )
+    __table_args__ = (UniqueConstraint("source_id", "target_id", name="uq_replacement_candidate_pair"),)
 
 
 # ── Studio buckets (Phase E.1, v5.4) ───────────────────────────────────
+
 
 class Bucket(Base):
     """Studio-tier collection of skills/forks that can be applied atomically.
@@ -639,6 +658,7 @@ class Bucket(Base):
     target) to a bucket; `BucketHostMiddleware` reads the Host header and
     scopes the catalog response.
     """
+
     __tablename__ = "buckets"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -652,7 +672,9 @@ class Bucket(Base):
     pin_mode = Column(String(32), nullable=False, default="latest-stable", server_default="latest-stable")
     theme_json = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
 
     skills = relationship(
         "BucketSkill",
@@ -669,10 +691,13 @@ class BucketSkill(Base):
     constraint at the DB level. `install_order` controls the order the
     meta-skill applies them in (lower = earlier).
     """
+
     __tablename__ = "bucket_skills"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    bucket_id = Column(UUID(as_uuid=True), ForeignKey("buckets.id", ondelete="CASCADE"), nullable=False, index=True)
+    bucket_id = Column(
+        UUID(as_uuid=True), ForeignKey("buckets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=True)
     # NOTE: cross-branch FK target. The `skill_forks` table is created by the
     # sibling agent/tori/v54-forks branch. We don't declare the FK here at the
@@ -695,6 +720,7 @@ class FleetPing(Base):
     Idempotency: unique index on (salt_hash, last_seen_day) collapses repeats
     for the same device on the same day to a single row.
     """
+
     __tablename__ = "fleet_pings"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -702,9 +728,7 @@ class FleetPing(Base):
     last_seen_day = Column(Date, nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    __table_args__ = (
-        UniqueConstraint("salt_hash", "last_seen_day", name="uq_fleet_pings_hash_day"),
-    )
+    __table_args__ = (UniqueConstraint("salt_hash", "last_seen_day", name="uq_fleet_pings_hash_day"),)
 
 
 class StripeEventId(Base):
@@ -714,6 +738,7 @@ class StripeEventId(Base):
     of the same event_id raise IntegrityError, which the webhook handler
     treats as a no-op replay (HTTP 200 with already_processed=True).
     """
+
     __tablename__ = "stripe_event_ids"
 
     event_id = Column(String(255), primary_key=True)
@@ -728,6 +753,7 @@ class IntentSurveyResponse(Base):
     No PII required: q1/q4 are enums, q2/q3/q5 free-text optional. Email (q5)
     is optional and stored for opt-in followups only.
     """
+
     __tablename__ = "intent_survey_responses"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -741,6 +767,7 @@ class IntentSurveyResponse(Base):
 
 # ── v6 Phase A — Cookbooks + Fleets ──────────────────────────────────────
 
+
 class Cookbook(Base):
     """Customer-facing skill Cookbook — base or personal fork.
 
@@ -748,19 +775,26 @@ class Cookbook(Base):
     at DB level for Postgres). Personal Cookbooks have parent_cookbook_id=<base>.
     Agency master Cookbooks have synced_from_cookbook_id pointing at the source.
     """
+
     __tablename__ = "cookbooks"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     is_base = Column(Boolean, nullable=False, default=False, server_default="0")
-    parent_cookbook_id = Column(UUID(as_uuid=True), ForeignKey("cookbooks.id", ondelete="SET NULL"), nullable=True, index=True)
+    parent_cookbook_id = Column(
+        UUID(as_uuid=True), ForeignKey("cookbooks.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     cookbook_owner = Column(UUID(as_uuid=True), nullable=True, index=True)
     cookbook_link_token = Column(String(64), nullable=True)
     link_expires_at = Column(DateTime(timezone=True), nullable=True)
-    synced_from_cookbook_id = Column(UUID(as_uuid=True), ForeignKey("cookbooks.id", ondelete="SET NULL"), nullable=True)
+    synced_from_cookbook_id = Column(
+        UUID(as_uuid=True), ForeignKey("cookbooks.id", ondelete="SET NULL"), nullable=True
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
 
     share_tokens = relationship("CookbookShareToken", back_populates="cookbook", cascade="all, delete-orphan")
 
@@ -774,17 +808,20 @@ class CookbookSkill(Base):
     - overridden     = customer pinned this to a specific version
     - disabled       = customer removed it from their Cookbook
     """
+
     __tablename__ = "cookbook_skills"
 
-    cookbook_id = Column(UUID(as_uuid=True), ForeignKey("cookbooks.id", ondelete="CASCADE"), primary_key=True, nullable=False)
-    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    cookbook_id = Column(
+        UUID(as_uuid=True), ForeignKey("cookbooks.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    )
+    skill_id = Column(
+        UUID(as_uuid=True), ForeignKey("skills.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    )
     source = Column(String(20), nullable=False)
     pinned_version = Column(String(50), nullable=True)
     added_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    __table_args__ = (
-        Index("ix_cookbook_skills_source", "source"),
-    )
+    __table_args__ = (Index("ix_cookbook_skills_source", "source"),)
 
 
 class CookbookShareToken(Base):
@@ -793,6 +830,7 @@ class CookbookShareToken(Base):
     Token format: cbt_<8-hex-cookbook-prefix>_<32-hex-random>
     Only the sha256 hash is stored; the plaintext is shown exactly once at creation.
     """
+
     __tablename__ = "cookbook_share_tokens"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -828,6 +866,7 @@ class Fleet(Base):
     fleet_api_key_hash is a SHA-256 hash of the fleet's API key (UNIQUE).
     Used to authenticate fleet sync requests via x-fleet-key header.
     """
+
     __tablename__ = "fleets"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -842,15 +881,21 @@ class FleetSubscription(Base):
 
     channel: 'canary' | 'stable' | 'frozen'
     """
+
     __tablename__ = "fleet_subscriptions"
 
-    fleet_id = Column(UUID(as_uuid=True), ForeignKey("fleets.id", ondelete="CASCADE"), primary_key=True, nullable=False)
-    cookbook_id = Column(UUID(as_uuid=True), ForeignKey("cookbooks.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    fleet_id = Column(
+        UUID(as_uuid=True), ForeignKey("fleets.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    )
+    cookbook_id = Column(
+        UUID(as_uuid=True), ForeignKey("cookbooks.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    )
     channel = Column(String(20), nullable=False, default="stable", server_default="stable")
     subscribed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 # ── Feedback v1 tables (Stream 1 — feedback-loop sprint) ────────────────────
+
 
 class RecipifyRequest(Base):
     """User request to add a new recipe/skill to the marketplace.
@@ -859,6 +904,7 @@ class RecipifyRequest(Base):
     MCP tool. Dispatches a GitHub repository_dispatch event of type
     'recipify-request'.
     """
+
     __tablename__ = "recipify_requests"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -883,6 +929,7 @@ class FeedbackSubmission(Base):
     Created via POST /api/v1/feedback or the recipes_feedback MCP tool.
     Dispatches a GitHub repository_dispatch event of type 'feedback'.
     """
+
     __tablename__ = "feedback_submissions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -907,11 +954,12 @@ class SkillPatch(Base):
     Created via POST /api/v1/skill-patch or the recipes_propose_skill_patch
     MCP tool. Dispatches a GitHub repository_dispatch event of type 'skill-patch'.
     """
+
     __tablename__ = "skill_patches"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     ts = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    api_key_h = Column(Text, nullable=True)         # sha256 of the api key (anon)
+    api_key_h = Column(Text, nullable=True)  # sha256 of the api key (anon)
     slug = Column(Text, nullable=True)
     base_version = Column(Text, nullable=False)
     dedup_hash = Column(Text, nullable=False, unique=True)

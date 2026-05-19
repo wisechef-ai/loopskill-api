@@ -12,8 +12,7 @@ SQL statement and returns the count of updated rows.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -47,7 +46,7 @@ class LastUsedTracker:
         # In-memory fallback: {str(api_key_id): datetime}
         self._memory_cache: dict[str, datetime] = {}
 
-    def record(self, api_key_id: UUID, ts: Optional[datetime] = None) -> None:
+    def record(self, api_key_id: UUID, ts: datetime | None = None) -> None:
         """Record an API key access timestamp.
 
         Stores the *maximum* timestamp seen for each key so that if multiple
@@ -58,7 +57,7 @@ class LastUsedTracker:
             ts: The access timestamp (defaults to ``datetime.now(timezone.utc)``).
         """
         if ts is None:
-            ts = datetime.now(timezone.utc)
+            ts = datetime.now(UTC)
         key_str = str(api_key_id)
         ts_str = ts.isoformat()
 

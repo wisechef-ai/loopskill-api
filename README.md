@@ -12,13 +12,47 @@ Sister repo: [github.com/wisechef-ai/recipes-skill](https://github.com/wisechef-
 
 FastAPI-based backend powering the Recipes skill marketplace. It provides:
 
-- **Skill search & discovery** — full-text search across the skill catalog
+- **Skill search & discovery** — full-text + vector hybrid search across the skill catalog
 - **Signed tarball downloads** — `mode=files` compatible with LarryBrain's Alexa API surface
 - **Carousel** — featured/trending skill content per day
 - **Telemetry** — anonymous install and usage event tracking
 - **WiseChef cross-sell** — CTA + demo request funnel embedded in the marketplace
-- **x-api-key auth** — `rec_` prefixed keys, 60 req/min rate limit
-- **15 SQLAlchemy models** on a dedicated PostgreSQL database
+- **x-api-key auth** — `rec_` prefixed keys; centralized `auth_ctx` + `authz` layer (secfix_1905/A)
+- **SQLAlchemy models** on a dedicated PostgreSQL database
+
+## Module Layout (post-Phase-E)
+
+```
+app/
+├── main.py                  FastAPI app factory + lifespan
+├── config.py                Settings + boot-time secrets gate
+├── auth_ctx.py              AuthContext frozen dataclass (scope, user_id, tier, …)
+├── authz.py                 Authorization predicates (can_install, can_write_cookbook, …)
+├── middleware.py            APIKeyMiddleware → populates request.state.auth_ctx
+├── health_routes.py         GET /healthz + /api/healthz
+├── skill_routes.py          GET /api/skills/* (search, trending, detail, related, external)
+├── recipe_routes.py         GET /api/recipes/{slug} + /api/api-library/{slug}
+├── install_routes.py        GET /api/skills/install + /api/skills/_download
+├── access_routes.py         GET /api/skills/access + tier enforcement
+├── utm_redirects.py         /x/, /li/, /ig/, /yt/, /fb/ short-link redirectors
+├── _skill_helpers.py        _skill_to_out, _build_manifest, _count_today_installs, …
+├── routes.py                Backward-compat re-exports (≤80 lines)
+├── mcp/                     MCP server + tools (auth, install, recipify, sync, …)
+├── sandbox/                 Skill execution sandbox (firejail / bwrap)
+├── utils/client_ip.py       Trusted-proxy-aware real IP resolution
+└── …                        (checkout, cookbook, creator, publisher, auth, etc.)
+```
+
+### auth_ctx flow
+
+Every authenticated request flows through:
+
+```
+APIKeyMiddleware.dispatch()
+  └─ validate_key(db, x-api-key)
+       └─ request.state.auth_ctx = AuthContext(scope, user_id, tier, …)
+            └─ REST routes / MCP tools / sandbox call authz.can_*() predicates
+```
 
 ## Tech Stack
 
@@ -59,12 +93,37 @@ x-api-key: rec_<32-hex-chars>
 ## Running Locally
 
 ```bash
-python -m venv venv
-source venv/bin/activate
-pip install fastapi uvicorn sqlalchemy pydantic pydantic-settings pydantic[email] psycopg2-binary itsdangerous
-cp .env.example .env  # fill in DB URL + API key
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp wiserecipes-api.env.example .env  # fill in DB URL, secrets, etc.
 uvicorn app.main:app --reload --port 8201
 ```
+
+## Dev Toolchain (pre-commit + lint)
+
+Install once:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+Run locally (mirrors CI):
+
+```bash
+pre-commit run --all-files
+```
+
+Hooks: ruff (lint + format), bandit (security), mypy --strict (4 modules), actionlint, yamllint.
+
+## Coverage gate
+
+```bash
+pytest --cov=app --cov-fail-under=85
+```
+
+Target: ≥ 85% line coverage on `app/`. Gate is enforced in CI (ci.yml).
 
 ## Environment Variables
 

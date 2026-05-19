@@ -16,10 +16,11 @@ right fields. The state model and rollback math are real and tested.
 
 Also exposes `GET /api/stats/patches?period=7d` for transparency.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Protocol
 
@@ -30,8 +31,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import PatchCandidate
 
-
 # ── State machine ──────────────────────────────────────────────────────
+
 
 class Stage(str, Enum):
     STATIC = "static"
@@ -65,19 +66,22 @@ DWELL: dict[Stage, timedelta] = {
 
 # ── Rollback rules ─────────────────────────────────────────────────────
 
+
 @dataclass
 class StageMetrics:
     """A snapshot the metrics provider returns for one stage window."""
-    incident_rate: float        # incidents / install / hour
-    baseline_rate: float        # pre-patch baseline for the same skill
-    new_signatures: int         # signatures unseen in baseline window
+
+    incident_rate: float  # incidents / install / hour
+    baseline_rate: float  # pre-patch baseline for the same skill
+    new_signatures: int  # signatures unseen in baseline window
     baseline_new_sig_rate: float
     p95_latency_ms: float
     baseline_p95_ms: float
-    sustained_hours: int        # consecutive hours of elevated incidents
+    sustained_hours: int  # consecutive hours of elevated incidents
 
 
 def should_rollback(m: StageMetrics) -> tuple[bool, str | None]:
+    """Return True if canary metrics indicate a rollback is warranted."""
     if m.baseline_rate > 0:
         ratio = m.incident_rate / m.baseline_rate
         if ratio > 1.5 and m.sustained_hours >= 4:
@@ -94,6 +98,7 @@ def should_rollback(m: StageMetrics) -> tuple[bool, str | None]:
 
 
 # ── Metrics provider interface (real one lands with telemetry) ─────────
+
 
 class MetricsProvider(Protocol):
     def metrics_for(self, candidate_id: str, stage: Stage) -> StageMetrics: ...
@@ -113,6 +118,7 @@ class ShadowGate(Protocol):
 
 
 # ── Engine ─────────────────────────────────────────────────────────────
+
 
 @dataclass
 class Engine:
@@ -134,7 +140,7 @@ class Engine:
         For STATIC/PROPERTY/SHADOW the gate decides pass/fail.
         For CANARY tiers we check rollback metrics first, then dwell time.
         """
-        now = now or datetime.now(timezone.utc)
+        now = now or datetime.now(UTC)
 
         if current == Stage.STATIC:
             if not self.static_gate.has_regression_test(str(candidate.id)):
@@ -172,8 +178,7 @@ class Engine:
 router = APIRouter(prefix="/api/stats", tags=["stats"])
 
 
-_PERIOD_MAP = {"24h": timedelta(hours=24), "7d": timedelta(days=7),
-               "30d": timedelta(days=30)}
+_PERIOD_MAP = {"24h": timedelta(hours=24), "7d": timedelta(days=7), "30d": timedelta(days=30)}
 
 
 @router.get("/patches")
@@ -181,7 +186,8 @@ def get_patch_stats(
     period: str = Query("7d", pattern="^(24h|7d|30d)$"),
     db: Session = Depends(get_db),
 ) -> dict:
-    cutoff = datetime.now(timezone.utc) - _PERIOD_MAP[period]
+    """Return patch success/failure stats for the requested time period."""
+    cutoff = datetime.now(UTC) - _PERIOD_MAP[period]
     rows = (
         db.query(PatchCandidate.status, func.count(PatchCandidate.id))
         .filter(PatchCandidate.created_at >= cutoff)
@@ -191,8 +197,10 @@ def get_patch_stats(
     by_status = {status: int(n) for status, n in rows}
     return {
         "period": period,
-        "drafted": by_status.get("drafted", 0) + by_status.get("canary", 0)
-        + by_status.get("rolled_out", 0) + by_status.get("rolled_back", 0),
+        "drafted": by_status.get("drafted", 0)
+        + by_status.get("canary", 0)
+        + by_status.get("rolled_out", 0)
+        + by_status.get("rolled_back", 0),
         "canary": by_status.get("canary", 0),
         "rolled_out": by_status.get("rolled_out", 0),
         "rolled_back": by_status.get("rolled_back", 0),

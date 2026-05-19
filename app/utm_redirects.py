@@ -22,6 +22,7 @@ utm_router = APIRouter(tags=["skills"])
 
 
 for _platform in ("x", "li", "ig", "yt", "fb"):
+
     def _make_redirect(ref_val: str):
         @utm_router.get(f"/{ref_val}/{{skill_slug}}", include_in_schema=False)
         def _platform_redirect(skill_slug: str, ref_val: str = ref_val):
@@ -35,6 +36,8 @@ for _platform in ("x", "li", "ig", "yt", "fb"):
             )
             _set_utm_ref_cookie(resp, ref_val)
             return resp
+
         _platform_redirect.__name__ = f"redirect_{ref_val}_slug"
         return _platform_redirect
+
     _make_redirect(_platform)

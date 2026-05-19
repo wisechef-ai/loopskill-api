@@ -7,12 +7,12 @@ Adam creates the server.
 When the token IS set, `start_bot()` returns an asyncio.Task that runs
 the bot client until the FastAPI app shuts down.
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
-from typing import Optional
 
 from app.config import settings
 
@@ -24,7 +24,7 @@ def _resolve_token() -> str:
     return os.environ.get("DISCORD_BOT_TOKEN") or settings.DISCORD_BOT_TOKEN or ""
 
 
-async def start_bot() -> Optional[asyncio.Task]:
+async def start_bot() -> asyncio.Task | None:
     """Start the Discord bot if a token is configured; otherwise no-op.
 
     Returns the asyncio Task running the bot loop, or None when disabled.
@@ -39,10 +39,7 @@ async def start_bot() -> Optional[asyncio.Task]:
     try:
         import discord  # type: ignore
     except ImportError:
-        logger.warning(
-            "Discord bot disabled (discord.py not installed). "
-            "Install `discord.py` to enable."
-        )
+        logger.warning("Discord bot disabled (discord.py not installed). Install `discord.py` to enable.")
         return None
 
     intents = discord.Intents.default()
@@ -57,11 +54,11 @@ async def start_bot() -> Optional[asyncio.Task]:
     return task
 
 
-async def stop_bot(task: Optional[asyncio.Task]) -> None:
+async def stop_bot(task: asyncio.Task | None) -> None:
     if task is None:
         return
     task.cancel()
     try:
         await task
-    except (asyncio.CancelledError, Exception):
+    except (asyncio.CancelledError, Exception):  # noqa: BLE001
         pass
