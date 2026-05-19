@@ -1,0 +1,44 @@
+version: 2
+updates:
+  # Python dependencies (requirements.txt + pyproject.toml).
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/London
+    open-pull-requests-limit: 5
+    groups:
+      # Minor + patch bumps land as one grouped PR to keep the review queue
+      # small. Majors stay separate so a breaking change gets its own review.
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+    commit-message:
+      prefix: "chore(deps)"
+
+  # GitHub Actions used across all 8 workflow files. Catches the next
+  # Node-runtime deprecation (the Node 20 -> 24 cutover bit this repo on
+  # 2026-06-02) before it becomes a forced migration.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/London
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "chore(ci)"
