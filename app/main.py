@@ -16,7 +16,6 @@ from app.checkout_routes import router as checkout_router
 from app.config import settings
 from app.cookbook_routes import router as cookbook_router
 from app.creator_routes import router as creator_router
-from app.database import engine
 from app.discord_bot import bot as discord_bot
 from app.feedback_routes import router as feedback_router
 from app.feedback_v1_routes import router as feedback_v1_router
@@ -34,7 +33,6 @@ from app.mcp.server import (
     run_streamable_http,
 )
 from app.middleware import APIKeyMiddleware, BucketHostMiddleware, RateLimitMiddleware
-from app.models import Base
 from app.publisher_routes import router as publisher_router
 from app.recall_routes import router as recall_router
 from app.recipe_routes import router as recipe_router  # Phase E: recipe split
@@ -50,7 +48,7 @@ from app.skill_error_routes import router as skill_error_router
 from app.skill_patch_routes import router as skill_patch_router
 from app.skill_routes import router as skill_router  # Phase E: skill split
 from app.sse_routes import router as sse_router
-from app.startup_checks import verify_stripe_webhook_endpoint  # Phase 4
+from app.startup_checks import check_alembic_heads, verify_stripe_webhook_endpoint  # Phase 4
 from app.sync_fanout import get_fanout
 from app.transparency_routes import router as transparency_router
 
@@ -103,8 +101,11 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Create tables
-    Base.metadata.create_all(bind=engine)
+    # Issue #21 (secfix_1905/H): replace the dev-only create_all shortcut with
+    # an explicit alembic heads alignment check.  This refuses to start in
+    # non-sqlite environments when migrations are behind, preventing the service
+    # from silently running against a mismatched schema.
+    check_alembic_heads()
 
     # Middleware (order: outermost first)
     app.add_middleware(RateLimitMiddleware, max_requests=settings.RATE_LIMIT_PER_MINUTE)

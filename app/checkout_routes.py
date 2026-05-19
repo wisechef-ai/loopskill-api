@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import time
 
+from cachetools import TTLCache
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
@@ -39,8 +40,9 @@ BILLING_ME_RECONCILE_BUDGET_S: int = 4
 _RECONCILE_COOLDOWN_S: int = 5
 
 # In-process cache: user_id (str) → monotonic timestamp of last attempt.
-# Fine-grained enough for our purpose; resets on worker restart (acceptable).
-_reconcile_last_attempt: dict[str, float] = {}
+# Bounded TTLCache: evicts entries after 4× the cooldown so worker memory is
+# always capped (Issue #20 — secfix_1905/H).
+_reconcile_last_attempt: TTLCache[str, float] = TTLCache(maxsize=10_000, ttl=_RECONCILE_COOLDOWN_S * 4)
 
 # Subscription statuses that are considered "in-sync" — no reconcile needed.
 _HEALTHY_STATUSES = frozenset({"active", "trialing"})

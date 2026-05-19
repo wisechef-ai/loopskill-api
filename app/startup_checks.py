@@ -151,3 +151,61 @@ async def verify_stripe_webhook_endpoint() -> None:
             "verify_stripe_webhook_endpoint: check failed (non-fatal) — service will continue",
             exc_info=True,
         )
+
+
+# ── Issue #21: alembic heads alignment check ──────────────────────────────────
+
+
+def check_alembic_heads(database_url: str | None = None) -> None:
+    """Raise RuntimeError if the database is not at alembic head in non-sqlite envs.
+
+    Runs ``alembic check`` via the Python API (no subprocess) to confirm the
+    target database has all migrations applied.  In sqlite environments (local
+    dev / CI) the check is skipped entirely so the test suite boots instantly
+    without needing a real database.
+
+    Called from ``create_app()`` (synchronous context, before any request is
+    served) so the process refuses to start rather than silently running
+    against a schema that doesn't match the codebase.
+    """
+    db_url = database_url or settings.DATABASE_URL
+    if "sqlite" in db_url:
+        logger.debug("check_alembic_heads: skipped (sqlite env)")
+        return
+
+    try:
+        from alembic.config import Config
+        from alembic.runtime.migration import MigrationContext
+        from alembic.script import ScriptDirectory
+        from sqlalchemy import create_engine
+
+        alembic_cfg = Config()
+        alembic_cfg.set_main_option("script_location", "alembic")
+        alembic_cfg.set_main_option("sqlalchemy.url", db_url)
+
+        script = ScriptDirectory.from_config(alembic_cfg)
+        head_revisions = {s.revision for s in script.get_revisions("heads")}
+
+        engine = create_engine(db_url)
+        with engine.connect() as conn:
+            ctx = MigrationContext.configure(conn)
+            current_heads = set(ctx.get_current_heads())
+
+        if current_heads != head_revisions:
+            missing = head_revisions - current_heads
+            raise RuntimeError(
+                f"Database is NOT at alembic head. "
+                f"Current: {current_heads or '{}'}, "
+                f"Head: {head_revisions}. "
+                f"Missing revisions: {missing}. "
+                f"Run `alembic upgrade head` before starting the service."
+            )
+        logger.info(
+            "check_alembic_heads: OK — database at head (%s)",
+            head_revisions,
+        )
+    # Rationale: any DB connectivity error at boot is re-raised to prevent silent degraded start
+    except RuntimeError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"check_alembic_heads: unable to verify migration state — {exc}") from exc

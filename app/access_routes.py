@@ -15,7 +15,6 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
-from app._skill_helpers import _resolve_caller_tier
 from app.database import get_db
 from app.models import Skill
 from app.schemas import SkillAccessOut
@@ -73,7 +72,7 @@ def skill_access(
     if not s:
         raise HTTPException(status_code=404, detail=f"Skill '{skill}' not found")
 
-    user_tier = _resolve_caller_tier(db, request)
+    user_tier = getattr(getattr(request.state, "auth_ctx", None), "tier", None)
     user_rank = TIER_RANK.get(user_tier, 0)
     # Skills with no explicit tier default to pro — the marketplace baseline.
     skill_rank = TIER_RANK.get(s.tier, TIER_RANK["pro"])

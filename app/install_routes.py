@@ -183,11 +183,13 @@ def install_skill(
         latest = skill.versions[0]
 
     # Generate a signed token (HMAC-style with itsdangerous)
+    # Issue #24 (secfix_1905/H): salt added so install tokens cannot be
+    # reused as tokens for any other URLSafeTimedSerializer in this app.
     from itsdangerous import URLSafeTimedSerializer
 
     from app.config import settings
 
-    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET)
+    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="recipes-skill-install")
     token = serializer.dumps({"slug": slug, "version_id": str(latest.id), "mode": mode})
 
     # Build signed download URL — use the public origin so installs work
@@ -261,7 +263,8 @@ def download_tarball(
 
     from app.config import settings
 
-    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET)
+    # Issue #24 (secfix_1905/H): salt must match the signer in install_skill().
+    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="recipes-skill-install")
     try:
         data = serializer.loads(token, max_age=3600)
     except SignatureExpired:

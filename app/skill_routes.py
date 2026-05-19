@@ -31,7 +31,6 @@ from app._skill_helpers import (
     GRAPH_RAIL_CAP,
     _hydrate_skill_outs,
     _install_counts_for,
-    _resolve_caller_tier,
     _resolve_related,
     _skill_to_out,
 )
@@ -436,7 +435,10 @@ def get_skill_detail(slug: str, request: Request, db: Session = Depends(get_db))
     # quality_1705 Phase B — body paywall.
     # Anonymous / free callers get metadata-only; Pro / Pro+ get the full body.
     # _is_paid_tier() resolves "cook" (legacy = Pro DB slug) AND "pro" / "pro_plus" to True.
-    caller_tier = _resolve_caller_tier(db, request)
+    # Issue #25 (secfix_1905/H): auth_ctx.tier is set by APIKeyMiddleware (api-key path)
+    # and by _auth_ctx_from_jwt_cookie (browser/cookie path for public skill-detail GETs).
+    auth_ctx = getattr(request.state, "auth_ctx", None)
+    caller_tier = auth_ctx.tier if auth_ctx is not None else None
     caller_is_paid = _is_paid_tier(caller_tier)
     readme_payload = skill.readme if caller_is_paid else None
     external_payload = getattr(skill, "external_resources", None) if caller_is_paid else None

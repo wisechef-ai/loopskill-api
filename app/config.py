@@ -55,6 +55,31 @@ def _assert_production_secrets(settings: "Settings") -> None:
             f"(got {base!r}). Host-header-derived OAuth redirect URIs are a security risk."
         )
 
+    # Issue #23 (secfix_1905/H) — Stripe price IDs must not both be empty in prod.
+    # Canonical fields (STRIPE_PRICE_PRO / STRIPE_PRICE_PRO_PLUS) OR the legacy
+    # aliases (STRIPE_PRICE_COOK / STRIPE_PRICE_OPERATOR / STRIPE_PRICE_STUDIO)
+    # must be set for each paid tier.  If both are empty the checkout flow is
+    # broken and users cannot subscribe.
+    _price_pairs = [
+        ("STRIPE_PRICE_PRO", settings.STRIPE_PRICE_PRO, "STRIPE_PRICE_COOK", settings.STRIPE_PRICE_COOK),
+        (
+            "STRIPE_PRICE_PRO_PLUS",
+            settings.STRIPE_PRICE_PRO_PLUS,
+            "STRIPE_PRICE_OPERATOR",
+            settings.STRIPE_PRICE_OPERATOR,
+        ),
+    ]
+    missing_prices: list[str] = []
+    for canonical_name, canonical_val, legacy_name, legacy_val in _price_pairs:
+        if not canonical_val and not legacy_val:
+            missing_prices.append(f"{canonical_name} (or legacy {legacy_name})")
+    if missing_prices:
+        raise RuntimeError(
+            f"Refusing to boot in production: Stripe price IDs are empty for paid tiers: "
+            f"{', '.join(missing_prices)}. "
+            f"Set the canonical env var (WR_{{NAME}}) in .env."
+        )
+
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql://wisechef@localhost/wiserecipes"
@@ -82,9 +107,9 @@ class Settings(BaseSettings):
     STRIPE_PRICE_PRO: str = ""
     STRIPE_PRICE_PRO_PLUS: str = ""
     # Legacy aliases — deprecated, remove after 2026-06-10
-    STRIPE_PRICE_COOK: str = "price_1TT3v2Egmqt5xoaL2DU8GgMO"
-    STRIPE_PRICE_OPERATOR: str = "price_1TT3v2Egmqt5xoaL0XRo0VcX"
-    STRIPE_PRICE_STUDIO: str = "price_1TT3v2Egmqt5xoaL0XRo0VcX"
+    STRIPE_PRICE_COOK: str = ""
+    STRIPE_PRICE_OPERATOR: str = ""
+    STRIPE_PRICE_STUDIO: str = ""
 
     # GitHub OAuth
     GITHUB_CLIENT_ID: str = ""

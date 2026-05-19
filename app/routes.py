@@ -47,7 +47,6 @@ from app._skill_helpers import (  # noqa: F401
     _count_today_installs,
     _hydrate_skill_outs,
     _install_counts_for,
-    _resolve_caller_tier,
     _resolve_caller_tier_for_install,
     _resolve_related,
     _set_utm_ref_cookie,

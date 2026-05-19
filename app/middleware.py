@@ -30,6 +30,67 @@ _redis_available = None
 _redis_next_retry_at: float = 0.0  # F-API-05: backoff timestamp
 
 
+def _auth_ctx_from_jwt_cookie(request) -> "AuthContext":
+    """Return an AuthContext populated from the wr_jwt cookie / Bearer token.
+
+    Used on public skill-detail GETs where no x-api-key is present.  If the
+    cookie is absent or invalid, returns AuthContext.anonymous() so downstream
+    handlers always have a valid auth_ctx to inspect.
+
+    Resolution order:
+      1. ``wr_jwt`` cookie (browser portal sessions)
+      2. ``Authorization: Bearer <token>`` (SPA clients, backward compat)
+
+    Issue #25 (secfix_1905/H): extracted from the deleted _resolve_caller_tier
+    helper so that JWT-cookie callers on public routes are properly hydrated
+    into auth_ctx without the route needing a separate DB call.
+    """
+    from app.auth_ctx import AuthContext
+
+    token = request.cookies.get("wr_jwt")
+    if not token:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header[7:].strip()
+    if not token:
+        return AuthContext.anonymous()
+
+    try:
+        from app.auth_routes import verify_jwt  # local import to avoid cycles
+
+        payload = verify_jwt(token)
+    # Rationale: any JWT validation failure must not crash public skill-detail — return anonymous
+    except Exception:  # noqa: BLE001
+        return AuthContext.anonymous()
+
+    if not payload:
+        return AuthContext.anonymous()
+
+    from uuid import UUID
+
+    try:
+        user_id = UUID(payload["sub"])
+    except (ValueError, KeyError, TypeError):
+        return AuthContext.anonymous()
+
+    from app.database import SessionLocal
+    from app.models import User
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == user_id).first()
+        if user and user.subscription_status in ("active", "trialing"):
+            return AuthContext(
+                scope="user",
+                user_id=user_id,
+                tier=user.subscription_tier,
+            )
+    finally:
+        db.close()
+
+    return AuthContext.anonymous()
+
+
 def get_redis():
     """Get Redis client with lazy initialization, health check, and 30s backoff."""
     global _redis_client, _redis_available, _redis_next_retry_at
@@ -203,6 +264,12 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 and not tail.startswith("_")
                 and tail not in self.PUBLIC_SKILL_DETAIL_AUTH_VERBS
             ):
+                # Issue #25 (secfix_1905/H): opportunistic JWT-cookie auth for
+                # public skill-detail GETs.  Browsers browsing the portal may
+                # carry a wr_jwt cookie but no x-api-key.  Stamp auth_ctx so
+                # routes can use request.state.auth_ctx.tier for the paywall
+                # without needing to re-implement the token lookup.
+                request.state.auth_ctx = _auth_ctx_from_jwt_cookie(request)
                 return await call_next(request)
             # Two-segment public sub-resources: /api/skills/{slug}/related (Stage 1, G15).
             # Only the suffix is allowed-listed — the slug itself is not parsed for
@@ -345,6 +412,14 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 request.state.api_key_id = api_key_obj.id
                 request.state.api_key_user_id = api_key_obj.user_id
                 # auth_ctx: user scope — Phase B stamps cookbook_scope from api_key.cookbook_id
+                # Issue #25 (secfix_1905/H): stamp tier from User so routes can use
+                # request.state.auth_ctx.tier instead of a separate DB lookup.
+                from app.models import User as _User
+
+                _user_obj = db.query(_User).filter(_User.id == api_key_obj.user_id).first()
+                _tier: str | None = None
+                if _user_obj and _user_obj.subscription_status in ("active", "trialing"):
+                    _tier = _user_obj.subscription_tier
 
                 from app.auth_ctx import AuthContext
 
@@ -356,6 +431,8 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                     cookbook_scope=api_key_obj.cookbook_id,
                     # secfix_1905/C: propagate sandbox execution privilege
                     is_sandbox_operator=bool(getattr(api_key_obj, "is_sandbox_operator", False)),
+                    # secfix_1905/H: subscription tier for paywall checks (#25)
+                    tier=_tier,
                 )
                 return await call_next(request)
         finally:
