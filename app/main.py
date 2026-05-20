@@ -94,7 +94,7 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application instance."""
     app = FastAPI(
         title="WiseRecipes API",
-        version="0.4.0",
+        version="0.5.0",
         description="Skill marketplace & recipe sharing API for WiseChef ecosystem.",
         docs_url="/docs",
         redoc_url="/redoc",
@@ -156,7 +156,7 @@ def create_app() -> FastAPI:
 
     @app.get("/", tags=["meta"])
     def root():
-        return {"name": "WiseRecipes API", "version": "0.4.0", "docs": "/docs"}
+        return {"name": "WiseRecipes API", "version": "0.5.0", "docs": "/docs"}
 
     return app
 
