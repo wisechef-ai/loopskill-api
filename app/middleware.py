@@ -23,6 +23,7 @@ logger = logging.getLogger("wiserecipes.middleware")
 
 API_KEY_PREFIX = "rec_"
 API_KEY_LENGTH = 36  # rec_ (4) + 32 hex chars
+FLEET_KEY_PREFIX = "rec_fleet_"  # Phase E: fleet API keys (distinct from rec_live_, cbt_)
 
 # Shared Redis client (lazy init)
 _redis_client = None
@@ -459,6 +460,37 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 status_code=401,
                 content={"detail": f"API key must start with '{API_KEY_PREFIX}'"},
             )
+
+        # Phase E: rec_fleet_* — fleet-scoped API keys. Ordered AFTER cbt_* and
+        # BEFORE the master/rec_ paths so the distinct prefix is resolved first.
+        # Format: rec_fleet_<8hex>_<32hex>. Stored as sha256 in Fleet.fleet_api_key_hash.
+        if key.startswith(FLEET_KEY_PREFIX):
+            from app.database import SessionLocal
+            from app.models import Fleet as _Fleet
+
+            _fleet_key_hash = hashlib.sha256(key.encode()).hexdigest()
+            _fleet_db = SessionLocal()
+            try:
+                _fleet_row = (
+                    _fleet_db.query(_Fleet).filter(_Fleet.fleet_api_key_hash == _fleet_key_hash).first()
+                )
+                if _fleet_row is None:
+                    from fastapi.responses import JSONResponse
+
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "Invalid or revoked fleet key"},
+                    )
+                from app.auth_ctx import AuthContext
+
+                request.state.auth_ctx = AuthContext(
+                    scope="fleet",
+                    fleet_id=_fleet_row.id,
+                    user_id=_fleet_row.owner_user_id,
+                )
+                return await call_next(request)
+            finally:
+                _fleet_db.close()
 
         # For dev: support a static master key from env (also prefixed rec_)
         if hmac.compare_digest(key, settings.API_KEY):

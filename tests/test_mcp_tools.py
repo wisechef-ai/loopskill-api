@@ -142,8 +142,13 @@ def test_recipify_is_no_longer_phase_g_stub(db_session):
     assert out.get("code") == "missing_slug"
 
 
-def test_subrecipe_resolve_reports_operator_for_now(db_session):
-    assert recipes_subrecipe_resolve(db_session) == {"scope": "operator"}
+def test_subrecipe_resolve_reports_pro_plus(db_session):
+    """Phase G (recipes_2005/G): subrecipe_resolve returns canonical 'pro_plus' scope.
+
+    Previously returned 'operator' (Phase A stub); updated to canonical 'pro_plus' in Phase G.
+    The stub will be replaced with real sub-key validation logic in Phase C.
+    """
+    assert recipes_subrecipe_resolve(db_session) == {"scope": "pro_plus"}
 
 
 # ── recipes_carousel_today ──────────────────────────────────────────────────

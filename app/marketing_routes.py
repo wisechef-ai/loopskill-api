@@ -28,8 +28,8 @@ def marketing_counts(db: Session = Depends(get_db)) -> dict:
     Returns:
         total: every non-archived public skill
         free: tier='free'
-        pro: tier='cook' (display label "Pro")
-        pro_plus: tier='operator' (display label "Pro+")
+        pro: tier='pro' (display label "Pro")
+        pro_plus: tier='pro_plus' (display label "Pro+")
         pro_plus_exclusive: skills only available on Pro+ (== pro_plus today
             because the Pro tier still gates Pro+ as a strict superset; future
             tier semantics may diverge)
@@ -55,22 +55,24 @@ def marketing_counts(db: Session = Depends(get_db)) -> dict:
     )
 
     free = by_tier.get("free", 0)
-    cook = by_tier.get("cook", 0)
-    operator = by_tier.get("operator", 0) + by_tier.get("studio", 0)
-    pro_plus_exclusive = operator  # see docstring; tracked separately for future
+    # Phase G (recipes_2005/G): DB slugs are now 'pro' / 'pro_plus' after migration.
+    # Add legacy 'cook'/'operator' counts for any rows not yet migrated (belt-and-suspenders).
+    pro = by_tier.get("pro", 0) + by_tier.get("cook", 0)  # cook: 30-day legacy alias
+    pro_plus = by_tier.get("pro_plus", 0) + by_tier.get("operator", 0)  # operator: 30-day legacy alias
+    pro_plus_exclusive = pro_plus  # see docstring; tracked separately for future
 
     return {
         "total": total,
         "free": free,
-        "pro": cook,
-        "pro_plus": operator,
+        "pro": pro,
+        "pro_plus": pro_plus,
         "pro_plus_exclusive": pro_plus_exclusive,
         "last_added_at": last_added.isoformat() if last_added else None,
         # Display labels (single point where DB slugs become brand labels)
         "labels": {
             "free": display_label("free"),
-            "pro": display_label("cook"),
-            "pro_plus": display_label("operator"),
+            "pro": display_label("pro"),
+            "pro_plus": display_label("pro_plus"),
         },
     }
 

@@ -137,8 +137,8 @@ async def create_api_key(
     """Create a new API key for the authenticated user.
 
     Phase C policy:
-    - Free / Pro / legacy cook : max 1 active key
-    - Pro+ / legacy operator   : max 20 active keys
+    - Free / Pro (legacy cook)  : max 1 active key
+    - Pro+ (legacy operator)    : max 20 active keys
     - Optional cookbook_id: must belong to the calling user
     - Optional label: human-readable name ≤100 chars
 

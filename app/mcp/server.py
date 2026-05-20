@@ -38,6 +38,10 @@ from app.mcp.tools import (
     recipes_carousel_today,
     recipes_doctor,
     recipes_feedback,
+    recipes_fleet_create,
+    recipes_fleet_list,
+    recipes_fleet_subscribe,
+    recipes_fleet_sync,
     recipes_install,
     recipes_list_cookbook,
     recipes_propose_skill_patch,
@@ -48,6 +52,10 @@ from app.mcp.tools import (
     recipes_request_recipe,
     recipes_search,
     recipes_seeker,
+    recipes_share_create,
+    recipes_share_list,
+    recipes_share_revoke,
+    recipes_share_rotate,
     recipes_subrecipe_resolve,
     recipes_sync,
 )
@@ -128,6 +136,12 @@ def _tool_definitions() -> list[types.Tool]:
                         "default": "private",
                     },
                     "target_subrecipe_id": {"type": "string"},
+                    "tier": {
+                        "type": "string",
+                        "enum": ["free", "cook", "operator", "pro", "pro_plus"],
+                        "default": "pro",
+                    },
+                    "is_public": {"type": "boolean"},
                 },
             },
         ),
@@ -288,6 +302,132 @@ def _tool_definitions() -> list[types.Tool]:
                     "agent_id_anon": {"type": "string"},
                 },
             },
+        ),
+        # ── Phase D: share-token management tools ───────────────────────────
+        types.Tool(
+            name="recipes_share_create",
+            description=(
+                "Create a new share token for a cookbook. Returns the plaintext "
+                "token (shown exactly once), prefix, scope, name, id, created_at, "
+                "and config_blocks (Hermes YAML + Claude Desktop JSON snippets). "
+                "Requires can_write_cookbook."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["cookbook_id"],
+                "properties": {
+                    "cookbook_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "scope": {
+                        "type": "string",
+                        "enum": ["read", "edit"],
+                        "default": "edit",
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="recipes_share_list",
+            description=(
+                "List share tokens for a cookbook (metadata only, no plaintext). "
+                "Returns {tokens: [{id, prefix, name, scope, is_active, created_at, "
+                "last_used_at}]}. Requires can_write_cookbook."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["cookbook_id"],
+                "properties": {
+                    "cookbook_id": {"type": "string"},
+                },
+            },
+        ),
+        types.Tool(
+            name="recipes_share_revoke",
+            description=(
+                "Soft-delete (deactivate) a share token immediately. "
+                "Returns {revoked: true, token_id}. Requires can_write_cookbook."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["cookbook_id", "token_id"],
+                "properties": {
+                    "cookbook_id": {"type": "string"},
+                    "token_id": {"type": "string"},
+                },
+            },
+        ),
+        types.Tool(
+            name="recipes_share_rotate",
+            description=(
+                "Rotate a share token: deactivate the old token and create a new "
+                "one with the same name and scope. Returns new_token, new_prefix, "
+                "old_token_id, new_token_id, and config_blocks. "
+                "Requires can_write_cookbook."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["cookbook_id", "token_id"],
+                "properties": {
+                    "cookbook_id": {"type": "string"},
+                    "token_id": {"type": "string"},
+                },
+            },
+        ),
+        # ── Phase E: fleet tools ─────────────────────────────────────────────
+        types.Tool(
+            name="recipes_fleet_create",
+            description=(
+                "Create a named fleet of agents. Returns a one-time fleet API key "
+                "(rec_fleet_*) for x-fleet-key authentication. The key is shown ONCE."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["name"],
+                "properties": {"name": {"type": "string"}},
+            },
+        ),
+        types.Tool(
+            name="recipes_fleet_subscribe",
+            description=(
+                "Subscribe a cookbook to a fleet on a given channel " "(stable, canary, frozen). Idempotent."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["fleet_id", "cookbook_id"],
+                "properties": {
+                    "fleet_id": {"type": "string"},
+                    "cookbook_id": {"type": "string"},
+                    "channel": {
+                        "type": "string",
+                        "enum": ["stable", "canary", "frozen"],
+                        "default": "stable",
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="recipes_fleet_sync",
+            description=(
+                "Synchronise all cookbooks subscribed to the fleet. Aggregates "
+                "per-cookbook sync results. Pass dry_run=true to preview."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["fleet_id"],
+                "properties": {
+                    "fleet_id": {"type": "string"},
+                    "dry_run": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "If true, preview changes without applying.",
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="recipes_fleet_list",
+            description="List all fleets owned by the caller with their cookbook subscriptions.",
+            inputSchema={"type": "object", "properties": {}},
         ),
         types.Tool(
             name="recipes_publish_request",
@@ -457,6 +597,62 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             evidence_install_id=args.get("evidence_install_id"),
             agent_id_anon=args.get("agent_id_anon"),
             api_key_id=caller.get("api_key_id"),
+        )
+    # ── Phase D: share-token management tools ───────────────────────────────
+    if name == "recipes_share_create":
+        return recipes_share_create(
+            db,
+            cookbook_id=args["cookbook_id"],
+            name=args.get("name"),
+            scope=args.get("scope", "edit"),
+            ctx=ctx,
+        )
+    if name == "recipes_share_list":
+        return recipes_share_list(
+            db,
+            cookbook_id=args["cookbook_id"],
+            ctx=ctx,
+        )
+    if name == "recipes_share_revoke":
+        return recipes_share_revoke(
+            db,
+            cookbook_id=args["cookbook_id"],
+            token_id=args["token_id"],
+            ctx=ctx,
+        )
+    if name == "recipes_share_rotate":
+        return recipes_share_rotate(
+            db,
+            cookbook_id=args["cookbook_id"],
+            token_id=args["token_id"],
+            ctx=ctx,
+        )
+    # Phase E: fleet tools
+    if name == "recipes_fleet_create":
+        return recipes_fleet_create(
+            db,
+            name=args["name"],
+            ctx=ctx,
+        )
+    if name == "recipes_fleet_subscribe":
+        return recipes_fleet_subscribe(
+            db,
+            fleet_id=args["fleet_id"],
+            cookbook_id=args["cookbook_id"],
+            channel=args.get("channel", "stable"),
+            ctx=ctx,
+        )
+    if name == "recipes_fleet_sync":
+        return recipes_fleet_sync(
+            db,
+            fleet_id=args["fleet_id"],
+            dry_run=args.get("dry_run", False),
+            ctx=ctx,
+        )
+    if name == "recipes_fleet_list":
+        return recipes_fleet_list(
+            db,
+            ctx=ctx,
         )
     if name == "recipes_publish_request":
         return recipes_publish_request(

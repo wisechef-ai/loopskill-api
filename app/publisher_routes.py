@@ -27,6 +27,8 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app._creator_helpers import _resolve_or_create_creator
+from app.auth_ctx import AuthContext
 from app.config import settings
 from app.database import get_db
 from app.models import CookbookSkill, Creator, Skill, SkillVersion
@@ -354,26 +356,11 @@ async def publish_skill(
         api_key_user_id_for_create = getattr(request.state, "api_key_user_id", "MISSING")
         is_master_for_create = api_key_user_id_for_create is None
 
-        # Look up or create Creator row if authenticated
+        # Look up or create Creator row via shared helper
         creator_for_new_skill = None
         if not is_master_for_create and api_key_user_id_for_create != "MISSING":
-            creator_for_new_skill = (
-                db.query(Creator).filter(Creator.user_id == api_key_user_id_for_create).first()
-            )
-            if creator_for_new_skill is None:
-                # Auto-create a Creator row for this user
-                from app.models import User
-
-                user_obj = db.query(User).filter(User.id == api_key_user_id_for_create).first()
-                creator_slug = str(api_key_user_id_for_create).replace("-", "")[:32]
-                creator_for_new_skill = Creator(
-                    id=uuid4(),
-                    user_id=api_key_user_id_for_create,
-                    name=user_obj.display_name if user_obj else "Unknown",
-                    slug=creator_slug,
-                )
-                db.add(creator_for_new_skill)
-                db.flush()
+            _create_ctx = AuthContext(scope="user", user_id=api_key_user_id_for_create)
+            creator_for_new_skill = _resolve_or_create_creator(_create_ctx, db)
 
         skill_obj = Skill(
             id=uuid4(),
