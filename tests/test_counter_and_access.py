@@ -188,7 +188,11 @@ class TestAccessTierSemantics:
         assert body["bucket_eligible"] is False
 
     def test_operator_user_accesses_cook_skill(self, client, db):
-        """Plan §A.8 acceptance: Operator gets access to a Cook-tier skill."""
+        """Plan §A.8 acceptance: Operator (legacy alias for pro_plus) gets access to a Cook-tier skill.
+
+        Phase G (recipes_2005/G) update: 'operator' is now a legacy alias for 'pro_plus' (rank 3).
+        bucket_eligible was previously False (old rank 2), now True since operator=pro_plus=3.
+        """
         _make_skill(db, slug="tier-cook-for-op", tier="cook")
         op_key = _make_user_with_key(db, tier="operator")
 
@@ -201,7 +205,7 @@ class TestAccessTierSemantics:
         assert body["user_tier"] == "operator"
         assert body["has_access"] is True
         assert body["fork_eligible"] is True
-        assert body["bucket_eligible"] is False
+        assert body["bucket_eligible"] is True  # Phase G: operator=pro_plus=3, bucket_eligible now True
 
     def test_cook_user_cannot_use_fork_eligible_capability(self, client, db):
         _make_skill(db, slug="tier-cook-fork", tier="cook")

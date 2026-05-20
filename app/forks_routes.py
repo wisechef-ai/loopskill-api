@@ -1,6 +1,7 @@
-"""Operator-tier skill forks — Phase D.2.
+"""Pro+-tier skill forks — Phase D.2.
 
-Endpoints (all gated to subscription_tier in {'operator','studio'} OR master key):
+Endpoints (all gated to subscription_tier in {'pro_plus'} OR master key):
+Legacy slugs 'operator'/'studio' accepted via _is_pro_plus_tier shim for 30 days.
   - POST   /api/forks/create
   - GET    /api/forks/list
   - POST   /api/forks/<id>/version          (multipart: tarball + semver + changelog)
@@ -10,7 +11,7 @@ Endpoints (all gated to subscription_tier in {'operator','studio'} OR master key
 
 Tier gate: middleware validates the API key (header) and stamps user_id on
 request.state. This module then loads the User and rejects with HTTP 402 if
-their subscription tier is below 'operator'. The static master key bypasses
+their subscription tier is below 'pro_plus'. The static master key bypasses
 the tier check (admin, used in tests + ops scripts).
 
 Tarball storage: production path is settings.RECIPES_FORKS_DIR (default
@@ -94,7 +95,7 @@ class TierContext(BaseModel):
 
 
 def require_operator(request: Request, db: Session = Depends(get_db)) -> TierContext:
-    """402 unless caller is master-key OR has an active operator sub.
+    """402 unless caller is master-key OR has an active pro_plus sub.
 
     The middleware has already validated the API key and stamped api_key_user_id
     on request.state. user_id is None for the static master key.

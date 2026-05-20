@@ -21,6 +21,8 @@ from uuid import UUID, uuid4
 import yaml
 from sqlalchemy.orm import Session
 
+from app._creator_helpers import _resolve_or_create_creator
+from app.auth_ctx import AuthContext
 from app.embeddings import cosine, embed_skill, embed_text
 from app.models import Cookbook, CookbookSkill, Skill
 
@@ -316,12 +318,24 @@ def write_cookbook_skill(
     classifier: dict | None = None,
     related: list[str] | None = None,
     owner_user_id: UUID | None = None,
+    tier: str = "pro",
+    is_public: bool | None = None,
+    ctx: AuthContext | None = None,
 ) -> tuple[CookbookSkill, str]:
     """Upsert Skill + CookbookSkill rows. Returns (row, status).
 
     status is "created" the first time the slug appears in this cookbook;
     "updated" when it already existed (idempotent on slug). The catalog Skill
-    row is created on first sight (with is_public derived from visibility).
+    row is created on first sight.
+
+    Keyword-only kwargs (Phase B):
+        tier: Skill tier to assign (default 'pro'). Applied on create and update.
+        is_public: Explicit public flag. When provided, takes priority over the
+            visibility-derived value. Back-compat: if omitted, is_public is
+            derived from ``visibility == 'public_pending_review'``.
+        ctx: AuthContext for the caller. When ctx.user_id is set and the skill is
+            being created for the first time, a Creator row is resolved/created
+            and assigned to skill.creator_id.
     """
     if not SLUG_RE.match(slug):
         raise ValidationError(f"slug must match ^[a-z0-9_-]{{1,64}}$ (got {slug!r})")
@@ -329,8 +343,13 @@ def write_cookbook_skill(
     classifier = classifier or classify_skill(content)
     category = classifier.get("category", "productivity")
 
+    # Resolve is_public: explicit kwarg wins; fall back to visibility back-compat.
+    resolved_is_public: bool = is_public if is_public is not None else (visibility == "public_pending_review")
+
     skill = db.query(Skill).filter(Skill.slug == slug).first()
     if skill is None:
+        # Resolve creator_id from ctx on new-skill create.
+        creator = _resolve_or_create_creator(ctx, db)
         skill = Skill(
             id=uuid4(),
             slug=slug,
@@ -338,9 +357,10 @@ def write_cookbook_skill(
             description=content[:512],
             category=category,
             readme=content,
-            tier="cook",
-            is_public=(visibility == "public_pending_review"),
+            tier=tier,
+            is_public=resolved_is_public,
             related_skills=related or [],
+            creator_id=creator.id if creator is not None else None,
         )
         db.add(skill)
         db.flush()
@@ -350,6 +370,8 @@ def write_cookbook_skill(
             skill.category = category
         if related is not None:
             skill.related_skills = related
+        skill.tier = tier
+        skill.is_public = resolved_is_public
 
     cb = db.query(Cookbook).filter(Cookbook.id == target_cookbook_id).first()
     if cb is None:

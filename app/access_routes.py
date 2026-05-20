@@ -22,16 +22,17 @@ from app.schemas import SkillAccessOut
 router = APIRouter(tags=["skills"])
 
 # Tier rank lookup — higher rank = more capability. None / unknown = anonymous.
-# Phase 5 (RCP-INCIDENT-2026-05-11): canonical slugs are 'pro' and 'pro_plus'.
-# Legacy slugs kept for backwards compat until 2026-06-10.
-TIER_RANK = {
-    None: 0,
-    "free": 0,
-    "pro": 1,
-    "cook": 1,  # cook=legacy alias for pro
-    "pro_plus": 2,
-    "operator": 2,
-    "studio": 3,  # operator/studio=legacy for pro_plus
+# Phase G (recipes_2005/G): canonical slugs simplified to free:1, pro:2, pro_plus:3.
+# Legacy aliases 'cook'/'operator'/'studio' kept for READ compat (30-day window, remove after 2026-06-10).
+TIER_RANK: dict[str | None, int] = {
+    None: 0,  # anonymous / no API key
+    "free": 1,
+    "pro": 2,  # canonical (Phase 5)
+    "pro_plus": 3,  # canonical (Phase 5)
+    # 30-day legacy READ aliases (RCP-INCIDENT-2026-05-11, remove after 2026-06-10):
+    "cook": 2,  # legacy alias → pro
+    "operator": 3,  # legacy alias → pro_plus
+    "studio": 3,  # legacy alias → pro_plus (Phase 3 rename, pre-Phase-5)
 }
 
 # WIS-902: Tier-aware install rate limits (installs per day per API key).
@@ -41,10 +42,10 @@ TIER_INSTALL_LIMITS: dict[str | None, int | None] = {
     "free": 5,  # free-tier user
     "pro": 100,  # Pro subscriber
     "pro_plus": None,  # unlimited
-    # Legacy aliases:
+    # 30-day legacy READ aliases (RCP-INCIDENT-2026-05-11, remove after 2026-06-10):
     "cook": 100,  # legacy alias → pro
     "operator": None,  # legacy alias → pro_plus
-    "studio": None,  # legacy alias → pro_plus
+    "studio": None,  # legacy alias → pro_plus (Phase 3 rename, pre-Phase-5)
 }
 
 
@@ -60,13 +61,12 @@ def skill_access(
 ):
     """Check whether the calling subscriber can access a skill.
 
-    Tier semantics (Plan v5.4 §A.8):
-      - Cook subscribers can access any current skill (all skills are
-        currently cook-tier or below).
-      - Operator subscribers add fork capability — pass ``fork_eligible=true``
+    Tier semantics (Plan v5.4 §A.8, updated Phase G recipes_2005):
+      - Pro subscribers can access any current skill.
+      - Pro+ subscribers add fork capability — pass ``fork_eligible=true``
         to gate access on it.
-      - Studio subscribers add bucket capability (bucket endpoints land in a
-        later batch; ``bucket_eligible`` is reported on every response).
+      - Legacy slugs 'cook'/'operator' are accepted as READ aliases for 30 days
+        (RCP-INCIDENT-2026-05-11, remove after 2026-06-10).
     """
     s = db.query(Skill).filter(Skill.slug == skill).first()
     if not s:
@@ -96,8 +96,8 @@ def skill_access(
         has_access=has_access,
         tier=s.tier,
         user_tier=user_tier,
-        fork_eligible=user_rank >= TIER_RANK["operator"],
-        bucket_eligible=user_rank >= TIER_RANK["studio"],
+        fork_eligible=user_rank >= TIER_RANK["pro_plus"],
+        bucket_eligible=user_rank >= TIER_RANK["pro_plus"],
         latest_version=s.versions[0].semver if s.versions else None,
         license=s.license,
     )

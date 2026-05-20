@@ -46,6 +46,8 @@ def recipes_recipify(
     target_subrecipe_id: str | UUID | None = None,
     user_id: str | UUID | None = None,
     ctx: AuthContext | None = None,
+    tier: str = "pro",
+    is_public: bool | None = None,
     **_: Any,
 ) -> dict[str, Any]:
     """Convert a SKILL.md draft into a CookbookSkill row."""
@@ -102,6 +104,9 @@ def recipes_recipify(
             classifier=classification,
             related=related,
             owner_user_id=owner_id,
+            tier=tier,
+            is_public=is_public,
+            ctx=ctx,
         )
     except ValidationError as exc:
         return {"error": str(exc), "code": "invalid_input"}

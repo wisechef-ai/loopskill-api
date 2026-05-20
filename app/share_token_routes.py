@@ -8,6 +8,10 @@ Routes (mounted under /api/cookbooks/{cookbook_id}/share-tokens):
 
 Auth: rec_-key user must own the cookbook (or master key).
 Scope enforcement via enforce_cbt_scope() helper.
+
+Phase D (recipes_2005): Service functions extracted so MCP tools can call the
+same logic. Routes are unchanged in behaviour — they delegate to _*_service
+helpers and return the same responses as before.
 """
 
 from __future__ import annotations
@@ -183,35 +187,45 @@ def _generate_token(cookbook_id: UUID) -> tuple[str, str, str]:
     return full_token, token_hash, cb_prefix
 
 
-# ── Endpoints ────────────────────────────────────────────────────────────
+# ── Service functions (Phase D extraction) ──────────────────────────────
+# Each _*_service function contains the core business logic previously
+# inlined in the route handler. Routes now delegate to these helpers.
+# MCP tools (app/mcp/tools/share.py) also call these helpers directly.
 
 
-@router.post("", status_code=201)
-def create_share_token(
-    cookbook_id: str,
-    body: ShareTokenCreateIn,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """Create a new share token. Plaintext token returned exactly once."""
-    cb = _require_owner(request, db, cookbook_id)
+def _create_service(
+    db: Session,
+    *,
+    cookbook: Cookbook,
+    name: str | None = None,
+    scope: str = "edit",
+    created_by=None,
+) -> dict:
+    """Core logic for creating a share token.
 
-    scope = body.scope or "edit"
+    Args:
+        db: Database session.
+        cookbook: The Cookbook ORM object (already ownership-checked).
+        name: Optional human-readable label.
+        scope: 'read' or 'edit' (default 'edit').
+        created_by: User ID of the creator (None for master key).
+
+    Returns:
+        dict with id, token, prefix, scope, name, created_at.
+    """
     if scope not in ("read", "edit"):
         raise HTTPException(status_code=422, detail="invalid_scope")
 
-    full_token, token_hash, token_prefix = _generate_token(cb.id)
-
-    api_key_user_id = getattr(request.state, "api_key_user_id", None)
+    full_token, token_hash, token_prefix = _generate_token(cookbook.id)
 
     row = CookbookShareToken(
         id=uuid4(),
-        cookbook_id=cb.id,
+        cookbook_id=cookbook.id,
         token_hash=token_hash,
         token_prefix=token_prefix,
         scope=scope,
-        name=body.name,
-        created_by=api_key_user_id,
+        name=name,
+        created_by=created_by,
     )
     db.add(row)
     db.commit()
@@ -227,18 +241,19 @@ def create_share_token(
     }
 
 
-@router.get("")
-def list_share_tokens(
-    cookbook_id: str,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """List all share tokens for a cookbook (metadata only, no plaintext)."""
-    cb = _require_owner(request, db, cookbook_id)
+def _list_service(db: Session, *, cookbook: Cookbook) -> list[dict]:
+    """Core logic for listing share tokens for a cookbook.
 
+    Args:
+        db: Database session.
+        cookbook: The Cookbook ORM object (already ownership-checked).
+
+    Returns:
+        List of token metadata dicts (no plaintext).
+    """
     rows = (
         db.query(CookbookShareToken)
-        .filter(CookbookShareToken.cookbook_id == cb.id)
+        .filter(CookbookShareToken.cookbook_id == cookbook.id)
         .order_by(CookbookShareToken.created_at.desc())
         .all()
     )
@@ -257,16 +272,26 @@ def list_share_tokens(
     ]
 
 
-@router.post("/{token_id}/rotate")
-def rotate_share_token(
-    cookbook_id: str,
+def _rotate_service(
+    db: Session,
+    *,
+    cookbook: Cookbook,
     token_id: str,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    """Deactivate old token and create a new one with the same name/scope."""
-    cb = _require_owner(request, db, cookbook_id)
+    created_by=None,
+) -> dict:
+    """Core logic for rotating a share token.
 
+    Deactivates the old token and creates a new one with the same name/scope.
+
+    Args:
+        db: Database session.
+        cookbook: The Cookbook ORM object (already ownership-checked).
+        token_id: UUID string of the token to rotate.
+        created_by: User ID for the new token row.
+
+    Returns:
+        dict with id, token, prefix, scope, name, created_at (the new token).
+    """
     try:
         tid = UUID(token_id)
     except (ValueError, TypeError):
@@ -276,7 +301,7 @@ def rotate_share_token(
         db.query(CookbookShareToken)
         .filter(
             CookbookShareToken.id == tid,
-            CookbookShareToken.cookbook_id == cb.id,
+            CookbookShareToken.cookbook_id == cookbook.id,
         )
         .with_for_update()  # SECURITY: serialize concurrent rotates so two
         # parallel calls cannot both produce a new active
@@ -290,16 +315,16 @@ def rotate_share_token(
     old.is_active = False
 
     # Create new with same name + scope
-    full_token, token_hash, token_prefix = _generate_token(cb.id)
+    full_token, token_hash, token_prefix = _generate_token(cookbook.id)
 
     new_row = CookbookShareToken(
         id=uuid4(),
-        cookbook_id=cb.id,
+        cookbook_id=cookbook.id,
         token_hash=token_hash,
         token_prefix=token_prefix,
         scope=old.scope,
         name=old.name,
-        created_by=getattr(request.state, "api_key_user_id", None),
+        created_by=created_by,
     )
     db.add(new_row)
     db.commit()
@@ -312,6 +337,98 @@ def rotate_share_token(
         "scope": new_row.scope,
         "name": new_row.name,
         "created_at": new_row.created_at.isoformat() if new_row.created_at else None,
+        "old_token_id": str(old.id),
+    }
+
+
+def _revoke_service(
+    db: Session,
+    *,
+    cookbook: Cookbook,
+    token_id: str,
+) -> None:
+    """Core logic for revoking (soft-deleting) a share token.
+
+    Args:
+        db: Database session.
+        cookbook: The Cookbook ORM object (already ownership-checked).
+        token_id: UUID string of the token to revoke.
+
+    Raises:
+        HTTPException 404 if token not found for this cookbook.
+    """
+    try:
+        tid = UUID(token_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="token_not_found")
+
+    row = (
+        db.query(CookbookShareToken)
+        .filter(
+            CookbookShareToken.id == tid,
+            CookbookShareToken.cookbook_id == cookbook.id,
+        )
+        .first()
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="token_not_found")
+
+    row.is_active = False
+    db.commit()
+
+
+# ── Endpoints ────────────────────────────────────────────────────────────
+
+
+@router.post("", status_code=201)
+def create_share_token(
+    cookbook_id: str,
+    body: ShareTokenCreateIn,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Create a new share token. Plaintext token returned exactly once."""
+    cb = _require_owner(request, db, cookbook_id)
+    created_by = getattr(request.state, "api_key_user_id", None)
+    return _create_service(
+        db,
+        cookbook=cb,
+        name=body.name,
+        scope=body.scope or "edit",
+        created_by=created_by,
+    )
+
+
+@router.get("")
+def list_share_tokens(
+    cookbook_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """List all share tokens for a cookbook (metadata only, no plaintext)."""
+    cb = _require_owner(request, db, cookbook_id)
+    return _list_service(db, cookbook=cb)
+
+
+@router.post("/{token_id}/rotate")
+def rotate_share_token(
+    cookbook_id: str,
+    token_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Deactivate old token and create a new one with the same name/scope."""
+    cb = _require_owner(request, db, cookbook_id)
+    created_by = getattr(request.state, "api_key_user_id", None)
+    result = _rotate_service(db, cookbook=cb, token_id=token_id, created_by=created_by)
+    # Route returns the same shape as before (id/token/prefix/scope/name/created_at)
+    return {
+        "id": result["id"],
+        "token": result["token"],
+        "prefix": result["prefix"],
+        "scope": result["scope"],
+        "name": result["name"],
+        "created_at": result["created_at"],
     }
 
 
@@ -324,23 +441,5 @@ def revoke_share_token(
 ):
     """Soft-delete a share token (sets is_active=False)."""
     cb = _require_owner(request, db, cookbook_id)
-
-    try:
-        tid = UUID(token_id)
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=404, detail="token_not_found")
-
-    row = (
-        db.query(CookbookShareToken)
-        .filter(
-            CookbookShareToken.id == tid,
-            CookbookShareToken.cookbook_id == cb.id,
-        )
-        .first()
-    )
-    if row is None:
-        raise HTTPException(status_code=404, detail="token_not_found")
-
-    row.is_active = False
-    db.commit()
+    _revoke_service(db, cookbook=cb, token_id=token_id)
     return None

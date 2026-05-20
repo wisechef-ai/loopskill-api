@@ -81,7 +81,7 @@ def recipes_search(
         try:
             from app.recall_routes import recall_skills
 
-            tier_for_recall = [tier] if tier else ["free", "cook", "operator"]
+            tier_for_recall = [tier] if tier else ["free", "pro", "pro_plus"]  # canonical slugs (Phase G)
             recall_blob = recall_skills(
                 db,
                 query=query,
