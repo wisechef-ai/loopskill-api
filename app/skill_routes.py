@@ -453,7 +453,7 @@ def get_skill_detail(slug: str, request: Request, db: Session = Depends(get_db))
     # Without this gate, every free skill's portal page renders the Day-1
     # placeholder ("Detailed SKILL.md is being authored") instead of the actual
     # SKILL.md body, which masks the catalog's real content from public visitors.
-    skill_is_free = (skill.tier == "free")
+    skill_is_free = skill.tier == "free"
     body_visible = skill_is_free or caller_is_paid
     readme_payload = skill.readme if body_visible else None
     external_payload = getattr(skill, "external_resources", None) if body_visible else None

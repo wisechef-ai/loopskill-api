@@ -94,7 +94,7 @@ def _build_tarball(
         t.addfile(ti2, io.BytesIO(toml_bytes))
 
         # Add optional references
-        for ref in (references or []):
+        for ref in references or []:
             ref_path = ref.get("path", f"references/{uuid4().hex[:8]}.md")
             ref_content = ref.get("content", "").encode("utf-8")
             ti_ref = _tarfile.TarInfo(name=ref_path)
@@ -102,7 +102,7 @@ def _build_tarball(
             t.addfile(ti_ref, io.BytesIO(ref_content))
 
         # Add optional scripts
-        for script in (scripts or []):
+        for script in scripts or []:
             scr_path = script.get("path", f"scripts/{uuid4().hex[:8]}.sh")
             scr_content = script.get("content", "").encode("utf-8")
             ti_scr = _tarfile.TarInfo(name=scr_path)
@@ -146,9 +146,7 @@ def recipes_publish_request(
     if not slug or not SLUG_RE.match(slug):
         return {
             "error": "invalid_slug",
-            "detail": (
-                f"Slug {slug!r} does not match ^[a-z0-9][a-z0-9_-]{{0,63}}$"
-            ),
+            "detail": (f"Slug {slug!r} does not match ^[a-z0-9][a-z0-9_-]{{0,63}}$"),
         }
 
     # ── 2. Validate semver ────────────────────────────────────────────────
@@ -264,9 +262,7 @@ def recipes_publish_request(
             "findings": gate_blocks[:25],
         }
     # Non-blocking gate findings → warnings
-    warnings.extend(
-        [{**f, "source": "quality_gate"} for f in gate_findings if f.get("severity") == "warn"]
-    )
+    warnings.extend([{**f, "source": "quality_gate"} for f in gate_findings if f.get("severity") == "warn"])
 
     # ── 7. Compute sha256 ─────────────────────────────────────────────────
     sha256_hex = hashlib.sha256(tarball_bytes).hexdigest()
