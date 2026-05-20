@@ -127,6 +127,12 @@ def _tool_definitions() -> list[types.Tool]:
                         "default": "private",
                     },
                     "target_subrecipe_id": {"type": "string"},
+                    "tier": {
+                        "type": "string",
+                        "enum": ["free", "cook", "operator", "pro", "pro_plus"],
+                        "default": "pro",
+                    },
+                    "is_public": {"type": "boolean"},
                 },
             },
         ),
