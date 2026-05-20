@@ -27,7 +27,7 @@ def _seed(db):
             title=title,
             description=desc,
             category="dev-tools",
-            tier="cook",
+            tier="pro",
             is_public=True,
             is_archived=False,
             related_skills=[],

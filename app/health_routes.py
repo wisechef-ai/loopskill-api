@@ -21,7 +21,7 @@ from app.schemas import HealthOut
 
 router = APIRouter(tags=["meta"])
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 
 @router.get("/healthz", tags=["meta"])

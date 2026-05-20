@@ -32,6 +32,23 @@ def _has_column(conn, table: str, column: str) -> bool:
         return False
 
 
+def _pgvector_available(conn) -> bool:
+    """Check whether the pgvector extension is installable WITHOUT trying.
+
+    Trying ``CREATE EXTENSION vector`` inside the alembic transaction and
+    swallowing the error leaves the Postgres transaction in an aborted
+    state — the NEXT statement then fails with ``InFailedSqlTransaction``,
+    which is exactly the regression that bit us during the recipes_2005
+    Phase K verification run against a vanilla ``postgres:16`` (no pgvector)
+    container. Instead, ask the catalog UP-FRONT whether the extension
+    SHARED LIBRARY is present and let the transaction stay clean.
+    """
+    result = conn.execute(
+        sa.text("SELECT 1 FROM pg_available_extensions WHERE name = 'vector'")
+    ).scalar()
+    return result is not None
+
+
 def upgrade() -> None:
     bind = op.get_bind()
     dialect = _dialect()
@@ -40,16 +57,16 @@ def upgrade() -> None:
         return
 
     if dialect == "postgresql":
-        # Best-effort: extension may already be installed by the operator.
-        try:
+        if _pgvector_available(bind):
+            # pgvector is shipped (e.g. pgvector/pgvector:pgN image, or it
+            # was installed on the host via apt/yum). Safe to CREATE EXT +
+            # use the native vector type — no try/except needed.
             op.execute("CREATE EXTENSION IF NOT EXISTS vector")
-        except Exception:
-            pass
-        # If pgvector is available, use vector(384). Otherwise fall back to TEXT
-        # so the migration still applies cleanly (and the app stores JSON).
-        try:
             op.execute("ALTER TABLE skills ADD COLUMN embedding vector(384)")
-        except Exception:
+        else:
+            # Vanilla Postgres without pgvector. Fall back to TEXT so the
+            # migration applies cleanly; the app falls back to JSON-encoded
+            # embeddings at runtime.
             op.add_column(
                 "skills",
                 sa.Column("embedding", sa.Text(), nullable=True),

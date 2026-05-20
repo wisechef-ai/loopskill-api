@@ -121,11 +121,11 @@ def search_skills(
     if vertical:
         query = query.filter(Skill.vertical == vertical)
     if tier:
-        # Phase A — top1pct_1105: accept display slugs `pro` / `pro_plus` and
-        # transparently map them to the immutable DB slugs `cook` / `operator`.
-        # The DB column stays stable (per locked decision in plan §0); user-facing
-        # filters use the new brand labels.
-        tier_db = {"pro": "cook", "pro_plus": "operator"}.get(tier, tier)
+        # Phase G post-drift-sweep (recipes_2005/G shipped 2026-05-20): the DB
+        # column now holds canonical {free, pro, pro_plus}. Legacy {cook,
+        # operator} input is still accepted as a 30-day READ alias (deprecation
+        # window: 2026-06-10) so existing integrations keep working.
+        tier_db = {"cook": "pro", "operator": "pro_plus", "studio": "pro_plus"}.get(tier, tier)
         query = query.filter(Skill.tier == tier_db)
 
     # quality_1705 Phase C — quality_score floor filter for agent callers
@@ -174,10 +174,10 @@ def search_skills(
         try:
             from app.recall_routes import recall_skills
 
-            tier_for_recall: list[str] = ["free", "cook", "operator"]
+            tier_for_recall: list[str] = ["free", "pro", "pro_plus"]
             if tier:
                 # Caller asked for a specific tier — respect it.
-                tier_db = {"pro": "cook", "pro_plus": "operator"}.get(tier, tier)
+                tier_db = {"cook": "pro", "operator": "pro_plus", "studio": "pro_plus"}.get(tier, tier)
                 tier_for_recall = [tier_db]
 
             recall_blob = recall_skills(
@@ -355,7 +355,7 @@ def get_full_skill_graph(db: Session = Depends(get_db)):
             "slug": s.slug,
             "title": s.title,
             "category": s.category or "general",
-            "tier": s.tier or "cook",
+            "tier": s.tier or "pro",
             "install_count": int(s.install_count or 0),
         }
         for s in public_skills

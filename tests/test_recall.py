@@ -37,7 +37,7 @@ SEED_CATALOG = [
      ["research", "summarisation", "pdf"], "free", "research"),
     ("literature-search", "Scholarly literature search",
      "Searches Google Scholar and arXiv for papers matching a topic and ranks by citation count.",
-     ["research", "scholar", "arxiv"], "cook", "research"),
+     ["research", "scholar", "arxiv"], "pro", "research"),
     # dev-tools
     ("python-formatter", "Python code formatter",
      "Formats Python source files using black and ruff with project defaults.",
@@ -48,45 +48,45 @@ SEED_CATALOG = [
     # agency
     ("client-onboarding", "Marketing agency client onboarding",
      "Generates a kickoff document, brand brief, and intake survey for a new agency client.",
-     ["agency", "onboarding", "client"], "cook", "agency"),
+     ["agency", "onboarding", "client"], "pro", "agency"),
     ("retainer-report", "Monthly retainer report builder",
      "Aggregates marketing channel results into a polished monthly retainer report PDF.",
-     ["agency", "report", "retainer"], "operator", "agency"),
+     ["agency", "report", "retainer"], "pro_plus", "agency"),
     # marketing
     ("seo-audit", "Website SEO audit",
      "Crawls a website and produces an SEO audit covering meta tags, schema, and core web vitals.",
      ["seo", "audit", "marketing"], "free", "marketing"),
     ("ad-copy-generator", "Search ad copy generator",
      "Creates Google and Meta search ad headlines and descriptions from a product brief.",
-     ["ads", "copy", "marketing"], "cook", "marketing"),
+     ["ads", "copy", "marketing"], "pro", "marketing"),
     # content
     ("blog-outline", "Blog post outline writer",
      "Generates an SEO-aware blog post outline with H2 headings and target keywords.",
      ["content", "blog", "writing"], "free", "content"),
     ("video-script", "YouTube video script writer",
      "Drafts hook-first YouTube video scripts from a topic and target audience.",
-     ["content", "video", "youtube"], "cook", "content"),
+     ["content", "video", "youtube"], "pro", "content"),
     # automation
     ("zapier-builder", "Zapier workflow builder",
      "Designs multi-step Zapier zaps from a description of business inputs and outputs.",
-     ["automation", "zapier", "workflow"], "cook", "automation"),
+     ["automation", "zapier", "workflow"], "pro", "automation"),
     ("email-router", "Inbox email router",
      "Triages incoming emails into folders by sender, intent, and urgency.",
      ["automation", "email", "triage"], "free", "automation"),
     # code-review
     ("pr-reviewer", "Pull request reviewer",
      "Reviews GitHub pull requests for bugs, style violations, and missing tests.",
-     ["code-review", "github", "pr"], "cook", "code-review"),
+     ["code-review", "github", "pr"], "pro", "code-review"),
     ("security-scanner", "Source code security scanner",
      "Scans a repository for known security antipatterns (XSS, SQLi, secret leaks).",
-     ["code-review", "security", "scan"], "operator", "code-review"),
+     ["code-review", "security", "scan"], "pro_plus", "code-review"),
     # productivity
     ("calendar-cleaner", "Calendar cleaner",
      "Audits a calendar for low-value recurring meetings and suggests deletions.",
      ["productivity", "calendar", "meetings"], "free", "productivity"),
     ("inbox-zero", "Inbox zero coach",
      "Walks a user through processing their inbox to zero with reply, archive, and snooze.",
-     ["productivity", "email", "inbox"], "cook", "productivity"),
+     ["productivity", "email", "inbox"], "pro", "productivity"),
     # data
     ("web-scraper", "Web scraper",
      "Scrapes structured data from arbitrary websites using CSS selectors and pagination.",
@@ -96,24 +96,24 @@ SEED_CATALOG = [
      ["data", "csv", "cleaning"], "free", "data"),
     ("sql-query-writer", "SQL query writer",
      "Writes parameterised SQL queries for analytic questions against a known schema.",
-     ["data", "sql", "analytics"], "cook", "data"),
+     ["data", "sql", "analytics"], "pro", "data"),
     # ops
     ("terraform-helper", "Terraform helper",
      "Authors and lints Terraform modules for AWS, GCP, and Azure infrastructure.",
-     ["ops", "terraform", "infrastructure"], "operator", "ops"),
+     ["ops", "terraform", "infrastructure"], "pro_plus", "ops"),
     ("docker-builder", "Docker image builder",
      "Builds optimised multi-stage Dockerfiles from a project description.",
      ["ops", "docker", "containers"], "free", "ops"),
     ("k8s-debugger", "Kubernetes debugger",
      "Debugs failing Kubernetes pods by inspecting events, logs, and resource limits.",
-     ["ops", "kubernetes", "debug"], "operator", "ops"),
+     ["ops", "kubernetes", "debug"], "pro_plus", "ops"),
     ("incident-postmortem", "Incident postmortem writer",
      "Drafts a blameless incident postmortem from a Slack timeline and an outage summary.",
-     ["ops", "incident", "postmortem"], "operator", "ops"),
+     ["ops", "incident", "postmortem"], "pro_plus", "ops"),
     # extras to round to 25
     ("invoice-generator", "Invoice generator",
      "Generates invoices in PDF and tracks unpaid status for freelancers and agencies.",
-     ["agency", "invoice", "billing"], "cook", "agency"),
+     ["agency", "invoice", "billing"], "pro", "agency"),
     ("twitter-thread", "Twitter thread writer",
      "Turns a long-form essay into a Twitter / X thread with a strong hook tweet.",
      ["content", "twitter", "social"], "free", "content"),
@@ -309,3 +309,44 @@ def test_eval_set_top3_accuracy(seeded_db):
         f"top-3 accuracy {accuracy:.2%} < 70%. Misses: " +
         "; ".join(f"'{q}' -> expected {e}, got {g}" for q, e, g in misses[:8])
     )
+
+
+def test_recall_default_tier_filter_uses_canonical_pro_slugs(seeded_db):
+    """Phase G post-drift-sweep: default recall returns canonical-tier rows.
+
+    Regression test for the issue surfaced live on 2026-05-20: after the
+    Phase G drift sweep flipped DB rows from cook/operator to pro/pro_plus,
+    the recall service's default tier_filter (then ['free', 'cook', 'operator'])
+    silently excluded every paid skill. The fix is to default to canonical
+    slugs and keep cook/operator as input-only legacy aliases.
+    """
+    # Don't pass tier_filter — exercise the default path.
+    blob = recall_skills(
+        seeded_db,
+        query="terraform",
+        is_master=True,
+        user_tier=None,
+        limit=5,
+    )
+    slugs = [h["slug"] for h in blob["hits"]]
+    # terraform-helper is pro_plus-tier post-rename — must surface with default filter
+    assert "terraform-helper" in slugs
+
+
+def test_recall_legacy_cook_alias_still_accepted(seeded_db):
+    """Phase G 30-day deprecation: passing 'cook' input maps to canonical 'pro'.
+
+    Existing integrations that still pass cook/operator as tier_filter input
+    must keep working through 2026-06-10.
+    """
+    blob = recall_skills(
+        seeded_db,
+        query="terraform",
+        tier_filter=["free", "cook", "operator"],  # legacy input
+        is_master=True,
+        user_tier=None,
+        limit=5,
+    )
+    slugs = [h["slug"] for h in blob["hits"]]
+    # pro_plus terraform-helper must surface — operator → pro_plus alias
+    assert "terraform-helper" in slugs

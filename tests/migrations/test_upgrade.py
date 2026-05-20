@@ -21,6 +21,18 @@ from pathlib import Path
 
 import pytest
 
+# Superseded by tests/migrations/test_chain_postgres.py — see note in
+# test_baseline_idempotent.py for the full rationale. The SQLite-only
+# stamp invariant tests can stay in test_baseline_idempotent.py without
+# this file's duplication.
+pytestmark = pytest.mark.skip(
+    reason=(
+        "Superseded by tests/migrations/test_chain_postgres.py. The SQLite "
+        "chain cannot exercise the chain's Postgres-only DDL. Run: "
+        "bash scripts/test-migrations-against-postgres.sh"
+    )
+)
+
 # Locate the repo root (two levels up from this file: tests/migrations/test_upgrade.py)
 REPO_ROOT = Path(__file__).parent.parent.parent
 BASELINE_REV = "4ba0bf05cd47"

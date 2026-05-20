@@ -83,7 +83,7 @@ from app.utm_redirects import utm_router  # noqa: F401
 
 router = APIRouter(prefix="/api")
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 # WIS-903: Retired skill registry (used by telemetry endpoint)
 from pathlib import Path as _Path

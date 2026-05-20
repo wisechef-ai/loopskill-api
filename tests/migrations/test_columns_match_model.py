@@ -15,6 +15,16 @@ from pathlib import Path
 
 import pytest
 
+# Superseded by tests/migrations/test_chain_postgres.py
+# (test_model_columns_present_after_full_upgrade does this check against
+# the real Postgres dialect that production uses).
+pytestmark = pytest.mark.skip(
+    reason=(
+        "Superseded by tests/migrations/test_chain_postgres.py. Run: "
+        "bash scripts/test-migrations-against-postgres.sh"
+    )
+)
+
 REPO_ROOT = Path(__file__).parent.parent.parent
 BASELINE_REV = "4ba0bf05cd47"
 

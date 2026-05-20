@@ -33,8 +33,8 @@ router = APIRouter(prefix="/api", tags=["recall"])
 class RecallIn(BaseModel):
     query: str
     local_context_summary: str = ""
-    tier_filter: list[Literal["free", "cook", "operator"]] = Field(
-        default_factory=lambda: ["free", "cook", "operator"]
+    tier_filter: list[Literal["free", "pro", "pro_plus", "cook", "operator"]] = Field(
+        default_factory=lambda: ["free", "pro", "pro_plus"]
     )
     limit: int = 10
 
@@ -99,7 +99,9 @@ def _allowed_tier_set(user_tier: str | None) -> set[str]:
     """The set of skill tiers the caller's plan can install."""
     if user_tier is None:
         # Master / no-user (e.g. dev master key) — allow everything.
-        return {"free", "cook", "operator"}
+        # Phase G post-drift-sweep (recipes_2005/G): canonical {free, pro, pro_plus};
+        # legacy {cook, operator} retained for the 30-day deprecation window.
+        return {"free", "pro", "pro_plus", "cook", "operator"}
     rank = TIER_RANK.get(user_tier, -1)
     return {t for t, r in TIER_RANK.items() if r <= rank}
 
@@ -115,9 +117,11 @@ def recall_skills(
     user_tier: str | None = None,
 ) -> dict:
     """Service layer used by both the HTTP route and the MCP tool."""
-    tier_filter = tier_filter or ["free", "cook", "operator"]
-    # Phase 5 alias map: accept display slugs from MCP/HTTP callers.
-    _tier_alias = {"pro": "cook", "pro_plus": "operator", "studio": "operator"}
+    # Phase G post-drift-sweep (recipes_2005/G shipped 2026-05-20): default to
+    # the canonical tier slugs. Legacy {cook, operator} stay accepted as input
+    # aliases through 2026-06-10 (30-day deprecation window).
+    tier_filter = tier_filter or ["free", "pro", "pro_plus"]
+    _tier_alias = {"cook": "pro", "operator": "pro_plus", "studio": "pro_plus"}
     tier_filter = [_tier_alias.get(t, t) for t in tier_filter]
     limit = max(1, min(int(limit or 10), 50))
 
@@ -149,7 +153,9 @@ def recall_skills(
         except Exception as exc:  # noqa: BLE001
             logger.debug("cookbook lookup skipped: %s", exc)
 
-    allowed_tiers = {"free", "cook", "operator"} if is_master else _allowed_tier_set(user_tier)
+    allowed_tiers = (
+        {"free", "pro", "pro_plus", "cook", "operator"} if is_master else _allowed_tier_set(user_tier)
+    )
 
     scored: list[tuple[float, float, float, Skill]] = []
     for sk in candidates:
@@ -214,7 +220,7 @@ def post_recall(
     result = recall_skills(
         db,
         query=body.query,
-        tier_filter=body.tier_filter,
+        tier_filter=list(body.tier_filter),
         limit=body.limit,
         user_id=api_key_user_id,
         is_master=is_master,

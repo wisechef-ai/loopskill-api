@@ -49,7 +49,7 @@ def _seed_dev_skills(db_session):
             title=title,
             description=desc,
             category="dev-tools",
-            tier="cook",
+            tier="pro",
             is_public=True,
             is_archived=False,
             related_skills=[slug.replace("-", " ")],
