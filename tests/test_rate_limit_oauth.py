@@ -134,3 +134,122 @@ def test_oauth_exemption_is_prefix_not_substring(small_app):
         client.get("/decoy/api/auth/github/login", headers={"cf-connecting-ip": "1.1.1.1"})
     r = client.get("/decoy/api/auth/github/login", headers={"cf-connecting-ip": "1.1.1.1"})
     assert r.status_code == 429, "non-prefix matches must still be rate-limited"
+
+
+# ---------------------------------------------------------------------------
+# Phase-G+ — authenticated-bypass regression
+# ---------------------------------------------------------------------------
+#
+# Symptom that motivated this: the Astro portal build fires ~116 page-render
+# fetches against the API from a single egress IP in a few hundred ms. With
+# the 60-req/min per-IP cap that bucket bursts instantly, the hero stats
+# fetch hits API 429 even with retry-and-jitter, and the page falls back to
+# the hardcoded "59+" — which is stale by 5 skills.
+#
+# Fix: any caller that already passed APIKeyMiddleware with a real scope
+# (master, user, fleet, cookbook, …) bypasses the per-IP bucket. Anonymous
+# traffic is still bucketed. Per-key abuse is bounded elsewhere (install
+# routes have TIER_INSTALL_LIMITS, MCP tools have their own quotas).
+
+
+@pytest.fixture
+def authed_app():
+    """Like ``small_app`` but seeds request.state.auth_ctx for authenticated calls.
+
+    The real production stack populates ``auth_ctx`` in APIKeyMiddleware
+    BEFORE RateLimitMiddleware sees the request. We simulate that here with
+    a tiny BaseHTTPMiddleware that reads ``x-test-scope`` (set by the test)
+    and attaches a stub. It MUST be added AFTER RateLimitMiddleware so it
+    wraps it (Starlette LIFO — last added is outermost on the request path,
+    so it runs FIRST and populates auth_ctx before RateLimit sees the call).
+    """
+    from types import SimpleNamespace
+
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    class _AuthInjector(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            scope = request.headers.get("x-test-scope")
+            if scope:
+                request.state.auth_ctx = SimpleNamespace(scope=scope)
+            return await call_next(request)
+
+    app = FastAPI()
+    app.add_middleware(RateLimitMiddleware, max_requests=3, window_seconds=60)
+    app.add_middleware(_AuthInjector)  # added last → outermost → runs first
+
+    @app.get("/api/anything")
+    async def anything():
+        return {"ok": True}
+
+    return app
+
+
+@pytest.mark.parametrize(
+    "scope",
+    ["master", "user", "fleet", "cookbook"],
+)
+def test_authenticated_callers_bypass_per_ip_bucket(authed_app, scope):
+    """A real authenticated scope MUST get past the 3-req/min cap.
+
+    Regression target: the portal build hit 429 on /api/skills/search?page_size=1
+    after ~3-5 hero fetches, falling back to a hardcoded count. After this
+    fix, authenticated callers pass through unrestricted by IP.
+    """
+    from unittest.mock import patch
+    client = TestClient(authed_app)
+
+    with patch("app.utils.client_ip._is_trusted", return_value=True):
+        # 50 hits, single IP, single key — every one MUST return 200.
+        for i in range(50):
+            r = client.get(
+                "/api/anything",
+                headers={
+                    "cf-connecting-ip": "1.1.1.1",
+                    "x-test-scope": scope,
+                },
+            )
+            assert r.status_code == 200, (
+                f"authenticated {scope} call #{i+1} was rate-limited "
+                f"(status={r.status_code}); this would break build-time "
+                "portal fetches and MCP fleet sync."
+            )
+
+
+def test_anonymous_callers_still_bucketed(authed_app):
+    """No auth header → falls into the per-IP bucket as before."""
+    from unittest.mock import patch
+    client = TestClient(authed_app)
+
+    with patch("app.utils.client_ip._is_trusted", return_value=True):
+        for _ in range(3):
+            r = client.get("/api/anything", headers={"cf-connecting-ip": "1.1.1.1"})
+            assert r.status_code == 200
+        r = client.get("/api/anything", headers={"cf-connecting-ip": "1.1.1.1"})
+        assert r.status_code == 429, (
+            "anonymous traffic must STILL be bucketed — the bypass only "
+            "applies to authenticated callers."
+        )
+
+
+def test_anonymous_scope_literal_still_bucketed(authed_app):
+    """``scope='anonymous'`` is treated the same as no auth_ctx at all.
+
+    Defensive: if a future code path sets auth_ctx with scope='anonymous'
+    (rather than leaving it None), it must still hit the bucket.
+    """
+    from unittest.mock import patch
+    client = TestClient(authed_app)
+
+    with patch("app.utils.client_ip._is_trusted", return_value=True):
+        for _ in range(3):
+            r = client.get(
+                "/api/anything",
+                headers={"cf-connecting-ip": "1.1.1.1", "x-test-scope": "anonymous"},
+            )
+            assert r.status_code == 200
+        r = client.get(
+            "/api/anything",
+            headers={"cf-connecting-ip": "1.1.1.1", "x-test-scope": "anonymous"},
+        )
+        assert r.status_code == 429

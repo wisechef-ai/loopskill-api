@@ -686,6 +686,28 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if any(request.url.path.startswith(p) for p in self.EXEMPT_PREFIXES):
             return await call_next(request)
 
+        # Authenticated callers bypass the per-IP minute bucket.
+        #
+        # Why: APIKeyMiddleware runs BEFORE this middleware (Starlette LIFO
+        # order — the last add_middleware in main.py is outermost on the
+        # request path), so request.state.auth_ctx is already populated.
+        # Real consumers — master scope, rec_live_* user keys, MCP fleet keys,
+        # cookbook-bound CBT tokens, and the Astro portal build itself —
+        # routinely fire dozens of requests in a few hundred ms from a single
+        # IP. That instantly busts the 60/min bucket and the portal hero
+        # falls back to a hardcoded count, the spotlight grid empties, etc.
+        #
+        # Anonymous traffic (no x-api-key, no master, no cookie) is still
+        # bucketed — that's where IP-based limiting actually defends.
+        #
+        # Per-key abuse (a leaked rec_live_* key hammering the API from one
+        # IP) is bounded by the install-route's per-key TIER_INSTALL_LIMITS,
+        # not this middleware.
+        auth_ctx = getattr(request.state, "auth_ctx", None)
+        scope = getattr(auth_ctx, "scope", None) if auth_ctx else None
+        if scope and scope != "anonymous":
+            return await call_next(request)
+
         client_ip = self._real_client_ip(request)
         now = time.time()
 
