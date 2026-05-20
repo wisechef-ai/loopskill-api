@@ -47,6 +47,10 @@ from app.mcp.tools import (
     recipes_request_recipe,
     recipes_search,
     recipes_seeker,
+    recipes_share_create,
+    recipes_share_list,
+    recipes_share_revoke,
+    recipes_share_rotate,
     recipes_subrecipe_resolve,
     recipes_sync,
 )
@@ -294,6 +298,76 @@ def _tool_definitions() -> list[types.Tool]:
                 },
             },
         ),
+        # ── Phase D: share-token management tools ───────────────────────────
+        types.Tool(
+            name="recipes_share_create",
+            description=(
+                "Create a new share token for a cookbook. Returns the plaintext "
+                "token (shown exactly once), prefix, scope, name, id, created_at, "
+                "and config_blocks (Hermes YAML + Claude Desktop JSON snippets). "
+                "Requires can_write_cookbook."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["cookbook_id"],
+                "properties": {
+                    "cookbook_id": {"type": "string"},
+                    "name": {"type": "string"},
+                    "scope": {
+                        "type": "string",
+                        "enum": ["read", "edit"],
+                        "default": "edit",
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="recipes_share_list",
+            description=(
+                "List share tokens for a cookbook (metadata only, no plaintext). "
+                "Returns {tokens: [{id, prefix, name, scope, is_active, created_at, "
+                "last_used_at}]}. Requires can_write_cookbook."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["cookbook_id"],
+                "properties": {
+                    "cookbook_id": {"type": "string"},
+                },
+            },
+        ),
+        types.Tool(
+            name="recipes_share_revoke",
+            description=(
+                "Soft-delete (deactivate) a share token immediately. "
+                "Returns {revoked: true, token_id}. Requires can_write_cookbook."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["cookbook_id", "token_id"],
+                "properties": {
+                    "cookbook_id": {"type": "string"},
+                    "token_id": {"type": "string"},
+                },
+            },
+        ),
+        types.Tool(
+            name="recipes_share_rotate",
+            description=(
+                "Rotate a share token: deactivate the old token and create a new "
+                "one with the same name and scope. Returns new_token, new_prefix, "
+                "old_token_id, new_token_id, and config_blocks. "
+                "Requires can_write_cookbook."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["cookbook_id", "token_id"],
+                "properties": {
+                    "cookbook_id": {"type": "string"},
+                    "token_id": {"type": "string"},
+                },
+            },
+        ),
     ]
 
 
@@ -408,6 +482,35 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             evidence_install_id=args.get("evidence_install_id"),
             agent_id_anon=args.get("agent_id_anon"),
             api_key_id=caller.get("api_key_id"),
+        )
+    # ── Phase D: share-token management tools ───────────────────────────────
+    if name == "recipes_share_create":
+        return recipes_share_create(
+            db,
+            cookbook_id=args["cookbook_id"],
+            name=args.get("name"),
+            scope=args.get("scope", "edit"),
+            ctx=ctx,
+        )
+    if name == "recipes_share_list":
+        return recipes_share_list(
+            db,
+            cookbook_id=args["cookbook_id"],
+            ctx=ctx,
+        )
+    if name == "recipes_share_revoke":
+        return recipes_share_revoke(
+            db,
+            cookbook_id=args["cookbook_id"],
+            token_id=args["token_id"],
+            ctx=ctx,
+        )
+    if name == "recipes_share_rotate":
+        return recipes_share_rotate(
+            db,
+            cookbook_id=args["cookbook_id"],
+            token_id=args["token_id"],
+            ctx=ctx,
         )
     raise ValueError(f"unknown tool: {name}")
 
