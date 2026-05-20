@@ -9,7 +9,15 @@ from sqlalchemy.orm import Session
 
 from app.embeddings import cosine
 
-TIER_RANK = {"free": 0, "cook": 1, "operator": 2}
+TIER_RANK: dict[str | None, int] = {
+    "free": 1,
+    "pro": 2,  # canonical (Phase 5)
+    "pro_plus": 3,  # canonical (Phase 5)
+    # 30-day legacy READ aliases (RCP-INCIDENT-2026-05-11, remove after 2026-06-10):
+    "cook": 2,  # legacy alias → pro
+    "operator": 3,  # legacy alias → pro_plus
+    "studio": 3,  # legacy alias → pro_plus (Phase 3 rename, pre-Phase-5)
+}
 
 
 def _tokenize(text: str) -> list[str]:

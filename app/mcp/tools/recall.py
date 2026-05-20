@@ -30,7 +30,7 @@ def recipes_recall(
     return recall_skills(
         db,
         query=query,
-        tier_filter=tier_filter or ["free", "cook", "operator"],
+        tier_filter=tier_filter or ["free", "pro", "pro_plus"],  # canonical slugs (Phase G)
         limit=int(limit),
         user_id=None,
         is_master=True,

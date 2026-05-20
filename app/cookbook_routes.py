@@ -1,6 +1,7 @@
 """Cookbook CRUD endpoints — v7 Phase B.
 
-Endpoints (all gated to subscription_tier in {'cook','operator','studio'} OR master key):
+Endpoints (all gated to subscription_tier in {'pro','pro_plus'} OR master key):
+Legacy slugs 'cook'/'operator' accepted via _is_paid_tier/_is_pro_plus_tier shims for 30 days.
   - POST   /api/cookbooks                       create (1-max for cook tier)
   - GET    /api/cookbooks                       list mine
   - GET    /api/cookbooks/{id}                  detail with skills
@@ -11,8 +12,8 @@ Endpoints (all gated to subscription_tier in {'cook','operator','studio'} OR mas
   - GET    /api/cookbooks/{id}/sync             since-filter event log
 
 Tier gate: middleware stamps api_key_user_id on request.state. The static master
-key bypasses tier checks. Free / no-tier users receive 401 on create. Cook tier
-is capped at 1 cookbook (403 on second). Operator and studio are unlimited.
+key bypasses tier checks. Free / no-tier users receive 401 on create. Pro tier
+is capped at 1 cookbook (403 on second). Pro+ is unlimited.
 """
 
 from __future__ import annotations
@@ -108,7 +109,7 @@ class CookbookCtx(BaseModel):
 
 
 def require_cookbook_tier(request: Request, db: Session = Depends(get_db)) -> CookbookCtx:
-    """401 unless caller has an active cook/operator sub OR is master.
+    """401 unless caller has an active pro/pro_plus sub OR is master.
 
     SECURITY: cbt_ share tokens stamp api_key_user_id="CBT_TOKEN" (sentinel)
     rather than None — None is the master-key signal. Without this guard

@@ -7,9 +7,8 @@ Per recipes-plan-v4-locked.md:
 - Triggers Stripe transfers for creators with connected accounts
 
 Rate tiers (locked-in for life):
-  Cook:    50%
-  Operator: 60%
-  Studio private skills: 70%
+  Pro:     50%  (was Cook pre-Phase-5)
+  Pro+:    60%  (was Operator pre-Phase-5)
   Recipe Bundles: 70%
   First-50 publishers (is_founder=True): 75%
 """
@@ -29,9 +28,12 @@ logger = logging.getLogger(__name__)
 
 # Tier payout rates
 TIER_RATES = {
-    "cook": settings.PAYOUT_RATE_COOK,
-    "operator": settings.PAYOUT_RATE_OPERATOR,
-    "studio": settings.PAYOUT_RATE_STUDIO_PRIVATE,
+    "pro": settings.PAYOUT_RATE_COOK,  # canonical (Phase G recipes_2005/G)
+    "pro_plus": settings.PAYOUT_RATE_OPERATOR,  # canonical (Phase G recipes_2005/G)
+    # 30-day legacy READ aliases (RCP-INCIDENT-2026-05-11, remove after 2026-06-10):
+    "cook": settings.PAYOUT_RATE_COOK,  # legacy alias → pro
+    "operator": settings.PAYOUT_RATE_OPERATOR,  # legacy alias → pro_plus
+    "studio": settings.PAYOUT_RATE_STUDIO_PRIVATE,  # legacy alias (Phase 3 rename, kept 70% rate)
     "recipe_bundle": settings.PAYOUT_RATE_RECIPE_BUNDLE,
 }
 
@@ -41,7 +43,8 @@ def get_creator_payout_rate(skill: Skill, creator: Creator) -> float:
     if creator.is_founder:
         return settings.PAYOUT_RATE_FOUNDER_BONUS
 
-    tier = (skill.tier or "cook").lower()
+    # Phase G: canonical default is 'pro' (was 'cook' pre-Phase-5).
+    tier = (skill.tier or "pro").lower()
     return TIER_RATES.get(tier, settings.PAYOUT_RATE_COOK)
 
 
@@ -130,7 +133,8 @@ def compute_monthly_payouts(
                 "total_creator_share_cents": 0,
             }
 
-        rate = TIER_RATES.get((row.skill_tier or "cook").lower(), settings.PAYOUT_RATE_COOK)
+        # Phase G: canonical default is 'pro' (was 'cook' pre-Phase-5); legacy alias still accepted.
+        rate = TIER_RATES.get((row.skill_tier or "pro").lower(), settings.PAYOUT_RATE_COOK)
         if row.is_founder:
             rate = settings.PAYOUT_RATE_FOUNDER_BONUS
 
