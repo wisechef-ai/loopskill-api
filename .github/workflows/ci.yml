@@ -19,7 +19,7 @@ jobs:
   # The gate itself uses stdlib only.
   skill-quality-gate-self-test:
     name: Quality gate self-test
-    runs-on: ubuntu-latest
+    runs-on: wisechef-runner
     steps:
       - uses: actions/checkout@v5
 
@@ -86,7 +86,7 @@ jobs:
   # Never blocks — just surfaces any self-leak before publish.
   optional-self-leak-check:
     name: Self-leak check (informational)
-    runs-on: ubuntu-latest
+    runs-on: wisechef-runner
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v5
@@ -105,7 +105,7 @@ jobs:
   # of tests/ with WITH_POSTGRES=1 so the real Postgres trigger is exercised.
   pytest:
     name: pytest + coverage gate
-    runs-on: ubuntu-latest
+    runs-on: wisechef-runner
     # Hard cap: a hung test fails the job, not the 6h GitHub ceiling.
     # Paired with pytest-timeout for a per-test cap.
     timeout-minutes: 20
