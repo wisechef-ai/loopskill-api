@@ -7,6 +7,12 @@ same callable serves the SSE transport, the stdio transport, and unit tests.
 from app.mcp.tools.carousel_today import recipes_carousel_today
 from app.mcp.tools.doctor import recipes_doctor
 from app.mcp.tools.feedback import recipes_feedback
+from app.mcp.tools.fleet import (
+    recipes_fleet_create,
+    recipes_fleet_list,
+    recipes_fleet_subscribe,
+    recipes_fleet_sync,
+)
 from app.mcp.tools.install import recipes_install
 from app.mcp.tools.list_cookbook import recipes_list_cookbook
 from app.mcp.tools.recall import recipes_recall
@@ -34,4 +40,9 @@ __all__ = [
     "recipes_request_recipe",
     "recipes_report_skill_error",
     "recipes_propose_skill_patch",
+    # Phase E: fleet tools
+    "recipes_fleet_create",
+    "recipes_fleet_subscribe",
+    "recipes_fleet_sync",
+    "recipes_fleet_list",
 ]

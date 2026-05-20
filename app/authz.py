@@ -84,3 +84,21 @@ def can_run_sandbox(ctx: AuthContext) -> bool:
     if ctx.is_sandbox_operator:
         return True
     return False
+
+
+def can_use_fleet(ctx: AuthContext, fleet: Any) -> bool:
+    """Return True if ctx may operate on the given fleet.
+
+    Access rules:
+    - Master scope: always allowed
+    - User scope: allowed if ctx.user_id == fleet.owner_user_id
+    - Fleet scope: allowed if ctx.fleet_id == fleet.id (key matches this fleet)
+    - All other cases: False
+    """
+    if ctx.scope == "master":
+        return True
+    if ctx.scope == "user" and ctx.user_id is not None and ctx.user_id == fleet.owner_user_id:
+        return True
+    if ctx.scope == "fleet" and ctx.fleet_id is not None and ctx.fleet_id == fleet.id:
+        return True
+    return False

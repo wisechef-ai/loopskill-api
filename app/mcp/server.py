@@ -38,6 +38,10 @@ from app.mcp.tools import (
     recipes_carousel_today,
     recipes_doctor,
     recipes_feedback,
+    recipes_fleet_create,
+    recipes_fleet_list,
+    recipes_fleet_subscribe,
+    recipes_fleet_sync,
     recipes_install,
     recipes_list_cookbook,
     recipes_propose_skill_patch,
@@ -288,6 +292,62 @@ def _tool_definitions() -> list[types.Tool]:
                 },
             },
         ),
+        # ── Phase E: fleet tools ─────────────────────────────────────────────
+        types.Tool(
+            name="recipes_fleet_create",
+            description=(
+                "Create a named fleet of agents. Returns a one-time fleet API key "
+                "(rec_fleet_*) for x-fleet-key authentication. The key is shown ONCE."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["name"],
+                "properties": {"name": {"type": "string"}},
+            },
+        ),
+        types.Tool(
+            name="recipes_fleet_subscribe",
+            description=(
+                "Subscribe a cookbook to a fleet on a given channel " "(stable, canary, frozen). Idempotent."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["fleet_id", "cookbook_id"],
+                "properties": {
+                    "fleet_id": {"type": "string"},
+                    "cookbook_id": {"type": "string"},
+                    "channel": {
+                        "type": "string",
+                        "enum": ["stable", "canary", "frozen"],
+                        "default": "stable",
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="recipes_fleet_sync",
+            description=(
+                "Synchronise all cookbooks subscribed to the fleet. Aggregates "
+                "per-cookbook sync results. Pass dry_run=true to preview."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["fleet_id"],
+                "properties": {
+                    "fleet_id": {"type": "string"},
+                    "dry_run": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "If true, preview changes without applying.",
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="recipes_fleet_list",
+            description="List all fleets owned by the caller with their cookbook subscriptions.",
+            inputSchema={"type": "object", "properties": {}},
+        ),
     ]
 
 
@@ -402,6 +462,33 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             evidence_install_id=args.get("evidence_install_id"),
             agent_id_anon=args.get("agent_id_anon"),
             api_key_id=caller.get("api_key_id"),
+        )
+    # Phase E: fleet tools
+    if name == "recipes_fleet_create":
+        return recipes_fleet_create(
+            db,
+            name=args["name"],
+            ctx=ctx,
+        )
+    if name == "recipes_fleet_subscribe":
+        return recipes_fleet_subscribe(
+            db,
+            fleet_id=args["fleet_id"],
+            cookbook_id=args["cookbook_id"],
+            channel=args.get("channel", "stable"),
+            ctx=ctx,
+        )
+    if name == "recipes_fleet_sync":
+        return recipes_fleet_sync(
+            db,
+            fleet_id=args["fleet_id"],
+            dry_run=args.get("dry_run", False),
+            ctx=ctx,
+        )
+    if name == "recipes_fleet_list":
+        return recipes_fleet_list(
+            db,
+            ctx=ctx,
         )
     raise ValueError(f"unknown tool: {name}")
 
