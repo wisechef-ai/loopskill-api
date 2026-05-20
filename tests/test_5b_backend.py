@@ -245,6 +245,25 @@ class TestOAuthRedirectTarget:
         resp = _make_success_redirect("jwt", next_url="/etc/passwd")
         assert resp.headers["location"] == "/library?auth=success"
 
+    def test_success_redirect_honors_referrals_next(self):
+        """Regression: /referrals must be in SAFE_NEXT_PREFIXES.
+
+        Without this, a logged-out user who clicks 'Get your referral code'
+        on /referrals → /signin?next=/referrals lands on /library instead
+        of returning to /referrals. Fixed in rev 7.3.
+        """
+        from app.auth_routes import _make_success_redirect
+        resp = _make_success_redirect("jwt", next_url="/referrals")
+        assert resp.headers["location"].startswith("/referrals")
+        assert "auth=success" in resp.headers["location"]
+
+    def test_success_redirect_honors_dashboard_next(self):
+        """Regression: /dashboard must be in SAFE_NEXT_PREFIXES (rev 7.3)."""
+        from app.auth_routes import _make_success_redirect
+        resp = _make_success_redirect("jwt", next_url="/dashboard")
+        assert resp.headers["location"].startswith("/dashboard")
+        assert "auth=success" in resp.headers["location"]
+
     def test_error_redirect_targets_signin(self):
         from app.auth_routes import _make_error_redirect
         resp = _make_error_redirect("github_error")

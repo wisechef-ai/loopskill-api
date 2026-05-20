@@ -60,11 +60,22 @@ def _build_redirect_uri(request: Request, provider: str) -> str:
 def _make_success_redirect(jwt_token: str, next_url: str | None = None) -> RedirectResponse:
     """Create a redirect response with JWT cookie set.
 
-    next_url: if provided AND starts with `/api/` or `/library` or `/skills/`,
+    next_url: if provided AND starts with one of the SAFE_NEXT_PREFIXES,
     redirect there after setting cookie (for /signin?next=... flows).
     Otherwise default to /library?auth=success.
     """
-    SAFE_NEXT_PREFIXES = ("/api/", "/library", "/skills/", "/billing/", "/publish")
+    # rev 7.3: added /referrals so logged-in users coming from /referrals → /signin
+    # land back where they started, not on /library. Same rationale as the existing
+    # entries — paths that are part of the authed app surface and safe to bounce to.
+    SAFE_NEXT_PREFIXES = (
+        "/api/",
+        "/library",
+        "/skills/",
+        "/billing/",
+        "/publish",
+        "/referrals",
+        "/dashboard",
+    )
     target = "/library?auth=success"
     if next_url and any(next_url.startswith(p) for p in SAFE_NEXT_PREFIXES):
         sep = "&" if "?" in next_url else "?"
