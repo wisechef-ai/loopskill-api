@@ -36,11 +36,7 @@ def sync_fleet(
     from app.mcp.tools.recipes_sync import recipes_sync
 
     # Pull all subscription rows for this fleet
-    subs = (
-        db.query(FleetSubscription)
-        .filter(FleetSubscription.fleet_id == fleet_id)
-        .all()
-    )
+    subs = db.query(FleetSubscription).filter(FleetSubscription.fleet_id == fleet_id).all()
 
     results: list[dict[str, Any]] = []
     for sub in subs:

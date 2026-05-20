@@ -35,8 +35,8 @@ from app.models import Fleet, FleetSubscription
 
 def _generate_fleet_key() -> str:
     """Generate a new fleet API key in rec_fleet_<8hex>_<32hex> format."""
-    prefix = secrets.token_hex(4)   # 8 hex chars
-    body = secrets.token_hex(16)    # 32 hex chars
+    prefix = secrets.token_hex(4)  # 8 hex chars
+    body = secrets.token_hex(16)  # 32 hex chars
     return f"rec_fleet_{prefix}_{body}"
 
 
@@ -189,9 +189,7 @@ def recipes_fleet_list(
     if ctx.scope == "master":
         fleets = db.query(Fleet).all()
     elif ctx.scope == "user" and ctx.user_id is not None:
-        fleets = (
-            db.query(Fleet).filter(Fleet.owner_user_id == ctx.user_id).all()
-        )
+        fleets = db.query(Fleet).filter(Fleet.owner_user_id == ctx.user_id).all()
     elif ctx.scope == "fleet" and ctx.fleet_id is not None:
         # Fleet-scoped key: return only the one fleet
         fleet = db.query(Fleet).filter(Fleet.id == ctx.fleet_id).first()
@@ -201,19 +199,12 @@ def recipes_fleet_list(
 
     result_fleets = []
     for fleet in fleets:
-        subs = (
-            db.query(FleetSubscription)
-            .filter(FleetSubscription.fleet_id == fleet.id)
-            .all()
-        )
+        subs = db.query(FleetSubscription).filter(FleetSubscription.fleet_id == fleet.id).all()
         result_fleets.append(
             {
                 "fleet_id": str(fleet.id),
                 "name": fleet.name,
-                "subscriptions": [
-                    {"cookbook_id": str(s.cookbook_id), "channel": s.channel}
-                    for s in subs
-                ],
+                "subscriptions": [{"cookbook_id": str(s.cookbook_id), "channel": s.channel} for s in subs],
             }
         )
 
