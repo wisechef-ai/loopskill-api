@@ -1,0 +1,248 @@
+# ============================================================
+# skill-publish-approver.yml
+#
+# Triggered when Adam (or an admin) adds the `approved` label to a
+# skill:publish-request issue. Fetches the stored tarball from the
+# admin endpoint, generates an ephemeral ed25519 keypair, and calls
+# /api/skills/_publish to complete the publish server-side.
+#
+# Required secrets:
+#   RECIPES_MASTER_KEY  — the platform master API key (x-api-key header)
+#   RECIPES_API_BASE    — base URL of the API (default: https://recipes.wisechef.ai)
+#
+# On success: updates the issue with the new skill_versions row + closes it.
+# On failure: labels the issue `publish-rejected` + comments with the error.
+# ============================================================
+
+name: Skill Publish Approver
+
+on:
+  issues:
+    types:
+      - labeled
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  approve-publish:
+    # Only run when the label added is exactly `approved`
+    if: github.event.label.name == 'approved'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Approve and publish skill
+        uses: actions/github-script@v7
+        env:
+          RECIPES_MASTER_KEY: ${{ secrets.RECIPES_MASTER_KEY }}
+          RECIPES_API_BASE: ${{ secrets.RECIPES_API_BASE || 'https://recipes.wisechef.ai' }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue      = context.payload.issue;
+            const issueNum   = issue.number;
+            const issueBody  = issue.body || '';
+            const owner      = context.repo.owner;
+            const repo       = context.repo.repo;
+
+            core.info(`Processing approved publish-request on issue #${issueNum}`);
+
+            // ----------------------------------------------------------------
+            // Guard: only act on skill:publish-request issues
+            // ----------------------------------------------------------------
+            const labels = issue.labels.map(l => l.name);
+            if (!labels.includes('skill:publish-request')) {
+              core.info('Issue does not have skill:publish-request label — skipping');
+              return;
+            }
+
+            // ----------------------------------------------------------------
+            // 1. Parse request_id from issue body table
+            //    The row looks like: | `request_id` | <uuid> |
+            // ----------------------------------------------------------------
+            const requestIdMatch = issueBody.match(/\|\s*`?request_id`?\s*\|\s*([0-9a-f-]{36})\s*\|/i);
+            if (!requestIdMatch) {
+              const msg = 'Could not parse request_id from issue body. Aborting.';
+              core.error(msg);
+              await octokit.rest.issues.createComment({ owner, repo, issue_number: issueNum, body: `❌ **Auto-approver error:** ${msg}` });
+              await octokit.rest.issues.addLabels({ owner, repo, issue_number: issueNum, labels: ['publish-rejected'] });
+              return;
+            }
+            const requestId = requestIdMatch[1];
+            core.info(`Parsed request_id: ${requestId}`);
+
+            // Also parse tier and is_public from the table for the publish call
+            const tierMatch     = issueBody.match(/\|\s*`?tier`?\s*\|\s*([a-z_]+)\s*\|/i);
+            const isPublicMatch = issueBody.match(/\|\s*`?is_public`?\s*\|\s*(true|false)\s*\|/i);
+            const tier          = tierMatch     ? tierMatch[1]          : 'pro';
+            const isPublic      = isPublicMatch ? isPublicMatch[1] !== 'false' : true;
+            core.info(`tier=${tier}  is_public=${isPublic}`);
+
+            const baseUrl        = process.env.RECIPES_API_BASE.replace(/\/$/, '');
+            const masterKey      = process.env.RECIPES_MASTER_KEY;
+
+            if (!masterKey) {
+              const msg = 'RECIPES_MASTER_KEY secret is not set.';
+              core.error(msg);
+              await octokit.rest.issues.createComment({ owner, repo, issue_number: issueNum, body: `❌ **Auto-approver error:** ${msg}` });
+              await octokit.rest.issues.addLabels({ owner, repo, issue_number: issueNum, labels: ['publish-rejected'] });
+              return;
+            }
+
+            // ----------------------------------------------------------------
+            // 2. Fetch tarball from admin endpoint
+            // ----------------------------------------------------------------
+            const tarballUrl = `${baseUrl}/api/admin/skill-publish-requests/${requestId}/tarball`;
+            core.info(`Fetching tarball from ${tarballUrl}`);
+
+            let tarballBuf;
+            try {
+              const tarballResp = await fetch(tarballUrl, {
+                headers: { 'x-api-key': masterKey },
+              });
+              if (!tarballResp.ok) {
+                throw new Error(`HTTP ${tarballResp.status}: ${await tarballResp.text()}`);
+              }
+              tarballBuf = Buffer.from(await tarballResp.arrayBuffer());
+              core.info(`Fetched tarball: ${tarballBuf.length} bytes`);
+            } catch (err) {
+              const msg = `Failed to fetch tarball: ${err.message}`;
+              core.error(msg);
+              await octokit.rest.issues.createComment({ owner, repo, issue_number: issueNum, body: `❌ **Auto-approver error:** ${msg}` });
+              await octokit.rest.issues.addLabels({ owner, repo, issue_number: issueNum, labels: ['publish-rejected'] });
+              return;
+            }
+
+            // ----------------------------------------------------------------
+            // 3. Generate ephemeral ed25519 keypair and sign sha256(tarball)
+            // ----------------------------------------------------------------
+            const { generateKeyPairSync, createSign, createHash } = require('crypto');
+
+            let privKey, pubKeyDer, signatureBuf;
+            try {
+              const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+
+              // sha256(tarball) is the message to sign
+              const tarballSha256 = createHash('sha256').update(tarballBuf).digest();
+
+              // Sign using Node's crypto (ed25519 sign over sha256 digest)
+              const signer = createSign('SHA512');  // ed25519 ignores hash algo
+              signer.update(tarballSha256);
+              signatureBuf = signer.sign(privateKey);
+
+              // Export public key as raw 32 bytes (SubjectPublicKeyInfo DER → last 32 bytes)
+              const pubKeyDerFull = publicKey.export({ type: 'spki', format: 'der' });
+              pubKeyDer = pubKeyDerFull.slice(-32);  // raw ed25519 public key
+
+              core.info(`Generated ephemeral ed25519 keypair, pubkey=${pubKeyDer.toString('hex').slice(0,16)}…`);
+            } catch (err) {
+              const msg = `Key generation / signing failed: ${err.message}`;
+              core.error(msg);
+              await octokit.rest.issues.createComment({ owner, repo, issue_number: issueNum, body: `❌ **Auto-approver error:** ${msg}` });
+              await octokit.rest.issues.addLabels({ owner, repo, issue_number: issueNum, labels: ['publish-rejected'] });
+              return;
+            }
+
+            // ----------------------------------------------------------------
+            // 4. Extract skill.toml from tarball and call /api/skills/_publish
+            // ----------------------------------------------------------------
+            const tar = require('tar-stream');
+            const zlib = require('zlib');
+
+            async function extractToml(buf) {
+              return new Promise((resolve, reject) => {
+                const extract = tar.extract();
+                let tomlBuf = null;
+                extract.on('entry', (header, stream, next) => {
+                  const parts = header.name.split('/');
+                  if (parts[parts.length - 1] === 'skill.toml') {
+                    const chunks = [];
+                    stream.on('data', c => chunks.push(c));
+                    stream.on('end', () => { tomlBuf = Buffer.concat(chunks); next(); });
+                  } else {
+                    stream.resume();
+                    stream.on('end', next);
+                  }
+                });
+                extract.on('finish', () => resolve(tomlBuf));
+                extract.on('error', reject);
+                zlib.gunzip(buf, (err, decompressed) => {
+                  if (err) return reject(err);
+                  extract.end(decompressed);
+                });
+              });
+            }
+
+            let tomlBuf;
+            try {
+              tomlBuf = await extractToml(tarballBuf);
+              if (!tomlBuf) throw new Error('skill.toml not found in tarball');
+              core.info(`Extracted skill.toml (${tomlBuf.length} bytes)`);
+            } catch (err) {
+              const msg = `Failed to extract skill.toml: ${err.message}`;
+              core.error(msg);
+              await octokit.rest.issues.createComment({ owner, repo, issue_number: issueNum, body: `❌ **Auto-approver error:** ${msg}` });
+              await octokit.rest.issues.addLabels({ owner, repo, issue_number: issueNum, labels: ['publish-rejected'] });
+              return;
+            }
+
+            // Build multipart form and POST to /api/skills/_publish
+            const { FormData, Blob } = require('buffer');
+            const publishUrl = `${baseUrl}/api/skills/_publish`;
+            core.info(`Calling ${publishUrl}`);
+
+            let publishResult;
+            try {
+              const form = new FormData();
+              form.append('skill_toml', new Blob([tomlBuf], { type: 'application/octet-stream' }), 'skill.toml');
+              form.append('tarball',    new Blob([tarballBuf], { type: 'application/gzip' }),       'tarball.tar.gz');
+              form.append('signature',  new Blob([signatureBuf], { type: 'application/octet-stream' }), 'signature.bin');
+              form.append('signing_pubkey', new Blob([pubKeyDer], { type: 'application/octet-stream' }), 'pubkey.bin');
+              form.append('is_public', String(isPublic));
+
+              const resp = await fetch(publishUrl, {
+                method: 'POST',
+                headers: { 'x-api-key': masterKey },
+                body: form,
+              });
+              const body = await resp.json();
+              if (!resp.ok) {
+                throw new Error(`HTTP ${resp.status}: ${JSON.stringify(body)}`);
+              }
+              publishResult = body;
+              core.info(`Publish succeeded: ${JSON.stringify(publishResult)}`);
+            } catch (err) {
+              const msg = `_publish call failed: ${err.message}`;
+              core.error(msg);
+              await octokit.rest.issues.createComment({
+                owner, repo, issue_number: issueNum,
+                body: `❌ **Publish failed:** ${msg}\n\nPlease check the API logs and retry manually.`,
+              });
+              await octokit.rest.issues.addLabels({ owner, repo, issue_number: issueNum, labels: ['publish-rejected'] });
+              return;
+            }
+
+            // ----------------------------------------------------------------
+            // 5. On success: comment with skill_versions row details + close
+            // ----------------------------------------------------------------
+            const successBody = [
+              '✅ **Skill published successfully!**',
+              '',
+              '| Field | Value |',
+              '|---|---|',
+              `| skill_id | \`${publishResult.skill_id}\` |`,
+              `| version  | \`${publishResult.version}\` |`,
+              `| sha256   | \`${publishResult.sha256}\` |`,
+              `| tarball  | \`${publishResult.tarball_path}\` |`,
+              '',
+              `Skill is now live at \`${baseUrl}/api/skills/${publishResult.skill_id || 'see above'}\`.`,
+            ].join('\n');
+
+            await octokit.rest.issues.createComment({
+              owner, repo, issue_number: issueNum, body: successBody,
+            });
+            await octokit.rest.issues.update({
+              owner, repo, issue_number: issueNum, state: 'closed',
+            });
+            core.info(`Issue #${issueNum} closed after successful publish.`);
