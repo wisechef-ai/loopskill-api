@@ -41,6 +41,7 @@ from app.mcp.tools import (
     recipes_install,
     recipes_list_cookbook,
     recipes_propose_skill_patch,
+    recipes_publish_request,
     recipes_recall,
     recipes_recipify,
     recipes_report_skill_error,
@@ -288,6 +289,60 @@ def _tool_definitions() -> list[types.Tool]:
                 },
             },
         ),
+        types.Tool(
+            name="recipes_publish_request",
+            description=(
+                "Submit a skill (SKILL.md + optional scripts/references) for review "
+                "and potential public-catalog inclusion. Runs quality gates locally "
+                "before opening a labelled GitHub issue. High-severity findings block "
+                "submission. Rate limited to 1 request per 24h per (identity, slug)."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["slug", "content"],
+                "properties": {
+                    "slug": {"type": "string"},
+                    "content": {
+                        "type": "string",
+                        "description": "SKILL.md content as a string",
+                    },
+                    "version": {"type": "string", "default": "1.0.0"},
+                    "description": {"type": "string"},
+                    "tier": {
+                        "type": "string",
+                        "default": "pro",
+                        "enum": ["free", "cook", "operator", "pro", "pro_plus"],
+                    },
+                    "is_public": {"type": "boolean", "default": True},
+                    "references": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["path", "content"],
+                            "properties": {
+                                "path": {"type": "string"},
+                                "content": {"type": "string"},
+                            },
+                        },
+                    },
+                    "scripts": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": ["path", "content"],
+                            "properties": {
+                                "path": {"type": "string"},
+                                "content": {"type": "string"},
+                            },
+                        },
+                    },
+                    "license": {"type": "string", "default": "MIT"},
+                    "changelog": {"type": "string"},
+                    "force": {"type": "boolean", "default": False},
+                    "confirmation": {"type": "string"},
+                },
+            },
+        ),
     ]
 
 
@@ -402,6 +457,24 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             evidence_install_id=args.get("evidence_install_id"),
             agent_id_anon=args.get("agent_id_anon"),
             api_key_id=caller.get("api_key_id"),
+        )
+    if name == "recipes_publish_request":
+        return recipes_publish_request(
+            db,
+            slug=args["slug"],
+            content=args["content"],
+            version=args.get("version", "1.0.0"),
+            description=args.get("description"),
+            tier=args.get("tier", "pro"),
+            is_public=args.get("is_public", True),
+            references=args.get("references"),
+            scripts=args.get("scripts"),
+            license=args.get("license", "MIT"),
+            changelog=args.get("changelog"),
+            force=args.get("force", False),
+            confirmation=args.get("confirmation"),
+            api_key_id=caller.get("api_key_id"),
+            ctx=ctx,
         )
     raise ValueError(f"unknown tool: {name}")
 

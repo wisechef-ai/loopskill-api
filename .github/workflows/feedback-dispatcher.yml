@@ -4,24 +4,27 @@
 # appropriate action (open issue or create draft PR).
 #
 # Event types handled:
-#   feedback          -> opens a GitHub issue
-#   recipify-request  -> opens a GitHub issue
-#   skill-error       -> opens a GitHub issue
-#   skill-patch       -> creates a DRAFT PR with patched files
+#   feedback              -> opens a GitHub issue
+#   recipify-request      -> opens a GitHub issue
+#   skill-error           -> opens a GitHub issue
+#   skill-patch           -> creates a DRAFT PR with patched files
+#   skill-publish-request -> opens a labelled review issue
 #
 # Required labels (create once via gh CLI):
-#   skill:patch         - FBCA04  (Patch submitted via recipes_propose_skill_patch)
-#   cla:auto-mit        - 0E8A16  (Auto-MIT licensed via API submission CLA)
-#   patch:rejected-size - D73A4A  (Rejected: exceeded size cap)
-#   patch:rejected-path - D73A4A  (Rejected: path not in allowlist)
-#   patch:rejected-token - D73A4A (Rejected: forbidden token detected)
-#   agent-reported      - existing label
+#   skill:patch              - FBCA04  (Patch submitted via recipes_propose_skill_patch)
+#   cla:auto-mit             - 0E8A16  (Auto-MIT licensed via API submission CLA)
+#   patch:rejected-size      - D73A4A  (Rejected: exceeded size cap)
+#   patch:rejected-path      - D73A4A  (Rejected: path not in allowlist)
+#   patch:rejected-token     - D73A4A  (Rejected: forbidden token detected)
+#   agent-reported           - existing label
+#   skill:publish-request    - E4E669  (Skill submitted for catalog review)
 #
 # gh label create 'skill:patch' --description 'Patch submitted via recipes_propose_skill_patch' --color FBCA04 --repo wisechef-ai/recipes-api
 # gh label create 'cla:auto-mit' --description 'Auto-MIT licensed via API submission CLA' --color 0E8A16 --repo wisechef-ai/recipes-api
 # gh label create 'patch:rejected-size' --description 'Rejected: exceeded size cap' --color D73A4A --repo wisechef-ai/recipes-api
 # gh label create 'patch:rejected-path' --description 'Rejected: path not in allowlist' --color D73A4A --repo wisechef-ai/recipes-api
 # gh label create 'patch:rejected-token' --description 'Rejected: forbidden token detected' --color D73A4A --repo wisechef-ai/recipes-api
+# gh label create 'skill:publish-request' --description 'Skill submitted for catalog review' --color E4E669 --repo wisechef-ai/recipes-api
 # ============================================================
 
 name: Feedback Dispatcher
@@ -33,6 +36,7 @@ on:
       - recipify-request
       - skill-error
       - skill-patch
+      - skill-publish-request
 
 permissions:
   issues: write
@@ -372,6 +376,62 @@ jobs:
                 `**signature:** \`${payload.signature || 'n/a'}\``,
               ].join('\n');
 
+            } else if (eventType === 'skill-publish-request') {
+              const slug        = payload.slug    || 'unknown';
+              const version     = payload.version || '?.?.?';
+              const sha256Short = (payload.sha256 || '').slice(0, 16) + '…';
+              title  = `[skill:publish-request] ${slug} v${version}`;
+              labels = ['skill:publish-request', 'agent-reported', 'cla:auto-mit'];
+
+              // Content preview (first 200 lines already truncated server-side)
+              const preview = truncate(payload.content_preview || '', 4000);
+
+              // Warnings block (medium/low quality gate findings)
+              const warningLines = (payload.warnings || []).map(w =>
+                `- \`${w['class'] || w.category || 'unknown'}\` in \`${w.file || w.file_path || 'n/a'}\`: ${w.why || w.rationale || ''}`
+              );
+              const warningsBlock = warningLines.length > 0
+                ? ['', '### Quality-Gate Warnings', '', ...warningLines].join('\n')
+                : '';
+
+              const tarballUrl = `https://recipes.wisechef.ai/api/admin/skill-publish-requests/${payload.row_id}/tarball`;
+
+              body = [
+                '## Skill Publish Request',
+                '',
+                buildTable([
+                  ['request_id',  payload.row_id],
+                  ['slug',        slug],
+                  ['version',     version],
+                  ['sha256',      sha256Short],
+                  ['tier',        payload.tier        || 'pro'],
+                  ['is_public',   payload.is_public   !== undefined ? String(payload.is_public) : 'true'],
+                  ['license',     payload.license     || 'MIT'],
+                  ['description', truncate(payload.description || '', 200)],
+                ]),
+                '',
+                `**Tarball download (admin key required):** \`${tarballUrl}\``,
+                warningsBlock,
+                '',
+                '### SKILL.md Preview (first 200 lines)',
+                '',
+                '```markdown',
+                preview,
+                '```',
+                '',
+                '### Review Checklist',
+                '',
+                '- [ ] Quality gate findings reviewed (see warnings above)',
+                '- [ ] Content is original and safe for public catalog',
+                '- [ ] No PII, credentials, or internal infra references',
+                '- [ ] Tier and license are correct',
+                '',
+                '**To approve:** add label `approved` → the skill-publish-approver workflow handles the rest.',
+                '**To reject:** add label `publish-rejected` and close with a reason.',
+                '',
+                '*Auto-generated by feedback-dispatcher workflow.*',
+              ].join('\n');
+
             } else {
               core.warning(`Unhandled event_type: ${eventType}`);
               return;
@@ -400,9 +460,10 @@ jobs:
             // Build the label filter for the realtime listForRepo call.
             // Every event-type carries one of these labels (set above).
             const dedupLabel =
-              eventType === 'feedback'        ? 'feedback' :
-              eventType === 'recipify-request'? 'recipe:request' :
-              eventType === 'skill-error'     ? 'recipe:bug' :
+              eventType === 'feedback'              ? 'feedback' :
+              eventType === 'recipify-request'      ? 'recipe:request' :
+              eventType === 'skill-error'           ? 'recipe:bug' :
+              eventType === 'skill-publish-request' ? 'skill:publish-request' :
               null;
 
             try {

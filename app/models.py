@@ -948,6 +948,53 @@ class FeedbackSubmission(Base):
     )
 
 
+class SkillPublishRequest(Base):
+    """Creator-submitted publish request for a new public skill.
+
+    Created via the recipes_publish_request MCP tool.
+    Dispatches a GitHub repository_dispatch event of type 'skill-publish-request'.
+    Adam reviews the GitHub issue and approves/rejects by labelling it.
+    """
+
+    __tablename__ = "skill_publish_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    slug = Column(Text, nullable=False, index=True)
+    version = Column(Text, nullable=False)
+    sha256 = Column(Text, nullable=False)
+    # BYTEA: full tarball, capped at 10 MB at app level
+    tarball_bytes = Column(LargeBinary, nullable=True)
+    requester_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    requester_creator_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("creators.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # status: pending | approved | rejected | shipped
+    status = Column(String(32), nullable=False, default="pending")
+    issue_url = Column(Text, nullable=True)
+    issue_number = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    reviewed_by = Column(Text, nullable=True)
+    reject_reason = Column(Text, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','approved','rejected','shipped')",
+            name="ck_spr_status",
+        ),
+        Index("idx_spr_slug_created", "slug", "created_at"),
+        Index("idx_spr_status", "status"),
+    )
+
+
 class SkillPatch(Base):
     """Agent-submitted skill patch awaiting draft PR creation.
 

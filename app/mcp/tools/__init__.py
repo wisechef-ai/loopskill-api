@@ -9,6 +9,7 @@ from app.mcp.tools.doctor import recipes_doctor
 from app.mcp.tools.feedback import recipes_feedback
 from app.mcp.tools.install import recipes_install
 from app.mcp.tools.list_cookbook import recipes_list_cookbook
+from app.mcp.tools.publish_request import recipes_publish_request
 from app.mcp.tools.recall import recipes_recall
 from app.mcp.tools.recipes_sync import recipes_sync
 from app.mcp.tools.recipify import recipes_recipify
@@ -34,4 +35,5 @@ __all__ = [
     "recipes_request_recipe",
     "recipes_report_skill_error",
     "recipes_propose_skill_patch",
+    "recipes_publish_request",
 ]
