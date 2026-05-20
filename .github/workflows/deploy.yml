@@ -38,7 +38,7 @@ permissions:
 jobs:
   deploy:
     name: Pull, install, migrate, restart, verify
-    runs-on: ubuntu-latest
+    runs-on: wisechef-runner
     timeout-minutes: 15
 
     steps:

@@ -18,7 +18,7 @@ permissions:
 jobs:
   schema-validate:
     name: Validate tiers.yaml against schema
-    runs-on: ubuntu-latest
+    runs-on: wisechef-runner
     steps:
       - uses: actions/checkout@v5
 

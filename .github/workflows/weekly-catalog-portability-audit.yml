@@ -28,7 +28,7 @@ permissions:
 
 jobs:
   audit:
-    runs-on: ubuntu-latest
+    runs-on: wisechef-runner
     timeout-minutes: 25
 
     services:
