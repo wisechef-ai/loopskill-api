@@ -447,8 +447,16 @@ def get_skill_detail(slug: str, request: Request, db: Session = Depends(get_db))
     # resolves x-api-key on the skill-detail GET branch.
     caller_is_master = getattr(auth_ctx, "scope", None) == "master"
     caller_is_paid = caller_is_master or _is_paid_tier(caller_tier)
-    readme_payload = skill.readme if caller_is_paid else None
-    external_payload = getattr(skill, "external_resources", None) if caller_is_paid else None
+    # fix_2005: Free-tier skills are public by definition — their body must be
+    # visible to anyone, including anonymous browser/Astro-build callers. The
+    # paywall only applies to paid-tier skills (pro / pro_plus / legacy `cook`).
+    # Without this gate, every free skill's portal page renders the Day-1
+    # placeholder ("Detailed SKILL.md is being authored") instead of the actual
+    # SKILL.md body, which masks the catalog's real content from public visitors.
+    skill_is_free = (skill.tier == "free")
+    body_visible = skill_is_free or caller_is_paid
+    readme_payload = skill.readme if body_visible else None
+    external_payload = getattr(skill, "external_resources", None) if body_visible else None
 
     # polish_1805 hotfix — count of unhappy_paths entries in the readme YAML
     # frontmatter, computed server-side and exposed as a SCALAR (just a number,

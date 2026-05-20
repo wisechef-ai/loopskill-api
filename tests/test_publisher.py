@@ -871,3 +871,167 @@ class TestPublishExistingSkillPreservesNonEmptyDescription:
         db_session.expire_all()
         row = db_session.query(Skill).filter(Skill.slug == "preserve-skill").first()
         assert row.description == existing_desc
+
+
+# ─── fix_2005: publish syncs skills.readme from tarball SKILL.md ──────────
+
+def _make_real_tarball(skill_md_text: str) -> bytes:
+    """Build a real gzipped tar containing SKILL.md + recipe.yaml at the root."""
+    import tarfile as _tf
+
+    recipe_yaml = (
+        "runtime:\n"
+        "  compatibility:\n"
+        "    os: [linux, macos]\n"
+        "    arch: [amd64, arm64]\n"
+        "    ram_gb: 1\n"
+        "    network: false\n"
+    ).encode("utf-8")
+
+    buf = io.BytesIO()
+    with _tf.open(fileobj=buf, mode="w:gz") as t:
+        data = skill_md_text.encode("utf-8")
+        info = _tf.TarInfo(name="SKILL.md")
+        info.size = len(data)
+        t.addfile(info, io.BytesIO(data))
+        ri = _tf.TarInfo(name="recipe.yaml")
+        ri.size = len(recipe_yaml)
+        t.addfile(ri, io.BytesIO(recipe_yaml))
+    return buf.getvalue()
+
+
+class TestPublishReadmeSync:
+    """fix_2005: publish path must persist SKILL.md to skills.readme.
+
+    Without this, the catalog detail endpoint returns readme=null even for
+    free-tier skills, and the portal renders the Day-1 placeholder. Covers
+    both CREATE (new skill row) and UPDATE (re-publish onto existing row).
+    """
+
+    SKILL_MD = (
+        "---\n"
+        "name: readme-sync-skill\n"
+        "version: 1.0.0\n"
+        "description: Test sync\n"
+        "license: MIT\n"
+        "tier: free\n"
+        "---\n\n"
+        "# Real Body\n\n"
+        "This is the real SKILL.md content that must land in skills.readme.\n"
+    )
+
+    def test_publish_syncs_readme_on_update(self, db_session, tmp_path):
+        """Existing skill row with NULL readme — publish populates it from tarball."""
+        user = _make_user(db_session)
+        creator = _make_creator(db_session, user, slug="readme-creator-1")
+        skill = _make_skill(db_session, creator, slug="readme-sync-skill")
+        # Sanity: starts NULL
+        assert skill.readme is None
+        db_session.commit()
+
+        priv, pub_bytes = _make_keypair()
+        tarball_bytes = _make_real_tarball(self.SKILL_MD)
+        sig_bytes = _sign_tarball(priv, tarball_bytes)
+        toml_bytes = _valid_toml(name="readme-sync-skill", slug="readme-sync-skill", version="1.0.0")
+
+        client, env = _make_client(db_session, str(tmp_path), api_key_user_id=user.id)
+        try:
+            resp = client.post(
+                "/api/skills/_publish",
+                files={
+                    "skill_toml": ("skill.toml", io.BytesIO(toml_bytes), "text/plain"),
+                    "tarball": ("skill.tar.gz", io.BytesIO(tarball_bytes), "application/octet-stream"),
+                    "signature": ("sig.bin", io.BytesIO(sig_bytes), "application/octet-stream"),
+                    "signing_pubkey": ("pub.bin", io.BytesIO(pub_bytes), "application/octet-stream"),
+                },
+                data={"is_public": "true"},
+                headers={"x-api-key": "rec_test_key"},
+            )
+        finally:
+            env.stop()
+        assert resp.status_code == 201, resp.text
+
+        db_session.expire_all()
+        row = db_session.query(Skill).filter(Skill.slug == "readme-sync-skill").first()
+        assert row.readme is not None, "readme must be populated from tarball"
+        assert "Real Body" in row.readme
+        assert "This is the real SKILL.md content" in row.readme
+
+    def test_publish_seeds_readme_on_create(self, db_session, tmp_path):
+        """Brand-new skill (no pre-existing row) — admin master-key path seeds readme on CREATE."""
+        priv, pub_bytes = _make_keypair()
+        tarball_bytes = _make_real_tarball(self.SKILL_MD)
+        sig_bytes = _sign_tarball(priv, tarball_bytes)
+        toml_bytes = _valid_toml(
+            name="readme-seed-skill", slug="readme-seed-skill", version="1.0.0"
+        )
+
+        # Admin master-key path can create from scratch
+        client, env = _make_client(db_session, str(tmp_path), is_admin=True)
+        try:
+            resp = client.post(
+                "/api/skills/_publish",
+                files={
+                    "skill_toml": ("skill.toml", io.BytesIO(toml_bytes), "text/plain"),
+                    "tarball": ("skill.tar.gz", io.BytesIO(tarball_bytes), "application/octet-stream"),
+                    "signature": ("sig.bin", io.BytesIO(sig_bytes), "application/octet-stream"),
+                    "signing_pubkey": ("pub.bin", io.BytesIO(pub_bytes), "application/octet-stream"),
+                },
+                data={"is_public": "true"},
+                headers={"x-api-key": "rec_test_key"},
+            )
+        finally:
+            env.stop()
+        assert resp.status_code == 201, resp.text
+
+        db_session.expire_all()
+        row = db_session.query(Skill).filter(Skill.slug == "readme-seed-skill").first()
+        assert row is not None, "skill row should be created"
+        assert row.readme is not None, "readme must be seeded on CREATE"
+        assert "Real Body" in row.readme
+
+    def test_publish_with_no_skill_md_in_tarball_does_not_block(self, db_session, tmp_path):
+        """Tarball without SKILL.md — publish succeeds, readme stays empty (best-effort)."""
+        user = _make_user(db_session)
+        creator = _make_creator(db_session, user, slug="noskillmd-creator")
+        skill = _make_skill(db_session, creator, slug="noskillmd-skill")
+        db_session.commit()
+
+        priv, pub_bytes = _make_keypair()
+        # Tarball with a non-SKILL.md file + recipe.yaml to pass discipline lint
+        import tarfile as _tf
+
+        recipe_yaml = (
+            b"runtime:\n  compatibility:\n    os: [linux, macos]\n"
+            b"    arch: [amd64, arm64]\n    ram_gb: 1\n    network: false\n"
+        )
+        buf = io.BytesIO()
+        with _tf.open(fileobj=buf, mode="w:gz") as t:
+            data = b"not the skill body"
+            info = _tf.TarInfo(name="README.md")
+            info.size = len(data)
+            t.addfile(info, io.BytesIO(data))
+            ri = _tf.TarInfo(name="recipe.yaml")
+            ri.size = len(recipe_yaml)
+            t.addfile(ri, io.BytesIO(recipe_yaml))
+        tarball_bytes = buf.getvalue()
+        sig_bytes = _sign_tarball(priv, tarball_bytes)
+        toml_bytes = _valid_toml(name="noskillmd-skill", slug="noskillmd-skill", version="1.0.0")
+
+        client, env = _make_client(db_session, str(tmp_path), api_key_user_id=user.id)
+        try:
+            resp = client.post(
+                "/api/skills/_publish",
+                files={
+                    "skill_toml": ("skill.toml", io.BytesIO(toml_bytes), "text/plain"),
+                    "tarball": ("skill.tar.gz", io.BytesIO(tarball_bytes), "application/octet-stream"),
+                    "signature": ("sig.bin", io.BytesIO(sig_bytes), "application/octet-stream"),
+                    "signing_pubkey": ("pub.bin", io.BytesIO(pub_bytes), "application/octet-stream"),
+                },
+                data={"is_public": "true"},
+                headers={"x-api-key": "rec_test_key"},
+            )
+        finally:
+            env.stop()
+        # Publish still succeeds — readme sync is best-effort
+        assert resp.status_code == 201, resp.text

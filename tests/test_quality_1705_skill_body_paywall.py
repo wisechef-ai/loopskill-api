@@ -61,7 +61,7 @@ def seeded_app(db_engine, monkeypatch):
 
     keys = {}
 
-    # Skill row
+    # Skill row (paid — tier=None historically treated as paywalled)
     session.add(
         Skill(
             id=uuid.uuid4(),
@@ -69,6 +69,21 @@ def seeded_app(db_engine, monkeypatch):
             title="Test",
             description="desc",
             readme=SKILL_README,
+            tier="pro",
+            is_public=True,
+            is_archived=False,
+            install_count=0,
+        )
+    )
+    # fix_2005: free-tier skill — body must be visible to EVERYONE (anon + free + paid).
+    session.add(
+        Skill(
+            id=uuid.uuid4(),
+            slug="free-skill-public",
+            title="Free Skill",
+            description="public free skill",
+            readme=SKILL_README,
+            tier="free",
             is_public=True,
             is_archived=False,
             install_count=0,
@@ -282,3 +297,45 @@ def test_free_user_jwt_cookie_does_not_unlock_body(seeded_app):
     )
     assert resp.status_code == 200
     assert resp.json()["readme"] is None, "free-tier JWT must NOT unlock the body"
+
+
+# ─── fix_2005: free-tier skills are public (body visible to everyone) ───
+
+def test_free_skill_anon_gets_full_body(seeded_app):
+    """A skill with tier='free' must return its body to anonymous callers.
+
+    Regression: before fix_2005, the paywall gated every body regardless of
+    skill tier, so the Astro static build (which fetches anonymously) showed
+    the Day-1 placeholder for every free skill in the catalog.
+    """
+    app, _ = seeded_app
+    client = TestClient(app)
+    resp = client.get("/api/skills/free-skill-public")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["readme"] is not None, "free-tier body must be visible to anon"
+    assert "Test Skill" in body["readme"]
+
+
+def test_free_skill_free_user_gets_full_body(seeded_app):
+    """A free-tier user must see free-tier skill bodies."""
+    app, keys = seeded_app
+    client = TestClient(app)
+    resp = client.get(
+        "/api/skills/free-skill-public",
+        headers={"x-api-key": keys["free"]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["readme"] is not None
+
+
+def test_free_skill_pro_user_still_gets_full_body(seeded_app):
+    """Pro users see free-tier bodies (the free gate doesn't downgrade paid access)."""
+    app, keys = seeded_app
+    client = TestClient(app)
+    resp = client.get(
+        "/api/skills/free-skill-public",
+        headers={"x-api-key": keys["pro"]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["readme"] is not None

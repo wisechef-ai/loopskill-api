@@ -127,6 +127,60 @@ def _require_api_key_user(request: Request) -> UUID | None:
     return getattr(request.state, "api_key_user_id", "MISSING")
 
 
+def _extract_skill_md_from_tarball(tarball_bytes: bytes) -> str | None:
+    """Extract the SKILL.md text from a publish tarball.
+
+    fix_2005: the publish path historically only persisted SKILL.md content
+    via a separate Recipify call. When a skill is published directly via
+    /api/skills/_publish (no prior Recipify), skills.readme stays NULL forever
+    and the catalog renders the Day-1 placeholder on the skill's portal page.
+
+    Looks for SKILL.md at three plausible locations (root, single-dir nesting,
+    and `recipes/<slug>/SKILL.md` for safety). Returns the decoded text, or
+    None if not found / unreadable. Bounded by 256 KB to avoid memory blowup
+    on malicious tarballs.
+    """
+    import io
+    import tarfile
+
+    MAX_BYTES = 256 * 1024
+    try:
+        with tarfile.open(fileobj=io.BytesIO(tarball_bytes), mode="r:gz") as t:
+            candidates: list[tarfile.TarInfo] = []
+            for m in t.getmembers():
+                if not m.isfile():
+                    continue
+                name = m.name.lstrip("./")
+                # Match SKILL.md at root, one level deep, or recipes/<slug>/SKILL.md
+                parts = name.split("/")
+                if parts[-1] != "SKILL.md":
+                    continue
+                if len(parts) <= 3:
+                    candidates.append(m)
+            if not candidates:
+                return None
+            # Prefer the shortest path (root SKILL.md wins over nested copies)
+            candidates.sort(key=lambda m: len(m.name))
+            chosen = candidates[0]
+            if chosen.size > MAX_BYTES:
+                return None
+            f = t.extractfile(chosen)
+            if f is None:
+                return None
+            raw = f.read(MAX_BYTES + 1)
+            if len(raw) > MAX_BYTES:
+                return None
+            try:
+                return raw.decode("utf-8")
+            except UnicodeDecodeError:
+                return None
+    # Rationale: any tarball parsing failure (corrupted, wrong format, etc.)
+    # must not block the publish — readme sync is best-effort.
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("readme extraction from tarball failed: %s", exc)
+        return None
+
+
 def _store_tarball(slug: str, semver: str, tarball_bytes: bytes) -> str:
     """Write tarball to disk at {SKILLS_DIR}/{slug}/{semver}.tar.gz.
 
@@ -327,6 +381,8 @@ async def publish_skill(
             title=skill_name,
             description=skill_description,
             license=skill_section.get("license"),
+            tier=(skill_section.get("tier") or "").strip() or None,
+            readme=_extract_skill_md_from_tarball(tarball_bytes),
             is_public=is_public,
             creator_id=creator_for_new_skill.id if creator_for_new_skill else None,
         )
@@ -379,6 +435,23 @@ async def publish_skill(
     new_tier = (skill_section.get("tier") or "").strip()
     if new_tier and new_tier != (skill_obj.tier or "").strip():
         skill_obj.tier = new_tier
+
+    # fix_2005: readme sync from tarball SKILL.md. The catalog detail endpoint
+    # reads skills.readme; without this sync, a row whose readme was never set
+    # (Recipify-skipped path, direct master-key publish, etc.) stays NULL forever
+    # and the portal renders the Day-1 placeholder. Best-effort: a tarball
+    # without SKILL.md or that fails to decode is logged but does NOT block
+    # the publish (versioned tarball is the canonical artifact).
+    skill_md_text = _extract_skill_md_from_tarball(tarball_bytes)
+    if skill_md_text:
+        current_readme = (skill_obj.readme or "").strip()
+        if skill_md_text.strip() != current_readme:
+            skill_obj.readme = skill_md_text
+            logger.info(
+                "publish: synced readme for %s from tarball SKILL.md (%d chars)",
+                slug,
+                len(skill_md_text),
+            )
 
     # Un-archive a previously-archived skill row when a fresh public version
     # lands. Without this, the portal build silently skips the slug (it
