@@ -43,6 +43,8 @@ from app.mcp.tools import (
     recipes_fleet_subscribe,
     recipes_fleet_sync,
     recipes_install,
+    recipes_cookbook_install,
+    CookbookInstallError,
     recipes_list_cookbook,
     recipes_propose_skill_patch,
     recipes_publish_request,
@@ -88,6 +90,35 @@ def _tool_definitions() -> list[types.Tool]:
                 "type": "object",
                 "required": ["slug"],
                 "properties": {"slug": {"type": "string"}},
+            },
+        ),
+        types.Tool(
+            name="recipes_cookbook_install",
+            description=(
+                "Install all skills from a cookbook (bulk) or one skill by slug. "
+                "cbt_token callers may omit cookbook_id — it defaults to the "
+                "token's scoped cookbook. user/master callers must pass "
+                "cookbook_id. The single-skill payload mirrors recipes_install; "
+                "the bulk payload mirrors POST /api/cookbooks/{id}/install."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "cookbook_id": {
+                        "type": "string",
+                        "description": (
+                            "Cookbook UUID. Optional for cbt_token (defaults "
+                            "to token's cookbook_scope); required otherwise."
+                        ),
+                    },
+                    "slug": {
+                        "type": "string",
+                        "description": (
+                            "Optional single-skill filter. Omit to bulk-install "
+                            "every active skill in the cookbook."
+                        ),
+                    },
+                },
             },
         ),
         types.Tool(
@@ -532,6 +563,18 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             api_key_id=caller.get("api_key_id"),
             ctx=ctx,
         )
+    if name == "recipes_cookbook_install":
+        # cookbook_share_2105 Phase F. Map CookbookInstallError to the
+        # standard {error, status, code} envelope MCP callers parse.
+        try:
+            return recipes_cookbook_install(
+                db=db,
+                ctx=ctx,
+                cookbook_id=args.get("cookbook_id"),
+                slug=args.get("slug"),
+            )
+        except CookbookInstallError as exc:
+            return {"error": exc.message, "code": exc.code, "status": exc.status}
     if name == "recipes_list_cookbook":
         return recipes_list_cookbook(
             db,

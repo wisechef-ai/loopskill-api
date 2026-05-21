@@ -5,6 +5,10 @@ same callable serves the SSE transport, the stdio transport, and unit tests.
 """
 
 from app.mcp.tools.carousel_today import recipes_carousel_today
+from app.mcp.tools.cookbook_install import (
+    CookbookInstallError,
+    recipes_cookbook_install,
+)
 from app.mcp.tools.doctor import recipes_doctor
 from app.mcp.tools.feedback import recipes_feedback
 from app.mcp.tools.fleet import (
@@ -59,4 +63,7 @@ __all__ = [
     "recipes_fleet_list",
     # Phase C: publish-request MCP tool
     "recipes_publish_request",
+    # cookbook_share_2105 Phase F: cookbook-scoped install
+    "recipes_cookbook_install",
+    "CookbookInstallError",
 ]
