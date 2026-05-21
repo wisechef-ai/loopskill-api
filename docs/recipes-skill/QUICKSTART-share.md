@@ -58,13 +58,42 @@ That's it — their agent now has full MCP access to your cookbook.
 
 ## Read-Only Access
 
-Want to share without giving edit permissions?
+Want to share without giving install/edit permissions?
 
 ```bash
 python3 tools/recipes_cli.py share YOUR_COOKBOOK_ID --read-only --name "View-only access"
 ```
 
-This sets `scope=read` — the other agent can search and recall skills but can't modify the cookbook.
+This sets `scope=read` — the other agent can search and view manifest but **cannot install**. Use this for audit / review handoffs.
+
+## Scope vocabulary (2026-05-21 update)
+
+Three values, from least to most authority:
+
+| Scope     | GET | install | other mutations |
+|-----------|-----|---------|-----------------|
+| `read`    | ✅  | ❌      | ❌              |
+| `install` | ✅  | ✅      | ❌              |
+| `edit`    | ✅  | ✅      | ✅              |
+
+**Default since 2026-05-21: `install`.** The "give them a token, they install" offering needs `install` as the floor — `read` was too restrictive as a default. `edit` is still available for co-author handoffs.
+
+## Recipient install path (the point of all this)
+
+Once you've sent the token, the recipient calls `recipes_cookbook_install` via MCP:
+
+```jsonc
+// Bulk: install every active skill in the cookbook
+{ "tool": "recipes_cookbook_install", "args": {} }
+
+// Single skill (slug from the cookbook)
+{ "tool": "recipes_cookbook_install", "args": { "slug": "atomic-habits-self-improvement-engine" } }
+```
+
+The token's `cookbook_scope` is auto-derived — recipients never need to know the cookbook UUID.
+
+REST equivalents: `POST /api/cookbooks/{id}/install` (bulk) or
+`GET /api/cookbooks/{id}/skills/{slug}/install` (single). Full reference: [docs/share-tokens.md](../share-tokens.md).
 
 ## Revoke Access
 

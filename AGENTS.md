@@ -135,3 +135,28 @@ Hooks:
 4. **Before editing a god node** (APIKeyMiddleware.dispatch, validate_key, recipes_install, SandboxRunner.run, scan_tarball) run `gitnexus_impact` and confirm blast radius.
 5. **One PR per phase**. Never modify `.coveragerc` or coverage CI step — that's Phase F's domain.
 6. **Production deploy target**: `wisechef-hq:/home/wisechef/wiserecipes-api/`. Systemd unit: `wiserecipes-api.service`.
+
+---
+
+## Cookbook share-tokens (2026-05-21 update)
+
+> See [docs/share-tokens.md](docs/share-tokens.md) for the public-facing guide.
+
+Share tokens (`cbt_<8hex>_<32hex>`) let a recipient install the skills of one specific cookbook without owning the recipient agent's API keys. Authz is centralised:
+
+- `AuthContext(scope="cbt_token", cookbook_scope=<uuid>)` is stamped by `app/middleware.py` for any `x-api-key: cbt_*` header.
+- Middleware hard-restricts cbt_ tokens to `/api/cookbooks/*` paths and any `/_publish` → `403` regardless of scope.
+- `app/authz.py:can_read_skill` has a 4th clause that resolves cookbook-scope authority via the `CookbookSkill` join — so `can_install(ctx, skill, db=db)` returns True iff the skill is in `ctx.cookbook_scope`. The `db` parameter MUST be threaded by callers in private-skill paths; the predicate fails closed without it.
+- `_resolve_owned_cookbook` (cookbook_routes.py) accepts ownership via `ctx.cbt_cookbook_id == cb.id` in addition to the existing user/master paths.
+
+Scope vocabulary: `{read, edit, install}`. Default for new tokens is `install` (server-side `DEFAULT 'install'`, see migration `d8c8a3f721ec_cookbook_share_install_scope.py`). Existing tokens keep their stored scope — no auto-upgrade.
+
+MCP entry point: `app/mcp/tools/cookbook_install.py:recipes_cookbook_install(db, ctx, cookbook_id=None, slug=None)`. cbt_token callers may omit `cookbook_id` (defaults to `ctx.cookbook_scope`). Single-skill payload mirrors `recipes_install`; bulk payload mirrors `POST /api/cookbooks/{id}/install`.
+
+**When adding a new cookbook route, you MUST:**
+1. Call `_enforce_cbt_scope_for_cookbook_route(request, cookbook_id)` to gate scope.
+2. Use `_resolve_owned_cookbook(db, ctx, cookbook_id)` for ownership (handles the cbt_ branch).
+3. Pass `db=db` to any `authz.can_read_skill` / `authz.can_install` call.
+
+**Salt-parity discipline:** any new signed-URL producer (cookbook install URL, single-skill install URL, future variants) MUST use salt `recipes-skill-install` so it verifies against `install_routes._download`. Add it to the regression suite in `test_secfix_1905_d_cookbook_install_url.py`. Don't ship a salt-drifting signer.
+
