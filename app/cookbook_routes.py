@@ -60,6 +60,15 @@ def _enforce_cbt_scope_for_cookbook_route(request: Request, cookbook_id: str) ->
       - cbt_ token's cookbook_id != route's cookbook_id
       - cbt_ token scope is 'read' and method is not GET
     No-op if no cbt_ token is present (rec_ key path).
+
+    cookbook_share_2105 Phase D — vocabulary expanded:
+      scope ∈ {read, edit, install}
+      read    → GET only
+      edit    → all cookbook operations (current behaviour)
+      install → GET + POST /install (read + bulk install). Cannot add/remove
+                skills, cannot create child tokens — narrow on purpose. Used
+                by "share my cookbook with another agent" flows so the
+                recipient can install but not modify.
     """
     scope = getattr(request.state, "cookbook_token_scope", None)
     if scope is None:
@@ -78,10 +87,28 @@ def _enforce_cbt_scope_for_cookbook_route(request: Request, cookbook_id: str) ->
         )
 
     if scope == "read" and request.method != "GET":
+        # cookbook_share_2105 Phase D: clearer scope-insufficient message.
+        # Kept as a plain string (not a dict) so existing clients that read
+        # ``resp.json()["detail"]`` as text continue to work — see
+        # test_cbt_read_token_blocks_skill_add. The "SCOPE_INSUFFICIENT"
+        # token is included in-line so programmatic callers can grep for it.
         raise HTTPException(
             status_code=403,
-            detail="Token scope mismatch (read-only)",
+            detail="SCOPE_INSUFFICIENT: token scope 'read' insufficient; need 'install' or higher",
         )
+
+    if scope == "install":
+        # install scope: GET + POST /install only. Block any other mutation.
+        path = request.url.path
+        is_install_route = path.endswith("/install") or "/install" in path
+        if request.method != "GET" and not is_install_route:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "SCOPE_INSUFFICIENT: token scope 'install' permits GET + /install only; "
+                    "need 'edit' for cookbook modification"
+                ),
+            )
 
     # SECURITY: cbt_ tokens NEVER authorize publishing, regardless of scope.
     # Even if a /api/cookbooks/{id}/_publish route is added in the future,
@@ -184,6 +211,14 @@ def _resolve_owned_cookbook(db: Session, ctx: CookbookCtx, cookbook_id: str) -> 
     cb = db.query(Cookbook).filter(Cookbook.id == cid).first()
     if cb is None:
         raise HTTPException(status_code=404, detail="cookbook_not_found")
+
+    # cookbook_share_2105 Phase D: cbt_token callers (share-token holders) own
+    # the resolution path via cookbook_scope match. _enforce_cbt_scope_for_cookbook_route
+    # already enforced that ctx.cbt_cookbook_id == cid, so reaching here is
+    # authorisation enough.
+    if ctx.cbt_cookbook_id is not None and ctx.cbt_cookbook_id == cb.id:
+        return cb
+
     if not ctx.is_master and cb.cookbook_owner != ctx.user_id:
         raise HTTPException(status_code=404, detail="cookbook_not_found")
     return cb
@@ -558,4 +593,94 @@ def cookbook_sync(
         "added": added,
         "removed": removed,
         "updated": updated,
+    }
+
+
+# ── cookbook_share_2105 Phase D — single-skill install under cookbook prefix ──
+
+
+@router.get("/{cookbook_id}/skills/{slug}/install")
+def install_single_skill_from_cookbook(
+    cookbook_id: str,
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """Install ONE skill from a cookbook by slug.
+
+    Mirror of ``GET /api/skills/install`` but scoped under a cookbook so cbt_
+    share tokens (which can ONLY access /api/cookbooks/* paths — see
+    middleware.py:389) have a documented single-skill install path.
+
+    Behaviour:
+    - 200 with {slug, version, tarball_url, checksum_sha256} on success
+    - 404 if the skill is not in this cookbook (or doesn't exist)
+    - 403 if the cbt_ token's scope is 'read' (install IS a write-flavoured
+      action even though it's GET — gated identically to POST /install)
+
+    Token scope rules (enforced in _enforce_cbt_scope_for_cookbook_route):
+      read    → 403 SCOPE_INSUFFICIENT
+      install → ok
+      edit    → ok (superset of install)
+      master/user (owner) → ok
+    """
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+
+    # install is a write-flavoured action on GET — even with read scope this
+    # should 403. The scope-gate above passes 'read' through for any GET, so
+    # add a dedicated install-route block here.
+    if getattr(request.state, "cookbook_token_scope", None) == "read":
+        raise HTTPException(
+            status_code=403,
+            detail="SCOPE_INSUFFICIENT: token scope 'read' insufficient; need 'install' or higher",
+        )
+
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+
+    # Find the skill globally; then check it's actually in this cookbook
+    skill = db.query(Skill).filter(Skill.slug == slug).first()
+    if skill is None:
+        raise HTTPException(status_code=404, detail="skill_not_found")
+
+    cs = (
+        db.query(CookbookSkill)
+        .filter(
+            CookbookSkill.cookbook_id == cb.id,
+            CookbookSkill.skill_id == skill.id,
+            CookbookSkill.source != "disabled",
+        )
+        .first()
+    )
+    if cs is None:
+        raise HTTPException(status_code=404, detail="skill_not_in_cookbook")
+
+    # Pick the right version: pinned if set, else latest
+    version: SkillVersion | None = None
+    if cs.pinned_version:
+        version = (
+            db.query(SkillVersion)
+            .filter(
+                SkillVersion.skill_id == skill.id,
+                SkillVersion.semver == cs.pinned_version,
+            )
+            .first()
+        )
+    if version is None:
+        version = (
+            db.query(SkillVersion)
+            .filter(SkillVersion.skill_id == skill.id)
+            .order_by(SkillVersion.created_at.desc())
+            .first()
+        )
+
+    if version is None:
+        raise HTTPException(status_code=404, detail="no_versions")
+
+    return {
+        "slug": skill.slug,
+        "version": version.semver,
+        "tarball_url": _make_install_url(skill.slug, version.id, version.semver),
+        "checksum_sha256": version.checksum_sha256,
+        "source": cs.source,
     }
