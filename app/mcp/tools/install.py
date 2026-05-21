@@ -83,8 +83,10 @@ def recipes_install(
     if not skill:
         return {"error": "not_found", "slug": base_slug}
 
-    # Phase B (Issue #6): visibility check — no existence oracle for private skills
-    if not authz.can_install(ctx, skill):
+    # Phase B (Issue #6): visibility check — no existence oracle for private skills.
+    # cookbook_share_2105 Phase C: thread db through so cbt_token callers can
+    # reach the cookbook-scope clause inside can_install.
+    if not authz.can_install(ctx, skill, db=db):
         return {"error": "not_found", "slug": base_slug}
 
     if not skill.versions:
