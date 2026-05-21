@@ -20,6 +20,7 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -28,6 +29,9 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Cookbook, CookbookShareToken
+
+if TYPE_CHECKING:
+    from app.auth_ctx import AuthContext
 
 logger = logging.getLogger(__name__)
 router = APIRouter(
@@ -41,7 +45,7 @@ router = APIRouter(
 
 class ShareTokenCreateIn(BaseModel):
     name: str | None = None
-    scope: str | None = "edit"
+    scope: str | None = "install"  # Phase E: default flipped from 'edit'
 
 
 class ShareTokenOut(BaseModel):
@@ -198,7 +202,7 @@ def _create_service(
     *,
     cookbook: Cookbook,
     name: str | None = None,
-    scope: str = "edit",
+    scope: str = "install",
     created_by=None,
 ) -> dict:
     """Core logic for creating a share token.
@@ -207,13 +211,14 @@ def _create_service(
         db: Database session.
         cookbook: The Cookbook ORM object (already ownership-checked).
         name: Optional human-readable label.
-        scope: 'read' or 'edit' (default 'edit').
+        scope: 'read', 'edit', or 'install' (default 'install' since
+            cookbook_share_2105 Phase E — see plan-doc Open Question #1).
         created_by: User ID of the creator (None for master key).
 
     Returns:
         dict with id, token, prefix, scope, name, created_at.
     """
-    if scope not in ("read", "edit"):
+    if scope not in ("read", "edit", "install"):
         raise HTTPException(status_code=422, detail="invalid_scope")
 
     full_token, token_hash, token_prefix = _generate_token(cookbook.id)
@@ -239,6 +244,55 @@ def _create_service(
         "name": row.name,
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
+
+
+def _create_share_token_service(
+    db: Session,
+    *,
+    cookbook_id: str,
+    name: str | None = None,
+    scope: str | None = None,
+    ctx: "AuthContext | None" = None,
+) -> dict:
+    """Convenience wrapper around _create_service for callers that have a
+    cookbook_id + AuthContext (MCP tools, test helpers).
+
+    Resolves cookbook ownership against ctx (user-scope must own, master is
+    always permitted), then delegates to _create_service.
+
+    cookbook_share_2105 Phase E: ``scope`` defaults to ``'install'`` when the
+    caller omits it. This implements Open Question #1's recommendation —
+    default to the user-expectation behaviour ("give them a token, they can
+    install") rather than the conservative ``'read'``.
+    """
+    from app.auth_ctx import AuthContext  # local: avoid top-level cycle
+
+    if ctx is None:
+        ctx = AuthContext(scope="master")
+
+    try:
+        cid = UUID(cookbook_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="cookbook_not_found")
+
+    cb = db.query(Cookbook).filter(Cookbook.id == cid).first()
+    if cb is None:
+        raise HTTPException(status_code=404, detail="cookbook_not_found")
+
+    if ctx.scope != "master":
+        # Owner check — cbt_token callers cannot mint child tokens (would
+        # be a privilege loop). Only user-owner or master may create.
+        if ctx.scope != "user" or ctx.user_id is None or cb.cookbook_owner != ctx.user_id:
+            raise HTTPException(status_code=404, detail="cookbook_not_found")
+
+    created_by = ctx.user_id if ctx.scope == "user" else None
+    return _create_service(
+        db,
+        cookbook=cb,
+        name=name,
+        scope=scope or "install",  # NEW DEFAULT (Phase E)
+        created_by=created_by,
+    )
 
 
 def _list_service(db: Session, *, cookbook: Cookbook) -> list[dict]:
@@ -394,7 +448,7 @@ def create_share_token(
         db,
         cookbook=cb,
         name=body.name,
-        scope=body.scope or "edit",
+        scope=body.scope or "install",  # Phase E: default flipped from 'edit'
         created_by=created_by,
     )
 

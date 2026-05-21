@@ -841,7 +841,7 @@ class CookbookShareToken(Base):
     )
     token_hash = Column(Text, nullable=False)
     token_prefix = Column(String(20), nullable=False)
-    scope = Column(String(8), nullable=False, default="edit", server_default="edit")
+    scope = Column(String(8), nullable=False, default="install", server_default="install")
     name = Column(String(120), nullable=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -852,7 +852,10 @@ class CookbookShareToken(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "scope IN ('read', 'edit')",
+            # cookbook_share_2105 Phase E: 'install' added as a third scope value
+            # for "share my cookbook so another agent can install all skills."
+            # See alembic/versions/d8c8a3f721ec_cookbook_share_install_scope.py
+            "scope IN ('read', 'edit', 'install')",
             name="ck_cookbook_share_tokens_scope",
         ),
         Index("idx_cbst_prefix", "token_prefix"),

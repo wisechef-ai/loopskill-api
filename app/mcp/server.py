@@ -320,8 +320,8 @@ def _tool_definitions() -> list[types.Tool]:
                     "name": {"type": "string"},
                     "scope": {
                         "type": "string",
-                        "enum": ["read", "edit"],
-                        "default": "edit",
+                        "enum": ["read", "edit", "install"],
+                        "default": "install",
                     },
                 },
             },
@@ -604,7 +604,7 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             db,
             cookbook_id=args["cookbook_id"],
             name=args.get("name"),
-            scope=args.get("scope", "edit"),
+            scope=args.get("scope", "install"),
             ctx=ctx,
         )
     if name == "recipes_share_list":

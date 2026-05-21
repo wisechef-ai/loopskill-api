@@ -44,7 +44,7 @@ def recipes_share_create(
     *,
     cookbook_id: str,
     name: str | None = None,
-    scope: str = "edit",
+    scope: str = "install",
     ctx: AuthContext | None = None,
     **_: Any,
 ) -> dict[str, Any]:
