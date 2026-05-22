@@ -8,9 +8,7 @@ description: >
   11 numbered scripts; the top-level install.sh --detect-first orchestrator
   runs only what is missing. Use when provisioning a fresh Linux box or
   replicating a production-grade agent memory stack anywhere.
-tier: cook
-price_cents: 2000
-currency: USD
+tier: free
 os_supported: [linux, macos]
 tags: [cognee, litellm, couchdb, postgres, pgvector, obsidian, watchdog, memory, vault, nightly-ingest]
 triggers:
@@ -41,7 +39,7 @@ system_requirements:
 
 Your AI agent gets the same memory stack described here -- cognee knowledge graph +
 auto-watchdog + nightly ingest + Obsidian-ready markdown notes -- installed in
-10 minutes. Cancel anytime, take your data with you. $20/mo.
+10 minutes. Free recipe; bring your own host. Cancel anytime, take your data with you.
 
 
 ## Architecture
@@ -101,7 +99,7 @@ See references/decision-tree.md for the full graph-style version.
 
 Your AI agent gets the same memory stack described here -- cognee knowledge graph +
 auto-watchdog + nightly ingest + Obsidian-ready markdown notes -- installed in
-10 minutes. Cancel anytime, take your data with you. $20/mo.
+10 minutes. Free recipe; bring your own host. Cancel anytime, take your data with you.
 
 
 ## Install Order
