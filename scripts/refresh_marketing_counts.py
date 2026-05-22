@@ -17,11 +17,24 @@ Per quality_1705 plan §3 Phase A step 6: the watchdog detects 6-day-stale
 ``last_refresh_at``; this script is what closes the loop. The watchdog
 itself (in ``~/.hermes/scripts/recipes_publish_watchdog.py``) calls this
 script after detecting drift > 1.
+
+Deploy-persistence (2026-05-22): the deploy.yml workflow runs
+``git reset --hard origin/main`` on every deploy, which wipes any
+on-disk refresh that was never committed. Passing ``--auto-commit``
+makes the refresh script ``git add + commit + push`` the updated yaml
+back to origin/main, so the snapshot survives the next deploy.
+
+The commit only fires when there is an actual textual diff vs HEAD —
+running --auto-commit on an already-fresh yaml is a no-op. Commits are
+attributed to ``wisechef-deploy <deploy@wisechef.ai>`` and tagged
+``[skip ci]`` so they don't trigger redundant CI runs.
 """
+
 from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +49,7 @@ def get_db_url() -> str:
     if url:
         return url
     import configparser
+
     cfg = configparser.ConfigParser()
     cfg.read(REPO_ROOT / "alembic.ini")
     return cfg["alembic"]["sqlalchemy.url"]
@@ -46,14 +60,16 @@ def compute_counts() -> dict:
 
     engine = create_engine(get_db_url(), future=True)
     with engine.connect() as conn:
-        result = conn.execute(text("""
+        result = conn.execute(
+            text("""
             SELECT
               SUM(CASE WHEN is_archived = false AND is_public = true THEN 1 ELSE 0 END) AS total,
               SUM(CASE WHEN is_archived = false AND is_public = true AND tier = 'free' THEN 1 ELSE 0 END) AS free,
               SUM(CASE WHEN is_archived = false AND is_public = true AND tier = 'cook' THEN 1 ELSE 0 END) AS pro,
               SUM(CASE WHEN is_archived = false AND is_public = true AND tier IN ('operator','studio') THEN 1 ELSE 0 END) AS pro_plus_only
             FROM skills
-        """)).first()
+        """)
+        ).first()
     return {
         "skills_total": int(result.total or 0),
         "free_skills": int(result.free or 0),
@@ -102,7 +118,7 @@ def update_yaml(counts: dict, mcp_tools: int = 6, rest_endpoints: int = 11) -> t
         "pro_plus_exclusive_skills": str(counts["pro_plus_exclusive_skills"]),
         # mcp_tools_count and rest_endpoint_count are not auto-refreshed —
         # they\'re manual SSOT and the watchdog tracks separate invariants.
-        "last_refresh_at": f"\'{now}\'",
+        "last_refresh_at": f"'{now}'",
     }
 
     new_text = raw
@@ -121,12 +137,89 @@ def update_yaml(counts: dict, mcp_tools: int = 6, rest_endpoints: int = 11) -> t
     return numeric_changed, new_text
 
 
+def git_auto_commit(yaml_path: Path) -> tuple[bool, str]:
+    """Commit yaml_path back to origin/main if there is a textual diff vs HEAD.
+
+    Returns (committed, message). Idempotent: a no-op diff returns
+    (False, "no diff vs HEAD") and exits without invoking git commit.
+
+    Designed for the nightly cron + watchdog auto-heal path on
+    wisechef-hq. Must NOT raise on transient git failures (e.g.
+    network blip on push) — the cron should keep running and the
+    watchdog will retry within 4h.
+
+    Push collision handling: if ``git push`` fails because someone
+    else advanced main between fetch and push, we ``git pull --rebase
+    origin main`` and retry once. Two failures in a row → bail with a
+    warning, leave the commit unpushed (next run will catch it).
+    """
+    repo_root = yaml_path.parent.parent
+    rel_path = str(yaml_path.relative_to(repo_root))
+
+    def _git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        # Rationale: git commands are bounded, stdout/stderr captured for logging.
+        return subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            capture_output=True,
+            text=True,
+            check=check,
+        )
+
+    # Short-circuit if there's no on-disk diff vs HEAD.
+    diff = _git("diff", "--exit-code", "--quiet", "--", rel_path, check=False)
+    if diff.returncode == 0:
+        return False, "no diff vs HEAD"
+
+    # Stage + commit with bot identity. -c flags scope identity to THIS
+    # invocation so we don't pollute the host's global git config.
+    _git("add", "--", rel_path)
+    commit = _git(
+        "-c",
+        "user.name=wisechef-deploy",
+        "-c",
+        "user.email=deploy@wisechef.ai",
+        "commit",
+        "-m",
+        "chore(marketing): refresh snapshot counts [skip ci] [auto]",
+        "-m",
+        "Auto-committed by scripts/refresh_marketing_counts.py --auto-commit.",
+        check=False,
+    )
+    if commit.returncode != 0:
+        return False, f"commit failed: {commit.stderr.strip() or commit.stdout.strip()}"
+
+    # Push with one rebase-retry on non-fast-forward.
+    push = _git("push", "origin", "HEAD:main", check=False)
+    if push.returncode != 0:
+        # Likely non-fast-forward — rebase and retry once.
+        fetch = _git("fetch", "origin", "main", check=False)
+        rebase = _git("pull", "--rebase", "origin", "main", check=False)
+        if fetch.returncode != 0 or rebase.returncode != 0:
+            return True, (
+                f"committed locally but push+rebase failed: {(rebase.stderr or rebase.stdout).strip()[:200]}"
+            )
+        push = _git("push", "origin", "HEAD:main", check=False)
+        if push.returncode != 0:
+            return True, (
+                f"committed locally but push retry failed: {(push.stderr or push.stdout).strip()[:200]}"
+            )
+
+    sha = _git("rev-parse", "--short", "HEAD").stdout.strip()
+    return True, f"pushed {sha} to origin/main"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true",
-                        help="Print would-write diff; exit 1 if counts would change.")
-    parser.add_argument("--commit", action="store_true",
-                        help="Write the updated yaml. Default is dry-run.")
+    parser.add_argument(
+        "--check", action="store_true", help="Print would-write diff; exit 1 if counts would change."
+    )
+    parser.add_argument("--commit", action="store_true", help="Write the updated yaml. Default is dry-run.")
+    parser.add_argument(
+        "--auto-commit",
+        action="store_true",
+        help="After --commit, git-commit + push the updated yaml to "
+        "origin/main so it survives the next deploy reset.",
+    )
     args = parser.parse_args()
 
     counts = compute_counts()
@@ -144,6 +237,16 @@ def main():
     if args.commit:
         YAML_PATH.write_text(new_text)
         print(f"[COMMITTED] {YAML_PATH}")
+        if args.auto_commit:
+            try:
+                pushed, msg = git_auto_commit(YAML_PATH)
+                tag = "[GIT-PUSHED]" if pushed else "[GIT-SKIP]"
+                print(f"{tag} {msg}")
+            # Rationale: cron must not fail because of a transient git
+            # error — the yaml on disk is still correct; the next run
+            # will re-attempt the push.
+            except Exception as exc:  # noqa: BLE001
+                print(f"[GIT-ERROR] auto-commit raised but yaml is written: {exc}")
         return 0
 
     print()
