@@ -142,11 +142,34 @@ jobs:
             # 6. Run migrations (skipped if input.skip_alembic=true via wrapper)
             alembic upgrade head 2>&1 | tail -20
 
-            # 7. Restart service
-            sudo systemctl restart wiserecipes-api
+            # 7. Restart services — BOTH wiserecipes-api (:3360 REST) AND
+            #    wiserecipes-mcp (:3362 MCP). Both unit files run the same
+            #    codebase from /home/wisechef/wiserecipes-api/, so they MUST
+            #    restart together to keep signed-URL signer/verifier salts in
+            #    sync. Restarting only the API service caused a 1.5-day MCP
+            #    install regression on 2026-05-19 → 2026-05-21 after the
+            #    secfix_1905/I salt-drift fix landed.
+            sudo systemctl restart wiserecipes-api wiserecipes-mcp
             sleep 3
 
-            # 8. Local readiness gate (5×2s)
+            # 7b. MCP-process readiness gate — confirms the :3362 worker came
+            #     back up (the :3360 readiness on /api/mcp/healthz below
+            #     validates the REST process's own MCP routes, NOT the
+            #     dedicated single-worker MCP service).
+            for i in 1 2 3 4 5; do
+              MCP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3362/api/mcp/healthz || echo "000")
+              echo "  mcp readiness attempt $i: local=$MCP_CODE"
+              if [ "$MCP_CODE" = "200" ]; then
+                break
+              fi
+              sleep 2
+            done
+            if [ "${MCP_CODE:-000}" != "200" ]; then
+              echo "::warning::wiserecipes-mcp readiness did not reach 200 (last=$MCP_CODE) — install path may be degraded"
+              sudo systemctl status wiserecipes-mcp --no-pager | tail -20 || true
+            fi
+
+            # 8. Local readiness gate (5×2s) — REST :3360
             for i in 1 2 3 4 5; do
               CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3360/api/mcp/healthz || echo "000")
               echo "  readiness attempt $i: local=$CODE"
@@ -161,11 +184,12 @@ jobs:
             sudo systemctl status wiserecipes-api --no-pager | tail -30 || true
             sudo journalctl -u wiserecipes-api --no-pager -n 80 || true
 
-            # Auto-rollback to BEFORE_SHA
+            # Auto-rollback to BEFORE_SHA — restart BOTH services to keep
+            # signer/verifier salts in sync on the rollback too.
             echo "::warning::Rolling back to $BEFORE_SHA"
             git reset --hard "$BEFORE_SHA"
             pip install -q -r requirements.txt
-            sudo systemctl restart wiserecipes-api
+            sudo systemctl restart wiserecipes-api wiserecipes-mcp
             exit 1
           REMOTE
 
