@@ -28,13 +28,13 @@ version: 1
 # /api/marketing/counts endpoint is unreachable; otherwise the live endpoint
 # wins.
 counts:
-  skills_total: 52                # all non-archived public skills
-  free_skills: 3
-  pro_skills: 48                  # DB slug = cook, display = Pro (all paid skills as of 2026-05-13)
+  skills_total: 54                # all non-archived public skills
+  free_skills: 4
+  pro_skills: 0                  # DB slug = cook, display = Pro (all paid skills as of 2026-05-13)
   pro_plus_exclusive_skills: 0    # 2026-05-13: all paid skills moved to Pro; Pro+ retains cookbooks/keys/private catalog perks (non-skill)
   mcp_tools_count: 6
   rest_endpoint_count: 11
-  last_refresh_at: '2026-05-19T07:51:05Z'
+  last_refresh_at: '2026-05-22T06:19:52Z'
 
 # ── TIERS — display layer (immutable contract with config/tiers.yaml) ───────
 # Mirror of config/tiers.yaml fields needed for marketing. The drift watchdog
