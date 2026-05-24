@@ -8,7 +8,8 @@ Registers:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import os
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
@@ -16,8 +17,16 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import StripeEventId
+from app.models import StripeEventId, User
 from app.schemas import HealthOut
+
+# fleet-heal-0524 t_a488bb1d — single threshold above which
+# stripe_webhook_lag_seconds gets a disambiguating label. 1h matches the
+# May-12 17h drift signal and is safely above Stripes own webhook retry window.
+_STRIPE_LAG_DRIFT_THRESHOLD_S = float(os.environ.get("STRIPE_WEBHOOK_LAG_DRIFT_THRESHOLD_SECONDS", "3600"))
+# Look-back window for paid-traffic existence check. 30d is the minimum subscription
+# period; if no paid sub fired in 30d the silence is real-world silence, not drift.
+_PAID_TRAFFIC_WINDOW_S = float(os.environ.get("STRIPE_PAID_TRAFFIC_WINDOW_SECONDS", str(30 * 86400)))
 
 router = APIRouter(tags=["meta"])
 
@@ -42,6 +51,7 @@ def healthz(db: Session = Depends(get_db)):
     # not "unhealthy" so a freshly-deployed staging env doesn't false-alarm.
     stripe_lag: float | None = None
     stripe_last: str | None = None
+    stripe_label: str | None = None
     try:
         last_evt: datetime | None = db.execute(
             select(func.max(StripeEventId.processed_at))
@@ -53,6 +63,26 @@ def healthz(db: Session = Depends(get_db)):
                 last_evt = last_evt.replace(tzinfo=UTC)
             stripe_lag = max(0.0, (now - last_evt).total_seconds())
             stripe_last = last_evt.isoformat()
+            # fleet-heal-0524 t_a488bb1d: only label when lag breaches the
+            # drift threshold — silent below it (the healthy case). One
+            # decision point: paid traffic in window → drift_suspected,
+            # else → no_qualifying_traffic.
+            if stripe_lag >= _STRIPE_LAG_DRIFT_THRESHOLD_S:
+                # User.created_at is TIMESTAMP WITHOUT TIME ZONE (naive
+                # in pg). Pass a naive UTC cutoff to avoid SQLAlchemy tz-mix
+                # warnings; values are stored as UTC by convention.
+                cutoff = (now - timedelta(seconds=_PAID_TRAFFIC_WINDOW_S)).replace(tzinfo=None)
+                # Use created_at (not updated_at) — a new paid signup in
+                # window is unambiguous evidence that subscribed-type webhook
+                # traffic SHOULD have arrived. updated_at can be touched by
+                # unrelated row mutations (profile edits, referral attribution).
+                paid_in_window = db.execute(
+                    select(func.count(User.id)).where(
+                        User.subscription_tier.is_not(None),
+                        User.created_at >= cutoff,
+                    )
+                ).scalar_one()
+                stripe_label = "drift_suspected" if paid_in_window else "no_qualifying_traffic"
     # Rationale: Stripe lag probe must never break /healthz; keep it <200ms reliable
     except Exception:  # noqa: BLE001
         # Never let the lag probe break /healthz — it must stay <200ms reliable.
@@ -65,6 +95,7 @@ def healthz(db: Session = Depends(get_db)):
             db=db_status,
             stripe_webhook_lag_seconds=stripe_lag,
             stripe_last_event_at=stripe_last,
+            stripe_webhook_lag_label=stripe_label,
         )
         if db_status == "ok"
         else JSONResponse(
@@ -75,6 +106,7 @@ def healthz(db: Session = Depends(get_db)):
                 db="error",
                 stripe_webhook_lag_seconds=stripe_lag,
                 stripe_last_event_at=stripe_last,
+                stripe_webhook_lag_label=stripe_label,
             ).model_dump(),
         )
     )

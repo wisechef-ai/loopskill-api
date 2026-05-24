@@ -262,6 +262,15 @@ class HealthOut(BaseModel):
     # that wiped out 17h on 2026-05-12 (webhook signing-secret drift incident).
     stripe_webhook_lag_seconds: float | None = None
     stripe_last_event_at: str | None = None  # ISO 8601 UTC, or None
+    # ── fleet-heal-0524 t_a488bb1d ──
+    # Disambiguate quiet-traffic from real drift. Set when stripe_webhook_lag_seconds
+    # exceeds STRIPE_WEBHOOK_LAG_DRIFT_THRESHOLD_SECONDS (default 3600s / 1h):
+    #   - 'no_qualifying_traffic' : no paid sub created within the last 30d
+    #     (DB has zero User.subscription_tier IS NOT NULL rows in window)
+    #   - 'drift_suspected'       : paid traffic exists in window but webhooks
+    #     have not been processed → investigate (signing secret, endpoint, RBAC)
+    # None when lag is None (cold DB) or below threshold (healthy).
+    stripe_webhook_lag_label: str | None = None
 
 
 # ── Demo CTA ────────────────────────────────────────────────────────────

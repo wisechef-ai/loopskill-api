@@ -9,6 +9,7 @@ WIS-1003 (atomic-habits 2026-05-14 #7) extends it with:
 Both are None on a cold/empty DB so freshly-deployed staging envs and the test
 suite (which starts with no StripeEventId rows) don't false-alarm watchdogs.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -99,4 +100,107 @@ def test_healthz_lag_grows_with_older_events(client, db_session):
         f"lag={lag} — expected ≥3500s reflecting the 1h-old StripeEventId. "
         "If this fails, /healthz is probably reading min() instead of max(), "
         "or filtering by event_type."
+    )
+
+
+# ────────────────────────────────────────────────────────────────────────
+# fleet-heal-0524 t_a488bb1d — stripe_webhook_lag_label
+# ────────────────────────────────────────────────────────────────────────
+# The label disambiguates a quiet-MRR deployment (Scenario A from
+# t_68a9e9b9 triage) from a real webhook-pipeline drift (May-12 incident
+# class) so future fleet-heal sweeps do not flag healthy quiet traffic.
+
+
+def test_healthz_label_is_none_when_no_events(client):
+    """Cold DB — no lag, no label. The label is purely a function of lag."""
+    r = client.get("/api/healthz")
+    body = r.json()
+    assert body["stripe_webhook_lag_seconds"] is None
+    assert body["stripe_webhook_lag_label"] is None
+
+
+def test_healthz_label_is_none_when_lag_below_threshold(client, db_session):
+    """Recent webhook event → lag well below 1h threshold → label silent."""
+    from app.models import StripeEventId
+
+    now = datetime.now(timezone.utc)
+    db_session.add(
+        StripeEventId(
+            event_id="evt_recent_no_label",
+            event_type="checkout.session.completed",
+            processed_at=now,
+            livemode=False,
+        )
+    )
+    db_session.commit()
+    r = client.get("/api/healthz")
+    body = r.json()
+    assert body["stripe_webhook_lag_seconds"] is not None
+    assert body["stripe_webhook_lag_seconds"] < 30
+    assert (
+        body["stripe_webhook_lag_label"] is None
+    ), "healthy lag must not carry a label — labels are only set on drift suspicion"
+
+
+def test_healthz_label_no_qualifying_traffic_on_zero_mrr(client, db_session):
+    """Lag above threshold + zero paid signups in window → 'no_qualifying_traffic'.
+
+    This is the Scenario A case fleet-heal-0524 false-flagged. The label tells
+    a future sweep that the silence is real-world silence, not drift.
+    """
+    from app.models import StripeEventId
+
+    old = datetime.now(timezone.utc) - timedelta(seconds=7200)  # 2h ago
+    db_session.add(
+        StripeEventId(
+            event_id="evt_old_quiet",
+            event_type="checkout.session.completed",
+            processed_at=old,
+            livemode=False,
+        )
+    )
+    db_session.commit()
+    r = client.get("/api/healthz")
+    body = r.json()
+    assert body["stripe_webhook_lag_seconds"] >= 3600
+    assert body["stripe_webhook_lag_label"] == "no_qualifying_traffic", (
+        f"expected no_qualifying_traffic with no paid User rows, got " f"{body['stripe_webhook_lag_label']!r}"
+    )
+
+
+def test_healthz_label_drift_suspected_when_paid_traffic_exists(client, db_session):
+    """Lag above threshold + a recent paid signup → 'drift_suspected'.
+
+    A new paid User in the 30-day window is unambiguous evidence that
+    subscribed-type webhook traffic SHOULD have arrived. Lag above 1h means
+    it didn't — investigate signing-secret / endpoint / RBAC drift.
+    """
+    from app.models import StripeEventId, User
+    from uuid import uuid4
+
+    old = datetime.now(timezone.utc) - timedelta(seconds=7200)
+    db_session.add(
+        StripeEventId(
+            event_id="evt_old_with_paid_traffic",
+            event_type="checkout.session.completed",
+            processed_at=old,
+            livemode=False,
+        )
+    )
+    # Recent paid signup
+    db_session.add(
+        User(
+            id=uuid4(),
+            display_name="Paying Cook",
+            email="cook@example.com",
+            subscription_tier="cook",
+            subscription_status="active",
+        )
+    )
+    db_session.commit()
+    r = client.get("/api/healthz")
+    body = r.json()
+    assert body["stripe_webhook_lag_seconds"] >= 3600
+    assert body["stripe_webhook_lag_label"] == "drift_suspected", (
+        f"expected drift_suspected with a recent paid User row, got " f"{body['stripe_webhook_lag_label']!r}"
     )
