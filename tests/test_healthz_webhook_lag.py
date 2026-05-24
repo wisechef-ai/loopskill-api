@@ -204,3 +204,88 @@ def test_healthz_label_drift_suspected_when_paid_traffic_exists(client, db_sessi
     assert body["stripe_webhook_lag_label"] == "drift_suspected", (
         f"expected drift_suspected with a recent paid User row, got " f"{body['stripe_webhook_lag_label']!r}"
     )
+
+
+def test_healthz_label_paid_signup_before_last_webhook_stays_quiet(client, db_session):
+    """Lag above threshold + paid User created BEFORE last webhook → 'no_qualifying_traffic'.
+
+    This is the real production case t_68a9e9b9 surfaced: existing paid
+    customers exist, but they signed up long before the last webhook arrived,
+    so the silence since then is real-world quiet, not drift. Without this
+    constraint a stable customer base + zero new signups would forever read
+    'drift_suspected'.
+    """
+    from app.models import StripeEventId, User
+    from uuid import uuid4
+
+    # Paid signup 5 days ago
+    signup_t = datetime.now(timezone.utc) - timedelta(days=5)
+    db_session.add(
+        User(
+            id=uuid4(),
+            display_name="Old Paying Cook",
+            email="old@example.com",
+            subscription_tier="pro_plus",
+            subscription_status="active",
+            created_at=signup_t.replace(tzinfo=None),
+        )
+    )
+    # Webhook from 4 days ago — AFTER the signup, so signup is accounted for
+    webhook_t = datetime.now(timezone.utc) - timedelta(days=4)
+    db_session.add(
+        StripeEventId(
+            event_id="evt_after_signup",
+            event_type="checkout.session.completed",
+            processed_at=webhook_t,
+            livemode=False,
+        )
+    )
+    db_session.commit()
+    r = client.get("/api/healthz")
+    body = r.json()
+    assert body["stripe_webhook_lag_seconds"] >= 3600
+    assert body["stripe_webhook_lag_label"] == "no_qualifying_traffic", (
+        f"existing paid customers who signed up before the last webhook "
+        f"must not raise drift_suspected; got {body['stripe_webhook_lag_label']!r}"
+    )
+
+
+def test_healthz_label_free_tier_signup_does_not_trip_drift(client, db_session):
+    """Lag above threshold + only NEW free-tier signups → 'no_qualifying_traffic'.
+
+    Free-tier signups do NOT produce subscribed-type webhook events
+    (no checkout.session.completed, no customer.subscription.created for the
+    paid product), so a flood of free signups during webhook silence is NOT
+    evidence of drift.
+    """
+    from app.models import StripeEventId, User
+    from uuid import uuid4
+
+    webhook_t = datetime.now(timezone.utc) - timedelta(seconds=7200)
+    db_session.add(
+        StripeEventId(
+            event_id="evt_old_free_signups_only",
+            event_type="checkout.session.completed",
+            processed_at=webhook_t,
+            livemode=False,
+        )
+    )
+    # New free signup AFTER the webhook
+    signup_t = datetime.now(timezone.utc) - timedelta(seconds=1800)
+    db_session.add(
+        User(
+            id=uuid4(),
+            display_name="Free User",
+            email="free@example.com",
+            subscription_tier="free",
+            subscription_status=None,
+            created_at=signup_t.replace(tzinfo=None),
+        )
+    )
+    db_session.commit()
+    r = client.get("/api/healthz")
+    body = r.json()
+    assert body["stripe_webhook_lag_seconds"] >= 3600
+    assert body["stripe_webhook_lag_label"] == "no_qualifying_traffic", (
+        f"free-tier signups must not raise drift_suspected; " f"got {body['stripe_webhook_lag_label']!r}"
+    )

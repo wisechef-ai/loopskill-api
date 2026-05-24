@@ -65,24 +65,30 @@ def healthz(db: Session = Depends(get_db)):
             stripe_last = last_evt.isoformat()
             # fleet-heal-0524 t_a488bb1d: only label when lag breaches the
             # drift threshold — silent below it (the healthy case). One
-            # decision point: paid traffic in window → drift_suspected,
-            # else → no_qualifying_traffic.
+            # decision point: a paid signup AFTER the last processed webhook
+            # is unambiguous evidence subscribed-type traffic was due but
+            # did not arrive → drift_suspected. Otherwise the silence is
+            # real-world quiet → no_qualifying_traffic. We additionally bound
+            # by the 30d window so an ancient orphan paid User (deleted Stripe
+            # sub etc.) cannot indefinitely raise the alarm.
             if stripe_lag >= _STRIPE_LAG_DRIFT_THRESHOLD_S:
-                # User.created_at is TIMESTAMP WITHOUT TIME ZONE (naive
-                # in pg). Pass a naive UTC cutoff to avoid SQLAlchemy tz-mix
-                # warnings; values are stored as UTC by convention.
+                # User.created_at is TIMESTAMP WITHOUT TIME ZONE (naive in pg).
+                # Pass naive UTC values to avoid SQLAlchemy tz-mix warnings;
+                # the column stores UTC by convention.
                 cutoff = (now - timedelta(seconds=_PAID_TRAFFIC_WINDOW_S)).replace(tzinfo=None)
-                # Use created_at (not updated_at) — a new paid signup in
-                # window is unambiguous evidence that subscribed-type webhook
-                # traffic SHOULD have arrived. updated_at can be touched by
-                # unrelated row mutations (profile edits, referral attribution).
-                paid_in_window = db.execute(
+                last_evt_naive = last_evt.replace(tzinfo=None)
+                # 'paid' = tier set AND not the literal 'free' string. In prod
+                # subscription_tier values include NULL and 'free' alongside
+                # the paid 'pro' / 'pro_plus' (and legacy 'cook' / 'operator').
+                paid_after_last_webhook = db.execute(
                     select(func.count(User.id)).where(
                         User.subscription_tier.is_not(None),
+                        User.subscription_tier != "free",
                         User.created_at >= cutoff,
+                        User.created_at > last_evt_naive,
                     )
                 ).scalar_one()
-                stripe_label = "drift_suspected" if paid_in_window else "no_qualifying_traffic"
+                stripe_label = "drift_suspected" if paid_after_last_webhook else "no_qualifying_traffic"
     # Rationale: Stripe lag probe must never break /healthz; keep it <200ms reliable
     except Exception:  # noqa: BLE001
         # Never let the lag probe break /healthz — it must stay <200ms reliable.
