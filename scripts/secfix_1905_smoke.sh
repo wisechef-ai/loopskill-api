@@ -40,6 +40,40 @@ echo
 # Issue #14 — /api/healthz returns 200 with proper db status
 probe "healthz/db-ok" "200" "$(http_code "$BASE_URL/api/healthz")"
 
+# secfix_1906/A — signed-install round-trip probe.
+# Catches the salt-drift class of bug the codex re-pass surfaced: 3 distinct
+# producers (install_routes, cookbook_routes, mcp/tools/cookbook_install) all
+# sign download URLs with the SAME salt 'recipes-skill-install' so they verify
+# against install_routes._download. If any producer drifts the salt, the URL
+# is generated successfully but 403s on download — invisible to the existing
+# probes. This probe walks the full round-trip end-to-end so a regression
+# anywhere in the producer chain fails the deploy.
+#
+# Implementation note: goal text says "POST /api/skills/install" but the
+# actual route is GET (POST returns 401 from the auth middleware before any
+# logic runs). Using GET so the probe exercises real code.
+PROBE_SLUG="${SIGNED_INSTALL_PROBE_SLUG:-super-memory}"
+install_body=$(http_body "$BASE_URL/api/skills/install?slug=$PROBE_SLUG")
+tarball_url=$(echo "$install_body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tarball_url',''))" 2>/dev/null)
+TOTAL=$((TOTAL + 1))
+if [[ -z "$tarball_url" ]]; then
+    echo "❌ [signed-install-round-trip] /api/skills/install for '$PROBE_SLUG' returned no tarball_url; body=${install_body:0:200}"
+    FAIL=$((FAIL + 1))
+elif ! echo "$tarball_url" | grep -q '/api/skills/_download?token='; then
+    echo "❌ [signed-install-round-trip] tarball_url shape unexpected: ${tarball_url:0:120}"
+    FAIL=$((FAIL + 1))
+else
+    download_code=$(http_code "$tarball_url")
+    download_bytes=$(curl -sS -o /dev/null -w "%{size_download}" "$tarball_url")
+    if [[ "$download_code" == "200" && "$download_bytes" -gt 0 ]]; then
+        echo "✅ [signed-install-round-trip] $PROBE_SLUG → ${download_bytes} bytes (HTTP 200)"
+        PASS=$((PASS + 1))
+    else
+        echo "❌ [signed-install-round-trip] tarball_url returned HTTP=$download_code bytes=$download_bytes — salt drift suspected"
+        FAIL=$((FAIL + 1))
+    fi
+fi
+
 # Issue #6 — recipes_install via wrong-user key → not_found (no oracle)
 # Skip if NO_AUTH_PROBES is set (requires test API keys not in repo)
 if [[ -z "${NO_AUTH_PROBES:-}" && -n "${TEST_API_KEY_USER_B:-}" && -n "${PRIVATE_SKILL_SLUG_USER_A:-}" ]]; then
