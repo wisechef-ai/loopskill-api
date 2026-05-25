@@ -30,6 +30,7 @@ from app.models import (
     Cookbook,
     CookbookShareToken,
     CookbookSkill,
+    InstallEvent,
     Skill,
     SkillVersion,
     User,
@@ -739,3 +740,153 @@ class TestMcpCookbookInstallEdgeCases:
             recipes_cookbook_install(ctx=ctx_user, db=db_session, cookbook_id="🚨-not-a-uuid")
         assert exc_info.value.code == "cookbook_not_found"
         assert exc_info.value.status == 404
+
+
+# ─────────────────────────── 9. install-event recording ────────────────
+#
+# recipes-D: every install-producing route MUST write an InstallEvent + bump
+# Skill.install_count. Before this fix only /api/skills/install did, so
+# cookbook-share installs (the only path cbt_-token holders use) were
+# invisible in transparency stats. Demonstrated end-to-end on 2026-05-25
+# when Varys installed 5 skills via the cookbook bulk-install path and 0
+# events were recorded.
+
+
+class TestCookbookInstallEventRecording:
+    """Pins the recipes-D install-counter sync across all 3 cookbook install paths."""
+
+    def test_bulk_install_writes_install_event_per_skill(self, db_session):
+        """POST /api/cookbooks/{id}/install records one InstallEvent per shipped skill
+        and bumps Skill.install_count by exactly one for each."""
+        owner = _make_user(db_session)
+        cb = _make_cookbook(db_session, owner.id)
+        skill_a = _make_skill(db_session, slug="ahe", is_public=False, owner_id=owner.id)
+        skill_b = _make_skill(db_session, slug="other", is_public=False, owner_id=owner.id)
+        _add_skill_to_cookbook(db_session, cb, skill_a)
+        _add_skill_to_cookbook(db_session, cb, skill_b)
+        _make_skill_version(db_session, skill_a)
+        _make_skill_version(db_session, skill_b)
+        _make_token_row(db_session, cb.id, scope="install")
+        db_session.commit()
+
+        before_a = skill_a.install_count or 0
+        before_b = skill_b.install_count or 0
+
+        app = _build_cbt_app(db_session, scope="install", cookbook_id=cb.id)
+        client = TestClient(app)
+        resp = client.post(f"/api/cookbooks/{cb.id}/install")
+        assert resp.status_code == 200, resp.text
+
+        db_session.expire_all()
+        ev_count_a = (
+            db_session.query(InstallEvent).filter(InstallEvent.skill_id == skill_a.id).count()
+        )
+        ev_count_b = (
+            db_session.query(InstallEvent).filter(InstallEvent.skill_id == skill_b.id).count()
+        )
+        assert ev_count_a == 1, f"expected 1 event for skill_a, got {ev_count_a}"
+        assert ev_count_b == 1, f"expected 1 event for skill_b, got {ev_count_b}"
+
+        refreshed_a = db_session.query(Skill).filter(Skill.id == skill_a.id).first()
+        refreshed_b = db_session.query(Skill).filter(Skill.id == skill_b.id).first()
+        assert (refreshed_a.install_count or 0) == before_a + 1
+        assert (refreshed_b.install_count or 0) == before_b + 1
+
+    def test_single_skill_cookbook_install_writes_install_event(self, db_session):
+        """GET /api/cookbooks/{id}/skills/{slug}/install writes exactly one event
+        and bumps install_count by 1."""
+        owner = _make_user(db_session)
+        cb = _make_cookbook(db_session, owner.id)
+        skill = _make_skill(db_session, slug="ahe", is_public=False, owner_id=owner.id)
+        _add_skill_to_cookbook(db_session, cb, skill)
+        _make_skill_version(db_session, skill, "1.0.1")
+        _make_token_row(db_session, cb.id, scope="install")
+        db_session.commit()
+
+        before = skill.install_count or 0
+
+        app = _build_cbt_app(db_session, scope="install", cookbook_id=cb.id)
+        client = TestClient(app)
+        resp = client.get(f"/api/cookbooks/{cb.id}/skills/ahe/install")
+        assert resp.status_code == 200, resp.text
+
+        db_session.expire_all()
+        ev_count = db_session.query(InstallEvent).filter(InstallEvent.skill_id == skill.id).count()
+        assert ev_count == 1
+
+        refreshed = db_session.query(Skill).filter(Skill.id == skill.id).first()
+        assert (refreshed.install_count or 0) == before + 1
+        # Version stamp on the event matches the resolved (pinned-or-latest) version
+        ev = db_session.query(InstallEvent).filter(InstallEvent.skill_id == skill.id).first()
+        assert ev.version_semver == "1.0.1"
+
+    def test_mcp_bulk_install_writes_install_events(self, db_session):
+        """recipes_cookbook_install MCP tool writes events for every shipped skill."""
+        from app.mcp.tools.cookbook_install import recipes_cookbook_install
+
+        owner = _make_user(db_session)
+        cb = _make_cookbook(db_session, owner.id)
+        skill = _make_skill(db_session, slug="ahe", is_public=False, owner_id=owner.id)
+        _add_skill_to_cookbook(db_session, cb, skill)
+        _make_skill_version(db_session, skill)
+        db_session.commit()
+
+        before = skill.install_count or 0
+
+        ctx = AuthContext(scope="cbt_token", cookbook_scope=cb.id)
+        result = recipes_cookbook_install(ctx=ctx, db=db_session)
+        assert len(result["skills"]) == 1
+
+        db_session.expire_all()
+        ev_count = db_session.query(InstallEvent).filter(InstallEvent.skill_id == skill.id).count()
+        assert ev_count == 1
+
+        refreshed = db_session.query(Skill).filter(Skill.id == skill.id).first()
+        assert (refreshed.install_count or 0) == before + 1
+
+    def test_mcp_single_skill_install_writes_install_event(self, db_session):
+        """recipes_cookbook_install MCP tool with explicit slug writes 1 event."""
+        from app.mcp.tools.cookbook_install import recipes_cookbook_install
+
+        owner = _make_user(db_session)
+        cb = _make_cookbook(db_session, owner.id)
+        skill = _make_skill(db_session, slug="ahe", is_public=False, owner_id=owner.id)
+        other = _make_skill(db_session, slug="other", is_public=False, owner_id=owner.id)
+        _add_skill_to_cookbook(db_session, cb, skill)
+        _add_skill_to_cookbook(db_session, cb, other)
+        _make_skill_version(db_session, skill)
+        _make_skill_version(db_session, other)
+        db_session.commit()
+
+        ctx = AuthContext(scope="cbt_token", cookbook_scope=cb.id)
+        result = recipes_cookbook_install(ctx=ctx, db=db_session, slug="ahe")
+        assert result["slug"] == "ahe"
+
+        db_session.expire_all()
+        # Single-skill MCP call writes one event ONLY for the requested slug.
+        ev_count_ahe = db_session.query(InstallEvent).filter(InstallEvent.skill_id == skill.id).count()
+        ev_count_other = db_session.query(InstallEvent).filter(InstallEvent.skill_id == other.id).count()
+        assert ev_count_ahe == 1
+        assert ev_count_other == 0
+
+    def test_empty_cookbook_install_writes_zero_events(self, db_session):
+        """Bulk install of an empty cookbook MUST NOT write any InstallEvent rows.
+
+        Pins the empty-list guard — without the `if installed_skills` check, an
+        empty bulk install would still commit the (empty) transaction. Harmless
+        on its own, but a regression there would leak the wrong source attribution
+        if future code starts writing events outside the loop.
+        """
+        owner = _make_user(db_session)
+        cb = _make_cookbook(db_session, owner.id, name="Empty")
+        _make_token_row(db_session, cb.id, scope="install")
+        db_session.commit()
+
+        app = _build_cbt_app(db_session, scope="install", cookbook_id=cb.id)
+        client = TestClient(app)
+        resp = client.post(f"/api/cookbooks/{cb.id}/install")
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["skills"] == []
+
+        db_session.expire_all()
+        assert db_session.query(InstallEvent).count() == 0

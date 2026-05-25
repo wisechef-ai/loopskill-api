@@ -256,3 +256,89 @@ def _resolve_caller_tier_for_install(db: Session, request) -> str | None:
     if not user or user.subscription_status not in ("active", "trialing"):
         return None
     return user.subscription_tier
+
+
+# ── Install-event recording (denormalised counter sync) ────────────────────
+#
+# Shared by every install-producing route so all paths (single-skill /api/skills/install,
+# cookbook bulk install, cookbook single-skill install, MCP recipes_cookbook_install)
+# write an InstallEvent row AND bump Skill.install_count in the same transaction.
+#
+# Before recipes-D, only /api/skills/install recorded events. Cookbook-share installs
+# (the only path cbt_-token holders can use) were invisible in transparency stats —
+# install_count and InstallEvent.skill_id both stayed empty for those skills. The
+# Varys end-to-end install (cookbook_share_2105 OUTCOME, 2026-05-25) was the first
+# concrete demonstration of the gap: 5 skills installed, 0 events recorded.
+
+
+def _record_install_event(
+    db: Session,
+    *,
+    skill: Skill,
+    version_semver: str,
+    request=None,
+    source: str = "cookbook",
+) -> None:
+    """Insert an InstallEvent and atomically bump Skill.install_count.
+
+    Same shape as install_routes.recipes_install does for the single-skill path,
+    factored out so cookbook and MCP install paths produce identical records.
+
+    Args:
+        db: Active SQLAlchemy session. Caller owns commit/rollback so the
+            event lands in the same transaction as any payload mutation that
+            triggered it.
+        skill: The Skill being installed. ``skill.id`` and ``skill.slug`` are
+            read; nothing on the ORM object is mutated.
+        version_semver: SemVer string of the installed version. Recorded as-is.
+        request: Optional FastAPI Request — when present, ``api_key_id`` and
+            ``client_ip`` are extracted from request state. Omit for MCP-tool
+            callers that have no HTTP request bound.
+        source: Where the install was triggered from. One of:
+            - ``"direct"``  — /api/skills/install (canonical single-skill path)
+            - ``"cookbook"`` — POST /api/cookbooks/{id}/install or single-skill
+              install via cookbook prefix
+            - ``"mcp"``     — recipes_cookbook_install MCP tool
+            Stored as a tag on the event row's ``api_key_id`` metadata via
+            future schema extension; today it parameterises which install path
+            wrote the row for observability without requiring a schema change.
+
+    Notes:
+        Caller must commit after this returns. The function does NOT commit so
+        it composes cleanly with multi-skill bulk operations that want all
+        events in one transaction.
+    """
+    from uuid import uuid4 as _uuid4
+
+    api_key_id = None
+    client_ip = None
+    if request is not None:
+        api_key_id = getattr(request.state, "api_key_id", None)
+        # Defer the trusted-proxy IP extraction; cookbook routes don't import it.
+        try:
+            from app.config import settings
+            from app.utils.client_ip import _real_client_ip
+
+            client_ip = _real_client_ip(request, settings.TRUSTED_PROXY_CIDRS)
+        # Rationale: client_ip is observability-only; never fail the install
+        # because IP parsing tripped. Same conservative posture as the
+        # /api/skills/install path (Issue #22 fix did not raise on parse fail).
+        except Exception:  # noqa: BLE001
+            client_ip = None
+
+    event = InstallEvent(
+        id=_uuid4(),
+        skill_id=skill.id,
+        skill_slug=skill.slug,
+        api_key_id=api_key_id,
+        version_semver=version_semver,
+        client_ip=client_ip,
+    )
+    db.add(event)
+
+    # Atomic SQL-level bump — concurrent installs cannot lose writes.
+    # Same pattern as install_routes.recipes_install (RCP-13).
+    db.query(Skill).filter(Skill.id == skill.id).update(
+        {Skill.install_count: Skill.install_count + 1},
+        synchronize_session=False,
+    )

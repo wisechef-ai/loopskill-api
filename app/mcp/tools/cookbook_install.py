@@ -219,6 +219,12 @@ def recipes_cookbook_install(
         if version is None:
             raise CookbookInstallError("no_versions", "no_versions", status=404)
 
+        # recipes-D: record install event so MCP-driven installs are counted too.
+        from app._skill_helpers import _record_install_event
+
+        _record_install_event(db, skill=skill, version_semver=version.semver, request=None, source="mcp")
+        db.commit()
+
         return {
             "slug": skill.slug,
             "version": version.semver,
@@ -236,6 +242,7 @@ def recipes_cookbook_install(
     )
 
     skills_payload: list[dict[str, Any]] = []
+    installed: list[tuple[Skill, str]] = []
     for cs, skill in rows:
         # SECURITY: per-skill authz gate. For cbt_token callers this MUST pass
         # because the skill is in their scoped cookbook (the Phase C predicate
@@ -254,6 +261,18 @@ def recipes_cookbook_install(
                 "source": cs.source,
             }
         )
+        if version is not None:
+            installed.append((skill, version.semver))
+
+    # recipes-D: record install events for MCP-driven bulk installs so they're
+    # visible in transparency stats. Skipped versionless entries already filtered
+    # by the `if version is not None` guard above.
+    from app._skill_helpers import _record_install_event
+
+    for skill, semver in installed:
+        _record_install_event(db, skill=skill, version_semver=semver, request=None, source="mcp")
+    if installed:
+        db.commit()
 
     return {
         "cookbook_id": str(cb.id),

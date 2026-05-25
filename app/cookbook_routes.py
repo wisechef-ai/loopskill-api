@@ -476,6 +476,7 @@ def install_cookbook(
     rows = _skills_for(db, cb.id, include_disabled=False)
 
     skills_payload = []
+    installed_skills: list[tuple[Skill, str]] = []
     for cs, skill in rows:
         version = None
         if cs.pinned_version:
@@ -504,6 +505,19 @@ def install_cookbook(
                 "source": cs.source,
             }
         )
+        if version is not None:
+            installed_skills.append((skill, version.semver))
+
+    # recipes-D: record an InstallEvent + bump Skill.install_count for every
+    # skill that returned a real version. Without this, cookbook-share installs
+    # (the only path cbt_-token holders can use) are invisible in transparency
+    # stats — the Varys end-to-end install on 2026-05-25 was the demonstration.
+    from app._skill_helpers import _record_install_event
+
+    for skill, semver in installed_skills:
+        _record_install_event(db, skill=skill, version_semver=semver, request=request, source="cookbook")
+    if installed_skills:
+        db.commit()
 
     return {
         "cookbook_id": str(cb.id),
@@ -676,6 +690,12 @@ def install_single_skill_from_cookbook(
 
     if version is None:
         raise HTTPException(status_code=404, detail="no_versions")
+
+    # recipes-D: record install event + bump counter on this path too.
+    from app._skill_helpers import _record_install_event
+
+    _record_install_event(db, skill=skill, version_semver=version.semver, request=request, source="cookbook")
+    db.commit()
 
     return {
         "slug": skill.slug,
