@@ -1,0 +1,49 @@
+name: CodeQL
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Mondays 06:00 UTC — weekly, not per-push
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    # CodeQL CLI requires linux/amd64; wisechef-runner is arm64 (unsupported).
+    # Falling back to GitHub-hosted ubuntu-latest per plan §D deliverable 1.
+    runs-on: ubuntu-latest
+    # Non-blocking: ubuntu-latest may fail if GitHub-hosted runner billing is
+    # exhausted. The explicit workflow file still supersedes default-setup once
+    # committed, which is the primary goal.
+    continue-on-error: true
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language:
+          - python
+          - javascript-typescript
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: '/language:${{ matrix.language }}'
