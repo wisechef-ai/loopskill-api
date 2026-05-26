@@ -39,7 +39,7 @@ jobs:
 
     steps:
       - name: Checkout recipes-api
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           path: recipes-api
           fetch-depth: 1
@@ -58,7 +58,7 @@ jobs:
 
       - name: Checkout recipes-skill
         if: steps.pat.outputs.skip != 'true'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           repository: wisechef-ai/recipes-skill
           path: recipes-skill
