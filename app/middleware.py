@@ -386,7 +386,15 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             # (api_key_user_id=None) on any other endpoint that uses
             # `is_master = (api_key_user_id is None)`. Cookbook-prefixed paths
             # ONLY — anything else is 403 with no info leak.
-            if not request.url.path.startswith("/api/cookbooks/"):
+            #
+            # repohygiene_2605/H.1 (Issue #290): pro/pro_plus cbt_tokens with
+            # allow_public_catalog=True are additionally permitted to call
+            # GET /api/skills/install and GET /api/skills/_download for
+            # public-catalog skills.  The token is validated first (full DB
+            # lookup) so the path-broadening only applies to genuine, active
+            # tokens — not to any cbt_-prefixed string.
+            is_install_path = request.url.path in ("/api/skills/install", "/api/skills/_download")
+            if not request.url.path.startswith("/api/cookbooks/") and not is_install_path:
                 from fastapi.responses import JSONResponse
 
                 return JSONResponse(
@@ -434,6 +442,20 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 # Found valid share token
                 match.last_used_at = datetime.now(UTC)
                 db.commit()
+
+                # repohygiene_2605/H.1 (Issue #290): for install-path requests,
+                # only tokens with allow_public_catalog=True are permitted.
+                # Tokens without it (non-pro owners) still get 403 here so the
+                # path-broadening doesn't accidentally grant access to free-tier owners.
+                allow_pub = bool(getattr(match, "allow_public_catalog", False))
+                if is_install_path and not allow_pub:
+                    from fastapi.responses import JSONResponse
+
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": "Share tokens can only access cookbook routes"},
+                    )
+
                 request.state.cookbook_token_scope = match.scope
                 request.state.cookbook_token_cookbook_id = match.cookbook_id
                 # SECURITY: do NOT set api_key_user_id=None — that's the master-key
@@ -442,12 +464,14 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 request.state.api_key_user_id = "CBT_TOKEN"
                 request.state.api_key_id = None
                 request.state.is_cbt_token = True
-                # auth_ctx: cbt_token scope
+                # auth_ctx: cbt_token scope — stamp allow_public_catalog so
+                # downstream authz predicates (and install_routes) can read it.
                 from app.auth_ctx import AuthContext
 
                 request.state.auth_ctx = AuthContext(
                     scope="cbt_token",
                     cookbook_scope=match.cookbook_id,
+                    allow_public_catalog=allow_pub,
                 )
                 return await call_next(request)
             finally:

@@ -39,6 +39,11 @@ class AuthContext:
     fleet_id: UUID | None = None  # fleet-scoped key restriction (Phase E)
     tier: str | None = None
     is_sandbox_operator: bool = False
+    # repohygiene_2605/H.1 (Issue #290): cbt_token callers with this flag set may
+    # call GET /api/skills/install for public-catalog skills they are entitled to
+    # (i.e. skill.tier <= cookbook-owner's tier).  Default False → opt-in only;
+    # set to True by middleware when CookbookShareToken.allow_public_catalog is True.
+    allow_public_catalog: bool = False
 
     @classmethod
     def anonymous(cls) -> AuthContext:

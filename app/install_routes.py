@@ -106,6 +106,20 @@ def install_skill(
                 detail="Authentication required to install this skill. Free skills install with no key.",
             )
 
+    # repohygiene_2605/H.1 (Issue #290): cbt_token callers with
+    # allow_public_catalog=True may install PUBLIC skills from the catalog.
+    # cbt_token callers with allow_public_catalog=False are blocked here
+    # (defence-in-depth: middleware blocks at the path level first, but the
+    # route-level check ensures correctness even in test setups that bypass
+    # the real middleware).
+    auth_ctx = getattr(request.state, "auth_ctx", None)
+    if auth_ctx is not None and getattr(auth_ctx, "scope", None) == "cbt_token":
+        if not getattr(auth_ctx, "allow_public_catalog", False):
+            raise HTTPException(
+                status_code=403,
+                detail="Share tokens can only access cookbook routes",
+            )
+
     # Visibility check
     if not skill.is_public:
         api_key_user_id = getattr(request.state, "api_key_user_id", "MISSING")

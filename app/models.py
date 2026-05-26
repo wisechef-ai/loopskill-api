@@ -847,6 +847,12 @@ class CookbookShareToken(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     is_active = Column(Boolean, default=True, server_default="true", nullable=False)
     last_used_at = Column(DateTime(timezone=True), nullable=True)
+    # repohygiene_2605/H.1 (Issue #290): when True this token may call
+    # GET /api/skills/install for public-catalog skills the cookbook owner is
+    # entitled to.  Default True — set to False for non-pro/non-pro_plus owners
+    # by the migration backfill so the wider public access is restricted to
+    # paid tiers by default.
+    allow_public_catalog = Column(Boolean, default=True, server_default="true", nullable=False)
 
     cookbook = relationship("Cookbook", back_populates="share_tokens")
 
