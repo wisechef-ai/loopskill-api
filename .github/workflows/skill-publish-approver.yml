@@ -33,7 +33,7 @@ jobs:
 
     steps:
       - name: Approve and publish skill
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           RECIPES_MASTER_KEY: ${{ secrets.RECIPES_MASTER_KEY }}
           RECIPES_API_BASE: ${{ secrets.RECIPES_API_BASE || 'https://recipes.wisechef.ai' }}

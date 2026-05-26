@@ -21,7 +21,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: pip install pre-commit
+      - run: python -m pip install pre-commit
       - run: pre-commit run --all-files
 
   dependency-audit:
@@ -31,7 +31,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - run: pip install pip-audit safety
+      - run: python -m pip install pip-audit safety
       - name: pip-audit (HIGH fails PR; lower severity tracked as issues)
         run: pip-audit -r requirements.txt --strict || true
       - name: safety check

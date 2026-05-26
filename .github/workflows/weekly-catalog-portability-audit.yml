@@ -101,7 +101,7 @@ jobs:
 
       - name: Open / refresh tracking issue on violations
         if: always()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           AUDIT_REPORT_PATH: /tmp/audit.json
         with:
