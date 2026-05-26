@@ -12,6 +12,24 @@ Sentinel file `/var/lib/recipes-api/last_backfill_at` is updated on every
 successful run with the current ISO timestamp; the transparency endpoint
 reads it.
 
+### Signature stability (repohygiene_2605 Phase A)
+
+Pre-fix: `error_signature` was derived from Python's builtin ``hash()``, which
+is salt-randomized per process (PYTHONHASHSEED defaults to "random"). Every
+hourly cron invocation produced a brand-new signature for the same
+``(slug, drift_kind)`` tuple. The dispatcher had no dedup match and opened a
+fresh GitHub issue each hour — 127 noise issues accumulated in ~5 days.
+
+Post-fix:
+  * ``compute_signature(slug)`` uses ``hashlib.sha256`` over a canonical input
+    so the signature is stable across processes, hosts, clocks, and users.
+  * ``should_report(slug, sig, state_path, now_ts)`` enforces a per-skill,
+    per-signature 24h rate limit backed by a tiny JSON state file. Even if
+    upstream dedup ever regresses again, the probe itself won't re-spam.
+
+Both helpers are PURE FUNCTIONS — testable without DB, network, or filesystem
+side-effects (rate limit takes ``state_path`` + ``now_ts`` as injectable args).
+
 Exit codes:
     0  no drift OR drift reported successfully
     1  config error (missing API key)
@@ -19,10 +37,12 @@ Exit codes:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -31,23 +51,99 @@ from pathlib import Path
 # Allow running from cron without changing CWD
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sqlalchemy import func  # noqa: E402
-
-from app.database import SessionLocal  # noqa: E402
-from app.models import InstallEvent, Skill, TelemetryEvent  # noqa: E402
-
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
+# ── Constants (module-level, but no side-effects) ─────────────────────────
+
 SENTINEL = Path("/var/lib/recipes-api/last_backfill_at")
-SENTINEL.parent.mkdir(parents=True, exist_ok=True)
+DEFAULT_RATE_LIMIT_STATE = Path.home() / ".hermes" / "state" / "drift-probe-seen.json"
+RATE_LIMIT_WINDOW_SECONDS = 24 * 3600
 
 API_BASE = os.environ.get("RECIPES_API_BASE", "http://127.0.0.1:3360")
 WR_API_KEY = os.environ.get("WR_API_KEY", "")
 
 
+# ── Pure helpers (test surface for repohygiene_2605/A) ────────────────────
+
+
+def compute_signature(slug: str) -> str:
+    """Return a deterministic 16-char hex signature for ``(slug, install_count_drift)``.
+
+    Replaces the pre-fix ``abs(hash(...)):016x`` formula, which depended on
+    Python's salt-randomized builtin ``hash()`` and drifted across cron runs.
+    """
+    canonical = f"{slug}|install_count_drift".encode()
+    return hashlib.sha256(canonical).hexdigest()[:16]
+
+
+def should_report(
+    slug: str,
+    signature: str,
+    *,
+    state_path: Path | None = None,
+    now_ts: float | None = None,
+) -> bool:
+    """Return True if ``(slug, signature)`` should be reported now, else False.
+
+    Persistent 24h rate limit keyed on the (slug, signature) tuple. Backed by
+    a tiny JSON state file at ``state_path`` (defaults to
+    ``~/.hermes/state/drift-probe-seen.json``). Caller-injectable ``now_ts``
+    keeps the function pure and testable.
+    """
+    if state_path is None:
+        state_path = DEFAULT_RATE_LIMIT_STATE
+    if now_ts is None:
+        now_ts = time.time()
+
+    state: dict[str, float] = {}
+    if state_path.exists():
+        try:
+            raw = json.loads(state_path.read_text())
+            if isinstance(raw, dict):
+                # JSON only stores numbers, so cast back to float defensively.
+                state = {str(k): float(v) for k, v in raw.items() if isinstance(v, (int, float))}
+        except (OSError, ValueError, TypeError) as exc:
+            # Rationale: state file is non-authoritative — corruption or partial
+            # write must NOT crash the cron. Treat as "first run" and rebuild.
+            logger.warning("drift-probe rate-limit state unreadable, rebuilding: %s", exc)
+            state = {}
+
+    key = f"{slug}::{signature}"
+    last_seen = state.get(key)
+    if last_seen is not None and (now_ts - last_seen) < RATE_LIMIT_WINDOW_SECONDS:
+        return False
+
+    # Update + persist. Garbage-collect entries older than 2× the window so the
+    # file stays small even if many (slug, sig) pairs cycle through.
+    cutoff = now_ts - 2 * RATE_LIMIT_WINDOW_SECONDS
+    state = {k: v for k, v in state.items() if v >= cutoff}
+    state[key] = now_ts
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps(state, sort_keys=True))
+    except OSError as exc:
+        # Rationale: failing to PERSIST the rate limit is non-fatal — we'd
+        # rather re-report than crash; a parallel cron will retry on next tick.
+        logger.warning("drift-probe could not persist rate-limit state: %s", exc)
+    return True
+
+
+# ── DB + network ─────────────────────────────────────────────────────────
+
+
+def _open_session():
+    """Lazy DB import so module-level import works in environments without app/."""
+    from app.database import SessionLocal  # noqa: WPS433 — lazy by design
+
+    return SessionLocal()
+
+
 def compute_truth(db) -> dict[str, int]:
     """Return {slug: max(telemetry_installs, install_events)} per slug."""
+    from sqlalchemy import func  # noqa: WPS433 — lazy
+    from app.models import InstallEvent, TelemetryEvent  # noqa: WPS433 — lazy
+
     truth: dict[str, int] = {}
     for slug, count in (
         db.query(TelemetryEvent.skill_slug, func.count())
@@ -75,7 +171,7 @@ def report_drift(slug: str, actual: int, expected: int) -> bool:
         return False
     payload = {
         "skill_slug": slug,
-        "error_signature": f"{abs(hash((slug, 'install_count_drift'))) :016x}"[:16],
+        "error_signature": compute_signature(slug),
         "env_fingerprint": {
             "host": os.uname().nodename[:64],
             "actual": str(actual)[:64],
@@ -97,7 +193,7 @@ def report_drift(slug: str, actual: int, expected: int) -> bool:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
+        with urllib.request.urlopen(req, timeout=10) as r:  # noqa: S310 — internal cron URL
             r.read()
             return True
     except urllib.error.HTTPError as exc:
@@ -114,16 +210,36 @@ def report_drift(slug: str, actual: int, expected: int) -> bool:
 
 
 def main() -> int:
-    db = SessionLocal()
+    """Cron entry point. Returns shell-style exit code."""
+    # Sentinel dir creation deferred from import-time to runtime so tests + dev
+    # environments can import this module without /var/lib/recipes-api perms.
+    try:
+        SENTINEL.parent.mkdir(parents=True, exist_ok=True)
+    except PermissionError as exc:
+        logger.warning("sentinel dir not writable (non-prod env?): %s", exc)
+
+    from app.models import Skill  # noqa: WPS433 — lazy
+
+    db = _open_session()
     try:
         truth = compute_truth(db)
         total_drift = 0
         reported = 0
+        suppressed = 0
         for skill in db.query(Skill).all():
             actual = int(skill.install_count or 0)
             expected = int(truth.get(skill.slug, 0))
             if actual != expected:
                 total_drift += abs(actual - expected)
+                signature = compute_signature(skill.slug)
+                if not should_report(skill.slug, signature):
+                    suppressed += 1
+                    logger.info(
+                        "drift on %s suppressed by 24h rate limit (signature=%s)",
+                        skill.slug,
+                        signature,
+                    )
+                    continue
                 if report_drift(skill.slug, actual, expected):
                     reported += 1
                 else:
@@ -133,9 +249,17 @@ def main() -> int:
                         actual,
                         expected,
                     )
-        SENTINEL.write_text(datetime.now(timezone.utc).isoformat())
+        try:
+            SENTINEL.write_text(datetime.now(timezone.utc).isoformat())
+        except OSError as exc:
+            # Rationale: sentinel write is observability, not correctness — must
+            # not crash the probe in dev/test envs without /var/lib perms.
+            logger.warning("could not update sentinel %s: %s", SENTINEL, exc)
         logger.info(
-            "drift probe complete: total_drift=%d reported=%d", total_drift, reported
+            "drift probe complete: total_drift=%d reported=%d suppressed=%d",
+            total_drift,
+            reported,
+            suppressed,
         )
         return 0
     finally:
