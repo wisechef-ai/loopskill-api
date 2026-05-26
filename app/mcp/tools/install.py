@@ -128,6 +128,16 @@ def recipes_install(
             client_ip=None,
         )
     )
+    # repohygiene_2605 Phase C: bump the denormalised counter in the same
+    # transaction as the InstallEvent insert (RCP-13 contract).
+    # Pre-fix this update was missing here — the MCP tool wrote the row but
+    # never incremented the counter, causing install_count to drift negative
+    # for all 9 "hot skills" that were installed via cbt_token → MCP path.
+    # Atomic SQL-level expression — concurrent installs cannot lose writes.
+    db.query(Skill).filter(Skill.id == skill.id).update(
+        {Skill.install_count: Skill.install_count + 1},
+        synchronize_session=False,
+    )
     db.commit()
 
     related = _related_slugs(db, base_slug, limit=10)
