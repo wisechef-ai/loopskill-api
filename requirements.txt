@@ -2,7 +2,7 @@
 fastapi>=0.110
 uvicorn[standard]>=0.27
 sqlalchemy>=2.0
-alembic>=1.13
+alembic>=1.16.5
 cachetools>=5.5.0
 psycopg2-binary>=2.9
 pydantic>=2.5
