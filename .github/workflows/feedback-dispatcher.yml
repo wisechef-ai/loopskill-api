@@ -344,6 +344,11 @@ jobs:
               const name = truncate(payload.target_name || '', 120);
               title  = `[recipe:request] ${name}`;
               labels = ['recipe:request', 'agent-reported'];
+              // Storm-test predicate: auto-label requests from tester agents.
+              // NOTE: matches 'tester' (not 'test') to avoid false-positives on
+              // real usernames like 'test-account-1' (see repohygiene_2605 §6 risk #12).
+              const isStormTest = payload?.agent_id?.toLowerCase()?.includes('tester') === true;
+              if (isStormTest) labels.push('storm-test-artifact');
               body   = [
                 '## Recipify request',
                 '',
