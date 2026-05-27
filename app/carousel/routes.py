@@ -36,6 +36,17 @@ router = APIRouter(tags=["carousel"])
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
+def _build_carousel_link(slug: str, slot: int, target_date: date) -> str:
+    """Return the canonical UTM link for a carousel slot entry.
+
+    Format: /skills/<slug>?ref=carousel-slot-<N>-<YYYYMMDD>
+    Used by pick_1605 attribution pipeline and REVENUE_MARKETING posts.
+    """
+    date_str = target_date.isoformat().replace("-", "")
+    return f"/skills/{slug}?ref=carousel-slot-{slot}-{date_str}"
+
+
+
 
 # ── Response schemas ──────────────────────────────────────────────────────
 
@@ -57,6 +68,7 @@ class CarouselEntryItem(BaseModel):
     role: str | None = None
     tagline: str | None = None
     score: float | None = None
+    link: str | None = None
 
 
 class CarouselResponse(BaseModel):
@@ -99,13 +111,15 @@ def _build_response(target_date: date, entries: list[CarouselEntry]) -> Carousel
             is_free=getattr(skill, "is_free", None),
             vertical=getattr(skill, "vertical", None),
         )
+        slot_num = e.slot if e.slot is not None else e.position + 1
         items.append(
             CarouselEntryItem(
-                slot=e.slot if e.slot is not None else e.position + 1,
+                slot=slot_num,
                 skill=brief,
                 role=e.role,
                 tagline=e.tagline,
                 score=e.score,
+                link=_build_carousel_link(skill.slug, slot_num, target_date),
             )
         )
     return CarouselResponse(
