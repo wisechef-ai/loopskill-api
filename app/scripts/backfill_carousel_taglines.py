@@ -33,8 +33,8 @@ def derive_tagline(skill: Skill) -> str:
     """Mirror the selector logic exactly — keep these in sync."""
     description = skill.description or ""
     if description:
-        return description[:80]
-    return (skill.title or "")[:80]
+        return description[:120]
+    return (skill.title or "")[:120]
 
 
 def main() -> int:
