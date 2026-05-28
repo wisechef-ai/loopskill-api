@@ -1,6 +1,6 @@
 """topshelf_2605/B — add feedback_status column to feedback tables
 
-Revision ID: topshelf_2605_b_add_feedback_status
+Revision ID: ts2605_b_feedback_status
 Revises: rh2605h1_cbt_install_public
 Create Date: 2026-05-28 00:00:00.000000
 
@@ -18,7 +18,7 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = "topshelf_2605_b_add_feedback_status"
+revision = "ts2605_b_feedback_status"
 down_revision = "rh2605h1_cbt_install_public"
 branch_labels = None
 depends_on = None

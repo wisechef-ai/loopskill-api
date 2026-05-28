@@ -1,7 +1,7 @@
 """topshelf_2605/D — contributor-discount subscriber_credits table
 
-Revision ID: topshelf_2605_d_subscriber_credits
-Revises: topshelf_2605_b_add_feedback_status
+Revision ID: ts2605_d_subscriber_credits
+Revises: ts2605_b_feedback_status
 Create Date: 2026-05-28 00:00:00.000000
 
 Adds ``subscriber_credits`` table that tracks per-user discount credits.
@@ -31,8 +31,8 @@ from alembic import op
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 # revision identifiers, used by Alembic.
-revision = "topshelf_2605_d_subscriber_credits"
-down_revision = "topshelf_2605_b_add_feedback_status"
+revision = "ts2605_d_subscriber_credits"
+down_revision = "ts2605_b_feedback_status"
 branch_labels = None
 depends_on = None
 

@@ -1,7 +1,7 @@
 """topshelf_2605/H — voice-of-customer missing_skill_queries table
 
-Revision ID: topshelf_2605_h_missing_skill_queries
-Revises: topshelf_2605_d_subscriber_credits
+Revision ID: ts2605_h_missing_skill_q
+Revises: ts2605_d_subscriber_credits
 Create Date: 2026-05-28 00:00:00.000000
 
 Creates ``missing_skill_queries`` to capture search queries that returned
@@ -29,8 +29,8 @@ from alembic import op
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 # revision identifiers, used by Alembic.
-revision = "topshelf_2605_h_missing_skill_queries"
-down_revision = "topshelf_2605_d_subscriber_credits"
+revision = "ts2605_h_missing_skill_q"
+down_revision = "ts2605_d_subscriber_credits"
 branch_labels = None
 depends_on = None
 
