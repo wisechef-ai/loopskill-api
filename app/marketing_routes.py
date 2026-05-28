@@ -21,6 +21,17 @@ from app.tier_labels import display_label
 router = APIRouter(prefix="/api/marketing", tags=["marketing"])
 
 
+class _SafeCountDict(dict):
+    """dict for str.format_map that leaves unknown ``{token}`` verbatim.
+
+    Lets marketing bullets interpolate live counts (``{pro_skills}`` etc.)
+    without ever raising KeyError on copy that contains an unrelated brace.
+    """
+
+    def __missing__(self, key: str) -> str:  # noqa: D105
+        return "{" + key + "}"
+
+
 @router.get("/counts")
 def marketing_counts(db: Session = Depends(get_db)) -> dict:
     """Live catalog counts — drift-proof source for every public surface.
@@ -105,5 +116,15 @@ def marketing_snapshot(db: Session = Depends(get_db)) -> dict:
     snap["counts"]["pro_skills"] = live["pro"]
     snap["counts"]["pro_plus_exclusive_skills"] = live["pro_plus"]
     snap["counts"]["last_added_at"] = live["last_added_at"]
+
+    # Interpolate {key} placeholders in tier bullets against the live counts so
+    # marketing copy numbers (e.g. "{pro_skills} today") track the DB and can
+    # never drift stale. Unknown tokens are left verbatim — a stray brace in
+    # copy must never raise. See config/recipes-marketing.yaml bullet docs.
+    _fmt = _SafeCountDict(snap["counts"])
+    for tier in (snap.get("tiers") or {}).values():
+        if isinstance(tier, dict) and isinstance(tier.get("bullets"), list):
+            tier["bullets"] = [b.format_map(_fmt) if isinstance(b, str) else b for b in tier["bullets"]]
+
     snap["_source"] = "config/recipes-marketing.yaml + live DB counts"
     return snap

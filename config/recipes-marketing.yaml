@@ -40,12 +40,18 @@ counts:
 # Mirror of config/tiers.yaml fields needed for marketing. The drift watchdog
 # verifies these two stay in sync. Do NOT diverge price_usd or display_name
 # here without updating config/tiers.yaml in the same commit.
+#
+# Bullet placeholders: any {key} token in a tier bullet is interpolated by
+# app/marketing_routes.py:marketing_snapshot() against the LIVE counts block
+# (e.g. {pro_skills}, {skills_total}, {free_skills}). This keeps catalog
+# numbers in marketing copy drift-proof — never hardcode a count in a bullet,
+# use the placeholder so it tracks the DB. Unknown tokens are left verbatim.
 tiers:
   pro:
     display_name: Pro
     price_usd: 20
     bullets:
-      - Every paid skill in the catalog (45 today, growing weekly)
+      - Every paid skill in the catalog ({pro_skills} today, growing weekly)
       - 1 personal cookbook + fleet sync
       - Cross-vendor (Claude Code, Cursor, Cline, OpenClaw, Hermes, Windsurf)
       - Per-key install visibility
