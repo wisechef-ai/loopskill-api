@@ -34,9 +34,9 @@ These runs are for issue #290, not #289. Issue #289 (`gbrain-on-hermes`) has not
 
 | Tier | Who may approve | Mechanism |
 |------|-----------------|-----------|
-| `free` / `cook` | Tori (autonomous) can approve after gate pass | `gh issue edit --add-label approved` in a sub-agent |
-| `operator` | Tori can approve after gate pass + 24h hold | same |
-| `pro` / `pro_plus` | **Adam (human) must approve** | Adam adds `approved` label in GitHub UI |
+| `free` / `pro` | Tori (autonomous) can approve after gate pass | `gh issue edit --add-label approved` in a sub-agent |
+| `pro_plus` | Tori can approve after gate pass + 24h hold | same |
+| (human review) | **Adam (human) must approve** | Adam adds `approved` label in GitHub UI |
 
 `tier=pro` and above require human sign-off because:
 1. Pro skills are installed by paying subscribers; a bad skill has higher blast radius.

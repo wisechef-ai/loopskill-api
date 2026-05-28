@@ -12,7 +12,22 @@ import re
 from pathlib import Path
 
 
-MIDDLEWARE_PATH = Path(__file__).parent.parent / "app" / "middleware.py"
+# topshelf_2605/J: middleware.py was split into the app/middleware/ package.
+# The API-key comparison logic now lives in app/middleware/api_key.py. Read the
+# whole package so these source-grep regressions stay robust to internal layout
+# and assert the security property (hmac.compare_digest) wherever it lives.
+_MIDDLEWARE_DIR = Path(__file__).parent.parent / "app" / "middleware"
+MIDDLEWARE_PATH = _MIDDLEWARE_DIR / "api_key.py"
+
+
+def _middleware_source() -> str:
+    """Concatenate every module in the middleware package."""
+    if _MIDDLEWARE_DIR.is_dir():
+        return "\n".join(
+            p.read_text() for p in sorted(_MIDDLEWARE_DIR.glob("*.py"))
+        )
+    # Legacy single-file layout fallback.
+    return (_MIDDLEWARE_DIR.parent / "middleware.py").read_text()
 
 
 # ── PoV: verify == is NOT used for secret comparisons (FAILS on main) ────────
@@ -24,7 +39,7 @@ def test_pov_middleware_does_not_use_equals_for_api_key():
     Expected: FAIL on main (== present)
     Expected: PASS after fix (hmac.compare_digest used)
     """
-    source = MIDDLEWARE_PATH.read_text()
+    source = _middleware_source()
     # Check that hmac.compare_digest is used (not ==) for the master key check
     assert "hmac.compare_digest" in source, (
         "middleware.py must use hmac.compare_digest for secret comparisons. "
@@ -40,7 +55,7 @@ def test_pov_middleware_uses_compare_digest_at_least_twice():
     Expected: FAIL on main (only 0 or 1 occurrence)
     Expected: PASS after fix (≥2 occurrences)
     """
-    source = MIDDLEWARE_PATH.read_text()
+    source = _middleware_source()
     count = source.count("hmac.compare_digest")
     assert count >= 2, (
         f"Expected ≥2 uses of hmac.compare_digest in middleware.py, found {count}. "
@@ -55,7 +70,7 @@ def test_pov_middleware_imports_hmac():
     Expected: FAIL on main (no import)
     Expected: PASS after fix
     """
-    source = MIDDLEWARE_PATH.read_text()
+    source = _middleware_source()
     assert re.search(r"^import hmac", source, re.MULTILINE), (
         "middleware.py must import hmac at the top level for hmac.compare_digest."
     )
@@ -68,7 +83,7 @@ def test_middleware_no_bare_equals_for_secrets():
 
     This is a regression guard — if someone reverts to == accidentally, this fails.
     """
-    source = MIDDLEWARE_PATH.read_text()
+    source = _middleware_source()
     # Check there is no `key == settings.API_KEY` pattern
     assert "key == settings.API_KEY" not in source, (
         "middleware.py still has 'key == settings.API_KEY' timing-oracle pattern. "

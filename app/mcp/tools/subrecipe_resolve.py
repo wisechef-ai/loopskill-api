@@ -1,6 +1,6 @@
 """recipes_subrecipe_resolve — Phase C (sub-recipe key minting).
 
-Phase A always reported the caller as ``operator``. Phase G (recipes_2005/G)
+Phase A always reported the caller as ``operator`` (legacy alias). Phase G (recipes_2005/G)
 updates the stub to return the canonical ``pro_plus`` scope (Phase 5 slug parity).
 Phase C swaps this for the actual sub-key validation logic.
 """

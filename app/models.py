@@ -47,12 +47,12 @@ class User(Base):
     display_name = Column(String(255), nullable=False)
     avatar_url = Column(Text, nullable=True)
     stripe_connect_id = Column(String(255), nullable=True)  # Stripe Connect Express account ID
-    # ── Subscription billing (Cook/Operator/Studio tiers) ─────────────────
+    # ── Subscription billing (Free/Pro/Pro+ tiers) ─────────────────
     stripe_customer_id = Column(String(255), unique=True, nullable=True, index=True)
     subscription_status = Column(
         String(32), nullable=True, index=True
     )  # active, past_due, canceled, incomplete, trialing, unpaid, paused
-    subscription_tier = Column(String(32), nullable=True)  # free, cook, operator
+    subscription_tier = Column(String(32), nullable=True)  # free, pro, pro_plus (legacy: cook, operator)
     subscription_id = Column(String(255), nullable=True)  # Stripe subscription id
     subscription_current_period_end = Column(DateTime(timezone=True), nullable=True)
     # ── Discord integration (Phase D) ─────────────────────────────────────
@@ -161,7 +161,9 @@ class Skill(Base):
     category = Column(String(128), nullable=True, index=True)
     readme = Column(Text, nullable=True)
     license = Column(String(64), nullable=True)
-    tier = Column(String(32), nullable=True)  # free, cook, operator (studio retired v7/phase-F)
+    tier = Column(
+        String(32), nullable=True
+    )  # free, pro, pro_plus (legacy: cook, operator, studio retired v7/phase-F)
     is_public = Column(Boolean, default=True)
 
     creator_id = Column(UUID(as_uuid=True), ForeignKey("creators.id"), nullable=True)
@@ -547,7 +549,7 @@ class PatchCandidate(Base):
     __table_args__ = (UniqueConstraint("skill_id", "error_signature", name="uq_patch_candidate_sig"),)
 
 
-# ── Operator-tier forks (Phase D.1) ──────────────────────────────────────
+# ── Pro+-tier forks (Phase D.1) ──────────────────────────────────────
 
 
 class SkillFork(Base):
@@ -647,11 +649,11 @@ class ReplacementCandidate(Base):
     __table_args__ = (UniqueConstraint("source_id", "target_id", name="uq_replacement_candidate_pair"),)
 
 
-# ── Studio buckets (Phase E.1, v5.4) ───────────────────────────────────
+# ── Pro+ buckets (Phase E.1, v5.4) ───────────────────────────────────────
 
 
 class Bucket(Base):
-    """Studio-tier collection of skills/forks that can be applied atomically.
+    """Pro+-tier collection of skills/forks that can be applied atomically.
 
     Slug is globally unique so that `GET /api/buckets/{slug}/manifest` is a
     single shareable URL. White-label deployments map a `custom_domain` (CNAME
@@ -924,6 +926,7 @@ class RecipifyRequest(Base):
     api_key_id = Column(UUID(as_uuid=True), nullable=True)
     signature = Column(Text, nullable=False)  # sha256(target_name|why_useful) hex
     issue_url = Column(Text, nullable=True)
+    feedback_status = Column(Text, default="pending")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
@@ -949,6 +952,7 @@ class FeedbackSubmission(Base):
     api_key_id = Column(UUID(as_uuid=True), nullable=True)
     signature = Column(Text, nullable=False)  # sha256(category|message) hex
     issue_url = Column(Text, nullable=True)
+    feedback_status = Column(Text, default="pending")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
@@ -1033,3 +1037,57 @@ class SkillPatch(Base):
         Index("idx_sp_api_key_h", "api_key_h"),
         Index("idx_sp_slug", "slug"),
     )
+
+
+# ── Subscriber Credits ───────────────────────────────────────────────────
+
+
+class SubscriberCredit(Base):
+    """Contributor-discount credit for pro/pro_plus subscribers.
+
+    Granted automatically when a skill published by the user is approved.
+    Stores a 50% discount that can be applied to the user's next billing renewal
+    via a one-time Stripe coupon.
+
+    Lifecycle:
+      used_at IS NULL  → credit is active and available
+      used_at IS NOT NULL → credit has been consumed (or expired by the cron)
+    """
+
+    __tablename__ = "subscriber_credits"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    type = Column(Text, nullable=False)
+    amount_pct = Column(Integer, nullable=False)
+    granted_for_skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=True)
+    granted_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used_at = Column(DateTime(timezone=True), nullable=True)
+    used_on_stripe_invoice_id = Column(Text, nullable=True)
+
+
+# ── Voice-of-customer: searched-but-missing skill queries (topshelf_2605/H) ──
+
+
+class MissingSkillQuery(Base):
+    """Passive VOC signal — search queries that returned zero results.
+
+    One row per (lower(query), day); repeated zero-result searches increment
+    ``count`` so the weekly digest surfaces catalog gaps without row explosion.
+    The functional unique index is defined in migration
+    topshelf_2605_h_missing_skill_queries.py.
+    """
+
+    __tablename__ = "missing_skill_queries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    query = Column(Text, nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=True)
+    day = Column(Date, nullable=False)
+    count = Column(Integer, nullable=False, default=1, server_default="1")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

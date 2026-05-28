@@ -10,7 +10,7 @@ description: >
   returns a non-zero exit, the gap is reported via the errors[] field rather than
   treated as a fatal failure. Emits the same standard JSON envelope used by the other
   three hub-search skills so agents can union results across all hubs.
-tier: cook
+tier: pro
 category: discovery
 license: Apache-2.0
 tags: [hub-search, discovery, codex, plugin]

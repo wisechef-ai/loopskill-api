@@ -2,7 +2,7 @@
 
 Endpoints (all gated to subscription_tier in {'pro','pro_plus'} OR master key):
 Legacy slugs 'cook'/'operator' accepted via _is_paid_tier/_is_pro_plus_tier shims for 30 days.
-  - POST   /api/cookbooks                       create (1-max for cook tier)
+  - POST   /api/cookbooks                       create (1-max for pro tier)
   - GET    /api/cookbooks                       list mine
   - GET    /api/cookbooks/{id}                  detail with skills
   - POST   /api/cookbooks/{id}/skills           add skill (validates slug)
@@ -46,7 +46,7 @@ UNLIMITED_TIERS = {"pro_plus"}  # canonical; legacy slugs handled via shim
 ACTIVE_SUB_STATUSES = {"active", "trialing"}
 ALLOWED_SOURCES = {"forked", "custom-added", "overridden", "disabled"}
 
-# WIS-902: Cook tier skill cap per cookbook
+# WIS-902: Pro tier skill cap per cookbook
 COOK_SKILL_CAP = 25
 
 

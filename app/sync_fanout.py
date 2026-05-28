@@ -108,7 +108,7 @@ class Fanout:
         try:
             evt = json.loads(payload)
         # Rationale: NOTIFY payload must be valid JSON; bad payload → log and skip
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.exception("fanout: bad NOTIFY payload %r", payload)
             return
         cookbook_ids = evt.get("cookbooks") or []
@@ -120,7 +120,7 @@ class Fanout:
             try:
                 await self._listener_conn.close()
             # Rationale: listener connection close is best-effort; log but don't block shutdown
-            except Exception:
+            except Exception:  # noqa: BLE001
                 logger.exception("fanout: error closing listener connection")
             self._listener_conn = None
 
@@ -175,7 +175,7 @@ async def emit_cookbook_event(db: Session, cookbook_ids: list[str], event: dict)
                 {"p": json.dumps(payload)},
             )
         # Rationale: pg_notify failure is non-fatal; fanout may be degraded but service continues
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.exception("fanout: pg_notify failed")
     else:
         for cid in cookbook_ids:

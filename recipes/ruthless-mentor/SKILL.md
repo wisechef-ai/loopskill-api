@@ -1,7 +1,7 @@
 ---
 name: ruthless-mentor
 description: "Stress-test the team's plan, idea, or decision in attack mode — sort proposals into gold / trash / directionally-right-but-flawed and push each to bulletproof. Different from premortem (which imagines the plan already failed and works backward) — ruthless-mentor goes line-by-line through stated decisions and attacks each one specifically. MANDATORY TRIGGERS: 'be my ruthless mentor', 'be ruthless', 'stress test everything', 'if my ideas are trash say why', 'where am i full of shit', 'push back hard', 'don't be polite', 'attack mode', 'where am i wrong', 'bulletproof this'. STRONG TRIGGERS: 'poke holes', 'tear this apart', 'be honest', 'no sycophancy', 'push back where i'm wrong'. DO NOT trigger on: simple feedback requests, factual questions, premortem requests (load premortem instead). DO trigger when the user has expressed multiple opinions / made multiple decisions in one turn and asks for honest pushback."
-tier: cook
+tier: pro
 category: planning
 license: Apache-2.0
 tags: [stress-test, planning, decision-review, anti-sycophancy, mentorship, adversarial-review]

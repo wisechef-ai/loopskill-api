@@ -2,13 +2,13 @@
 
 Returned scopes mirror app/auth_ctx.py exactly (single source of truth):
     * ``master``      — the master ``settings.API_KEY`` (hmac.compare_digest).
-    * ``user``        — a real APIKey row hit (NOT 'operator').
+    * ``user``        — a real APIKey row hit (NOT the old legacy 'operator' scope).
     * ``anonymous``   — no key provided.
     * ``cbt_token``   — cookbook share token (see middleware.py cbt_ path).
     * ``unauthorized``— key provided but not recognised.
 
-Phase B fix for Issue #5: every user key previously got scope='operator'
-(a superuser privilege); now correctly gets scope='user'.
+Phase B fix for Issue #5: every user key previously got scope='operator' (legacy alias —
+(a superuser privilege — legacy scope value, pre-Phase-5); now correctly gets scope='user'.
 The request.state.auth_ctx is populated with an AuthContext dataclass
 identical to the REST path — single source of truth.
 """

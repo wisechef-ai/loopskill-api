@@ -69,59 +69,59 @@ ATTRIBUTION: dict[str, dict] = {
     "aitoearn": {
         "creator_name": "Tinywebvr",
         "category": "marketing",
-        "tier": "cook",
+        "tier": "pro",
         "original_source_url": "https://github.com/yourselfhosted/aitoearn",
     },
     "gh-fix-ci": {
         "creator_name": "OpenAI Codex",
         "category": "devops",
-        "tier": "cook",
+        "tier": "pro",
     },
     "hub-search-claude-code": {
         "creator_name": "WiseChef Team",
         "category": "discovery",
-        "tier": "cook",
+        "tier": "pro",
     },
     "hub-search-codex": {
         "creator_name": "WiseChef Team",
         "category": "discovery",
-        "tier": "cook",
+        "tier": "pro",
     },
     "hub-search-hermes": {
         "creator_name": "WiseChef Team",
         "category": "discovery",
-        "tier": "cook",
+        "tier": "pro",
     },
     "hub-search-openclaw": {
         "creator_name": "WiseChef Team",
         "category": "discovery",
-        "tier": "cook",
+        "tier": "pro",
     },
     "incident-response-openclaw": {
         "creator_name": "WiseChef Team",
         "category": "devops",
-        "tier": "cook",
+        "tier": "pro",
     },
     "llm-wiki-hermes": {
         "creator_name": "Andrej Karpathy",
         "category": "research",
-        "tier": "cook",
+        "tier": "pro",
         "original_source_url": "https://github.com/karpathy/llm-wiki",
     },
     "plan-for-goal": {
         "creator_name": "WiseChef Team",
         "category": "planning",
-        "tier": "cook",
+        "tier": "pro",
     },
     "ruthless-mentor": {
         "creator_name": "WiseChef Team",
         "category": "planning",
-        "tier": "cook",
+        "tier": "pro",
     },
     "skill-creator-anthropic": {
         "creator_name": "Anthropic",
         "category": "meta",
-        "tier": "cook",
+        "tier": "pro",
         "original_source_url": "https://github.com/anthropics/skills",
     },
 
@@ -251,7 +251,7 @@ MERGE_HUB_SEARCH = {
         "the right local skill without re-installing it."
     ),
     "category": "discovery",
-    "tier": "cook",
+    "tier": "pro",
     "creator_name": "WiseChef Team",
 }
 

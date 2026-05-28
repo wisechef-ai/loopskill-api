@@ -79,7 +79,7 @@ def healthz(db: Session = Depends(get_db)):
                 last_evt_naive = last_evt.replace(tzinfo=None)
                 # 'paid' = tier set AND not the literal 'free' string. In prod
                 # subscription_tier values include NULL and 'free' alongside
-                # the paid 'pro' / 'pro_plus' (and legacy 'cook' / 'operator').
+                # the paid 'pro' / 'pro_plus' (legacy aliases 'cook' / 'operator' sunset 2026-06-10).
                 paid_after_last_webhook = db.execute(
                     select(func.count(User.id)).where(
                         User.subscription_tier.is_not(None),

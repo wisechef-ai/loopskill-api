@@ -26,7 +26,7 @@ from app.models import SkillVersion
 from tests.conftest import make_skill
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-INTERPLUS_YAML = REPO_ROOT / "cookbooks" / "interplus-deploy-v1.yaml"
+INTERPLUS_YAML = REPO_ROOT / "internal" / "cookbooks" / "interplus-deploy-v1.yaml"
 
 
 # ── Fixtures ────────────────────────────────────────────────────────────────

@@ -6,6 +6,9 @@ of hardcoded numbers. Drift is mechanically impossible.
 
 Phase F extends this with the full marketing snapshot (tier names + endpoints +
 tool list) read from config/recipes-marketing.yaml.
+
+Phase L (topshelf_2605): demo-funnel endpoints extracted from routes.py and
+added to this module as wisechef_router. Same URL paths preserved.
 """
 
 from __future__ import annotations
@@ -15,10 +18,15 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Skill
+from app.models import Skill, WiseChefDemoRequest
+from app.schemas import DemoCTAOut, DemoRequestIn, DemoRequestOut
 from app.tier_labels import display_label
 
 router = APIRouter(prefix="/api/marketing", tags=["marketing"])
+
+# ── WiseChef demo-funnel router ──────────────────────────────────────────────
+# Paths mirror the original /api/wisechef/* surface from routes.py.
+wisechef_router = APIRouter(prefix="/api/wisechef", tags=["wisechef"])
 
 
 class _SafeCountDict(dict):
@@ -128,3 +136,76 @@ def marketing_snapshot(db: Session = Depends(get_db)) -> dict:
 
     snap["_source"] = "config/recipes-marketing.yaml + live DB counts"
     return snap
+
+
+# ── WiseChef Demo CTA ────────────────────────────────────────────────────────
+
+
+@wisechef_router.get("/demo-cta", response_model=DemoCTAOut)
+def demo_cta():
+    """WiseChef cross-sell CTA for the Recipes marketplace.
+
+    Returns dynamic marketing content for the landing page and carousel.
+    """
+    return DemoCTAOut(
+        headline="Stop managing AI agents. Start earning with them.",
+        subheadline="WiseChef runs your AI workflows — content, SEO, reporting — so you focus on clients.",
+        cta_text="Book a Free Demo",
+        cta_url="https://wisechef.ai/signup",
+        social_proof=[
+            "Trusted by marketing agencies across Europe",
+            "200+ hours saved per month on content workflows",
+            "Set up in 15 minutes, not 15 days",
+        ],
+        tier_from="€499/mo",
+    )
+
+
+@wisechef_router.post("/demo-request", response_model=DemoRequestOut, status_code=201)
+def submit_demo_request(
+    body: DemoRequestIn,
+    db: Session = Depends(get_db),
+):
+    """Submit a demo request from the Recipes marketplace.
+
+    Stores in wisechef_demo_requests table for follow-up.
+    """
+    # Check for duplicate email
+    existing = (
+        db.query(WiseChefDemoRequest)
+        .filter(
+            WiseChefDemoRequest.email == body.email,
+        )
+        .first()
+    )
+    if existing:
+        return DemoRequestOut(
+            id=existing.id,
+            email=existing.email,
+            company_name=existing.company_name,
+            company_size=existing.company_size,
+            source=existing.source,
+            status=existing.status,
+            created_at=existing.created_at,
+        )
+
+    req = WiseChefDemoRequest(
+        email=body.email,
+        company_name=body.company_name,
+        company_size=body.company_size,
+        source=body.source,
+        message=body.message,
+    )
+    db.add(req)
+    db.commit()
+    db.refresh(req)
+
+    return DemoRequestOut(
+        id=req.id,
+        email=req.email,
+        company_name=req.company_name,
+        company_size=req.company_size,
+        source=req.source,
+        status=req.status,
+        created_at=req.created_at,
+    )

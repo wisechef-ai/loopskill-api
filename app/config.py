@@ -127,6 +127,16 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_HOURS: int = 72
 
+    # G.3 — Optional multi-key JWT rotation support.
+    # JWT_KEYS: JSON string mapping kid → HMAC secret, e.g.
+    #   WR_JWT_KEYS='{"v2":"<new-secret>","v1":"<old-secret>"}'
+    # JWT_ACTIVE_KID: the kid used when signing new tokens, e.g. "v2"
+    # When EITHER field is unset the signer/verifier fall back to JWT_SECRET
+    # and behaviour is identical to pre-rotation.  Set both to activate
+    # multi-key mode; omit both to keep legacy single-key behaviour.
+    JWT_KEYS: str = ""
+    JWT_ACTIVE_KID: str = ""
+
     # Payout rates (per recipes-plan-v4-locked.md)
     PAYOUT_RATE_COOK: float = 0.50
     PAYOUT_RATE_OPERATOR: float = 0.60

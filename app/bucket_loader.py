@@ -1,7 +1,7 @@
 """Bucket-definition loader (Phase E.6, v5.4).
 
 Bucket definition files live under `buckets/<slug>.json`. They are the data
-that a Studio user authors to describe their fleet stack. Standard JSON
+that a Pro+ user authors to describe their fleet stack. Standard JSON
 forbids comments, so we adopt a **convention**: any dict key whose name
 starts with an underscore is treated as a comment and stripped at load
 time. This keeps the file machine-readable to vanilla `json.loads` while

@@ -2,7 +2,7 @@
 name: maestro
 title: Maestro
 description: "Solo-operator AI agent that runs your business while you sleep — morning briefing, marketing, code, tickets, weekly review."
-tier: cook
+tier: pro
 category: automation
 license: BUSL-1.1
 related_skills:

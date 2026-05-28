@@ -33,7 +33,8 @@ and say why.
       workflows / config)? If yes, a code owner has reviewed it.
 - [ ] Adds an alembic migration? Confirmed single head (`alembic heads`).
 - [ ] Changes pricing / tier labels? `config/tiers.yaml` is the only SSOT
-      edited; DB slugs `cook` / `studio` unchanged.
+      edited; canonical DB slugs are `free` / `pro` / `pro_plus` (legacy aliases
+      `cook`/`operator`/`studio` sunset 2026-06-10).
 - [ ] Edits a god node (`APIKeyMiddleware.dispatch`, `validate_key`,
       `recipes_install`, `SandboxRunner.run`, `scan_tarball`)? Blast radius
       understood and stated above.

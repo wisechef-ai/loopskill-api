@@ -244,8 +244,32 @@ def find_or_create_user_by_google(db: Session, google_data: dict) -> User:
 # ── JWT management ───────────────────────────────────────────────────────
 
 
+def _jwt_keys() -> dict[str, str]:
+    """Return the multi-key dict from JWT_KEYS, or {} if not configured."""
+    raw = getattr(settings, "JWT_KEYS", None)
+    if not raw:
+        return {}
+    import json as _json
+
+    try:
+        parsed = _json.loads(raw)
+        if isinstance(parsed, dict):
+            return {str(k): str(v) for k, v in parsed.items()}
+    except (ValueError, TypeError):
+        pass
+    return {}
+
+
 def create_jwt(user: User) -> str:
-    """Issue a JWT for the given user."""
+    """Issue a JWT for the given user.
+
+    Multi-key mode (G.3): when JWT_KEYS (JSON dict kid→secret) and
+    JWT_ACTIVE_KID are both set, the token is signed with the active key and
+    a ``kid`` header is included for transparent rotation.
+
+    Legacy mode: when those settings are absent, behaviour is identical to
+    the pre-rotation implementation (plain JWT_SECRET, no kid header).
+    """
     payload = {
         "sub": str(user.id),
         "email": user.email,
@@ -254,25 +278,64 @@ def create_jwt(user: User) -> str:
         "iat": datetime.now(UTC),
         "iss": "wiserecipes",
     }
+    keys = _jwt_keys()
+    active_kid = getattr(settings, "JWT_ACTIVE_KID", None)
+    if keys and active_kid and active_kid in keys:
+        # Multi-key path: sign with the active kid and embed kid in header.
+        return jwt.encode(
+            payload,
+            keys[active_kid],
+            algorithm=settings.JWT_ALGORITHM,
+            headers={"kid": active_kid},
+        )
+    # Legacy path: identical to pre-rotation behaviour.
     return jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
 def verify_jwt(token: str) -> dict | None:
-    """Verify and decode a JWT. Returns payload or None."""
+    """Verify and decode a JWT. Returns payload or None.
+
+    Multi-key mode (G.3): if the token carries a ``kid`` header and JWT_KEYS
+    contains that kid, verification is attempted with that key first.  Falls
+    back to JWT_SECRET so tokens issued before rotation remain valid.
+
+    Legacy mode: when JWT_KEYS is not configured the function is identical to
+    the pre-rotation implementation.
+    """
     try:
-        payload = jwt.decode(
-            token,
-            settings.JWT_SECRET,
-            algorithms=[settings.JWT_ALGORITHM],
-            options={"require": ["sub", "exp", "iss"]},
-        )
-        if payload.get("iss") != "wiserecipes":
-            return None
-        return payload
-    except jwt.ExpiredSignatureError:
-        return None
+        # Decode header without verification to extract kid (if present).
+        unverified_header = jwt.get_unverified_header(token)
+        kid = unverified_header.get("kid")
     except jwt.InvalidTokenError:
         return None
+
+    keys = _jwt_keys()
+    secrets_to_try: list[str] = []
+    if kid and kid in keys:
+        # Preferred: verify with the key that signed this specific token.
+        secrets_to_try.append(keys[kid])
+    # Always append the legacy secret as a fallback so tokens signed before
+    # JWT_KEYS was populated continue to verify successfully.
+    secrets_to_try.append(settings.JWT_SECRET)
+
+    for secret in secrets_to_try:
+        try:
+            payload = jwt.decode(
+                token,
+                secret,
+                algorithms=[settings.JWT_ALGORITHM],
+                options={"require": ["sub", "exp", "iss"]},
+            )
+            if payload.get("iss") != "wiserecipes":
+                return None
+            return payload
+        except jwt.ExpiredSignatureError:
+            # Expired is definitive — no point trying other secrets.
+            return None
+        except jwt.InvalidTokenError:
+            continue  # wrong key or malformed — try next
+
+    return None
 
 
 def get_user_from_jwt(db: Session, token: str) -> User | None:

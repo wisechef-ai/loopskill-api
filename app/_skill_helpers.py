@@ -243,7 +243,7 @@ def _resolve_caller_tier_for_install(db: Session, request) -> str | None:
     """Resolve caller tier from request.state (set by APIKeyMiddleware).
 
     Returns the user's subscription tier, or None for anonymous/master.
-    Master key gets unlimited installs (treated as operator tier).
+    Master key gets unlimited installs (treated as pro_plus tier).
     """
     api_key_user_id = getattr(request.state, "api_key_user_id", "MISSING")
     # Master key gets unlimited installs (treated as pro_plus tier).
@@ -342,3 +342,33 @@ def _record_install_event(
         {Skill.install_count: Skill.install_count + 1},
         synchronize_session=False,
     )
+
+
+# ── Retired skill registry ───────────────────────────────────────────────────
+# WIS-903: Lazy-loaded, cached set of retired skill slugs.
+# Consolidated here (Phase L — topshelf_2605) so all route modules share one
+# loader instead of duplicating file-parse logic at import time.
+
+from pathlib import Path as _Path
+from functools import lru_cache as _lru_cache
+
+_RETIREMENT_FILE = _Path(__file__).resolve().parent.parent / "retired-skills.txt"
+
+
+@_lru_cache(maxsize=1)
+def get_retired_set() -> dict[str, str]:
+    """Return {slug: redirect_url} for all retired skills.
+
+    Cached after the first call. The file is parsed lazily so import-time
+    side-effects are eliminated. Returns an empty dict when the file is absent.
+    """
+    result: dict[str, str] = {}
+    if not _RETIREMENT_FILE.exists():
+        return result
+    for line in _RETIREMENT_FILE.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            parts = line.split(None, 1)
+            if len(parts) == 2:
+                result[parts[0]] = parts[1]
+    return result

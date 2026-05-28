@@ -65,8 +65,8 @@ def compute_counts() -> dict:
             SELECT
               SUM(CASE WHEN is_archived = false AND is_public = true THEN 1 ELSE 0 END) AS total,
               SUM(CASE WHEN is_archived = false AND is_public = true AND tier = 'free' THEN 1 ELSE 0 END) AS free,
-              SUM(CASE WHEN is_archived = false AND is_public = true AND tier = 'cook' THEN 1 ELSE 0 END) AS pro,
-              SUM(CASE WHEN is_archived = false AND is_public = true AND tier IN ('operator','studio') THEN 1 ELSE 0 END) AS pro_plus_only
+              SUM(CASE WHEN is_archived = false AND is_public = true AND tier IN ('pro', 'cook') THEN 1 ELSE 0 END) AS pro,  -- cook = legacy alias
+              SUM(CASE WHEN is_archived = false AND is_public = true AND tier IN ('pro_plus', 'operator','studio') THEN 1 ELSE 0 END) AS pro_plus_only  -- legacy aliases
             FROM skills
         """)
         ).first()

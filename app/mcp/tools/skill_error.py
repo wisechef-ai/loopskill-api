@@ -111,27 +111,26 @@ def recipes_report_skill_error(
     db.commit()
     db.refresh(report)
 
-    gh_url = (
-        github_dispatch.dispatch_event(
-            "skill-error",
-            {
-                "id": str(report.id),
-                "skill_slug": slug,
-                "error_signature": signature.lower(),
-                "agent_fp_anon": agent_id or "mcp-tool",
-                "signature": composite_sig,
-            },
-        )
-        or ""
+    # dispatch_event now returns True on success (workflow PATCHes the real
+    # issue URL back via /api/internal/feedback/{id}/issue-url) or None on
+    # failure. The issue_url is therefore "pending" at submit time — clients
+    # poll GET /api/feedback/{id} for the resolved URL.
+    dispatched = github_dispatch.dispatch_event(
+        "skill-error",
+        {
+            "id": str(report.id),
+            "skill_slug": slug,
+            "error_signature": signature.lower(),
+            "agent_fp_anon": agent_id or "mcp-tool",
+            "signature": composite_sig,
+        },
     )
-
-    if gh_url:
-        feedback_ratelimit.update_dedup_url(composite_sig, gh_url)
 
     return {
         "ok": True,
         "id": str(report.id),
-        "issue_url": gh_url,
+        "issue_url": "",
+        "status": "pending" if dispatched else "failed",
         "accepted": True,
         "anonymized": True,
         "deduped": False,

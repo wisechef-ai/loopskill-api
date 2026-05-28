@@ -1,0 +1,47 @@
+name: critical-path-coverage
+
+# Critical-path coverage gate (topshelf_2605/F).
+#
+# The aggregate coverage gate in ci.yml sits at 76%. That number is honest but
+# it lets the most dangerous modules — auth, authz, MCP auth — drift downward
+# as long as easy-to-test modules pull the average up. This gate closes that
+# hole: the security-critical surface is gated SEPARATELY at >=80% line
+# coverage. A scope leak or auth bypass introduced in these modules will fail
+# CI even if the aggregate stays green.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: critical-path-coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  critical-path-coverage:
+    runs-on: wisechef-runner
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pytest-timeout
+      - name: Critical-path coverage gate (>=80% on auth surface)
+        run: |
+          python -m pytest tests/ \
+            --cov=app/middleware \
+            --cov=app/authz \
+            --cov=app/mcp/auth \
+            --cov-report=term-missing \
+            --cov-fail-under=80 \
+            --timeout=120 \
+            --timeout-method=thread \
+            -q

@@ -14,6 +14,8 @@ import pytest
 from app.sandbox.profile import SandboxProfile
 from app.sandbox.runner import SandboxResult, SandboxRunner
 
+pytestmark = [pytest.mark.sandbox_linux_only]
+
 
 # ---------------------------------------------------------------------------
 # Helpers

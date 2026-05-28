@@ -10,6 +10,8 @@ import pytest
 
 from app.sandbox.profile import SandboxProfile
 
+pytestmark = [pytest.mark.sandbox_linux_only]
+
 
 # ---------------------------------------------------------------------------
 # PROOF OF VULNERABILITY (#9) — These show the old regex accepted bad IPs.

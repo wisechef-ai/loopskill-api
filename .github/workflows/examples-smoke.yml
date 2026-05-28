@@ -1,0 +1,60 @@
+name: Examples Smoke Test
+
+on:
+  pull_request:
+    paths:
+      - "examples/**"
+      - ".github/workflows/examples-smoke.yml"
+
+jobs:
+  smoke:
+    name: Run examples/rest/01-list-public-skills.py
+    runs-on: wisechef-runner
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Syntax-check all Python examples
+        run: |
+          echo "Compiling Python examples..."
+          python -m py_compile examples/rest/01-list-public-skills.py
+          python -m py_compile examples/rest/02-install-signed-url-roundtrip.py
+          python -m py_compile examples/rest/03-publish-skill.py
+          python -m py_compile examples/rest/04-stripe-checkout.py
+          echo "All examples compiled OK."
+
+      - name: Check API key availability
+        id: key_check
+        env:
+          RECIPES_API_KEY: ${{ secrets.RECIPES_API_KEY }}
+        run: |
+          if [ -z "${RECIPES_API_KEY}" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::RECIPES_API_KEY secret is not available — skipping live API call."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Smoke test — list public skills
+        if: steps.key_check.outputs.available == 'true'
+        env:
+          RECIPES_API_KEY: ${{ secrets.RECIPES_API_KEY }}
+          RECIPES_BASE_URL: https://recipes.wisechef.ai
+        run: |
+          echo "Running 01-list-public-skills.py against live API..."
+          python examples/rest/01-list-public-skills.py
+          echo "Smoke test passed."
+
+      - name: Skip notice (no API key)
+        if: steps.key_check.outputs.available == 'false'
+        run: |
+          echo "Skipping live API smoke test: RECIPES_API_KEY secret is not configured."
+          echo "To enable, add RECIPES_API_KEY to repository secrets:"
+          echo "  Settings → Secrets and variables → Actions → New repository secret"
+          exit 0

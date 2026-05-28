@@ -55,7 +55,7 @@ def skill_access(
     skill: str = Query(..., description="Skill slug to check access for"),
     fork_eligible: bool = Query(
         False,
-        description="If true, require Operator+ tier (fork capability) on top of skill-tier access. Forks API ships in a later batch.",
+        description="If true, require Pro+ tier (fork capability) on top of skill-tier access. Forks API ships in a later batch.",
     ),
     db: Session = Depends(get_db),
 ):

@@ -12,6 +12,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+pytestmark = [pytest.mark.sandbox_linux_only]
+
 
 # ---------------------------------------------------------------------------
 # App fixture

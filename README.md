@@ -38,7 +38,7 @@ app/
 ├── _skill_helpers.py        _skill_to_out, _build_manifest, _count_today_installs, …
 ├── routes.py                Backward-compat re-exports (≤80 lines)
 ├── mcp/                     MCP server + tools (auth, install, recipify, sync, …)
-├── sandbox/                 Skill execution sandbox (firejail / bwrap)
+├── sandbox/                 Skill execution sandbox (firejail / bwrap, **Linux-only**)
 ├── utils/client_ip.py       Trusted-proxy-aware real IP resolution
 └── …                        (checkout, cookbook, creator, publisher, auth, etc.)
 ```
@@ -84,7 +84,13 @@ APIKeyMiddleware.dispatch()
 
 ## Authentication
 
-All endpoints (except `/`, `/docs`, `/redoc`, `/healthz`, `/api/healthz`) require:
+Many endpoints are unauthenticated (carousel, skill search, skill detail, `_download`,
+stats, marketing, MCP healthz, UTM redirectors, and JWT-based auth/billing/creator
+routes). The full exemption list lives in `APIKeyMiddleware.EXEMPT_PATHS`,
+`PUBLIC_PREFIXES`, and `JWT_AUTH_PREFIXES` in `app/middleware.py`.
+
+Endpoints that **do** require an API key (install, publish, cookbook operations,
+telemetry writes, admin tools) expect:
 
 ```
 x-api-key: rec_<32-hex-chars>
@@ -97,8 +103,31 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp wiserecipes-api.env.example .env  # fill in DB URL, secrets, etc.
+alembic upgrade head                  # apply all migrations before first start
 uvicorn app.main:app --reload --port 8201
 ```
+
+> **Alembic:** The app checks `alembic heads` alignment at startup via
+> `app/startup_checks.check_alembic_heads()` and refuses to start in non-SQLite
+> environments when migrations are behind.  Always run `alembic upgrade head`
+> after pulling new commits.
+
+> **pgvector (optional):** The hybrid `/api/recall` endpoint uses `pgvector`
+> (`vector(384)`) when the extension is present on PostgreSQL.  When it is absent
+> (e.g. vanilla `postgres:16` or local SQLite dev), the migration falls back to
+> `TEXT` (JSON-encoded floats) automatically — hybrid search still works, just
+> without the native ANN index.  Install the extension with
+> `CREATE EXTENSION vector;` to enable the fast path.
+
+> **Sandbox (Linux only):** The skill execution sandbox (`app/sandbox/`) requires
+> [firejail](https://firejail.wordpress.com/) or [bubblewrap](https://github.com/containers/bubblewrap)
+> — both are **Linux-only** tools.  On macOS the sandbox raises
+> `SandboxBackendUnavailable` immediately (fail-loud by design — a silent
+> pass-through would mean untrusted skill scripts run with unrestricted host
+> access).  Sandbox tests are automatically skipped on macOS via the
+> `sandbox_linux_only` pytest marker.  See
+> [`docs/security/sandbox.md`](docs/security/sandbox.md) for the full platform
+> support matrix and threat model.
 
 ## Dev Toolchain (pre-commit + lint)
 
@@ -123,7 +152,12 @@ Hooks: ruff (lint + format), bandit (security), mypy --strict (4 modules), actio
 pytest --cov=app --cov-fail-under=85
 ```
 
-Target: ≥ 85% line coverage on `app/`. Gate is enforced in CI (ci.yml).
+Target: **76% line coverage on `app/` (aggregate) + 100% on critical paths.**
+The aggregate gate is enforced in CI (`ci.yml`, `--cov-fail-under=76`). The
+critical security paths — `app/middleware.py`, `app/authz.py`, `app/mcp/auth.py`
+— are gated separately at ≥80% line coverage by `critical-path-coverage.yml`
+so the auth/authz/sandbox surface can never silently regress, regardless of
+where the aggregate number sits.
 
 ## Environment Variables
 

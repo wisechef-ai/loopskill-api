@@ -1,0 +1,50 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    ports:
+      - "8200:8200"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      WR_DATABASE_URL: "postgresql://wisechef:wisechef@db:5432/wiserecipes"
+      WR_REDIS_URL: "redis://redis:6379/0"
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+
+  db:
+    image: postgres:17
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: wisechef
+      POSTGRES_PASSWORD: wisechef
+      POSTGRES_DB: wiserecipes
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wisechef -d wiserecipes"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

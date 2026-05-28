@@ -56,9 +56,16 @@ def test_middleware_stamps_tier_in_auth_ctx() -> None:
     We verify by grepping the middleware source for the tier= kwarg in the
     AuthContext(...) constructor call on the api-key path.
     """
-    src = (Path(__file__).parents[1] / "app" / "middleware.py").read_text()
+    # topshelf_2605/J: middleware.py → app/middleware/ package; the api-key
+    # path (with the tier stamp) lives in app/middleware/api_key.py. Read the
+    # whole package so this grep is robust to internal layout.
+    _mw_dir = Path(__file__).parents[1] / "app" / "middleware"
+    if _mw_dir.is_dir():
+        src = "\n".join(p.read_text() for p in sorted(_mw_dir.glob("*.py")))
+    else:
+        src = (_mw_dir.parent / "middleware.py").read_text()
     assert "tier=_tier" in src, (
-        "middleware.py does not stamp tier on AuthContext in the api-key path — "
+        "middleware api-key path does not stamp tier on AuthContext — "
         "issue #25 requires auth_ctx.tier to be the source of truth"
     )
 

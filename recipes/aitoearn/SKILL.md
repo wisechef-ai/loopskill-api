@@ -9,7 +9,7 @@ description: >
   ≥3 platforms and wants one tool to publish/engage/monetize instead of N
   per-platform recipes. ICP: 1-person AI owners and 1-7 person builder teams
   running multi-platform content for clients.
-tier: cook
+tier: pro
 category: marketing
 license: MIT
 tags: [content, multi-platform, marketing, monetization, mcp, social-publishing]

@@ -205,7 +205,7 @@ def run_once(db: Session | None = None, llm_call: Callable[[str], str] | None = 
             try:
                 result = draft_patch(cand, db=db, llm_call=llm_call)
             # Rationale: per-candidate failure must not abort the batch; log and continue
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 log.exception("drafting failed for %s: %s", cand.id, e)
                 errored += 1
                 continue

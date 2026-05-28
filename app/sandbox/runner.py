@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+import platform
 import select
 import shutil
 import subprocess
@@ -42,6 +43,20 @@ MAX_OUTPUT_BYTES = 1 * 1024 * 1024  # 1 MB
 
 class SandboxError(RuntimeError):
     """Raised when the sandbox runner encounters an unrecoverable error."""
+
+    pass
+
+
+class SandboxBackendUnavailable(SandboxError):
+    """Raised when no sandbox backend is available for the current platform.
+
+    The sandbox requires firejail or bubblewrap (bwrap), both of which are
+    Linux-only tools.  macOS is explicitly unsupported — running without a
+    real confinement backend would silently grant skill scripts unrestricted
+    host access, which violates the sandbox contract.
+
+    Install firejail or bwrap on a Linux host to use the sandbox.
+    """
 
     pass
 
@@ -91,11 +106,25 @@ class SandboxRunner:
 
     @staticmethod
     def _detect_backend() -> str:
-        """Detect available sandbox backend: 'firejail' or 'bwrap'."""
+        """Detect available sandbox backend: 'firejail' or 'bwrap'.
+
+        Raises SandboxBackendUnavailable on macOS (darwin) when neither
+        firejail nor bwrap is on PATH.  The sandbox is Linux-only; allowing
+        a silent no-op on macOS would mean skill scripts run with full host
+        access, violating the confinement contract.  Fail loud instead.
+        """
         if shutil.which("firejail"):
             return "firejail"
         if shutil.which("bwrap"):
             return "bwrap"
+        if platform.system().lower() == "darwin":
+            raise SandboxBackendUnavailable(
+                "Sandbox backend unavailable on macOS: neither firejail nor bwrap "
+                "is installed.  The WiseRecipes sandbox is Linux-only (firejail / "
+                "bubblewrap).  macOS does not support these backends — running "
+                "without confinement would silently expose the host to untrusted "
+                "skill scripts.  Use a Linux host to run the sandbox."
+            )
         return "none"
 
     @property

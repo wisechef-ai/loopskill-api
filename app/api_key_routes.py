@@ -38,11 +38,11 @@ KEY_BODY_LEN = 32  # urlsafe chars after prefix
 KEY_CAP: dict[str, int] = {
     "free": 1,
     "pro": 1,
-    # legacy slugs map to same caps
-    "cook": 1,
+    # Legacy aliases — sunset 2026-06-10
+    "cook": 1,  # legacy alias → pro
     "pro_plus": 20,
-    "operator": 20,
-    "studio": 20,
+    "operator": 20,  # legacy alias → pro_plus
+    "studio": 20,  # legacy alias → pro_plus
 }
 DEFAULT_CAP = 1  # fallback for unknown/null tiers
 

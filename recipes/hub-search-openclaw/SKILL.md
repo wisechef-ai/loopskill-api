@@ -11,7 +11,7 @@ description: >
   canonical JSON: {hub, query, results[{name, description, version,
   install_command, source_url, license, match_score}], elapsed_ms, errors}.
   Complements hub-search-hermes for exhaustive pre-authoring discovery.
-tier: cook
+tier: pro
 category: discovery
 license: Apache-2.0
 tags: [hub-search, discovery, openclaw, npm]

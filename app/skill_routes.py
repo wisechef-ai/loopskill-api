@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -36,7 +36,7 @@ from app._skill_helpers import (
     _skill_to_out,
 )
 from app.database import get_db
-from app.models import Skill, SkillAlias, TelemetryEvent
+from app.models import MissingSkillQuery, Skill, SkillAlias, TelemetryEvent
 from app.schemas import SkillDetailOut, SkillOut, SkillSearchResult
 from app.tier_labels import _is_paid_tier
 
@@ -69,8 +69,8 @@ def search_skills(
     ),
     tier: str | None = Query(
         None,
-        pattern="^(free|pro|pro_plus|cook|operator|studio)$",
-        description="Filter by access tier (DB: free|cook|operator|studio; display: free|pro|pro_plus — accepted as aliases via Phase A map)",
+        pattern="^(free|pro|pro_plus|cook|operator|studio)$",  # cook|operator|studio = legacy aliases
+        description="Filter by access tier (canonical: free|pro|pro_plus — legacy aliases cook|operator|studio accepted until 2026-06-10 via Phase A map)",
     ),
     subset: str | None = Query(
         None,
@@ -125,9 +125,9 @@ def search_skills(
         # column now holds canonical {free, pro, pro_plus}. Legacy {cook,
         # operator} input is still accepted as a 30-day READ alias (deprecation
         # window: 2026-06-10) so existing integrations keep working.
-        tier_db = {"cook": "pro", "operator": "pro_plus", "studio": "pro_plus"}.get(tier, tier)
-        query = query.filter(Skill.tier == tier_db)
-
+        tier_db = {"cook": "pro", "operator": "pro_plus", "studio": "pro_plus"}.get(
+            tier, tier
+        )  # legacy alias map
     # quality_1705 Phase C — quality_score floor filter for agent callers
     # who only want high-confidence skills. Skills without a score are
     # excluded (defensive: agent shouldn't pick a skill we haven't graded).
@@ -177,7 +177,9 @@ def search_skills(
             tier_for_recall: list[str] = ["free", "pro", "pro_plus"]
             if tier:
                 # Caller asked for a specific tier — respect it.
-                tier_db = {"cook": "pro", "operator": "pro_plus", "studio": "pro_plus"}.get(tier, tier)
+                tier_db = {"cook": "pro", "operator": "pro_plus", "studio": "pro_plus"}.get(
+                    tier, tier
+                )  # legacy alias map
                 tier_for_recall = [tier_db]
 
             recall_blob = recall_skills(
@@ -234,12 +236,59 @@ def search_skills(
                     final_total = total + len(extra_outs)
                     augmented = True
                     backend = "recall_only" if not results else "hybrid"
+        # Rationale: hybrid recall failure must never degrade the keyword-literal search pass
         except Exception:  # noqa: BLE001 — never let hybrid kill the literal pass
             import logging
 
             logging.getLogger(__name__).exception(
                 "hybrid search fallback failed; returning literal results only"
             )
+
+    # topshelf_2605/H.1 — log zero-result queries for VOC digest.
+    # Only fires when q is provided AND the final merged results list is empty
+    # AND this is the first page (avoid double-counting paginated traversal).
+    # Wrapped in try/except so a DB hiccup never breaks the search response.
+    if q and not final_outs and page == 1:
+        try:
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+            today = date.today()
+            bind = db.get_bind()
+            if bind.dialect.name == "postgresql":
+                # Postgres: atomic upsert — increment count on duplicate day.
+                stmt = pg_insert(MissingSkillQuery).values(
+                    query=q,
+                    user_id=None,
+                    day=today,
+                    count=1,
+                )
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=[
+                        func.lower(MissingSkillQuery.query),
+                        MissingSkillQuery.day,
+                    ],
+                    set_={"count": MissingSkillQuery.count + 1},
+                )
+                db.execute(stmt)
+            else:
+                # SQLite (tests): simple SELECT-then-upsert path.
+                existing = (
+                    db.query(MissingSkillQuery)
+                    .filter(
+                        func.lower(MissingSkillQuery.query) == q.lower(),
+                        MissingSkillQuery.day == today,
+                    )
+                    .first()
+                )
+                if existing:
+                    existing.count += 1
+                else:
+                    db.add(MissingSkillQuery(query=q, user_id=None, day=today, count=1))
+            db.commit()
+        # Rationale: VOC logging must never break the search response
+        except Exception:  # noqa: BLE001
+            logger.debug("missing_skill_query upsert failed — ignored", exc_info=True)
+            db.rollback()
 
     return SkillSearchResult(
         results=final_outs,

@@ -12,7 +12,7 @@ description: >
   errors}. Pure filesystem scan — no network calls required. Complements
   hub-search-openclaw and hub-search-claude-code for exhaustive pre-authoring
   discovery.
-tier: cook
+tier: pro
 category: discovery
 license: Apache-2.0
 tags: [hub-search, discovery, hermes, local-skills]

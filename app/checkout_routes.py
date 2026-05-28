@@ -104,7 +104,7 @@ async def create_subscription_checkout(
         logger.error("Checkout creation failed for user %s tier %s: %s", user.id, tier, e)
         raise HTTPException(status_code=400, detail=str(e))
     # Rationale: unexpected Stripe/DB error during checkout; surface as 500
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.exception("Unexpected checkout error for user %s tier %s", user.id, tier)
         raise HTTPException(status_code=500, detail="checkout_error")
 
@@ -242,6 +242,7 @@ async def create_billing_portal_session(
         session = stripe.billing_portal.Session.create(
             customer=user.stripe_customer_id,
             return_url=return_url,
+            idempotency_key=f"portal_session_{user.stripe_customer_id}",
         )
     # Rationale: Stripe portal session can fail for many reasons; surface as 500
     except Exception as e:  # noqa: BLE001

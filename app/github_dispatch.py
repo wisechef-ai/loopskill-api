@@ -15,16 +15,13 @@ logger = logging.getLogger(__name__)
 
 _REPO = "wisechef-ai/recipes-api"
 _DISPATCH_URL = f"https://api.github.com/repos/{_REPO}/dispatches"
-_PLACEHOLDER_URL = f"https://github.com/{_REPO}/issues/<unknown>"
 
 
-def dispatch_event(event_type: str, payload: dict[str, Any]) -> str | None:
+def dispatch_event(event_type: str, payload: dict[str, Any]) -> bool | None:
     """POST repository_dispatch to wisechef-ai/recipes-api.
 
-    Returns the predicted issue URL
-    ("https://github.com/wisechef-ai/recipes-api/issues/<unknown>")
-    or None on failure. Never raises — failure logs and returns None so
-    the API write is durable even if GitHub is down.
+    Returns True on success, None on failure. Never raises — failure logs and
+    returns None so the API write is durable even if GitHub is down.
     """
     pat = os.environ.get("GITHUB_DISPATCH_PAT", "")
     if not pat:
@@ -72,8 +69,9 @@ def dispatch_event(event_type: str, payload: dict[str, Any]) -> str | None:
             )
             return None
 
-        return _PLACEHOLDER_URL
+        return True
 
+    # Rationale: catch all network/JSON/OS errors so dispatch failure never propagates to caller
     except Exception as exc:  # noqa: BLE001
         logger.warning("github dispatch failed: event_type=%s error=%s", event_type, exc)
         return None

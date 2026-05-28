@@ -126,11 +126,11 @@ def _normalise_tier(tier: str | None) -> str | None:
 
     # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
     Legacy → canonical:
-      studio → pro_plus  (from Phase 3, now rewrites through to pro_plus)
-      operator → pro_plus  (from Phase 5)
-      cook → pro  (from Phase 5)
+      studio → pro_plus  (legacy alias from Phase 3, now rewrites through to pro_plus)
+      operator → pro_plus  (legacy alias from Phase 5)
+      cook → pro  (legacy alias from Phase 5)
     """
-    LEGACY = {"studio": "pro_plus", "operator": "pro_plus", "cook": "pro"}
+    LEGACY = {"studio": "pro_plus", "operator": "pro_plus", "cook": "pro"}  # legacy aliases
     if tier in LEGACY:
         canonical = LEGACY[tier]
         logger.warning(
@@ -164,6 +164,7 @@ def get_or_create_customer(user: User, db: Session) -> str:
             "wiserecipes_user_id": str(user.id),
             "platform": "wiserecipes",
         },
+        idempotency_key=f"customer_create_{user.id}",
     )
     user.stripe_customer_id = customer["id"]
     db.commit()
@@ -252,6 +253,7 @@ def create_checkout_session(
                     normalized,
                     user.id,
                 )
+        # Rationale: promo code lookup failure must never block checkout; log and continue
         except Exception as e:  # noqa: BLE001 — never block checkout on a bad code
             logger.warning(
                 "Promotion code lookup failed for %r (user %s): %s",
@@ -292,6 +294,11 @@ def create_checkout_session(
         checkout_kwargs["discounts"] = discounts
     else:
         checkout_kwargs["allow_promotion_codes"] = True
+
+    # Deterministic idempotency key: same user + price → same checkout request.
+    # Stripe deduplicates concurrent retries within a 24-hour window, so a
+    # hammering frontend or transient network retry produces exactly one session.
+    checkout_kwargs["idempotency_key"] = f"checkout_{user.id}_{price_id}"
 
     session = stripe.checkout.Session.create(**checkout_kwargs)
     logger.info("Created checkout session %s for user %s tier %s", session["id"], user.id, tier)
@@ -384,6 +391,7 @@ def _maybe_sync_discord_role(user: User) -> None:
         if client is None or not user.discord_user_id:
             return
         sync_role_for_user(user, client=client)
+    # Rationale: Discord role sync is best-effort; failure must never block subscription update
     except Exception as e:  # noqa: BLE001
         logger.warning("Discord role sync failed for user %s: %s", user.id, e)
 
@@ -430,6 +438,7 @@ def handle_checkout_completed(event: dict, db: Session) -> dict:
                 f"Stripe subscription: `{sub_id or '(none)'}`",
             ],
         )
+    # Rationale: revenue alert dispatch must never block the checkout webhook handler
     except Exception:  # noqa: BLE001 — never block the webhook on alerting
         logger.exception("revenue_alerts: new_subscription dispatch failed")
 
@@ -475,6 +484,7 @@ def handle_subscription_event(event: dict, db: Session) -> dict:
                     "Installed skills keep working locally; only auto-improvement updates stop.",
                 ],
             )
+        # Rationale: cancel revenue alert must never block the subscription-cancel webhook path
         except Exception:  # noqa: BLE001
             logger.exception("revenue_alerts: cancel dispatch failed")
         return {"processed": event_type, "user_id": str(user.id), "downgraded_to": "free"}
@@ -516,6 +526,7 @@ def handle_subscription_event(event: dict, db: Session) -> dict:
                     f"Stripe event: `{event_type}`",
                 ],
             )
+        # Rationale: tier-change revenue alert must never block the subscription webhook handler
         except Exception:  # noqa: BLE001
             logger.exception("revenue_alerts: tier-change dispatch failed")
 
@@ -621,7 +632,7 @@ def verify_subscription_webhook(payload: bytes, sig_header: str) -> dict:
     except stripe.error.SignatureVerificationError as e:
         raise SubscriptionError(f"Invalid signature: {e}") from e
     # Rationale: Stripe SDK may throw non-SignatureVerificationError on bad payload; wrap all
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         raise SubscriptionError(f"Webhook verification failed: {e}") from e
 
 
@@ -665,6 +676,7 @@ def _accrue_referral_on_first_payment(user: User, db: Session) -> dict | None:
         amount = items[0].get("plan", {}).get("amount")
         if not amount:
             return None
+    # Rationale: Stripe Subscription.retrieve failure must return None to skip referral accrual
     except Exception as e:  # noqa: BLE001
         logger.error("Failed to fetch subscription %s: %s", user.subscription_id, e)
         return None

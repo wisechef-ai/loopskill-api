@@ -57,6 +57,7 @@ def create_connect_account(user: User) -> str:
                     },
                 },
             },
+            idempotency_key=f"connect_account_{user.id}",
         )
         return account.id
     except stripe.error.StripeError as e:
@@ -72,6 +73,7 @@ def create_onboarding_link(account_id: str, return_url: str, refresh_url: str) -
             return_url=return_url,
             refresh_url=refresh_url,
             type="account_onboarding",
+            idempotency_key=f"onboarding_link_{account_id}",
         )
         return link.url
     except stripe.error.StripeError as e:
@@ -134,6 +136,14 @@ def create_transfer(
         }
         if transfer_group:
             params["transfer_group"] = transfer_group
+        # Deterministic idempotency key derived from stable attributes.
+        # When transfer_group is provided (e.g. "wr-payout-2026-04") the key
+        # is scoped to that payout run, preventing duplicate transfers if the
+        # payout job is retried.
+        _idem_parts = f"{account_id}_{amount_cents}_{currency}"
+        if transfer_group:
+            _idem_parts = f"{transfer_group}_{_idem_parts}"
+        params["idempotency_key"] = f"transfer_{_idem_parts}"
 
         transfer = stripe.Transfer.create(**params)
         logger.info(f"Transfer {transfer.id} created: {amount_cents} {currency} -> {account_id}")

@@ -9,7 +9,7 @@ description: >
   seeds and a single-paste "go <codename>" trigger so the same plan-doc drives
   execution. Aliased as `golazo` (Polish/Spanish slang for spectacular goal — the
   plan IS the goal).
-tier: cook
+tier: pro
 category: planning
 license: Apache-2.0
 aliases: [golazo]

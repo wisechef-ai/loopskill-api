@@ -74,9 +74,8 @@ def recipes_share_create(
             scope=scope,
             created_by=ctx.user_id,
         )
+    # Rationale: HTTPException from _create_service (invalid_scope) must surface as error dict
     except Exception as exc:  # noqa: BLE001
-        # Rationale: HTTPException from _create_service (invalid_scope) must be
-        # surfaced as an error dict rather than crashing the MCP transport.
         detail = getattr(exc, "detail", str(exc))
         return {"error": str(detail), "cookbook_id": cookbook_id}
 
@@ -141,9 +140,8 @@ def recipes_share_revoke(
 
     try:
         _revoke_service(db, cookbook=cb, token_id=token_id)
+    # Rationale: HTTPException 404 from _revoke_service must surface as error dict, not crash MCP
     except Exception as exc:  # noqa: BLE001
-        # Rationale: HTTPException 404 from _revoke_service (token not found)
-        # must surface as an error dict rather than crashing the MCP transport.
         detail = getattr(exc, "detail", str(exc))
         return {"error": str(detail), "token_id": token_id}
 
@@ -182,9 +180,8 @@ def recipes_share_rotate(
             token_id=token_id,
             created_by=ctx.user_id,
         )
+    # Rationale: HTTPException 404 from _rotate_service must surface as error dict, not crash MCP
     except Exception as exc:  # noqa: BLE001
-        # Rationale: HTTPException 404 from _rotate_service (token not found)
-        # must surface as an error dict rather than crashing the MCP transport.
         detail = getattr(exc, "detail", str(exc))
         return {"error": str(detail), "token_id": token_id}
 

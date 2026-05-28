@@ -64,9 +64,15 @@ def feedback_client(db_session: Session):
 # ── Test 1: recipes_feedback happy path ──────────────────────────────────────
 
 def test_feedback_happy_path(feedback_client, db_session):
-    """POST /api/v1/feedback returns 201 with ok=true and issue_url."""
+    """POST /api/v1/feedback returns 201 with ok=true; issue_url is pending ("").
+
+    Post-topshelf_2605/B: dispatch_event returns True on success and the
+    real issue URL is PATCHed back by the workflow via the internal route.
+    issue_url is therefore empty at submit time — clients poll
+    GET /api/feedback/{id} for the resolved URL.
+    """
     with patch("app.feedback_v1_routes.github_dispatch.dispatch_event",
-               return_value=FAKE_ISSUE_URL) as mock_dispatch:
+               return_value=True) as mock_dispatch:
         resp = feedback_client.post("/api/v1/feedback", json={
             "category": "ux",
             "message": "The search results are not relevant enough.",
@@ -74,7 +80,7 @@ def test_feedback_happy_path(feedback_client, db_session):
     assert resp.status_code == 201, resp.text
     data = resp.json()
     assert data["ok"] is True
-    assert data["issue_url"] == FAKE_ISSUE_URL
+    assert data["issue_url"] == ""
     assert data["deduped"] is False
     assert data["id"] != ""
     mock_dispatch.assert_called_once()
@@ -89,14 +95,14 @@ def test_feedback_dedup(feedback_client, db_session):
         "message": "I was double-charged last month.",
     }
     with patch("app.feedback_v1_routes.github_dispatch.dispatch_event",
-               return_value=FAKE_ISSUE_URL):
+               return_value=True):
         resp1 = feedback_client.post("/api/v1/feedback", json=payload)
     assert resp1.status_code == 201
     first_url = resp1.json()["issue_url"]
 
     # Second identical submission
     with patch("app.feedback_v1_routes.github_dispatch.dispatch_event",
-               return_value=FAKE_ISSUE_URL) as mock2:
+               return_value=True) as mock2:
         resp2 = feedback_client.post("/api/v1/feedback", json=payload)
     assert resp2.status_code == 201, resp2.text
     data2 = resp2.json()
@@ -283,7 +289,7 @@ def test_recipify_request_happy_path(db_session):
     with TestClient(test_app, headers={"x-api-key": settings.API_KEY},
                     raise_server_exceptions=True) as c:
         with patch("app.feedback_v1_routes.github_dispatch.dispatch_event",
-                   return_value=FAKE_ISSUE_URL) as mock_dispatch:
+                   return_value=True) as mock_dispatch:
             r = c.post("/api/v1/recipify-request", json={
                 "target_name": "cognee-api-watchdog",
                 "why_useful": "We need a recipe to monitor the Cognee API endpoints for drift.",
@@ -294,7 +300,7 @@ def test_recipify_request_happy_path(db_session):
     assert r.status_code == 201, r.text
     data = r.json()
     assert data["ok"] is True
-    assert data["issue_url"] == FAKE_ISSUE_URL
+    assert data["issue_url"] == ""
     assert data["deduped"] is False
     assert data["id"] != ""
     mock_dispatch.assert_called_once()

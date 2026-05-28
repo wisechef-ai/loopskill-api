@@ -547,4 +547,35 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             db.commit()
             logger.info(f"Transfer {transfer_id} confirmed for payout {payout.id}")
 
+    elif event_type == "charge.refunded":
+        # No-op handler — log the refund for audit and return 200.
+        # Full refund reconciliation is handled via the Stripe dashboard and
+        # customer.subscription.* events; this branch prevents silent fall-through.
+        data = event["data"]["object"]
+        charge_id = data.get("id", "?")
+        amount_refunded = data.get("amount_refunded", 0)
+        logger.info(
+            "Stripe charge.refunded: charge=%s amount_refunded=%s (event=%s)",
+            charge_id,
+            amount_refunded,
+            event_id,
+        )
+
+    elif event_type == "charge.dispute.created":
+        # No-op handler — log the dispute for audit and return 200.
+        # Disputes require manual review; alert via Stripe dashboard notifications.
+        data = event["data"]["object"]
+        dispute_id = data.get("id", "?")
+        charge_id = data.get("charge", "?")
+        reason = data.get("reason", "unknown")
+        amount = data.get("amount", 0)
+        logger.warning(
+            "Stripe charge.dispute.created: dispute=%s charge=%s reason=%s amount=%s (event=%s)",
+            dispute_id,
+            charge_id,
+            reason,
+            amount,
+            event_id,
+        )
+
     return {"received": True}

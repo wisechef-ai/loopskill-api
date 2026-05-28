@@ -1,0 +1,30 @@
+{
+  "_comment": [
+    "Drop-in Claude Desktop MCP config block for recipes.wisechef.ai",
+    "",
+    "Instructions:",
+    "  1. Locate your Claude Desktop config file:",
+    "       macOS:   ~/Library/Application Support/Claude/claude_desktop_config.json",
+    "       Windows: %APPDATA%\\Claude\\claude_desktop_config.json",
+    "       Linux:   ~/.config/Claude/claude_desktop_config.json",
+    "  2. Merge the 'mcpServers' block below into your existing config.",
+    "  3. Replace <your-key> with your rec_* API key from recipes.wisechef.ai.",
+    "  4. Restart Claude Desktop.",
+    "",
+    "Transport: stdio (Claude Desktop launches the server as a subprocess).",
+    "The app.mcp module must be importable — install the package first:",
+    "  pip install wisechef-recipes-api   # or clone and pip install -e .",
+    "",
+    "For StreamableHTTP (Hermes, Codex, remote MCP clients), see:",
+    "  examples/mcp/01-hermes-config-snippet.yaml"
+  ],
+  "mcpServers": {
+    "recipes": {
+      "command": "python",
+      "args": ["-m", "app.mcp"],
+      "env": {
+        "RECIPES_API_KEY": "<your-key>"
+      }
+    }
+  }
+}

@@ -65,7 +65,7 @@ Response:
   "entries": [
     {
       "slot": 1,
-      "skill": {"slug": "agent-rescue", "title": "...", "category": "devops", "tier": "operator", "is_free": false, "vertical": "horizontal"},
+      "skill": {"slug": "agent-rescue", "title": "...", "category": "devops", "tier": "pro_plus", "is_free": false, "vertical": "horizontal"},
       "role": "new-capability",
       "tagline": "Self-heal a stalled VPS in 60 seconds",
       "score": 8.4

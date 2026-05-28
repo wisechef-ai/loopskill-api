@@ -22,12 +22,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.sandbox.profile import SandboxProfile
 from app.sandbox.runner import SandboxResult, SandboxRunner
+
+pytestmark = [pytest.mark.sandbox_linux_only]
 
 DEV_SKILLS_DIR = PROJECT_ROOT / "dev-skills"
 
@@ -326,6 +330,16 @@ class TestSandboxRunner(unittest.TestCase):
             self.assertEqual(SandboxRunner._detect_backend(), "bwrap")
         with patch("shutil.which", return_value=None):
             self.assertEqual(SandboxRunner._detect_backend(), "none")
+
+    def test_macos_no_backend_raises_sandbox_backend_unavailable(self):
+        """On macOS with no firejail/bwrap, _detect_backend raises SandboxBackendUnavailable (Phase P)."""
+        from app.sandbox.runner import SandboxBackendUnavailable
+        with patch("shutil.which", return_value=None):
+            with patch("platform.system", return_value="Darwin"):
+                with self.assertRaises(SandboxBackendUnavailable) as ctx:
+                    SandboxRunner._detect_backend()
+        self.assertIn("macOS", str(ctx.exception))
+        self.assertIn("Linux-only", str(ctx.exception))
 
     @requires_sandbox_backend
     def test_missing_skill_dir_returns_error(self):

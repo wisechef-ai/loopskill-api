@@ -128,6 +128,7 @@ def recipes_search(
                     final_total = total + len(extra_results)
                     augmented = True
                     backend = "recall_only" if not rows else "hybrid"
+        # Rationale: hybrid recall failure must never kill the keyword-only search path
         except Exception:  # noqa: BLE001
             logger.exception("recipes_search hybrid fallback failed; returning keyword only")
 

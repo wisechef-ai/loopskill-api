@@ -69,6 +69,7 @@ class LastUsedTracker:
                 if existing is None or existing < ts_str:
                     self.redis.hset(_REDIS_HASH_KEY, key_str, ts_str)
                 return
+            # Rationale: Redis write failure degrades gracefully to in-memory fallback
             except Exception as exc:  # noqa: BLE001 — Redis down, fall through
                 logger.warning("LastUsedTracker: Redis write failed, falling back to memory: %s", exc)
 
@@ -117,6 +118,7 @@ class LastUsedTracker:
                 # but that is acceptable (last_used_at is best-effort).
                 self.redis.delete(_REDIS_HASH_KEY)
 
+            # Rationale: Redis drain failure degrades gracefully to in-memory fallback
             except Exception as exc:  # noqa: BLE001 — Redis down, fall through to memory
                 logger.warning("LastUsedTracker: Redis drain failed, using memory cache: %s", exc)
                 pending = dict(self._memory_cache)

@@ -207,5 +207,6 @@ def check_alembic_heads(database_url: str | None = None) -> None:
     # Rationale: any DB connectivity error at boot is re-raised to prevent silent degraded start
     except RuntimeError:
         raise
+    # Rationale: wrap unexpected DB/driver errors as RuntimeError to block start
     except Exception as exc:  # noqa: BLE001
         raise RuntimeError(f"check_alembic_heads: unable to verify migration state — {exc}") from exc

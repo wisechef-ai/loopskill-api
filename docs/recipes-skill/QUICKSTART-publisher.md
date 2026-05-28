@@ -64,7 +64,7 @@ curl -X POST https://recipes.wisechef.ai/api/skills/_publish \
   }'
 ```
 
-Tiers: `free` (public catalog), `cook` (€20/mo paywalled), `studio` (€100/mo paywalled).
+Tiers: `free` (public catalog), `pro` (€20/mo paywalled), `pro_plus` (€100/mo paywalled).
 
 ## Step 5: Verify It's Live
 

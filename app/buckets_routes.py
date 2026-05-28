@@ -1,7 +1,7 @@
-"""Buckets API — Studio-tier collections of skills/forks (Phase E.2, v5.4).
+"""Buckets API — Pro+-tier collections of skills/forks (Phase E.2, v5.4).
 
 Tier gate: every endpoint except `GET /api/buckets/{slug}/manifest` requires
-the authenticated user to be on the `studio` (or `master`) subscription tier.
+the authenticated user to be on the `pro_plus` (or `master`) subscription tier.
 The manifest endpoint is intentionally public so it can be embedded by
 white-label sites and shared between agents.
 
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/buckets", tags=["buckets"])
 
 
-STUDIO_TIERS = {"studio", "master"}
+STUDIO_TIERS = {"pro_plus", "studio", "master"}  # studio = legacy alias (sunset 2026-06-10)
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$")
 
 
@@ -44,7 +44,7 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$")
 
 
 def _require_studio(user: User | None) -> User:
-    """Enforce studio/master tier; 401 if anonymous, 402 otherwise."""
+    """Enforce pro_plus/master tier; 401 if anonymous, 402 otherwise."""
     if user is None:
         raise HTTPException(status_code=401, detail="login_required")
     tier = (user.subscription_tier or "").lower()
@@ -123,7 +123,7 @@ async def create_bucket(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
-    """Create a new skill bucket for the authenticated studio user."""
+    """Create a new skill bucket for the authenticated pro_plus user."""
     user = _require_studio(user)
     if req.visibility not in {"private", "team", "public"}:
         raise HTTPException(status_code=400, detail="invalid_visibility")
@@ -158,7 +158,7 @@ async def list_buckets(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
-    """List all skill buckets owned by the authenticated studio user."""
+    """List all skill buckets owned by the authenticated pro_plus user."""
     user = _require_studio(user)
     buckets = db.query(Bucket).filter(Bucket.owner_id == user.id).order_by(Bucket.created_at.desc()).all()
     return {"buckets": [_bucket_dict(b) for b in buckets]}

@@ -33,8 +33,10 @@ router = APIRouter(prefix="/api", tags=["recall"])
 class RecallIn(BaseModel):
     query: str
     local_context_summary: str = ""
-    tier_filter: list[Literal["free", "pro", "pro_plus", "cook", "operator"]] = Field(
-        default_factory=lambda: ["free", "pro", "pro_plus"]
+    tier_filter: list[Literal["free", "pro", "pro_plus", "cook", "operator"]] = (
+        Field(  # cook/operator = legacy aliases
+            default_factory=lambda: ["free", "pro", "pro_plus"]
+        )
     )
     limit: int = 10
 
@@ -101,7 +103,7 @@ def _allowed_tier_set(user_tier: str | None) -> set[str]:
         # Master / no-user (e.g. dev master key) — allow everything.
         # Phase G post-drift-sweep (recipes_2005/G): canonical {free, pro, pro_plus};
         # legacy {cook, operator} retained for the 30-day deprecation window.
-        return {"free", "pro", "pro_plus", "cook", "operator"}
+        return {"free", "pro", "pro_plus", "cook", "operator"}  # cook/operator = legacy aliases
     rank = TIER_RANK.get(user_tier, -1)
     return {t for t, r in TIER_RANK.items() if r <= rank}
 
@@ -121,7 +123,7 @@ def recall_skills(
     # the canonical tier slugs. Legacy {cook, operator} stay accepted as input
     # aliases through 2026-06-10 (30-day deprecation window).
     tier_filter = tier_filter or ["free", "pro", "pro_plus"]
-    _tier_alias = {"cook": "pro", "operator": "pro_plus", "studio": "pro_plus"}
+    _tier_alias = {"cook": "pro", "operator": "pro_plus", "studio": "pro_plus"}  # legacy alias map
     tier_filter = [_tier_alias.get(t, t) for t in tier_filter]
     limit = max(1, min(int(limit or 10), 50))
 
@@ -150,11 +152,14 @@ def recall_skills(
                 .all()
             )
             in_cookbook_skill_ids = {r[0] for r in rows}
+        # Rationale: cookbook lookup failure must not abort recall; degrade to empty set
         except Exception as exc:  # noqa: BLE001
             logger.debug("cookbook lookup skipped: %s", exc)
 
     allowed_tiers = (
-        {"free", "pro", "pro_plus", "cook", "operator"} if is_master else _allowed_tier_set(user_tier)
+        {"free", "pro", "pro_plus", "cook", "operator"}
+        if is_master
+        else _allowed_tier_set(user_tier)  # cook/operator = legacy aliases
     )
 
     scored: list[tuple[float, float, float, Skill]] = []

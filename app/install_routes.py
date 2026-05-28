@@ -88,7 +88,7 @@ def install_skill(
     # waves the request through):
     #
     #   tier=free + public                  → 200 install
-    #   tier=cook/pro/operator + anon       → 401 "Authentication required"
+    #   tier=pro/pro_plus + anon           → 401 "Authentication required"
     #   private skill + anon                → 404 (no existence leak; mirrors
     #                                          the visibility-check default)
     #

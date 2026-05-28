@@ -351,7 +351,7 @@ _SKIP_DIR_PARTS = {
     "dist", "build", ".gitnexus", ".kuzu",
     # Internal sprint/dev docs that ship with repos but aren't part of the
     # publishable skill surface — these are allowed to mention internal hosts/paths.
-    "SPRINT_DOCS", "sprint_docs", "internal_docs", ".claude", ".github",
+    "SPRINT_DOCS", "sprint_docs", "internal_docs", "internal", "sprint-docs", ".claude", ".github",
     "tests", "test",  # tests can ship internal fixtures
 }
 

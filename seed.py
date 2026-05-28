@@ -105,37 +105,37 @@ def seed():
             id=uuid4(), slug="web-scraper-pro", title="Web Scraper Pro",
             description="High-performance web scraping with built-in rate limiting and proxy rotation.",
             category="data-extraction", readme="# Web Scraper Pro\n\nFast, reliable scraping.",
-            license="MIT", tier="cook", is_public=True, creator_id=creator2.id, org_id=org1.id,
+            license="MIT", tier="pro", is_public=True, creator_id=creator2.id, org_id=org1.id,
         )
         skill2 = Skill(
             id=uuid4(), slug="email-composer", title="Smart Email Composer",
             description="AI-powered email drafting with tone control and template library.",
             category="communication", readme="# Smart Email Composer\n\nDraft emails with AI.",
-            license="Apache-2.0", tier="cook", is_public=True, creator_id=creator1.id,
+            license="Apache-2.0", tier="pro", is_public=True, creator_id=creator1.id,
         )
         skill3 = Skill(
             id=uuid4(), slug="data-pipeline", title="Data Pipeline Builder",
             description="Visual pipeline builder for ETL workflows with 50+ connectors.",
             category="data-extraction", readme="# Data Pipeline Builder\n\nBuild ETL pipelines.",
-            license="MIT", tier="operator", is_public=True, creator_id=creator1.id,
+            license="MIT", tier="pro_plus", is_public=True, creator_id=creator1.id,
         )
         skill4 = Skill(
             id=uuid4(), slug="code-reviewer", title="Code Review Bot",
             description="Automated code review with security scanning and best practices enforcement.",
             category="development", readme="# Code Review Bot\n\nAutomated code reviews.",
-            license="MIT", tier="cook", is_public=True, creator_id=creator2.id,
+            license="MIT", tier="pro", is_public=True, creator_id=creator2.id,
         )
         skill5 = Skill(
             id=uuid4(), slug="image-generator", title="Image Generator",
             description="Generate images from text prompts using multiple AI models.",
             category="creative", readme="# Image Generator\n\nText-to-image generation.",
-            license="MIT", tier="studio", is_public=True, creator_id=creator2.id,
+            license="MIT", tier="pro_plus", is_public=True, creator_id=creator2.id,
         )
         skill6 = Skill(
             id=uuid4(), slug="client-reporter", title="Client Reporter",
             description="Free skill: generate client-ready PDF reports from your data. No setup required.",
             category="reporting", readme="# Client Reporter\n\nFree viral skill for agencies.",
-            license="Apache-2.0", tier="cook", is_public=True, creator_id=creator1.id,
+            license="Apache-2.0", tier="pro", is_public=True, creator_id=creator1.id,
         )
         db.add_all([skill1, skill2, skill3, skill4, skill5, skill6])
         db.flush()

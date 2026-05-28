@@ -187,7 +187,8 @@ def test_backfill_merges_hub_search_into_local_skills_discovery(seeded_session, 
     ).first()
     assert lsd is not None, "local-skills-discovery skill must be created"
     assert lsd.category == "discovery"
-    assert lsd.tier == "cook"
+    # topshelf_2605/E: backfill now emits canonical 'pro' (cook sunset → 2026-06-10)
+    assert lsd.tier == "pro"
 
     # All 4 old slugs alias to it
     for old in backfill.MERGE_HUB_SEARCH["old_slugs"]:

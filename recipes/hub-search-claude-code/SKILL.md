@@ -9,7 +9,7 @@ description: >
   results with hermes plugins search <q>. Emits a standard JSON envelope compatible
   with hub-search-hermes and hub-search-openclaw so agents can union results across
   all four hubs. Missing skills directories are treated as empty results, not errors.
-tier: cook
+tier: pro
 category: discovery
 license: Apache-2.0
 tags: [hub-search, discovery, claude-code, plugin]

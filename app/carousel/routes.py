@@ -36,6 +36,7 @@ router = APIRouter(tags=["carousel"])
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
+
 def _build_carousel_link(slug: str, slot: int, target_date: date) -> str:
     """Return the canonical UTM link for a carousel slot entry.
 
@@ -44,8 +45,6 @@ def _build_carousel_link(slug: str, slot: int, target_date: date) -> str:
     """
     date_str = target_date.isoformat().replace("-", "")
     return f"/skills/{slug}?ref=carousel-slot-{slot}-{date_str}"
-
-
 
 
 # ── Response schemas ──────────────────────────────────────────────────────

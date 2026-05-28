@@ -4,8 +4,8 @@ POST /api/recipify
   body: RecipifyIn (slug, content, target_cookbook_id?, visibility, target_subrecipe_id?)
   returns: RecipifyOut (slug, cookbook_id, category, related_skills, status)
 
-Auth: x-api-key — Cook+ tier required (Free → 401).
-Operator with target_subrecipe_id forwards to Phase-C subrecipe scope when wired
+Auth: x-api-key — Pro+ tier required (Free → 401).
+Pro+ with target_subrecipe_id forwards to Phase-C subrecipe scope when wired
 (currently writes to the cookbook level with a stub note).
 """
 
@@ -85,7 +85,11 @@ def recipify(
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
     """Validate and store a new SKILL.md draft as a CookbookSkill."""
-    if body.target_subrecipe_id is not None and ctx.tier != "operator" and not ctx.is_master:
+    if (
+        body.target_subrecipe_id is not None
+        and ctx.tier not in ("operator", "pro_plus")
+        and not ctx.is_master
+    ):  # operator = legacy alias
         raise HTTPException(status_code=403, detail="subrecipe_requires_operator")
 
     try:

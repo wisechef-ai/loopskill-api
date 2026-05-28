@@ -395,7 +395,7 @@ def test_wisechef_fleet_v1_loads_with_47_skills():
     from pathlib import Path
 
     repo_root = Path(__file__).parent.parent
-    data = load_bucket_file(repo_root / "buckets" / "wisechef-fleet-v1.json")
+    data = load_bucket_file(repo_root / "internal" / "buckets" / "wisechef-fleet-v1.json")
     assert data["slug"] == "wisechef-fleet-v1"
     assert len(data["skills"]) == 47
     assert len(data["crons"]) == 12

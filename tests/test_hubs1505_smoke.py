@@ -90,8 +90,11 @@ def test_phase_a_skill_files_exist(slug):
 
 @pytest.mark.parametrize("slug", PHASE_A_SKILLS)
 def test_phase_a_frontmatter_tier_cook(slug):
+    # topshelf_2605/E: canonical tier name is 'pro' ('cook' is a sunset alias
+    # → 2026-06-10). The tier-vocab SSOT sweep migrated catalog SKILL.md files
+    # from the legacy alias to the canonical name. Functionally identical tier.
     _, _, fm = _read_skill(slug)
-    assert fm.get("tier") == "cook", f"{slug}: tier must be 'cook', got {fm.get('tier')!r}"
+    assert fm.get("tier") == "pro", f"{slug}: tier must be 'pro', got {fm.get('tier')!r}"
     assert fm.get("name") == slug, f"{slug}: frontmatter name must match dir name"
 
 
@@ -108,8 +111,9 @@ def test_phase_bc_skill_files_exist(slug):
 
 @pytest.mark.parametrize("slug", PHASE_BC_SKILLS)
 def test_phase_bc_frontmatter(slug):
+    # topshelf_2605/E: canonical tier name is 'pro' ('cook' sunset → 2026-06-10).
     _, _, fm = _read_skill(slug)
-    assert fm.get("tier") == "cook", f"{slug}: tier must be 'cook'"
+    assert fm.get("tier") == "pro", f"{slug}: tier must be 'pro'"
     assert fm.get("category") == "discovery", f"{slug}: category must be 'discovery'"
     assert fm.get("name") == slug, f"{slug}: frontmatter name must match dir name"
 

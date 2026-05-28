@@ -2,7 +2,7 @@
 name: framework-v0
 title: Framework v0
 description: "One-call bootstrap installing Maestro + 4 dependencies"
-tier: cook
+tier: pro
 category: automation
 license: BUSL-1.1
 related_skills:

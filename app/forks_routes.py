@@ -231,7 +231,7 @@ def list_forks(
     db: Session = Depends(get_db),
     ctx: TierContext = Depends(require_operator),
 ):
-    """List all forks owned by the authenticated operator."""
+    """List all forks owned by the authenticated pro_plus user."""
     if ctx.is_master:
         # Master key is admin — returning the entire fork table would be a
         # surprise; require a real user_id for this endpoint.

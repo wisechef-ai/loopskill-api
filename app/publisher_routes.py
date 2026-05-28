@@ -500,7 +500,7 @@ async def publish_skill(
 
         reindex_bm25(skill_obj.slug, db)
     # Rationale: BM25 reindex is non-critical at publish time; failure → log and continue
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.exception("BM25 reindex failed for %s (non-fatal)", skill_obj.slug)
 
     # ── 11. Live-sync fan-out (Phase D) ─────────────────────────────────
@@ -530,7 +530,7 @@ async def publish_skill(
             )
             db.commit()
     # Rationale: fanout is non-critical at publish time; any error → log and return response
-    except Exception:
+    except Exception:  # noqa: BLE001
         logger.exception("phase-D fan-out failed for %s@%s (non-fatal)", slug, semver)
 
     return PublishResponse(

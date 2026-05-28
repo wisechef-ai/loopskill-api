@@ -60,8 +60,9 @@ per-test `pytest-timeout`.
 - **God nodes.** Before editing `APIKeyMiddleware.dispatch`, `validate_key`,
   `recipes_install`, `SandboxRunner.run`, or `scan_tarball`, understand the
   blast radius first — these are reviewed by `CODEOWNERS`.
-- **Tier slugs are a contract.** DB slugs `cook` / `studio` never change.
-  Display labels and prices live in `config/tiers.yaml` — edit only there.
+- **Tier slugs are a contract.** Canonical DB slugs are `free`, `pro`, `pro_plus`.
+  Legacy aliases `cook`/`operator`/`studio` are accepted as 30-day read aliases
+  until 2026-06-10. Display labels and prices live in `config/tiers.yaml` — edit only there.
 - **Migrations.** One alembic head. After merging two PRs that each added a
   migration, run `alembic merge` and commit the merge revision.
 

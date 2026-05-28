@@ -122,9 +122,9 @@ _TIER_DISPLAY = {
     "pro": "Pro",
     "pro_plus": "Pro+",
     # Legacy aliases — RCP-INCIDENT-2026-05-11 shim, remove after 2026-06-10
-    "cook": "Pro",
-    "operator": "Pro+",
-    "studio": "Pro+",
+    "cook": "Pro",  # legacy alias → pro
+    "operator": "Pro+",  # legacy alias → pro_plus
+    "studio": "Pro+",  # legacy alias → pro_plus
 }
 
 
@@ -234,5 +234,6 @@ def _send(
                     )
                 else:
                     logger.info("revenue alert delivered via bot (%s)", resp.status_code)
+    # Rationale: revenue alert delivery must never crash the webhook handler
     except Exception:  # noqa: BLE001 — we never let this crash the webhook handler
         logger.exception("revenue alert delivery failed")

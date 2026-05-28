@@ -65,7 +65,7 @@ def reindex_bm25(slug: str, db: Session, *, archive: bool = False) -> None:
         db.commit()
         logger.debug("reindex_bm25: reindexed %s (dialect=%s)", slug, dialect)
     # Rationale: BM25 tsvector reindex may fail for one skill; rollback and log, then reraise
-    except Exception:
+    except Exception:  # noqa: BLE001
         db.rollback()
         logger.exception("reindex_bm25: failed for %s", slug)
         raise
@@ -85,6 +85,6 @@ def reindex_all(db: Session) -> int:
             reindex_bm25(sk.slug, db)
             count += 1
         # Rationale: per-skill reindex failure must not abort batch; log and continue
-        except Exception:
+        except Exception:  # noqa: BLE001
             logger.exception("reindex_all: skipped %s", sk.slug)
     return count

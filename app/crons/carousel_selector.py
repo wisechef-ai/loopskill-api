@@ -303,7 +303,7 @@ def main():
                 f"(v={p['velocity']:.2f} s={p['success']:.2f} d={p['diversity']:.2f})"
             )
     # Rationale: outer try/except for cron top-level; DB commit failure must log+reraise
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         session.rollback()
         print(f"[carousel] ERROR: {e}", file=sys.stderr)
         raise

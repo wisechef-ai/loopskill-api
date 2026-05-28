@@ -16,6 +16,8 @@ from fastapi.testclient import TestClient
 from app.auth_ctx import AuthContext
 from app.authz import can_run_sandbox
 
+pytestmark = [pytest.mark.sandbox_linux_only]
+
 
 # ---------------------------------------------------------------------------
 # Unit tests for can_run_sandbox predicate (authz.py)

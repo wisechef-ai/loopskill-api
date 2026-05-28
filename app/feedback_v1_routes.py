@@ -167,29 +167,25 @@ def post_recipify_request(
     db.commit()
     db.refresh(row)
 
-    # GitHub dispatch (best-effort)
-    gh_url = (
-        github_dispatch.dispatch_event(
-            "recipify-request",
-            {
-                "id": str(row.id),
-                "target_name": payload.target_name,
-                "why_useful": payload.why_useful,
-                "suggested_sources": payload.suggested_sources,
-                "agent_id": payload.agent_id,
-                "signature": sig,
-            },
-        )
-        or ""
+    # GitHub dispatch (best-effort); workflow will PATCH back the real URL
+    dispatched = github_dispatch.dispatch_event(
+        "recipify-request",
+        {
+            "id": str(row.id),
+            "target_name": payload.target_name,
+            "why_useful": payload.why_useful,
+            "suggested_sources": payload.suggested_sources,
+            "agent_id": payload.agent_id,
+            "signature": sig,
+        },
     )
 
-    if gh_url:
-        row.issue_url = gh_url
+    if not dispatched:
+        row.feedback_status = "failed"
         db.commit()
-        feedback_ratelimit.update_dedup_url(sig, gh_url)
 
     logger.info("recipify-request accepted: id=%s sig=%s", row.id, sig[:12])
-    return RecipifyRequestOut(ok=True, id=str(row.id), issue_url=gh_url)
+    return RecipifyRequestOut(ok=True, id=str(row.id), issue_url="")
 
 
 @router.post(
@@ -254,26 +250,22 @@ def post_feedback(
     db.commit()
     db.refresh(row)
 
-    # GitHub dispatch (best-effort)
-    gh_url = (
-        github_dispatch.dispatch_event(
-            "feedback",
-            {
-                "id": str(row.id),
-                "category": payload.category,
-                "message": payload.message,
-                "context": payload.context,
-                "agent_id": payload.agent_id,
-                "signature": sig,
-            },
-        )
-        or ""
+    # GitHub dispatch (best-effort); workflow will PATCH back the real URL
+    dispatched = github_dispatch.dispatch_event(
+        "feedback",
+        {
+            "id": str(row.id),
+            "category": payload.category,
+            "message": payload.message,
+            "context": payload.context,
+            "agent_id": payload.agent_id,
+            "signature": sig,
+        },
     )
 
-    if gh_url:
-        row.issue_url = gh_url
+    if not dispatched:
+        row.feedback_status = "failed"
         db.commit()
-        feedback_ratelimit.update_dedup_url(sig, gh_url)
 
     logger.info("feedback accepted: id=%s cat=%s sig=%s", row.id, payload.category, sig[:12])
-    return FeedbackOut(ok=True, id=str(row.id), issue_url=gh_url)
+    return FeedbackOut(ok=True, id=str(row.id), issue_url="")

@@ -6,15 +6,24 @@ SKILL.md files. Anything that disagrees with this file is a bug.
 
 ## Tiers
 
-| DB enum    | Display label | Stripe price var               | Monthly price |
+| DB slug    | Display label | Stripe price env var           | Monthly price |
 |------------|---------------|--------------------------------|---------------|
 | `free`     | Free          | —                              | €0            |
-| `cook`     | Cook          | `STRIPE_PRICE_COOK`            | €20           |
-| `operator` | All-in        | `STRIPE_PRICE_OPERATOR`        | €100          |
+| `pro`      | Pro           | `WR_STRIPE_PRICE_PRO`          | €20           |
+| `pro_plus` | Pro+          | `WR_STRIPE_PRICE_PRO_PLUS`     | €100          |
 
-`studio` is **RETIRED** — aliased to `operator` in the v7 phase F migration.
-The portal-side label rename (Studio → All-in) shipped in stabilization_2605/E
-and v6/A; this PR completes the unification at the DB and config layers.
+These three slugs (`free`, `pro`, `pro_plus`) are the **canonical tier vocabulary**
+across the DB, API responses, SKILL.md frontmatter, and all tests.
+The authoritative metadata (display names, badge colours, price IDs) lives in
+`config/tiers.yaml` — edit only that file to change display labels or Stripe mappings.
+
+> **Legacy alias sunset — 2026-06-10:** The names `cook` (→ `pro`),
+> `operator` (→ `pro_plus`), and `studio` (→ `pro_plus`) are accepted as
+> backward-compat aliases in the `tier` query parameter of `/api/skills/search`
+> and in `app/subscription_service.py` Stripe price-ID resolution.
+> Both alias paths are removed on **2026-06-10**; callers must migrate to
+> the canonical slugs before that date.  See `config/tiers.yaml` for the
+> full alias mapping.
 
 ## Categories (10 canonical)
 

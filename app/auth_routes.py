@@ -184,6 +184,7 @@ async def github_callback(
             if ref_code:
                 process_referral_cookie(db, user, ref_code)
             ensure_referral_code(user, db)
+        # Rationale: referral code processing must never block sign-in; log and continue
         except Exception:  # noqa: BLE001 — never block sign-in on referral failure
             logger.exception("Referral processing failed for user %s (non-fatal)", user.id)
         jwt_token = create_jwt(user)
@@ -266,6 +267,7 @@ async def google_callback(
             if ref_code:
                 process_referral_cookie(db, user, ref_code)
             ensure_referral_code(user, db)
+        # Rationale: referral code processing must never block sign-in; log and continue
         except Exception:  # noqa: BLE001 — never block sign-in on referral failure
             logger.exception("Referral processing failed for user %s (non-fatal)", user.id)
         jwt_token = create_jwt(user)
@@ -349,28 +351,27 @@ async def get_me(
                 "pro": 100,
                 "pro_plus": None,
                 # Legacy aliases for 30-day shim window (RCP-INCIDENT-2026-05-11)
-                "cook": 100,
-                "operator": None,
-                "studio": None,
+                "cook": 100,  # legacy alias → pro
+                "operator": None,  # legacy alias → pro_plus
+                "studio": None,  # legacy alias → pro_plus
             }.get(user.subscription_tier, 5),
-            "recipify": _is_paid_tier(user.subscription_tier),
             "cookbook_limit": {
                 "free": 0,
                 "pro": 1,
                 "pro_plus": None,
                 # Legacy aliases for 30-day shim window (RCP-INCIDENT-2026-05-11)
-                "cook": 1,
-                "operator": None,
-                "studio": None,
+                "cook": 1,  # legacy alias → pro
+                "operator": None,  # legacy alias → pro_plus
+                "studio": None,  # legacy alias → pro_plus
             }.get(user.subscription_tier, 0),
             "cookbook_skill_cap": {
                 "free": 0,
                 "pro": 25,
                 "pro_plus": None,
                 # Legacy aliases for 30-day shim window (RCP-INCIDENT-2026-05-11)
-                "cook": 25,
-                "operator": None,
-                "studio": None,
+                "cook": 25,  # legacy alias → pro
+                "operator": None,  # legacy alias → pro_plus
+                "studio": None,  # legacy alias → pro_plus
             }.get(user.subscription_tier, 0),
             "fleet_sync": _is_pro_plus_tier(user.subscription_tier),
             "fleet_seeker": _is_pro_plus_tier(user.subscription_tier),

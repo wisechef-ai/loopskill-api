@@ -69,14 +69,13 @@ class VersionOut(BaseModel):
 class SkillAccessOut(BaseModel):
     """Response for GET /api/skills/access — shows if caller can use a skill.
 
-    Tier semantics (Plan v5.4 §A.8):
-      Cook       — access to all skills currently in the marketplace
-      Operator   — Cook + fork capability (fork_eligible=True)
-      Studio     — Operator + bucket capability (bucket_eligible=True)
+    Tier semantics (canonical slugs as of Phase 5):
+      Pro       — access to all skills currently in the marketplace
+      Pro+      — Pro + fork capability (fork_eligible=True) + bucket capability
 
-    Skills carry a `tier` (cook | operator | studio | None=free). A caller
+    Skills carry a `tier` (pro | pro_plus | None=free). A caller
     has access when their subscription tier rank ≥ the skill's tier rank.
-    The optional `fork_eligible` request param requires Operator+ on top of
+    The optional `fork_eligible` request param requires Pro+ on top of
     skill-tier access.
     """
 

@@ -95,9 +95,8 @@ Once connected, your agent gets these tools — no extra configuration:
 | Tier | Price | What you get |
 |------|-------|-------------|
 | **Free** | €0/mo | Search, install free-tier skills, 5 installs |
-| **Cook** | €20/mo | Unlimited installs, Pro-tier skills, cookbook sharing |
-| **Operator** | €100/mo | Everything in Cook + private cookbooks, priority support, analytics |
-| **Studio** | Custom | White-label, SLA, custom integrations |
+| **Pro** | €20/mo | Unlimited installs, Pro-tier skills, cookbook sharing |
+| **Pro+** | €100/mo | Everything in Pro + private cookbooks, priority support, analytics |
 
 All tiers include MCP access. Publishers earn on every attributed use.
 
