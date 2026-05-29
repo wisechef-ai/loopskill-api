@@ -11,6 +11,15 @@ related_skills:
   - paperclip-api
   - claude-code-fleet-orchestration
   - wisechef-content-engine
+unhappy_paths:
+  - condition: "A source (GitHub, Stripe, Discord, calendar) is not configured when `/maestro morning` runs"
+    recovery: "Maestro skips the unconfigured source and prints `not configured` for that section instead of failing the whole briefing. Run that source's first-time setup when prompted, or edit ~/.maestro/config.toml directly."
+  - condition: "`/maestro code` test suite (step 5) fails on the implemented branch"
+    recovery: "Maestro stops and surfaces the failing output — it never pushes red or opens the PR. Fix the failure locally and re-run `/maestro code`, or bin the branch."
+  - condition: "~/.maestro/config.toml is missing or malformed on first run"
+    recovery: "Maestro launches the interactive config wizard and rebuilds the file section by section. Delete the file to force a clean re-run of the wizard."
+  - condition: "A sub-command would trigger an external side-effect (merge, send, publish) without approval"
+    recovery: "Maestro always produces a draft + review checkpoint and waits for explicit human y/n. No external side-effect fires without approval — if you want it to proceed, approve the checkpoint."
 ---
 
 # Maestro
@@ -105,7 +114,7 @@ Maestro reads `~/.maestro/config.toml`:
 
 ```toml
 [user]
-name = "Adam"
+name = "Your Name"
 timezone = "Europe/Warsaw"
 
 [sources.github]
@@ -118,7 +127,7 @@ account_id = "acct_xxx"
 team_key = "ENG"
 
 [voice]
-profile_path = "~/.maestro/voice/adam.json"
+profile_path = "~/.maestro/voice/you.json"
 ```
 
 The first run guides the user through each section interactively.
@@ -136,5 +145,5 @@ The first run guides the user through each section interactively.
 
 If you were using the `chef` skill: there is nothing to do. The `chef` slug
 will redirect to `maestro` on the marketplace for 90 days. After that window
-closes, customer-side shims at `~/.hermes/skills/chef/` should be removed
-manually (Adam has a one-liner queued for the next fleet ping).
+closes, any customer-side shim directory for the old `chef` skill can be
+removed manually.

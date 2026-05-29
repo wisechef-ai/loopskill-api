@@ -11,6 +11,15 @@ related_skills:
   - paperclip-api
   - claude-code-fleet-orchestration
   - wisechef-content-engine
+unhappy_paths:
+  - condition: "One of the five bundled skills fails to install (network blip, registry error)"
+    recovery: "Re-run `recipes_install(\"framework-v0\")` — installs are idempotent; already-installed skills are skipped and only the failed one is retried. Or install the failed skill directly by its slug."
+  - condition: "RECIPES_API_KEY is missing or invalid when the bootstrap runs"
+    recovery: "Set RECIPES_API_KEY in your environment (free-tier key works for free skills) and re-run. The bootstrap fails fast with an auth error rather than installing a partial stack."
+  - condition: "The post-install config wizard is interrupted before capturing name/timezone/repo"
+    recovery: "Run `/maestro morning` — Maestro detects the missing config and re-runs the wizard for any unanswered section the first time it sees you."
+  - condition: "A bundled skill version conflicts with one already installed at a different version"
+    recovery: "framework-v0 does not force-downgrade. Resolve by installing the desired version explicitly (`recipes_install(\"<slug>\")`); the bootstrap leaves existing newer installs untouched."
 ---
 
 # Framework v0
