@@ -51,6 +51,14 @@ class TestInstalledSecurityFloors:
             "— security regression."
         )
 
+    def test_urllib3_at_or_above_patch(self):
+        import urllib3
+
+        assert _ver_tuple(urllib3.__version__) >= (2, 7, 0), (
+            f"urllib3 {urllib3.__version__} is below the PYSEC-2026-141/142 "
+            "patch (2.7.0) — security regression."
+        )
+
 
 class TestRequirementsCarriesSecurityPins:
     def test_security_floor_pins_present(self):
@@ -64,6 +72,10 @@ class TestRequirementsCarriesSecurityPins:
         assert "idna>=" in req, (
             "requirements.txt lost its explicit `idna>=` security floor "
             "(W0.4 / CVE-2026-45409). Restore it."
+        )
+        assert "urllib3>=" in req, (
+            "requirements.txt lost its explicit `urllib3>=` security floor "
+            "(W0.4 / PYSEC-2026-141/142). Restore it."
         )
 
     def test_fastapi_floor_not_below_115(self):

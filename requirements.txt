@@ -24,8 +24,10 @@ tomli>=2.0; python_version < "3.11"
 # `pip install -r requirements.txt` cannot regress below the patched release.
 #   starlette 1.0.0 → PYSEC-2026-161 (fixed 1.0.1)
 #   idna      3.13  → CVE-2026-45409 (fixed 3.15)
+#   urllib3   2.6.3 → PYSEC-2026-141/142 (fixed 2.7.0)
 starlette>=1.0.1
 idna>=3.15
+urllib3>=2.7.0
 
 # MCP server (Phase A → Phase 1 v7.1) — official Python SDK
 # 1.4+ required for StreamableHTTP transport (StreamableHTTPSessionManager)
