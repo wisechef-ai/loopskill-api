@@ -57,6 +57,17 @@ def _is_paid_tier(tier: str | None) -> bool:
     return _canonical(tier) in ("pro", "pro_plus")
 
 
+def _is_pro_tier(tier: str | None) -> bool:
+    """Return True if tier is pro or above (pro, pro_plus, or legacy slugs).
+
+    Used by integrator_2905 W1 to gate fork/tailor access at the Pro tier
+    (not pro_plus) for broader first-dollar funnel.
+    """
+    if not tier:
+        return False
+    return _canonical(tier) in ("pro", "pro_plus")
+
+
 def _is_pro_plus_tier(tier: str | None) -> bool:
     """Return True if tier is the pro_plus tier (or legacy 'operator'/'studio' slugs).
 

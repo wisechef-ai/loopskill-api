@@ -127,7 +127,11 @@ def _make_app(db: Session, *, api_key_user_id, is_admin: bool = False) -> FastAP
 
 
 class TestTierGate:
-    def test_cook_tier_blocked_with_402(self, db_session, tmp_path):
+    def test_cook_tier_now_accepted(self, db_session, tmp_path):
+        """integrator_2905 W1: Pro tier is now accepted for fork creation.
+
+        Previously pro_plus-only; gate dropped to Pro for broader first-dollar funnel.
+        """
         user = _make_user(db_session, tier="pro")
         _make_skill(db_session, slug="src-1")
         db_session.commit()
@@ -137,10 +141,9 @@ class TestTierGate:
             with TestClient(app) as client:
                 r = client.post("/api/forks/create", json={
                     "source_slug": "src-1",
-                    "name": "My Cook Fork",
+                    "name": "My Pro Fork",
                 })
-        assert r.status_code == 402, r.text
-        assert r.json()["detail"]["needs_tier"] == "pro_plus"
+        assert r.status_code in (201, 409), f"Pro should be accepted, got {r.status_code}: {r.text}"
 
     def test_no_tier_blocked_with_402(self, db_session, tmp_path):
         user = _make_user(db_session, tier=None, status=None)

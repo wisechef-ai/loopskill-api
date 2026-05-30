@@ -52,6 +52,7 @@ from app.mcp.tools import (
     recipes_fleet_list,
     recipes_fleet_subscribe,
     recipes_fleet_sync,
+    recipes_fork_list,
     recipes_install,
     recipes_cookbook_install,
     CookbookInstallError,
@@ -70,6 +71,7 @@ from app.mcp.tools import (
     recipes_share_rotate,
     recipes_subrecipe_resolve,
     recipes_sync,
+    recipes_tailor,
 )
 
 ToolDispatch = Callable[[Session, dict[str, Any], dict[str, Any]], Awaitable[Any] | Any]
@@ -274,6 +276,20 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             force=args.get("force", False),
             confirmation=args.get("confirmation"),
             api_key_id=caller.get("api_key_id"),
+            ctx=ctx,
+        )
+    # integrator_2905 W1: tailor / fork tools
+    if name == "recipes_fork_list":
+        return _tool_ns.get("recipes_fork_list", recipes_fork_list)(
+            db,
+            ctx=ctx,
+        )
+    if name == "recipes_tailor":
+        return _tool_ns.get("recipes_tailor", recipes_tailor)(
+            db,
+            source_slug=args["source_slug"],
+            name=args["name"],
+            readme=args.get("readme"),
             ctx=ctx,
         )
     raise ValueError(f"unknown tool: {name}")

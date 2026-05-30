@@ -1,7 +1,7 @@
-"""Pro+-tier skill forks — Phase D.2.
+"""Pro-tier skill forks — Phase D.2, extended integrator_2905 W1.
 
-Endpoints (all gated to subscription_tier in {'pro_plus'} OR master key):
-Legacy slugs 'operator'/'studio' accepted via _is_pro_plus_tier shim for 30 days.
+Endpoints (gated to subscription_tier in {'pro', 'pro_plus'} OR master key):
+Legacy slugs 'operator'/'studio'/'cook' accepted via tier_labels shim for 30 days.
   - POST   /api/forks/create
   - GET    /api/forks/list
   - POST   /api/forks/<id>/version          (multipart: tarball + semver + changelog)
@@ -11,8 +11,8 @@ Legacy slugs 'operator'/'studio' accepted via _is_pro_plus_tier shim for 30 days
 
 Tier gate: middleware validates the API key (header) and stamps user_id on
 request.state. This module then loads the User and rejects with HTTP 402 if
-their subscription tier is below 'pro_plus'. The static master key bypasses
-the tier check (admin, used in tests + ops scripts).
+their subscription tier is below 'pro' (was pro_plus, dropped for first-dollar
+funnel in integrator_2905 W1). The static master key bypasses the tier check.
 
 Tarball storage: production path is settings.RECIPES_FORKS_DIR (default
 /var/lib/recipes-skills/forks); test envs override RECIPES_FORKS_DIR=/tmp/...
@@ -40,7 +40,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import ForkVersion, Skill, SkillFork, User
-from app.tier_labels import _is_pro_plus_tier
+from app.tier_labels import _is_pro_tier
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/forks", tags=["forks"])
@@ -95,7 +95,10 @@ class TierContext(BaseModel):
 
 
 def require_operator(request: Request, db: Session = Depends(get_db)) -> TierContext:
-    """402 unless caller is master-key OR has an active pro_plus sub.
+    """402 unless caller is master-key OR has an active pro (or above) sub.
+
+    integrator_2905 W1: gate dropped from pro_plus to pro for broader
+    first-dollar funnel. Master key still bypasses the tier check.
 
     The middleware has already validated the API key and stamped api_key_user_id
     on request.state. user_id is None for the static master key.
@@ -111,10 +114,10 @@ def require_operator(request: Request, db: Session = Depends(get_db)) -> TierCon
     tier = user.subscription_tier if user else None
     status = user.subscription_status if user else None
 
-    if not _is_pro_plus_tier(tier) or status not in ACTIVE_SUB_STATUSES:
+    if not _is_pro_tier(tier) or status not in ACTIVE_SUB_STATUSES:
         raise HTTPException(
             status_code=402,
-            detail={"needs_tier": "pro_plus", "current_tier": tier},
+            detail={"needs_tier": "pro", "current_tier": tier},
         )
     return TierContext(user_id=user.id, is_master=False, tier=tier)
 

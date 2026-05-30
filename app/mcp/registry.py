@@ -473,4 +473,40 @@ def _tool_definitions() -> list[types.Tool]:
                 },
             },
         ),
+        # ── integrator_2905 W1: tailor / fork tools ──────────────────────────
+        types.Tool(
+            name="recipes_fork_list",
+            description=(
+                "List all forks owned by the authenticated user. "
+                "Returns fork_id, name, slug, source_slug for each."
+            ),
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        types.Tool(
+            name="recipes_tailor",
+            description=(
+                "Fork a public skill to create an editable private copy. "
+                "Returns fork_id and fork_slug. The fork is ready for versioning "
+                "via POST /api/forks/{fork_id}/version. Idempotent: if the user "
+                "already forked this skill, returns the existing fork."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["source_slug", "name"],
+                "properties": {
+                    "source_slug": {
+                        "type": "string",
+                        "description": "Slug of the public skill to fork.",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Human-readable name for the fork.",
+                    },
+                    "readme": {
+                        "type": "string",
+                        "description": "Optional README for the fork.",
+                    },
+                },
+            },
+        ),
     ]

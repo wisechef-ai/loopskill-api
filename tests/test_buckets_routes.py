@@ -108,8 +108,11 @@ def _build_app(db: Session, user: User | None) -> FastAPI:
 # ── Tier gate tests ──────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("tier", ["cook", "operator"])
-def test_create_bucket_below_studio_returns_402(db, tier):
+@pytest.mark.parametrize("tier", ["free"])
+def test_create_bucket_below_pro_returns_402(db, tier):
+    """integrator_2905 W1: gate dropped from pro_plus to Pro.
+    Free tier still rejected; cook (→pro) and operator (→pro_plus) now accepted.
+    """
     user = _make_user(db, tier)
     client = TestClient(_build_app(db, user))
     resp = client.post("/api/buckets/create", json={"name": "Try", "visibility": "private"})
@@ -123,11 +126,12 @@ def test_create_bucket_anonymous_returns_401(db):
     assert resp.status_code == 401
 
 
-def test_create_bucket_studio_returns_200(db):
-    user = _make_user(db, "studio")
+def test_create_bucket_pro_tier_returns_200(db):
+    """integrator_2905 W1: Pro tier now accepted for bucket creation."""
+    user = _make_user(db, "pro")
     client = TestClient(_build_app(db, user))
     resp = client.post("/api/buckets/create", json={
-        "name": "My Studio Bucket",
+        "name": "My Pro Bucket",
         "description": "Test",
         "visibility": "private",
         "pin_mode": "latest-stable",
@@ -135,7 +139,7 @@ def test_create_bucket_studio_returns_200(db):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["status"] == "created"
-    assert body["bucket"]["slug"].startswith("my-studio-bucket")
+    assert body["bucket"]["slug"].startswith("my-pro-bucket")
     assert body["bucket"]["owner_id"] == str(user.id)
 
 

@@ -35,6 +35,7 @@ from app.mcp.tools.share import (
 from app.mcp.tools.skill_error import recipes_report_skill_error
 from app.mcp.tools.skill_patch import recipes_propose_skill_patch
 from app.mcp.tools.subrecipe_resolve import recipes_subrecipe_resolve
+from app.mcp.tools.tailor import recipes_fork_list, recipes_tailor
 
 __all__ = [
     "recipes_search",
@@ -66,4 +67,7 @@ __all__ = [
     # cookbook_share_2105 Phase F: cookbook-scoped install
     "recipes_cookbook_install",
     "CookbookInstallError",
+    # integrator_2905 W1: tailor/fork tools
+    "recipes_fork_list",
+    "recipes_tailor",
 ]

@@ -1,9 +1,12 @@
-"""Buckets API — Pro+-tier collections of skills/forks (Phase E.2, v5.4).
+"""Buckets API — Pro-tier collections of skills/forks (Phase E.2, v5.4).
 
 Tier gate: every endpoint except `GET /api/buckets/{slug}/manifest` requires
-the authenticated user to be on the `pro_plus` (or `master`) subscription tier.
+the authenticated user to be on the `pro` (or above) subscription tier.
 The manifest endpoint is intentionally public so it can be embedded by
 white-label sites and shared between agents.
+
+integrator_2905 W1: gate dropped from pro_plus to pro for broader first-dollar
+funnel. Legacy aliases still accepted until 2026-06-10.
 
 Endpoints:
   POST   /api/buckets/create
@@ -36,7 +39,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/buckets", tags=["buckets"])
 
 
-STUDIO_TIERS = {"pro_plus", "studio", "master"}  # studio = legacy alias (sunset 2026-06-10)
+STUDIO_TIERS = {"pro", "pro_plus", "studio", "master", "cook"}  # studio/cook = legacy aliases (sunset 2026-06-10)
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$")
 
 
