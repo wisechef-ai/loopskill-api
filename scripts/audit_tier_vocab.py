@@ -147,6 +147,22 @@ def is_allowed_line(line: str) -> bool:
     return any(marker in line for marker in INLINE_ALLOWLIST_MARKERS)
 
 
+#: How many lines above/below a flagged slug to search for an alias-map marker.
+#: A marker anywhere in this window suppresses the violation. This makes the
+#: gate STABLE under auto-formatting (ruff-format may split a dict/enum literal
+#: across several lines, separating the slug from its trailing ``# legacy alias``
+#: comment) — the deliberate 30-day back-compat alias maps should not re-trip the
+#: gate just because the formatter rewrapped them.
+_MARKER_WINDOW = 2
+
+
+def _line_in_allowed_window(lines: list[str], idx: int) -> bool:
+    """True if any line within +/-_MARKER_WINDOW of ``idx`` carries an allow marker."""
+    lo = max(0, idx - _MARKER_WINDOW)
+    hi = min(len(lines), idx + _MARKER_WINDOW + 1)
+    return any(is_allowed_line(lines[j]) for j in range(lo, hi))
+
+
 def scan(repo_root: Path) -> list[tuple[Path, int, str]]:
     """Walk the repo and return (file, lineno, line) tuples for violations."""
     violations: list[tuple[Path, int, str]] = []
@@ -168,9 +184,10 @@ def scan(repo_root: Path) -> list[tuple[Path, int, str]]:
         except OSError:
             continue
 
-        for lineno, line in enumerate(text.splitlines(), start=1):
-            if LEGACY_PATTERN.search(line) and not is_allowed_line(line):
-                violations.append((path, lineno, line.rstrip()))
+        lines = text.splitlines()
+        for idx, line in enumerate(lines):
+            if LEGACY_PATTERN.search(line) and not _line_in_allowed_window(lines, idx):
+                violations.append((path, idx + 1, line.rstrip()))
 
     return violations
 
