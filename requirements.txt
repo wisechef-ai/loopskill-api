@@ -1,5 +1,5 @@
 # Recipes API runtime + test dependencies (Sprint 4 baseline)
-fastapi>=0.110
+fastapi>=0.115.0
 uvicorn[standard]>=0.27
 sqlalchemy>=2.0.49
 alembic>=1.16.5
@@ -17,6 +17,15 @@ redis>=5.0
 httpx>=0.26
 PyYAML>=6.0
 tomli>=2.0; python_version < "3.11"
+
+# Security pins (integrator_2905 W0.4 — pip-audit 2026-05-30).
+# These are transitive deps (pulled by fastapi/httpx) with known CVEs in the
+# versions that were resolving into the venv. Pin secure floors so a fresh
+# `pip install -r requirements.txt` cannot regress below the patched release.
+#   starlette 1.0.0 → PYSEC-2026-161 (fixed 1.0.1)
+#   idna      3.13  → CVE-2026-45409 (fixed 3.15)
+starlette>=1.0.1
+idna>=3.15
 
 # MCP server (Phase A → Phase 1 v7.1) — official Python SDK
 # 1.4+ required for StreamableHTTP transport (StreamableHTTPSessionManager)
