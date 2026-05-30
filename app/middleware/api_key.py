@@ -232,9 +232,8 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         "/api/forks/_download",
         "/api/graph",  # B.5: graph extension — public read; master-only write enforced inline
         # Phase D — anonymous heartbeat write endpoint (no API key required;
-        # mathematically anonymous schema, see app/heartbeat_routes.py).
-        # The READ endpoint /api/v1/fleet/weekly is gated separately and is
-        # NOT prefixed-public.
+        # mathematically anonymous schema, see app/heartbeat_routes.py). The
+        # READ endpoint /api/v1/fleet/weekly is gated separately (NOT public).
         "/api/v1/heartbeat",
         # Phase A v2 — MCP healthz/discovery is unauthenticated so MCP clients
         # can probe server availability before sending credentials. Actual SSE
@@ -313,17 +312,12 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             if tail == "graph":
                 return await call_next(request)
             # polish_1805 item 1 — public install for free skills only.
-            # CRITICAL: we do NOT do a DB lookup in the middleware because the
-            # test infrastructure (and some prod request-scoping) shares a
-            # connection pool that gets confused by a parallel SessionLocal()
-            # call mid-request. Instead: if the request has NO ``x-api-key``
-            # header at all, mark it as "candidate free install" and let the
-            # /install route enforce the tier='free' + is_public check at
-            # the route level (route uses Depends(get_db) — same session as
-            # the rest of the route logic, no double-session footgun).
-            #
-            # The route's existing visibility check + the new
-            # ``is_anonymous_free_install`` gate together guarantee that:
+            # CRITICAL: no DB lookup in the middleware (shared connection pool
+            # gets confused by a parallel SessionLocal() mid-request). Instead:
+            # if there's NO x-api-key header, mark "candidate free install" and
+            # let the /install route enforce tier='free' + is_public at route
+            # level (Depends(get_db) — same session, no double-session footgun).
+            # The route's visibility check + is_anonymous_free_install together:
             #   - tier=free + public → install proceeds (no key)
             #   - tier=pro/pro_plus + no key → route returns 401
             #   - private skill + no key → route returns 404 (no leak)
@@ -362,18 +356,13 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             # underscore/auth-verb rules because slugs are kebab-case lowercase.
             if "/" in tail:
                 slug, _, suffix = tail.partition("/")
-                # W0.1 (integrator_2905): /files (tarball manifest) + /file
-                # (single-file content) are PUBLIC skill-detail sub-resources —
-                # the Phase-Q file browser must read SKILL.md before a buyer
-                # decides to subscribe (LarryBrain catalog-browsing UX). These
-                # routes shipped in topshelf Phase Q but were never added to the
-                # public allow-list, so middleware 401'd before the route ran
-                # (same bug class as 2026-05-19 P1 on /api/skills/access).
-                # The /file route enforces its OWN tier paywall (free callers →
-                # SKILL.md only) via request.state.auth_ctx, so we stamp
-                # opportunistic auth here: a present key upgrades the tier, an
-                # absent key still serves public content. Mirrors the
-                # skill-detail GET pattern above (Bug B fix, repo-topclass P1).
+                # W0.1 (integrator_2905): /files (manifest) + /file (content)
+                # are PUBLIC skill-detail sub-resources (Phase-Q file browser,
+                # LarryBrain catalog UX) but were missing from the allow-list, so
+                # middleware bare-401'd before the route ran (same class as the
+                # 2026-05-19 P1 on /api/skills/access). /file keeps its own tier
+                # paywall via request.state.auth_ctx; we stamp opportunistic auth
+                # here (present key upgrades tier, absent key serves public).
                 if (
                     slug
                     and not slug.startswith("_")
@@ -489,8 +478,8 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 request.state.api_key_user_id = "CBT_TOKEN"
                 request.state.api_key_id = None
                 request.state.is_cbt_token = True
-                # auth_ctx: cbt_token scope — stamp allow_public_catalog so
-                # downstream authz predicates (and install_routes) can read it.
+                # auth_ctx: cbt_token scope — stamp allow_public_catalog for
+                # downstream authz predicates + install_routes.
                 from app.auth_ctx import AuthContext
 
                 request.state.auth_ctx = AuthContext(
@@ -514,32 +503,18 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         # BEFORE the master/rec_ paths so the distinct prefix is resolved first.
         # Format: rec_fleet_<8hex>_<32hex>. Stored as sha256 in Fleet.fleet_api_key_hash.
         if key.startswith(FLEET_KEY_PREFIX):
-            from app.database import SessionLocal
-            from app.models import Fleet as _Fleet
+            from app.middleware._token_auth import resolve_fleet_auth_ctx
 
-            _fleet_key_hash = hashlib.sha256(key.encode()).hexdigest()
-            _fleet_db = SessionLocal()
-            try:
-                _fleet_row = (
-                    _fleet_db.query(_Fleet).filter(_Fleet.fleet_api_key_hash == _fleet_key_hash).first()
+            fleet_ctx = resolve_fleet_auth_ctx(key)
+            if fleet_ctx is None:
+                from fastapi.responses import JSONResponse
+
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Invalid or revoked fleet key"},
                 )
-                if _fleet_row is None:
-                    from fastapi.responses import JSONResponse
-
-                    return JSONResponse(
-                        status_code=401,
-                        content={"detail": "Invalid or revoked fleet key"},
-                    )
-                from app.auth_ctx import AuthContext
-
-                request.state.auth_ctx = AuthContext(
-                    scope="fleet",
-                    fleet_id=_fleet_row.id,
-                    user_id=_fleet_row.owner_user_id,
-                )
-                return await call_next(request)
-            finally:
-                _fleet_db.close()
+            request.state.auth_ctx = fleet_ctx
+            return await call_next(request)
 
         # For dev: support a static master key from env (also prefixed rec_)
         if hmac.compare_digest(key, settings.API_KEY):

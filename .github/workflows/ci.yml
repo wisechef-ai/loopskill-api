@@ -24,9 +24,17 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Set up Python 3.11
+        id: setup-python
+        continue-on-error: true
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+      - name: Ensure a usable Python (fallback to system)
+        run: |
+          # W0.2: self-hosted Ubuntu 20.04 ARM64 has no setup-python build →
+          # fall back to the runner's pre-installed python3.
+          command -v python >/dev/null 2>&1 || sudo ln -sf "$(command -v python3)" /usr/local/bin/python
+          python --version
 
       - name: Install pytest only (gate is stdlib-only)
         run: pip install pytest
@@ -91,9 +99,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Set up Python 3.11
+        id: setup-python
+        continue-on-error: true
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+      - name: Ensure a usable Python (fallback to system)
+        run: |
+          command -v python >/dev/null 2>&1 || sudo ln -sf "$(command -v python3)" /usr/local/bin/python
+          python --version
       - name: Run gate against scripts/ directory
         run: |
           python scripts/skill_quality_gate.py scripts/ || true
@@ -127,10 +141,16 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Set up Python 3.11
+        id: setup-python
+        continue-on-error: true
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
+      - name: Ensure a usable Python (fallback to system)
+        run: |
+          command -v python >/dev/null 2>&1 || sudo ln -sf "$(command -v python3)" /usr/local/bin/python
+          python --version
 
       - name: Install deps
         run: |

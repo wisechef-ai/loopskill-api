@@ -18,9 +18,29 @@ jobs:
     runs-on: wisechef-runner
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      # W0.2 (integrator_2905): self-hosted runner is Ubuntu 20.04 ARM64, where
+      # actions/setup-python has no 3.11/3.12 build → the action hard-fails and
+      # reds the whole job. Make it non-fatal and fall back to the runner
+      # container's pre-installed Python (the runner needs a Python to exist).
+      - id: setup-python
+        continue-on-error: true
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+          check-latest: true
+      - name: Ensure a usable Python (fallback to system)
+        run: |
+          if ! command -v python >/dev/null 2>&1; then
+            # setup-python failed and no `python` on PATH — alias python3.
+            PY=$(command -v python3 || true)
+            if [ -z "$PY" ]; then
+              echo "::error::No Python available on the runner (setup-python failed AND no system python3)."
+              exit 1
+            fi
+            echo "Using system python3 at $PY"
+            sudo ln -sf "$PY" /usr/local/bin/python || true
+          fi
+          python --version
       - run: python -m pip install pre-commit
       - run: pre-commit run --all-files
 
@@ -28,9 +48,24 @@ jobs:
     runs-on: wisechef-runner
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - id: setup-python
+        continue-on-error: true
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+          check-latest: true
+      - name: Ensure a usable Python (fallback to system)
+        run: |
+          if ! command -v python >/dev/null 2>&1; then
+            PY=$(command -v python3 || true)
+            if [ -z "$PY" ]; then
+              echo "::error::No Python available on the runner (setup-python failed AND no system python3)."
+              exit 1
+            fi
+            echo "Using system python3 at $PY"
+            sudo ln -sf "$PY" /usr/local/bin/python || true
+          fi
+          python --version
       - run: python -m pip install pip-audit safety
       - name: pip-audit (HIGH fails PR; lower severity tracked as issues)
         run: pip-audit -r requirements.txt --strict || true

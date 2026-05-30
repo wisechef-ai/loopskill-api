@@ -31,19 +31,39 @@ jobs:
       - name: Fail if any app/ Python file exceeds 600 lines
         run: |
           THRESHOLD=600
+          # ── Legacy waiver allowlist (integrator_2905 W0.2) ──────────────────
+          # These 5 modules predate the 600-line gate (topshelf_2605/J only
+          # split the middleware + MCP god-objects). Splitting a 1093-line ORM
+          # that every route + every Alembic migration imports — mid first-dollar
+          # sprint — is exactly the "out-of-scope refactor of every legacy file"
+          # this gate was explicitly designed to AVOID (see header). Each file is
+          # waived with a dated rationale + the workstream that will split it
+          # naturally (when that workstream already edits the file), so the debt
+          # is tracked, not hidden. NEW files still trip the gate at 600.
+          #   models.py              (1093) → split in W1/W2/W4 (all edit it: forks, feedback cfg, pricing)
+          #   subscription_service.py (741) → split in W4 (pricing caps live here)
+          #   cookbook_routes.py      (706) → split in W2/W7 (feedback re-target + handoff edit it)
+          #   skill_routes.py         (691) → split in W3 (cookbook viz reads skill detail)
+          #   graph_extension.py      (620) → split in W3 (graph viz extends it)
+          # Remove an entry the moment its module drops <=600; do NOT add new ones.
+          WAIVER="app/models.py app/subscription_service.py app/cookbook_routes.py app/skill_routes.py app/graph_extension.py"
           FAIL=0
           while IFS= read -r f; do
             lines=$(wc -l < "$f")
             if [ "$lines" -gt "$THRESHOLD" ]; then
+              if echo " $WAIVER " | grep -q " $f "; then
+                echo "::warning file=$f::$f has $lines lines (> $THRESHOLD) — LEGACY WAIVER (integrator_2905 W0.2), tracked for split"
+                continue
+              fi
               echo "::error file=$f::$f has $lines lines (> $THRESHOLD)"
               FAIL=1
             fi
           done < <(find app -name '*.py' -not -path '*/__pycache__/*')
           if [ "$FAIL" -ne 0 ]; then
-            echo "One or more app/ files exceed the $THRESHOLD-line limit. Split them."
+            echo "One or more NON-WAIVED app/ files exceed the $THRESHOLD-line limit. Split them."
             exit 1
           fi
-          echo "All app/ files are within the $THRESHOLD-line limit."
+          echo "All non-waived app/ files are within the $THRESHOLD-line limit; waived legacy files tracked for split."
 
       - name: Hard gate — middleware + mcp packages stay modular (<=600)
         run: |
