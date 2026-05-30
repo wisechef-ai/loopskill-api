@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.access_routes import router as access_router  # Phase E: access split
 from app.admin_routes import router as admin_router
+from app.demand_routes import router as demand_router
 from app.api_key_routes import router as api_key_router
 from app.auth_routes import router as auth_router
 from app.buckets_routes import router as buckets_router
@@ -143,6 +144,7 @@ def create_app() -> FastAPI:
     app.include_router(skill_router, prefix="/api", tags=["skills"])
     app.include_router(skill_files_router, prefix="/api", tags=["skills"])
     app.include_router(admin_router, tags=["admin"])
+    app.include_router(demand_router, tags=["admin"])  # demandbrief_3005: content-direction feed
     app.include_router(auth_router, tags=["auth"])
     app.include_router(carousel_router, prefix="/api", tags=["carousel"])
     app.include_router(sandbox_router, tags=["sandbox"])
