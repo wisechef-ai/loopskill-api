@@ -362,6 +362,30 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             # underscore/auth-verb rules because slugs are kebab-case lowercase.
             if "/" in tail:
                 slug, _, suffix = tail.partition("/")
+                # W0.1 (integrator_2905): /files (tarball manifest) + /file
+                # (single-file content) are PUBLIC skill-detail sub-resources —
+                # the Phase-Q file browser must read SKILL.md before a buyer
+                # decides to subscribe (LarryBrain catalog-browsing UX). These
+                # routes shipped in topshelf Phase Q but were never added to the
+                # public allow-list, so middleware 401'd before the route ran
+                # (same bug class as 2026-05-19 P1 on /api/skills/access).
+                # The /file route enforces its OWN tier paywall (free callers →
+                # SKILL.md only) via request.state.auth_ctx, so we stamp
+                # opportunistic auth here: a present key upgrades the tier, an
+                # absent key still serves public content. Mirrors the
+                # skill-detail GET pattern above (Bug B fix, repo-topclass P1).
+                if (
+                    slug
+                    and not slug.startswith("_")
+                    and slug not in self.PUBLIC_SKILL_DETAIL_AUTH_VERBS
+                    and suffix in {"files", "file"}
+                ):
+                    api_key_ctx = _auth_ctx_from_api_key(request)
+                    if api_key_ctx is not None:
+                        request.state.auth_ctx = api_key_ctx
+                    else:
+                        request.state.auth_ctx = _auth_ctx_from_jwt_cookie(request)
+                    return await call_next(request)
                 if (
                     slug
                     and not slug.startswith("_")
