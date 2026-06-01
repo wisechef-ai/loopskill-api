@@ -140,7 +140,7 @@ class TestTierGates:
             r = client.post("/api/cookbooks", json={"name": "Mine"})
         assert r.status_code == 401
 
-    def test_cook_tier_can_create(self, db_session):
+    def test_pro_tier_can_create_first(self, db_session):
         user = _make_user(db_session, tier="pro")
         db_session.commit()
 
@@ -153,27 +153,67 @@ class TestTierGates:
         assert body["cookbook_owner"] == str(user.id)
         assert body["is_base"] is False
 
-    def test_cook_tier_second_cookbook_blocked_with_403(self, db_session):
+    def test_pro_tier_allows_up_to_ten(self, db_session):
+        """Pro cap is 10 (loopclose_3005 SSOT). Cookbooks 1-10 succeed."""
         user = _make_user(db_session, tier="pro")
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
         with TestClient(app) as client:
-            r1 = client.post("/api/cookbooks", json={"name": "First"})
-            assert r1.status_code == 201
-            r2 = client.post("/api/cookbooks", json={"name": "Second"})
-        assert r2.status_code == 403
-        assert r2.json()["detail"]["reason"] == "pro_tier_limit"
+            for i in range(10):
+                r = client.post("/api/cookbooks", json={"name": f"CB{i}"})
+                assert r.status_code == 201, f"cookbook {i + 1} should succeed: {r.text}"
 
-    def test_operator_unlimited(self, db_session):
-        user = _make_user(db_session, tier="pro_plus")
+    def test_pro_tier_eleventh_cookbook_blocked_with_403(self, db_session):
+        """The 11th Pro cookbook is rejected with max_cookbooks=10 (SSOT)."""
+        user = _make_user(db_session, tier="pro")
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
         with TestClient(app) as client:
-            for i in range(3):
-                r = client.post("/api/cookbooks", json={"name": f"CB{i}"})
-                assert r.status_code == 201, r.text
+            for i in range(10):
+                assert client.post("/api/cookbooks", json={"name": f"CB{i}"}).status_code == 201
+            r11 = client.post("/api/cookbooks", json={"name": "Eleventh"})
+        assert r11.status_code == 403
+        detail = r11.json()["detail"]
+        assert detail["reason"] == "pro_tier_limit"
+        assert detail["max_cookbooks"] == 10
+
+    def test_cook_legacy_alias_shares_pro_cap_of_ten(self, db_session):
+        """Legacy 'cook' slug resolves to Pro → same 10 cap (403 on 11th)."""
+        user = _make_user(db_session, tier="cook")
+        db_session.commit()
+
+        app = _make_app(db_session, api_key_user_id=user.id)
+        with TestClient(app) as client:
+            for i in range(10):
+                assert client.post("/api/cookbooks", json={"name": f"CB{i}"}).status_code == 201
+            r11 = client.post("/api/cookbooks", json={"name": "Eleventh"})
+        assert r11.status_code == 403
+        assert r11.json()["detail"]["max_cookbooks"] == 10
+
+    def test_pro_plus_capped_at_two_hundred(self, db_session):
+        """Pro+ cap is 200 (loopclose_3005 SSOT) — NOT unlimited.
+
+        Seed 200 cookbooks directly (fast), then assert the 201st is rejected
+        with max_cookbooks=200, and that the 200th would still be allowed.
+        """
+        user = _make_user(db_session, tier="pro_plus")
+        # Seed 199 cookbooks directly so the next POST is the 200th (allowed)
+        # and the one after is the 201st (blocked).
+        for i in range(199):
+            db_session.add(Cookbook(id=uuid4(), name=f"seed{i}", cookbook_owner=user.id))
+        db_session.commit()
+
+        app = _make_app(db_session, api_key_user_id=user.id)
+        with TestClient(app) as client:
+            r200 = client.post("/api/cookbooks", json={"name": "TwoHundredth"})
+            assert r200.status_code == 201, f"200th should succeed: {r200.text}"
+            r201 = client.post("/api/cookbooks", json={"name": "TwoOhOne"})
+        assert r201.status_code == 403
+        detail = r201.json()["detail"]
+        assert detail["reason"] == "pro_tier_limit"
+        assert detail["max_cookbooks"] == 200
 
 
 # ─────────────────────────── List / detail ──────────────────────────────

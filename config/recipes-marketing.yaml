@@ -52,7 +52,7 @@ tiers:
     price_usd: 20
     bullets:
       - Every paid skill in the catalog ({pro_skills} today, growing weekly)
-      - 1 personal cookbook + fleet sync
+      - "Up to {pro_cookbooks} cookbooks + fleet sync"
       - Cross-vendor (Claude Code, Cursor, Cline, OpenClaw, Hermes, Windsurf)
       - Per-key install visibility
       - Cancel anytime
@@ -61,7 +61,7 @@ tiers:
     price_usd: 100
     bullets:
       - Everything in Pro (every paid skill included — no skill-tier paywall)
-      - Up to 20 cookbooks (vs 1)
+      - "Up to {pro_plus_cookbooks} cookbooks (vs {pro_cookbooks} on Pro)"
       - Deploy cookbooks to your clients' agents
       - Per-cookbook scoped API keys (up to 20)
       - Private org-only catalog

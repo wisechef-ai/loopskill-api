@@ -47,6 +47,25 @@ def display_label(db_slug: str) -> str:
     return _tiers().get(canonical, {}).get("display_name", canonical.title())
 
 
+def cookbook_limit(tier: str | None) -> int | None:
+    """Return the max number of cookbooks a tier may own.
+
+    SSOT: config/tiers.yaml `cookbook_limit` per tier (loopclose_3005 Phase A).
+    This is the ONLY source of cookbook caps — cookbook_routes.py and
+    auth_routes.py both read it here. Accepts legacy slugs ('cook', 'studio',
+    'operator') transparently via _canonical().
+
+    Returns an int cap, or None for unlimited (reserved; no current tier is
+    unlimited). Unknown/None tier falls back to the free-tier limit (0).
+    """
+    canonical = _canonical(tier) if tier else "free"
+    tier_cfg = _tiers().get(canonical)
+    if tier_cfg is None:
+        # Unknown tier → safest is the free-tier cap.
+        return _tiers().get("free", {}).get("cookbook_limit", 0)
+    return tier_cfg.get("cookbook_limit", 0)
+
+
 def _is_paid_tier(tier: str | None) -> bool:
     """Return True if tier is any paid tier (pro, pro_plus, or legacy slugs).
 

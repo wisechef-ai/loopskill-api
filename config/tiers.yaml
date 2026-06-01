@@ -15,6 +15,11 @@ tiers:
     price_id_env: null
     accent_color: "#6B7280"
     badge: Free
+    # Cookbook cap SSOT (loopclose_3005 Phase A). The ONLY source of this
+    # number — cookbook_routes.py and auth_routes.py read it via
+    # tier_labels.cookbook_limit(). null = unlimited (reserved for a future
+    # contact-us tier; no current tier is unlimited).
+    cookbook_limit: 0
 
   pro:
     db_slug: pro
@@ -28,6 +33,7 @@ tiers:
     stripe_nickname: "Pro $20/mo"
     accent_color: "#3B82F6"
     badge: Pro
+    cookbook_limit: 10
 
   pro_plus:
     db_slug: pro_plus
@@ -41,3 +47,4 @@ tiers:
     stripe_nickname: "Pro+ $100/mo"
     accent_color: "#D4A017"
     badge: Pro+
+    cookbook_limit: 200

@@ -2,7 +2,7 @@
 
 Endpoints (all gated to subscription_tier in {'pro','pro_plus'} OR master key):
 Legacy slugs 'cook'/'operator' accepted via _is_paid_tier/_is_pro_plus_tier shims for 30 days.
-  - POST   /api/cookbooks                       create (1-max for pro tier)
+  - POST   /api/cookbooks                       create (per-tier cap via SSOT)
   - GET    /api/cookbooks                       list mine
   - GET    /api/cookbooks/{id}                  detail with skills
   - POST   /api/cookbooks/{id}/skills           add skill (validates slug)
@@ -12,8 +12,9 @@ Legacy slugs 'cook'/'operator' accepted via _is_paid_tier/_is_pro_plus_tier shim
   - GET    /api/cookbooks/{id}/sync             since-filter event log
 
 Tier gate: middleware stamps api_key_user_id on request.state. The static master
-key bypasses tier checks. Free / no-tier users receive 401 on create. Pro tier
-is capped at 1 cookbook (403 on second). Pro+ is unlimited.
+key bypasses tier checks. Free / no-tier users receive 401 on create. The
+per-tier cookbook cap is the SSOT in config/tiers.yaml (read via
+tier_labels.cookbook_limit); a 403 fires when a user is at their tier's limit.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import Cookbook, CookbookSkill, Skill, SkillVersion, User
-from app.tier_labels import _is_paid_tier
+from app.tier_labels import _is_paid_tier, cookbook_limit
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cookbooks", tags=["cookbooks"])
@@ -266,12 +267,15 @@ def create_cookbook(
     if not name:
         raise HTTPException(status_code=422, detail="invalid_name")
 
-    if ctx.tier == "pro" or ctx.tier == "cook":  # cook=legacy alias, remove after 2026-06-10
+    # Cookbook cap — SSOT in config/tiers.yaml via tier_labels.cookbook_limit().
+    # None = unlimited (reserved; no current tier). Pro=10, Pro+=200, free=0.
+    limit = cookbook_limit(ctx.tier)
+    if limit is not None:
         existing = db.query(Cookbook).filter(Cookbook.cookbook_owner == ctx.user_id).count()
-        if existing >= 1:
+        if existing >= limit:
             raise HTTPException(
                 status_code=403,
-                detail={"reason": "pro_tier_limit", "max_cookbooks": 1},
+                detail={"reason": "pro_tier_limit", "max_cookbooks": limit},
             )
 
     cb = Cookbook(

@@ -35,7 +35,7 @@ from app.referral import (
     ensure_referral_code,
     process_referral_cookie,
 )
-from app.tier_labels import _is_paid_tier, _is_pro_plus_tier
+from app.tier_labels import _is_paid_tier, _is_pro_plus_tier, cookbook_limit
 
 logger = logging.getLogger(__name__)
 
@@ -355,15 +355,10 @@ async def get_me(
                 "operator": None,  # legacy alias → pro_plus
                 "studio": None,  # legacy alias → pro_plus
             }.get(user.subscription_tier, 5),
-            "cookbook_limit": {
-                "free": 0,
-                "pro": 1,
-                "pro_plus": None,
-                # Legacy aliases for 30-day shim window (RCP-INCIDENT-2026-05-11)
-                "cook": 1,  # legacy alias → pro
-                "operator": None,  # legacy alias → pro_plus
-                "studio": None,  # legacy alias → pro_plus
-            }.get(user.subscription_tier, 0),
+            # cookbook_limit — SSOT in config/tiers.yaml (loopclose_3005 Phase A).
+            # Read via tier_labels.cookbook_limit() so this never drifts from the
+            # number cookbook_routes.py enforces. Handles legacy slugs.
+            "cookbook_limit": cookbook_limit(user.subscription_tier),
             "cookbook_skill_cap": {
                 "free": 0,
                 "pro": 25,
