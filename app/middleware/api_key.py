@@ -252,10 +252,6 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         # without auth so the static-build pipeline can pull it; counts contain
         # no PII or sensitive data.
         "/api/marketing/",
-        # loopclose_3005 Phase D — founding seat availability (cap/taken/
-        # remaining). Public so /pricing can render "N of 25 seats left" before
-        # the visitor logs in. Aggregate counts only, no PII.
-        "/api/founding/status",
         # marketing_1205 — UTM redirectors for social platforms. Public, set cookie + 302.
         "/x/",
         "/li/",

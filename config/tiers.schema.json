@@ -18,28 +18,9 @@
       "additionalProperties": {
         "$ref": "#/definitions/tier"
       }
-    },
-    "founding": {
-      "$ref": "#/definitions/founding",
-      "description": "loopclose_3005 Phase D — the one-time Founding Integrator SKU. Sits OUTSIDE `tiers` so it never enters the recurring-subscription TIER_PRICE_IDS map. Optional: absent on deployments that don't sell founding seats."
     }
   },
   "definitions": {
-    "founding": {
-      "type": "object",
-      "description": "One-time Founding Integrator SKU (loopclose_3005 Phase D). Grants lifetime access to `grants_tier`, capped at `slot_cap` seats. NOT a recurring subscription.",
-      "required": ["display_name", "price_usd", "slot_cap", "grants_tier", "mode", "price_id_env", "stripe_nickname"],
-      "additionalProperties": false,
-      "properties": {
-        "display_name": {"type": "string", "minLength": 1},
-        "price_usd": {"type": "number", "exclusiveMinimum": 0, "description": "One-time charge in USD. Display + revenue-alert only; authoritative amount is the Stripe price object."},
-        "slot_cap": {"type": "integer", "minimum": 1, "description": "Total founding seats. SOLE source of the cap — enforced server-side at checkout + grant."},
-        "grants_tier": {"type": "string", "minLength": 1, "description": "subscription_tier stamped on the user after purchase (must match a key in `tiers`)."},
-        "mode": {"type": "string", "const": "payment", "description": "Stripe Checkout mode. Always one-time `payment`, never `subscription`."},
-        "price_id_env": {"type": "string", "minLength": 1, "description": "Env var holding the Stripe one-time price ID."},
-        "stripe_nickname": {"type": "string", "minLength": 1, "description": "price.nickname the stripe-sync script enforces."}
-      }
-    },
     "tier": {
       "type": "object",
       "required": ["db_slug", "display_name", "price_usd"],

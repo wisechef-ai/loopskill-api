@@ -24,7 +24,6 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
-    false as sa_false,
     func,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -56,14 +55,6 @@ class User(Base):
     subscription_tier = Column(String(32), nullable=True)  # free, pro, pro_plus (legacy: cook, operator)
     subscription_id = Column(String(255), nullable=True)  # Stripe subscription id
     subscription_current_period_end = Column(DateTime(timezone=True), nullable=True)
-    # ── Founding Integrator SKU (loopclose_3005 Phase D) ──────────────────
-    # A founding purchase is a ONE-TIME payment granting lifetime pro_plus.
-    # founding_member flags the grant; founding_slot_number is the assigned
-    # seat (1..slot_cap), UNIQUE so the DB itself prevents over-selling the
-    # capped allocation even under concurrent webhooks. Both NULL for the
-    # vast majority of users who never buy a founding seat.
-    founding_member = Column(Boolean, nullable=False, default=False, server_default=sa_false())
-    founding_slot_number = Column(Integer, nullable=True, unique=True, index=True)
     # ── Discord integration (Phase D) ─────────────────────────────────────
     # 17-19 digit Discord snowflake; bot uses this to assign roles after
     # Stripe webhooks. NULL when the user hasn't linked Discord yet.

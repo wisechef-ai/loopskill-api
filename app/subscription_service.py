@@ -396,124 +396,12 @@ def _maybe_sync_discord_role(user: User) -> None:
         logger.warning("Discord role sync failed for user %s: %s", user.id, e)
 
 
-def _handle_founding_completed(session: dict, db: Session) -> dict:
-    """Grant a Founding Integrator seat from a paid one-time checkout session.
-
-    loopclose_3005 Phase D. Replay-safe (grant_founding_membership is idempotent
-    on already-seated users). On a sold-out race (the unique slot lost), the
-    one-time PaymentIntent is refunded automatically — the premortem F8.1 term
-    promises deploy-or-refund, so an over-sell refund is an expected branch.
-    """
-    if session.get("payment_status") != "paid":
-        return {"skipped": f"payment_status={session.get('payment_status')}"}
-
-    user = _user_from_subscription_metadata(session, db)
-    if not user:
-        logger.warning("No user found for founding session %s", session.get("id"))
-        return {"skipped": "user-not-found"}
-
-    from app.founding_service import (
-        FoundingSoldOutError,
-        founding_price_usd,
-        grant_founding_membership,
-    )
-
-    try:
-        result = grant_founding_membership(user, db)
-    except FoundingSoldOutError:
-        # Lost the race for the last seat — refund the one-time charge so the
-        # buyer is never charged for a seat they can't have.
-        _refund_founding_payment(session, user)
-        return {"founding": "sold_out_refunded", "user_id": str(user.id)}
-
-    _maybe_sync_discord_role(user)
-
-    # Revenue alert on a genuinely new grant only (skip replays).
-    if result.get("granted"):
-        try:
-            price_usd = None
-            try:
-                price_usd = founding_price_usd()
-            # Rationale: price lookup is display-only; never block the grant alert
-            except Exception:  # noqa: BLE001
-                price_usd = None
-            post_revenue_event(
-                event_kind="new_subscription",
-                user_email=user.email,
-                user_id=str(user.id),
-                tier=f"founding (#{result.get('slot_number')})",
-                amount_usd=price_usd,
-                extra_lines=[
-                    f"Founding Integrator seat #{result.get('slot_number')}",
-                    f"Stripe checkout: `{session.get('id', '?')}`",
-                ],
-            )
-        # Rationale: revenue alert dispatch must never block the founding webhook
-        except Exception:  # noqa: BLE001
-            logger.exception("revenue_alerts: founding dispatch failed")
-
-    logger.info(
-        "Founding seat processed for user %s via checkout %s (granted=%s, seat=%s)",
-        user.id,
-        session.get("id"),
-        result.get("granted"),
-        result.get("slot_number"),
-    )
-    return {"processed": "founding", "user_id": str(user.id), **result}
-
-
-def _refund_founding_payment(session: dict, user: User) -> None:
-    """Best-effort refund of a founding one-time payment (sold-out race).
-
-    Looks up the session's payment_intent and issues a full refund. Never
-    raises — a refund failure is logged for manual follow-up but must not
-    crash the webhook (which would make Stripe retry and re-refund).
-    """
-    payment_intent = session.get("payment_intent")
-    if not payment_intent:
-        logger.error(
-            "Founding sold-out refund: no payment_intent on session %s (user %s) — MANUAL REFUND NEEDED",
-            session.get("id"),
-            user.id,
-        )
-        return
-    try:
-        stripe.Refund.create(
-            payment_intent=payment_intent,
-            reason="requested_by_customer",
-            idempotency_key=f"founding_soldout_refund_{payment_intent}",
-        )
-        logger.info(
-            "Refunded founding over-sell for user %s (payment_intent=%s)",
-            user.id,
-            payment_intent,
-        )
-    # Rationale: refund failure must not crash the webhook; log for manual action
-    except Exception:  # noqa: BLE001
-        logger.exception(
-            "Founding sold-out refund FAILED for user %s (payment_intent=%s) — MANUAL REFUND NEEDED",
-            user.id,
-            payment_intent,
-        )
-
-
 def handle_checkout_completed(event: dict, db: Session) -> dict:
     """Handle checkout.session.completed event.
 
-    Routes by session mode:
-    - mode=subscription → activate the recurring subscription (Pro / Pro+)
-    - mode=payment + metadata.kind=founding → grant lifetime founding membership
-      (loopclose_3005 Phase D — one-time Founding Integrator SKU)
-
-    Any other one-time payment session is ignored (skipped).
+    Sets the user's subscription_status to active when the session is paid.
     """
     session = event["data"]["object"]
-
-    # ── Founding Integrator (one-time payment) ──────────────────────────
-    md = session.get("metadata") or {}
-    if session.get("mode") == "payment" and md.get("kind") == "founding":
-        return _handle_founding_completed(session, db)
-
     if session.get("mode") != "subscription":
         return {"skipped": "non-subscription session"}
     if session.get("payment_status") != "paid":
