@@ -72,6 +72,8 @@ from app.mcp.tools import (
     recipes_subrecipe_resolve,
     recipes_sync,
     recipes_tailor,
+    recipes_tailor_version,
+    recipes_cookbook_attach,
 )
 
 ToolDispatch = Callable[[Session, dict[str, Any], dict[str, Any]], Awaitable[Any] | Any]
@@ -290,6 +292,23 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             source_slug=args["source_slug"],
             name=args["name"],
             readme=args.get("readme"),
+            ctx=ctx,
+        )
+    if name == "recipes_tailor_version":
+        return _tool_ns.get("recipes_tailor_version", recipes_tailor_version)(
+            db,
+            fork_id=args["fork_id"],
+            tarball_base64=args["tarball_base64"],
+            semver=args["semver"],
+            changelog=args.get("changelog"),
+            ctx=ctx,
+        )
+    if name == "recipes_cookbook_attach":
+        return _tool_ns.get("recipes_cookbook_attach", recipes_cookbook_attach)(
+            db,
+            fork_id=args["fork_id"],
+            target_cookbook_id=args["target_cookbook_id"],
+            slug=args.get("slug"),
             ctx=ctx,
         )
     raise ValueError(f"unknown tool: {name}")

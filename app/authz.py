@@ -46,6 +46,30 @@ def can_read_skill(ctx: AuthContext, skill: Any, db: "Session | None" = None) ->
     skill_owner = getattr(skill, "skill_owner", None)
     if ctx.scope == "user" and ctx.user_id is not None and ctx.user_id == skill_owner:
         return True
+    # loopclose_3005 Phase C — user-scope cookbook-ownership clause.
+    # A user may read/install a private skill that lives in a cookbook they
+    # own. This is symmetric with the cbt_token clause below (delegated access
+    # to a cookbook's skills) and matches the canonical REST cookbook-install
+    # path, which authorizes via cookbook ownership rather than skill ownership.
+    # Required so an agent can install its OWN tailored fork after
+    # recipes_cookbook_attach promotes it into a cookbook (the dogfood loop).
+    # Fails closed without ``db`` — callers in private-skill paths thread it.
+    if ctx.scope == "user" and ctx.user_id is not None and db is not None:
+        from app.models import Cookbook, CookbookSkill
+
+        owns_via_cookbook = (
+            db.query(CookbookSkill)
+            .join(Cookbook, Cookbook.id == CookbookSkill.cookbook_id)
+            .filter(
+                CookbookSkill.skill_id == skill.id,
+                CookbookSkill.source != "disabled",
+                Cookbook.cookbook_owner == ctx.user_id,
+            )
+            .first()
+            is not None
+        )
+        if owns_via_cookbook:
+            return True
     # cookbook_share_2105 Phase C — cbt_token scope clause.
     if ctx.scope == "cbt_token" and ctx.cookbook_scope is not None and db is not None:
         # Local import: app.models imports authz indirectly via app.database in

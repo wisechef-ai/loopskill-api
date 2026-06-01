@@ -46,7 +46,7 @@ Before installing for a new user, always:
 2. Call `recipes_search` with the user's domain keywords.
 3. Produce an honest verdict: does Recipes fill a gap the user doesn't already cover?
 
-## 26 MCP tools available
+## 28 MCP tools available
 
 ### Discovery & install
 
@@ -72,8 +72,12 @@ Before installing for a new user, always:
 
 | Tool | Purpose |
 |------|---------|
-| `recipes_tailor` | Fork a public skill to create an editable private copy. Returns fork_id and fork_slug; the fork is ready for versioning via `POST /api/forks/{fork_id}/version`. Idempotent per (user, source slug) |
+| `recipes_tailor` | Fork a public skill to create an editable private copy. Returns fork_id and fork_slug; the fork is ready for versioning via `recipes_tailor_version`. Idempotent per (user, source slug) |
 | `recipes_fork_list` | List all forks owned by the authenticated user. Returns fork_id, name, slug, source_slug for each |
+| `recipes_tailor_version` | Upload a new version tarball to one of your forks (base64-encoded). Mints a fork version and advances the latest pointer. Step 2 of the tailor loop. Pro tier or above |
+| `recipes_cookbook_attach` | Deploy a tailored fork's latest version into one of your cookbooks — promotes it into a private catalog skill + installable version, so it installs byte-identically to any catalog skill via `recipes_cookbook_install`. Step 3 of the tailor loop. Pro tier or above |
+
+The tailor loop closes end-to-end: `recipes_tailor` → `recipes_tailor_version` → `recipes_cookbook_attach` → `recipes_cookbook_install`. A tailored fork becomes a real, installable cookbook skill with no separate deploy path.
 
 ### Diagnostics
 

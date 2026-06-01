@@ -85,6 +85,38 @@ def test_cannot_read_private_skill_anonymous():
     assert can_read_skill(ctx, skill) is False
 
 
+def test_can_read_private_skill_in_owned_cookbook():
+    """loopclose_3005 Phase C: a user may read a private skill that lives in a
+    cookbook they own (even if they're not the skill's creator). Requires db."""
+    uid = uuid4()
+    ctx = AuthContext(scope="user", user_id=uid)
+    skill = make_skill(is_public=False, skill_owner=uuid4())  # NOT the skill owner
+    db = MagicMock()
+    # The cookbook-ownership join resolves to a row → access granted.
+    db.query.return_value.join.return_value.filter.return_value.first.return_value = object()
+    assert can_read_skill(ctx, skill, db=db) is True
+
+
+def test_cannot_read_private_skill_not_in_owned_cookbook():
+    """The Phase C clause fails closed when the skill is in no cookbook the
+    user owns (join resolves to None)."""
+    uid = uuid4()
+    ctx = AuthContext(scope="user", user_id=uid)
+    skill = make_skill(is_public=False, skill_owner=uuid4())
+    db = MagicMock()
+    db.query.return_value.join.return_value.filter.return_value.first.return_value = None
+    assert can_read_skill(ctx, skill, db=db) is False
+
+
+def test_phase_c_clause_skipped_without_db():
+    """Without db the Phase C cookbook-ownership clause is skipped (fail closed)
+    for a non-owner user — preserves the original no-db behaviour."""
+    uid = uuid4()
+    ctx = AuthContext(scope="user", user_id=uid)
+    skill = make_skill(is_public=False, skill_owner=uuid4())
+    assert can_read_skill(ctx, skill) is False
+
+
 # ── can_install ───────────────────────────────────────────────────────────────
 
 def test_can_install_mirrors_can_read():

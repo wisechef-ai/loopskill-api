@@ -509,4 +509,69 @@ def _tool_definitions() -> list[types.Tool]:
                 },
             },
         ),
+        # ── loopclose_3005 Phase C: close the MCP tailor loop ─────────────────
+        types.Tool(
+            name="recipes_tailor_version",
+            description=(
+                "Upload a new version tarball to one of your forks (MCP-native). "
+                "The tarball is passed base64-encoded (MCP can't carry multipart "
+                "uploads). Mints a fork version and advances the fork's latest "
+                "pointer. Step 2 of the tailor loop: tailor -> tailor_version -> "
+                "cookbook_attach -> cookbook_install. Pro tier or above."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["fork_id", "tarball_base64", "semver"],
+                "properties": {
+                    "fork_id": {
+                        "type": "string",
+                        "description": "UUID of the fork to version (from recipes_tailor).",
+                    },
+                    "tarball_base64": {
+                        "type": "string",
+                        "description": "Base64-encoded .tar.gz of the tailored skill (max 10 MB decoded).",
+                    },
+                    "semver": {
+                        "type": "string",
+                        "description": "Semantic version, e.g. '1.0.0'.",
+                    },
+                    "changelog": {
+                        "type": "string",
+                        "description": "Optional changelog note for this version.",
+                    },
+                },
+            },
+        ),
+        types.Tool(
+            name="recipes_cookbook_attach",
+            description=(
+                "Deploy a tailored fork's latest version into one of your "
+                "cookbooks. Promotes the fork into a private catalog skill linked "
+                "to the cookbook and mints an installable version, so it installs "
+                "byte-identically to any catalog skill via recipes_cookbook_install. "
+                "Step 3 of the tailor loop. Pro tier or above; you must own the "
+                "cookbook."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["fork_id", "target_cookbook_id"],
+                "properties": {
+                    "fork_id": {
+                        "type": "string",
+                        "description": "UUID of the fork to deploy (must have an uploaded version).",
+                    },
+                    "target_cookbook_id": {
+                        "type": "string",
+                        "description": "UUID of the cookbook to attach the promoted skill to (you must own it).",
+                    },
+                    "slug": {
+                        "type": "string",
+                        "description": (
+                            "Optional slug override for the promoted skill "
+                            "(defaults to the fork slug). Must match ^[a-z0-9][a-z0-9_-]{0,63}$."
+                        ),
+                    },
+                },
+            },
+        ),
     ]
