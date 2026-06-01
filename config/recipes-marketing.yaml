@@ -29,12 +29,12 @@ version: 1
 # wins.
 counts:
   skills_total: 62                # all non-archived public skills
-  free_skills: 4
-  pro_skills: 58                  # DB slug = pro (all paid skills as of 2026-05-13)
+  free_skills: 1                  # single free seed: super-memory (livefix_0601)
+  pro_skills: 61                  # DB slug = pro (all other public skills)
   pro_plus_exclusive_skills: 0    # 2026-05-13: all paid skills moved to Pro; Pro+ retains cookbooks/keys/private catalog perks (non-skill)
   mcp_tools_count: 6
   rest_endpoint_count: 11
-  last_refresh_at: '2026-06-01T03:05:02Z'
+  last_refresh_at: '2026-06-01T18:55:00Z'
 
 # ── TIERS — display layer (immutable contract with config/tiers.yaml) ───────
 # Mirror of config/tiers.yaml fields needed for marketing. The drift watchdog

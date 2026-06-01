@@ -15,6 +15,7 @@ from datetime import UTC
 
 import redis
 from fastapi import Request
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
@@ -91,6 +92,23 @@ def _auth_ctx_from_jwt_cookie(request) -> "AuthContext":
         db.close()
 
     return AuthContext.anonymous()
+
+
+def _try_jwt_cookie_auth(request) -> bool:
+    """Authenticate an authed route via the wr_jwt cookie. Returns success.
+
+    Portal/OAuth users carry a ``wr_jwt`` cookie, not an ``x-api-key`` header.
+    On a valid user-scope cookie, stamp ``auth_ctx`` + ``api_key_user_id`` so
+    cookie auth and key auth converge (cookbook routes read api_key_user_id).
+    The id is the real user UUID (never ``None``), so admin routes still reject.
+    """
+    jwt_ctx = _auth_ctx_from_jwt_cookie(request)
+    if jwt_ctx is not None and getattr(jwt_ctx, "scope", None) == "user":
+        request.state.auth_ctx = jwt_ctx
+        request.state.api_key_user_id = jwt_ctx.user_id
+        request.state.api_key_id = None
+        return True
+    return False
 
 
 def _auth_ctx_from_api_key(request) -> "AuthContext | None":
@@ -393,8 +411,10 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         # Admin endpoints require API key (not exempt)
         key = request.headers.get("x-api-key")
         if not key:
-            from fastapi.responses import JSONResponse
-
+            # Portal/OAuth sessions authenticate by wr_jwt cookie, not x-api-key.
+            # Honour a valid cookie before rejecting (see _try_jwt_cookie_auth).
+            if _try_jwt_cookie_auth(request):
+                return await call_next(request)
             return JSONResponse(
                 status_code=401,
                 content={"detail": "Invalid or missing x-api-key header"},
@@ -416,8 +436,6 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             # tokens — not to any cbt_-prefixed string.
             is_install_path = request.url.path in ("/api/skills/install", "/api/skills/_download")
             if not request.url.path.startswith("/api/cookbooks/") and not is_install_path:
-                from fastapi.responses import JSONResponse
-
                 return JSONResponse(
                     status_code=403,
                     content={"detail": "Share tokens can only access cookbook routes"},
@@ -425,8 +443,6 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             # Parse: cbt_<8-hex-prefix>_<32-hex-random>
             parts = key.split("_")
             if len(parts) != 3 or len(parts[1]) != 8 or len(parts[2]) != 32:
-                from fastapi.responses import JSONResponse
-
                 return JSONResponse(
                     status_code=401,
                     content={"detail": "Invalid share token format"},
@@ -454,8 +470,6 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                         match = row
                         break
                 if match is None:
-                    from fastapi.responses import JSONResponse
-
                     return JSONResponse(
                         status_code=401,
                         content={"detail": "Invalid or revoked share token"},
@@ -470,8 +484,6 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 # path-broadening doesn't accidentally grant access to free-tier owners.
                 allow_pub = bool(getattr(match, "allow_public_catalog", False))
                 if is_install_path and not allow_pub:
-                    from fastapi.responses import JSONResponse
-
                     return JSONResponse(
                         status_code=403,
                         content={"detail": "Share tokens can only access cookbook routes"},
@@ -499,8 +511,6 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 db.close()
 
         if not key.startswith(API_KEY_PREFIX):
-            from fastapi.responses import JSONResponse
-
             return JSONResponse(
                 status_code=401,
                 content={"detail": f"API key must start with '{API_KEY_PREFIX}'"},
@@ -514,8 +524,6 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
             fleet_ctx = resolve_fleet_auth_ctx(key)
             if fleet_ctx is None:
-                from fastapi.responses import JSONResponse
-
                 return JSONResponse(
                     status_code=401,
                     content={"detail": "Invalid or revoked fleet key"},
@@ -584,9 +592,6 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 return await call_next(request)
         finally:
             db.close()
-
-        from fastapi.responses import JSONResponse
-
         return JSONResponse(
             status_code=401,
             content={"detail": "Invalid API key"},

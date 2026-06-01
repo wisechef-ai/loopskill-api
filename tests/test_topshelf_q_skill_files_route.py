@@ -119,6 +119,22 @@ def _make_tarball(files: dict[str, bytes], dirname: str = "test-skill-1.0.0") ->
     return tmp.name
 
 
+def _make_flat_tarball(files: dict[str, bytes]) -> str:
+    """Create a temp .tar.gz with entries at the archive ROOT (no wrapping dir).
+
+    Mirrors the flat publish layout used by ~35% of the live catalog, where
+    ``SKILL.md`` sits at the tarball root rather than under ``<skill>/``.
+    """
+    tmp = tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False)
+    tmp.close()
+    with tarfile.open(tmp.name, "w:gz") as tf:
+        for rel_path, content in files.items():
+            info = tarfile.TarInfo(name=rel_path)
+            info.size = len(content)
+            tf.addfile(info, io.BytesIO(content))
+    return tmp.name
+
+
 def _make_app_with_auth(db_session, auth_ctx: AuthContext):
     """Build a minimal test app that stamps auth_ctx onto request.state."""
     from app.skill_files_routes import router as files_router
@@ -177,6 +193,60 @@ class TestSkillFilesManifest:
             assert "scripts/run.sh" in paths
             assert "references/ref.md" in paths
             assert data["total_files"] == 3
+        finally:
+            Path(tarball_path).unlink(missing_ok=True)
+
+    def test_manifest_flat_tarball_lists_files(self, db_session):
+        """Flat-packed tarball (no wrapping dir) must still list its files.
+
+        Regression for the 19/55-skills-empty-manifest bug: ``_read_tarball``
+        used to strip the top-level path component unconditionally, so a tarball
+        with ``SKILL.md`` at the archive root (no ``<skill>/`` wrapper) produced
+        an empty manifest. Both layouts exist in the live catalog.
+        """
+        from app import skill_file_cache
+        skill_file_cache.clear_cache()
+
+        # Flat layout — files at archive root, NO wrapping directory.
+        tarball_path = _make_flat_tarball({
+            "SKILL.md": b"# Flat skill",
+            "recipe.yaml": b"name: flat",
+            "skill.toml": b"[skill]\nname = 'flat'",
+        })
+        try:
+            sk = _make_skill(db_session, slug="flat-skill")
+            _make_version(db_session, sk.id, tarball_path=tarball_path)
+
+            ctx = AuthContext(scope="master")
+            app = _make_app_with_auth(db_session, ctx)
+            client = TestClient(app, raise_server_exceptions=True)
+
+            resp = client.get("/api/skills/flat-skill/files")
+            assert resp.status_code == 200
+            data = resp.json()
+            paths = {f["path"] for f in data["files"]}
+            assert paths == {"SKILL.md", "recipe.yaml", "skill.toml"}
+            assert data["total_files"] == 3
+        finally:
+            Path(tarball_path).unlink(missing_ok=True)
+
+    def test_flat_tarball_single_file_content(self, db_session):
+        """A flat tarball's individual files are fetchable via /file."""
+        from app import skill_file_cache
+        skill_file_cache.clear_cache()
+
+        tarball_path = _make_flat_tarball({"SKILL.md": b"# Flat body here"})
+        try:
+            sk = _make_skill(db_session, slug="flat-content-skill", tier="free")
+            _make_version(db_session, sk.id, tarball_path=tarball_path)
+
+            ctx = AuthContext(scope="master")
+            app = _make_app_with_auth(db_session, ctx)
+            client = TestClient(app, raise_server_exceptions=True)
+
+            resp = client.get("/api/skills/flat-content-skill/file", params={"path": "SKILL.md"})
+            assert resp.status_code == 200
+            assert resp.json()["content"] == "# Flat body here"
         finally:
             Path(tarball_path).unlink(missing_ok=True)
 
