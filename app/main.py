@@ -54,6 +54,7 @@ from app.skill_error_routes import router as skill_error_router
 from app.skill_patch_routes import router as skill_patch_router
 from app.skill_routes import router as skill_router  # Phase E: skill split
 from app.skill_files_routes import router as skill_files_router  # Phase Q: file surface
+from app.skill_serve_routes import skill_serve_router  # loopclose_3005 B: canonical /skill
 from app.sse_routes import router as sse_router
 from app.startup_checks import check_alembic_heads, verify_stripe_webhook_endpoint  # Phase 4
 from app.sync_fanout import get_fanout
@@ -136,6 +137,7 @@ def create_app() -> FastAPI:
 
     app.include_router(router)
     app.include_router(utm_router)  # marketing_1205: /x/<slug>, /li/<slug> etc.
+    app.include_router(skill_serve_router)  # loopclose_3005 B: canonical GET /skill
     app.include_router(wisechef_router)  # Phase L: demo-funnel /api/wisechef/*
     app.include_router(health_router, prefix="/api", tags=["meta"])
     app.include_router(access_router, prefix="/api", tags=["skills"])
