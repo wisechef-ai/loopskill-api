@@ -199,6 +199,13 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         "/",
         "/api/healthz",
         "/api/health/transparency",  # Stream 0: public transparency scorecard
+        # loopclose_3005 Phase B — canonical /skill serve (the install front-door
+        # printed on the hero + every integrations card). MUST be public so an
+        # agent can curl the meta-skill before it has a key. Serves the clean
+        # in-repo SKILL.md as text/plain; no PII. (app/skill_serve_routes.py)
+        "/skill",
+        "/skill/",
+        "/SKILL.md",
     }
     # Prefixes for paths that use JWT auth instead of API key
     JWT_AUTH_PREFIXES = (

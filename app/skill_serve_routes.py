@@ -62,9 +62,13 @@ def _canonical_skill_md() -> str:
 
 
 @skill_serve_router.get("/skill", include_in_schema=False)
+@skill_serve_router.get("/skill/", include_in_schema=False)
+@skill_serve_router.get("/SKILL.md", include_in_schema=False)
 def serve_canonical_skill() -> PlainTextResponse:
     """Serve the canonical, clean SKILL.md as text/plain (no redirect).
 
+    Mounted at /skill, /skill/, and /SKILL.md — the same three paths the old
+    Caddy 302-to-GitHub rule covered, so every existing link keeps working.
     An agent runs `curl -sL https://recipes.wisechef.ai/skill -o SKILL.md` and
     gets a file it can load directly with the correct MCP tool names.
     """

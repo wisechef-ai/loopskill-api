@@ -7,6 +7,7 @@ list, so an agent can `curl -sL .../skill -o SKILL.md` and load it.
 
 from __future__ import annotations
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -59,6 +60,81 @@ class TestSkillServeRoute:
         assert "26 MCP tools available" in body
         assert "`recipes_tailor`" in body
         assert "`recipes_fork_list`" in body
+
+    def test_aliases_serve_same_body(self):
+        """/skill/ and /SKILL.md serve the same canonical body as /skill."""
+        with _client() as client:
+            canonical = client.get("/skill").text
+            assert client.get("/skill/").text == canonical
+            assert client.get("/SKILL.md").text == canonical
+
+
+class TestSkillPublicViaMiddleware:
+    """Regression: /skill MUST be exempt from APIKeyMiddleware (it 401'd in the
+    first deploy). Uses build_test_app — the production middleware seam, same
+    pattern as the W0.1 skill-files public-middleware regression."""
+
+    @pytest.fixture()
+    def _db(self):
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from sqlalchemy.pool import StaticPool
+
+        from app.models import Base
+
+        engine = create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+        Base.metadata.create_all(bind=engine)
+        connection = engine.connect()
+        transaction = connection.begin()
+        SessionLocal = sessionmaker(bind=connection, autocommit=False, autoflush=False)
+        session = SessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+            transaction.rollback()
+            connection.close()
+            Base.metadata.drop_all(bind=engine)
+
+    def test_skill_is_public_no_key_needed(self, _db, monkeypatch):
+        from tests._app_factory import build_test_app
+
+        app = build_test_app(db_session=_db, monkeypatch=monkeypatch)
+        client = TestClient(app)
+        r = client.get("/skill", follow_redirects=False)  # deliberately no x-api-key
+        assert r.status_code == 200, (
+            f"/skill must be public at the middleware seam, got {r.status_code}: {r.text[:200]}"
+        )
+        assert r.headers["content-type"].startswith("text/plain")
+        assert "26 MCP tools available" in r.text
+
+    def test_skill_aliases_public(self, _db, monkeypatch):
+        from tests._app_factory import build_test_app
+
+        app = build_test_app(db_session=_db, monkeypatch=monkeypatch)
+        client = TestClient(app)
+        for path in ("/skill/", "/SKILL.md"):
+            r = client.get(path, follow_redirects=False)
+            assert r.status_code == 200, f"{path} must be public, got {r.status_code}"
+
+
+class TestMiddlewareExemptGuard:
+    """Grep guard — a refactor that drops /skill from EXEMPT_PATHS re-breaks the
+    bare-401 bug. Trip CI here, not in prod."""
+
+    def test_middleware_exempts_skill_paths(self):
+        from pathlib import Path
+
+        src = Path("app/middleware/api_key.py").read_text(encoding="utf-8")
+        for p in ('"/skill"', '"/skill/"', '"/SKILL.md"'):
+            assert p in src, (
+                f"APIKeyMiddleware no longer exempts {p} — re-introduces the "
+                "loopclose_3005 Phase B bare-401 bug. Restore it in EXEMPT_PATHS."
+            )
 
 
 class TestLeakHeaderStripping:
