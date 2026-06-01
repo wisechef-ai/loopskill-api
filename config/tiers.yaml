@@ -48,3 +48,32 @@ tiers:
     accent_color: "#D4A017"
     badge: Pro+
     cookbook_limit: 200
+
+# ── Founding Integrator SKU (loopclose_3005 Phase D) ─────────────────────
+# A ONE-TIME payment (mode=payment), NOT a recurring subscription tier — it
+# deliberately lives OUTSIDE the `tiers:` map so it never pollutes
+# TIER_PRICE_IDS / the subscription checkout path. A founding purchase grants
+# lifetime `grants_tier` (pro_plus) access, capped at `slot_cap` seats.
+#
+# THIS IS THE SOLE SOURCE OF BOTH the $1000 price AND the 25-slot cap — no
+# second copy of either number may exist anywhere in code (Adam's "no second
+# number survives outside SSOT" rule). Read in code via
+# app.founding_service.founding_slot_cap() / founding_price_usd().
+#
+#   price_usd     one-time charge in USD (display + revenue-alert only;
+#                 the authoritative amount lives on the Stripe price object)
+#   slot_cap      total founding seats; enforced server-side at checkout
+#                 (pre-check) AND at grant (unique slot-number assignment)
+#   grants_tier   subscription_tier stamped on the user after purchase
+#   mode          Stripe Checkout mode — `payment` (one-time), never
+#                 `subscription`. The webhook routes on this.
+#   price_id_env  env var holding the Stripe one-time price ID
+#   stripe_nickname  price.nickname the stripe-sync script enforces
+founding:
+  display_name: Founding Integrator
+  price_usd: 1000
+  slot_cap: 25
+  grants_tier: pro_plus
+  mode: payment
+  price_id_env: WR_STRIPE_PRICE_FOUNDING
+  stripe_nickname: "Founding Integrator $1000 one-time"

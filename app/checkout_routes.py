@@ -48,6 +48,109 @@ _reconcile_last_attempt: TTLCache[str, float] = TTLCache(maxsize=10_000, ttl=_RE
 _HEALTHY_STATUSES = frozenset({"active", "trialing"})
 
 
+@router.get("/founding/status")
+async def founding_status(db: Session = Depends(get_db)):
+    """Public founding-SKU availability: cap, taken, remaining, sold_out.
+
+    Used by /pricing to render "N of 25 seats left" and to hide the founding
+    CTA once sold out. No auth required — it exposes only aggregate counts.
+    Returns enabled=False (200) when founding sales aren't wired up, so the
+    frontend can simply omit the section rather than handle an error.
+    """
+    from app.founding_service import (
+        FoundingNotConfiguredError,
+        founding_display_name,
+        founding_enabled,
+        founding_price_usd,
+        founding_seats_remaining,
+        founding_seats_taken,
+        founding_slot_cap,
+    )
+
+    if not founding_enabled():
+        return {"enabled": False}
+
+    try:
+        cap = founding_slot_cap()
+        taken = founding_seats_taken(db)
+        remaining = founding_seats_remaining(db)
+        return {
+            "enabled": True,
+            "display_name": founding_display_name(),
+            "price_usd": founding_price_usd(),
+            "slot_cap": cap,
+            "seats_taken": taken,
+            "seats_remaining": remaining,
+            "sold_out": remaining <= 0,
+        }
+    except FoundingNotConfiguredError:
+        return {"enabled": False}
+
+
+@router.post("/checkout/founding")
+async def create_founding_checkout(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    """Create a one-time Stripe Checkout Session for a Founding Integrator seat.
+
+    Requires authentication. Distinct from the recurring /checkout/{tier} path:
+    this is a one-time payment (mode=payment) granting lifetime Pro+.
+
+    Registered BEFORE /checkout/{tier} so FastAPI matches this static path
+    first (the `{tier}` route would otherwise swallow "founding" as a tier).
+
+    Status codes:
+      401 login_required        — anonymous
+      503 founding_not_configured — SKU not wired (no price id / config block)
+      409 sold_out              — all founding seats taken
+      409 already_founding_member — user already holds a seat
+      200 {session_id, url, kind: 'founding'}
+    """
+    if user is None:
+        raise HTTPException(status_code=401, detail="login_required")
+
+    from app.founding_service import (
+        FoundingError,
+        FoundingNotConfiguredError,
+        FoundingSoldOutError,
+        create_founding_checkout_session,
+    )
+
+    body = {}
+    try:
+        body = await request.json()
+    # Rationale: request body is optional JSON; malformed body → use defaults
+    except Exception:  # noqa: BLE001
+        pass
+    success_url = body.get("success_url") if isinstance(body, dict) else None
+    cancel_url = body.get("cancel_url") if isinstance(body, dict) else None
+
+    try:
+        return create_founding_checkout_session(
+            user=user,
+            db=db,
+            success_url=success_url,
+            cancel_url=cancel_url,
+            utm_ref=request.cookies.get("recipes_utm_ref"),
+        )
+    except FoundingNotConfiguredError as e:
+        logger.warning("Founding checkout unavailable for user %s: %s", user.id, e)
+        raise HTTPException(status_code=503, detail="founding_not_configured")
+    except FoundingSoldOutError as e:
+        logger.info("Founding sold out — user %s: %s", user.id, e)
+        raise HTTPException(status_code=409, detail="sold_out")
+    except FoundingError as e:
+        # e.g. already_founding_member
+        logger.info("Founding checkout rejected for user %s: %s", user.id, e)
+        raise HTTPException(status_code=409, detail=str(e))
+    # Rationale: unexpected Stripe/DB error during founding checkout; surface as 500
+    except Exception:  # noqa: BLE001
+        logger.exception("Unexpected founding checkout error for user %s", user.id)
+        raise HTTPException(status_code=500, detail="checkout_error")
+
+
 @router.post("/checkout/{tier}")
 async def create_subscription_checkout(
     tier: str,
@@ -64,6 +167,16 @@ async def create_subscription_checkout(
         raise HTTPException(
             status_code=401,
             detail="login_required",
+        )
+
+    # `founding` is NOT a subscription tier — it's the one-time SKU served by
+    # POST /api/checkout/founding (a distinct static route). FastAPI matches the
+    # static route first, but guard here too so a future reorder can't silently
+    # route a founding request through the recurring-subscription path.
+    if tier == "founding":
+        raise HTTPException(
+            status_code=404,
+            detail="use_founding_endpoint:POST /api/checkout/founding",
         )
 
     # Legacy tier URL alias rewrite — keeps old /api/checkout/cook etc. working.

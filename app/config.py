@@ -111,6 +111,13 @@ class Settings(BaseSettings):
     STRIPE_PRICE_OPERATOR: str = ""
     STRIPE_PRICE_STUDIO: str = ""
 
+    # Founding Integrator SKU — one-time price ID (loopclose_3005 Phase D).
+    # WR_STRIPE_PRICE_FOUNDING holds the Stripe one-time price for the $1000
+    # lifetime-Pro+ founding seat. Empty when founding sales aren't wired up;
+    # founding_service.founding_price_id() returns "" and the checkout path
+    # raises a clean 503 rather than creating a broken session.
+    STRIPE_PRICE_FOUNDING: str = ""
+
     # GitHub OAuth
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: str = ""
