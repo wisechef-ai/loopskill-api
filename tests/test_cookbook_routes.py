@@ -266,6 +266,60 @@ class TestListDetail:
             r = client.get(f"/api/cookbooks/{cb.id}")
         assert r.status_code == 404
 
+    def test_get_detail_enriched_fields_for_viz(self, db_session):
+        """loopclose_3005 Phase E: the cookbook detail endpoint must expose the
+        fields the /cookbooks/<id> web viz needs — title (human label), tier,
+        skill_variant + is_public (tailored-vs-catalog badge), parent_skill_slug
+        (fork-lineage edge), and a pinned flag — not just slug/source."""
+        user = _make_user(db_session, tier="pro_plus")
+        cb = Cookbook(id=uuid4(), name="Viz CB", cookbook_owner=user.id)
+        db_session.add(cb)
+        db_session.flush()
+
+        # A catalog skill (public, no lineage)
+        catalog = _make_skill(db_session, slug="catalog-skill")
+        catalog.skill_variant = "catalog"
+        catalog.title = "Catalog Skill"
+        # A tailored (private fork-promoted) skill with fork lineage + pinned
+        tailored = _make_skill(db_session, slug="tailored-skill")
+        tailored.is_public = False
+        tailored.skill_variant = "custom"
+        tailored.parent_skill_slug = "catalog-skill"
+        tailored.title = "Tailored Skill"
+        db_session.flush()
+        db_session.add(CookbookSkill(cookbook_id=cb.id, skill_id=catalog.id, source="forked"))
+        db_session.add(
+            CookbookSkill(
+                cookbook_id=cb.id, skill_id=tailored.id, source="custom-added", pinned_version="1.2.3"
+            )
+        )
+        db_session.commit()
+
+        app = _make_app(db_session, api_key_user_id=user.id)
+        with TestClient(app) as client:
+            r = client.get(f"/api/cookbooks/{cb.id}")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        skills = {s["slug"]: s for s in body["skills"]}
+        assert set(skills) == {"catalog-skill", "tailored-skill"}
+
+        cat = skills["catalog-skill"]
+        assert cat["title"] == "Catalog Skill"
+        assert cat["skill_variant"] == "catalog"
+        assert cat["is_public"] is True
+        assert cat["parent_skill_slug"] is None
+        assert cat["pinned"] is False
+
+        tai = skills["tailored-skill"]
+        assert tai["title"] == "Tailored Skill"
+        assert tai["skill_variant"] == "custom"
+        assert tai["is_public"] is False
+        assert tai["parent_skill_slug"] == "catalog-skill"
+        assert tai["pinned"] is True
+        assert tai["pinned_version"] == "1.2.3"
+        # corrections_absorbed is best-effort; present and an int (0 when no data)
+        assert isinstance(tai["corrections_absorbed"], int)
+
 
 # ─────────────────────────── Skill add/remove ───────────────────────────
 

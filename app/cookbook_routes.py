@@ -188,6 +188,13 @@ class CookbookSkillOut(BaseModel):
     source: str
     pinned_version: str | None = None
     added_at: datetime | None = None
+    # loopclose_3005 Phase E — fields the /cookbooks/<id> web viz consumes.
+    title: str | None = None
+    skill_variant: str | None = None  # "catalog" | "custom" (tailored) — badge
+    is_public: bool | None = None
+    parent_skill_slug: str | None = None  # fork-lineage edge (graph view)
+    pinned: bool = False  # convenience flag: pinned_version is not None
+    corrections_absorbed: int = 0  # best-effort field-feedback counter (0 = none)
 
 
 class CookbookOut(BaseModel):
@@ -236,6 +243,34 @@ def _skills_for(
     if not include_disabled:
         q = q.filter(CookbookSkill.source != "disabled")
     return q.all()
+
+
+def _corrections_absorbed_count(db: Session, slug: str) -> int:
+    """Best-effort count of field-feedback items that referenced this skill.
+
+    loopclose_3005 Phase E. There is no skill_id FK on FeedbackSubmission —
+    feedback carries a free-form JSON ``context``. We count rows whose context
+    names this slug. Intentionally best-effort: on any error, or when the
+    feedback table/columns are absent (older schema), it returns 0 rather than
+    raising. The viz treats 0 as "no corrections yet", never a hard claim.
+    """
+    try:
+        from sqlalchemy import String as SAString
+        from sqlalchemy import cast
+
+        from app.models import FeedbackSubmission
+
+        # JSON containment is dialect-specific; a portable substring match on the
+        # serialized context keeps this working on both Postgres and SQLite tests.
+        return (
+            db.query(FeedbackSubmission)
+            .filter(cast(FeedbackSubmission.context, SAString).contains(slug))
+            .count()
+        )
+    # Rationale: a missing table/column or dialect quirk must not break the
+    # cookbook view — the counter is decorative, the skill list is load-bearing.
+    except Exception:  # noqa: BLE001
+        return 0
 
 
 def _to_cb_out(cb: Cookbook) -> dict:
@@ -327,6 +362,12 @@ def get_cookbook(
             source=cs.source,
             pinned_version=cs.pinned_version,
             added_at=cs.added_at,
+            title=skill.title,
+            skill_variant=getattr(skill, "skill_variant", None),
+            is_public=bool(skill.is_public),
+            parent_skill_slug=getattr(skill, "parent_skill_slug", None),
+            pinned=cs.pinned_version is not None,
+            corrections_absorbed=_corrections_absorbed_count(db, skill.slug),
         ).model_dump(mode="json")
         for cs, skill in rows
     ]
