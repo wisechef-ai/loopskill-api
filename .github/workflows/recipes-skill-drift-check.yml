@@ -46,7 +46,10 @@ jobs:
           from pathlib import Path
 
           REPO_ROOT = Path(__file__).parent if "__file__" in dir() else Path(".")
-          SERVER_PY = Path("app/mcp/server.py")
+          # Tool definitions live in registry.py (_tool_definitions), not
+          # server.py — the server imports them. The AST parser must read the
+          # file that actually contains the types.Tool(name=...) calls.
+          SERVER_PY = Path("app/mcp/registry.py")
           SKILL_MD = Path("docs/recipes-skill/SKILL.md")
 
           # ── 1. Extract tool names from server.py ──────────────────────────

@@ -46,7 +46,7 @@ Before installing for a new user, always:
 2. Call `recipes_search` with the user's domain keywords.
 3. Produce an honest verdict: does Recipes fill a gap the user doesn't already cover?
 
-## 24 MCP tools available
+## 26 MCP tools available
 
 ### Discovery & install
 
@@ -67,6 +67,13 @@ Before installing for a new user, always:
 | `recipes_recipify` | Convert a SKILL.md draft into a CookbookSkill row; validates frontmatter, classifies category, infers related skills |
 | `recipes_publish_request` | Submit a skill for review and public-catalog inclusion; runs quality gates |
 | `recipes_subrecipe_resolve` | Resolve a sub-recipe key to a scope (Phase C stub) |
+
+### Tailoring & forks
+
+| Tool | Purpose |
+|------|---------|
+| `recipes_tailor` | Fork a public skill to create an editable private copy. Returns fork_id and fork_slug; the fork is ready for versioning via `POST /api/forks/{fork_id}/version`. Idempotent per (user, source slug) |
+| `recipes_fork_list` | List all forks owned by the authenticated user. Returns fork_id, name, slug, source_slug for each |
 
 ### Diagnostics
 

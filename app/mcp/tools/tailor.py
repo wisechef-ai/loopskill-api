@@ -18,7 +18,6 @@ Also provides `recipes_fork_list` to enumerate the caller's existing forks.
 from __future__ import annotations
 
 from typing import Any
-from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -50,11 +49,7 @@ def recipes_fork_list(
     )
 
     source_ids = {r.source_skill_id for r in rows}
-    sources = (
-        db.query(Skill.id, Skill.slug).filter(Skill.id.in_(source_ids)).all()
-        if source_ids
-        else []
-    )
+    sources = db.query(Skill.id, Skill.slug).filter(Skill.id.in_(source_ids)).all() if source_ids else []
     by_id = {sid: slug for sid, slug in sources}
 
     return {

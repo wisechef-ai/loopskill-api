@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/buckets", tags=["buckets"])
 
 
-STUDIO_TIERS = {"pro", "pro_plus", "studio", "master", "cook"}  # studio/cook = legacy aliases (sunset 2026-06-10)
+STUDIO_TIERS = {"pro", "pro_plus", "studio", "master", "cook"}  # studio/cook = legacy aliases (sunset 2026-06-10)  # fmt: skip
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$")
 
 
