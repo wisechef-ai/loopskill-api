@@ -62,12 +62,20 @@ def recipes_recipify(
         return {"error": str(exc), "code": "invalid_frontmatter"}
 
     cb_id = _coerce_uuid(target_cookbook_id)
-    owner_id = _coerce_uuid(user_id)
 
     # Phase B (Issue #7): use ctx for cookbook ownership; default to master
     # for backwards compat (stdio, legacy callers without ctx).
     if ctx is None:
         ctx = AuthContext(scope="master")
+
+    # loopclose_3005 Phase X — owner resolution fixed for good.
+    # The bug: server.py:_dispatch invokes recipes_recipify(db, ctx=ctx, **args)
+    # — it passes the authenticated AuthContext but NO user_id kwarg, so
+    # owner_id used to coerce to None and a non-base Cookbook(cookbook_owner=None)
+    # orphan was written, invisible to every user forever (list_cookbooks filters
+    # on cookbook_owner == ctx.user_id). Resolve ownership from the explicit
+    # user_id kwarg first (legacy callers), then fall back to ctx.user_id.
+    owner_id = _coerce_uuid(user_id) or _coerce_uuid(ctx.user_id)
 
     cb: Cookbook | None = None
     if cb_id is not None:
@@ -86,6 +94,17 @@ def recipes_recipify(
                 .first()
             )
         if cb is None:
+            # loopclose_3005 Phase X — fail closed: a non-base cookbook may NEVER
+            # be created owner-less. If no owner resolved (no kwarg, no
+            # ctx.user_id) and this isn't a master/system context, refuse rather
+            # than write an orphan. The DB CHECK invariant (is_base=true OR
+            # cookbook_owner IS NOT NULL) backstops this at the storage layer.
+            if owner_id is None and ctx.scope != "master":
+                return {
+                    "error": "no owner could be resolved for the new cookbook; "
+                    "authenticate with a user-scoped key",
+                    "code": "owner_required",
+                }
             cb = Cookbook(id=uuid4(), name="MCP Cookbook", cookbook_owner=owner_id, is_base=False)
             db.add(cb)
             db.commit()

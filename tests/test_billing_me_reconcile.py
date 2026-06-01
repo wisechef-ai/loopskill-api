@@ -267,3 +267,35 @@ def test_no_stripe_customer_id_no_call(db):
     body = resp.json()
     assert body["stripe_customer_id"] is None
     mock_list.assert_not_called()
+
+
+# ── Test 6: cookbook_limit reflects the tier SSOT (loopclose_3005 Phase X) ────
+
+
+@pytest.mark.parametrize(
+    "tier,expected_limit",
+    [("pro", 10), ("pro_plus", 200), (None, 0)],
+)
+def test_billing_me_returns_cookbook_limit_from_ssot(db, tier, expected_limit):
+    """Phase X: /api/billing/me must expose cookbook_limit read from the
+    config/tiers.yaml SSOT so the portal library copy never drifts. Free
+    (tier=None) → 0, Pro → 10, Pro+ → 200."""
+    from app.checkout_routes import _reconcile_last_attempt
+
+    kwargs = {}
+    if tier is not None:
+        kwargs = {"subscription_tier": tier, "subscription_status": "active"}
+    user = _make_user(db, **kwargs)
+    _reconcile_last_attempt.pop(str(user.id), None)
+
+    client = _build_app(db, user)
+    with patch("stripe.Subscription.list") as mock_list:
+        resp = client.get("/api/billing/me")
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "cookbook_limit" in body, "billing/me must expose cookbook_limit"
+    assert body["cookbook_limit"] == expected_limit, (
+        f"tier={tier!r} expected cookbook_limit={expected_limit}, got {body['cookbook_limit']}"
+    )
+    mock_list.assert_not_called()

@@ -24,6 +24,7 @@ from app.subscription_service import (
     create_checkout_session,
     downgrade_pro_plus_to_pro,
 )
+from app.tier_labels import cookbook_limit
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["checkout"])
@@ -189,6 +190,10 @@ async def billing_me(
         "subscription_id": user.subscription_id,
         "subscription_status": user.subscription_status,
         "subscription_tier": user.subscription_tier,
+        # cookbook_limit — SSOT in config/tiers.yaml via tier_labels.cookbook_limit()
+        # (loopclose_3005 Phase X finishes Phase A's UI half). The portal library
+        # page interpolates this live so cap copy never drifts from the cap code.
+        "cookbook_limit": cookbook_limit(user.subscription_tier),
         "subscription_current_period_end": (
             user.subscription_current_period_end.isoformat() if user.subscription_current_period_end else None
         ),
