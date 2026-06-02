@@ -183,6 +183,23 @@ class SkillAddIn(BaseModel):
     source: str | None = "custom-added"
 
 
+def _as_slug_list(val: object) -> list[str]:
+    """Normalize a skill's related_skills field (jsonb list / JSON string / None) to list[str]."""
+    if val is None:
+        return []
+    if isinstance(val, list):
+        return [str(x) for x in val if x]
+    if isinstance(val, str):
+        import json as _json
+
+        try:
+            parsed = _json.loads(val)
+            return [str(x) for x in parsed if x] if isinstance(parsed, list) else []
+        except (ValueError, TypeError):
+            return []
+    return []
+
+
 class CookbookSkillOut(BaseModel):
     slug: str
     source: str
@@ -193,6 +210,7 @@ class CookbookSkillOut(BaseModel):
     skill_variant: str | None = None  # "catalog" | "custom" (tailored) — badge
     is_public: bool | None = None
     parent_skill_slug: str | None = None  # fork-lineage edge (graph view)
+    related_skills: list[str] = []  # declared related-skill edges (graph view)
     pinned: bool = False  # convenience flag: pinned_version is not None
     corrections_absorbed: int = 0  # best-effort field-feedback counter (0 = none)
 
@@ -366,6 +384,7 @@ def get_cookbook(
             skill_variant=getattr(skill, "skill_variant", None),
             is_public=bool(skill.is_public),
             parent_skill_slug=getattr(skill, "parent_skill_slug", None),
+            related_skills=_as_slug_list(getattr(skill, "related_skills", None)),
             pinned=cs.pinned_version is not None,
             corrections_absorbed=_corrections_absorbed_count(db, skill.slug),
         ).model_dump(mode="json")
