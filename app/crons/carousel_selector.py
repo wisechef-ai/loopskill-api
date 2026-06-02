@@ -56,6 +56,19 @@ W_EDITORIAL = 0.10
 import re as _re
 
 
+
+
+def _word_boundary_trim(text: str, max_len: int = 120) -> str:
+    """Trim text to max_len at a word boundary and append ellipsis if truncated."""
+    text = text.rstrip()
+    if len(text) <= max_len:
+        return text
+    truncated = text[:max_len].rstrip()
+    last_space = truncated.rfind(" ")
+    if last_space > max_len // 2:
+        truncated = truncated[:last_space].rstrip()
+    return truncated + "\u2026"
+
 def derive_tagline(p: dict) -> str:
     """Return the tagline a candidate would publish. description-first.
 
@@ -66,8 +79,8 @@ def derive_tagline(p: dict) -> str:
     """
     desc = (p.get("description") or "").strip()
     if desc:
-        return desc[:120]
-    return (p.get("title") or p.get("slug") or "")[:120]
+        return _word_boundary_trim(desc, 120)
+    return _word_boundary_trim((p.get("title") or p.get("slug") or ""), 120)
 
 
 def slot1_quality_check(p: dict, tagline: str) -> tuple[bool, str]:
