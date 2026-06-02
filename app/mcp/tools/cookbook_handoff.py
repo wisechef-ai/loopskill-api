@@ -26,6 +26,7 @@ DB invariant: after transfer, cookbook_owner IS NOT NULL (required by the
 CHECK constraint added in migration lc3005_x_cookbook_owner_ck). After fork,
 the new cookbook is created with cookbook_owner = new_owner.id immediately.
 """
+
 from __future__ import annotations
 
 from typing import Any
