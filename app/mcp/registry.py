@@ -563,10 +563,7 @@ def _tool_definitions() -> list[types.Tool]:
                     },
                     "slug": {
                         "type": "string",
-                        "description": (
-                            "Optional slug override for the promoted skill "
-                            "(defaults to the fork slug). Must match ^[a-z0-9][a-z0-9_-]{0,63}$."
-                        ),
+                        "description": "Optional slug override for the promoted skill (defaults to the fork slug). Must match ^[a-z0-9][a-z0-9_-]{0,63}$.",
                     },
                 },
             },
