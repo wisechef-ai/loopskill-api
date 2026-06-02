@@ -1,12 +1,9 @@
-"""MCP tool registry — static list of all registered MCP tools.
-
-This module owns _tool_definitions() which returns the full list of
-types.Tool objects the server advertises to MCP clients.
-"""
+"""MCP tool registry — _tool_definitions() returns the advertised types.Tool list."""
 
 from __future__ import annotations
 
 import mcp.types as types
+from app.mcp._registry_j import _phase_j_tools
 
 
 def _tool_definitions() -> list[types.Tool]:
@@ -600,4 +597,5 @@ def _tool_definitions() -> list[types.Tool]:
                 },
             },
         ),
+        *_phase_j_tools(),  # loopclose_3005 Phase J — see _registry_j.py
     ]

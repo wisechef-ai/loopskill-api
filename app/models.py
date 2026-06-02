@@ -798,6 +798,17 @@ class Cookbook(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
+    # loopclose_3005 Phase J — user-routable feedback (THE MOAT)
+    # feedback_repo: NULL = use system default (wisechef-ai/recipes-api)
+    #                set  = route feedback issues to this 'owner/name' repo
+    # feedback_mode: 'pat' (PAT stored encrypted in feedback_pat_enc)
+    #              | 'github_app' (future — App installation token, not yet live)
+    #              | NULL (no custom routing)
+    # feedback_pat_enc: Fernet-encrypted GitHub PAT for issues:write. NEVER stored plaintext.
+    feedback_repo = Column(Text, nullable=True)
+    feedback_mode = Column(Text, nullable=True)
+    feedback_pat_enc = Column(Text, nullable=True)
+
     share_tokens = relationship("CookbookShareToken", back_populates="cookbook", cascade="all, delete-orphan")
 
 

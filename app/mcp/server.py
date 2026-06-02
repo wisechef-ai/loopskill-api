@@ -46,6 +46,7 @@ from app.mcp.registry import _tool_definitions  # noqa: F401
 from app.mcp.cookbook_status import get_cookbook_status, invalidate_cookbook_status
 from app.mcp.tools import (
     recipes_carousel_today,
+    recipes_configure_feedback,
     recipes_doctor,
     recipes_feedback,
     recipes_fleet_create,
@@ -176,6 +177,7 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             force=args.get("force", False),
             confirmation=args.get("confirmation"),
             api_key_id=caller.get("api_key_id"),
+            ctx=ctx,
         )
     if name == "recipes_request_recipe":
         return _tool_ns.get("recipes_request_recipe", recipes_request_recipe)(
@@ -320,6 +322,16 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             new_owner_user_id=args.get("new_owner_user_id"),
             new_owner_email=args.get("new_owner_email"),
             mode=args.get("mode", "transfer"),
+        )
+    # ── Phase J: user-routable feedback (THE MOAT) ──────────────────────────
+    if name == "recipes_configure_feedback":
+        return _tool_ns.get("recipes_configure_feedback", recipes_configure_feedback)(
+            db,
+            repo=args.get("repo"),
+            mode=args.get("mode"),
+            pat=args.get("pat"),
+            cookbook_id=args.get("cookbook_id"),
+            ctx=ctx,
         )
     raise ValueError(f"unknown tool: {name}")
 

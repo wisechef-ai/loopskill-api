@@ -1,8 +1,16 @@
-"""GitHub repository_dispatch helper.
+"""GitHub repository_dispatch + issue-creation helper.
 
-Sends a repository_dispatch event to wisechef-ai/recipes-api.
+Default path: POST repository_dispatch to wisechef-ai/recipes-api (unchanged).
+User-routable path: create a GitHub issue in the user's own repo via their
+encrypted PAT (loopclose_3005 Phase J — THE MOAT).
+
 Never raises — failure is logged and returns None so the API write is durable
 even when GitHub is unavailable.
+
+Security:
+  - User tokens are passed in-memory only, never logged (only safe prefix).
+  - ``verify_repo_access`` is the gate; dispatch is refused for repos the
+    token does not cover.
 """
 
 from __future__ import annotations
@@ -22,6 +30,8 @@ def dispatch_event(event_type: str, payload: dict[str, Any]) -> bool | None:
 
     Returns True on success, None on failure. Never raises — failure logs and
     returns None so the API write is durable even if GitHub is down.
+
+    This is the **default path** — unchanged from pre-Phase-J.
     """
     pat = os.environ.get("GITHUB_DISPATCH_PAT", "")
     if not pat:
@@ -74,4 +84,34 @@ def dispatch_event(event_type: str, payload: dict[str, Any]) -> bool | None:
     # Rationale: catch all network/JSON/OS errors so dispatch failure never propagates to caller
     except Exception as exc:  # noqa: BLE001
         logger.warning("github dispatch failed: event_type=%s error=%s", event_type, exc)
+        return None
+
+
+def dispatch_issue(
+    repo: str,
+    token: str,
+    *,
+    title: str,
+    body: str,
+    labels: list[str] | None = None,
+) -> str | None:
+    """Create a GitHub issue in ``repo`` using ``token``.
+
+    Phase J — user-routable feedback path.  Called only after
+    ``verify_repo_access`` has confirmed the token covers the repo.
+
+    Returns the issue URL on success, None on failure. Never raises.
+    The token is NEVER logged.
+    """
+    try:
+        from app.feedback_github import create_issue
+
+        return create_issue(repo, token, title=title, body=body, labels=labels)
+    # Rationale: catch all errors so user feedback dispatch never crashes the API write
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "dispatch_issue failed: repo=%s error=%s",
+            repo,
+            exc,
+        )
         return None

@@ -5,6 +5,7 @@ same callable serves the SSE transport, the stdio transport, and unit tests.
 """
 
 from app.mcp.tools.carousel_today import recipes_carousel_today
+from app.mcp.tools.configure_feedback import recipes_configure_feedback
 from app.mcp.tools.cookbook_install import (
     CookbookInstallError,
     recipes_cookbook_install,
@@ -77,4 +78,6 @@ __all__ = [
     "recipes_cookbook_attach",
     # loopclose_3005 Phase I: cookbook handoff
     "recipes_cookbook_handoff",
+    # loopclose_3005 Phase J: user-routable feedback (THE MOAT)
+    "recipes_configure_feedback",
 ]
