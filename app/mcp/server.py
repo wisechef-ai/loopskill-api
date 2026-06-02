@@ -74,6 +74,7 @@ from app.mcp.tools import (
     recipes_tailor,
     recipes_tailor_version,
     recipes_cookbook_attach,
+    recipes_cookbook_handoff,
 )
 
 ToolDispatch = Callable[[Session, dict[str, Any], dict[str, Any]], Awaitable[Any] | Any]
@@ -310,6 +311,15 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             target_cookbook_id=args["target_cookbook_id"],
             slug=args.get("slug"),
             ctx=ctx,
+        )
+    if name == "recipes_cookbook_handoff":
+        return _tool_ns.get("recipes_cookbook_handoff", recipes_cookbook_handoff)(
+            db,
+            ctx=ctx,
+            cookbook_id=args["cookbook_id"],
+            new_owner_user_id=args.get("new_owner_user_id"),
+            new_owner_email=args.get("new_owner_email"),
+            mode=args.get("mode", "transfer"),
         )
     raise ValueError(f"unknown tool: {name}")
 

@@ -574,4 +574,30 @@ def _tool_definitions() -> list[types.Tool]:
                 },
             },
         ),
+        # ── loopclose_3005 Phase I: cookbook handoff ──────────────────────────
+        types.Tool(
+            name="recipes_cookbook_handoff",
+            description=(
+                "Transfer OR fork a cookbook to a new owner preserving tailored skills. "
+                "Only the current owner or master may act. Provide new_owner_user_id OR "
+                "new_owner_email. mode='transfer': ownership swaps in-place. "
+                "mode='fork': new cookbook with parent lineage + custom-added skills."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["cookbook_id"],
+                "properties": {
+                    "cookbook_id": {"type": "string", "description": "UUID of the cookbook to hand off."},
+                    "new_owner_user_id": {
+                        "type": "string",
+                        "description": "UUID of the new owner (or use new_owner_email).",
+                    },
+                    "new_owner_email": {
+                        "type": "string",
+                        "description": "Email of the new owner (or use new_owner_user_id).",
+                    },
+                    "mode": {"type": "string", "enum": ["transfer", "fork"], "default": "transfer"},
+                },
+            },
+        ),
     ]

@@ -749,3 +749,62 @@ def install_single_skill_from_cookbook(
         "checksum_sha256": version.checksum_sha256,
         "source": cs.source,
     }
+
+
+# ── loopclose_3005 Phase I — cookbook handoff REST endpoint ──────────────
+
+
+class HandoffIn(BaseModel):
+    """Request body for POST /api/cookbooks/{id}/handoff."""
+
+    new_owner_user_id: str | None = None
+    new_owner_email: str | None = None
+    mode: str = "transfer"
+
+
+@router.post("/{cookbook_id}/handoff")
+def handoff_cookbook(
+    cookbook_id: str,
+    body: HandoffIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """Transfer or fork a cookbook to a new owner.
+
+    Only the current cookbook owner (or master) may call this endpoint.
+    Delegates to the MCP tool implementation for a single source of truth.
+    """
+    from app.auth_ctx import AuthContext
+    from app.mcp.tools.cookbook_handoff import recipes_cookbook_handoff
+
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+
+    # Build an AuthContext from the CookbookCtx for the tool
+    if ctx.is_master:
+        auth_ctx: AuthContext = AuthContext(scope="master")
+    elif ctx.user_id is not None:
+        auth_ctx = AuthContext(scope="user", user_id=ctx.user_id)
+    else:
+        raise HTTPException(status_code=401, detail="auth_required")
+
+    result = recipes_cookbook_handoff(
+        db,
+        ctx=auth_ctx,
+        cookbook_id=cookbook_id,
+        new_owner_user_id=body.new_owner_user_id,
+        new_owner_email=body.new_owner_email,
+        mode=body.mode,
+    )
+
+    if "error" in result:
+        error = result["error"]
+        if error == "cookbook_not_found":
+            raise HTTPException(status_code=404, detail=error)
+        if error == "forbidden":
+            raise HTTPException(status_code=403, detail=error)
+        if error == "new_owner_not_found":
+            raise HTTPException(status_code=404, detail=error)
+        raise HTTPException(status_code=400, detail=error)
+
+    return result

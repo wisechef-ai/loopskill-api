@@ -37,6 +37,7 @@ from app.mcp.tools.skill_patch import recipes_propose_skill_patch
 from app.mcp.tools.subrecipe_resolve import recipes_subrecipe_resolve
 from app.mcp.tools.fork_deploy import recipes_cookbook_attach, recipes_tailor_version
 from app.mcp.tools.tailor import recipes_fork_list, recipes_tailor
+from app.mcp.tools.cookbook_handoff import recipes_cookbook_handoff
 
 __all__ = [
     "recipes_search",
@@ -74,4 +75,6 @@ __all__ = [
     # loopclose_3005 Phase C: close the MCP tailor loop
     "recipes_tailor_version",
     "recipes_cookbook_attach",
+    # loopclose_3005 Phase I: cookbook handoff
+    "recipes_cookbook_handoff",
 ]
