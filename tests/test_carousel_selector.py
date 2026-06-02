@@ -27,12 +27,25 @@ class TestDeriveTagline:
         p = {"description": "Real human description.", "title": "Skill X", "slug": "skill-x"}
         assert derive_tagline(p) == "Real human description."
 
-    def test_truncates_description_at_120_chars(self):
+    def test_truncates_description_at_word_boundary_with_ellipsis(self):
+        # Input: 200 chars of repeated words ("word " * 40)
+        long_desc = "word " * 40  # 200 chars, spaces every 5
+        p = {"description": long_desc, "title": "T", "slug": "s"}
+        result = derive_tagline(p)
+        # Must not exceed max_len + 1 (for ellipsis char)
+        assert len(result) <= 121, f"result too long: {len(result)}"
+        # Must end with ellipsis when truncated
+        assert result.endswith("\u2026"), f"no ellipsis: {result!r}"
+        # Must not end mid-word (last char before ellipsis must be space-boundary)
+        assert result[:-1].rstrip()[-1] != " ", "trailing space before ellipsis"
+
+    def test_truncates_all_same_chars_no_space(self):
+        # Edge case: no spaces — trim at max_len exactly (best effort mid-word fallback)
         long_desc = "A" * 200
         p = {"description": long_desc, "title": "T", "slug": "s"}
         result = derive_tagline(p)
-        assert len(result) == 120
-        assert result == "A" * 120
+        assert result.endswith("\u2026")
+        assert len(result) <= 121
 
     def test_falls_back_to_title_when_description_missing(self):
         p = {"description": "", "title": "Human Title", "slug": "human-title"}
