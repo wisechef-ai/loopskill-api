@@ -242,19 +242,23 @@ def test_fleet_sync_aggregates_across_cookbooks(fleet_db):
         fleet_db.add(cs)
     fleet_db.flush()
 
-    # Subscribe both cookbooks to the fleet
+    # Subscribe both cookbooks to the fleet.
+    # evergreen_0206 Phase C: channels are now REAL — a 'stable' subscription
+    # only advances to versions that passed the eval gate (promoted_to_stable_at).
+    # This test's versions are unpromoted, and its purpose is aggregation across
+    # cookbooks, so it subscribes on 'canary' (advances to latest = 2.0.0).
     recipes_fleet_subscribe(
         fleet_db,
         fleet_id=fleet_id,
         cookbook_id=str(cb1.id),
-        channel="stable",
+        channel="canary",
         ctx=ctx,
     )
     recipes_fleet_subscribe(
         fleet_db,
         fleet_id=fleet_id,
         cookbook_id=str(cb2.id),
-        channel="stable",
+        channel="canary",
         ctx=ctx,
     )
 

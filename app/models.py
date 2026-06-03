@@ -254,6 +254,12 @@ class SkillVersion(Base):
     changelog = Column(Text, nullable=True)
     skill_toml = Column(Text, nullable=True)  # stored manifest
     created_at = Column(DateTime, server_default=func.now())
+    # evergreen_0206 Phase C/E: when this version passed the health/eval gate
+    # and became eligible for the STABLE channel. NULL = canary-only (not yet
+    # promoted). Written by the Phase E promotion engine; read by channel-aware
+    # version selection (Phase C). canary=latest any · stable=latest promoted ·
+    # frozen=no movement.
+    promoted_to_stable_at = Column(DateTime(timezone=True), nullable=True)
 
     skill = relationship("Skill", back_populates="versions")
 
