@@ -522,6 +522,96 @@ def get_external_skills(
     return payload
 
 
+@router.get("/skills/external/{source}/{slug}/install", tags=["skills", "federation"])
+def install_external_skill(source: str, slug: str):
+    """evergreen_0206 Phase F2 — REAL fetch-origin install for an external skill.
+
+    Closes the cold-path: makes the external install CTA actually work instead of
+    being aspirational. The install ROUTER decides the path; this endpoint
+    EXECUTES the redistributable one (fetch-origin) by streaming the real,
+    MIT-licensed SKILL.md from origin, with license + attribution preserved.
+
+    Returns, per the router's decision:
+      - fetch_origin → {install_path, raw_url, content, license, install_command}
+        (the agent writes ``content`` to its skills dir; the command is the
+        copy-paste curl form for a human).
+      - deep_link / non-redistributable → 409 with the origin link (never
+        rehosted — license/ToS wall).
+      - unknown source / unresolvable slug → 404 (honest, never fabricated).
+    """
+    from app.services.federation import INTERNAL_SOURCE, InstallPath, route_install
+    from app.services.federation_adapters import get_adapter
+    from app.services.federation_live import LIVE_FETCH, hermes_origin_skill_md
+
+    # The federation surface is external-only — refuse the internal namespace.
+    if source == INTERNAL_SOURCE:
+        raise HTTPException(status_code=404, detail="Not an external source")
+
+    fetch = LIVE_FETCH.get(source)
+    adapter = get_adapter(source, fetch=fetch)
+    if adapter is None:
+        raise HTTPException(status_code=404, detail=f"Unknown external source '{source}'")
+
+    skill = None
+    try:
+        skill = adapter.resolve(slug)
+    # Rationale: a source outage must 503, not 500.
+    except Exception:  # noqa: BLE001
+        logger.warning("external resolve failed: %s/%s", source, slug, exc_info=True)
+        raise HTTPException(status_code=503, detail="External source unavailable") from None
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"External skill '{slug}' not found in {source}")
+
+    decision = route_install(skill)
+    if not decision.allowed:
+        # Deep-link / non-redistributable: never rehosted — hand back the origin.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason": decision.reason,
+                "install_path": skill.install_path.value,
+                "origin_url": skill.origin_url,
+                "license": skill.license,
+            },
+        )
+
+    if skill.install_path == InstallPath.FETCH_ORIGIN and source == "hermes-hub":
+        got = hermes_origin_skill_md(slug)
+        if got is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"SKILL.md for '{slug}' could not be fetched from origin",
+            )
+        raw_url, content = got
+        return {
+            "slug": skill.slug,
+            "source": skill.source,
+            "install_path": skill.install_path.value,
+            "license": skill.license,
+            "origin_url": skill.origin_url,
+            "raw_url": raw_url,
+            "content": content,
+            "namespace": "external",
+            "quality": "community · as-is",
+            # Copy-paste form for a human; an agent uses `content` directly.
+            "install_command": f"mkdir -p ~/.claude/skills/{slug} && "
+            f"curl -fsSL {raw_url} -o ~/.claude/skills/{slug}/SKILL.md",
+        }
+
+    # Other allowed paths (e.g. register_mcp) have no file body to stream yet —
+    # surface the routed decision honestly rather than pretend.
+    return {
+        "slug": skill.slug,
+        "source": skill.source,
+        "install_path": skill.install_path.value,
+        "license": skill.license,
+        "origin_url": skill.origin_url,
+        "namespace": "external",
+        "quality": "community · as-is",
+        "note": "This install path is not yet executable here; use the origin link.",
+    }
+
+
 @router.get("/skills/{slug}", response_model=SkillDetailOut, tags=["skills"])
 def get_skill_detail(slug: str, request: Request, db: Session = Depends(get_db)):
     """Full skill detail with versions and resolved related skills.

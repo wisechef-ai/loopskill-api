@@ -45,6 +45,9 @@ HERMES_CATALOG_URL = "https://hermes-agent.nousresearch.com/docs/reference/skill
 HERMES_SKILL_BASE = "https://hermes-agent.nousresearch.com/docs/user-guide/skills/bundled"
 # The whole hermes-agent repo is MIT (verified 2026-06-03 via GitHub license API).
 HERMES_REPO_LICENSE = "MIT"
+# Raw fetch-origin base: the MIT repo's SKILL.md files are fetchable here. A
+# bundled skill's repo path is skills/<slug-with-double-dash→slash>/SKILL.md.
+HERMES_RAW_BASE = "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/skills"
 
 GITHUB_CODE_SEARCH_URL = "https://api.github.com/search/code"
 
@@ -156,7 +159,9 @@ def hermes_hub_fetch(query: str) -> list[dict[str, Any]]:
     out = [
         r
         for r in catalog
-        if q in r["title"].lower() or q in r["description"].lower() or q in r["slug"].lower()
+        if q in r.get("title", "").lower()
+        or q in r.get("description", "").lower()
+        or q in r.get("slug", "").lower()
     ]
     return out
 
@@ -164,6 +169,32 @@ def hermes_hub_fetch(query: str) -> list[dict[str, Any]]:
 def hermes_indexed_count() -> int:
     """Cheap indexed-count for the teaser (cached static catalog)."""
     return len(_load_hermes_catalog())
+
+
+def hermes_origin_skill_md(slug: str) -> tuple[str, str] | None:
+    """Fetch the real SKILL.md content for a Hermes-Hub skill, from origin.
+
+    This is the fetch-origin install path made real: the whole hermes-agent repo
+    is MIT, so the bundled SKILL.md is redistributable. The bundled repo path is
+    skills/<slug with "--" → "/">/SKILL.md on the MIT repo's raw host.
+
+    Returns (raw_url, content) on success, or None when the slug doesn't resolve
+    to a real SKILL.md (so the caller can 404 honestly rather than fabricate).
+    """
+    path = (slug or "").replace("--", "/").strip("/")
+    if not path:
+        return None
+    raw_url = f"{HERMES_RAW_BASE}/{path}/SKILL.md"
+    try:
+        with httpx.Client(timeout=_HTTP_TIMEOUT_S, follow_redirects=True) as client:
+            resp = client.get(raw_url)
+        if resp.status_code != 200 or not resp.text.strip():
+            return None
+        return raw_url, resp.text
+    # Rationale: an origin outage must surface as "unavailable", never a 500.
+    except Exception:  # noqa: BLE001
+        logger.warning("hermes origin fetch failed for %s", slug, exc_info=True)
+        return None
 
 
 # ─────────────────────────── GitHub OSS fetch ───────────────────────────

@@ -213,3 +213,63 @@ class TestExternalRoute:
         # route returns the structured envelope with a per_source block.
         assert r.status_code == 200
         assert "per_source" in r.json()
+
+
+# ─────────── REAL fetch-origin install (the cold-path closer) ────────────
+
+
+class TestExternalInstall:
+    def test_fetch_origin_returns_real_skill_md(self, client, monkeypatch):
+        # Adapter resolves the skill (MIT → fetch-origin), origin fetch returns body.
+        monkeypatch.setattr(
+            fl,
+            "_load_hermes_catalog",
+            lambda: [
+                {
+                    "slug": "research--arxiv",
+                    "title": "arxiv",
+                    "description": "search arxiv",
+                    "url": "https://h/skills/research/arxiv",
+                    "license": "MIT",
+                }
+            ],
+        )
+        monkeypatch.setattr(
+            fl,
+            "hermes_origin_skill_md",
+            lambda slug: ("https://raw.example/SKILL.md", "# arxiv\nreal body"),
+        )
+        r = client.get("/api/skills/external/hermes-hub/research--arxiv/install")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["install_path"] == "fetch_origin"
+        assert body["license"] == "MIT"
+        assert body["content"] == "# arxiv\nreal body"
+        assert "curl -fsSL" in body["install_command"]
+        assert body["quality"] == "community · as-is"
+
+    def test_unknown_source_404(self, client):
+        r = client.get("/api/skills/external/lobehub/x/install")
+        assert r.status_code == 404
+
+    def test_internal_source_refused(self, client):
+        r = client.get("/api/skills/external/recipes/some-internal/install")
+        assert r.status_code == 404
+
+    def test_unresolvable_slug_404(self, client, monkeypatch):
+        monkeypatch.setattr(fl, "_load_hermes_catalog", lambda: [])
+        r = client.get("/api/skills/external/hermes-hub/research--nope/install")
+        assert r.status_code == 404
+
+    def test_origin_fetch_failure_404_not_500(self, client, monkeypatch):
+        monkeypatch.setattr(
+            fl,
+            "_load_hermes_catalog",
+            lambda: [
+                {"slug": "research--arxiv", "title": "arxiv", "license": "MIT", "url": "https://h/x"}
+            ],
+        )
+        # Resolves, but origin SKILL.md is unfetchable → honest 404, never fabricated.
+        monkeypatch.setattr(fl, "hermes_origin_skill_md", lambda slug: None)
+        r = client.get("/api/skills/external/hermes-hub/research--arxiv/install")
+        assert r.status_code == 404
