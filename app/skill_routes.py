@@ -436,6 +436,92 @@ def get_full_skill_graph(db: Session = Depends(get_db)):
     }
 
 
+@router.get("/skills/external", tags=["skills", "federation"])
+def get_external_skills(
+    q: str | None = Query(None, description="Free-text query forwarded to each enabled source"),
+    sources: str | None = Query(
+        None,
+        description=(
+            "Comma-separated source ids to ENABLE (the free-source toggle). "
+            "OFF BY DEFAULT: with no value, no external source is queried and the "
+            "curated catalog stays clean. Live sources: hermes-hub, github-oss."
+        ),
+    ),
+    limit: int = Query(20, ge=1, le=50),
+):
+    """evergreen_0206 Phase F2/F3 — the live external (federated) catalog seam.
+
+    Surfaces ~88k external skills as a SEPARATE, second-class namespace
+    ("External · community · as-is"), behind a per-source toggle that is OFF by
+    default (Phase F3). Each enabled source's adapter is wired to a REAL catalog
+    fetch (app/services/federation_live). Counts are reported INDEXED-vs-
+    INSTALLABLE per source and never conflated (Phase F5). Internal/private
+    skills are NEVER surfaced here — the federation surface is external-only by
+    construction (the quality-namespace + tenant-isolation wall, Phase F6).
+
+    Toggle semantics:
+      - ``sources`` empty/omitted  → every source disabled; ``external`` is [].
+        Honest indexed counts are still reported for cheap-to-count sources
+        (Hermes Hub catalog is cached), so the UI can show "~N indexed · toggle
+        on to browse" without burning a source's rate limit.
+      - ``sources=hermes-hub``     → only Hermes Hub queried + returned.
+      - ``sources=hermes-hub,github-oss`` → both queried, merged, second-class.
+    """
+    from app.services.federation import LIVE_SOURCES, merge_search, route_install
+    from app.services.federation_adapters import get_adapter
+    from app.services.federation_live import LIVE_FETCH, hermes_indexed_count
+
+    requested = {s.strip().lower() for s in (sources or "").split(",") if s.strip()}
+    # A source is "enabled" only if it is BOTH live and explicitly requested.
+    enabled = [s for s in LIVE_SOURCES if s in requested]
+
+    per_source: dict[str, dict] = {}
+    all_external = []  # list[ExternalSkill] from enabled sources, in source order
+
+    for source_id in LIVE_SOURCES:
+        is_enabled = source_id in enabled
+        block: dict = {"enabled": is_enabled, "indexed": None, "installable": None}
+        if is_enabled:
+            fetch = LIVE_FETCH.get(source_id)
+            adapter = get_adapter(source_id, fetch=fetch)
+            try:
+                found = adapter.search(q or "", limit=limit) if adapter else []
+            # Rationale: one bad source must never 500 the whole route.
+            except Exception:  # noqa: BLE001
+                logger.warning("external source '%s' search failed", source_id, exc_info=True)
+                found = []
+            installable = [s for s in found if route_install(s).allowed]
+            block["indexed"] = len(found)
+            block["installable"] = len(installable)
+            all_external.extend(found)
+        elif source_id == "hermes-hub":
+            # Cheap, cached static catalog — report indexed even when toggled off
+            # so the teaser is honest without querying the firehose.
+            try:
+                block["indexed"] = hermes_indexed_count()
+            except Exception:  # noqa: BLE001
+                block["indexed"] = None
+        per_source[source_id] = block
+
+    # The isolation wall: internal=[] (this surface is external-only); the toggle
+    # is "on" iff at least one source is enabled. merge_search enforces that no
+    # external rows leak when the toggle is off, and stamps the second-class
+    # namespace + community-quality label on every external row.
+    merged = merge_search([], all_external, free_sources_enabled=bool(enabled))
+    payload = merged.to_dict()
+    payload.update(
+        {
+            "query": q,
+            "namespace": "external",
+            "available_sources": list(LIVE_SOURCES),
+            "enabled_sources": enabled,
+            "per_source": per_source,
+            "disclaimer": "External skills are community-contributed, as-is, and not quality-gated.",
+        }
+    )
+    return payload
+
+
 @router.get("/skills/{slug}", response_model=SkillDetailOut, tags=["skills"])
 def get_skill_detail(slug: str, request: Request, db: Session = Depends(get_db)):
     """Full skill detail with versions and resolved related skills.
