@@ -40,7 +40,7 @@ def _get_fernet() -> "Fernet":  # type: ignore[return]
     if not raw:
         raise ValueError(
             f"{_KEY_ENV} is not set — cannot encrypt/decrypt feedback PAT credentials. "
-            "Generate a key with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+            'Generate a key with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
         )
     return Fernet(raw.encode())
 

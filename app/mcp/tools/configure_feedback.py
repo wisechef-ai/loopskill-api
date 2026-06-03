@@ -160,7 +160,7 @@ def recipes_configure_feedback(
         }
 
     # Encrypt and store
-    from app.feedback_cred_vault import encrypt_pat, _safe_token
+    from app.feedback_cred_vault import encrypt_pat
 
     try:
         enc = encrypt_pat(pat)

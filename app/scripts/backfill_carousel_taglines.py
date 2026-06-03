@@ -29,8 +29,6 @@ from app.database import SessionLocal
 from app.models import CarouselEntry, Skill
 
 
-
-
 def _word_boundary_trim(text: str, max_len: int = 120) -> str:
     """Trim text to max_len at a word boundary and append ellipsis if truncated."""
     text = text.rstrip()
@@ -41,6 +39,7 @@ def _word_boundary_trim(text: str, max_len: int = 120) -> str:
     if last_space > max_len // 2:
         truncated = truncated[:last_space].rstrip()
     return truncated + "\u2026"
+
 
 def derive_tagline(skill: Skill) -> str:
     """Mirror the selector logic exactly — keep these in sync."""

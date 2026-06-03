@@ -1,4 +1,5 @@
 """Phase J tool definitions — split out to keep registry.py under 600 lines."""
+
 from __future__ import annotations
 
 import mcp.types as types
