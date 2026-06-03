@@ -2,7 +2,7 @@
 
 The paid axis is MAINTENANCE, not ACCESS (decision #1). The ladder:
 
-  FREE  → 1 cookbook + exactly ONE manual sync (the taste). Watch a cookbook
+  FREE  → one cookbook + exactly ONE manual sync (the taste). Watch a cookbook
           self-heal + auto-recover once. Then the ceiling is felt.
   PRO   → scheduled/cron auto-reconcile (the daemon). Skills never rot, hands-off.
   PRO+  → fleet reconcile across N agents + channels. The control plane.
