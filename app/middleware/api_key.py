@@ -253,6 +253,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         "/api/skills/trending",
         "/api/skills/access",
         "/api/skills/_download",
+        "/api/skills/external",  # evergreen_0206 F2 — external-only funnel: public discovery + fetch-origin install
         "/api/stats",
         "/api/forks/_download",
         "/api/graph",  # B.5: graph extension — public read; master-only write enforced inline
