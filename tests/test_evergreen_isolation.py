@@ -197,3 +197,21 @@ class TestPhaseDReconcileIsolation:
 
         assert reconcile_cookbook is not None
 
+
+class TestPhaseFFederationIsolation:
+    """Phase F: external/federated skills must never surface our internal skills.
+
+    The quality-namespace wall is also a tenant-isolation wall (contract §7.3).
+    Behavioral proof lives in test_evergreen_f_federation.py::TestIsolationWall —
+    external never mixes into the internal list, and merge_search never upgrades
+    internal visibility. This anchors the obligation centrally.
+    """
+
+    def test_federation_isolation_anchor(self):
+        from app.services.federation import INTERNAL_SOURCE, merge_search
+
+        # Internal source namespace is distinct + merge keeps lists separate.
+        assert INTERNAL_SOURCE == "recipes"
+        res = merge_search([], [], free_sources_enabled=True)
+        assert res.external == [] and res.internal == []
+
