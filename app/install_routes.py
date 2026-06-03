@@ -33,6 +33,31 @@ from app.utils.client_ip import _real_client_ip
 
 router = APIRouter(tags=["skills"])
 
+
+def _immutable_cache_headers(checksum_sha256: str | None) -> dict[str, str]:
+    """Cache headers for an immutable, content-addressed skill tarball.
+
+    evergreen_0206 Phase D (decision #18) — CDN-fronted delta pulls.
+
+    A versioned tarball's bytes never change, so it can be cached forever at the
+    edge. Cloudflare already fronts origin (config.py:173), so once these headers
+    are present, repeat pulls of the same version are served from Cloudflare's
+    edge and the weak origin disk is hit once-per-version globally. The
+    checksum_sha256 IS the perfect cache validator (content address) → ETag.
+
+    SAFETY: if we don't know the checksum, we cannot content-address the bytes,
+    so we MUST NOT mark them immutable (a future mutation would serve stale
+    bytes forever). Fall back to no-store — correctness over cache-hit.
+    """
+    if not checksum_sha256:
+        return {"Cache-Control": "no-store"}
+    return {
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "ETag": f'"{checksum_sha256}"',
+        "X-Checksum-SHA256": checksum_sha256,
+    }
+
+
 # WIS-903: Retired skill registry (shared with routes.py)
 from pathlib import Path as _Path
 
@@ -309,5 +334,5 @@ def download_tarball(
         path=str(tar_path),
         media_type="application/gzip",
         filename=f"{slug}-{version.semver}.tar.gz",
-        headers={"X-Checksum-SHA256": version.checksum_sha256 or ""},
+        headers=_immutable_cache_headers(version.checksum_sha256),
     )

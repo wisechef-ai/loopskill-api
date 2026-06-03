@@ -28,6 +28,7 @@ from app.graph_routes import router as graph_router
 from app.health_routes import router as health_router  # Phase E: health split
 from app.heartbeat_routes import router as heartbeat_router
 from app.install_routes import router as install_router  # Phase E: install split
+from app.reconcile_routes import router as reconcile_router  # evergreen_0206 Phase D
 from app.intent_survey_routes import router as intent_survey_router
 from app.internal_routes import router as internal_router
 from app.marketing_routes import router as marketing_router
@@ -143,6 +144,7 @@ def create_app() -> FastAPI:
     app.include_router(access_router, prefix="/api", tags=["skills"])
     app.include_router(recipe_router, prefix="/api", tags=["recipes"])
     app.include_router(install_router, prefix="/api", tags=["skills"])
+    app.include_router(reconcile_router, tags=["reconcile"])  # evergreen_0206 Phase D
     app.include_router(skill_router, prefix="/api", tags=["skills"])
     app.include_router(skill_files_router, prefix="/api", tags=["skills"])
     app.include_router(admin_router, tags=["admin"])
