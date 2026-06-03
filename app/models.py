@@ -55,6 +55,10 @@ class User(Base):
     subscription_tier = Column(String(32), nullable=True)  # free, pro, pro_plus (legacy: cook, operator)
     subscription_id = Column(String(255), nullable=True)  # Stripe subscription id
     subscription_current_period_end = Column(DateTime(timezone=True), nullable=True)
+    # evergreen_0206 Phase G — free-tier conversion taste. When a free user runs
+    # their ONE allowed manual reconcile/sync, this is stamped. A second manual
+    # sync → 402/upgrade. NULL = the free sync has not been used yet.
+    free_sync_used_at = Column(DateTime(timezone=True), nullable=True)
     # ── Discord integration (Phase D) ─────────────────────────────────────
     # 17-19 digit Discord snowflake; bot uses this to assign roles after
     # Stripe webhooks. NULL when the user hasn't linked Discord yet.

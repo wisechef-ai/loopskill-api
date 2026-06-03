@@ -121,24 +121,30 @@ def _make_app(db: Session, *, api_key_user_id, is_admin: bool = False) -> FastAP
 # ─────────────────────────── Tier gates ─────────────────────────────────
 
 class TestTierGates:
-    def test_free_tier_blocked_with_401(self, db_session):
+    def test_free_tier_can_create_one_then_capped(self, db_session):
+        """evergreen_0206 Phase G: free on-ramp OPENED. Free creates 1, 2nd → 403."""
         user = _make_user(db_session, tier="free")
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
         with TestClient(app) as client:
-            r = client.post("/api/cookbooks", json={"name": "Mine"})
-        assert r.status_code == 401, r.text
-        assert r.json()["detail"]["needs_tier"] == "pro"
+            r1 = client.post("/api/cookbooks", json={"name": "My First"})
+            assert r1.status_code == 201, f"free must create its 1 cookbook: {r1.text}"
+            r2 = client.post("/api/cookbooks", json={"name": "My Second"})
+        assert r2.status_code == 403, "free 2nd cookbook must be capped"
+        assert r2.json()["detail"]["max_cookbooks"] == 1
 
-    def test_no_tier_blocked_with_401(self, db_session):
+    def test_no_tier_treated_as_free_one(self, db_session):
+        """A user with no tier set is treated as free → 1 cookbook allowed."""
         user = _make_user(db_session, tier=None, status=None)
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
         with TestClient(app) as client:
-            r = client.post("/api/cookbooks", json={"name": "Mine"})
-        assert r.status_code == 401
+            r1 = client.post("/api/cookbooks", json={"name": "Mine"})
+            assert r1.status_code == 201, f"no-tier=free must create 1: {r1.text}"
+            r2 = client.post("/api/cookbooks", json={"name": "Second"})
+        assert r2.status_code == 403
 
     def test_pro_tier_can_create_first(self, db_session):
         user = _make_user(db_session, tier="pro")

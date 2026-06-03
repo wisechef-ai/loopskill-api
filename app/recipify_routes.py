@@ -85,6 +85,18 @@ def recipify(
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
     """Validate and store a new SKILL.md draft as a CookbookSkill."""
+    # evergreen_0206 Phase G: require_cookbook_tier now ADMITS free (the cookbook
+    # on-ramp). Recipify is an AUTHORING capability, not part of the free taste
+    # (free = install + 1 cookbook + 1 sync). Keep authoring paid-gated with an
+    # explicit check so opening the shared gate didn't accidentally expose it.
+    from app.tier_labels import _is_paid_tier
+
+    if not ctx.is_master and not _is_paid_tier(ctx.tier):
+        raise HTTPException(
+            status_code=401,
+            detail={"needs_tier": "pro", "current_tier": ctx.tier},
+        )
+
     if (
         body.target_subrecipe_id is not None
         and ctx.tier not in ("operator", "pro_plus")

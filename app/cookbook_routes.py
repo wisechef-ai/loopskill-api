@@ -34,7 +34,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import Cookbook, CookbookSkill, Skill, SkillVersion, User
-from app.tier_labels import _is_paid_tier, cookbook_limit
+from app.tier_labels import cookbook_limit
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/cookbooks", tags=["cookbooks"])
@@ -162,12 +162,18 @@ class CookbookCtx(BaseModel):
 
 
 def require_cookbook_tier(request: Request, db: Session = Depends(get_db)) -> CookbookCtx:
-    """401 unless caller has an active pro/pro_plus sub OR is master.
+    """Resolve the cookbook auth context for any AUTHENTICATED user.
+
+    evergreen_0206 Phase G OPENS the free on-ramp (decision #3/#10). Previously
+    this raised 401 for any non-paid tier — the free funnel was closed. Now any
+    authenticated user (free included) passes; the per-tier QUANTITY is enforced
+    downstream by the cookbook-count cap (free=1, SSOT) and the maintenance
+    conversion gates (free=1 manual sync, cron=Pro, fleet=Pro+). A genuinely
+    unauthenticated caller still gets 401.
 
     SECURITY: cbt_ share tokens stamp api_key_user_id="CBT_TOKEN" (sentinel)
-    rather than None — None is the master-key signal. Without this guard
-    a cbt_ token would inherit master-tier access. Cbt_ tokens fall through
-    to the route-level scope checks in app/share_token_routes.py.
+    rather than None — None is the master-key signal. Without this guard a cbt_
+    token would inherit master-tier access.
     """
     is_cbt = getattr(request.state, "is_cbt_token", False)
     api_key_user_id = getattr(request.state, "api_key_user_id", "MISSING")
@@ -184,14 +190,13 @@ def require_cookbook_tier(request: Request, db: Session = Depends(get_db)) -> Co
         raise HTTPException(status_code=401, detail="auth_required")
 
     user = db.query(User).filter(User.id == api_key_user_id).first()
-    tier = user.subscription_tier if user else None
-    status = user.subscription_status if user else None
+    if user is None:
+        # Authenticated key with no resolvable user row → unauthenticated.
+        raise HTTPException(status_code=401, detail="auth_required")
 
-    if not _is_paid_tier(tier) or status not in ACTIVE_SUB_STATUSES:
-        raise HTTPException(
-            status_code=401,
-            detail={"needs_tier": "pro", "current_tier": tier},
-        )
+    # evergreen_0206 Phase G: free tier is allowed through (the on-ramp). The
+    # tier travels in the ctx so downstream caps/gates enforce per-tier limits.
+    tier = user.subscription_tier or "free"
     return CookbookCtx(user_id=user.id, is_master=False, tier=tier)
 
 
@@ -346,7 +351,8 @@ def create_cookbook(
         raise HTTPException(status_code=422, detail="invalid_name")
 
     # Cookbook cap — SSOT in config/tiers.yaml via tier_labels.cookbook_limit().
-    # None = unlimited (reserved; no current tier). Pro=10, Pro+=200, free=0.
+    # None = unlimited (reserved; no current tier). free=1 (evergreen_0206 Phase
+    # G on-ramp), Pro=10, Pro+=200.
     limit = cookbook_limit(ctx.tier)
     if limit is not None:
         existing = db.query(Cookbook).filter(Cookbook.cookbook_owner == ctx.user_id).count()

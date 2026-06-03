@@ -86,6 +86,25 @@ async def cookbook_sync_sse(
     """Stream Server-Sent Events for real-time cookbook sync updates."""
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
     cid = str(cb.id)
+
+    # evergreen_0206 Phase G: require_cookbook_tier now admits free (cookbook
+    # on-ramp). But a persistent SSE subscription IS the always-on reconcile
+    # daemon path — a PRO capability (free gets ONE manual sync, not a held
+    # subscription). Gate it explicitly so opening the shared gate didn't expose
+    # the subscribe path to free. cbt_ tokens (scoped install) and master pass.
+    from app.tier_labels import _is_paid_tier
+
+    if not ctx.is_master and ctx.cbt_cookbook_id is None and not _is_paid_tier(ctx.tier):
+        db.close()
+        return JSONResponse(
+            status_code=401,
+            content={
+                "detail": {"needs_tier": "pro", "current_tier": ctx.tier},
+                "reason": "Persistent sync (SSE subscribe) is Pro. Free gets one manual sync.",
+                "polling_fallback": f"/api/cookbooks/{cookbook_id}/sync",
+            },
+        )
+
     # Release the DB session before the (potentially long-lived) stream
     # starts — this is the premortem F3 / R3 mitigation.
     db.close()
