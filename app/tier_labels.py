@@ -56,7 +56,10 @@ def cookbook_limit(tier: str | None) -> int | None:
     'operator') transparently via _canonical().
 
     Returns an int cap, or None for unlimited (reserved; no current tier is
-    unlimited). Unknown/None tier falls back to the free-tier limit (0).
+    unlimited). Unknown/None tier falls back to the free-tier limit from the
+    SSOT (config/tiers.yaml). The literal ``0`` defaults below are a
+    fail-closed guard for a missing/corrupt config file only — never the live
+    free value (which is read from YAML; evergreen_0206 Phase A set it to 1).
     """
     canonical = _canonical(tier) if tier else "free"
     tier_cfg = _tiers().get(canonical)

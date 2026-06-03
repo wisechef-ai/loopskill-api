@@ -15,11 +15,12 @@ tiers:
     price_id_env: null
     accent_color: "#6B7280"
     badge: Free
-    # Cookbook cap SSOT (loopclose_3005 Phase A). The ONLY source of this
-    # number — cookbook_routes.py and auth_routes.py read it via
-    # tier_labels.cookbook_limit(). null = unlimited (reserved for a future
+    # Cookbook cap SSOT (loopclose_3005 Phase A; free 0→1 in evergreen_0206
+    # Phase A — the on-ramp taste, decision #10). The ONLY source of this
+    # number — cookbook_routes.py, auth_routes.py, checkout_routes.py read it
+    # via tier_labels.cookbook_limit(). null = unlimited (reserved for a future
     # contact-us tier; no current tier is unlimited).
-    cookbook_limit: 0
+    cookbook_limit: 1
 
   pro:
     db_slug: pro

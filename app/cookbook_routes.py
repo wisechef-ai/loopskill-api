@@ -28,6 +28,7 @@ import yaml
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -49,6 +50,30 @@ ALLOWED_SOURCES = {"forked", "custom-added", "overridden", "disabled"}
 
 # WIS-902: Pro tier skill cap per cookbook
 COOK_SKILL_CAP = 25
+
+
+def _touch_cookbook_generation(db: Session, cookbook_id: UUID) -> None:
+    """Advance a cookbook's generation token (Cookbook.updated_at).
+
+    evergreen_0206 Phase A — the cheap-poll generation token.
+
+    SQLAlchemy's ``onupdate=func.now()`` on ``Cookbook.updated_at`` fires ONLY
+    when the parent ``cookbooks`` row is UPDATEd — never when a child
+    ``CookbookSkill`` row is added, removed, or re-pinned. That made the
+    generation token lie: a cookbook's declared skill set could change while
+    its ``updated_at`` stayed frozen, so a subscribed agent polling with
+    ``If-None-Match: <generation>`` would get a false 304 and never reconcile.
+
+    Every code path that mutates a cookbook's declared skill set MUST call this
+    so the generation token is truthful. This is the load-bearing primitive
+    behind the 304-fast-path (Phase D) and subscribe-not-poll fan-out.
+
+    Uses ``func.now()`` (DB-side clock) for a single source of time truth,
+    consistent with the column's ``server_default``/``onupdate``.
+    """
+    db.query(Cookbook).filter(Cookbook.id == cookbook_id).update(
+        {"updated_at": func.now()}, synchronize_session=False
+    )
 
 
 # ── CBT scope enforcement for cookbook routes ─────────────────────────────
@@ -423,6 +448,7 @@ def add_skill_to_cookbook(
     )
     if existing is not None:
         existing.source = source
+        _touch_cookbook_generation(db, cb.id)
         db.commit()
         return {
             "cookbook_id": str(cb.id),
@@ -459,6 +485,7 @@ def add_skill_to_cookbook(
         source=source,
     )
     db.add(cs)
+    _touch_cookbook_generation(db, cb.id)
     db.commit()
     db.refresh(cs)
     return {
@@ -498,6 +525,7 @@ def remove_skill_from_cookbook(
         raise HTTPException(status_code=404, detail="skill_not_in_cookbook")
 
     cs.source = "disabled"
+    _touch_cookbook_generation(db, cb.id)
     db.commit()
     return {"cookbook_id": str(cb.id), "slug": slug, "source": "disabled", "deleted": True}
 

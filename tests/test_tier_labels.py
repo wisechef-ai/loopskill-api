@@ -178,9 +178,10 @@ class TestRateLimitUpgradeMessage:
 class TestCookbookLimitSSOT:
     """loopclose_3005 Phase A — cookbook_limit() reads config/tiers.yaml SSOT."""
 
-    def test_free_is_zero(self):
+    def test_free_is_one(self):
+        # evergreen_0206 Phase A: free on-ramp flipped 0→1 (decision #10).
         tl = _reload_tier_labels()
-        assert tl.cookbook_limit("free") == 0
+        assert tl.cookbook_limit("free") == 1
 
     def test_pro_is_ten(self):
         tl = _reload_tier_labels()
@@ -202,10 +203,11 @@ class TestCookbookLimitSSOT:
         tl = _reload_tier_labels()
         assert tl.cookbook_limit("studio") == 200
 
-    def test_none_falls_back_to_free_zero(self):
+    def test_none_falls_back_to_free_one(self):
+        # evergreen_0206 Phase A: free on-ramp is now 1.
         tl = _reload_tier_labels()
-        assert tl.cookbook_limit(None) == 0
+        assert tl.cookbook_limit(None) == 1
 
-    def test_unknown_tier_falls_back_to_free_zero(self):
+    def test_unknown_tier_falls_back_to_free_one(self):
         tl = _reload_tier_labels()
-        assert tl.cookbook_limit("enterprise_made_up") == 0
+        assert tl.cookbook_limit("enterprise_made_up") == 1

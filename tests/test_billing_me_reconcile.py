@@ -274,12 +274,12 @@ def test_no_stripe_customer_id_no_call(db):
 
 @pytest.mark.parametrize(
     "tier,expected_limit",
-    [("pro", 10), ("pro_plus", 200), (None, 0)],
+    [("pro", 10), ("pro_plus", 200), (None, 1)],
 )
 def test_billing_me_returns_cookbook_limit_from_ssot(db, tier, expected_limit):
     """Phase X: /api/billing/me must expose cookbook_limit read from the
     config/tiers.yaml SSOT so the portal library copy never drifts. Free
-    (tier=None) → 0, Pro → 10, Pro+ → 200."""
+    (tier=None) → 1 (evergreen_0206 Phase A on-ramp), Pro → 10, Pro+ → 200."""
     from app.checkout_routes import _reconcile_last_attempt
 
     kwargs = {}

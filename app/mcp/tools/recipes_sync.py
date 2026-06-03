@@ -135,6 +135,16 @@ def recipes_sync(
             CookbookSkill.skill_id == o["skill_id"],
         ).update({"pinned_version": o["to"]})
 
+    # evergreen_0206 Phase A: a pin-write changes the cookbook's declared state,
+    # so advance the generation token (Cookbook.updated_at). SQLAlchemy onupdate
+    # does NOT fire on child CookbookSkill writes — bump the parent explicitly so
+    # the cheap-poll 304-fast-path (Phase D) stays truthful. Only on the apply
+    # path with real outdated rows; a no-op sync returns early above and never
+    # reaches here, so the token never falsely advances.
+    db.query(Cookbook).filter(Cookbook.id == cb_uuid).update(
+        {"updated_at": func.now()}, synchronize_session=False
+    )
+
     db.commit()  # Phase B (Issue #15a): commit, not flush
 
     # Build tarball URLs for the updated skills (same logic as recipes_install)
