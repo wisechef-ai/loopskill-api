@@ -739,6 +739,35 @@ class FleetPing(Base):
     __table_args__ = (UniqueConstraint("salt_hash", "last_seen_day", name="uq_fleet_pings_hash_day"),)
 
 
+class ReconcileEvent(Base):
+    """Canary reconcile outcome telemetry — evergreen_0206 Phase D/E.
+
+    A thin reconcile client (Phase D) emits one row per apply attempt against a
+    specific (skill, version) on a given channel. The Phase E promotion engine
+    reads these to decide whether a version on canary may advance to stable:
+    a version is promotable only when canary agents reconciled it with NO
+    `reconcile_failed`/rollback inside the observation window (the default gate).
+
+    Privacy: keyed per (cookbook_id, skill_id, semver, channel). No PII; the
+    agent identity is the fleet api_key_id (nullable for anonymous self-test).
+    """
+
+    __tablename__ = "reconcile_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    cookbook_id = Column(UUID(as_uuid=True), index=True, nullable=True)
+    skill_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    semver = Column(String(32), nullable=False)
+    channel = Column(String(20), nullable=False, default="canary")
+    # outcome: 'success' | 'reconcile_failed' | 'rolled_back'
+    outcome = Column(String(20), nullable=False)
+    failure_reason = Column(Text, nullable=True)
+    api_key_id = Column(UUID(as_uuid=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    __table_args__ = (Index("ix_reconcile_events_skill_semver", "skill_id", "semver"),)
+
+
 class StripeEventId(Base):
     """Idempotency table for Stripe webhook events.
 
