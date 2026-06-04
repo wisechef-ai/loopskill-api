@@ -234,15 +234,22 @@ def get_skill_file(
     if auth_ctx is not None and not can_read_skill(auth_ctx, skill, db=db):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    # 5. Tier paywall: free callers may only see SKILL.md
-    #    Skill-level free-tier exemption: if the skill itself is free-tier, allow all
+    # 5. Tier paywall (paywall_0604 — SKILL.md leak fix).
+    #    For a curated PAID skill the SKILL.md *is* the product (instructions,
+    #    sub-commands, config schema). Previously SKILL.md was carved out of the
+    #    paywall as a "free preview", which gave away the entire Pro deliverable
+    #    to anonymous callers. The public teaser is the file MANIFEST (/files,
+    #    the tree) + the metadata card (title/description/audit bars) — NOT the
+    #    body. So: a free skill stays fully open (all files incl. SKILL.md);
+    #    a paid skill gates EVERY file, SKILL.md included.
+    #    Federation/external skills are served by /api/skills/external/* and are
+    #    unaffected by this route.
     skill_is_free = (skill.tier or "").lower() == "free"
     if not caller_is_paid and not skill_is_free:
-        if path != "SKILL.md":
-            raise HTTPException(
-                status_code=403,
-                detail="Pro subscription required to access non-SKILL.md files",
-            )
+        raise HTTPException(
+            status_code=403,
+            detail="Pro subscription required to access this skill's files",
+        )
 
     # 6. Tarball I/O via cache
     latest, tarball_path = _get_latest_version_and_tarball(skill)

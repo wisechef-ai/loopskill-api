@@ -13,6 +13,8 @@ This file pins the seam with the PRODUCTION middleware via `build_test_app`:
 
   - `/files` with NO api-key  → 200 (public manifest)
   - `/file?path=SKILL.md` (free skill, no key) → 200 (public content)
+  - `/file?path=SKILL.md` (PAID skill, no key) → 403 (paywall_0604 — the body is
+    the curated deliverable; gated like any other file, never a bare 401)
   - `/file?path=secret.py` (pro skill, no key) → 403, never bare-401
     (the route's own tier paywall fires, proving the request reached the route)
   - a source-grep guard so a future refactor that strips the `{"files", "file"}`
@@ -175,15 +177,24 @@ class TestSkillFilesPublicAtMiddleware:
         assert resp.status_code == 403, resp.text
         assert "Pro subscription required" in resp.json()["detail"]
 
-    def test_pro_skillmd_still_public_no_key(self, app_with_real_middleware, db):
-        """Even on a pro skill, SKILL.md is public (the catalog-browsing hook)."""
+    def test_pro_skillmd_gated_no_key_is_403_never_bare_401(self, app_with_real_middleware, db):
+        """paywall_0604: on a PAID skill, SKILL.md with NO key is the route's own
+        403 tier-paywall — NOT a public 200 (the old leak) and NOT a middleware
+        bare-401. The middleware seam stays open (request reaches the route); the
+        route's paywall closes on the body. SKILL.md is the curated deliverable,
+        so it is gated exactly like scripts/."""
         _seed_skill_with_tarball(
-            db, "w01-pro2", "pro", {"SKILL.md": b"# Public preview\n", "x.py": b"1\n"}
+            db, "w01-pro2", "pro", {"SKILL.md": b"# Pro readme\n", "x.py": b"1\n"}
         )
         client = TestClient(app_with_real_middleware)
         resp = client.get("/api/skills/w01-pro2/file", params={"path": "SKILL.md"})
-        assert resp.status_code == 200, resp.text
-        assert b"Public preview" in resp.content
+        assert resp.status_code != 401, (
+            "Middleware bare-401'd before the route ran — W0.1 regression. "
+            f"Body: {resp.text}"
+        )
+        assert resp.status_code == 403, resp.text
+        assert "Pro subscription required" in resp.json()["detail"]
+        assert b"Pro readme" not in resp.content
 
 
 class TestMiddlewareSourceGuard:

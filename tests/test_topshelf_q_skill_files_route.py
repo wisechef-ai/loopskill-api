@@ -347,8 +347,14 @@ class TestSkillFileAuthGating:
         finally:
             Path(tarball_path).unlink(missing_ok=True)
 
-    def test_free_user_can_only_access_skill_md(self, db_session):
-        """Free-tier caller can only fetch SKILL.md from a pro skill → 403 for others."""
+    def test_free_user_blocked_from_all_files_of_paid_skill(self, db_session):
+        """Free-tier caller is blocked from EVERY file of a pro skill, SKILL.md included.
+
+        paywall_0604: SKILL.md used to be a free "preview" carve-out, which leaked
+        the entire curated deliverable. For a paid skill the body IS the product —
+        free/anon callers get 403 on SKILL.md and on scripts/ alike. The public
+        teaser is the /files manifest (tree) + the metadata card, not the content.
+        """
         from app import skill_file_cache
         skill_file_cache.clear_cache()
 
@@ -365,11 +371,11 @@ class TestSkillFileAuthGating:
             app = _make_app_with_auth(db_session, ctx)
             client = TestClient(app, raise_server_exceptions=False)
 
-            # SKILL.md is allowed
+            # SKILL.md is now GATED on a paid skill (was the leak)
             resp = client.get("/api/skills/free-gated-q/file?path=SKILL.md")
-            assert resp.status_code == 200
+            assert resp.status_code == 403
 
-            # Non-SKILL.md is blocked
+            # Non-SKILL.md is also blocked
             resp2 = client.get("/api/skills/free-gated-q/file?path=scripts/run.sh")
             assert resp2.status_code == 403
         finally:
