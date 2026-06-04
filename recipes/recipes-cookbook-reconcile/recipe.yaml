@@ -1,0 +1,20 @@
+runtime:
+  compatibility:
+    os: [linux, macos]
+    arch: [x86_64, arm64]
+    ram_gb: 0.5
+    network: required
+  required_commands: [bash, curl]
+  optional_commands: [python3]
+
+environment:
+  required:
+    - RECIPES_API_KEY
+
+entrypoint:
+  file: SKILL.md
+  type: skill
+
+publisher:
+  name: WiseChef
+  url: https://recipes.wisechef.ai
