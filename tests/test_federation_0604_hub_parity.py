@@ -188,6 +188,31 @@ class TestBrowseShAdapter:
         slug = a.search("traffic")[0].slug
         assert a.resolve(slug) is not None
 
+    def test_resolve_finds_hash_suffixed_slug_via_full_catalog(self):
+        """Regression: browse.sh slugs carry a -XXXXXX hash that isn't a catalog
+        substring, so a targeted substring fetch misses them. resolve() must fall
+        back to the full catalog (empty query) for an exact slug match.
+
+        Simulates the live fetch: a non-empty query substring-misses the hash
+        suffix and returns []; the empty query returns the whole catalog.
+        """
+
+        def picky_fetch(q: str) -> list[dict]:
+            # Mirrors browse_sh_fetch: substring filter; empty query → full catalog.
+            if not q:
+                return [self.ROW]
+            hay = f"{self.ROW['name']} {self.ROW['title']} {self.ROW['description']}".lower()
+            return [self.ROW] if q.lower() in hay else []
+
+        a = BrowseShAdapter(fetch=picky_fetch)
+        slug = "abc7news.com--cali-highway-traffic-tdjcyt"  # the real hash-suffixed slug
+        # The slug-as-query (abc7news.com/cali-highway-traffic-tdjcyt) is NOT a
+        # substring of the catalog text → first pass empty; full-catalog pass wins.
+        resolved = a.resolve(slug)
+        assert resolved is not None, "resolve must find a hash-suffixed slug via full catalog"
+        assert resolved.slug == slug
+        assert resolved.install_path == InstallPath.FETCH_ORIGIN
+
 
 # ── Registry parity ──────────────────────────────────────────────────────
 

@@ -183,11 +183,14 @@ class SkillsShAdapter(SourceAdapter):
 
     def resolve(self, slug: str) -> ExternalSkill | None:
         ident = slug.replace("--", "/")
-        rows = self._fetch(ident)
-        for r in rows:
-            rid = r.get("id") or r.get("skillId") or r.get("name", "")
-            if str(rid) == ident or str(rid).replace("/", "--") == slug:
-                return self._map(r)
+        # Two-pass: query by the full id, then by the leaf skill name (skills.sh
+        # search is token-based), exact-matching the id in either result set.
+        leaf = ident.rsplit("/", 1)[-1]
+        for rows in (self._fetch(ident), self._fetch(leaf)):
+            for r in rows:
+                rid = str(r.get("id") or r.get("skillId") or r.get("name", ""))
+                if rid == ident or rid.replace("/", "--") == slug:
+                    return self._map(r)
         return None
 
 
@@ -267,11 +270,14 @@ class ClawHubAdapter(SourceAdapter):
 
     def resolve(self, slug: str) -> ExternalSkill | None:
         ident = slug.replace("--", "/")
-        rows = self._fetch(ident)
-        for r in rows:
-            rslug = r.get("slug") or r.get("displayName", "")
-            if str(rslug) == ident or str(rslug).replace("/", "--") == slug:
-                return self._map(r)
+        # Two-pass: query by the slug, then by its leaf token (ClawHub search is
+        # token-based), matching the exact slug in either result set.
+        leaf = ident.rsplit("/", 1)[-1]
+        for rows in (self._fetch(ident), self._fetch(leaf)):
+            for r in rows:
+                rslug = str(r.get("slug") or r.get("displayName", ""))
+                if rslug == ident or rslug.replace("/", "--") == slug:
+                    return self._map(r)
         return None
 
 
@@ -309,11 +315,12 @@ class LobeHubAdapter(SourceAdapter):
 
     def resolve(self, slug: str) -> ExternalSkill | None:
         ident = slug.replace("--", "/")
-        rows = self._fetch(ident)
-        for r in rows:
-            rid = r.get("identifier") or ""
-            if str(rid) == ident or str(rid).replace("/", "--") == slug:
-                return self._map(r)
+        # Two-pass: targeted fetch, then full cached index for exact identifier.
+        for rows in (self._fetch(ident), self._fetch("")):
+            for r in rows:
+                rid = str(r.get("identifier") or "")
+                if rid == ident or rid.replace("/", "--") == slug:
+                    return self._map(r)
         return None
 
 
@@ -349,11 +356,16 @@ class BrowseShAdapter(SourceAdapter):
 
     def resolve(self, slug: str) -> ExternalSkill | None:
         ident = slug.replace("--", "/")
-        rows = self._fetch(ident)
-        for r in rows:
-            rslug = r.get("slug", "")
-            if str(rslug) == ident or str(rslug).replace("/", "--") == slug:
-                return self._map(r)
+        # Two-pass: a targeted fetch first (cheap when the source supports query),
+        # then the full catalog (empty query) for an exact slug match. browse.sh
+        # slugs carry a -XXXXXX hash suffix that isn't a catalog substring, so the
+        # substring search alone misses them — the full-catalog exact match is the
+        # correctness path. The catalog is cached, so the second fetch is cheap.
+        for rows in (self._fetch(ident), self._fetch("")):
+            for r in rows:
+                rslug = str(r.get("slug", ""))
+                if rslug == ident or rslug.replace("/", "--") == slug:
+                    return self._map(r)
         return None
 
 
