@@ -1,4 +1,4 @@
-# recipes/ascii-video/recipe.yaml — Phase F.9
+# recipe.yaml — runtime + compatibility manifest for the ascii-video skill
 # Source SKILL.md: ~/.hermes/skills/creative/ascii-video/SKILL.md
 # Renders ASCII-art videos. ffmpeg + a Python pipeline. CPU only.
 

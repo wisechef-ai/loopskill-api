@@ -1,4 +1,4 @@
-# recipes/cognee/recipe.yaml — Phase F.9 author for the cognee skill
+# recipe.yaml — runtime + compatibility manifest for the cognee skill
 # Source SKILL.md: ~/.hermes/skills/devops/cognee-retrieval-architecture/SKILL.md
 # Cognee is a self-hosted knowledge-graph retrieval stack that boots from a
 # docker-compose with Postgres + a sidecar API. CPU-only is supported but

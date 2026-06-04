@@ -1,4 +1,4 @@
-# recipes/faster-whisper/recipe.yaml — Phase F.9
+# recipe.yaml — runtime + compatibility manifest for the faster-whisper skill
 # Source SKILL.md: ~/.hermes/skills/media/faster-whisper/SKILL.md
 # Local speech-to-text via CTranslate2 + ffmpeg. GPU is "preferred" (~20x
 # speedup), CPU still works. Models are downloaded on first run, hence the

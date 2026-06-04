@@ -1,4 +1,4 @@
-# recipes/web-scraper-pro/recipe.yaml — Phase F.9
+# recipe.yaml — runtime + compatibility manifest for the web-scraper-pro skill
 # Headless-browser scraper variant. Adds Playwright + a per-skill systemd-user
 # proxy daemon so cookies persist across runs.
 

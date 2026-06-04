@@ -447,7 +447,7 @@ def get_external_skills(
             "curated catalog stays clean. Live sources: hermes-hub, github-oss."
         ),
     ),
-    limit: int = Query(20, ge=1, le=50),
+    limit: int = Query(20, ge=1, le=100),
 ):
     """evergreen_0206 Phase F2/F3 — the live external (federated) catalog seam.
 

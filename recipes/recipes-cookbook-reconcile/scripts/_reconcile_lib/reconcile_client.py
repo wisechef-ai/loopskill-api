@@ -1,12 +1,12 @@
-"""Thin self-updating reconcile client — evergreen_0206 Phase D.
+"""Thin self-updating reconcile client.
 
-THE TRUST PRIMITIVE (decision #13): atomic apply + auto-rollback. A reconcile
+THE TRUST PRIMITIVE: atomic apply + auto-rollback. A reconcile
 can NEVER leave an agent's skills directory broken. This is *why GitOps beat
 manual kubectl*, ported to skills.
 
 This is NOT a fat standalone daemon — it's a thin client that rides the host's
-existing scheduler (Hermes cron / Claude auto-update). Intelligence lives
-server-side (the reconcile engine, Phase B); the host-side piece fetches a diff
+existing scheduler (cron / auto-update). Intelligence lives
+server-side (the reconcile engine); the host-side piece fetches a diff
 and applies it atomically. It ships AS A SKILL inside the cookbook, so it
 self-updates through the same mechanism it manages — nothing standalone to rot.
 
@@ -158,7 +158,7 @@ class ReconcileClient:
                 shutil.copy2(child, dest)
 
     def apply(self, diff: dict[str, list[dict[str, Any]]], *, prune: bool = False) -> ApplyResult:
-        """Apply a reconcile diff (Phase B shape) atomically.
+        """Apply a reconcile diff atomically.
 
         diff = {add:[...], update:[...], remove:[...], drift:[...]}. add/update/
         drift entries each carry {slug, version|to, checksum_sha256|expected_sha256}.

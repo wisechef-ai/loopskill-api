@@ -1,4 +1,4 @@
-# recipes/comfyui/recipe.yaml — Phase F.9
+# recipe.yaml — runtime + compatibility manifest for the comfyui skill
 # Source SKILL.md: ~/.hermes/skills/creative/comfyui/SKILL.md
 # ComfyUI image/video pipeline. GPU strongly preferred — Comfy Cloud is the
 # fallback for hosts that fail the GPU check (handled by F.7 alt-suggestion).

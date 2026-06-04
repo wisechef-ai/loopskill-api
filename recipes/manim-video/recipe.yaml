@@ -1,4 +1,4 @@
-# recipes/manim-video/recipe.yaml — Phase F.9
+# recipe.yaml — runtime + compatibility manifest for the manim-video skill
 # Source SKILL.md: ~/.hermes/skills/creative/manim-video/SKILL.md
 # Manim renders math/animation videos via Cairo + LaTeX + ffmpeg. CPU only.
 

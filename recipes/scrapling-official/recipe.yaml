@@ -1,4 +1,4 @@
-# recipes/scrapling-official/recipe.yaml — Phase F.9
+# recipe.yaml — runtime + compatibility manifest for the scrapling-official skill
 # Source SKILL.md: ~/.hermes/skills/research/scrapling-official/SKILL.md
 # Scrapling is a Python scraping toolkit with optional Playwright integration.
 # Pure-Python core works on CPU; no GPU; network required for scraping.

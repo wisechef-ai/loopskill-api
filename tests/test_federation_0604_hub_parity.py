@@ -296,6 +296,38 @@ class TestLiveFetchWiring:
         )
         assert len(fl.clawhub_fetch("z")) == 1
 
+    def test_clawhub_fetch_requests_deep_browse_limit(self, monkeypatch):
+        """Regression: the upstream ClawHub request must ask for a deep page
+        (>= 100), not the old starved 30 — clawhub has hundreds of skills and
+        the browse surface was showing only ~20-30 of them."""
+        from app.services import federation_live as fl
+
+        fl._cache.clear()
+        captured: dict = {}
+
+        def _spy(url, params=None, **k):
+            captured["params"] = params or {}
+            return {"items": []}
+
+        monkeypatch.setattr(fl, "_safe_json_get", _spy)
+        fl.clawhub_fetch("")  # empty-q browse is the bug surface
+        assert captured["params"].get("limit", 0) >= 100, captured["params"]
+
+    def test_skills_sh_fetch_requests_deep_browse_limit(self, monkeypatch):
+        """Regression: skills.sh upstream request must ask for >= 100, not 30."""
+        from app.services import federation_live as fl
+
+        fl._cache.clear()
+        captured: dict = {}
+
+        def _spy(url, params=None, **k):
+            captured["params"] = params or {}
+            return {"skills": []}
+
+        monkeypatch.setattr(fl, "_safe_json_get", _spy)
+        fl.skills_sh_fetch("docker")
+        assert captured["params"].get("limit", 0) >= 100, captured["params"]
+
     def test_skills_sh_fetch_parses_skills_envelope(self, monkeypatch):
         from app.services import federation_live as fl
 

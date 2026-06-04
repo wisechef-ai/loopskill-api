@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — one-command reconcile-client installer (evergreen_0206 decision #15: EASY).
+# install.sh — one-command reconcile-client installer.
 #
 # Auto-detects the host agent by skills-dir convention, wires a 30-minute
 # reconcile cron, and writes the initial recipes-lock.json. Zero hand-config.

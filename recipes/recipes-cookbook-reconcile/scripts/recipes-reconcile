@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""recipes-reconcile — self-contained reconcile client (evergreen_0206 Phase J).
+"""recipes-reconcile — self-contained reconcile client.
 
 The runnable executable shipped inside the recipes-cookbook-reconcile skill
 bundle. SELF-CONTAINED: it vendors the reconcile lib (_reconcile_lib/) beside

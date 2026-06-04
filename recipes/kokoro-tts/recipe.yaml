@@ -1,4 +1,4 @@
-# recipes/kokoro-tts/recipe.yaml — Phase F.9
+# recipe.yaml — runtime + compatibility manifest for the kokoro-tts skill
 # Source SKILL.md: ~/.hermes/skills/media/local-tts-kokoro/SKILL.md
 # Local text-to-speech model. CPU-friendly; GPU optional. Models are ~300MB.
 

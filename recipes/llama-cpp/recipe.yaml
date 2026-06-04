@@ -1,4 +1,4 @@
-# recipes/llama-cpp/recipe.yaml — Phase F.9
+# recipe.yaml — runtime + compatibility manifest for the llama-cpp skill
 # Source SKILL.md: ~/.hermes/skills/mlops/inference/llama-cpp/SKILL.md
 # Local LLM inference via llama.cpp. CPU-only is fully supported (Metal on
 # macOS, AVX2 on x86_64); GPU is preferred for >7B models.

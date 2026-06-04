@@ -1,4 +1,4 @@
-# recipes/ollama-low-vram-model-pick/recipe.yaml — Phase F.9
+# recipe.yaml — runtime + compatibility manifest for the ollama-low-vram-model-pick skill
 # Source SKILL.md: ~/.hermes/skills/mlops/ollama-low-vram-model-pick/SKILL.md
 # Wraps Ollama for low-VRAM model selection. Requires ollama daemon running.
 

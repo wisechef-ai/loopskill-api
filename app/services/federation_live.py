@@ -321,7 +321,7 @@ def skills_sh_fetch(query: str) -> list[dict[str, Any]]:
     cached = _cache.get(cache_key, _SEARCH_TTL_S)
     if cached is not None:
         return cached
-    data = _safe_json_get(SKILLS_SH_SEARCH_URL, params={"q": q, "limit": 30})
+    data = _safe_json_get(SKILLS_SH_SEARCH_URL, params={"q": q, "limit": 100})
     rows = data.get("skills", []) if isinstance(data, dict) else []
     rows = rows if isinstance(rows, list) else []
     _cache.put(cache_key, rows)
@@ -339,7 +339,7 @@ def clawhub_fetch(query: str) -> list[dict[str, Any]]:
     cached = _cache.get(cache_key, _SEARCH_TTL_S)
     if cached is not None:
         return cached
-    params: dict[str, Any] = {"limit": 30}
+    params: dict[str, Any] = {"limit": 100}
     if q:
         params["q"] = q
     data = _safe_json_get(CLAWHUB_SKILLS_URL, params=params)

@@ -1,4 +1,4 @@
-"""``recipes-reconcile`` — the runnable thin reconcile client CLI (Phase J).
+"""``recipes-reconcile`` — the runnable thin reconcile client CLI.
 
 This is the executable the host's cron line invokes (see reconcile_host_detect.
 cron_template). It closes the cold-path: an agent installs the

@@ -1,12 +1,12 @@
-"""CDN-fronted skill fetch for the reconcile client — evergreen_0206 Phase J.
+"""CDN-fronted skill fetch for the reconcile client.
 
-The shipped ``ReconcileClient`` (Phase D) owns the atomic swap + verify + rollback
+The shipped ``ReconcileClient`` owns the atomic swap + verify + rollback
 but delegates the actual network pull to an injected ``fetch_skill(slug, version)``
 callable. In tests that's a fixture; in production it's THIS module — the
-content-addressed, CDN-fronted delta pull (decision #16 + #18).
+content-addressed, CDN-fronted delta pull.
 
 Flow per skill:
-  1. The reconcile endpoint (Phase D, ``/api/reconcile``) returns a diff whose
+  1. The reconcile endpoint (``/api/reconcile``) returns a diff whose
      entries each carry a signed ``tarball_url`` (salt ``recipes-skill-install``)
      pointing at ``/api/skills/_download``. Versioned tarballs are immutable, so
      Cloudflare serves repeat pulls from edge (``Cache-Control: immutable`` +
