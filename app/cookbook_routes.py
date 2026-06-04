@@ -34,6 +34,11 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import Cookbook, CookbookSkill, Skill, SkillVersion, User
+from app.services.cookbook_external import (
+    install_descriptor_for,
+    is_external_skill,
+    resolve_external_install,
+)
 from app.tier_labels import cookbook_limit
 
 logger = logging.getLogger(__name__)
@@ -211,6 +216,11 @@ class CookbookCreateIn(BaseModel):
 class SkillAddIn(BaseModel):
     slug: str
     source: str | None = "custom-added"
+    # federation_0604 Unit 2 — when set, ``slug`` is the EXTERNAL source's slug
+    # and we materialize a private pointer Skill row before linking it. The
+    # cookbook-provenance ``source`` above (custom-added/forked/…) is unrelated
+    # to this federation source id (lobehub/clawhub/skills-sh/…).
+    external_source: str | None = None
 
 
 def _as_slug_list(val: object) -> list[str]:
@@ -440,9 +450,25 @@ def add_skill_to_cookbook(
     if source not in ALLOWED_SOURCES:
         raise HTTPException(status_code=422, detail="invalid_source")
 
-    skill = db.query(Skill).filter(Skill.slug == body.slug).first()
-    if skill is None:
-        raise HTTPException(status_code=404, detail="skill_not_found")
+    # federation_0604 Unit 2 — external (federated) skill branch.
+    # When external_source is set, the body.slug is the external source's slug.
+    # Materialize a private pointer Skill row so the FK + all cookbook plumbing
+    # below work unchanged. Never rehosts: install resolves from origin later.
+    if body.external_source:
+        from app.services.cookbook_external import (
+            known_external_source,
+            materialize_external_skill,
+        )
+
+        if not known_external_source(body.external_source):
+            raise HTTPException(status_code=422, detail="unknown_external_source")
+        skill = materialize_external_skill(db, body.external_source, body.slug)
+        if skill is None:
+            raise HTTPException(status_code=404, detail="external_skill_not_found")
+    else:
+        skill = db.query(Skill).filter(Skill.slug == body.slug).first()
+        if skill is None:
+            raise HTTPException(status_code=404, detail="skill_not_found")
 
     existing = (
         db.query(CookbookSkill)
@@ -462,6 +488,7 @@ def add_skill_to_cookbook(
             "source": existing.source,
             "added_at": existing.added_at.isoformat() if existing.added_at else None,
             "reactivated": True,
+            "external": bool(body.external_source),
         }
 
     # WIS-902: Pro tier skill cap
@@ -500,6 +527,7 @@ def add_skill_to_cookbook(
         "source": cs.source,
         "added_at": cs.added_at.isoformat() if cs.added_at else None,
         "reactivated": False,
+        "external": bool(body.external_source),
     }
 
 
@@ -576,6 +604,12 @@ def install_cookbook(
     skills_payload = []
     installed_skills: list[tuple[Skill, str]] = []
     for cs, skill in rows:
+        # federation_0604 Unit 2 — external rows get a CHEAP descriptor + a
+        # cookbook-scoped single-install URL. No origin fetch in the bulk path
+        # (isolation wall #2: bulk must not fan out N network calls).
+        if is_external_skill(skill):
+            skills_payload.append(install_descriptor_for(str(cb.id), skill))
+            continue
         version = None
         if cs.pinned_version:
             version = (
@@ -766,6 +800,28 @@ def install_single_skill_from_cookbook(
     )
     if cs is None:
         raise HTTPException(status_code=404, detail="skill_not_in_cookbook")
+
+    # federation_0604 Unit 2 — external skill install resolves the real SKILL.md
+    # from origin at install time (never rehosted), via the SHARED resolver also
+    # used by /api/skills/external/.../install. No SkillVersion/tarball exists.
+    if is_external_skill(skill):
+        from app.services.cookbook_external import descriptor_source_slug
+
+        src_slug = descriptor_source_slug(skill)
+        if src_slug is None:
+            raise HTTPException(status_code=404, detail="external_descriptor_missing")
+        source, ext_slug = src_slug
+        payload = resolve_external_install(source, ext_slug)
+        if payload is None:
+            raise HTTPException(
+                status_code=404,
+                detail="external_skill_unresolvable",
+            )
+        from app._skill_helpers import _record_install_event
+
+        _record_install_event(db, skill=skill, version_semver="external", request=request, source="cookbook")
+        db.commit()
+        return {**payload, "external": True, "source": cs.source}
 
     # Pick the right version: pinned if set, else latest
     version: SkillVersion | None = None

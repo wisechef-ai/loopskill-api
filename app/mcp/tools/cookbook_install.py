@@ -215,6 +215,31 @@ def recipes_cookbook_install(
         if cs is None:
             raise CookbookInstallError("skill_not_in_cookbook", "skill_not_in_cookbook", status=404)
 
+        # federation_0604 Unit 2 — external skill: resolve real SKILL.md from
+        # origin (never rehosted) via the SHARED resolver. No SkillVersion.
+        from app.services.cookbook_external import (
+            descriptor_source_slug,
+            is_external_skill,
+            resolve_external_install,
+        )
+
+        if is_external_skill(skill):
+            src_slug = descriptor_source_slug(skill)
+            if src_slug is None:
+                raise CookbookInstallError(
+                    "external_descriptor_missing", "external_descriptor_missing", status=404
+                )
+            payload = resolve_external_install(*src_slug)
+            if payload is None:
+                raise CookbookInstallError(
+                    "external_skill_unresolvable", "external_skill_unresolvable", status=404
+                )
+            from app._skill_helpers import _record_install_event
+
+            _record_install_event(db, skill=skill, version_semver="external", request=None, source="mcp")
+            db.commit()
+            return {**payload, "external": True, "source": cs.source}
+
         version = _resolve_version(db, skill, cs.pinned_version)
         if version is None:
             raise CookbookInstallError("no_versions", "no_versions", status=404)
@@ -250,6 +275,13 @@ def recipes_cookbook_install(
         # private skill incorrectly added to a cookbook the caller doesn't
         # own (e.g. via master action) is filtered out rather than leaked.
         if not authz.can_install(ctx, skill, db=db):
+            continue
+        # federation_0604 Unit 2 — external rows: cheap descriptor + scoped URL,
+        # no origin fetch in the bulk path (isolation wall #2).
+        from app.services.cookbook_external import install_descriptor_for, is_external_skill
+
+        if is_external_skill(skill):
+            skills_payload.append(install_descriptor_for(str(cb.id), skill))
             continue
         version = _resolve_version(db, skill, cs.pinned_version)
         skills_payload.append(
