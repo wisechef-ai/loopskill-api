@@ -40,6 +40,32 @@ class _SafeCountDict(dict):
         return "{" + key + "}"
 
 
+def _live_mcp_tool_names() -> list[str]:
+    """Live MCP tool names from the registry — the canonical source.
+
+    drift_0604: the snapshot used to serve a hand-copied 6-tool list from the
+    yaml, 4 of which (recipes_detail/trending/install_meta_skill/stats) no
+    longer existed while 24 real tools were missing. Deriving from the registry
+    makes the tool count and roster drift-proof by construction.
+    """
+    try:
+        from app.mcp.registry import _tool_definitions
+
+        return sorted(t.name for t in _tool_definitions())
+    except Exception:  # noqa: BLE001 — registry import must never break the marketing surface
+        return []
+
+
+def _live_rest_paths() -> set[str]:
+    """Set of live registered REST paths — used to validate the curated list."""
+    try:
+        from app.main import create_app
+
+        return {getattr(r, "path", "") for r in create_app().routes}
+    except Exception:  # noqa: BLE001 — app import must never break the marketing surface
+        return set()
+
+
 @router.get("/counts")
 def marketing_counts(db: Session = Depends(get_db)) -> dict:
     """Live catalog counts — drift-proof source for every public surface.
@@ -137,12 +163,61 @@ def marketing_snapshot(db: Session = Depends(get_db)) -> dict:
     # marketing copy numbers (e.g. "{pro_skills} today") track the DB and can
     # never drift stale. Unknown tokens are left verbatim — a stray brace in
     # copy must never raise. See config/recipes-marketing.yaml bullet docs.
+    # ── drift_0604: overlay Class-B fields from their canonical machine SSOTs ──
+    # mcp_tools / rest_endpoints / price_usd were hand-copied into the yaml and
+    # rotted. Derive them live so they can never drift again. The yaml retains
+    # only Class-C prose (proof_points, bullet copy) — the one thing a static
+    # file should hold.
+
+    # (1) MCP tools — full live roster from the registry, plus a live count.
+    live_tools = _live_mcp_tool_names()
+    if live_tools:
+        snap["mcp_tools"] = live_tools
+        snap["counts"]["mcp_tools_count"] = len(live_tools)
+
+    # (2) REST endpoints — keep the curated showcase list (editorial choice of
+    #     which public endpoints to advertise) but self-purge any entry that no
+    #     longer exists live, so a removed route can't linger as a false claim.
+    live_paths = _live_rest_paths()
+    if live_paths and isinstance(snap.get("rest_endpoints"), list):
+        kept = [ep for ep in snap["rest_endpoints"] if ep in live_paths]
+        dropped = [ep for ep in snap["rest_endpoints"] if ep not in live_paths]
+        if dropped:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "marketing snapshot: dropping %d dead rest_endpoints from curated list: %s",
+                len(dropped),
+                dropped,
+            )
+        snap["rest_endpoints"] = kept
+        snap["counts"]["rest_endpoint_count"] = len(kept)
+
+    # (3) Prices — overlay from config/tiers.yaml (the Stripe-coupled SSOT) so a
+    #     reprice in tiers.yaml propagates here with no second copy to update.
+    try:
+        from app.subscription_service import _load_tier_usd_price
+
+        usd = _load_tier_usd_price()
+        for slug, tier in (snap.get("tiers") or {}).items():
+            if isinstance(tier, dict) and slug in usd:
+                tier["price_usd"] = int(usd[slug]) if float(usd[slug]).is_integer() else usd[slug]
+    except Exception:  # noqa: BLE001 — never let a price-source hiccup break the surface
+        pass
+
+    # Interpolate {key} placeholders in tier bullets AND proof_point text against
+    # the live counts so marketing copy numbers (e.g. "{mcp_tools_count} dedicated
+    # MCP tools") track reality. Built AFTER the overlays above so mcp_tools_count
+    # / rest_endpoint_count reflect live values. Unknown tokens stay verbatim.
     _fmt = _SafeCountDict(snap["counts"])
     for tier in (snap.get("tiers") or {}).values():
         if isinstance(tier, dict) and isinstance(tier.get("bullets"), list):
             tier["bullets"] = [b.format_map(_fmt) if isinstance(b, str) else b for b in tier["bullets"]]
+    for pp in snap.get("proof_points") or []:
+        if isinstance(pp, dict) and isinstance(pp.get("text"), str):
+            pp["text"] = pp["text"].format_map(_fmt)
 
-    snap["_source"] = "config/recipes-marketing.yaml + live DB counts"
+    snap["_source"] = "config/recipes-marketing.yaml (prose) + live DB/registry/tiers.yaml (facts)"
     return snap
 
 

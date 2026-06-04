@@ -37,9 +37,10 @@ counts:
   last_refresh_at: '2026-06-04T03:05:02Z'
 
 # ── TIERS — display layer (immutable contract with config/tiers.yaml) ───────
-# Mirror of config/tiers.yaml fields needed for marketing. The drift watchdog
-# verifies these two stay in sync. Do NOT diverge price_usd or display_name
-# here without updating config/tiers.yaml in the same commit.
+# Mirror of config/tiers.yaml fields needed for marketing.
+# ⚠️ drift_0604: price_usd is now LIVE-OVERLAID in marketing_snapshot() from
+# config/tiers.yaml (the Stripe-coupled SSOT). The values below are a static
+# fallback only — to reprice, edit config/tiers.yaml, NOT here.
 #
 # Bullet placeholders: any {key} token in a tier bullet is interpolated by
 # app/marketing_routes.py:marketing_snapshot() against the LIVE counts block
@@ -68,6 +69,11 @@ tiers:
       - Priority skill review
 
 # ── MCP TOOLS — what the recipes_mcp_server exposes ─────────────────────────
+# ⚠️ drift_0604: mcp_tools + rest_endpoints below are now LIVE-OVERLAID in
+# app/marketing_routes.py::marketing_snapshot — mcp_tools is replaced wholesale
+# from the MCP registry, rest_endpoints is validated against live routes (dead
+# entries auto-dropped). These static lists serve ONLY as a fallback when the
+# registry/app import fails. DO NOT hand-edit to "fix drift" — fix the source.
 mcp_tools:
   - recipes_search
   - recipes_detail
@@ -100,7 +106,7 @@ rest_endpoints:
 proof_points:
   - text: "Same skill, every agent — Claude Code, Cursor, Cline, OpenClaw, Hermes, Windsurf."
     surfaces: [homepage_hero, docs_mcp]
-  - text: "Six dedicated MCP tools — not a generic REST wrapper."
+  - text: "{mcp_tools_count} dedicated MCP tools — not a generic REST wrapper."
     surfaces: [docs_mcp, homepage_hero]
   - text: "Curated weekly. Signed and versioned. No cloud round-trip at run time."
     surfaces: [homepage_hero, docs_sync]
