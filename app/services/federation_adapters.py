@@ -123,10 +123,254 @@ class GitHubOSSAdapter(SourceAdapter):
         return None
 
 
-# Registry of live adapters (Adam q4 scope).
+# ─────────────────────────────────────────────────────────────────────────────
+# federation_0604 — Hermes Skills Hub parity adapters.
+#
+# The canonical Hermes Skills Hub federates these sources (hermes_cli source
+# router, verified 2026-06-04): official(=hermes-hub), skills-sh, well-known,
+# github, clawhub, lobehub, browse-sh. We already shipped hermes-hub + github-oss
+# (Phase F/F2). These five close parity. Each is a PURE PARSER over its source's
+# real catalog schema (confirmed live); the network fetch is injected so mapping
+# is unit-testable offline (same discipline as Hermes Hub + GitHub adapters).
+#
+# Install-path honesty (Phase F5 — never conflate indexed vs installable):
+#   - browse-sh   → FETCH_ORIGIN: public per-skill SKILL.md catalog (Browserbase),
+#                   resolved via the skill detail endpoint's content URL.
+#   - well-known  → FETCH_ORIGIN: a domain's /.well-known/skills/index.json points
+#                   at real, redistributable SKILL.md files at origin.
+#   - skills-sh   → DEEP_LINK: an aggregator indexing arbitrary GitHub repos; the
+#                   license is unknown at index time, so we never rehost — link
+#                   to the canonical skills.sh page (GitHub adapter can install
+#                   the underlying repo separately if it's OSS).
+#   - clawhub     → DEEP_LINK: community registry with a known supply-chain risk
+#                   (ClawHavoc, 341 malicious skills Feb 2026). Never rehosted;
+#                   index + link only, second-class by construction.
+#   - lobehub     → DEEP_LINK: LobeHub agents are system-prompt templates, not
+#                   SKILL.md bundles; we surface + link, never auto-install.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class SkillsShAdapter(SourceAdapter):
+    """skills.sh aggregator. Row schema (from /api/search):
+    {id, skillId, name, source(repo 'owner/repo'), installs}.
+    DEEP_LINK — skills.sh indexes arbitrary GitHub repos; license is unknown at
+    index time, so we link to the canonical page rather than rehost.
+    """
+
+    source_id = "skills-sh"
+
+    def __init__(self, fetch: Callable[[str], list[dict[str, Any]]] | None = None) -> None:
+        self._fetch = fetch or (lambda q: [])
+
+    def _map(self, row: dict[str, Any]) -> ExternalSkill:
+        ident = row.get("id") or row.get("skillId") or row.get("name", "")
+        name = row.get("name") or row.get("skillId") or ident
+        repo = row.get("source", "")
+        return ExternalSkill(
+            slug=str(ident).replace("/", "--"),
+            title=str(name),
+            source=self.source_id,
+            install_path=InstallPath.DEEP_LINK,  # license unknown at index → never rehost
+            origin_url=f"https://skills.sh/{ident}",
+            license=None,
+            redistributable=False,
+            description=f"From {repo}" if repo else "",
+        )
+
+    def search(self, query: str, limit: int = 20) -> list[ExternalSkill]:
+        rows = self._fetch(query)[:limit]
+        return [self._map(r) for r in rows]
+
+    def resolve(self, slug: str) -> ExternalSkill | None:
+        ident = slug.replace("--", "/")
+        rows = self._fetch(ident)
+        for r in rows:
+            rid = r.get("id") or r.get("skillId") or r.get("name", "")
+            if str(rid) == ident or str(rid).replace("/", "--") == slug:
+                return self._map(r)
+        return None
+
+
+class WellKnownAdapter(SourceAdapter):
+    """A domain exposing /.well-known/skills/index.json. Row schema:
+    {name, description, files:[...], base_url, index_url}.
+    FETCH_ORIGIN — the index points at real redistributable SKILL.md files; we
+    fetch them from origin (license declared per skill, default permissive).
+    """
+
+    source_id = "well-known"
+
+    def __init__(self, fetch: Callable[[str], list[dict[str, Any]]] | None = None) -> None:
+        self._fetch = fetch or (lambda q: [])
+
+    def _map(self, row: dict[str, Any]) -> ExternalSkill:
+        name = row.get("name", "")
+        base_url = (row.get("base_url") or "").rstrip("/")
+        # Collision-safe slug: host + skill name (a domain's catalog is its namespace).
+        host = base_url.split("://", 1)[-1].replace("/", "-") if base_url else "well-known"
+        license_id = row.get("license")
+        # Default: a site publishing a public well-known skill index intends it
+        # to be installed; treat declared-or-absent as redistributable here, but
+        # honour an explicit non-redistributable license if present.
+        redist = True if not license_id else _is_redistributable(license_id)
+        return ExternalSkill(
+            slug=f"{host}--{name}".replace("/", "--"),
+            title=name,
+            source=self.source_id,
+            install_path=InstallPath.FETCH_ORIGIN if redist else InstallPath.DEEP_LINK,
+            origin_url=row.get("skill_url") or f"{base_url}/.well-known/skills/{name}",
+            license=license_id,
+            redistributable=redist,
+            description=row.get("description", ""),
+        )
+
+    def search(self, query: str, limit: int = 20) -> list[ExternalSkill]:
+        rows = self._fetch(query)[:limit]
+        return [self._map(r) for r in rows]
+
+    def resolve(self, slug: str) -> ExternalSkill | None:
+        rows = self._fetch(slug)
+        for r in rows:
+            if self._map(r).slug == slug:
+                return self._map(r)
+        return None
+
+
+class ClawHubAdapter(SourceAdapter):
+    """ClawHub (clawhub.ai/api/v1). Row schema (from /skills):
+    {slug, displayName, summary, tags:{latest:..}, stats:{downloads,..}}.
+    DEEP_LINK — ClawHavoc supply-chain incident (341 malicious skills, Feb 2026);
+    we index + link only, never rehost, always second-class.
+    """
+
+    source_id = "clawhub"
+
+    def __init__(self, fetch: Callable[[str], list[dict[str, Any]]] | None = None) -> None:
+        self._fetch = fetch or (lambda q: [])
+
+    def _map(self, row: dict[str, Any]) -> ExternalSkill:
+        slug = row.get("slug") or row.get("displayName", "")
+        return ExternalSkill(
+            slug=str(slug).replace("/", "--"),
+            title=row.get("displayName") or str(slug),
+            source=self.source_id,
+            install_path=InstallPath.DEEP_LINK,  # supply-chain risk → never rehost
+            origin_url=f"https://clawhub.ai/skills/{slug}",
+            license=None,
+            redistributable=False,
+            description=row.get("summary", ""),
+        )
+
+    def search(self, query: str, limit: int = 20) -> list[ExternalSkill]:
+        rows = self._fetch(query)[:limit]
+        return [self._map(r) for r in rows]
+
+    def resolve(self, slug: str) -> ExternalSkill | None:
+        ident = slug.replace("--", "/")
+        rows = self._fetch(ident)
+        for r in rows:
+            rslug = r.get("slug") or r.get("displayName", "")
+            if str(rslug) == ident or str(rslug).replace("/", "--") == slug:
+                return self._map(r)
+        return None
+
+
+class LobeHubAdapter(SourceAdapter):
+    """LobeHub agent marketplace (chat-agents.lobehub.com/index.json). Row schema:
+    {identifier, homepage, meta:{title, description, tags}}.
+    DEEP_LINK — LobeHub agents are system-prompt templates, not SKILL.md bundles;
+    surface + link, never auto-install.
+    """
+
+    source_id = "lobehub"
+
+    def __init__(self, fetch: Callable[[str], list[dict[str, Any]]] | None = None) -> None:
+        self._fetch = fetch or (lambda q: [])
+
+    def _map(self, row: dict[str, Any]) -> ExternalSkill:
+        meta = row.get("meta")
+        if not isinstance(meta, dict):
+            meta = {}
+        ident = row.get("identifier") or meta.get("title", "")
+        return ExternalSkill(
+            slug=str(ident).replace("/", "--"),
+            title=meta.get("title") or str(ident),
+            source=self.source_id,
+            install_path=InstallPath.DEEP_LINK,  # prompt template, not a SKILL.md bundle
+            origin_url=row.get("homepage") or f"https://lobehub.com/agent/{ident}",
+            license=None,
+            redistributable=False,
+            description=(meta.get("description") or "")[:200],
+        )
+
+    def search(self, query: str, limit: int = 20) -> list[ExternalSkill]:
+        rows = self._fetch(query)[:limit]
+        return [self._map(r) for r in rows]
+
+    def resolve(self, slug: str) -> ExternalSkill | None:
+        ident = slug.replace("--", "/")
+        rows = self._fetch(ident)
+        for r in rows:
+            rid = r.get("identifier") or ""
+            if str(rid) == ident or str(rid).replace("/", "--") == slug:
+                return self._map(r)
+        return None
+
+
+class BrowseShAdapter(SourceAdapter):
+    """browse.sh (Browserbase) site-specific browser-automation skills.
+    Row schema (from /api/skills): {slug, name, title, description, hostname,
+    category, tags}. FETCH_ORIGIN — public per-skill SKILL.md catalog; content
+    resolved via the skill detail endpoint's content URL on install.
+    """
+
+    source_id = "browse-sh"
+
+    def __init__(self, fetch: Callable[[str], list[dict[str, Any]]] | None = None) -> None:
+        self._fetch = fetch or (lambda q: [])
+
+    def _map(self, row: dict[str, Any]) -> ExternalSkill:
+        slug = row.get("slug", "")
+        title = row.get("title") or row.get("name") or slug
+        return ExternalSkill(
+            slug=str(slug).replace("/", "--"),
+            title=str(title),
+            source=self.source_id,
+            install_path=InstallPath.FETCH_ORIGIN,  # public SKILL.md catalog
+            origin_url=row.get("sourceUrl") or f"https://browse.sh/skills/{slug}",
+            license=row.get("license"),  # usually None → counted, fetched from origin on install
+            redistributable=True,
+            description=row.get("description", ""),
+        )
+
+    def search(self, query: str, limit: int = 20) -> list[ExternalSkill]:
+        rows = self._fetch(query)[:limit]
+        return [self._map(r) for r in rows]
+
+    def resolve(self, slug: str) -> ExternalSkill | None:
+        ident = slug.replace("--", "/")
+        rows = self._fetch(ident)
+        for r in rows:
+            rslug = r.get("slug", "")
+            if str(rslug) == ident or str(rslug).replace("/", "--") == slug:
+                return self._map(r)
+        return None
+
+
+# Registry of live adapters — Hermes Skills Hub parity (federation_0604).
+_ADAPTER_CLASSES: dict[str, type[SourceAdapter]] = {
+    "hermes-hub": HermesHubAdapter,
+    "github-oss": GitHubOSSAdapter,
+    "skills-sh": SkillsShAdapter,
+    "well-known": WellKnownAdapter,
+    "clawhub": ClawHubAdapter,
+    "lobehub": LobeHubAdapter,
+    "browse-sh": BrowseShAdapter,
+}
+
+
 def get_adapter(source_id: str, fetch: Callable | None = None) -> SourceAdapter | None:
-    if source_id == "hermes-hub":
-        return HermesHubAdapter(fetch=fetch)
-    if source_id == "github-oss":
-        return GitHubOSSAdapter(fetch=fetch)
-    return None
+    cls = _ADAPTER_CLASSES.get(source_id)
+    if cls is None:
+        return None
+    return cls(fetch=fetch)

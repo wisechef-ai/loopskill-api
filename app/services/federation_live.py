@@ -51,9 +51,21 @@ HERMES_RAW_BASE = "https://raw.githubusercontent.com/NousResearch/hermes-agent/m
 
 GITHUB_CODE_SEARCH_URL = "https://api.github.com/search/code"
 
+# ── federation_0604 — Hermes Skills Hub parity source endpoints ──────────
+# Verified live 2026-06-04 against each source's real catalog API. Schemas are
+# documented on the matching adapter in federation_adapters.py.
+SKILLS_SH_SEARCH_URL = "https://skills.sh/api/search"
+SKILLS_SH_SITEMAP_URL = "https://www.skills.sh/sitemap.xml"  # cheap indexed-count probe
+CLAWHUB_SKILLS_URL = "https://clawhub.ai/api/v1/skills"
+LOBEHUB_INDEX_URL = "https://chat-agents.lobehub.com/index.json"
+BROWSE_SH_CATALOG_URL = "https://browse.sh/api/skills"
+BROWSE_SH_DETAIL_URL = "https://browse.sh/api/skills/{slug}"
+
 _HTTP_TIMEOUT_S = 12.0
 _HERMES_TTL_S = 3600.0  # static catalog — refresh hourly
 _GITHUB_TTL_S = 300.0  # per-query search — short cache to stay polite
+_CATALOG_TTL_S = 1800.0  # browse-sh / lobehub static catalogs — refresh every 30 min
+_SEARCH_TTL_S = 300.0  # skills.sh / clawhub per-query search
 
 # ───────────────────────────── Tiny TTL cache ───────────────────────────
 
@@ -273,8 +285,247 @@ def github_oss_fetch(query: str) -> list[dict[str, Any]]:
     return rows
 
 
+# ───────────────── federation_0604 — Hermes Hub parity fetchers ──────────
+#
+# Each fetcher returns the adapter row shape documented on its adapter in
+# federation_adapters.py, and degrades GRACEFULLY to [] on any error (a source
+# outage must never 500 the /api/skills/external route — the other sources carry
+# it). Static catalogs (browse-sh, lobehub) are cached + substring-filtered
+# locally; per-query APIs (skills.sh, clawhub) hit the network with a short TTL.
+
+
+def _safe_json_get(url: str, *, params: dict | None = None, headers: dict | None = None) -> Any | None:
+    """GET + JSON parse with a hard timeout. Returns None on any failure."""
+    try:
+        with httpx.Client(timeout=_HTTP_TIMEOUT_S, follow_redirects=True) as client:
+            resp = client.get(url, params=params, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
+    # Rationale: a source outage / rate-limit / bad JSON must never 500 the route.
+    except Exception:  # noqa: BLE001
+        logger.warning("federation fetch failed: %s", url, exc_info=True)
+        return None
+
+
+# ── skills.sh (DEEP_LINK aggregator) ─────────────────────────────────────
+
+
+def skills_sh_fetch(query: str) -> list[dict[str, Any]]:
+    """Fetch callable for SkillsShAdapter. /api/search → {skills:[{id, skillId,
+    name, source, installs}]}. Empty query returns []  (the firehose sitemap
+    walk is reserved for a future bulk indexer, not the live toggle)."""
+    q = (query or "").strip()
+    if not q:
+        return []
+    cache_key = f"skills-sh:{q.lower()}"
+    cached = _cache.get(cache_key, _SEARCH_TTL_S)
+    if cached is not None:
+        return cached
+    data = _safe_json_get(SKILLS_SH_SEARCH_URL, params={"q": q, "limit": 30})
+    rows = data.get("skills", []) if isinstance(data, dict) else []
+    rows = rows if isinstance(rows, list) else []
+    _cache.put(cache_key, rows)
+    return rows
+
+
+# ── ClawHub (DEEP_LINK community registry) ───────────────────────────────
+
+
+def clawhub_fetch(query: str) -> list[dict[str, Any]]:
+    """Fetch callable for ClawHubAdapter. /api/v1/skills → {items:[{slug,
+    displayName, summary, tags, stats}]}."""
+    q = (query or "").strip()
+    cache_key = f"clawhub:{q.lower()}"
+    cached = _cache.get(cache_key, _SEARCH_TTL_S)
+    if cached is not None:
+        return cached
+    params: dict[str, Any] = {"limit": 30}
+    if q:
+        params["q"] = q
+    data = _safe_json_get(CLAWHUB_SKILLS_URL, params=params)
+    rows = data.get("items", []) if isinstance(data, dict) else []
+    rows = rows if isinstance(rows, list) else []
+    _cache.put(cache_key, rows)
+    return rows
+
+
+# ── LobeHub (DEEP_LINK prompt-template marketplace) ──────────────────────
+
+
+def _load_lobehub_index() -> list[dict[str, Any]]:
+    cached = _cache.get("lobehub:index", _CATALOG_TTL_S)
+    if cached is not None:
+        return cached
+    data = _safe_json_get(LOBEHUB_INDEX_URL)
+    agents = data.get("agents", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+    agents = agents if isinstance(agents, list) else []
+    if agents:
+        _cache.put("lobehub:index", agents)
+    return agents
+
+
+def lobehub_fetch(query: str) -> list[dict[str, Any]]:
+    """Fetch callable for LobeHubAdapter. index.json → {agents:[{identifier,
+    homepage, meta:{title, description, tags}}]}. Substring filter on
+    title/description/tags."""
+    agents = _load_lobehub_index()
+    q = (query or "").strip().lower()
+    if not q:
+        return agents
+    out = []
+    for a in agents:
+        meta = a.get("meta")
+        if not isinstance(meta, dict):
+            meta = {}
+        tags = meta.get("tags", [])
+        hay = " ".join(
+            [
+                str(a.get("identifier", "")),
+                str(meta.get("title", "")),
+                str(meta.get("description", "")),
+                " ".join(tags) if isinstance(tags, list) else "",
+            ]
+        ).lower()
+        if q in hay:
+            out.append(a)
+    return out
+
+
+def lobehub_indexed_count() -> int:
+    """Cheap indexed-count for the teaser (cached static index)."""
+    return len(_load_lobehub_index())
+
+
+# ── browse.sh (FETCH_ORIGIN site-automation catalog) ─────────────────────
+
+
+def _load_browse_sh_catalog() -> list[dict[str, Any]]:
+    cached = _cache.get("browse-sh:catalog", _CATALOG_TTL_S)
+    if cached is not None:
+        return cached
+    data = _safe_json_get(BROWSE_SH_CATALOG_URL)
+    skills = data.get("skills", []) if isinstance(data, dict) else []
+    skills = skills if isinstance(skills, list) else []
+    if skills:
+        _cache.put("browse-sh:catalog", skills)
+    return skills
+
+
+def browse_sh_fetch(query: str) -> list[dict[str, Any]]:
+    """Fetch callable for BrowseShAdapter. /api/skills → {skills:[{slug, name,
+    title, description, hostname, category, tags}]}. Substring filter."""
+    catalog = _load_browse_sh_catalog()
+    q = (query or "").strip().lower()
+    if not q:
+        return catalog
+    out = []
+    for item in catalog:
+        tags = item.get("tags", [])
+        hay = " ".join(
+            [
+                str(item.get("name", "")),
+                str(item.get("title", "")),
+                str(item.get("description", "")),
+                str(item.get("hostname", "")),
+                str(item.get("category", "")),
+                " ".join(tags) if isinstance(tags, list) else "",
+            ]
+        ).lower()
+        if q in hay:
+            out.append(item)
+    return out
+
+
+def browse_sh_indexed_count() -> int:
+    """Cheap indexed-count for the teaser (cached static catalog)."""
+    return len(_load_browse_sh_catalog())
+
+
+def browse_sh_origin_skill_md(slug: str) -> tuple[str, str] | None:
+    """Fetch the real SKILL.md content for a browse.sh skill, from origin.
+
+    The fetch-origin install path for browse.sh: the per-skill detail endpoint
+    (/api/skills/{slug}) returns the SKILL.md inline as ``skillMd`` plus a CDN
+    ``skillMdUrl``. We prefer the inline body, falling back to the blob URL.
+    The adapter slug is the namespaced form ("host.com--task"); restore the
+    original "host.com/task" before hitting the detail endpoint.
+
+    Returns (source_url, content) on success, or None when the slug doesn't
+    resolve (so the caller 404s honestly rather than fabricate).
+    """
+    real_slug = (slug or "").replace("--", "/").strip("/")
+    if not real_slug:
+        return None
+    detail = _safe_json_get(BROWSE_SH_DETAIL_URL.format(slug=real_slug))
+    if not isinstance(detail, dict):
+        return None
+    content = detail.get("skillMd")
+    md_url = detail.get("skillMdUrl") or f"{BROWSE_SH_CATALOG_URL}/{real_slug}"
+    if isinstance(content, str) and content.strip():
+        return md_url, content
+    # Fallback: fetch the blob URL directly.
+    if isinstance(md_url, str) and md_url.startswith(("http://", "https://")):
+        try:
+            with httpx.Client(timeout=_HTTP_TIMEOUT_S, follow_redirects=True) as client:
+                resp = client.get(md_url)
+            if resp.status_code == 200 and resp.text.strip():
+                return md_url, resp.text
+        # Rationale: an origin outage must surface as unavailable, never a 500.
+        except Exception:  # noqa: BLE001
+            logger.warning("browse-sh origin fetch failed for %s", slug, exc_info=True)
+    return None
+
+
 # Map of source_id → its live fetch callable (consumed by the route).
 LIVE_FETCH = {
     "hermes-hub": hermes_hub_fetch,
     "github-oss": github_oss_fetch,
+    "skills-sh": skills_sh_fetch,
+    "well-known": lambda _q: [],  # discovery-by-URL only; no central catalog to crawl
+    "clawhub": clawhub_fetch,
+    "lobehub": lobehub_fetch,
+    "browse-sh": browse_sh_fetch,
+}
+
+# Map of source_id → cheap indexed-count callable for the off-toggle teaser
+# (only sources whose catalog is cheap to count when cached).
+INDEXED_COUNT = {
+    "hermes-hub": hermes_indexed_count,
+    "lobehub": lobehub_indexed_count,
+    "browse-sh": browse_sh_indexed_count,
+}
+
+# Map of source_id → origin SKILL.md fetcher for the FETCH_ORIGIN install path.
+# Only redistributable, real-SKILL.md sources appear here; everything else is
+# DEEP_LINK (no rehost) and is handled by the router's 409.
+#
+# Values are the FUNCTION NAMES (resolved lazily by get_origin_fetcher) rather
+# than direct references, so tests can monkeypatch the module-level fetcher and
+# the route still picks up the patched callable.
+_ORIGIN_FETCHER_NAMES = {
+    "hermes-hub": "hermes_origin_skill_md",
+    "browse-sh": "browse_sh_origin_skill_md",
+}
+
+
+def get_origin_fetcher(source_id: str):
+    """Resolve the origin SKILL.md fetcher for a source, lazily by name.
+
+    Lazy name-resolution (vs a dict of direct refs) means monkeypatching the
+    module-level fetcher in tests is honoured, and there's a single source of
+    truth for which sources are fetch-origin-installable.
+    """
+    name = _ORIGIN_FETCHER_NAMES.get(source_id)
+    if name is None:
+        return None
+    import sys
+
+    return getattr(sys.modules[__name__], name, None)
+
+
+# Backwards-compatible mapping (built once). Prefer get_origin_fetcher() in the
+# route so test monkeypatching of the underlying function is honoured.
+ORIGIN_FETCHERS = {
+    "hermes-hub": hermes_origin_skill_md,
+    "browse-sh": browse_sh_origin_skill_md,
 }

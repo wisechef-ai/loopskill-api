@@ -469,7 +469,7 @@ def get_external_skills(
     """
     from app.services.federation import LIVE_SOURCES, merge_search, route_install
     from app.services.federation_adapters import get_adapter
-    from app.services.federation_live import LIVE_FETCH, hermes_indexed_count
+    from app.services.federation_live import INDEXED_COUNT, LIVE_FETCH
 
     requested = {s.strip().lower() for s in (sources or "").split(",") if s.strip()}
     # A source is "enabled" only if it is BOTH live and explicitly requested.
@@ -494,13 +494,18 @@ def get_external_skills(
             block["indexed"] = len(found)
             block["installable"] = len(installable)
             all_external.extend(found)
-        elif source_id == "hermes-hub":
-            # Cheap, cached static catalog — report indexed even when toggled off
-            # so the teaser is honest without querying the firehose.
-            try:
-                block["indexed"] = hermes_indexed_count()
-            except Exception:  # noqa: BLE001
-                block["indexed"] = None
+        else:
+            # Cheap, cached static catalogs (hermes-hub, lobehub, browse-sh)
+            # report their indexed count even when toggled off, so the teaser is
+            # honest ("~N indexed · toggle on to browse") without querying the
+            # firehose. Per-query sources (skills-sh, clawhub, github-oss) have
+            # no cheap catalog count → indexed stays null until enabled.
+            counter = INDEXED_COUNT.get(source_id)
+            if counter is not None:
+                try:
+                    block["indexed"] = counter()
+                except Exception:  # noqa: BLE001
+                    block["indexed"] = None
         per_source[source_id] = block
 
     # The isolation wall: internal=[] (this surface is external-only); the toggle
@@ -541,7 +546,7 @@ def install_external_skill(source: str, slug: str):
     """
     from app.services.federation import INTERNAL_SOURCE, InstallPath, route_install
     from app.services.federation_adapters import get_adapter
-    from app.services.federation_live import LIVE_FETCH, hermes_origin_skill_md
+    from app.services.federation_live import LIVE_FETCH, get_origin_fetcher
 
     # The federation surface is external-only — refuse the internal namespace.
     if source == INTERNAL_SOURCE:
@@ -575,14 +580,30 @@ def install_external_skill(source: str, slug: str):
             },
         )
 
-    if skill.install_path == InstallPath.FETCH_ORIGIN and source == "hermes-hub":
-        got = hermes_origin_skill_md(slug)
+    if skill.install_path == InstallPath.FETCH_ORIGIN:
+        origin_fetch = get_origin_fetcher(source)
+        if origin_fetch is None:
+            # FETCH_ORIGIN routed but no origin fetcher wired for this source yet
+            # — honest 409 with the origin link rather than a fake body.
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "reason": f"fetch-origin install not yet wired for source '{source}'",
+                    "install_path": skill.install_path.value,
+                    "origin_url": skill.origin_url,
+                    "license": skill.license,
+                },
+            )
+        got = origin_fetch(slug)
         if got is None:
             raise HTTPException(
                 status_code=404,
                 detail=f"SKILL.md for '{slug}' could not be fetched from origin",
             )
         raw_url, content = got
+        # Mirror the source's home-dir layout. For namespaced slugs (host--task,
+        # owner--repo) the leaf name is the human-facing skill name.
+        leaf = slug.rsplit("--", 1)[-1]
         return {
             "slug": skill.slug,
             "source": skill.source,
@@ -594,8 +615,8 @@ def install_external_skill(source: str, slug: str):
             "namespace": "external",
             "quality": "community · as-is",
             # Copy-paste form for a human; an agent uses `content` directly.
-            "install_command": f"mkdir -p ~/.claude/skills/{slug} && "
-            f"curl -fsSL {raw_url} -o ~/.claude/skills/{slug}/SKILL.md",
+            "install_command": f"mkdir -p ~/.claude/skills/{leaf} && "
+            f"curl -fsSL {raw_url} -o ~/.claude/skills/{leaf}/SKILL.md",
         }
 
     # Other allowed paths (e.g. register_mcp) have no file body to stream yet —

@@ -201,7 +201,8 @@ class TestExternalRoute:
 
     def test_unknown_source_is_ignored(self, client, monkeypatch):
         self._patch_live(monkeypatch)
-        r = client.get("/api/skills/external?sources=lobehub,hermes-hub")
+        # federation_0604: lobehub is now LIVE. A genuinely unknown source is dropped.
+        r = client.get("/api/skills/external?sources=nonexistent-source,hermes-hub")
         body = r.json()
         assert body["enabled_sources"] == ["hermes-hub"], "non-live source dropped"
 
@@ -249,7 +250,8 @@ class TestExternalInstall:
         assert body["quality"] == "community · as-is"
 
     def test_unknown_source_404(self, client):
-        r = client.get("/api/skills/external/lobehub/x/install")
+        # federation_0604: use a genuinely unknown source (lobehub is now live).
+        r = client.get("/api/skills/external/nonexistent-source/x/install")
         assert r.status_code == 404
 
     def test_internal_source_refused(self, client):

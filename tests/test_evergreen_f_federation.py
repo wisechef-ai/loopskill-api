@@ -233,7 +233,9 @@ class TestAdapterRegistry:
         assert isinstance(get_adapter("github-oss"), GitHubOSSAdapter)
 
     def test_unknown_adapter_returns_none(self):
-        assert get_adapter("lobehub") is None, "non-live adapters are follow-on"
+        # federation_0604: lobehub etc. are now LIVE (Hermes Hub parity). A truly
+        # unknown source still returns None.
+        assert get_adapter("nonexistent-source") is None, "unknown source → no adapter"
 
 
 class TestAdapterResolve:

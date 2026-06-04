@@ -40,8 +40,19 @@ class InstallPath(str, Enum):
 # Internal source namespace — NEVER federated, NEVER surfaced as external.
 INTERNAL_SOURCE = "recipes"
 
-# Live adapters this sprint (Adam q4: Hermes + GitHub now; others follow-on).
-LIVE_SOURCES = ("hermes-hub", "github-oss")
+# Live adapters — Hermes Skills Hub parity (federation_0604, 2026-06-04).
+# Order mirrors the Hermes source router's display order. github-oss is live but
+# stays DARK until a GITHUB_TOKEN lands in prod (graceful-empty otherwise) — it
+# is wired last per Adam's call. The other six surface real results today.
+LIVE_SOURCES = (
+    "hermes-hub",
+    "skills-sh",
+    "well-known",
+    "clawhub",
+    "lobehub",
+    "browse-sh",
+    "github-oss",
+)
 
 
 @dataclass(frozen=True)
@@ -81,6 +92,12 @@ class SourceAdapter:
     """Per-source adapter interface: catalog endpoint + schema map + license."""
 
     source_id: str = "abstract"
+
+    def __init__(self, fetch: object | None = None) -> None:  # pragma: no cover
+        # Concrete adapters accept an injected fetch callable; the base just
+        # declares the parameter so the registry can construct any adapter
+        # uniformly (federation_0604).
+        self._fetch = fetch
 
     def search(self, query: str, limit: int = 20) -> list[ExternalSkill]:  # pragma: no cover
         raise NotImplementedError
