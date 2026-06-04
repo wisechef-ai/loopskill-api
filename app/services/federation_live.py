@@ -494,38 +494,3 @@ INDEXED_COUNT = {
     "lobehub": lobehub_indexed_count,
     "browse-sh": browse_sh_indexed_count,
 }
-
-# Map of source_id → origin SKILL.md fetcher for the FETCH_ORIGIN install path.
-# Only redistributable, real-SKILL.md sources appear here; everything else is
-# DEEP_LINK (no rehost) and is handled by the router's 409.
-#
-# Values are the FUNCTION NAMES (resolved lazily by get_origin_fetcher) rather
-# than direct references, so tests can monkeypatch the module-level fetcher and
-# the route still picks up the patched callable.
-_ORIGIN_FETCHER_NAMES = {
-    "hermes-hub": "hermes_origin_skill_md",
-    "browse-sh": "browse_sh_origin_skill_md",
-}
-
-
-def get_origin_fetcher(source_id: str):
-    """Resolve the origin SKILL.md fetcher for a source, lazily by name.
-
-    Lazy name-resolution (vs a dict of direct refs) means monkeypatching the
-    module-level fetcher in tests is honoured, and there's a single source of
-    truth for which sources are fetch-origin-installable.
-    """
-    name = _ORIGIN_FETCHER_NAMES.get(source_id)
-    if name is None:
-        return None
-    import sys
-
-    return getattr(sys.modules[__name__], name, None)
-
-
-# Backwards-compatible mapping (built once). Prefer get_origin_fetcher() in the
-# route so test monkeypatching of the underlying function is honoured.
-ORIGIN_FETCHERS = {
-    "hermes-hub": hermes_origin_skill_md,
-    "browse-sh": browse_sh_origin_skill_md,
-}

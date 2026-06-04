@@ -133,20 +133,22 @@ class GitHubOSSAdapter(SourceAdapter):
 # real catalog schema (confirmed live); the network fetch is injected so mapping
 # is unit-testable offline (same discipline as Hermes Hub + GitHub adapters).
 #
-# Install-path honesty (Phase F5 — never conflate indexed vs installable):
-#   - browse-sh   → FETCH_ORIGIN: public per-skill SKILL.md catalog (Browserbase),
-#                   resolved via the skill detail endpoint's content URL.
-#   - well-known  → FETCH_ORIGIN: a domain's /.well-known/skills/index.json points
-#                   at real, redistributable SKILL.md files at origin.
-#   - skills-sh   → DEEP_LINK: an aggregator indexing arbitrary GitHub repos; the
-#                   license is unknown at index time, so we never rehost — link
-#                   to the canonical skills.sh page (GitHub adapter can install
-#                   the underlying repo separately if it's OSS).
-#   - clawhub     → DEEP_LINK: community registry with a known supply-chain risk
-#                   (ClawHavoc, 341 malicious skills Feb 2026). Never rehosted;
-#                   index + link only, second-class by construction.
-#   - lobehub     → DEEP_LINK: LobeHub agents are system-prompt templates, not
-#                   SKILL.md bundles; we surface + link, never auto-install.
+# Install-path semantics (federation_0604 install-parity — Hermes Skills Hub
+# installs EVERY source by resolving content from origin at install time; we
+# match that. NEVER rehosted — content is fetched on explicit user install):
+#   - browse-sh   → FETCH_ORIGIN: public per-skill SKILL.md (Browserbase).
+#   - well-known  → FETCH_ORIGIN: GET https://<host>/.well-known/skills/<n>/SKILL.md.
+#   - skills-sh   → FETCH_ORIGIN: resolves the underlying public GH repo's SKILL.md
+#                   via the anon trees API + raw host (TOKEN-FREE; only code-search
+#                   needs a token, which is github-oss, not this).
+#   - clawhub     → FETCH_ORIGIN: downloads the version ZIP, extracts SKILL.md.
+#                   community · as-is (ClawHavoc history → labelled, not blocked,
+#                   matching Hermes's community trust level).
+#   - lobehub     → FETCH_ORIGIN: fetches the agent JSON, converts systemRole →
+#                   SKILL.md (port of Hermes _convert_to_skill_md).
+# An EXPLICIT redistribution-forbidding license still downgrades to DEEP_LINK
+# (the GitHubOSSAdapter path); unknown/absent license is installable + labelled
+# "community · as-is", exactly as Hermes treats community sources.
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -170,10 +172,12 @@ class SkillsShAdapter(SourceAdapter):
             slug=str(ident).replace("/", "--"),
             title=str(name),
             source=self.source_id,
-            install_path=InstallPath.DEEP_LINK,  # license unknown at index → never rehost
+            # Hermes-parity: installable (resolves to the underlying public GH
+            # repo's SKILL.md at install time, token-free). community · as-is.
+            install_path=InstallPath.FETCH_ORIGIN,
             origin_url=f"https://skills.sh/{ident}",
             license=None,
-            redistributable=False,
+            redistributable=True,
             description=f"From {repo}" if repo else "",
         )
 
@@ -257,10 +261,10 @@ class ClawHubAdapter(SourceAdapter):
             slug=str(slug).replace("/", "--"),
             title=row.get("displayName") or str(slug),
             source=self.source_id,
-            install_path=InstallPath.DEEP_LINK,  # supply-chain risk → never rehost
+            install_path=InstallPath.FETCH_ORIGIN,  # Hermes-parity: ZIP→SKILL.md at install, community·as-is
             origin_url=f"https://clawhub.ai/skills/{slug}",
             license=None,
-            redistributable=False,
+            redistributable=True,
             description=row.get("summary", ""),
         )
 
@@ -302,10 +306,10 @@ class LobeHubAdapter(SourceAdapter):
             slug=str(ident).replace("/", "--"),
             title=meta.get("title") or str(ident),
             source=self.source_id,
-            install_path=InstallPath.DEEP_LINK,  # prompt template, not a SKILL.md bundle
+            install_path=InstallPath.FETCH_ORIGIN,  # Hermes-parity: prompt→SKILL.md convert at install, community·as-is
             origin_url=row.get("homepage") or f"https://lobehub.com/agent/{ident}",
             license=None,
-            redistributable=False,
+            redistributable=True,
             description=(meta.get("description") or "")[:200],
         )
 

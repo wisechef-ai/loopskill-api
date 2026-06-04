@@ -546,7 +546,8 @@ def install_external_skill(source: str, slug: str):
     """
     from app.services.federation import INTERNAL_SOURCE, InstallPath, route_install
     from app.services.federation_adapters import get_adapter
-    from app.services.federation_live import LIVE_FETCH, get_origin_fetcher
+    from app.services.federation_install import get_origin_fetcher
+    from app.services.federation_live import LIVE_FETCH
 
     # The federation surface is external-only — refuse the internal namespace.
     if source == INTERNAL_SOURCE:
