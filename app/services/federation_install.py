@@ -25,6 +25,7 @@ re-exported into the registry below so there is ONE ``get_origin_fetcher``.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from app.services.federation_fetch import guarded_get
@@ -191,30 +192,67 @@ def skills_sh_origin_skill_md(slug: str) -> tuple[str, str] | None:
     return None
 
 
-def github_tap_origin_skill_md(slug: str) -> tuple[str, str] | None:
+def _parse_github_tree_url(url: str) -> tuple[str, str, str] | None:
+    """Parse a canonical GitHub tree/blob URL into (repo, branch, path).
+
+    ``https://github.com/<owner>/<repo>/tree/<branch>/<path...>`` →
+    (``<owner>/<repo>``, ``<branch>``, ``<path...>``). Also accepts ``/blob/``.
+    Returns None for any non-matching URL (so the caller fails closed). Used by
+    the Phase F cache-served install path so a facet's raw SKILL.md is fetched
+    from the rate-limit-free raw CDN with zero api.github.com calls.
+    """
+    m = re.match(
+        r"^https?://github\.com/([^/]+/[^/]+)/(?:tree|blob)/([^/]+)/(.+?)/?$",
+        (url or "").strip(),
+    )
+    if not m:
+        return None
+    return m.group(1), m.group(2), m.group(3)
+
+
+def github_tap_origin_skill_md(slug: str, row: dict | None = None) -> tuple[str, str] | None:
     """superset_0606 Phase C — fetch a GitHub-facet skill's real SKILL.md.
 
     The slug is namespaced ``github-<facet>--<skillname>``. We recover the tap +
-    skill row (re-walking the facet's cached Contents listing), then fetch the
-    skill dir's SKILL.md from the raw host through the Phase A SSRF guard. Only
-    redistributable skills reach here (the router blocks deep-link/source-
-    available BEFORE the fetcher fires), so a fetched body is always license-clean.
+    skill row, then fetch the skill dir's SKILL.md from the raw host through the
+    Phase A SSRF guard. Only redistributable skills reach here (the router blocks
+    deep-link/source-available BEFORE the fetcher fires), so a fetched body is
+    always license-clean.
+
+    superset_0606 Phase F — ``row`` may be supplied by the caller (the install
+    endpoint reads it from the cached first_page). When given, we SKIP the live
+    Contents-API walk entirely: ``repo``/``branch``/``skill_path`` come from the
+    cached row, and the only network call is to ``raw.githubusercontent.com`` —
+    a CDN that does NOT count against the 60/hr anon api.github.com budget. This
+    is what makes facet install work under the shared-budget prod box. Falls back
+    to the live walk only when no row is supplied AND the cache misses.
 
     Returns ``(raw_url, content)`` or ``None`` (unresolvable / origin outage).
     """
-    facet = slug.split("--", 1)[0]
-    from app.services.federation_live import LIVE_FETCH
+    if row is None:
+        facet = slug.split("--", 1)[0]
+        from app.services.federation_live import LIVE_FETCH
 
-    fetch = LIVE_FETCH.get(facet)
-    if fetch is None:
-        return None
-    # Find the matching row in the facet's (cached) listing.
-    row = next((r for r in fetch("") if str(r.get("slug")) == slug), None)
+        fetch = LIVE_FETCH.get(facet)
+        if fetch is None:
+            return None
+        # Find the matching row in the facet's (cached) listing.
+        row = next((r for r in fetch("") if str(r.get("slug")) == slug), None)
     if row is None:
         return None
     repo = row.get("repo")
     branch = row.get("branch", "main")
     skill_path = row.get("skill_path")
+    # superset_0606 Phase F — when the row came from the cached first_page (an
+    # ExternalSkill.to_dict payload), it carries origin_url but NOT the adapter-
+    # internal repo/branch/skill_path. Derive them from the origin_url, which is
+    # the canonical GitHub tree URL:
+    #   https://github.com/<owner>/<repo>/tree/<branch>/<path...>
+    # This keeps the install on the raw CDN only — zero api.github.com calls.
+    if (not repo or not skill_path) and row.get("origin_url"):
+        derived = _parse_github_tree_url(str(row["origin_url"]))
+        if derived is not None:
+            repo, branch, skill_path = derived
     if not repo or not skill_path:
         return None
     raw_url = f"{GITHUB_RAW_BASE}/{repo}/{branch}/{skill_path}/SKILL.md"

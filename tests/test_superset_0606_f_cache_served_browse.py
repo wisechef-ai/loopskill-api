@@ -200,3 +200,66 @@ class TestInstallResolvesFromCache:
         assert detail["install_path"] == "deep_link"
         assert detail["origin_url"] == "https://clawhub.ai/skills/identyclaw"
         assert "content" not in detail  # zero rehost
+
+
+# ─────────── github tree-url parse + cache-derived raw fetch (no api walk) ────
+
+
+class TestGithubTreeUrlParse:
+    def test_parses_tree_url(self):
+        from app.services.federation_install import _parse_github_tree_url
+
+        got = _parse_github_tree_url("https://github.com/anthropics/skills/tree/main/skills/algorithmic-art")
+        assert got == ("anthropics/skills", "main", "skills/algorithmic-art")
+
+    def test_parses_blob_url_and_trailing_slash(self):
+        from app.services.federation_install import _parse_github_tree_url
+
+        got = _parse_github_tree_url("https://github.com/o/r/blob/dev/a/b/")
+        assert got == ("o/r", "dev", "a/b")
+
+    def test_rejects_non_github(self):
+        from app.services.federation_install import _parse_github_tree_url
+
+        assert _parse_github_tree_url("https://clawhub.ai/skills/x") is None
+        assert _parse_github_tree_url("https://github.com/owner/repo") is None  # no tree/blob
+        assert _parse_github_tree_url("") is None
+
+    def test_origin_fetch_derives_raw_from_cached_row_no_api_walk(self, monkeypatch):
+        """github_tap_origin_skill_md, given a cached row (origin_url only), must
+        derive the raw CDN URL and fetch it WITHOUT any api.github.com call."""
+        import app.services.federation_install as fi
+
+        api_calls = {"n": 0}
+
+        def _spy_json(url, *a, **k):  # any api.github.com call → fail the test
+            api_calls["n"] += 1
+            return None
+
+        class _Resp:
+            status_code = 200
+            text = "---\nname: algorithmic-art\n---\nbody"
+
+        raw_calls = {"url": None}
+
+        def _spy_raw(url, *a, **k):
+            raw_calls["url"] = url
+            return _Resp()
+
+        monkeypatch.setattr(fi, "_safe_json_get", _spy_json, raising=False)
+        monkeypatch.setattr(fi, "guarded_get", _spy_raw, raising=False)
+
+        row = {
+            "slug": "github-anthropic--algorithmic-art",
+            "origin_url": "https://github.com/anthropics/skills/tree/main/skills/algorithmic-art",
+            "source": "github-anthropic",
+        }
+        got = fi.github_tap_origin_skill_md("github-anthropic--algorithmic-art", row=row)
+        assert got is not None
+        raw_url, content = got
+        assert (
+            raw_url
+            == "https://raw.githubusercontent.com/anthropics/skills/main/skills/algorithmic-art/SKILL.md"
+        )
+        assert content.startswith("---")
+        assert api_calls["n"] == 0, "must NOT hit api.github.com — raw CDN only"

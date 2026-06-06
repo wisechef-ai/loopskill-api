@@ -713,7 +713,20 @@ def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)
                     "license": skill.license,
                 },
             )
-        got = origin_fetch(slug)
+        # superset_0606 Phase F — pass the resolved skill's origin_url to the
+        # fetcher (as a row) so the github-tap fetcher can derive the raw CDN URL
+        # WITHOUT a live api.github.com walk. Fetchers that don't accept a row
+        # (hermes/browse-sh/well-known/lobehub/skills-sh) ignore the kwarg via
+        # the TypeError fallback — keeps the generic registry contract intact.
+        fetch_row = {
+            "slug": skill.slug,
+            "origin_url": skill.origin_url,
+            "source": skill.source,
+        }
+        try:
+            got = origin_fetch(slug, row=fetch_row)
+        except TypeError:
+            got = origin_fetch(slug)
         if got is None:
             raise HTTPException(
                 status_code=404,
