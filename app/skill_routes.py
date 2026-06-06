@@ -522,11 +522,28 @@ def get_external_skills(
             block["installable"] = len(installable)
             if is_enabled:
                 all_external.extend(found)
-            # Write fresh counts back to the persistent cache so the next cold
-            # load is served from storage (only the unfiltered/admin walk writes
-            # canonical counts; a user-filtered search does not overwrite a full
-            # walk's bigger numbers — guard on empty query).
-            if force_refresh or not (q or "").strip():
+            # superset_0606 Phase E — cache-write guard (decision #7 fix).
+            #
+            # The shipped behaviour wrote EVERY empty-query enabled search back to
+            # the canonical cache. But an enabled toggle browse is capped at
+            # ``limit`` (e.g. 50), so it would OVERWRITE the reindex cron's real
+            # deep-walked counts (clawhub 69k, skills-sh 20k) with the capped
+            # value — silently destroying the giants' numbers every time a user
+            # toggled a source. The portal's own 130-page build did exactly this.
+            #
+            # The canonical count is OWNED by the reindex cron (full walk). The
+            # route may only:
+            #   (a) write when force_refresh (admin explicit refresh), OR
+            #   (b) SEED a source that has no cache row yet (first boot, before
+            #       the cron's first run) — and even then never downgrade.
+            # It must NEVER overwrite an existing cached indexed with a smaller
+            # capped one. ``found`` being exactly ``limit`` long means the result
+            # is truncated, so it can only ever be a floor, never the real total.
+            existing = fcache.read_source_cache(db, source_id)
+            existing_indexed = existing.get("indexed") if existing else None
+            is_capped = len(found) >= limit  # truncated → not a canonical total
+            may_seed = existing_indexed is None and not is_capped
+            if force_refresh or (may_seed and not (q or "").strip()):
                 try:
                     fcache.write_source_cache(
                         db,
@@ -542,6 +559,14 @@ def get_external_skills(
                         block["stale"] = cached["stale"]
                 except Exception:  # noqa: BLE001
                     logger.warning("federation cache write failed for %s", source_id, exc_info=True)
+            elif existing is not None:
+                # Surface the canonical cached freshness even on a live toggle —
+                # but keep the REAL cached indexed/installable totals, not the
+                # capped live ones, so the per_source block never under-reports.
+                block["indexed"] = existing_indexed
+                block["installable"] = existing.get("installable")
+                block["walked_at"] = existing.get("walked_at")
+                block["stale"] = existing.get("stale")
         else:
             # NOT enabled: read the honest cached block from the persistent
             # store ONLY — NEVER an inline walk or network call (decision #7).
