@@ -24,17 +24,12 @@ re-exported into the registry below so there is ONE ``get_origin_fetcher``.
 
 from __future__ import annotations
 
-import io
 import logging
-import zipfile
 from typing import Any
 
-import httpx
-
+from app.services.federation_fetch import guarded_get
 from app.services.federation_live import (
-    _HTTP_TIMEOUT_S,
     _CATALOG_TTL_S,
-    CLAWHUB_SKILLS_URL,
     _cache,
     _safe_json_get,
     browse_sh_origin_skill_md,
@@ -44,12 +39,9 @@ from app.services.federation_live import (
 logger = logging.getLogger(__name__)
 
 LOBEHUB_AGENT_URL = "https://chat-agents.lobehub.com/{agent_id}.json"
-CLAWHUB_DOWNLOAD_URL = "https://clawhub.ai/api/v1/download"
 GITHUB_RAW_BASE = "https://raw.githubusercontent.com"
 GITHUB_TREES_URL = "https://api.github.com/repos/{repo}/git/trees/{branch}?recursive=1"
 GITHUB_REPO_URL = "https://api.github.com/repos/{repo}"
-
-_MAX_BUNDLE_FILE_BYTES = 500_000  # skip large binaries in a ZIP bundle (Hermes parity)
 
 
 def well_known_origin_skill_md(slug: str) -> tuple[str, str] | None:
@@ -67,14 +59,12 @@ def well_known_origin_skill_md(slug: str) -> tuple[str, str] | None:
     if not host or not name:
         return None
     raw_url = f"https://{host}/.well-known/skills/{name}/SKILL.md"
-    try:
-        with httpx.Client(timeout=_HTTP_TIMEOUT_S, follow_redirects=True) as client:
-            resp = client.get(raw_url)
-        if resp.status_code == 200 and resp.text.strip():
-            return raw_url, resp.text
-    # Rationale: an origin outage must surface as unavailable, never a 500.
-    except Exception:  # noqa: BLE001
-        logger.warning("well-known origin fetch failed for %s", slug, exc_info=True)
+    # superset_0606 Phase A: route through the SSRF-guarded fetch. ``host`` is
+    # attacker-supplied (it comes from the namespaced slug), so a naive GET could
+    # target 169.254.169.254 or a private host. guarded_get fails closed.
+    resp = guarded_get(raw_url)
+    if resp is not None and resp.status_code == 200 and resp.text.strip():
+        return raw_url, resp.text
     return None
 
 
@@ -132,48 +122,16 @@ def lobehub_origin_skill_md(slug: str) -> tuple[str, str] | None:
 
 
 def clawhub_origin_skill_md(slug: str) -> tuple[str, str] | None:
-    """clawhub FETCH_ORIGIN resolver — download the version ZIP from
-    /api/v1/download?slug=&version=, extract SKILL.md (Hermes parity).
+    """ClawHub origin resolver — DISABLED (superset_0606 decision #6).
 
-    Bounded: skips files > 500KB and rejects unsafe ZIP member paths.
+    ClawHub is DEEP_LINK only after the ClawHavoc supply-chain incident
+    (341 malicious skills, Feb 2026). We never rehost supply-chain-unvetted
+    content, so this resolver always returns ``None``. It is intentionally
+    retained (rather than deleted) as a defense-in-depth tripwire: even if a
+    future caller re-wires ClawHub into the fetch-origin registry, no body is
+    ever streamed. The ``slug`` argument is accepted for signature parity.
     """
-    real_slug = (slug or "").replace("--", "/").strip("/")
-    if not real_slug:
-        return None
-    # Resolve the latest version from the skill detail.
-    detail = _safe_json_get(f"{CLAWHUB_SKILLS_URL}/{real_slug}")
-    version = None
-    if isinstance(detail, dict):
-        lv = detail.get("latestVersion")
-        if isinstance(lv, dict):
-            version = lv.get("version")
-        if not version:
-            sk = detail.get("skill") if isinstance(detail.get("skill"), dict) else {}
-            tags = sk.get("tags") if isinstance(sk.get("tags"), dict) else {}
-            version = tags.get("latest")
-    if not version:
-        return None
-    download_url = f"{CLAWHUB_DOWNLOAD_URL}?slug={real_slug}&version={version}"
-    try:
-        with httpx.Client(timeout=30.0, follow_redirects=True) as client:
-            resp = client.get(CLAWHUB_DOWNLOAD_URL, params={"slug": real_slug, "version": version})
-        if resp.status_code != 200:
-            return None
-        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
-            for info in zf.infolist():
-                if info.is_dir() or info.file_size > _MAX_BUNDLE_FILE_BYTES:
-                    continue
-                member = info.filename
-                # Reject path traversal / absolute paths in ZIP members.
-                if member.startswith("/") or ".." in member.replace("\\", "/").split("/"):
-                    continue
-                if member.rsplit("/", 1)[-1] == "SKILL.md":
-                    content = zf.read(info).decode("utf-8", errors="replace")
-                    if content.strip():
-                        return download_url, content
-    # Rationale: a download/zip failure must surface as unavailable, never a 500.
-    except Exception:  # noqa: BLE001
-        logger.warning("clawhub origin fetch failed for %s", slug, exc_info=True)
+    _ = slug  # decision #6: never rehost — no origin fetch, ever.
     return None
 
 
@@ -223,14 +181,12 @@ def skills_sh_origin_skill_md(slug: str) -> tuple[str, str] | None:
             return None
         raw_url = f"{GITHUB_RAW_BASE}/{repo}/{branch}/{match}"
         _cache.put(cache_key, raw_url)
-    try:
-        with httpx.Client(timeout=_HTTP_TIMEOUT_S, follow_redirects=True) as client:
-            resp = client.get(raw_url)
-        if resp.status_code == 200 and resp.text.strip():
-            return raw_url, resp.text
-    # Rationale: an origin outage must surface as unavailable, never a 500.
-    except Exception:  # noqa: BLE001
-        logger.warning("skills-sh origin fetch failed for %s", slug, exc_info=True)
+    # superset_0606 Phase A: route the raw fetch through the SSRF guard too. The
+    # raw host is constant (raw.githubusercontent.com) but a cached/poisoned
+    # raw_url should still be re-validated — defense in depth.
+    resp = guarded_get(raw_url)
+    if resp is not None and resp.status_code == 200 and resp.text.strip():
+        return raw_url, resp.text
     return None
 
 
@@ -248,7 +204,8 @@ _ORIGIN_FETCHER_HOMES = {
     "browse-sh": ("federation_live", "browse_sh_origin_skill_md"),
     "well-known": ("federation_install", "well_known_origin_skill_md"),
     "lobehub": ("federation_install", "lobehub_origin_skill_md"),
-    "clawhub": ("federation_install", "clawhub_origin_skill_md"),
+    # clawhub is DEEP_LINK only (superset_0606 decision #6 — ClawHavoc): no
+    # origin fetcher is wired, so it can never be rehosted via install.
     "skills-sh": ("federation_install", "skills_sh_origin_skill_md"),
 }
 
@@ -276,6 +233,6 @@ ORIGIN_FETCHERS = {
     "browse-sh": browse_sh_origin_skill_md,
     "well-known": well_known_origin_skill_md,
     "lobehub": lobehub_origin_skill_md,
-    "clawhub": clawhub_origin_skill_md,
+    # clawhub deliberately absent — DEEP_LINK only (decision #6, never rehost).
     "skills-sh": skills_sh_origin_skill_md,
 }

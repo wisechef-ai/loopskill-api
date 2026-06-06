@@ -34,8 +34,11 @@ import threading
 import time
 from html import unescape
 from typing import Any
+from urllib.parse import urlencode
 
 import httpx
+
+from app.services.federation_fetch import guarded_get
 
 logger = logging.getLogger(__name__)
 
@@ -145,18 +148,14 @@ def _load_hermes_catalog() -> list[dict[str, Any]]:
     cached = _cache.get("hermes:catalog", _HERMES_TTL_S)
     if cached is not None:
         return cached
-    try:
-        with httpx.Client(timeout=_HTTP_TIMEOUT_S, follow_redirects=True) as client:
-            resp = client.get(HERMES_CATALOG_URL)
-            resp.raise_for_status()
-        catalog = _parse_hermes_catalog(resp.text)
-        if catalog:
-            _cache.put("hermes:catalog", catalog)
-        return catalog
-    # Rationale: a hub outage must NEVER 500 the external-catalog route.
-    except Exception:  # noqa: BLE001
-        logger.warning("hermes-hub catalog fetch failed; returning empty", exc_info=True)
+    resp = guarded_get(HERMES_CATALOG_URL, timeout=_HTTP_TIMEOUT_S)
+    if resp is None or resp.status_code >= 400:
+        logger.warning("hermes-hub catalog fetch failed; returning empty")
         return []
+    catalog = _parse_hermes_catalog(resp.text)
+    if catalog:
+        _cache.put("hermes:catalog", catalog)
+    return catalog
 
 
 def hermes_hub_fetch(query: str) -> list[dict[str, Any]]:
@@ -197,16 +196,10 @@ def hermes_origin_skill_md(slug: str) -> tuple[str, str] | None:
     if not path:
         return None
     raw_url = f"{HERMES_RAW_BASE}/{path}/SKILL.md"
-    try:
-        with httpx.Client(timeout=_HTTP_TIMEOUT_S, follow_redirects=True) as client:
-            resp = client.get(raw_url)
-        if resp.status_code != 200 or not resp.text.strip():
-            return None
-        return raw_url, resp.text
-    # Rationale: an origin outage must surface as "unavailable", never a 500.
-    except Exception:  # noqa: BLE001
-        logger.warning("hermes origin fetch failed for %s", slug, exc_info=True)
+    resp = guarded_get(raw_url, timeout=_HTTP_TIMEOUT_S)
+    if resp is None or resp.status_code != 200 or not resp.text.strip():
         return None
+    return raw_url, resp.text
 
 
 # ─────────────────────────── GitHub OSS fetch ───────────────────────────
@@ -295,15 +288,25 @@ def github_oss_fetch(query: str) -> list[dict[str, Any]]:
 
 
 def _safe_json_get(url: str, *, params: dict | None = None, headers: dict | None = None) -> Any | None:
-    """GET + JSON parse with a hard timeout. Returns None on any failure."""
+    """GET + JSON parse with a hard timeout, SSRF-guarded. None on any failure.
+
+    superset_0606 Phase A: every federation JSON fetch flows through the
+    SSRF/redirect guard (``guarded_get``) so a poisoned catalog URL or a 302 to
+    a private/metadata host is blocked before the request lands. ``params`` are
+    folded into the URL because ``guarded_get`` issues the request itself.
+    """
+    full_url = url
+    if params:
+        sep = "&" if ("?" in url) else "?"
+        full_url = f"{url}{sep}{urlencode(params)}"
+    resp = guarded_get(full_url, timeout=_HTTP_TIMEOUT_S, headers=headers)
+    if resp is None or resp.status_code >= 400:
+        return None
     try:
-        with httpx.Client(timeout=_HTTP_TIMEOUT_S, follow_redirects=True) as client:
-            resp = client.get(url, params=params, headers=headers)
-            resp.raise_for_status()
-            return resp.json()
-    # Rationale: a source outage / rate-limit / bad JSON must never 500 the route.
+        return resp.json()
+    # Rationale: bad/empty JSON from an origin must never 500 the route.
     except Exception:  # noqa: BLE001
-        logger.warning("federation fetch failed: %s", url, exc_info=True)
+        logger.warning("federation fetch returned non-JSON: %s", url, exc_info=True)
         return None
 
 
@@ -463,16 +466,12 @@ def browse_sh_origin_skill_md(slug: str) -> tuple[str, str] | None:
     md_url = detail.get("skillMdUrl") or f"{BROWSE_SH_CATALOG_URL}/{real_slug}"
     if isinstance(content, str) and content.strip():
         return md_url, content
-    # Fallback: fetch the blob URL directly.
+    # Fallback: fetch the blob URL directly (SSRF-guarded — md_url is
+    # origin-supplied and could point anywhere).
     if isinstance(md_url, str) and md_url.startswith(("http://", "https://")):
-        try:
-            with httpx.Client(timeout=_HTTP_TIMEOUT_S, follow_redirects=True) as client:
-                resp = client.get(md_url)
-            if resp.status_code == 200 and resp.text.strip():
-                return md_url, resp.text
-        # Rationale: an origin outage must surface as unavailable, never a 500.
-        except Exception:  # noqa: BLE001
-            logger.warning("browse-sh origin fetch failed for %s", slug, exc_info=True)
+        resp = guarded_get(md_url, timeout=_HTTP_TIMEOUT_S)
+        if resp is not None and resp.status_code == 200 and resp.text.strip():
+            return md_url, resp.text
     return None
 
 

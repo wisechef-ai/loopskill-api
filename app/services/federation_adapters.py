@@ -11,27 +11,19 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from app.services.federation import ExternalSkill, InstallPath, SourceAdapter
-
-# SPDX-ish license identifiers we consider redistributable for fetch-origin.
-_REDISTRIBUTABLE_LICENSES = {
-    "mit",
-    "apache-2.0",
-    "apache2",
-    "bsd-3-clause",
-    "bsd-2-clause",
-    "isc",
-    "mpl-2.0",
-    "unlicense",
-    "cc0-1.0",
-    "cc-by-4.0",
-}
+from app.services.federation_fetch import is_redistributable as _canonical_is_redistributable
 
 
 def _is_redistributable(license_id: str | None) -> bool:
-    if not license_id:
-        # Unknown license → conservative: NOT redistributable (deep-link/block).
-        return False
-    return license_id.strip().lower() in _REDISTRIBUTABLE_LICENSES
+    """Whether a license permits redistribution (fetch-origin install gate).
+
+    superset_0606 Phase A: delegates to the ONE canonical license gate in
+    ``federation_fetch`` (decision #13) so there is a single redistributable-set
+    SSOT. The canonical gate additionally handles compound declarations like
+    NVIDIA's "Apache-2.0 AND CC-BY-4.0" (decision #12) which a plain set-membership
+    check would wrongly reject. Unknown / absent / source-available → False.
+    """
+    return _canonical_is_redistributable(license_id)
 
 
 class HermesHubAdapter(SourceAdapter):
@@ -248,6 +240,12 @@ class ClawHubAdapter(SourceAdapter):
     {slug, displayName, summary, tags:{latest:..}, stats:{downloads,..}}.
     DEEP_LINK — ClawHavoc supply-chain incident (341 malicious skills, Feb 2026);
     we index + link only, never rehost, always second-class.
+
+    superset_0606 decision #6: ClawHub is DEEP_LINK ONLY. The pre-existing
+    code-vs-doc drift (the docstring said DEEP_LINK while the row mapped to
+    FETCH_ORIGIN) is resolved IN FAVOUR OF SAFETY. Supply-chain-unvetted content
+    is browse/discover only — never fetch-origin, never rehosted. The acceptance
+    gate asserts zero rehost.
     """
 
     source_id = "clawhub"
@@ -261,10 +259,11 @@ class ClawHubAdapter(SourceAdapter):
             slug=str(slug).replace("/", "--"),
             title=row.get("displayName") or str(slug),
             source=self.source_id,
-            install_path=InstallPath.FETCH_ORIGIN,  # Hermes-parity: ZIP→SKILL.md at install, community·as-is
+            # decision #6: DEEP_LINK only — never rehost ClawHavoc-exposed content.
+            install_path=InstallPath.DEEP_LINK,
             origin_url=f"https://clawhub.ai/skills/{slug}",
             license=None,
-            redistributable=True,
+            redistributable=False,
             description=row.get("summary", ""),
         )
 

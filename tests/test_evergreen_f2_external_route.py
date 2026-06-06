@@ -66,11 +66,10 @@ class TestHermesFetchCallable:
         assert len(hermes_hub_fetch("")) == 3
 
     def test_fetch_failure_degrades_to_empty(self, monkeypatch):
-        def boom(*_a, **_k):
-            raise RuntimeError("hub down")
-
-        monkeypatch.setattr(fl.httpx, "Client", boom)
-        # No cached catalog → load path hits the failure → [] (never raises).
+        # superset_0606 Phase A: the hermes catalog load routes through the
+        # SSRF-guarded guarded_get; a guard miss (None) → [] (never raises).
+        fl._cache.clear()
+        monkeypatch.setattr(fl, "guarded_get", lambda *_a, **_k: None)
         assert hermes_hub_fetch("anything") == []
 
 

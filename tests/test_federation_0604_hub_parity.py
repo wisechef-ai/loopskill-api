@@ -107,17 +107,19 @@ class TestClawHubAdapter:
         "stats": {"downloads": 195},
     }
 
-    def test_maps_and_is_installable(self):
+    def test_maps_and_is_deep_link_only(self):
         a = ClawHubAdapter(fetch=lambda q: [self.ROW])
         s = a.search("ecovacs")[0]
         assert s.source == "clawhub"
-        # federation_0604 install-parity: installable via ZIP→SKILL.md at install,
-        # labelled community·as-is (Hermes community trust level, not blocked).
-        assert s.install_path == InstallPath.FETCH_ORIGIN
-        assert s.redistributable is True
+        # superset_0606 decision #6: ClawHub is DEEP_LINK ONLY (ClawHavoc
+        # supply-chain incident — never rehost supply-chain-unvetted content).
+        # The pre-existing FETCH_ORIGIN drift is resolved toward safety.
+        assert s.install_path == InstallPath.DEEP_LINK
+        assert s.redistributable is False
         assert s.slug == "ecovacs-skills-pet-control"
         assert "clawhub.ai" in s.origin_url
-        assert route_install(s).allowed is True
+        # DEEP_LINK is never "allowed" for fetch-origin install — link only.
+        assert route_install(s).allowed is False
 
     def test_resolve_round_trip(self):
         a = ClawHubAdapter(fetch=lambda q: [self.ROW])
@@ -238,20 +240,23 @@ class TestParityRegistry:
         assert set(LIVE_SOURCES) == set(self.PARITY), "LIVE_SOURCES drifted from adapter registry"
 
     def test_install_path_classification_matrix(self):
-        """federation_0604 install-parity: all 6 live sources are installable
-        (FETCH_ORIGIN) by default, matching Hermes. github-oss is the only
-        non-default — discovery-only until a prod GITHUB_TOKEN lands."""
+        """superset_0606 decision #6: ClawHub is DEEP_LINK only (ClawHavoc) — no
+        origin fetcher wired, never rehosted. The 5 remaining fetch-origin
+        sources keep their origin fetcher; github-oss is discovery-only until a
+        prod GITHUB_TOKEN lands."""
         from app.services.federation_install import ORIGIN_FETCHERS
 
         installable_default = {
-            "hermes-hub", "well-known", "browse-sh", "skills-sh", "clawhub", "lobehub",
+            "hermes-hub", "well-known", "browse-sh", "skills-sh", "lobehub",
         }
-        # Every installable source must have an origin fetcher wired.
+        # Every fetch-origin source must have an origin fetcher wired.
         for src in installable_default:
             assert src in ORIGIN_FETCHERS, f"{src} marked installable but has no origin fetcher"
-        # github-oss is discovery-only (token-gated) — no origin fetcher yet.
+        # github-oss (token-gated) AND clawhub (deep-link, decision #6) have no
+        # origin fetcher — neither can be rehosted.
         assert "github-oss" not in ORIGIN_FETCHERS
-        assert installable_default | {"github-oss"} == set(self.PARITY)
+        assert "clawhub" not in ORIGIN_FETCHERS, "decision #6: clawhub must NEVER have an origin fetcher"
+        assert installable_default | {"github-oss", "clawhub"} == set(self.PARITY)
 
 
 # ── Live-fetch wiring (injected JSON, no real network) ───────────────────
@@ -388,18 +393,23 @@ class TestOriginResolvers:
             status_code = 200
             text = "---\nname: deploy-helper\n---\n# Deploy"
 
-        class _Client:
-            def __init__(self, *a, **k): ...
-            def __enter__(self): return self
-            def __exit__(self, *a): return False
-            def get(self, url, **k): return _Resp()
-
-        monkeypatch.setattr(fi.httpx, "Client", _Client)
+        # superset_0606 Phase A: well-known now routes through the SSRF-guarded
+        # guarded_get; patch it (not httpx) to inject the response offline.
+        monkeypatch.setattr(fi, "guarded_get", lambda *a, **k: _Resp())
         got = fi.well_known_origin_skill_md("acme.example--deploy-helper")
         assert got is not None
         url, content = got
         assert url == "https://acme.example/.well-known/skills/deploy-helper/SKILL.md"
         assert "# Deploy" in content
+
+    def test_well_known_blocked_host_returns_none(self, monkeypatch):
+        """SSRF guard: a well-known slug whose host is private/metadata is
+        blocked by guarded_get (returns None) → resolver returns None."""
+        from app.services import federation_install as fi
+
+        # guarded_get returns None for an unsafe target (the real behaviour).
+        monkeypatch.setattr(fi, "guarded_get", lambda *a, **k: None)
+        assert fi.well_known_origin_skill_md("169.254.169.254--creds") is None
 
     def test_lobehub_converts_systemrole_to_skill_md(self, monkeypatch):
         from app.services import federation_install as fi
@@ -426,75 +436,26 @@ class TestOriginResolvers:
         got = fi.lobehub_origin_skill_md("x")
         assert got is not None and "(No system role defined)" in got[1]
 
-    def test_clawhub_extracts_skill_md_from_zip(self, monkeypatch):
-        import io
-        import zipfile
-
+    def test_clawhub_origin_resolver_disabled_decision_6(self):
+        """superset_0606 decision #6: ClawHub is DEEP_LINK only (ClawHavoc
+        supply-chain incident). The origin resolver is permanently disabled —
+        it returns None for any slug, so no ClawHub content is ever rehosted.
+        This is the defense-in-depth tripwire even if the registry is re-wired.
+        """
         from app.services import federation_install as fi
 
-        # Build a real in-memory zip with a nested SKILL.md + a junk file.
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w") as zf:
-            zf.writestr("ecovacs-skills-pet-control/SKILL.md", "---\nname: ecovacs\n---\n# Pet control")
-            zf.writestr("ecovacs-skills-pet-control/readme.txt", "junk")
-        zip_bytes = buf.getvalue()
-
-        # detail → version; download → zip bytes.
-        monkeypatch.setattr(
-            fi, "_safe_json_get", lambda *a, **k: {"latestVersion": {"version": "1.0.1"}}
-        )
-
-        class _Resp:
-            status_code = 200
-            content = zip_bytes
-
-        class _Client:
-            def __init__(self, *a, **k): ...
-            def __enter__(self): return self
-            def __exit__(self, *a): return False
-            def get(self, url, **k): return _Resp()
-
-        monkeypatch.setattr(fi.httpx, "Client", _Client)
-        got = fi.clawhub_origin_skill_md("ecovacs-skills-pet-control")
-        assert got is not None
-        _url, content = got
-        assert "# Pet control" in content
-
-    def test_clawhub_rejects_zip_path_traversal(self, monkeypatch):
-        import io
-        import zipfile
-
-        from app.services import federation_install as fi
-
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w") as zf:
-            zf.writestr("../../evil/SKILL.md", "malicious")  # traversal member
-        zip_bytes = buf.getvalue()
-        monkeypatch.setattr(fi, "_safe_json_get", lambda *a, **k: {"latestVersion": {"version": "1.0.0"}})
-
-        class _Resp:
-            status_code = 200
-            content = zip_bytes
-
-        class _Client:
-            def __init__(self, *a, **k): ...
-            def __enter__(self): return self
-            def __exit__(self, *a): return False
-            def get(self, url, **k): return _Resp()
-
-        monkeypatch.setattr(fi.httpx, "Client", _Client)
-        # The traversal member is skipped → no SKILL.md extracted → None.
-        assert fi.clawhub_origin_skill_md("x") is None
+        assert fi.clawhub_origin_skill_md("ecovacs-skills-pet-control") is None
+        assert fi.clawhub_origin_skill_md("anything--at--all") is None
+        assert fi.clawhub_origin_skill_md("") is None
+        # And it is NOT reachable through the install registry.
+        assert fi.get_origin_fetcher("clawhub") is None
 
     def test_skills_sh_resolves_via_anon_tree_walk(self, monkeypatch):
         from app.services import federation_install as fi
 
         fi._cache.clear()
         # _safe_json_get is called twice: repo (default_branch), then trees.
-        calls = {"n": 0}
-
         def fake_json(url, **k):
-            calls["n"] += 1
             if "/git/trees/" in url:
                 return {"tree": [
                     {"path": "dev-toolkit/skills/web-scraping/SKILL.md"},
@@ -508,13 +469,8 @@ class TestOriginResolvers:
             status_code = 200
             text = "---\nname: web-scraping\n---\n# Scrape"
 
-        class _Client:
-            def __init__(self, *a, **k): ...
-            def __enter__(self): return self
-            def __exit__(self, *a): return False
-            def get(self, url, **k): return _Resp()
-
-        monkeypatch.setattr(fi.httpx, "Client", _Client)
+        # superset_0606 Phase A: the raw fetch routes through guarded_get now.
+        monkeypatch.setattr(fi, "guarded_get", lambda *a, **k: _Resp())
         got = fi.skills_sh_origin_skill_md("jamditis--claude-skills-journalism--web-scraping")
         assert got is not None
         url, content = got
@@ -526,6 +482,8 @@ class TestOriginResolvers:
         """Contract: ORIGIN_FETCHERS covers exactly the installable sources."""
         from app.services.federation_install import ORIGIN_FETCHERS
 
+        # superset_0606 decision #6: clawhub is DEEP_LINK only — NOT in the
+        # fetch-origin registry (never rehosted). github-oss is token-gated.
         assert set(ORIGIN_FETCHERS) == {
-            "hermes-hub", "browse-sh", "well-known", "lobehub", "clawhub", "skills-sh",
+            "hermes-hub", "browse-sh", "well-known", "lobehub", "skills-sh",
         }
