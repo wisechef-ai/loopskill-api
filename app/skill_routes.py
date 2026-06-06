@@ -483,7 +483,7 @@ def get_external_skills(
       - ``sources=hermes-hub,github-oss`` → both queried, merged, second-class.
     """
     from app.services import federation_cache as fcache
-    from app.services.federation import LIVE_SOURCES, merge_search, route_install
+    from app.services.federation import ExternalSkill, LIVE_SOURCES, merge_search, route_install
     from app.services.federation_adapters import get_adapter
     from app.services.federation_live import LIVE_FETCH
 
@@ -508,65 +508,87 @@ def get_external_skills(
             "stale": None,
         }
         if is_enabled or (force_refresh and source_id in requested):
-            # Live, limited adapter search (explicit toggle / admin refresh).
-            fetch = LIVE_FETCH.get(source_id)
-            adapter = get_adapter(source_id, fetch=fetch)
-            try:
-                found = adapter.search(q or "", limit=limit) if adapter else []
-            # Rationale: one bad source must never 500 the whole route.
-            except Exception:  # noqa: BLE001
-                logger.warning("external source '%s' search failed", source_id, exc_info=True)
-                found = []
-            installable = [s for s in found if route_install(s).allowed]
-            block["indexed"] = len(found)
-            block["installable"] = len(installable)
-            if is_enabled:
-                all_external.extend(found)
-            # superset_0606 Phase E — cache-write guard (decision #7 fix).
-            #
-            # The shipped behaviour wrote EVERY empty-query enabled search back to
-            # the canonical cache. But an enabled toggle browse is capped at
-            # ``limit`` (e.g. 50), so it would OVERWRITE the reindex cron's real
-            # deep-walked counts (clawhub 69k, skills-sh 20k) with the capped
-            # value — silently destroying the giants' numbers every time a user
-            # toggled a source. The portal's own 130-page build did exactly this.
-            #
-            # The canonical count is OWNED by the reindex cron (full walk). The
-            # route may only:
-            #   (a) write when force_refresh (admin explicit refresh), OR
-            #   (b) SEED a source that has no cache row yet (first boot, before
-            #       the cron's first run) — and even then never downgrade.
-            # It must NEVER overwrite an existing cached indexed with a smaller
-            # capped one. ``found`` being exactly ``limit`` long means the result
-            # is truncated, so it can only ever be a floor, never the real total.
+            has_query = bool((q or "").strip())
             existing = fcache.read_source_cache(db, source_id)
             existing_indexed = existing.get("indexed") if existing else None
-            is_capped = len(found) >= limit  # truncated → not a canonical total
-            may_seed = existing_indexed is None and not is_capped
-            if force_refresh or (may_seed and not (q or "").strip()):
+
+            # superset_0606 Phase F — empty-query browse is served from the
+            # cached first_page, NOT a live walk. The prod box shares ONE anon
+            # GitHub budget (60/hr) across all users, so re-walking a facet on
+            # every browse made facet/giant browse empty under any load. The
+            # reindex cron already cached real rows; serve those. A live walk
+            # happens ONLY for an actual query (q=...) or an admin force_refresh.
+            served_from_cache = False
+            if not has_query and not force_refresh and existing is not None:
+                cached_rows = fcache.read_first_page(db, source_id)
+                if cached_rows:
+                    found = [ExternalSkill.from_dict(r) for r in cached_rows]
+                    served_from_cache = True
+                    # Report the canonical cached totals (not the first_page len).
+                    block["indexed"] = existing_indexed
+                    block["installable"] = existing.get("installable")
+                    block["walked_at"] = existing.get("walked_at")
+                    block["stale"] = existing.get("stale")
+                    if is_enabled:
+                        all_external.extend(found)
+
+            if not served_from_cache:
+                # Live, limited adapter search (query present / admin refresh /
+                # first boot before the cron cached anything).
+                fetch = LIVE_FETCH.get(source_id)
+                adapter = get_adapter(source_id, fetch=fetch)
                 try:
-                    fcache.write_source_cache(
-                        db,
-                        source_id,
-                        indexed_count=block["indexed"],
-                        installable_count=block["installable"],
-                        first_page=[s.to_dict() for s in found[:20]],
-                        ttl_seconds=fcache.TTL_HOURLY,
-                    )
-                    cached = fcache.read_source_cache(db, source_id)
-                    if cached:
-                        block["walked_at"] = cached["walked_at"]
-                        block["stale"] = cached["stale"]
+                    found = adapter.search(q or "", limit=limit) if adapter else []
+                # Rationale: one bad source must never 500 the whole route.
                 except Exception:  # noqa: BLE001
-                    logger.warning("federation cache write failed for %s", source_id, exc_info=True)
-            elif existing is not None:
-                # Surface the canonical cached freshness even on a live toggle —
-                # but keep the REAL cached indexed/installable totals, not the
-                # capped live ones, so the per_source block never under-reports.
-                block["indexed"] = existing_indexed
-                block["installable"] = existing.get("installable")
-                block["walked_at"] = existing.get("walked_at")
-                block["stale"] = existing.get("stale")
+                    logger.warning("external source '%s' search failed", source_id, exc_info=True)
+                    found = []
+                installable = [s for s in found if route_install(s).allowed]
+                block["indexed"] = len(found)
+                block["installable"] = len(installable)
+                if is_enabled:
+                    all_external.extend(found)
+                # superset_0606 Phase E — cache-write guard (decision #7 fix).
+                #
+                # The shipped behaviour wrote EVERY empty-query enabled search
+                # back to the canonical cache. But an enabled toggle browse is
+                # capped at ``limit`` (e.g. 50), so it would OVERWRITE the
+                # reindex cron's real deep-walked counts (clawhub 69k, skills-sh
+                # 20k) with the capped value — silently destroying the giants'
+                # numbers. The portal's own 130-page build did exactly this.
+                #
+                # The canonical count is OWNED by the reindex cron (full walk).
+                # The route may only:
+                #   (a) write when force_refresh (admin explicit refresh), OR
+                #   (b) SEED a source that has no cache row yet (first boot,
+                #       before the cron's first run) — and even then never
+                #       downgrade. ``found`` being exactly ``limit`` long means
+                #       the result is truncated → a floor, never the real total.
+                is_capped = len(found) >= limit
+                may_seed = existing_indexed is None and not is_capped
+                if force_refresh or (may_seed and not has_query):
+                    try:
+                        fcache.write_source_cache(
+                            db,
+                            source_id,
+                            indexed_count=block["indexed"],
+                            installable_count=block["installable"],
+                            first_page=[s.to_dict() for s in found[:20]],
+                            ttl_seconds=fcache.TTL_HOURLY,
+                        )
+                        cached = fcache.read_source_cache(db, source_id)
+                        if cached:
+                            block["walked_at"] = cached["walked_at"]
+                            block["stale"] = cached["stale"]
+                    except Exception:  # noqa: BLE001
+                        logger.warning("federation cache write failed for %s", source_id, exc_info=True)
+                elif existing is not None:
+                    # Surface the canonical cached totals even on a live query —
+                    # the capped live result is never the real indexed total.
+                    block["indexed"] = existing_indexed
+                    block["installable"] = existing.get("installable")
+                    block["walked_at"] = existing.get("walked_at")
+                    block["stale"] = existing.get("stale")
         else:
             # NOT enabled: read the honest cached block from the persistent
             # store ONLY — NEVER an inline walk or network call (decision #7).
@@ -611,7 +633,7 @@ def get_external_skills(
 
 
 @router.get("/skills/external/{source}/{slug}/install", tags=["skills", "federation"])
-def install_external_skill(source: str, slug: str):
+def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)):
     """evergreen_0206 Phase F2 — REAL fetch-origin install for an external skill.
 
     Closes the cold-path: makes the external install CTA actually work instead of
@@ -627,7 +649,8 @@ def install_external_skill(source: str, slug: str):
         rehosted — license/ToS wall).
       - unknown source / unresolvable slug → 404 (honest, never fabricated).
     """
-    from app.services.federation import INTERNAL_SOURCE, InstallPath, route_install
+    from app.services import federation_cache as fcache
+    from app.services.federation import ExternalSkill, INTERNAL_SOURCE, InstallPath, route_install
     from app.services.federation_adapters import get_adapter
     from app.services.federation_install import get_origin_fetcher
     from app.services.federation_live import LIVE_FETCH
@@ -641,13 +664,25 @@ def install_external_skill(source: str, slug: str):
     if adapter is None:
         raise HTTPException(status_code=404, detail=f"Unknown external source '{source}'")
 
+    # superset_0606 Phase F — cache-first resolve. The prod box shares ONE anon
+    # GitHub budget (60/hr) across all users, so a live adapter.resolve() (which
+    # re-walks the tap to find the row) fails under load — exactly when a user
+    # tries to install a facet skill they just browsed. The reindex cron already
+    # cached the row in first_page; resolve from there first, falling back to a
+    # live walk only when the slug isn't in the cached page (deep catalog).
     skill = None
-    try:
-        skill = adapter.resolve(slug)
-    # Rationale: a source outage must 503, not 500.
-    except Exception:  # noqa: BLE001
-        logger.warning("external resolve failed: %s/%s", source, slug, exc_info=True)
-        raise HTTPException(status_code=503, detail="External source unavailable") from None
+    for row in fcache.read_first_page(db, source):
+        if isinstance(row, dict) and row.get("slug") == slug:
+            skill = ExternalSkill.from_dict(row)
+            break
+
+    if skill is None:
+        try:
+            skill = adapter.resolve(slug)
+        # Rationale: a source outage must 503, not 500.
+        except Exception:  # noqa: BLE001
+            logger.warning("external resolve failed: %s/%s", source, slug, exc_info=True)
+            raise HTTPException(status_code=503, detail="External source unavailable") from None
     if skill is None:
         raise HTTPException(status_code=404, detail=f"External skill '{slug}' not found in {source}")
 

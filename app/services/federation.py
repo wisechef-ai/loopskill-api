@@ -99,6 +99,32 @@ class ExternalSkill:
             "quality": "community · as-is",
         }
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "ExternalSkill":
+        """Reconstruct from a ``to_dict()`` payload (the cached first_page shape).
+
+        superset_0606 Phase F — lets the route serve a source's cached first_page
+        rows on an empty-query browse WITHOUT a live walk, so facet/giant browse
+        is instant and rate-limit-proof (the prod box shares one anon GitHub
+        budget across all users). Unknown install_path values fall back to
+        DEEP_LINK (fail-safe: never claim installable for an unrecognized row).
+        """
+        raw_path = str(d.get("install_path", "") or "")
+        try:
+            path = InstallPath(raw_path)
+        except ValueError:
+            path = InstallPath.DEEP_LINK
+        return cls(
+            slug=str(d.get("slug", "")),
+            title=str(d.get("title", d.get("slug", ""))),
+            source=str(d.get("source", "")),
+            install_path=path,
+            origin_url=str(d.get("origin_url", "")),
+            license=d.get("license"),
+            redistributable=bool(d.get("redistributable", False)),
+            description=str(d.get("description", "") or ""),
+        )
+
 
 class SourceAdapter:
     """Per-source adapter interface: catalog endpoint + schema map + license."""
