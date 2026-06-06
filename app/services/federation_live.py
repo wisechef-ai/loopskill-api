@@ -310,6 +310,12 @@ def _safe_json_get(url: str, *, params: dict | None = None, headers: dict | None
         return None
 
 
+# ───────────── superset_0606 Phase C — GitHub provider-facet taps ─────────────
+# The tap reader lives in app/services/github_taps_live.py (extracted to keep
+# this module under the 600-line gate). Re-exported below for back-compat:
+# fl.github_tap_fetch / fl._github_headers / fl._sniff_license_name still resolve.
+
+
 # ── skills.sh (DEEP_LINK aggregator) ─────────────────────────────────────
 
 
@@ -485,6 +491,21 @@ LIVE_FETCH = {
     "lobehub": lobehub_fetch,
     "browse-sh": browse_sh_fetch,
 }
+
+# superset_0606 Phase C: register a fetch callable per GitHub provider facet —
+# one parameterized Contents-API reader, distinct closure per tap source id.
+# The tap reader lives in github_taps_live (extracted for the 600-line gate);
+# re-export the key symbols here so existing `fl.github_tap_fetch` / test
+# monkeypatch points (`fl._github_headers`, `fl._sniff_license_name`) keep working.
+from app.services.github_taps import GITHUB_FACET_SOURCES as _GITHUB_FACET_SOURCES  # noqa: E402
+from app.services.github_taps_live import (  # noqa: E402
+    _github_headers as _github_headers,  # re-export for back-compat + tests
+    _sniff_license_name as _sniff_license_name,  # re-export for back-compat + tests
+    github_tap_fetch as github_tap_fetch,
+)
+
+for _tap_source in _GITHUB_FACET_SOURCES:
+    LIVE_FETCH[_tap_source] = github_tap_fetch(_tap_source)
 
 # Map of source_id → cheap indexed-count callable for the off-toggle teaser
 # (only sources whose catalog is cheap to count when cached).

@@ -236,8 +236,12 @@ class TestParityRegistry:
 
     def test_live_sources_matches_registry(self):
         from app.services.federation import LIVE_SOURCES
+        from app.services.github_taps import GITHUB_FACET_SOURCES
 
-        assert set(LIVE_SOURCES) == set(self.PARITY), "LIVE_SOURCES drifted from adapter registry"
+        # superset_0606 Phase C: LIVE_SOURCES now also carries the 6 GitHub
+        # provider facets (the big steal) on top of the 7 parity sources.
+        expected = set(self.PARITY) | set(GITHUB_FACET_SOURCES)
+        assert set(LIVE_SOURCES) == expected, "LIVE_SOURCES drifted from adapter+tap registry"
 
     def test_install_path_classification_matrix(self):
         """superset_0606 decision #6: ClawHub is DEEP_LINK only (ClawHavoc) — no
@@ -481,9 +485,13 @@ class TestOriginResolvers:
     def test_every_installable_source_has_a_live_origin_fetcher(self):
         """Contract: ORIGIN_FETCHERS covers exactly the installable sources."""
         from app.services.federation_install import ORIGIN_FETCHERS
+        from app.services.github_taps import GITHUB_FACET_SOURCES
 
         # superset_0606 decision #6: clawhub is DEEP_LINK only — NOT in the
         # fetch-origin registry (never rehosted). github-oss is token-gated.
-        assert set(ORIGIN_FETCHERS) == {
-            "hermes-hub", "browse-sh", "well-known", "lobehub", "skills-sh",
-        }
+        # Phase C: the 6 GitHub provider facets each carry the shared tap origin
+        # fetcher (the per-repo install guarantee).
+        expected = {"hermes-hub", "browse-sh", "well-known", "lobehub", "skills-sh"} | set(
+            GITHUB_FACET_SOURCES
+        )
+        assert set(ORIGIN_FETCHERS) == expected

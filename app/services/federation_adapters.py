@@ -115,6 +115,63 @@ class GitHubOSSAdapter(SourceAdapter):
         return None
 
 
+class GitHubTapAdapter(SourceAdapter):
+    """One GitHub provider-facet adapter (superset_0606 Phase C — the big steal).
+
+    A SINGLE adapter parameterized by ``source_id`` (e.g. ``github-anthropic``)
+    serves every facet in the curated tap-list (app/services/github_taps.py). The
+    Hub's "6 provider facets" are ONE Contents-API reader over a ``{repo, path}``
+    tap array — we mirror that exactly, one distinct source id per facet so they
+    browse separately.
+
+    Row schema (from the live fetch — github_tap_fetch): per skill dir,
+      {slug, name, description, html_url, license, redistributable}
+    where ``license`` + ``redistributable`` are already resolved by the fetch
+    layer via decision #13's 4-step order (per-skill LICENSE.txt → repo LICENSE →
+    SKILL.md frontmatter → none). The adapter is a pure mapper: redistributable
+    → FETCH_ORIGIN, else DEEP_LINK (source-available, never rehosted).
+    """
+
+    def __init__(
+        self,
+        source_id: str,
+        fetch: Callable[[str], list[dict[str, Any]]] | None = None,
+    ) -> None:
+        self._source_id = source_id
+        self._fetch = fetch or (lambda q: [])
+
+    @property
+    def source_id(self) -> str:  # type: ignore[override]
+        return self._source_id
+
+    def _map(self, row: dict[str, Any]) -> ExternalSkill:
+        # License + redistributability are resolved upstream (decision #13).
+        license_id = row.get("license")
+        redist = bool(row.get("redistributable", False))
+        path = InstallPath.FETCH_ORIGIN if redist else InstallPath.DEEP_LINK
+        slug = str(row.get("slug") or row.get("name", "unknown"))
+        return ExternalSkill(
+            slug=slug,
+            title=row.get("name") or slug,
+            source=self._source_id,
+            install_path=path,
+            origin_url=row.get("html_url", ""),
+            license=license_id,
+            redistributable=redist,
+            description=row.get("description") or "",
+        )
+
+    def search(self, query: str, limit: int = 20) -> list[ExternalSkill]:
+        rows = self._fetch(query)[:limit]
+        return [self._map(r) for r in rows]
+
+    def resolve(self, slug: str) -> ExternalSkill | None:
+        for r in self._fetch(""):
+            if str(r.get("slug")) == slug:
+                return self._map(r)
+        return None
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # federation_0604 — Hermes Skills Hub parity adapters.
 #
@@ -385,6 +442,18 @@ _ADAPTER_CLASSES: dict[str, type[SourceAdapter]] = {
 
 
 def get_adapter(source_id: str, fetch: Callable | None = None) -> SourceAdapter | None:
+    """Resolve a source adapter by id.
+
+    superset_0606 Phase C: the GitHub provider facets (``github-anthropic`` …)
+    all share ONE parameterized ``GitHubTapAdapter`` (the big steal — one
+    Contents-API reader over a curated tap-list). Any source id in the tap-list
+    constructs the tap adapter with that id; everything else uses the flat
+    class registry.
+    """
+    from app.services.github_taps import TAP_BY_SOURCE
+
+    if source_id in TAP_BY_SOURCE:
+        return GitHubTapAdapter(source_id, fetch=fetch)
     cls = _ADAPTER_CLASSES.get(source_id)
     if cls is None:
         return None

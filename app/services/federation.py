@@ -40,19 +40,31 @@ class InstallPath(str, Enum):
 # Internal source namespace — NEVER federated, NEVER surfaced as external.
 INTERNAL_SOURCE = "recipes"
 
+
 # Live adapters — Hermes Skills Hub parity (federation_0604, 2026-06-04).
 # Order mirrors the Hermes source router's display order. github-oss is live but
 # stays DARK until a GITHUB_TOKEN lands in prod (graceful-empty otherwise) — it
 # is wired last per Adam's call. The other six surface real results today.
-LIVE_SOURCES = (
-    "hermes-hub",
-    "skills-sh",
-    "well-known",
-    "clawhub",
-    "lobehub",
-    "browse-sh",
-    "github-oss",
-)
+#
+# superset_0606 Phase C: the 6 GitHub provider facets (the big steal) are
+# appended from the curated tap-list — one parameterized adapter, distinct
+# source ids so they browse as named facets mirroring the Hub's facet UI.
+def _live_sources() -> tuple[str, ...]:
+    from app.services.github_taps import GITHUB_FACET_SOURCES
+
+    return (
+        "hermes-hub",
+        "skills-sh",
+        "well-known",
+        "clawhub",
+        "lobehub",
+        "browse-sh",
+        "github-oss",
+        *GITHUB_FACET_SOURCES,
+    )
+
+
+LIVE_SOURCES = _live_sources()
 
 
 @dataclass(frozen=True)

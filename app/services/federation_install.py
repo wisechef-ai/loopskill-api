@@ -28,6 +28,7 @@ import logging
 from typing import Any
 
 from app.services.federation_fetch import guarded_get
+from app.services.github_taps import GITHUB_FACET_SOURCES as _GITHUB_FACET_SOURCES_FOR_INSTALL
 from app.services.federation_live import (
     _CATALOG_TTL_S,
     _cache,
@@ -190,6 +191,39 @@ def skills_sh_origin_skill_md(slug: str) -> tuple[str, str] | None:
     return None
 
 
+def github_tap_origin_skill_md(slug: str) -> tuple[str, str] | None:
+    """superset_0606 Phase C — fetch a GitHub-facet skill's real SKILL.md.
+
+    The slug is namespaced ``github-<facet>--<skillname>``. We recover the tap +
+    skill row (re-walking the facet's cached Contents listing), then fetch the
+    skill dir's SKILL.md from the raw host through the Phase A SSRF guard. Only
+    redistributable skills reach here (the router blocks deep-link/source-
+    available BEFORE the fetcher fires), so a fetched body is always license-clean.
+
+    Returns ``(raw_url, content)`` or ``None`` (unresolvable / origin outage).
+    """
+    facet = slug.split("--", 1)[0]
+    from app.services.federation_live import LIVE_FETCH
+
+    fetch = LIVE_FETCH.get(facet)
+    if fetch is None:
+        return None
+    # Find the matching row in the facet's (cached) listing.
+    row = next((r for r in fetch("") if str(r.get("slug")) == slug), None)
+    if row is None:
+        return None
+    repo = row.get("repo")
+    branch = row.get("branch", "main")
+    skill_path = row.get("skill_path")
+    if not repo or not skill_path:
+        return None
+    raw_url = f"{GITHUB_RAW_BASE}/{repo}/{branch}/{skill_path}/SKILL.md"
+    resp = guarded_get(raw_url)
+    if resp is not None and resp.status_code == 200 and resp.text.strip():
+        return raw_url, resp.text
+    return None
+
+
 # Map of source_id → (home_module, function_name) for the FETCH_ORIGIN install
 # path. Covers EXACTLY the installable sources (Hermes parity). github-oss is
 # absent — discovery only until a prod GITHUB_TOKEN lands (code-search gated).
@@ -215,7 +249,17 @@ def get_origin_fetcher(source_id: str):
     module. Lazy resolution means monkeypatching the function where it's defined
     is honoured by the route, and there's one source of truth for which sources
     are fetch-origin-installable.
+
+    superset_0606 Phase C: every GitHub provider facet (``github-anthropic`` …)
+    shares ONE origin fetcher (``github_tap_origin_skill_md``) — the per-repo
+    install guarantee. Resolved lazily here so test monkeypatching is honoured.
     """
+    from app.services.github_taps import TAP_BY_SOURCE
+
+    if source_id in TAP_BY_SOURCE:
+        import app.services.federation_install as _fi
+
+        return _fi.github_tap_origin_skill_md
     entry = _ORIGIN_FETCHER_HOMES.get(source_id)
     if entry is None:
         return None
@@ -236,3 +280,8 @@ ORIGIN_FETCHERS = {
     # clawhub deliberately absent — DEEP_LINK only (decision #6, never rehost).
     "skills-sh": skills_sh_origin_skill_md,
 }
+
+# superset_0606 Phase C: every GitHub provider facet resolves through the one
+# shared tap origin fetcher (the per-repo install guarantee).
+for _facet in _GITHUB_FACET_SOURCES_FOR_INSTALL:
+    ORIGIN_FETCHERS[_facet] = github_tap_origin_skill_md
