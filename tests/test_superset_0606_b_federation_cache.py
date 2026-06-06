@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.services import federation_cache as fcache
@@ -47,20 +46,24 @@ class TestCacheLayer:
 
     def test_installable_clamped_to_indexed(self, db_session):
         # A walker bug reporting installable > indexed is corrected (decision #5).
-        fcache.write_source_cache(
-            db_session, "skills-sh", indexed_count=10, installable_count=999
-        )
+        fcache.write_source_cache(db_session, "skills-sh", indexed_count=10, installable_count=999)
         block = fcache.read_source_cache(db_session, "skills-sh")
         assert block["installable"] == 10, "installable must never exceed indexed"
 
     def test_failed_walk_keeps_indexed_null_and_records_error(self, db_session):
         # First a good walk, then a failed one — indexed goes NULL, first_page kept.
         fcache.write_source_cache(
-            db_session, "lobehub", indexed_count=505, installable_count=0,
+            db_session,
+            "lobehub",
+            indexed_count=505,
+            installable_count=0,
             first_page=[{"slug": "keep"}],
         )
         fcache.write_source_cache(
-            db_session, "lobehub", indexed_count=None, installable_count=None,
+            db_session,
+            "lobehub",
+            indexed_count=None,
+            installable_count=None,
             last_error="upstream 503",
         )
         block = fcache.read_source_cache(db_session, "lobehub")
@@ -71,7 +74,11 @@ class TestCacheLayer:
 
     def test_stale_after_ttl(self, db_session):
         row = fcache.write_source_cache(
-            db_session, "browse-sh", indexed_count=375, installable_count=375, ttl_seconds=3600,
+            db_session,
+            "browse-sh",
+            indexed_count=375,
+            installable_count=375,
+            ttl_seconds=3600,
         )
         # Force walked_at into the past beyond the TTL.
         row.walked_at = datetime.now(timezone.utc) - timedelta(seconds=7200)
@@ -153,8 +160,9 @@ class TestExternalRouteCacheBacked:
         for src in LIVE_SOURCES:
             fcache.write_source_cache(db_session, src, indexed_count=0, installable_count=0)
         # Now override two specific sources: one null (failed), one real.
-        fcache.write_source_cache(db_session, "clawhub", indexed_count=None, installable_count=None,
-                                  last_error="walk failed")
+        fcache.write_source_cache(
+            db_session, "clawhub", indexed_count=None, installable_count=None, last_error="walk failed"
+        )
         fcache.write_source_cache(db_session, "browse-sh", indexed_count=375, installable_count=375)
         client = _client(db_session, monkeypatch)
         body = client.get("/api/skills/external").json()
@@ -179,11 +187,15 @@ class TestReindexWalker:
         # Inject a deterministic fetch via the LIVE_FETCH registry entry (the
         # adapter is constructed with LIVE_FETCH.get(source) as its fetch).
         import app.services.federation_live as fl
+
         fl._cache.clear()
         monkeypatch.setitem(
             fl.LIVE_FETCH,
             "browse-sh",
-            lambda q: [{"slug": f"s{i}", "name": f"s{i}", "title": f"S{i}", "description": "", "tags": []} for i in range(5)],
+            lambda q: [
+                {"slug": f"s{i}", "name": f"s{i}", "title": f"S{i}", "description": "", "tags": []}
+                for i in range(5)
+            ],
         )
         # browse-sh is FETCH_ORIGIN → all 5 installable.
         report = reindex.reindex_source(db_session, "browse-sh")
@@ -201,15 +213,20 @@ class TestReindexWalker:
                 raise RuntimeError("upstream down")
 
         monkeypatch.setattr(fa, "get_adapter", lambda *a, **k: _BoomAdapter())
-        report = reindex.reindex_source(db_session, "clawhub")
+        # NOTE: use a shallow-adapter source (lobehub). superset_0606 Phase D
+        # reroutes clawhub/skills-sh through DEEP_WALKERS *before* get_adapter, so
+        # those two no longer exercise the adapter-failure path (their own
+        # deep-walker failure path is covered in the Phase D suite).
+        report = reindex.reindex_source(db_session, "lobehub")
         assert report["status"] == "error"
-        block = fcache.read_source_cache(db_session, "clawhub")
+        block = fcache.read_source_cache(db_session, "lobehub")
         assert block["indexed"] is None  # failed walk → NULL, omitted from sum
         assert "upstream down" in (block["last_error"] or "")
 
     def test_reindex_dry_run_does_not_write(self, db_session, monkeypatch):
         import scripts.federation_reindex as reindex
         import app.services.federation_live as fl
+
         fl._cache.clear()
         monkeypatch.setitem(
             fl.LIVE_FETCH,

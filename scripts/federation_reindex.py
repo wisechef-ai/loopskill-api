@@ -26,6 +26,7 @@ Usage:
   python3 scripts/federation_reindex.py --source clawhub  # one source
   python3 scripts/federation_reindex.py --dry-run      # walk + report, no DB write
 """
+
 from __future__ import annotations
 
 import argparse
@@ -49,11 +50,77 @@ WALK_LIMIT = 100
 
 
 def reindex_source(db, source_id: str, *, dry_run: bool = False) -> dict:
-    """Walk one source and (unless dry-run) write its cache row. Returns a report."""
+    """Walk one source and (unless dry-run) write its cache row. Returns a report.
+
+    superset_0606 Phase D: if a source has a registered DEEP walker
+    (clawhub cursor-walk / skills.sh sitemap-walk), it is preferred over the
+    shallow live-search adapter — the deep walk is what produces the giants'
+    real ~50k / 20k counts. Sources without a deep walker keep the Phase B
+    shallow-adapter full-catalog fetch.
+    """
     from app.services import federation_cache as fcache
     from app.services.federation import route_install
     from app.services.federation_adapters import get_adapter
     from app.services.federation_live import LIVE_FETCH
+    from app.services.giants_walk import DEEP_WALKERS
+
+    # ── Phase D deep walkers (giants) ────────────────────────────────────
+    deep_walker = DEEP_WALKERS.get(source_id)
+    if deep_walker is not None:
+        try:
+            result = deep_walker()
+        # Rationale: one giant's walk failure must not abort the whole reindex run.
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("reindex: deep walk '%s' failed: %s", source_id, exc)
+            if not dry_run:
+                fcache.write_source_cache(
+                    db,
+                    source_id,
+                    indexed_count=None,
+                    installable_count=None,
+                    last_error=str(exc)[:500],
+                    ttl_seconds=fcache.TTL_DAILY,
+                )
+            return {"source": source_id, "status": "error", "indexed": None, "error": str(exc)[:120]}
+
+        # A walk that gathered zero AND errored is a failure (NULL → omitted from
+        # sum); a walk that gathered rows but hit a late partial error still
+        # records the real count it reached (honest partial), with last_error.
+        if result.indexed == 0 and result.partial_error:
+            if not dry_run:
+                fcache.write_source_cache(
+                    db,
+                    source_id,
+                    indexed_count=None,
+                    installable_count=None,
+                    last_error=result.partial_error[:500],
+                    ttl_seconds=fcache.TTL_DAILY,
+                )
+            return {
+                "source": source_id,
+                "status": "error",
+                "indexed": None,
+                "error": result.partial_error[:120],
+            }
+
+        if not dry_run:
+            fcache.write_source_cache(
+                db,
+                source_id,
+                indexed_count=result.indexed,
+                installable_count=result.installable,
+                first_page=result.first_page,
+                ttl_seconds=fcache.TTL_DAILY,
+                last_error=result.partial_error[:500] if result.partial_error else None,
+            )
+        return {
+            "source": source_id,
+            "status": "ok",
+            "indexed": result.indexed,
+            "installable": result.installable,
+            "pages": result.pages_walked,
+            "exhausted": result.exhausted,
+        }
 
     fetch = LIVE_FETCH.get(source_id)
     adapter = get_adapter(source_id, fetch=fetch)
