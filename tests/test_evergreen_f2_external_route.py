@@ -145,16 +145,23 @@ class TestExternalRoute:
             fl, "_load_hermes_catalog", lambda: _parse_hermes_catalog(_HERMES_HTML)
         )
 
-    def test_toggle_off_by_default_returns_no_external(self, client, monkeypatch):
+    def test_toggle_off_by_default_returns_no_external(self, client, db_session, monkeypatch):
         self._patch_live(monkeypatch)
+        # superset_0606 Phase B: the off-toggle teaser now reads the PERSISTENT
+        # cache (decision #7 — no inline network walk on a cold load). Seed the
+        # cache row the reindex cron would have written.
+        from app.services import federation_cache as fcache
+
+        fcache.write_source_cache(db_session, "hermes-hub", indexed_count=3, installable_count=3)
         r = client.get("/api/skills/external")
         assert r.status_code == 200
         body = r.json()
         assert body["external"] == [], "off by default → curated stays clean"
         assert body["enabled_sources"] == []
-        # Honest indexed teaser still reported for the cheap cached source.
+        # Honest indexed teaser read from the persistent cache (not a live walk).
         assert body["per_source"]["hermes-hub"]["indexed"] == 3
         assert body["per_source"]["hermes-hub"]["enabled"] is False
+        assert body["per_source"]["hermes-hub"]["walked_at"] is not None
 
     def test_toggle_on_hermes_returns_second_class_external(self, client, monkeypatch):
         self._patch_live(monkeypatch)

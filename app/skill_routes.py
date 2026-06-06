@@ -438,6 +438,7 @@ def get_full_skill_graph(db: Session = Depends(get_db)):
 
 @router.get("/skills/external", tags=["skills", "federation"])
 def get_external_skills(
+    request: Request,
     q: str | None = Query(None, description="Free-text query forwarded to each enabled source"),
     sources: str | None = Query(
         None,
@@ -448,28 +449,47 @@ def get_external_skills(
         ),
     ),
     limit: int = Query(20, ge=1, le=100),
+    refresh: int = Query(
+        0,
+        ge=0,
+        le=1,
+        description="ADMIN ONLY: 1 forces a live re-walk + cache write for the queried sources.",
+    ),
+    db: Session = Depends(get_db),
 ):
-    """evergreen_0206 Phase F2/F3 — the live external (federated) catalog seam.
+    """evergreen_0206 Phase F2/F3 + superset_0606 Phase B — the live external
+    (federated) catalog seam, now cache-backed.
 
-    Surfaces ~88k external skills as a SEPARATE, second-class namespace
+    Surfaces external skills as a SEPARATE, second-class namespace
     ("External · community · as-is"), behind a per-source toggle that is OFF by
-    default (Phase F3). Each enabled source's adapter is wired to a REAL catalog
-    fetch (app/services/federation_live). Counts are reported INDEXED-vs-
-    INSTALLABLE per source and never conflated (Phase F5). Internal/private
-    skills are NEVER surfaced here — the federation surface is external-only by
-    construction (the quality-namespace + tenant-isolation wall, Phase F6).
+    default. Counts are reported INDEXED-vs-INSTALLABLE per source and never
+    conflated (decision #5). Internal/private skills are NEVER surfaced here.
+
+    superset_0606 Phase B — cache-backed counts:
+      - A NON-enabled source reads its ``{indexed, installable, walked_at,
+        stale}`` block from the PERSISTENT ``federation_index_cache`` table — a
+        cold load NEVER triggers an inline cursor/sitemap walk (decision #7).
+        Falls back to the cheap in-memory ``INDEXED_COUNT`` only when the source
+        has no cache row yet (first boot before the reindex cron has run).
+      - An ENABLED source still does a live, limited adapter search (the toggle
+        is an explicit user action), and its fresh counts are written back to
+        the cache so the next cold load is served from storage.
+      - ``?refresh=1`` (admin only) forces a live re-walk + cache write.
 
     Toggle semantics:
       - ``sources`` empty/omitted  → every source disabled; ``external`` is [].
-        Honest indexed counts are still reported for cheap-to-count sources
-        (Hermes Hub catalog is cached), so the UI can show "~N indexed · toggle
-        on to browse" without burning a source's rate limit.
+        Honest cached indexed counts are still reported per source.
       - ``sources=hermes-hub``     → only Hermes Hub queried + returned.
       - ``sources=hermes-hub,github-oss`` → both queried, merged, second-class.
     """
+    from app.services import federation_cache as fcache
     from app.services.federation import LIVE_SOURCES, merge_search, route_install
     from app.services.federation_adapters import get_adapter
-    from app.services.federation_live import INDEXED_COUNT, LIVE_FETCH
+    from app.services.federation_live import LIVE_FETCH
+
+    auth_ctx = getattr(request.state, "auth_ctx", None)
+    caller_is_master = getattr(auth_ctx, "scope", None) == "master"
+    force_refresh = bool(refresh) and caller_is_master
 
     requested = {s.strip().lower() for s in (sources or "").split(",") if s.strip()}
     # A source is "enabled" only if it is BOTH live and explicitly requested.
@@ -480,8 +500,15 @@ def get_external_skills(
 
     for source_id in LIVE_SOURCES:
         is_enabled = source_id in enabled
-        block: dict = {"enabled": is_enabled, "indexed": None, "installable": None}
-        if is_enabled:
+        block: dict = {
+            "enabled": is_enabled,
+            "indexed": None,
+            "installable": None,
+            "walked_at": None,
+            "stale": None,
+        }
+        if is_enabled or (force_refresh and source_id in requested):
+            # Live, limited adapter search (explicit toggle / admin refresh).
             fetch = LIVE_FETCH.get(source_id)
             adapter = get_adapter(source_id, fetch=fetch)
             try:
@@ -493,19 +520,41 @@ def get_external_skills(
             installable = [s for s in found if route_install(s).allowed]
             block["indexed"] = len(found)
             block["installable"] = len(installable)
-            all_external.extend(found)
-        else:
-            # Cheap, cached static catalogs (hermes-hub, lobehub, browse-sh)
-            # report their indexed count even when toggled off, so the teaser is
-            # honest ("~N indexed · toggle on to browse") without querying the
-            # firehose. Per-query sources (skills-sh, clawhub, github-oss) have
-            # no cheap catalog count → indexed stays null until enabled.
-            counter = INDEXED_COUNT.get(source_id)
-            if counter is not None:
+            if is_enabled:
+                all_external.extend(found)
+            # Write fresh counts back to the persistent cache so the next cold
+            # load is served from storage (only the unfiltered/admin walk writes
+            # canonical counts; a user-filtered search does not overwrite a full
+            # walk's bigger numbers — guard on empty query).
+            if force_refresh or not (q or "").strip():
                 try:
-                    block["indexed"] = counter()
+                    fcache.write_source_cache(
+                        db,
+                        source_id,
+                        indexed_count=block["indexed"],
+                        installable_count=block["installable"],
+                        first_page=[s.to_dict() for s in found[:20]],
+                        ttl_seconds=fcache.TTL_HOURLY,
+                    )
+                    cached = fcache.read_source_cache(db, source_id)
+                    if cached:
+                        block["walked_at"] = cached["walked_at"]
+                        block["stale"] = cached["stale"]
                 except Exception:  # noqa: BLE001
-                    block["indexed"] = None
+                    logger.warning("federation cache write failed for %s", source_id, exc_info=True)
+        else:
+            # NOT enabled: read the honest cached block from the persistent
+            # store ONLY — NEVER an inline walk or network call (decision #7).
+            # A source with no cache row yet reports indexed=null ("not yet
+            # walked"); the reindex cron fills it. We do NOT fall back to a live
+            # network counter here — that would violate the zero-inline-walk
+            # guarantee and make cold loads slow + flaky.
+            cached = fcache.read_source_cache(db, source_id)
+            if cached is not None:
+                block["indexed"] = cached["indexed"]
+                block["installable"] = cached["installable"]
+                block["walked_at"] = cached["walked_at"]
+                block["stale"] = cached["stale"]
         per_source[source_id] = block
 
     # The isolation wall: internal=[] (this surface is external-only); the toggle
@@ -514,6 +563,14 @@ def get_external_skills(
     # namespace + community-quality label on every external row.
     merged = merge_search([], all_external, free_sources_enabled=bool(enabled))
     payload = merged.to_dict()
+    # Honest dual-count: sum of cached/live indexed across sources, omitting
+    # null/failed sources (never fabricated). This is what the portal reads.
+    payload["counts"]["external_indexed"] = sum(
+        b["indexed"] for b in per_source.values() if isinstance(b.get("indexed"), int)
+    )
+    payload["counts"]["external_installable"] = sum(
+        b["installable"] for b in per_source.values() if isinstance(b.get("installable"), int)
+    )
     payload.update(
         {
             "query": q,
@@ -521,6 +578,7 @@ def get_external_skills(
             "available_sources": list(LIVE_SOURCES),
             "enabled_sources": enabled,
             "per_source": per_source,
+            "refreshed": force_refresh,
             "disclaimer": "External skills are community-contributed, as-is, and not quality-gated.",
         }
     )

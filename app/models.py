@@ -1141,3 +1141,39 @@ class MissingSkillQuery(Base):
     day = Column(Date, nullable=False)
     count = Column(Integer, nullable=False, default=1, server_default="1")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# ── Federation index cache (superset_0606 Phase B) ──────────────────────────
+
+
+class FederationIndexCache(Base):
+    """Persistent per-source federation index cache (superset_0606 Phase B).
+
+    The storage backbone the depth adapters (Phase C facets, Phase D giants)
+    fill and the ``/api/skills/external`` route reads from. A cold page load
+    must NEVER trigger a 68k cursor-walk — the walk runs in a background reindex
+    cron (``recipes-federation-reindex``) and writes one row per source here;
+    pages read cached counts + cached first-page only.
+
+    One row per ``source`` (e.g. ``clawhub``, ``skills-sh``, ``github-anthropic``).
+    Survives restart (this is the difference from the per-process _TTLCache).
+
+    Honest counts (decision #5): ``indexed_count`` is everything discovered;
+    ``installable_count`` is the resolved redistributable subset — NEVER equal
+    by construction, NEVER fabricated. A source that failed its last walk keeps
+    ``indexed_count = NULL`` so the route omits it from the sum rather than
+    inventing a number. ``walked_at`` + ``ttl_seconds`` drive the ``stale`` flag.
+    """
+
+    __tablename__ = "federation_index_cache"
+
+    source = Column(String(64), primary_key=True)
+    indexed_count = Column(Integer, nullable=True)  # NULL = never successfully walked
+    installable_count = Column(Integer, nullable=True)
+    first_page = Column(JSON, nullable=True)  # list[dict] — cached first page of results
+    walked_at = Column(DateTime(timezone=True), nullable=True)
+    ttl_seconds = Column(Integer, nullable=False, server_default="86400")  # daily default
+    last_error = Column(Text, nullable=True)  # last walk failure message, if any
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
