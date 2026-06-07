@@ -118,6 +118,13 @@ def client(db_session: Session):
 
     test_app.include_router(carousel_router, prefix="/api")
 
+    # bootcamp_0607: curated install curricula
+    try:
+        from app.bootcamp_routes import router as bootcamp_router
+        test_app.include_router(bootcamp_router, prefix="/api")
+    except Exception:
+        pass
+
     # Also include core routes (skills, telemetry, carousel legacy) if importable
     try:
         from app.routes import router as core_router

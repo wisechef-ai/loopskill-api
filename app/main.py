@@ -14,6 +14,7 @@ from app.auth_routes import router as auth_router
 from app.buckets_routes import router as buckets_router
 from app.canary import router as canary_router
 from app.carousel.routes import router as carousel_router
+from app.bootcamp_routes import router as bootcamp_router  # bootcamp_0607
 from app.checkout_routes import router as checkout_router
 from app.config import settings
 from app.cookbook_routes import router as cookbook_router
@@ -151,6 +152,7 @@ def create_app() -> FastAPI:
     app.include_router(demand_router, tags=["admin"])  # demandbrief_3005: content-direction feed
     app.include_router(auth_router, tags=["auth"])
     app.include_router(carousel_router, prefix="/api", tags=["carousel"])
+    app.include_router(bootcamp_router, prefix="/api", tags=["bootcamp"])  # bootcamp_0607
     app.include_router(sandbox_router, tags=["sandbox"])
     app.include_router(creator_router, tags=["creator"])
     app.include_router(publisher_router, tags=["publisher"])
