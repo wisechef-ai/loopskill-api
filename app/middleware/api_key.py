@@ -249,6 +249,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     # _download uses HMAC-signed token in the URL, no API key needed)
     PUBLIC_PREFIXES = (
         "/api/carousel/",
+        "/api/bootcamp",  # bootcamp_0607 — curated install curricula, public discovery surface (list + detail)
         "/api/skills/search",
         "/api/skills/trending",
         "/api/skills/access",

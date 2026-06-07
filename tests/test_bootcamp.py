@@ -204,3 +204,31 @@ class TestBootcampDetail:
     def test_unknown_track_404(self, client, db_session):
         resp = client.get("/api/bootcamp/no-such-track")
         assert resp.status_code == 404
+
+
+# ── Public-access contract ─────────────────────────────────────────────────
+
+
+class TestBootcampPublicAccess:
+    """Bootcamp is a public discovery surface like the carousel — no api-key.
+
+    The middleware PUBLIC_PREFIXES allowlist must include /api/bootcamp so an
+    unauthenticated builder browsing the curriculum gets 200, not 401. This pins
+    the allowlist entry against accidental removal.
+    """
+
+    def test_bootcamp_is_in_public_prefixes(self):
+        from app.middleware.api_key import APIKeyMiddleware
+
+        prefixes = APIKeyMiddleware.PUBLIC_PREFIXES
+        assert any(p == "/api/bootcamp" or "/api/bootcamp".startswith(p) for p in prefixes), (
+            f"/api/bootcamp must be a public prefix; got {prefixes}"
+        )
+
+    def test_both_bootcamp_paths_match_a_public_prefix(self):
+        """Both the list (/api/bootcamp) and detail (/api/bootcamp/{id}) are public."""
+        from app.middleware.api_key import APIKeyMiddleware
+
+        prefixes = APIKeyMiddleware.PUBLIC_PREFIXES
+        for path in ("/api/bootcamp", "/api/bootcamp/zero-to-agent"):
+            assert any(path.startswith(p) for p in prefixes), f"{path} not public"
