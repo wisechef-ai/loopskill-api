@@ -34,6 +34,22 @@ http_body() {
     curl -sS "$@"
 }
 
+# Fetch an HTTP status code with 429-tolerance. This watchdog runs
+# UNAUTHENTICATED and fires ~7 probes per 15-min tick. RateLimitMiddleware
+# (app/middleware/rate_limit.py) buckets anonymous traffic at 60/min per IP and
+# runs BEFORE APIKeyMiddleware, so our own probe burst can self-trip a 429.
+# A 429 here is the canary's own footprint, NOT a code regression — retry with
+# backoff (3s, 6s) and return the settled code (or the last 429 after 3 tries).
+http_code_429_tolerant() {
+    local code=""
+    for attempt in 1 2 3; do
+        code=$(http_code "$@")
+        [[ "$code" != "429" ]] && break
+        sleep $((attempt * 3))
+    done
+    echo "$code"
+}
+
 echo "=== secfix_1905 smoke probes against $BASE_URL ==="
 echo
 
@@ -108,16 +124,28 @@ if [[ -n "${PRIVATE_SKILL_SLUG_USER_A:-}" ]]; then
     probe "external-resources-private-404" "404" "$code"
 fi
 
-# Issue #19 — search_skills returns results quickly (proxy for N+1 fix)
-elapsed=$(curl -sS -o /dev/null -w "%{time_total}" "$BASE_URL/api/skills/search?q=python&limit=50")
+# Issue #19 — search_skills returns results quickly (proxy for N+1 fix).
+# A single COLD-cache sample can spike over threshold without N+1 being back:
+# the first query after a deploy / row-cache flush warms the cache. Retry once
+# (warm sample) and only FAIL if BOTH samples exceed threshold — a sustained
+# regression, not a one-off blip. Also tolerate a 429 (self-inflicted burst).
 threshold="2.0"
+elapsed=$(curl -sS -o /dev/null -w "%{time_total}" "$BASE_URL/api/skills/search?q=python&limit=50")
 TOTAL=$((TOTAL + 1))
 if awk "BEGIN{exit !($elapsed < $threshold)}"; then
     echo "✅ [search-50row-under-${threshold}s] ${elapsed}s"
     PASS=$((PASS + 1))
 else
-    echo "❌ [search-50row-under-${threshold}s] ${elapsed}s (regression — N+1 may be back)"
-    FAIL=$((FAIL + 1))
+    # Cold-cache retry: warm the cache, re-sample once before declaring N+1 back.
+    sleep 1
+    elapsed2=$(curl -sS -o /dev/null -w "%{time_total}" "$BASE_URL/api/skills/search?q=python&limit=50")
+    if awk "BEGIN{exit !($elapsed2 < $threshold)}"; then
+        echo "✅ [search-50row-under-${threshold}s] ${elapsed2}s (warm; cold sample ${elapsed}s)"
+        PASS=$((PASS + 1))
+    else
+        echo "❌ [search-50row-under-${threshold}s] cold=${elapsed}s warm=${elapsed2}s (regression — N+1 may be back)"
+        FAIL=$((FAIL + 1))
+    fi
 fi
 
 # Issue #27 — cookbook install URL works (returns a signed _download URL)
@@ -134,17 +162,22 @@ fi
 code=$(http_code -L --max-redirs 0 "$BASE_URL/api/auth/github/callback?state=anything&code=fake")
 probe "oauth-state-fails-closed" "302" "$code"
 
-# Issue #8 — sandbox endpoint exists and returns 401 without auth (not 200/500)
-code=$(http_code -X POST -H "Content-Type: application/json" -d '{}' "$BASE_URL/api/sandbox/run")
+# Issue #8 — sandbox endpoint exists and returns 401 without auth (not 200/500).
+# 429-tolerant: this is an anonymous probe inside the burst; a self-inflicted
+# 429 would mismatch the expected 401|403|422 and score a false regression.
+code=$(http_code_429_tolerant -X POST -H "Content-Type: application/json" -d '{}' "$BASE_URL/api/sandbox/run")
 probe "sandbox-auth-required" "401|403|422" "$code"
 
 # Issue #12 — _real_client_ip in CF-routed prod — no probe (passive)
 # Issue #17 — last_used_at — no probe (server-side batched; observed by monitoring)
 # Issue #18 — Stripe webhook off-loop — no probe (load-test only)
 
-# General sanity: critical endpoints respond
-probe "skills-search" "200" "$(http_code "$BASE_URL/api/skills/search")"
-probe "stats" "200" "$(http_code "$BASE_URL/api/stats")"
+# General sanity: critical endpoints respond. Use the 429-tolerant fetcher —
+# these two run LAST in the probe burst, so they're the most likely to hit the
+# anonymous 60/min bucket. A self-inflicted 429 here was the false-positive that
+# paged Adam (watchdog history 2026-06-07/08). Retry-with-backoff settles it.
+probe "skills-search" "200" "$(http_code_429_tolerant "$BASE_URL/api/skills/search")"
+probe "stats" "200" "$(http_code_429_tolerant "$BASE_URL/api/stats")"
 
 echo
 echo "=== Results: $PASS passed / $FAIL failed / $TOTAL total ==="
