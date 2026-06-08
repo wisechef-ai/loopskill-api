@@ -14,6 +14,23 @@ PASS=0
 FAIL=0
 TOTAL=0
 
+# Inter-probe spacing (PREVENTION). This watchdog runs UNAUTHENTICATED and its
+# probes share the anonymous 60/min-per-IP bucket in RateLimitMiddleware
+# (app/middleware/rate_limit.py), which sits BEFORE APIKeyMiddleware. Firing the
+# whole suite in a <3s burst stacks our footprint with any other anonymous
+# traffic egressing the same IP and self-trips a 429. Pacing each probe ~2s
+# apart spreads ~9 requests across ~18s so we stay well under the window — the
+# burst never forms in the first place. Tunable via PROBE_SPACING (0 = no pace,
+# e.g. for CI deploy-gate runs where speed matters more than rate-limit safety).
+PROBE_SPACING="${PROBE_SPACING:-2}"
+pace() { [[ "$PROBE_SPACING" != "0" ]] && sleep "$PROBE_SPACING" || true; }
+
+# Window-clearing backoff schedule for 429 retries (CURE). The rate-limit window
+# is 60s sliding, so a 3s/6s backoff cannot outlast a full bucket. These escalate
+# (10s, 20s, 30s = 60s total) so by the final retry enough entries have aged out
+# of the window for the request to settle. Tunable via PROBE_BACKOFF.
+PROBE_BACKOFF="${PROBE_BACKOFF:-10 20 30}"
+
 probe() {
     local label="$1" expected="$2" actual="$3"
     TOTAL=$((TOTAL + 1))
@@ -35,17 +52,20 @@ http_body() {
 }
 
 # Fetch an HTTP status code with 429-tolerance. This watchdog runs
-# UNAUTHENTICATED and fires ~7 probes per 15-min tick. RateLimitMiddleware
+# UNAUTHENTICATED and fires several probes per 15-min tick. RateLimitMiddleware
 # (app/middleware/rate_limit.py) buckets anonymous traffic at 60/min per IP and
 # runs BEFORE APIKeyMiddleware, so our own probe burst can self-trip a 429.
-# A 429 here is the canary's own footprint, NOT a code regression — retry with
-# backoff (3s, 6s) and return the settled code (or the last 429 after 3 tries).
+# A 429 here is the canary's own footprint, NOT a code regression — retry on the
+# window-clearing PROBE_BACKOFF schedule and return the settled code (or the last
+# 429 after the schedule is exhausted).
 http_code_429_tolerant() {
     local code=""
-    for attempt in 1 2 3; do
+    code=$(http_code "$@")
+    [[ "$code" != "429" ]] && { echo "$code"; return; }
+    for delay in $PROBE_BACKOFF; do
+        sleep "$delay"
         code=$(http_code "$@")
         [[ "$code" != "429" ]] && break
-        sleep $((attempt * 3))
     done
     echo "$code"
 }
@@ -55,6 +75,7 @@ echo
 
 # Issue #14 — /api/healthz returns 200 with proper db status
 probe "healthz/db-ok" "200" "$(http_code "$BASE_URL/api/healthz")"
+pace
 
 # secfix_1906/A — signed-install round-trip probe.
 # Catches the salt-drift class of bug the codex re-pass surfaced: 3 distinct
@@ -76,7 +97,8 @@ PROBE_SLUG="${SIGNED_INSTALL_PROBE_SLUG:-super-memory}"
 # false-positive regression and spams #agent-sync (see watchdog 2026-06-05).
 install_body=""
 tarball_url=""
-for attempt in 1 2 3; do
+_install_attempt=0
+while :; do
     install_body=$(http_body "$BASE_URL/api/skills/install?slug=$PROBE_SLUG")
     tarball_url=$(echo "$install_body" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tarball_url',''))" 2>/dev/null)
     if [[ -n "$tarball_url" ]]; then
@@ -85,7 +107,11 @@ for attempt in 1 2 3; do
     if ! echo "$install_body" | grep -qi 'rate limit'; then
         break  # not a rate-limit — a real failure, don't waste retries
     fi
-    sleep $((attempt * 3))  # 3s, 6s backoff before next attempt
+    # Rate-limited — back off on the window-clearing schedule (10s, 20s, 30s).
+    _install_delay=$(echo "$PROBE_BACKOFF" | cut -d' ' -f$((_install_attempt + 1)))
+    [[ -z "$_install_delay" ]] && break  # schedule exhausted
+    sleep "$_install_delay"
+    _install_attempt=$((_install_attempt + 1))
 done
 TOTAL=$((TOTAL + 1))
 if [[ -z "$tarball_url" ]] && echo "$install_body" | grep -qi 'rate limit'; then
@@ -110,6 +136,7 @@ else
         FAIL=$((FAIL + 1))
     fi
 fi
+pace
 
 # Issue #6 — recipes_install via wrong-user key → not_found (no oracle)
 # Skip if NO_AUTH_PROBES is set (requires test API keys not in repo)
@@ -147,6 +174,7 @@ else
         FAIL=$((FAIL + 1))
     fi
 fi
+pace
 
 # Issue #27 — cookbook install URL works (returns a signed _download URL)
 if [[ -n "${TEST_COOKBOOK_ID:-}" && -n "${TEST_API_KEY_MASTER:-}" ]]; then
@@ -161,12 +189,14 @@ fi
 # Issue #2 — OAuth state with NO cookie returns error redirect
 code=$(http_code -L --max-redirs 0 "$BASE_URL/api/auth/github/callback?state=anything&code=fake")
 probe "oauth-state-fails-closed" "302" "$code"
+pace
 
 # Issue #8 — sandbox endpoint exists and returns 401 without auth (not 200/500).
 # 429-tolerant: this is an anonymous probe inside the burst; a self-inflicted
 # 429 would mismatch the expected 401|403|422 and score a false regression.
 code=$(http_code_429_tolerant -X POST -H "Content-Type: application/json" -d '{}' "$BASE_URL/api/sandbox/run")
 probe "sandbox-auth-required" "401|403|422" "$code"
+pace
 
 # Issue #12 — _real_client_ip in CF-routed prod — no probe (passive)
 # Issue #17 — last_used_at — no probe (server-side batched; observed by monitoring)
@@ -177,6 +207,7 @@ probe "sandbox-auth-required" "401|403|422" "$code"
 # anonymous 60/min bucket. A self-inflicted 429 here was the false-positive that
 # paged Adam (watchdog history 2026-06-07/08). Retry-with-backoff settles it.
 probe "skills-search" "200" "$(http_code_429_tolerant "$BASE_URL/api/skills/search")"
+pace
 probe "stats" "200" "$(http_code_429_tolerant "$BASE_URL/api/stats")"
 
 echo
