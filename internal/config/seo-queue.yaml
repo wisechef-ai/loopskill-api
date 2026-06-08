@@ -254,7 +254,10 @@ queue:
     primary_skill: client-reporter
     suggested_internal_links: [/skills/client-reporter, /docs/cookbooks, /pricing]
     intent: agency / consultancy intent; Pro+ converter
-    status: queued
+    status: drafting
+    claimed_by: chef
+    claimed_at: "2026-06-08T14:35:00Z"
+    pr_url: "https://github.com/wisechef-ai/recipes-portal/commit/cb33f99"
 
   - id: 21
     slug: cookbook-vs-skill
