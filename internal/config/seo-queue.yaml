@@ -266,7 +266,10 @@ queue:
     primary_skill: graphify
     suggested_internal_links: [/docs/cookbooks, /skills, /pricing]
     intent: terminology disambig — clears Pro+ purchase friction
-    status: queued
+    status: drafting
+    claimed_by: chef
+    claimed_at: "2026-06-09T03:10:00Z"
+    pr_url: "https://github.com/wisechef-ai/recipes-portal/commit/5a520b4"
 
   - id: 22
     slug: claude-skill-not-loading
