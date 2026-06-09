@@ -191,7 +191,16 @@ def seed(dry_run: bool = False) -> int:
             cb = db.query(Cookbook).filter(Cookbook.slug == slug).first()
             is_new = cb is None
             if is_new:
-                cb = Cookbook(id=uuid4(), name=spec["name"], slug=slug)
+                # Owner MUST be set at construction — the DB CHECK
+                # ck_cookbooks_owner_required (is_base OR owner NOT NULL) fires
+                # on flush, so a post-flush assignment is too late.
+                cb = Cookbook(
+                    id=uuid4(),
+                    name=spec["name"],
+                    slug=slug,
+                    cookbook_owner=system.id,
+                    visibility="public",
+                )
                 db.add(cb)
                 db.flush()
                 created += 1
