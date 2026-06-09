@@ -49,6 +49,13 @@ from app.services.federation import (
 from app.services.federation_adapters import get_adapter
 from app.services.federation_install import get_origin_fetcher
 from app.services.federation_live import LIVE_FETCH
+from app.services.federation_scan import (
+    BADGE_PENDING,
+    QUALITY_AS_IS,
+    normalize_badge,
+    scan_external_body,
+    scan_on_add,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from sqlalchemy.orm import Session
@@ -131,12 +138,23 @@ def materialize_external_skill(db: "Session", source: str, slug: str) -> "Skill 
     if ext is None:
         return None
 
+    # spotify_0608 Phase C — scan-on-add trust badge. Fetch-origin sources get
+    # the real 10-pattern scan run over the origin body ONCE here; the verdict
+    # is cached in the descriptor so reads never re-scan. Deep-link / mcp /
+    # non-redistributable sources never fetch a body and stay honestly
+    # ``unscanned`` (the scan_on_add decision tree owns that distinction).
+    verdict = scan_on_add(ext, get_origin_fetcher(source), slug)
+
     descriptor: dict[str, Any] = {
         "federation_source": source,
         "external_slug": slug,
         "install_path": ext.install_path.value,
         "origin_url": ext.origin_url,
         "redistributable": ext.redistributable,
+        "scan_status": verdict.badge,
+        "scannable": verdict.scannable,
+        "scan_findings": verdict.findings,
+        "scan_warnings": verdict.warnings,
     }
     skill = Skill(
         id=uuid4(),
@@ -193,6 +211,12 @@ def resolve_external_install(source: str, slug: str) -> dict[str, Any] | None:
         return None
     raw_url, content = got
 
+    # spotify_0608 Phase C — the single-install path fetched the EXACT bytes the
+    # agent will run, so this is the authoritative scan moment. Run the real
+    # scanner over the body and surface the badge alongside the content (the
+    # cached add-time verdict may be stale; this is ground truth at install).
+    verdict = scan_external_body(content)
+
     leaf = slug.rsplit("--", 1)[-1]
     return {
         "slug": ext.slug,
@@ -203,10 +227,13 @@ def resolve_external_install(source: str, slug: str) -> dict[str, Any] | None:
         "raw_url": raw_url,
         "content": content,
         "namespace": "external",
-        "quality": "community · as-is",
+        "quality": QUALITY_AS_IS,
+        "scan_status": verdict.badge,
+        "scannable": verdict.scannable,
+        "scan_findings": verdict.findings,
+        "scan_warnings": verdict.warnings,
         "install_command": (
-            f"mkdir -p ~/.claude/skills/{leaf} && "
-            f"curl -fsSL {raw_url} -o ~/.claude/skills/{leaf}/SKILL.md"
+            f"mkdir -p ~/.claude/skills/{leaf} && curl -fsSL {raw_url} -o ~/.claude/skills/{leaf}/SKILL.md"
         ),
     }
 
@@ -217,6 +244,10 @@ def install_descriptor_for(cookbook_id: str, skill: "Skill") -> dict[str, Any]:
     ISOLATION WALL #2: bulk install must NOT fetch N origins. For an external
     skill we return a pointer + the cookbook-scoped single-install URL the agent
     calls to fetch the real body on demand. No origin call happens here.
+
+    spotify_0608 Phase C: the trust badge rides along from the cached add-time
+    verdict (``scan_status`` in the descriptor) — zero extra fetches. Legacy
+    rows with no cached status normalize to ``unscanned`` (fail-honest).
     """
     desc = skill.external_resources or {}
     return {
@@ -228,8 +259,45 @@ def install_descriptor_for(cookbook_id: str, skill: "Skill") -> dict[str, Any]:
         "checksum_sha256": None,
         "install_url": f"/api/cookbooks/{cookbook_id}/skills/{skill.slug}/install",
         "install_path": desc.get("install_path"),
-        "quality": "community · as-is",
+        "quality": QUALITY_AS_IS,
+        "scan_status": normalize_badge(desc.get("scan_status")),
+        "scannable": bool(desc.get("scannable", False)),
     }
+
+
+def rescan_pending_external(db: "Session", skill: "Skill") -> str:
+    """Opportunistically re-scan a materialized row stuck in ``pending``.
+
+    A ``pending`` badge means the add-time origin fetch failed TRANSIENTLY
+    (origin down / timeout) — distinct from an honest ``unscanned`` deep-link.
+    Callers may invoke this on read to upgrade a recovered origin to
+    clean/flagged. No-op (returns the current badge) for any non-pending row, so
+    it is safe to call unconditionally. Commits only when the badge changes.
+    """
+    desc = dict(skill.external_resources or {})
+    current = normalize_badge(desc.get("scan_status"))
+    if current != BADGE_PENDING:
+        return current
+
+    pair = descriptor_source_slug(skill)
+    if pair is None:
+        return current
+    source, ext_slug = pair
+    ext = _resolve_external(source, ext_slug)
+    if ext is None:
+        return current
+
+    verdict = scan_on_add(ext, get_origin_fetcher(source), ext_slug)
+    if verdict.badge == current:
+        return current
+    desc["scan_status"] = verdict.badge
+    desc["scannable"] = verdict.scannable
+    desc["scan_findings"] = verdict.findings
+    desc["scan_warnings"] = verdict.warnings
+    skill.external_resources = desc
+    db.add(skill)
+    db.commit()
+    return verdict.badge
 
 
 def descriptor_source_slug(skill: "Skill") -> tuple[str, str] | None:

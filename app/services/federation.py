@@ -86,6 +86,12 @@ class ExternalSkill:
     description: str = ""
 
     def to_dict(self) -> dict:
+        # spotify_0608 Phase C — browse/list surfaces show a pre-fetch trust
+        # badge derived purely from the install-router decision (NO network):
+        # a rehost-eligible fetch-origin skill is "scannable"; deep-link / mcp /
+        # non-redistributable is honestly "unscanned". The add-time scan later
+        # upgrades a materialized row to clean/flagged.
+        scannable = self.install_path == InstallPath.FETCH_ORIGIN and route_install(self).allowed
         return {
             "slug": self.slug,
             "title": self.title,
@@ -97,6 +103,8 @@ class ExternalSkill:
             "description": self.description,
             "namespace": "external",
             "quality": "community · as-is",
+            "scan_status": "scannable" if scannable else "unscanned",
+            "scannable": scannable,
         }
 
     @classmethod
