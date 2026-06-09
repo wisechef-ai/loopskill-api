@@ -82,3 +82,4 @@ CLAUDE.md
 .venv
 test_dev.db
 test.db
+t2.db

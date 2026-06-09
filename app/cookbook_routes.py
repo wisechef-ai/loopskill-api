@@ -699,7 +699,7 @@ def install_cookbook(
     rows = _skills_for(db, cb.id, include_disabled=False)
 
     skills_payload = []
-    installed_skills: list[tuple[Skill, str]] = []
+    installed_skills: list[tuple[Skill, str, int]] = []
     for cs, skill in rows:
         # federation_0604 Unit 2 — external rows get a CHEAP descriptor + a
         # cookbook-scoped single-install URL. No origin fetch in the bulk path
@@ -725,26 +725,37 @@ def install_cookbook(
                 .first()
             )
 
-        skills_payload.append(
-            {
-                "slug": skill.slug,
-                "version": version.semver if version else None,
-                "tarball_url": _make_install_url(skill.slug, version.id, version.semver) if version else None,
-                "checksum_sha256": version.checksum_sha256 if version else None,
-                "source": cs.source,
-            }
-        )
+        entry = {
+            "slug": skill.slug,
+            "version": version.semver if version else None,
+            "tarball_url": _make_install_url(skill.slug, version.id, version.semver) if version else None,
+            "checksum_sha256": version.checksum_sha256 if version else None,
+            "source": cs.source,
+        }
+        skills_payload.append(entry)
         if version is not None:
-            installed_skills.append((skill, version.semver))
+            # Track the payload index so we can stamp this entry's provenance_id
+            # PER-SKILL after recording (R4 nit (a): provenance rides per-skill
+            # under skills[], NOT cookbook-top-level).
+            installed_skills.append((skill, version.semver, len(skills_payload) - 1))
 
-    # recipes-D: record an InstallEvent + bump Skill.install_count for every
-    # skill that returned a real version. Without this, cookbook-share installs
-    # (the only path cbt_-token holders can use) are invisible in transparency
-    # stats — the Varys end-to-end install on 2026-05-25 was the demonstration.
-    from app._skill_helpers import _record_install_event
+    # spotify_0608 Ph E — record an InstallEvent + mint a PER-SKILL provenance_id
+    # for every skill that returned a real version, stamping cookbook_id so the
+    # feedback harness can route a later report to THIS cookbook's curator repo.
+    # (Supersedes recipes-D's _record_install_event: same counter + is_test
+    # integrity via record_install_with_provenance, plus provenance.)
+    from app.services.provenance import record_install_with_provenance
 
-    for skill, semver in installed_skills:
-        _record_install_event(db, skill=skill, version_semver=semver, request=request, source="cookbook")
+    for skill, semver, idx in installed_skills:
+        _ev, provenance_id = record_install_with_provenance(
+            db,
+            skill=skill,
+            version_semver=semver,
+            request=request,
+            source="cookbook",
+            cookbook_id=cb.id,
+        )
+        skills_payload[idx]["provenance_id"] = provenance_id
     if installed_skills:
         db.commit()
 
@@ -914,11 +925,24 @@ def install_single_skill_from_cookbook(
                 status_code=404,
                 detail="external_skill_unresolvable",
             )
-        from app._skill_helpers import _record_install_event
+        # spotify_0608 Ph E — external single-install fetched the real body, so
+        # this IS an attributed install (we know source+slug+cookbook). Record +
+        # mint provenance. (A deep-link/non-fetch external skill never resolves a
+        # body → resolve_external_install returns None → 404 above, never here;
+        # the honestly-unattributed path is for the federated catalogue where the
+        # router declines a body — see skill_routes public external install.)
+        from app.services.provenance import record_install_with_provenance
 
-        _record_install_event(db, skill=skill, version_semver="external", request=request, source="cookbook")
+        _ev, provenance_id = record_install_with_provenance(
+            db,
+            skill=skill,
+            version_semver="external",
+            request=request,
+            source="cookbook",
+            cookbook_id=cb.id,
+        )
         db.commit()
-        return {**payload, "external": True, "source": cs.source}
+        return {**payload, "external": True, "source": cs.source, "provenance_id": provenance_id}
 
     # Pick the right version: pinned if set, else latest
     version: SkillVersion | None = None
@@ -942,10 +966,18 @@ def install_single_skill_from_cookbook(
     if version is None:
         raise HTTPException(status_code=404, detail="no_versions")
 
-    # recipes-D: record install event + bump counter on this path too.
-    from app._skill_helpers import _record_install_event
+    # spotify_0608 Ph E — record install + mint provenance (stamps cookbook_id
+    # so a later feedback/skill-error report routes to THIS cookbook's curator).
+    from app.services.provenance import record_install_with_provenance
 
-    _record_install_event(db, skill=skill, version_semver=version.semver, request=request, source="cookbook")
+    _ev, provenance_id = record_install_with_provenance(
+        db,
+        skill=skill,
+        version_semver=version.semver,
+        request=request,
+        source="cookbook",
+        cookbook_id=cb.id,
+    )
     db.commit()
 
     return {
@@ -954,6 +986,7 @@ def install_single_skill_from_cookbook(
         "tarball_url": _make_install_url(skill.slug, version.id, version.semver),
         "checksum_sha256": version.checksum_sha256,
         "source": cs.source,
+        "provenance_id": provenance_id,
     }
 
 

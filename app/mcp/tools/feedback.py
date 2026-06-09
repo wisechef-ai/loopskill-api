@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app import feedback_ratelimit, github_dispatch
 from app.auth_ctx import AuthContext
-from app.models import Cookbook, FeedbackSubmission
+from app.models import FeedbackSubmission
 
 logger = logging.getLogger(__name__)
 
@@ -32,30 +32,32 @@ def _resolve_feedback_target(
     db: Session,
     api_key_id: str | None,
     ctx: AuthContext | None,
+    provenance_id: str | None = None,
 ) -> tuple[str | None, str | None, str | None]:
     """Resolve the feedback routing target for the caller.
 
     Returns (repo, mode, encrypted_pat):
       - repo=None  → use the default dispatch_event path (wisechef-ai/recipes-api)
       - repo set   → route to user's repo via dispatch_issue with decrypted PAT
+
+    spotify_0608 Ph E — DETERMINISTIC provenance routing REPLACES the old
+    "first cookbook the user owns with a repo set" guess. When a ``provenance_id``
+    is supplied, resolve it server-side to the EXACT cookbook the install came
+    from and route to THAT cookbook's curator repo. The provenance path is the
+    only routing path now — without a provenance_id we fall back to the default
+    repo (no more guessing which of a user's cookbooks a report belongs to).
     """
-    if ctx is None or ctx.user_id is None:
+    if not provenance_id:
         return None, None, None
 
-    cb = (
-        db.query(Cookbook)
-        .filter(
-            Cookbook.cookbook_owner == ctx.user_id,
-            Cookbook.is_base.is_(False),
-            Cookbook.feedback_repo.isnot(None),
-        )
-        .order_by(Cookbook.created_at.asc())
-        .first()
-    )
-    if cb is None or not cb.feedback_repo:
-        return None, None, None
+    from app.services.provenance import route_targets_for_provenance
 
-    return cb.feedback_repo, cb.feedback_mode, cb.feedback_pat_enc
+    targets = route_targets_for_provenance(db, provenance_id)
+    if not targets:
+        return None, None, None
+    # Route to the first resolved target (curator repo for the cookbook used).
+    t = targets[0]
+    return t.repo, t.mode, t.pat_enc
 
 
 def recipes_feedback(
@@ -69,6 +71,7 @@ def recipes_feedback(
     confirmation: str | None = None,
     api_key_id: str | None = None,
     ctx: AuthContext | None = None,
+    provenance_id: str | None = None,
 ) -> dict:
     """Send feedback about recipes.wisechef.ai.
 
@@ -79,6 +82,10 @@ def recipes_feedback(
 
     Phase J: Pro/Pro+ users with a configured feedback_repo will have their
     feedback dispatched as issues to their own GitHub repo.
+
+    spotify_0608 Ph E: when ``provenance_id`` (returned by any install transport)
+    is supplied, the report routes DETERMINISTICALLY to the curator repo of the
+    cookbook the skill was actually installed from — not a guess.
     """
     # Public-scope MCP tool: rate-limited user feedback submission; no private data exposed.
     valid_categories = {"ux", "search", "billing", "docs", "install", "other"}
@@ -137,8 +144,8 @@ def recipes_feedback(
     db.commit()
     db.refresh(row)
 
-    # ── Phase J: resolve feedback target ────────────────────────────────────
-    user_repo, user_mode, user_pat_enc = _resolve_feedback_target(db, api_key_id, ctx)
+    # ── Phase J + Ph E: resolve feedback target (provenance-routed) ──────────
+    user_repo, user_mode, user_pat_enc = _resolve_feedback_target(db, api_key_id, ctx, provenance_id)
 
     gh_url: str = ""
     routed_to_user_repo = False

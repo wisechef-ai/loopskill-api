@@ -264,6 +264,16 @@ def install_skill(
         {Skill.install_count: Skill.install_count + 1},
         synchronize_session=False,
     )
+
+    # spotify_0608 Ph E — mint a provenance_id for this (direct) install so the
+    # agent can pass it to recipes_feedback / recipes_report_skill_error and have
+    # the report route to the correct creator repo. The direct path has no
+    # cookbook context (cookbook_id stays NULL); attribution is 'attributed'
+    # because we know the exact skill + version.
+    from app.services.provenance import mint_provenance
+
+    db.flush()  # ensure event.id is populated before the FK insert
+    provenance_id = mint_provenance(db, event)
     db.commit()
 
     # WIS-902: Add rate-limit info headers to successful response
@@ -282,6 +292,7 @@ def install_skill(
         size_bytes=latest.tarball_size_bytes,
         expires_at=datetime.now(UTC) + timedelta(hours=1),
         manifest=_build_manifest(latest, skill),
+        provenance_id=provenance_id,
     )
     if resp_headers or ref:
         from fastapi.responses import JSONResponse as _JR

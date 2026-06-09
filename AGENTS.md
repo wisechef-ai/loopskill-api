@@ -160,3 +160,18 @@ MCP entry point: `app/mcp/tools/cookbook_install.py:recipes_cookbook_install(db,
 
 **Salt-parity discipline:** any new signed-URL producer (cookbook install URL, single-skill install URL, future variants) MUST use salt `recipes-skill-install` so it verifies against `install_routes._download`. Add it to the regression suite in `test_secfix_1905_d_cookbook_install_url.py`. Don't ship a salt-drifting signer.
 
+---
+
+## Install provenance + feedback routing (spotify_0608 Ph E)
+
+> See `app/services/provenance.py` for the single seam.
+
+Every install transport returns a `provenance_id` — a RANDOM, server-stored opaque token (`secrets.token_urlsafe(32)`) mapping → `install_event_id`. The token carries ZERO client-readable metadata (this is deliberate: a *signed* payload via `itsdangerous` is signed-but-not-encrypted, so embedding `cookbook_id`/`skill_id` would leak them). Resolution is a pure server-side join: `provenance_id → ProvenanceRecord → InstallEvent → (cookbook_id, skill_id, version_semver, attribution)`.
+
+**When adding a NEW install path, you MUST:**
+1. Call `app.services.provenance.record_install_with_provenance(db, skill=..., version_semver=..., request=..., source=..., cookbook_id=..., attribution=...)` — it records the `InstallEvent`, bumps the denormalised counter with the SAME `is_test` integrity rule as `_record_install_event` (Ph B §4.2), stamps `cookbook_id` + `attribution`, and mints the provenance row in one transaction. Do NOT hand-roll an `InstallEvent` insert.
+2. Return `provenance_id` in the response envelope. In BULK envelopes it rides PER-SKILL under `skills[]`, never cookbook-top-level (R4 contract).
+3. `attribution='attributed'` when you fetched a real body (you know skill+version); `attribution='unattributed'` for honest deep-link / non-fetch installs (no body → no deeper attribution). A TRANSIENT fetch failure is NOT unattributed — it stays a hard error and never reaches the recorder.
+
+**Feedback routing is provenance-deterministic.** `recipes_feedback` and `recipes_report_skill_error` accept `provenance_id`; the server resolves it to the EXACT cookbook the install came from and routes the issue to that cookbook's configured curator repo (`route_targets_for_provenance`). The old "first cookbook the user owns with a repo set" guess is DELETED — without a `provenance_id`, routing falls back to the default repo (no guessing). PAT path is live; GitHub App is a distinct future substream (`mode='github_app'` raises until registered).
+

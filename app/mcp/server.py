@@ -211,6 +211,7 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             confirmation=args.get("confirmation"),
             api_key_id=caller.get("api_key_id"),
             ctx=ctx,
+            provenance_id=args.get("provenance_id"),
         )
     if name == "recipes_request_recipe":
         return _tool_ns.get("recipes_request_recipe", recipes_request_recipe)(
@@ -230,6 +231,7 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             details=args.get("details"),
             agent_id=args.get("agent_id"),
             api_key_id=caller.get("api_key_id"),
+            provenance_id=args.get("provenance_id"),
         )
     if name == "recipes_propose_skill_patch":
         return _tool_ns.get("recipes_propose_skill_patch", recipes_propose_skill_patch)(

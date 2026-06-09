@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import mcp.types as types
-from app.mcp._registry_d import _phase_d_tools
+from app.mcp._registry_d import _phase_d_tools, _phase_e_tools
 from app.mcp._registry_j import _phase_j_tools
 
 
@@ -203,6 +203,10 @@ def _tool_definitions() -> list[types.Tool]:
                     "agent_id": {"type": "string"},
                     "force": {"type": "boolean", "default": False},
                     "confirmation": {"type": "string"},
+                    "provenance_id": {
+                        "type": "string",
+                        "description": "Install-provenance token; routes to the right creator repo (Ph E).",
+                    },
                 },
             },
         ),
@@ -219,31 +223,7 @@ def _tool_definitions() -> list[types.Tool]:
                 "properties": {
                     "target_name": {"type": "string"},
                     "why_useful": {"type": "string"},
-                    "suggested_sources": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                    },
-                    "agent_id": {"type": "string"},
-                },
-            },
-        ),
-        types.Tool(
-            name="recipes_report_skill_error",
-            description=(
-                "Report that an installed recipe is broken, has wrong "
-                "instructions, or fails on this host. Use when the user says "
-                "'this skill is broken', 'report this skill', or when an "
-                "install/run fails. Auto-creates a labelled GitHub issue with "
-                "the failure signature."
-            ),
-            inputSchema={
-                "type": "object",
-                "required": ["slug", "signature", "summary"],
-                "properties": {
-                    "slug": {"type": "string"},
-                    "signature": {"type": "string"},
-                    "summary": {"type": "string"},
-                    "details": {"type": "string"},
+                    "suggested_sources": {"type": "array", "items": {"type": "string"}},
                     "agent_id": {"type": "string"},
                 },
             },
@@ -596,5 +576,6 @@ def _tool_definitions() -> list[types.Tool]:
             },
         ),
         *_phase_d_tools(),  # spotify_0608 Ph D — see _registry_d.py
+        *_phase_e_tools(),  # spotify_0608 Ph E — see _registry_d.py
         *_phase_j_tools(),  # loopclose_3005 Phase J — see _registry_j.py
     ]

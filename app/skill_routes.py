@@ -736,6 +736,37 @@ def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)
         # Mirror the source's home-dir layout. For namespaced slugs (host--task,
         # owner--repo) the leaf name is the human-facing skill name.
         leaf = slug.rsplit("--", 1)[-1]
+        # spotify_0608 Ph E — provenance on the public external install. This is
+        # a FETCH_ORIGIN install (real body streamed) so it's 'attributed'. We
+        # materialize a private pointer Skill row (idempotent) to satisfy the
+        # InstallEvent FK, then record + mint provenance. No cookbook context
+        # here (cookbook_id stays NULL — this is the bare federation route).
+        prov_id = None
+        try:
+            from app.services.cookbook_external import materialize_external_skill
+            from app.services.provenance import (
+                ATTR_ATTRIBUTED,
+                record_install_with_provenance,
+            )
+
+            mat = materialize_external_skill(db, source, slug)
+            if mat is not None:
+                _ev, prov_id = record_install_with_provenance(
+                    db,
+                    skill=mat,
+                    version_semver="external",
+                    request=None,
+                    source="external",
+                    cookbook_id=None,
+                    attribution=ATTR_ATTRIBUTED,
+                )
+                db.commit()
+        # Rationale: provenance is best-effort observability on the public
+        # federation route — a materialize/record hiccup must never block the
+        # actual install (the agent still gets real content below).
+        except Exception:  # noqa: BLE001
+            logger.warning("external install provenance failed for %s/%s", source, slug, exc_info=True)
+            db.rollback()
         return {
             "slug": skill.slug,
             "source": skill.source,
@@ -746,6 +777,7 @@ def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)
             "content": content,
             "namespace": "external",
             "quality": "community · as-is",
+            "provenance_id": prov_id,
             # Copy-paste form for a human; an agent uses `content` directly.
             "install_command": f"mkdir -p ~/.claude/skills/{leaf} && "
             f"curl -fsSL {raw_url} -o ~/.claude/skills/{leaf}/SKILL.md",
@@ -753,6 +785,36 @@ def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)
 
     # Other allowed paths (e.g. register_mcp) have no file body to stream yet —
     # surface the routed decision honestly rather than pretend.
+    # spotify_0608 Ph E — honest 'unattributed' provenance: a deep-link / non-fetch
+    # install has no body, so we cannot attribute deeper than "this source/slug was
+    # handed to an agent." We STILL mint a provenance_id (no hard-fail) mapping to
+    # an InstallEvent stamped attribution='unattributed'. This is distinct from a
+    # TRANSIENT FETCH_ORIGIN fetch failure (those 404/409 above and never reach here).
+    prov_id = None
+    try:
+        from app.services.cookbook_external import materialize_external_skill
+        from app.services.provenance import (
+            ATTR_UNATTRIBUTED,
+            record_install_with_provenance,
+        )
+
+        mat = materialize_external_skill(db, source, slug)
+        if mat is not None:
+            _ev, prov_id = record_install_with_provenance(
+                db,
+                skill=mat,
+                version_semver="external",
+                request=None,
+                source="external",
+                cookbook_id=None,
+                attribution=ATTR_UNATTRIBUTED,
+            )
+            db.commit()
+    # Rationale: provenance is best-effort observability; never block the honest
+    # deep-link response on a provenance write hiccup.
+    except Exception:  # noqa: BLE001
+        logger.warning("deep-link provenance failed for %s/%s", source, slug, exc_info=True)
+        db.rollback()
     return {
         "slug": skill.slug,
         "source": skill.source,
@@ -761,6 +823,8 @@ def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)
         "origin_url": skill.origin_url,
         "namespace": "external",
         "quality": "community · as-is",
+        "provenance_id": prov_id,
+        "attribution": "unattributed",
         "note": "This install path is not yet executable here; use the origin link.",
     }
 

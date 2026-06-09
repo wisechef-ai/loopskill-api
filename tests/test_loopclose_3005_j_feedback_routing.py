@@ -48,6 +48,24 @@ import pytest
 import app.feedback_ratelimit as rl_module
 
 
+def _mk_provenance_for_cookbook(db_session, cb):
+    """spotify_0608 Ph E helper: mint a provenance_id mapped to an install in
+    ``cb`` so feedback routing (now provenance-deterministic) can resolve the
+    cookbook's configured repo. Returns the provenance_id string."""
+    from app.models import Skill
+    from app.services.provenance import record_install_with_provenance
+
+    s = Skill(
+        id=uuid.uuid4(), slug=f"prov-{uuid.uuid4().hex[:8]}", title="prov", is_public=True, install_count=0
+    )
+    db_session.add(s)
+    db_session.flush()
+    _ev, pid = record_install_with_provenance(
+        db_session, skill=s, version_semver="1.0.0", source="cookbook", cookbook_id=cb.id, commit=True
+    )
+    return pid
+
+
 @pytest.fixture(autouse=True)
 def reset_ratelimit():
     """Reset rate-limit state between tests to prevent bleed."""
@@ -57,6 +75,7 @@ def reset_ratelimit():
 
 
 # ── Vault tests ──────────────────────────────────────────────────────────────
+
 
 class TestFeedbackCredVault:
     """T1-T4: Fernet PAT vault encrypt/decrypt/mask."""
@@ -229,6 +248,7 @@ class TestFeedbackGithub:
 
 # ── configure_feedback tool tests ────────────────────────────────────────────
 
+
 def _make_cookbook(db, owner_id, is_base=False):
     """Helper: create a cookbook row in the test DB."""
     from app.models import Cookbook
@@ -253,9 +273,7 @@ class TestConfigureFeedback:
         from app.mcp.tools.configure_feedback import recipes_configure_feedback
 
         ctx = AuthContext(scope="user", user_id=uuid.uuid4(), tier="free")
-        result = recipes_configure_feedback(
-            db_session, repo="owner/repo", mode="pat", pat="ghp_x", ctx=ctx
-        )
+        result = recipes_configure_feedback(db_session, repo="owner/repo", mode="pat", pat="ghp_x", ctx=ctx)
         assert result["ok"] is False
         assert "Pro" in result["error"]
 
@@ -267,9 +285,7 @@ class TestConfigureFeedback:
         user_id = uuid.uuid4()
         _make_cookbook(db_session, user_id)
         ctx = AuthContext(scope="user", user_id=user_id, tier="pro")
-        result = recipes_configure_feedback(
-            db_session, repo="notavalid", mode="pat", pat="ghp_x", ctx=ctx
-        )
+        result = recipes_configure_feedback(db_session, repo="notavalid", mode="pat", pat="ghp_x", ctx=ctx)
         assert result["ok"] is False
         assert "Invalid repo" in result["error"]
 
@@ -281,9 +297,7 @@ class TestConfigureFeedback:
         user_id = uuid.uuid4()
         _make_cookbook(db_session, user_id)
         ctx = AuthContext(scope="user", user_id=user_id, tier="pro")
-        result = recipes_configure_feedback(
-            db_session, repo="owner/repo", mode="pat", pat=None, ctx=ctx
-        )
+        result = recipes_configure_feedback(db_session, repo="owner/repo", mode="pat", pat=None, ctx=ctx)
         assert result["ok"] is False
         assert "pat is required" in result["error"]
 
@@ -359,9 +373,7 @@ class TestConfigureFeedback:
 
         # First configure
         with patch("app.mcp.tools.configure_feedback.verify_repo_access", return_value=True):
-            recipes_configure_feedback(
-                db_session, repo="owner/repo", mode="pat", pat="ghp_x", ctx=ctx
-            )
+            recipes_configure_feedback(db_session, repo="owner/repo", mode="pat", pat="ghp_x", ctx=ctx)
         db_session.refresh(cb)
         assert cb.feedback_repo == "owner/repo"
 
@@ -382,9 +394,7 @@ class TestConfigureFeedback:
         user_id = uuid.uuid4()
         _make_cookbook(db_session, user_id)
         ctx = AuthContext(scope="user", user_id=user_id, tier="pro_plus")
-        result = recipes_configure_feedback(
-            db_session, repo="owner/repo", mode="github_app", ctx=ctx
-        )
+        result = recipes_configure_feedback(db_session, repo="owner/repo", mode="github_app", ctx=ctx)
         assert result["ok"] is False
         assert "not yet live" in result["error"]
 
@@ -468,13 +478,17 @@ class TestFeedbackRouting:
 
         user_id = uuid.uuid4()
         enc = encrypt_pat("ghp_USERTOKEN")
-        self._make_feedback_db(
+        cb = self._make_feedback_db(
             db_session,
             user_id,
             repo="testuser/feedback-repo",
             mode="pat",
             pat_enc=enc,
         )
+        # spotify_0608 Ph E: routing is now DETERMINISTIC via provenance, not the
+        # old "first cookbook the user owns" guess. Mint a provenance_id from an
+        # install in THIS cookbook and pass it so the report routes to the repo.
+        prov_id = _mk_provenance_for_cookbook(db_session, cb)
         ctx = AuthContext(scope="user", user_id=user_id, tier="pro")
 
         with patch("app.mcp.tools.feedback.github_dispatch") as mock_gd:
@@ -484,6 +498,7 @@ class TestFeedbackRouting:
                 category="billing",
                 message="test user-routed feedback",
                 ctx=ctx,
+                provenance_id=prov_id,
             )
 
         assert result["ok"] is True
@@ -509,13 +524,14 @@ class TestFeedbackRouting:
 
         user_id = uuid.uuid4()
         enc = encrypt_pat("ghp_FAILING")
-        self._make_feedback_db(
+        cb = self._make_feedback_db(
             db_session,
             user_id,
             repo="testuser/broken-repo",
             mode="pat",
             pat_enc=enc,
         )
+        prov_id = _mk_provenance_for_cookbook(db_session, cb)
         ctx = AuthContext(scope="user", user_id=user_id, tier="pro")
 
         with patch("app.mcp.tools.feedback.github_dispatch") as mock_gd:
@@ -528,6 +544,7 @@ class TestFeedbackRouting:
                 category="ux",
                 message="test fallback path",
                 ctx=ctx,
+                provenance_id=prov_id,
             )
 
         assert result["ok"] is True
@@ -611,9 +628,9 @@ class TestRegressions:
 
         # The plaintext token must NEVER appear in any log record
         for record in caplog.records:
-            assert secret_token not in record.getMessage(), (
-                f"SECRET TOKEN APPEARED IN LOG: {record.getMessage()}"
-            )
+            assert (
+                secret_token not in record.getMessage()
+            ), f"SECRET TOKEN APPEARED IN LOG: {record.getMessage()}"
 
     def test_new_columns_in_model(self):
         """T27: Cookbook model has the new Phase J columns."""

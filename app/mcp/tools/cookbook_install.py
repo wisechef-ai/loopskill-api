@@ -234,20 +234,24 @@ def recipes_cookbook_install(
                 raise CookbookInstallError(
                     "external_skill_unresolvable", "external_skill_unresolvable", status=404
                 )
-            from app._skill_helpers import _record_install_event
+            from app.services.provenance import record_install_with_provenance
 
-            _record_install_event(db, skill=skill, version_semver="external", request=None, source="mcp")
+            _ev, provenance_id = record_install_with_provenance(
+                db, skill=skill, version_semver="external", request=None, source="mcp", cookbook_id=cb.id
+            )
             db.commit()
-            return {**payload, "external": True, "source": cs.source}
+            return {**payload, "external": True, "source": cs.source, "provenance_id": provenance_id}
 
         version = _resolve_version(db, skill, cs.pinned_version)
         if version is None:
             raise CookbookInstallError("no_versions", "no_versions", status=404)
 
-        # recipes-D: record install event so MCP-driven installs are counted too.
-        from app._skill_helpers import _record_install_event
+        # spotify_0608 Ph E — record install + mint provenance (cookbook_id stamped).
+        from app.services.provenance import record_install_with_provenance
 
-        _record_install_event(db, skill=skill, version_semver=version.semver, request=None, source="mcp")
+        _ev, provenance_id = record_install_with_provenance(
+            db, skill=skill, version_semver=version.semver, request=None, source="mcp", cookbook_id=cb.id
+        )
         db.commit()
 
         return {
@@ -256,6 +260,7 @@ def recipes_cookbook_install(
             "tarball_url": _make_install_url(skill.slug, version.id, version.semver),
             "checksum_sha256": version.checksum_sha256,
             "source": cs.source,
+            "provenance_id": provenance_id,
         }
 
     # Bulk path
@@ -267,7 +272,7 @@ def recipes_cookbook_install(
     )
 
     skills_payload: list[dict[str, Any]] = []
-    installed: list[tuple[Skill, str]] = []
+    installed: list[tuple[Skill, str, int]] = []
     for cs, skill in rows:
         # SECURITY: per-skill authz gate. For cbt_token callers this MUST pass
         # because the skill is in their scoped cookbook (the Phase C predicate
@@ -294,15 +299,18 @@ def recipes_cookbook_install(
             }
         )
         if version is not None:
-            installed.append((skill, version.semver))
+            installed.append((skill, version.semver, len(skills_payload) - 1))
 
-    # recipes-D: record install events for MCP-driven bulk installs so they're
-    # visible in transparency stats. Skipped versionless entries already filtered
-    # by the `if version is not None` guard above.
-    from app._skill_helpers import _record_install_event
+    # spotify_0608 Ph E — record install events + mint a PER-SKILL provenance_id
+    # for MCP-driven bulk installs (R4 nit (a): provenance rides per-skill under
+    # skills[], not cookbook-top-level). Stamps cookbook_id for feedback routing.
+    from app.services.provenance import record_install_with_provenance
 
-    for skill, semver in installed:
-        _record_install_event(db, skill=skill, version_semver=semver, request=None, source="mcp")
+    for skill, semver, idx in installed:
+        _ev, provenance_id = record_install_with_provenance(
+            db, skill=skill, version_semver=semver, request=None, source="mcp", cookbook_id=cb.id
+        )
+        skills_payload[idx]["provenance_id"] = provenance_id
     if installed:
         db.commit()
 

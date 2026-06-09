@@ -92,3 +92,39 @@ def _phase_d_tools() -> list[types.Tool]:
             },
         ),
     ]
+
+
+def _phase_e_tools() -> list[types.Tool]:
+    """spotify_0608 Ph E tool definitions — provenance-aware feedback surface.
+
+    Moved here (same pattern as _phase_d_tools / _phase_j_tools) so registry.py
+    stays under the 600-line god-object gate after the Ph E provenance_id field
+    additions expanded the inline schemas.
+    """
+    return [
+        types.Tool(
+            name="recipes_report_skill_error",
+            description=(
+                "Report that an installed recipe is broken, has wrong "
+                "instructions, or fails on this host. Use when the user says "
+                "'this skill is broken', 'report this skill', or when an "
+                "install/run fails. Auto-creates a labelled GitHub issue with "
+                "the failure signature."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["slug", "signature", "summary"],
+                "properties": {
+                    "slug": {"type": "string"},
+                    "signature": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "details": {"type": "string"},
+                    "agent_id": {"type": "string"},
+                    "provenance_id": {
+                        "type": "string",
+                        "description": "Install-provenance token; routes issue to curator repo (Ph E).",
+                    },
+                },
+            },
+        ),
+    ]

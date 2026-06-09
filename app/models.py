@@ -290,9 +290,55 @@ class InstallEvent(Base):
     client_ip = Column(String(64), nullable=True)
     # F.6 rollback marker: 'ok' | 'rolled_back' | 'partial' | 'in_progress'
     status = Column(String(32), nullable=False, server_default="ok", index=True)
+    # spotify_0608 Ph E — install-provenance (Sentry/npm pattern).
+    #   cookbook_id : which cookbook the install was triggered from (NULL for a
+    #                 direct, cookbook-less /api/skills/install). Threaded via
+    #                 _record_install_event(). Powers feedback → curator-repo
+    #                 routing through the provenance_id resolution.
+    #   attribution : 'attributed' (default — we know skill + version, and
+    #                 cookbook when present) | 'unattributed' (honest deep-link /
+    #                 non-fetch install: no body fetched → no deeper attribution).
+    #                 Transient FETCH_ORIGIN failures are NOT mis-stamped here —
+    #                 they stay hard errors and never reach this row.
+    cookbook_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    attribution = Column(String(16), nullable=False, server_default="attributed")
     created_at = Column(DateTime, server_default=func.now())
 
     skill = relationship("Skill", back_populates="install_events")
+
+
+class ProvenanceRecord(Base):
+    """spotify_0608 Ph E — RANDOM, server-stored install-provenance token.
+
+    The carrier that lets anonymous feedback / skill-error reports attribute to
+    the ARTIFACT (skill + cookbook + version) without ever carrying agent
+    identity. ``provenance_id = secrets.token_urlsafe(32)`` is RANDOM and stored
+    server-side mapping → ``install_event_id``; the token carries ZERO
+    client-readable metadata (this is the fix for the original itsdangerous
+    "signed but not encrypted" leak — a signed payload would have exposed
+    cookbook_id/skill_id to the client).
+
+    Resolution is a pure server-side join:
+        provenance_id → ProvenanceRecord → InstallEvent
+                      → (cookbook_id, skill_id, version_semver)
+
+    Feedback / skill-error tools accept the provenance_id, resolve it here, and
+    route the issue to the correct creator repo — replacing the
+    "_resolve_feedback_target first-cookbook guess" with deterministic routing.
+    """
+
+    __tablename__ = "provenance_records"
+
+    provenance_id = Column(String(64), primary_key=True)
+    install_event_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("install_events.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    install_event = relationship("InstallEvent")
 
 
 class TelemetryEvent(Base):

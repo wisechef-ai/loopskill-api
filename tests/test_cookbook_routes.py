@@ -1,4 +1,5 @@
 """Tests for v7 Phase B cookbook endpoints (app/cookbook_routes.py)."""
+
 from __future__ import annotations
 
 import time
@@ -20,6 +21,7 @@ from app.models import Base, Cookbook, CookbookSkill, Skill, SkillVersion, User
 
 
 # ─────────────────────────── Fixtures ───────────────────────────────────
+
 
 @pytest.fixture(scope="module")
 def engine_fixture():
@@ -53,6 +55,7 @@ def db_session(engine_fixture) -> Generator[Session, None, None]:
 
 
 # ─────────────────────────── Helpers ────────────────────────────────────
+
 
 def _make_user(db: Session, *, tier: str | None, status: str | None = "active") -> User:
     uid = uuid4()
@@ -119,6 +122,7 @@ def _make_app(db: Session, *, api_key_user_id, is_admin: bool = False) -> FastAP
 
 
 # ─────────────────────────── Tier gates ─────────────────────────────────
+
 
 class TestTierGates:
     def test_free_tier_can_create_one_then_capped(self, db_session):
@@ -223,6 +227,7 @@ class TestTierGates:
 
 
 # ─────────────────────────── List / detail ──────────────────────────────
+
 
 class TestListDetail:
     def test_list_only_returns_mine(self, db_session):
@@ -329,6 +334,7 @@ class TestListDetail:
 
 # ─────────────────────────── Skill add/remove ───────────────────────────
 
+
 class TestAddRemoveSkill:
     def test_add_skill_succeeds(self, db_session):
         user = _make_user(db_session, tier="pro_plus")
@@ -383,18 +389,22 @@ class TestAddRemoveSkill:
 
 # ─────────────────────────── Manifest ───────────────────────────────────
 
+
 class TestManifest:
     def test_manifest_yaml_roundtrip(self, db_session):
         user = _make_user(db_session, tier="pro_plus")
-        cb = Cookbook(id=uuid4(), name="Manifest CB", description="My desc",
-                      cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Manifest CB", description="My desc", cookbook_owner=user.id)
         skill = _make_skill(db_session, slug="delta")
         db_session.add(cb)
         db_session.flush()
-        db_session.add(CookbookSkill(
-            cookbook_id=cb.id, skill_id=skill.id,
-            source="custom-added", pinned_version="1.2.3",
-        ))
+        db_session.add(
+            CookbookSkill(
+                cookbook_id=cb.id,
+                skill_id=skill.id,
+                source="custom-added",
+                pinned_version="1.2.3",
+            )
+        )
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
@@ -412,6 +422,7 @@ class TestManifest:
 
 # ─────────────────────────── Install ────────────────────────────────────
 
+
 class TestInstall:
     def test_install_idempotent(self, db_session):
         user = _make_user(db_session, tier="pro_plus")
@@ -428,7 +439,17 @@ class TestInstall:
             r2 = client.post(f"/api/cookbooks/{cb.id}/install")
         assert r1.status_code == 200
         assert r2.status_code == 200
-        assert r1.json() == r2.json()
+
+        # spotify_0608 Ph E: each install mints a fresh per-skill provenance_id
+        # (a distinct random token per install event), so two installs are NOT
+        # byte-identical. Idempotency is about the install PAYLOAD (slug/version/
+        # tarball/source), not the provenance token — strip it before comparing.
+        def _strip_prov(payload):
+            for s in payload.get("skills", []):
+                s.pop("provenance_id", None)
+            return payload
+
+        assert _strip_prov(r1.json()) == _strip_prov(r2.json())
         body = r1.json()
         assert body["cookbook_id"] == str(cb.id)
         assert len(body["skills"]) == 1
@@ -443,10 +464,12 @@ class TestInstall:
         gone = _make_skill(db_session, slug="gone", with_version=True)
         db_session.add(cb)
         db_session.flush()
-        db_session.add_all([
-            CookbookSkill(cookbook_id=cb.id, skill_id=kept.id, source="custom-added"),
-            CookbookSkill(cookbook_id=cb.id, skill_id=gone.id, source="disabled"),
-        ])
+        db_session.add_all(
+            [
+                CookbookSkill(cookbook_id=cb.id, skill_id=kept.id, source="custom-added"),
+                CookbookSkill(cookbook_id=cb.id, skill_id=gone.id, source="disabled"),
+            ]
+        )
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
@@ -458,6 +481,7 @@ class TestInstall:
 
 
 # ─────────────────────────── Sync ───────────────────────────────────────
+
 
 class TestSync:
     def test_sync_since_filter(self, db_session):
@@ -471,18 +495,30 @@ class TestSync:
 
         # Insert with three distinct timestamps.
         base = datetime(2026, 1, 1, 12, 0, 0)
-        db_session.add(CookbookSkill(
-            cookbook_id=cb.id, skill_id=s1.id, source="custom-added",
-            added_at=base,
-        ))
-        db_session.add(CookbookSkill(
-            cookbook_id=cb.id, skill_id=s2.id, source="custom-added",
-            added_at=base + timedelta(hours=1),
-        ))
-        db_session.add(CookbookSkill(
-            cookbook_id=cb.id, skill_id=s3.id, source="custom-added",
-            added_at=base + timedelta(hours=2),
-        ))
+        db_session.add(
+            CookbookSkill(
+                cookbook_id=cb.id,
+                skill_id=s1.id,
+                source="custom-added",
+                added_at=base,
+            )
+        )
+        db_session.add(
+            CookbookSkill(
+                cookbook_id=cb.id,
+                skill_id=s2.id,
+                source="custom-added",
+                added_at=base + timedelta(hours=1),
+            )
+        )
+        db_session.add(
+            CookbookSkill(
+                cookbook_id=cb.id,
+                skill_id=s3.id,
+                source="custom-added",
+                added_at=base + timedelta(hours=2),
+            )
+        )
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
@@ -504,11 +540,13 @@ class TestSync:
         r_skill = _make_skill(db_session, slug="remove-me")
         db_session.add(cb)
         db_session.flush()
-        db_session.add_all([
-            CookbookSkill(cookbook_id=cb.id, skill_id=a.id, source="custom-added"),
-            CookbookSkill(cookbook_id=cb.id, skill_id=u.id, source="overridden", pinned_version="2.0.0"),
-            CookbookSkill(cookbook_id=cb.id, skill_id=r_skill.id, source="disabled"),
-        ])
+        db_session.add_all(
+            [
+                CookbookSkill(cookbook_id=cb.id, skill_id=a.id, source="custom-added"),
+                CookbookSkill(cookbook_id=cb.id, skill_id=u.id, source="overridden", pinned_version="2.0.0"),
+                CookbookSkill(cookbook_id=cb.id, skill_id=r_skill.id, source="disabled"),
+            ]
+        )
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
