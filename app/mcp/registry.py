@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import mcp.types as types
+from app.mcp._registry_d import _phase_d_tools
 from app.mcp._registry_j import _phase_j_tools
 
 
@@ -594,5 +595,6 @@ def _tool_definitions() -> list[types.Tool]:
                 },
             },
         ),
+        *_phase_d_tools(),  # spotify_0608 Ph D — see _registry_d.py
         *_phase_j_tools(),  # loopclose_3005 Phase J — see _registry_j.py
     ]

@@ -57,6 +57,9 @@ from app.mcp.tools import (
     recipes_install,
     recipes_cookbook_install,
     CookbookInstallError,
+    recipes_install_from_cookbook,
+    recipes_pick_best_from_cookbook,
+    recipes_compose_cookbook_from_links,
     recipes_list_cookbook,
     recipes_propose_skill_patch,
     recipes_publish_request,
@@ -139,6 +142,36 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
                 ctx=ctx,
                 cookbook_id=args.get("cookbook_id"),
                 slug=args.get("slug"),
+            )
+        except CookbookInstallError as exc:
+            return {"error": exc.message, "code": exc.code, "status": exc.status}
+    # ── spotify_0608 Ph D: streaming cookbook-composition verbs ─────────────
+    if name == "recipes_install_from_cookbook":
+        try:
+            return _tool_ns.get("recipes_install_from_cookbook", recipes_install_from_cookbook)(
+                db,
+                link=args["link"],
+                ctx=ctx,
+            )
+        except CookbookInstallError as exc:
+            return {"error": exc.message, "code": exc.code, "status": exc.status}
+    if name == "recipes_pick_best_from_cookbook":
+        try:
+            return _tool_ns.get("recipes_pick_best_from_cookbook", recipes_pick_best_from_cookbook)(
+                db,
+                link=args["link"],
+                need=args.get("need"),
+                ctx=ctx,
+            )
+        except CookbookInstallError as exc:
+            return {"error": exc.message, "code": exc.code, "status": exc.status}
+    if name == "recipes_compose_cookbook_from_links":
+        try:
+            return _tool_ns.get("recipes_compose_cookbook_from_links", recipes_compose_cookbook_from_links)(
+                db,
+                links=args["links"],
+                name=args.get("name"),
+                ctx=ctx,
             )
         except CookbookInstallError as exc:
             return {"error": exc.message, "code": exc.code, "status": exc.status}

@@ -10,6 +10,11 @@ from app.mcp.tools.cookbook_install import (
     CookbookInstallError,
     recipes_cookbook_install,
 )
+from app.mcp.tools.cookbook_stream import (
+    recipes_compose_cookbook_from_links,
+    recipes_install_from_cookbook,
+    recipes_pick_best_from_cookbook,
+)
 from app.mcp.tools.doctor import recipes_doctor
 from app.mcp.tools.feedback import recipes_feedback
 from app.mcp.tools.fleet import (
@@ -70,6 +75,10 @@ __all__ = [
     # cookbook_share_2105 Phase F: cookbook-scoped install
     "recipes_cookbook_install",
     "CookbookInstallError",
+    # spotify_0608 Ph D: streaming cookbook-composition verbs
+    "recipes_install_from_cookbook",
+    "recipes_pick_best_from_cookbook",
+    "recipes_compose_cookbook_from_links",
     # integrator_2905 W1: tailor/fork tools
     "recipes_fork_list",
     "recipes_tailor",
