@@ -34,6 +34,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import Cookbook, CookbookSkill, Skill, SkillVersion, User
+from app._skill_helpers import _install_counts_for
 from app.services.cookbook_external import (
     install_descriptor_for,
     is_external_skill,
@@ -341,6 +342,102 @@ def _to_cb_out(cb: Cookbook) -> dict:
         cookbook_owner=str(cb.cookbook_owner) if cb.cookbook_owner else None,
         created_at=cb.created_at,
     ).model_dump(mode="json")
+
+
+# ── spotify_0608 Ph B — public discovery surface ─────────────────────────
+# These routes are UNAUTHENTICATED (allowlisted in middleware/api_key.py) and
+# MUST be registered before the `/{cookbook_id}` catch-all so FastAPI doesn't
+# capture "discover"/"public" as a cookbook_id. They expose ONLY cookbooks with
+# visibility='public'. Ranking + the public install-count surface EXCLUDE
+# test/CI installs via _install_counts_for (§4.2).
+
+
+def _public_cb_card(db: Session, cb: Cookbook) -> dict:
+    """A compact, anonymous-safe public cookbook card for the discover feed."""
+    skill_rows = _skills_for(db, cb.id, include_disabled=False)
+    skill_ids = [skill.id for _cs, skill in skill_rows]
+    counts = _install_counts_for(db, skill_ids) if skill_ids else {}
+    total_installs = sum(t for t, _7 in counts.values())
+    installs_7d = sum(s for _t, s in counts.values())
+    return {
+        "slug": cb.slug,
+        "name": cb.name,
+        "description": cb.description,
+        "visibility": cb.visibility,
+        "theme": cb.theme_json,
+        "skill_count": len(skill_rows),
+        "installs_total": total_installs,
+        "installs_7d": installs_7d,
+        "created_at": cb.created_at.isoformat() if cb.created_at else None,
+        # ?ref attribution: a creator-tagged clone link surfaced ON the card so
+        # install attribution is visible from week 1 (GTM build-plan mod #2).
+        "ref": str(cb.cookbook_owner) if cb.cookbook_owner else None,
+    }
+
+
+@router.get("/discover")
+def discover_cookbooks(
+    db: Session = Depends(get_db),
+    limit: int = 30,
+    offset: int = 0,
+    sort: str = "installs",
+):
+    """Public, ranked feed of public cookbooks. No auth required.
+
+    sort: 'installs' (default, by real 7d installs then total — test/CI excluded
+    per §4.2) | 'newest' (created_at desc). Pagination via limit/offset.
+    """
+    limit = max(1, min(int(limit or 30), 100))
+    offset = max(0, int(offset or 0))
+
+    q = db.query(Cookbook).filter(
+        Cookbook.visibility == "public",
+        Cookbook.slug.isnot(None),
+    )
+    if sort == "newest":
+        q = q.order_by(Cookbook.created_at.desc())
+        rows = q.offset(offset).limit(limit).all()
+        cards = [_public_cb_card(db, cb) for cb in rows]
+    else:
+        # Rank by real installs. Small marketplace → compute cards then sort in
+        # Python (install counts are a per-cookbook aggregate, not a column).
+        rows = q.all()
+        cards = [_public_cb_card(db, cb) for cb in rows]
+        cards.sort(key=lambda c: (c["installs_7d"], c["installs_total"]), reverse=True)
+        cards = cards[offset : offset + limit]
+
+    return {"cookbooks": cards, "limit": limit, "offset": offset, "sort": sort}
+
+
+@router.get("/public/{slug}")
+def public_cookbook_page(slug: str, db: Session = Depends(get_db)):
+    """Public cookbook page by slug. No auth. 404 unless visibility='public'.
+
+    Returns the cookbook card + its ordered skill list + a ONE-LINE clone hint
+    so an agent can compose it via MCP from the public page (GTM gate, Ph F will
+    render this). Carries ?ref attribution.
+    """
+    cb = db.query(Cookbook).filter(Cookbook.slug == slug).first()
+    if not cb or cb.visibility != "public":
+        raise HTTPException(status_code=404, detail="cookbook_not_found")
+
+    card = _public_cb_card(db, cb)
+    skill_rows = _skills_for(db, cb.id, include_disabled=False)
+    card["skills"] = [
+        {
+            "slug": skill.slug,
+            "title": skill.title,
+            "is_public": bool(skill.is_public),
+            "source": cs.source,
+            "pinned_version": cs.pinned_version,
+        }
+        for cs, skill in skill_rows
+    ]
+    # One copy-paste MCP line (the entire top-of-funnel). ?ref makes the install
+    # attributable to the creator from the public page.
+    ref_q = f"?ref={card['ref']}" if card["ref"] else ""
+    card["clone_line"] = f'recipes_cookbook_install from "cookbook://{cb.slug}{ref_q}"'
+    return card
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────

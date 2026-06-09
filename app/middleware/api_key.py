@@ -268,10 +268,12 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         # remain auth-required and re-validate the key per request.
         "/api/mcp/healthz",
         # top1pct_1105 Phase A — marketing counts is the SSOT for every public
-        # surface (homepage hero, /skills, /pricing, /docs). MUST be reachable
-        # without auth so the static-build pipeline can pull it; counts contain
-        # no PII or sensitive data.
+        # surface (hero, /skills, /pricing, /docs); reachable without auth so the
+        # static-build pipeline can pull it; no PII.
         "/api/marketing/",
+        # spotify_0608 Ph B — public cookbook discovery (CRUD stays auth-gated).
+        "/api/cookbooks/discover",
+        "/api/cookbooks/public/",
         # marketing_1205 — UTM redirectors for social platforms. Public, set cookie + 302.
         "/x/",
         "/li/",
@@ -424,18 +426,14 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
         # Enforce rec_ prefix — but first check for cbt_ share tokens
         if key.startswith("cbt_"):
-            # SECURITY: cbt_ tokens are scoped strictly to cookbook routes.
-            # Without this gate they would inherit the master-key signal
-            # (api_key_user_id=None) on any other endpoint that uses
-            # `is_master = (api_key_user_id is None)`. Cookbook-prefixed paths
-            # ONLY — anything else is 403 with no info leak.
-            #
-            # repohygiene_2605/H.1 (Issue #290): pro/pro_plus cbt_tokens with
-            # allow_public_catalog=True are additionally permitted to call
-            # GET /api/skills/install and GET /api/skills/_download for
-            # public-catalog skills.  The token is validated first (full DB
-            # lookup) so the path-broadening only applies to genuine, active
-            # tokens — not to any cbt_-prefixed string.
+            # SECURITY: cbt_ tokens are scoped strictly to cookbook routes — without
+            # this gate they'd inherit the master-key signal (api_key_user_id=None)
+            # on any endpoint using `is_master = (api_key_user_id is None)`. Anything
+            # off the cookbook prefix → 403, no info leak. EXCEPTION (repohygiene_2605/
+            # H.1, Issue #290): pro/pro_plus cbt_tokens with allow_public_catalog=True
+            # may also call GET /api/skills/install + /_download for public-catalog
+            # skills. Token is validated first (full DB lookup) so the path-broadening
+            # only applies to genuine active tokens, not any cbt_-prefixed string.
             is_install_path = request.url.path in ("/api/skills/install", "/api/skills/_download")
             if not request.url.path.startswith("/api/cookbooks/") and not is_install_path:
                 return JSONResponse(

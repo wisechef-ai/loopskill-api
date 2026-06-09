@@ -109,6 +109,12 @@ class APIKey(Base):
     last_used_at = Column(DateTime, nullable=True)
     # secfix_1905/C: sandbox execution privilege flag
     is_sandbox_operator = Column(Boolean, nullable=False, server_default="false")
+    # spotify_0608 Ph B (§4.2 install-count integrity): marks keys whose installs
+    # are synthetic (test/CI/internal harness traffic) so they can be EXCLUDED from
+    # every public-ranking surface — discovery ranking, leaderboards, the carousel
+    # popularity term, and the GTM kill/scale install signal. Flag at the key level,
+    # filter at count time (cheapest correct path). Default false = organic.
+    is_test = Column(Boolean, nullable=False, server_default="false")
 
     user = relationship("User", back_populates="api_keys")
 

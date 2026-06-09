@@ -19,6 +19,7 @@ from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.models import (
+    APIKey,
     InstallEvent,
     Skill,
     User,
@@ -88,6 +89,11 @@ def _install_counts_for(db: Session, skill_ids: list) -> dict:
 
     One round-trip aggregation — small marketplace (≤200 skills) so a
     grouped query is cheaper than a LATERAL per row.
+
+    spotify_0608 Ph B (§4.2): EXCLUDES synthetic installs. An install counts as
+    organic when its api_key_id is NULL (anonymous) OR its APIKey.is_test is
+    false. Only installs explicitly keyed to a test/CI/internal key are dropped.
+    This keeps the public-ranking / leaderboard / GTM-signal counts honest.
     """
     if not skill_ids:
         return {}
@@ -98,7 +104,13 @@ def _install_counts_for(db: Session, skill_ids: list) -> dict:
             func.count(InstallEvent.id).label("total"),
             func.sum(case((InstallEvent.created_at >= since_7d, 1), else_=0)).label("last_7d"),
         )
-        .filter(InstallEvent.skill_id.in_(skill_ids))
+        .outerjoin(APIKey, APIKey.id == InstallEvent.api_key_id)
+        .filter(
+            InstallEvent.skill_id.in_(skill_ids),
+            # Anonymous installs (no key) are organic; keyed installs are organic
+            # unless the key is flagged is_test. coalesce so NULL→organic.
+            func.coalesce(APIKey.is_test, False).is_(False),
+        )
         .group_by(InstallEvent.skill_id)
         .all()
     )
@@ -335,6 +347,17 @@ def _record_install_event(
         client_ip=client_ip,
     )
     db.add(event)
+
+    # spotify_0608 Ph B (§4.2 install-count integrity): the InstallEvent row is
+    # ALWAYS written (audit/provenance), but the denormalized Skill.install_count
+    # — which feeds the carousel popularity term and other public-ranking surfaces
+    # — is bumped ONLY for organic installs. A test/CI/internal key (is_test=true)
+    # records the event but does NOT inflate the public counter. Anonymous installs
+    # (no key) are organic and DO bump.
+    if api_key_id is not None:
+        is_test = db.query(APIKey.is_test).filter(APIKey.id == api_key_id).scalar()
+        if is_test:
+            return
 
     # Atomic SQL-level bump — concurrent installs cannot lose writes.
     # Same pattern as install_routes.recipes_install (RCP-13).
