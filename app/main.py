@@ -11,7 +11,7 @@ from app.admin_routes import router as admin_router
 from app.demand_routes import router as demand_router
 from app.api_key_routes import router as api_key_router
 from app.auth_routes import router as auth_router
-from app.buckets_routes import router as buckets_router
+from app.cookbook_deployment_routes import router as cookbook_deploy_router
 from app.canary import router as canary_router
 from app.carousel.routes import router as carousel_router
 from app.bootcamp_routes import router as bootcamp_router  # bootcamp_0607
@@ -40,7 +40,7 @@ from app.mcp.server import (
 from app.mcp.server import (
     run_streamable_http,
 )
-from app.middleware import APIKeyMiddleware, BucketHostMiddleware, RateLimitMiddleware
+from app.middleware import APIKeyMiddleware, CookbookHostMiddleware, RateLimitMiddleware
 from app.publisher_routes import router as publisher_router
 from app.recall_routes import router as recall_router
 from app.recipe_routes import router as recipe_router  # Phase E: recipe split
@@ -135,7 +135,7 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(RateLimitMiddleware, max_requests=settings.RATE_LIMIT_PER_MINUTE)
     app.add_middleware(APIKeyMiddleware)
-    app.add_middleware(BucketHostMiddleware)
+    app.add_middleware(CookbookHostMiddleware)
 
     app.include_router(router)
     app.include_router(utm_router)  # marketing_1205: /x/<slug>, /li/<slug> etc.
@@ -163,7 +163,7 @@ def create_app() -> FastAPI:
     app.include_router(forks_router, tags=["forks"])
     app.include_router(cookbook_router, tags=["cookbooks"])
     app.include_router(graph_router, tags=["graph"])
-    app.include_router(buckets_router, tags=["buckets"])
+    app.include_router(cookbook_deploy_router, tags=["cookbook-deploy"])
     app.include_router(heartbeat_router, tags=["heartbeat"])
     app.include_router(intent_survey_router, tags=["surveys"])
     app.include_router(skill_error_router, tags=["skill-errors"])

@@ -236,7 +236,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         "/api/checkout/",
         "/api/billing/",
         "/api/api-keys",
-        "/api/buckets/",
+        "/api/cookbook-deploy/",  # spotify_0608 Ph A: re-homed from /api/buckets/
         "/api/subscriptions/",  # subscriptions/downgrade is JWT-authed
     )
     WEBHOOK_PATHS = {

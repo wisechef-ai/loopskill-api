@@ -85,6 +85,11 @@ class SkillAccessOut(BaseModel):
     tier: str | None = None
     user_tier: str | None = None
     fork_eligible: bool = False
+    # spotify_0608 Ph A: canonical noun is "cookbook deployment". `bucket_eligible`
+    # is retained as a deprecated alias (same value) for one release so existing
+    # portal/clients reading it don't break; new clients should read
+    # `cookbook_deploy_eligible`.
+    cookbook_deploy_eligible: bool = False
     bucket_eligible: bool = False
     latest_version: str | None = None
     license: str | None = None

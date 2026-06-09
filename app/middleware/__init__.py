@@ -67,7 +67,7 @@ from app.middleware.api_key import (  # noqa: E402
     _auth_ctx_from_jwt_cookie,
     APIKeyMiddleware,
 )
-from app.middleware.bucket_routing import BucketHostMiddleware  # noqa: E402
+from app.middleware.cookbook_routing import CookbookHostMiddleware  # noqa: E402
 from app.middleware.rate_limit import RateLimitMiddleware  # noqa: E402
 
 __all__ = [
@@ -82,6 +82,6 @@ __all__ = [
     "_auth_ctx_from_jwt_cookie",
     "_auth_ctx_from_api_key",
     "APIKeyMiddleware",
-    "BucketHostMiddleware",
+    "CookbookHostMiddleware",
     "RateLimitMiddleware",
 ]

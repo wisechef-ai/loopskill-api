@@ -51,6 +51,16 @@ _TEST_SLUGS = [
 
 @pytest.fixture
 def db():
+    # This test exercises the real file-engine (app.database.SessionLocal),
+    # not conftest's in-memory engine_fixture. On a cold checkout the gitignored
+    # sqlite file (test_dev.db) has no schema, so the `skills` table may not
+    # exist yet — create it idempotently here so the suite is collection-order
+    # independent. (Pre-existing latent bug surfaced by a fresh worktree.)
+    from app.database import engine
+    from app.models import Base
+
+    Base.metadata.create_all(bind=engine)
+
     s = SessionLocal()
     # Pre-clean any rows a prior (committed) run left behind — main() commits.
     s.query(Skill).filter(Skill.slug.in_(_TEST_SLUGS)).delete(synchronize_session=False)

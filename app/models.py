@@ -659,66 +659,15 @@ class ReplacementCandidate(Base):
     __table_args__ = (UniqueConstraint("source_id", "target_id", name="uq_replacement_candidate_pair"),)
 
 
-# ── Pro+ buckets (Phase E.1, v5.4) ───────────────────────────────────────
-
-
-class Bucket(Base):
-    """Pro+-tier collection of skills/forks that can be applied atomically.
-
-    Slug is globally unique so that `GET /api/buckets/{slug}/manifest` is a
-    single shareable URL. White-label deployments map a `custom_domain` (CNAME
-    target) to a bucket; `BucketHostMiddleware` reads the Host header and
-    scopes the catalog response.
-    """
-
-    __tablename__ = "buckets"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
-    name = Column(String(255), nullable=False)
-    slug = Column(String(255), unique=True, nullable=False, index=True)
-    description = Column(Text, nullable=True)
-    visibility = Column(String(32), nullable=False, default="private", server_default="private")
-    is_white_label = Column(Boolean, nullable=False, default=False, server_default="0")
-    custom_domain = Column(Text, nullable=True, index=True)
-    pin_mode = Column(String(32), nullable=False, default="latest-stable", server_default="latest-stable")
-    theme_json = Column(JSON, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
-    )
-
-    skills = relationship(
-        "BucketSkill",
-        back_populates="bucket",
-        cascade="all, delete-orphan",
-        order_by="BucketSkill.install_order",
-    )
-
-
-class BucketSkill(Base):
-    """Join row linking a bucket to either a public skill or a user fork.
-
-    Exactly one of (skill_id, fork_id) must be set — enforced by CHECK
-    constraint at the DB level. `install_order` controls the order the
-    meta-skill applies them in (lower = earlier).
-    """
-
-    __tablename__ = "bucket_skills"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    bucket_id = Column(
-        UUID(as_uuid=True), ForeignKey("buckets.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=True)
-    # NOTE: cross-branch FK target. The `skill_forks` table is created by the
-    # sibling agent/tori/v54-forks branch. We don't declare the FK here at the
-    # ORM level so the model loads cleanly whether or not the table exists.
-    fork_id = Column(UUID(as_uuid=True), nullable=True)
-    version_pin = Column(String(64), nullable=True)
-    install_order = Column(Integer, nullable=False, default=100, server_default="100")
-
-    bucket = relationship("Bucket", back_populates="skills")
+# ── Buckets RETIRED (spotify_0608 Ph A / D1) ─────────────────────────────
+# The Bucket + BucketSkill models were retired in spotify_0608 Phase A.
+# Cookbook is now the survivor primitive (D1): its new slug/visibility/
+# is_white_label/custom_domain/pin_mode/theme_json columns re-home Bucket's
+# presentation + white-label capability set, and `CookbookDeployment` (defined
+# below, after CookbookShareToken) is the lossless replacement for BucketSkill's
+# ordered/fork-aware deployment rows. The `buckets`/`bucket_skills` tables are
+# dropped by migration `spotify_0608_a_cb_absorbs_bkt` after the 1:1
+# data migration into `cookbooks`/`cookbook_deployments`.
 
 
 class FleetPing(Base):
@@ -848,7 +797,30 @@ class Cookbook(Base):
     feedback_mode = Column(Text, nullable=True)
     feedback_pat_enc = Column(Text, nullable=True)
 
+    # spotify_0608 Ph A — Bucket absorption (D1). Cookbook is the survivor
+    # primitive; these columns re-home the public/presentation + white-label
+    # capability set that previously lived on the retired `buckets` table.
+    #   slug          : globally-unique public handle → shareable cookbook URL.
+    #                   NULL for private/unpublished cookbooks (most rows).
+    #   visibility    : 'private' | 'team' | 'public' (Ph B discovery consumes this).
+    #   is_white_label: Pro+ "host on your own domain" toggle.
+    #   custom_domain : CNAME host matched by CookbookHostMiddleware.
+    #   pin_mode      : 'latest-stable' | 'pinned-current' | 'frozen' (ordered apply).
+    #   theme_json    : white-label theme payload echoed in the public manifest.
+    slug = Column(String(255), unique=True, nullable=True, index=True)
+    visibility = Column(String(32), nullable=False, default="private", server_default="private")
+    is_white_label = Column(Boolean, nullable=False, default=False, server_default="0")
+    custom_domain = Column(Text, nullable=True, index=True)
+    pin_mode = Column(String(32), nullable=False, default="latest-stable", server_default="latest-stable")
+    theme_json = Column(JSON, nullable=True)
+
     share_tokens = relationship("CookbookShareToken", back_populates="cookbook", cascade="all, delete-orphan")
+    deployments = relationship(
+        "CookbookDeployment",
+        back_populates="cookbook",
+        cascade="all, delete-orphan",
+        order_by="CookbookDeployment.install_order",
+    )
 
 
 class CookbookSkill(Base):
@@ -918,6 +890,50 @@ class CookbookShareToken(Base):
         ),
         Index("idx_cbst_prefix", "token_prefix"),
         Index("idx_cbst_cookbook_active", "cookbook_id", "is_active"),
+    )
+
+
+class CookbookDeployment(Base):
+    """Ordered deployment row linking a Cookbook to a public skill OR a fork.
+
+    spotify_0608 Ph A — this is the lossless replacement for the retired
+    ``BucketSkill`` table (D1 / R3 data-model contract). It is the *deployment*
+    layer — ordered, fork-aware, version-pinned — kept deliberately separate
+    from ``CookbookSkill`` (the membership layer, untouched). Two tables, two
+    concerns, zero join breakage: ``CookbookSkill`` keeps its NOT-NULL
+    ``(cookbook_id, skill_id)`` PK and every inner-join that depends on it.
+
+    Exactly one of ``(skill_id, fork_id)`` must be set — enforced by the same
+    CHECK constraint ``BucketSkill`` carried. ``install_order`` controls the
+    order the meta-skill applies them (lower = earlier); every deployment
+    read / bulk-install / MCP-list path orders by it.
+    """
+
+    __tablename__ = "cookbook_deployments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    cookbook_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("cookbooks.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=True)
+    # NOTE: cross-branch FK target. The `skill_forks` table is created by the
+    # sibling forks branch. We don't declare the FK here at the ORM level so the
+    # model loads cleanly whether or not the table exists (mirrors BucketSkill).
+    fork_id = Column(UUID(as_uuid=True), nullable=True)
+    version_pin = Column(String(64), nullable=True)
+    install_order = Column(Integer, nullable=False, default=100, server_default="100")
+
+    cookbook = relationship("Cookbook", back_populates="deployments")
+
+    __table_args__ = (
+        CheckConstraint(
+            "(skill_id IS NOT NULL) <> (fork_id IS NOT NULL)",
+            name="ck_cookbook_deployments_skill_xor_fork",
+        ),
+        Index("ix_cookbook_deployments_order", "cookbook_id", "install_order"),
     )
 
 

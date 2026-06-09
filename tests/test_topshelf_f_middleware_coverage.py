@@ -10,7 +10,7 @@ Targets uncovered branches:
       POST public-only path, GET /api/skills/graph, GET /api/skills/{slug}/related,
       cbt_ share-token path (wrong path → 403, bad format → 401, valid → 200),
       non-rec_ prefix → 401, fleet key, master key, user key found/not-found
-  - BucketHostMiddleware: exception path, custom-domain stamp
+  - CookbookHostMiddleware: exception path, custom-domain stamp
   - RateLimitMiddleware: authenticated bypass, redis→memory fallback, rate-limit exceeded
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ from fastapi.testclient import TestClient
 from app.auth_ctx import AuthContext
 from app.middleware import (
     APIKeyMiddleware,
-    BucketHostMiddleware,
+    CookbookHostMiddleware,
     RateLimitMiddleware,
     _auth_ctx_from_api_key,
     _auth_ctx_from_jwt_cookie,
@@ -512,44 +512,44 @@ class TestCbtTokenValidation:
         assert resp.status_code != 403
 
 
-# ─── Integration: BucketHostMiddleware ────────────────────────────────────────
+# ─── Integration: CookbookHostMiddleware ──────────────────────────────────────
 
 
-class TestBucketHostMiddleware:
-    """Cover BucketHostMiddleware custom-domain and exception paths."""
+class TestCookbookHostMiddleware:
+    """Cover CookbookHostMiddleware custom-domain and exception paths."""
 
-    def _build_bucket_app(self):
+    def _build_cookbook_app(self):
         app = FastAPI()
-        app.add_middleware(BucketHostMiddleware)
+        app.add_middleware(CookbookHostMiddleware)
 
         @app.get("/probe")
         def probe(request: Request):
             return {
-                "bucket_id": getattr(request.state, "bucket_id", None),
-                "bucket_slug": getattr(request.state, "bucket_slug", None),
+                "cookbook_id": getattr(request.state, "cookbook_id", None),
+                "cookbook_slug": getattr(request.state, "cookbook_slug", None),
             }
 
         return app
 
     def test_localhost_host_skipped(self):
-        """SKIP_HOSTS: localhost is never treated as custom domain (lines 604-605)."""
-        app = self._build_bucket_app()
+        """SKIP_HOSTS: localhost is never treated as custom domain."""
+        app = self._build_cookbook_app()
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.get("/probe", headers={"host": "localhost"})
         assert resp.status_code == 200
-        assert resp.json()["bucket_id"] is None
+        assert resp.json()["cookbook_id"] is None
 
     def test_testserver_host_skipped(self):
         """SKIP_HOSTS: testserver is never treated as custom domain."""
-        app = self._build_bucket_app()
+        app = self._build_cookbook_app()
         client = TestClient(app)
         resp = client.get("/probe")
         assert resp.status_code == 200
-        assert resp.json()["bucket_id"] is None
+        assert resp.json()["cookbook_id"] is None
 
     def test_db_exception_doesnt_crash(self):
-        """DB lookup exception → logged but request continues (lines 617-618)."""
-        app = self._build_bucket_app()
+        """DB lookup exception → logged but request continues."""
+        app = self._build_cookbook_app()
         client = TestClient(app, raise_server_exceptions=False)
         with patch("app.database.SessionLocal") as mock_sl:
             mock_db = MagicMock()
@@ -558,25 +558,25 @@ class TestBucketHostMiddleware:
             resp = client.get("/probe", headers={"host": "custom.example.com"})
         assert resp.status_code == 200  # request continues despite DB error
 
-    def test_matching_custom_domain_stamps_bucket_id(self):
-        """Known custom domain → stamps bucket_id on request.state (lines 614-616)."""
-        from app.models import Bucket as BucketModel
+    def test_matching_custom_domain_stamps_cookbook_id(self):
+        """Known custom domain → stamps cookbook_id on request.state."""
+        from app.models import Cookbook as CookbookModel
 
-        mock_bucket = MagicMock(spec=BucketModel)
-        mock_bucket.id = uuid4()
-        mock_bucket.slug = "my-bucket"
-        mock_bucket.theme_json = "{}"
+        mock_cb = MagicMock(spec=CookbookModel)
+        mock_cb.id = uuid4()
+        mock_cb.slug = "my-cookbook"
+        mock_cb.theme_json = "{}"
 
-        app = self._build_bucket_app()
+        app = self._build_cookbook_app()
         client = TestClient(app, raise_server_exceptions=False)
         with patch("app.database.SessionLocal") as mock_sl:
             mock_db = MagicMock()
-            mock_db.query.return_value.filter.return_value.first.return_value = mock_bucket
+            mock_db.query.return_value.filter.return_value.first.return_value = mock_cb
             mock_sl.return_value = mock_db
             resp = client.get("/probe", headers={"host": "custom.example.com"})
         assert resp.status_code == 200
         data = resp.json()
-        assert data["bucket_slug"] == "my-bucket"
+        assert data["cookbook_slug"] == "my-cookbook"
 
 
 # ─── Integration: RateLimitMiddleware ─────────────────────────────────────────

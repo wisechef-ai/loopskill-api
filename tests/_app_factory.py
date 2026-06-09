@@ -70,7 +70,7 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.forks_routes", "router", ""),
     ("app.cookbook_routes", "router", ""),
     ("app.graph_routes", "router", ""),
-    ("app.buckets_routes", "router", ""),
+    ("app.cookbook_deployment_routes", "router", ""),
     ("app.heartbeat_routes", "router", ""),
     ("app.intent_survey_routes", "router", ""),
     ("app.skill_error_routes", "router", ""),

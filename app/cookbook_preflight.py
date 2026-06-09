@@ -1,22 +1,23 @@
-"""Server-side pre-flight checks for `recipes apply bucket://<slug>`.
+"""Server-side pre-flight checks for `recipes apply cookbook://<slug>`.
 
-The meta-skill calls this before touching the host filesystem. Returns a
-structured report that includes a top-level `ok` boolean — green-light to
-proceed, red-light with a list of problems otherwise.
+spotify_0608 Ph A — re-homed from ``bucket_preflight``. The meta-skill calls
+this before touching the host filesystem. Returns a structured report that
+includes a top-level ``ok`` boolean — green-light to proceed, red-light with a
+list of problems otherwise.
 
-Three checks per the v5.4 plan §E.3:
+Three checks:
 
-  1. arch-compat        — every bucket skill's compatibility block matches
+  1. arch-compat        — every cookbook deployment's compatibility block matches
                           the caller's host fingerprint
-  2. port-conflict      — no two services in the bucket bind the same port,
-                          and no bucket port collides with a value already
+  2. port-conflict      — no two services in the cookbook bind the same port,
+                          and no cookbook port collides with a value already
                           claimed by an installed skill on the host
   3. env-var-collision  — no two skills declare the same required env var
-                          with conflicting values, and no bucket env var
+                          with conflicting values, and no cookbook env var
                           collides with the host's existing exports
 
-Each check is a plain function returning `list[str]` of problems. The
-aggregator `run_preflight` combines them. Helpers are pure and importable
+Each check is a plain function returning ``list[str]`` of problems. The
+aggregator ``run_preflight`` combines them. Helpers are pure and importable
 from tests.
 """
 
@@ -28,7 +29,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models import Bucket, BucketSkill, Skill
+from app.models import Cookbook, CookbookDeployment, Skill
 
 logger = logging.getLogger(__name__)
 
@@ -38,24 +39,24 @@ logger = logging.getLogger(__name__)
 
 def run_preflight(
     db: Session,
-    bucket_slug: str,
+    cookbook_slug: str,
     host_fingerprint: dict | None = None,
     host_ports_in_use: Iterable[int] | None = None,
     host_env: dict | None = None,
 ) -> dict:
     """Run all three pre-flight checks and return a structured report."""
-    bucket = db.query(Bucket).filter(Bucket.slug == bucket_slug).first()
-    if not bucket:
+    cookbook = db.query(Cookbook).filter(Cookbook.slug == cookbook_slug).first()
+    if not cookbook:
         return {
             "ok": False,
-            "bucket_slug": bucket_slug,
-            "problems": [f"bucket_not_found:{bucket_slug}"],
+            "cookbook_slug": cookbook_slug,
+            "problems": [f"cookbook_not_found:{cookbook_slug}"],
             "checks": {},
         }
     rows = (
-        db.query(BucketSkill)
-        .filter(BucketSkill.bucket_id == bucket.id)
-        .order_by(BucketSkill.install_order.asc())
+        db.query(CookbookDeployment)
+        .filter(CookbookDeployment.cookbook_id == cookbook.id)
+        .order_by(CookbookDeployment.install_order.asc())
         .all()
     )
     skill_recipes = _load_recipes(db, rows)
@@ -67,7 +68,7 @@ def run_preflight(
     problems = arch_problems + port_problems + env_problems
     return {
         "ok": not problems,
-        "bucket_slug": bucket_slug,
+        "cookbook_slug": cookbook_slug,
         "problems": problems,
         "checks": {
             "arch_compat": {"ok": not arch_problems, "problems": arch_problems},
@@ -81,14 +82,14 @@ def run_preflight(
 # ── Loaders ─────────────────────────────────────────────────────────────
 
 
-def _load_recipes(db: Session, rows: list[BucketSkill]) -> list[dict]:
-    """Hydrate each bucket row into a `{slug, recipe_yaml}` dict.
+def _load_recipes(db: Session, rows: list[CookbookDeployment]) -> list[dict]:
+    """Hydrate each deployment row into a ``{slug, recipe}`` dict.
 
-    `recipe_yaml` is read from the skill's stored `skill_toml` blob (the
-    publishing pipeline accepts both manifest formats). Forks are not yet
-    inspected — they're admitted optimistically and re-checked at install
-    time on the host. Skills with no manifest are returned with an empty
-    recipe so downstream checks treat them as no-op.
+    ``recipe`` is read from the skill's stored manifest blob (the publishing
+    pipeline accepts both manifest formats). Forks are not yet inspected —
+    they're admitted optimistically and re-checked at install time on the host.
+    Skills with no manifest are returned with an empty recipe so downstream
+    checks treat them as no-op.
     """
     out: list[dict] = []
     for row in rows:
@@ -105,10 +106,10 @@ def _load_recipes(db: Session, rows: list[BucketSkill]) -> list[dict]:
 def _parse_recipe_blob_for_skill(db: Session, skill: Skill) -> dict | None:
     """Best-effort: pull recipe.yaml-shaped runtime data from latest version.
 
-    The publish pipeline (Phase F) is what writes structured runtime data.
-    Until that lands we return None for skills that don't have a parsed
-    recipe; preflight then treats them as having no constraints, which is
-    the safe default for additive checks.
+    The publish pipeline is what writes structured runtime data. Until that
+    lands we return None for skills that don't have a parsed recipe; preflight
+    then treats them as having no constraints, which is the safe default for
+    additive checks.
     """
     versions = list(skill.versions or [])
     if not versions:
@@ -152,7 +153,7 @@ def check_arch_compat(skill_recipes: list[dict], host_fp: dict) -> list[str]:
 
 
 def check_port_conflicts(skill_recipes: list[dict], host_ports: Iterable[int]) -> list[str]:
-    """Detect duplicate service ports inside the bucket and host overlaps."""
+    """Detect duplicate service ports inside the cookbook and host overlaps."""
     problems: list[str] = []
     host_set = set(int(p) for p in host_ports if p is not None)
     seen: dict[int, str] = {}
