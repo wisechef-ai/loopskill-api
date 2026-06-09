@@ -369,6 +369,8 @@ def _public_cb_card(db: Session, cb: Cookbook) -> dict:
         "installs_total": total_installs,
         "installs_7d": installs_7d,
         "created_at": cb.created_at.isoformat() if cb.created_at else None,
+        # spotify_0608 Ph G — verified-maintainer badge on the public card.
+        "is_verified": bool(cb.is_verified),
         # ?ref attribution: a creator-tagged clone link surfaced ON the card so
         # install attribution is visible from week 1 (GTM build-plan mod #2).
         "ref": str(cb.cookbook_owner) if cb.cookbook_owner else None,
@@ -438,6 +440,68 @@ def public_cookbook_page(slug: str, db: Session = Depends(get_db)):
     ref_q = f"?ref={card['ref']}" if card["ref"] else ""
     card["clone_line"] = f'recipes_cookbook_install from "cookbook://{cb.slug}{ref_q}"'
     return card
+
+
+# ── spotify_0608 Ph G — reputation surfaces ──────────────────────────────
+
+
+@router.get("/leaderboard")
+def cookbook_leaderboard(
+    db: Session = Depends(get_db),
+    limit: int = 10,
+):
+    """Public reputation leaderboards. No auth.
+
+    Returns two ranked lists over PUBLIC cookbooks:
+      - ``top_weekly`` : ranked by REAL 7d installs (then total) — test/CI
+        excluded via _install_counts_for (Ph B §4.2). The "top weekly cookbook"
+        status surface that gives Day-1 sharers a reason to post again.
+      - ``latest``     : most-recently-created public cookbooks ("latest public
+        cookbook").
+    Each entry is the standard public card (carries is_verified + ?ref).
+    """
+    limit = max(1, min(int(limit or 10), 50))
+    rows = db.query(Cookbook).filter(Cookbook.visibility == "public", Cookbook.slug.isnot(None)).all()
+    cards = [_public_cb_card(db, cb) for cb in rows]
+
+    top_weekly = sorted(cards, key=lambda c: (c["installs_7d"], c["installs_total"]), reverse=True)[:limit]
+
+    # latest: created_at desc. Cards don't carry a sortable datetime, so sort the
+    # ORM rows then re-card the top N (cheap — leaderboard is small).
+    latest_rows = sorted(rows, key=lambda cb: (cb.created_at is not None, cb.created_at), reverse=True)[
+        :limit
+    ]
+    latest = [_public_cb_card(db, cb) for cb in latest_rows]
+
+    return {"top_weekly": top_weekly, "latest": latest, "limit": limit}
+
+
+@router.post("/{cookbook_id}/verify")
+def verify_cookbook(
+    cookbook_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """Assign / revoke the verified-maintainer badge on a cookbook (admin only).
+
+    Master/admin key only — verification is a trust signal we control, not a
+    self-serve toggle. Pass ?verified=false to revoke. Returns the new state.
+    """
+    if not ctx.is_master:
+        raise HTTPException(status_code=403, detail="master_key_required")
+    try:
+        cb_uuid = UUID(cookbook_id)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=404, detail="cookbook_not_found") from exc
+    cb = db.query(Cookbook).filter(Cookbook.id == cb_uuid).first()
+    if cb is None:
+        raise HTTPException(status_code=404, detail="cookbook_not_found")
+
+    verified_q = request.query_params.get("verified", "true").lower()
+    cb.is_verified = verified_q not in ("false", "0", "no")
+    db.commit()
+    return {"cookbook_id": str(cb.id), "is_verified": bool(cb.is_verified)}
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────

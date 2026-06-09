@@ -866,6 +866,11 @@ class Cookbook(Base):
     pin_mode = Column(String(32), nullable=False, default="latest-stable", server_default="latest-stable")
     theme_json = Column(JSON, nullable=True)
 
+    # spotify_0608 Ph G — verified-maintainer badge. Set by an admin/master
+    # action (POST /api/cookbooks/{id}/verify); surfaced on the public cookbook
+    # page + the discover/leaderboard feeds. Default false.
+    is_verified = Column(Boolean, nullable=False, default=False, server_default="0")
+
     share_tokens = relationship("CookbookShareToken", back_populates="cookbook", cascade="all, delete-orphan")
     deployments = relationship(
         "CookbookDeployment",

@@ -274,6 +274,8 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         # spotify_0608 Ph B — public cookbook discovery (CRUD stays auth-gated).
         "/api/cookbooks/discover",
         "/api/cookbooks/public/",
+        # spotify_0608 Ph G — public reputation leaderboards (verify stays auth-gated).
+        "/api/cookbooks/leaderboard",
         # marketing_1205 — UTM redirectors for social platforms. Public, set cookie + 302.
         "/x/",
         "/li/",
