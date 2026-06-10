@@ -33,6 +33,7 @@ an independent session against the same in-memory engine.
 ``with_middleware=False`` skips ``APIKeyMiddleware`` for the rare test that
 deliberately wants the raw, unauthenticated route behaviour.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -83,6 +84,7 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.referral_routes", "router", ""),
     ("app.marketing_routes", "router", ""),
     ("app.share_token_routes", "router", ""),
+    ("app.fleet_routes", "router", ""),  # portal_0610 J3
 ]
 
 
@@ -163,9 +165,7 @@ def build_test_app(
                 "APIKeyMiddleware opens its own SessionLocal() session and must "
                 "be repointed at the shared test session."
             )
-        monkeypatch.setattr(
-            "app.database.SessionLocal", _SharedSessionFactory(db_session)
-        )
+        monkeypatch.setattr("app.database.SessionLocal", _SharedSessionFactory(db_session))
         app.add_middleware(APIKeyMiddleware)
 
     _mount_all_routers(app)
