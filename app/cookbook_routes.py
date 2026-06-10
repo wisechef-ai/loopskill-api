@@ -300,6 +300,8 @@ def _skills_for(
     )
     if not include_disabled:
         q = q.filter(CookbookSkill.source != "disabled")
+    # portal_0610 J2 — emit in Composer order (install_order), ties by added_at.
+    q = q.order_by(CookbookSkill.install_order.asc(), CookbookSkill.added_at.asc())
     return q.all()
 
 
@@ -738,6 +740,157 @@ def remove_skill_from_cookbook(
     _touch_cookbook_generation(db, cb.id)
     db.commit()
     return {"cookbook_id": str(cb.id), "slug": slug, "source": "disabled", "deleted": True}
+
+
+# ── portal_0610 J2 — Composer mutations: visibility, version-pin, reorder ────
+
+
+class VisibilityIn(BaseModel):
+    """PATCH body for cookbook visibility (Composer inline toggle, L3)."""
+
+    visibility: str  # 'public' | 'private'
+
+
+@router.patch("/{cookbook_id}/visibility")
+def set_cookbook_visibility(
+    cookbook_id: str,
+    body: VisibilityIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """portal_0610 J2 — flip a cookbook public/private from the Composer.
+
+    The Composer surfaces visibility inline (L3). Only the owner (or master) may
+    change it; cbt_ share-tokens are scope-gated out by the route guard.
+    """
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+    vis = (body.visibility or "").strip().lower()
+    if vis not in {"public", "private"}:
+        raise HTTPException(status_code=422, detail="invalid_visibility")
+    cb.visibility = vis
+    _touch_cookbook_generation(db, cb.id)
+    db.commit()
+    return {"cookbook_id": str(cb.id), "visibility": vis}
+
+
+class SkillPinIn(BaseModel):
+    """PATCH body for a cookbook skill's version pin (L5, curated-only)."""
+
+    pinned_version: str | None = None  # null clears the pin (always-latest)
+
+
+@router.patch("/{cookbook_id}/skills/{slug}/pin")
+def set_skill_pin(
+    cookbook_id: str,
+    slug: str,
+    body: SkillPinIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """portal_0610 J2 / L5 — pin a curated skill to a specific version, or clear
+    the pin (null → always-latest, the default).
+
+    CURATED-ONLY: federation/external skills have no version contract, so pinning
+    one is rejected (422). Passing a semver that doesn't exist for the skill 404s
+    with the available list (mirrors the install route's pin validation).
+    """
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+
+    skill = db.query(Skill).filter(Skill.slug == slug).first()
+    if skill is None:
+        raise HTTPException(status_code=404, detail="skill_not_found")
+    cs = (
+        db.query(CookbookSkill)
+        .filter(CookbookSkill.cookbook_id == cb.id, CookbookSkill.skill_id == skill.id)
+        .first()
+    )
+    if cs is None:
+        raise HTTPException(status_code=404, detail="skill_not_in_cookbook")
+
+    # L5: pinning is curated-only. An external/federation skill has no SkillVersion
+    # rows and no version contract → cannot be pinned.
+    if is_external_skill(skill):
+        raise HTTPException(
+            status_code=422,
+            detail="pin_not_supported_for_external — federation skills install always-latest",
+        )
+
+    pin = (body.pinned_version or "").strip() or None
+    if pin is not None:
+        exists = (
+            db.query(SkillVersion)
+            .filter(SkillVersion.skill_id == skill.id, SkillVersion.semver == pin)
+            .first()
+        )
+        if exists is None:
+            avail = [v.semver for v in db.query(SkillVersion).filter(SkillVersion.skill_id == skill.id).all()]
+            raise HTTPException(
+                status_code=404,
+                detail=f"version '{pin}' not found for '{slug}'. Available: {avail}",
+            )
+        cs.source = "overridden"  # provenance: explicitly version-pinned
+    cs.pinned_version = pin
+    _touch_cookbook_generation(db, cb.id)
+    db.commit()
+    return {"cookbook_id": str(cb.id), "slug": slug, "pinned_version": pin, "pinned": pin is not None}
+
+
+class ReorderIn(BaseModel):
+    """PATCH body for Composer reorder — ordered list of skill slugs."""
+
+    order: list[str]  # slugs in the desired install order
+
+
+@router.patch("/{cookbook_id}/reorder")
+def reorder_cookbook_skills(
+    cookbook_id: str,
+    body: ReorderIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """portal_0610 J2 / L3 — persist the Composer's skill order.
+
+    Accepts the full ordered list of slugs; assigns install_order = index*10
+    (gaps leave room for future single-item moves without a full rewrite). Slugs
+    not in the cookbook are ignored; cookbook skills omitted from the list keep
+    their existing order after the listed ones (appended by their old order).
+    """
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+
+    rows = (
+        db.query(CookbookSkill, Skill)
+        .join(Skill, Skill.id == CookbookSkill.skill_id)
+        .filter(CookbookSkill.cookbook_id == cb.id, CookbookSkill.source != "disabled")
+        .all()
+    )
+    by_slug = {skill.slug: cs for cs, skill in rows}
+
+    pos = 0
+    seen: set[str] = set()
+    for slug in body.order:
+        cs = by_slug.get(slug)
+        if cs is not None:
+            cs.install_order = pos * 10
+            seen.add(slug)
+            pos += 1
+    # Anything not named keeps a stable spot AFTER the explicitly-ordered set.
+    for slug, cs in by_slug.items():
+        if slug not in seen:
+            cs.install_order = pos * 10
+            pos += 1
+
+    _touch_cookbook_generation(db, cb.id)
+    db.commit()
+    return {
+        "cookbook_id": str(cb.id),
+        "order": [s for s in body.order if s in by_slug] + [s for s in by_slug if s not in seen],
+    }
 
 
 def _make_install_url(skill_slug: str, version_id: UUID, version_semver: str) -> str:

@@ -900,9 +900,15 @@ class CookbookSkill(Base):
     )
     source = Column(String(20), nullable=False)
     pinned_version = Column(String(50), nullable=True)
+    # portal_0610 J2 — Composer reorder. install + manifest emit in this order;
+    # ties fall back to added_at. Default 100 matches CookbookDeployment.
+    install_order = Column(Integer, nullable=False, default=100, server_default="100")
     added_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    __table_args__ = (Index("ix_cookbook_skills_source", "source"),)
+    __table_args__ = (
+        Index("ix_cookbook_skills_source", "source"),
+        Index("ix_cookbook_skills_order", "cookbook_id", "install_order"),
+    )
 
 
 class CookbookShareToken(Base):
