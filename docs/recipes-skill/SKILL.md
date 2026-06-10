@@ -150,6 +150,8 @@ Always use **`x-api-key` header** — **not** Bearer / Authorization.
 x-api-key: rec_xxxxxxxxxxxxxxxx
 ```
 
+**Where to get a key:** free skills (like `super-memory`) install with **no key at all** — start there. For the full catalog, sign in at **https://recipes.wisechef.ai/signin**, then generate an API key on your **Library** page (https://recipes.wisechef.ai/library). Pricing: https://recipes.wisechef.ai/pricing
+
 ## Environment variables
 
 | Variable | When to use |
@@ -173,7 +175,7 @@ Canonical tier names: **`free`** · **`pro`** · **`pro_plus`**
 
 Use these values in the `tier` parameter of `recipes_recall`, `recipes_recipify`, and `recipes_publish_request`.
 
-> **Legacy aliases (sunset 2026-06-10):** `cook` is accepted as an alias for `pro`; `operator` is accepted as an alias for `pro_plus`. Both aliases will stop being accepted after **2026-06-10** — update any integrations before that date.
+> **Canonical tiers:** `free` · `pro` · `pro_plus`. Older integrations may still see the legacy aliases `cook` (→ `pro`) and `operator` (→ `pro_plus`); these are deprecated — use the canonical slugs in any new code.
 
 ## Hermes MCP config block
 

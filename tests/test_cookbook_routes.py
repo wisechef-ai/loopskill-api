@@ -443,10 +443,17 @@ class TestInstall:
         # spotify_0608 Ph E: each install mints a fresh per-skill provenance_id
         # (a distinct random token per install event), so two installs are NOT
         # byte-identical. Idempotency is about the install PAYLOAD (slug/version/
-        # tarball/source), not the provenance token — strip it before comparing.
+        # checksum/source), not the provenance token OR the time-varying signed
+        # URL — both must be stripped before comparing. The tarball_url is a JWT
+        # whose signature embeds a per-second expiry, so two installs that
+        # straddle a second boundary have different URLs for the SAME artifact
+        # (this caused a real CI flake — the checksum is the stable identity).
         def _strip_prov(payload):
             for s in payload.get("skills", []):
                 s.pop("provenance_id", None)
+                s.pop("tarball_url", None)
+                s.pop("download_url", None)
+                s.pop("expires_at", None)
             return payload
 
         assert _strip_prov(r1.json()) == _strip_prov(r2.json())
