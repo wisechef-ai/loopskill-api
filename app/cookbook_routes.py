@@ -345,6 +345,52 @@ def _to_cb_out(cb: Cookbook) -> dict:
     ).model_dump(mode="json")
 
 
+def _cookbook_signals(db: Session, cb: Cookbook, skills: list[dict]) -> dict:
+    """portal_0610 J6 — living-object signals for a cookbook detail page.
+
+    All honest + organic-only. The cookbook is a living object, not a static
+    list: it has reach (installs), a heartbeat (last_synced), team usage (fleet),
+    and a feedback rollup. Each signal is best-effort — a query hiccup yields
+    null/0 for that field, never a 500 (the skill list is the load-bearing data).
+
+      installs_total / installs_7d : attributed installs (R7 dedup, is_test-excluded)
+      last_synced                  : generation token (Cookbook.updated_at)
+      fleet_usage                  : how many fleets subscribe this cookbook
+      corrections_absorbed         : field-feedback items across member skills
+      skill_count                  : active (non-disabled) skills
+    """
+    from app._skill_helpers import _cookbook_install_counts
+    from app.models import FleetSubscription
+
+    signals: dict = {}
+    try:
+        total, wk = _cookbook_install_counts(db, cb.id)
+        signals["installs_total"] = total
+        signals["installs_7d"] = wk
+    except Exception:  # noqa: BLE001  # Rationale: signal is best-effort observability.
+        signals["installs_total"] = None
+        signals["installs_7d"] = None
+    try:
+        updated = getattr(cb, "updated_at", None) or getattr(cb, "created_at", None)
+        signals["last_synced"] = updated.isoformat() if updated else None
+    except Exception:  # noqa: BLE001  # Rationale: signal is best-effort.
+        signals["last_synced"] = None
+    try:
+        signals["fleet_usage"] = (
+            db.query(FleetSubscription).filter(FleetSubscription.cookbook_id == cb.id).count()
+        )
+    except Exception:  # noqa: BLE001  # Rationale: signal is best-effort.
+        signals["fleet_usage"] = None
+    try:
+        active = [s for s in skills if s.get("source") != "disabled"]
+        signals["skill_count"] = len(active)
+        signals["corrections_absorbed"] = sum(int(s.get("corrections_absorbed") or 0) for s in active)
+    except Exception:  # noqa: BLE001  # Rationale: signal is best-effort.
+        signals["skill_count"] = None
+        signals["corrections_absorbed"] = None
+    return signals
+
+
 # ── spotify_0608 Ph B — public discovery surface ─────────────────────────
 # These routes are UNAUTHENTICATED (allowlisted in middleware/api_key.py) and
 # MUST be registered before the `/{cookbook_id}` catch-all so FastAPI doesn't
@@ -609,6 +655,9 @@ def get_cookbook(
         ).model_dump(mode="json")
         for cs, skill in rows
     ]
+    # portal_0610 J6 — living-object signals (the cookbook is alive, not a static
+    # list). All honest, organic-only counts; the frontend renders what's present.
+    out["signals"] = _cookbook_signals(db, cb, out["skills"])
     return out
 
 
