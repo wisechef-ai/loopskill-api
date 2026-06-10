@@ -832,6 +832,149 @@ def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)
     }
 
 
+def _federation_class(skill) -> str:
+    """portal_0610 J4 / §6.5 DEFECT-2: split federation into two honest classes.
+
+    The dogfood proved federation is NOT one uniform band:
+      - "procedural"  : a real SKILL.md — has a license + is redistributable +
+                        installs by fetching the body (hermes-hub class).
+      - "persona"     : a roleplay/persona prompt — no license, origin points at
+                        a bare user profile, not a versioned skill (lobehub class).
+
+    The signal is the license + redistributability, both already on ExternalSkill.
+    Treating them as one class mislabels half the catalogue, so the trust badge
+    must reflect this.
+    """
+    from app.services.federation import InstallPath
+
+    has_license = bool(getattr(skill, "license", None))
+    redistributable = bool(getattr(skill, "redistributable", False))
+    is_fetch = getattr(skill, "install_path", None) == InstallPath.FETCH_ORIGIN
+    if has_license and redistributable and is_fetch:
+        return "procedural"
+    return "persona"
+
+
+@router.get("/skills/external/{source}/{slug}/source-link", tags=["skills", "federation"])
+def external_source_link(source: str, slug: str, db: Session = Depends(get_db)):
+    """portal_0610 J4 / §6.5 DEFECT-1+2+3 — a VALIDATED, reachable source link
+    plus the honest federation class, resolved lazily (per-skill, on click).
+
+    The dogfood found that ``origin_url`` 404s by DEFAULT for the highest-quality
+    source (hermes-hub): the human docs page is gone while the raw SKILL.md is
+    200. So a portal "view source" that points at bare ``origin_url`` is a broken
+    link by default, not an edge case.
+
+    This endpoint returns the link the portal should actually surface:
+      - HEAD-check ``origin_url``. If 200 → that's the link (``url_kind=origin``).
+      - Else derive the raw SKILL.md URL via the source's origin fetcher and
+        return it (``url_kind=raw``) — the install path already proves it's 200.
+      - If neither resolves → ``reachable=false`` and the portal renders
+        "source unavailable" instead of a dead link (PM5).
+
+    Also returns ``fed_class`` (procedural | persona), ``license`` (honest —
+    ``null`` stays ``null``, never fabricated), and real ``installable``.
+
+    Cheap by design: at most ONE HEAD on origin_url + (only on 404) the fetcher's
+    URL derivation, which for most sources is pure string-building. No full body
+    download in the happy path.
+    """
+    from app.services import federation_cache as fcache
+    from app.services.federation import ExternalSkill, INTERNAL_SOURCE, InstallPath, route_install
+    from app.services.federation_adapters import get_adapter
+    from app.services.federation_install import get_origin_fetcher
+    from app.services.federation_live import LIVE_FETCH
+
+    if source == INTERNAL_SOURCE:
+        raise HTTPException(status_code=404, detail="Not an external source")
+
+    fetch = LIVE_FETCH.get(source)
+    adapter = get_adapter(source, fetch=fetch)
+    if adapter is None:
+        raise HTTPException(status_code=404, detail=f"Unknown external source '{source}'")
+
+    skill = None
+    for row in fcache.read_first_page(db, source):
+        if isinstance(row, dict) and row.get("slug") == slug:
+            skill = ExternalSkill.from_dict(row)
+            break
+    if skill is None:
+        try:
+            skill = adapter.resolve(slug)
+        except Exception:  # noqa: BLE001  # Rationale: a source outage must 503, not 500.
+            logger.warning("external source-link resolve failed: %s/%s", source, slug, exc_info=True)
+            raise HTTPException(status_code=503, detail="External source unavailable") from None
+    if skill is None:
+        raise HTTPException(status_code=404, detail=f"External skill '{slug}' not found in {source}")
+
+    fed_class = _federation_class(skill)
+    decision = route_install(skill)
+    installable = bool(decision.allowed and skill.install_path == InstallPath.FETCH_ORIGIN)
+
+    import httpx
+
+    def _head_ok(url: str) -> bool:
+        if not url:
+            return False
+        try:
+            r = httpx.head(url, follow_redirects=True, timeout=5.0)
+            if r.status_code == 405:  # some hosts reject HEAD; fall back to a ranged GET
+                r = httpx.get(url, follow_redirects=True, timeout=5.0, headers={"Range": "bytes=0-0"})
+            return 200 <= r.status_code < 400
+        except Exception:  # noqa: BLE001  # Rationale: any network error → treat as unreachable.
+            return False
+
+    # DEFECT-1: origin_url first, but only if it actually resolves.
+    origin_url = getattr(skill, "origin_url", None) or ""
+    if _head_ok(origin_url):
+        return {
+            "source": source,
+            "slug": slug,
+            "url": origin_url,
+            "url_kind": "origin",
+            "reachable": True,
+            "license": skill.license,
+            "fed_class": fed_class,
+            "installable": installable,
+        }
+
+    # origin_url is dead (the hermes-hub default) — derive the raw SKILL.md URL.
+    if skill.install_path == InstallPath.FETCH_ORIGIN:
+        origin_fetch = get_origin_fetcher(source)
+        if origin_fetch is not None:
+            fetch_row = {"slug": skill.slug, "origin_url": origin_url, "source": skill.source}
+            try:
+                got = origin_fetch(slug, row=fetch_row)
+            except TypeError:
+                got = origin_fetch(slug)
+            except Exception:  # noqa: BLE001  # Rationale: origin outage → fall through to unreachable.
+                got = None
+            if got is not None:
+                raw_url, _content = got
+                return {
+                    "source": source,
+                    "slug": slug,
+                    "url": raw_url,
+                    "url_kind": "raw",
+                    "reachable": True,
+                    "license": skill.license,
+                    "fed_class": fed_class,
+                    "installable": installable,
+                }
+
+    # Neither origin nor raw resolved — honest "source unavailable" (PM5).
+    return {
+        "source": source,
+        "slug": slug,
+        "url": origin_url or None,
+        "url_kind": "origin",
+        "reachable": False,
+        "license": skill.license,
+        "fed_class": fed_class,
+        "installable": installable,
+    }
+
+
 @router.get("/skills/{slug}", response_model=SkillDetailOut, tags=["skills"])
 def get_skill_detail(slug: str, request: Request, db: Session = Depends(get_db)):
     """Full skill detail with versions and resolved related skills.
