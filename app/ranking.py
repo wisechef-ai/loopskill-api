@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -61,7 +62,7 @@ def _bm25_score_text(query_tokens: list[str], doc_text: str, avgdl: float = 80.0
     return score
 
 
-def score_bm25(query: str, skill, db: Session | None = None) -> float:
+def score_bm25(query: str, skill: "Any", db: Session | None = None) -> float:
     """BM25 score for a single skill row.
 
     On Postgres the route may pre-compute via ``ts_rank``; this helper is the

@@ -146,6 +146,9 @@ def create_app() -> FastAPI:
     app.include_router(recipe_router, prefix="/api", tags=["recipes"])
     app.include_router(install_router, prefix="/api", tags=["skills"])
     app.include_router(reconcile_router, tags=["reconcile"])  # evergreen_0206 Phase D
+    from app.promotion_routes import router as promotion_router  # portal_0610 B1
+
+    app.include_router(promotion_router, tags=["promotion"])  # portal_0610 B1 — wires stable channel
     app.include_router(skill_router, prefix="/api", tags=["skills"])
     app.include_router(skill_files_router, prefix="/api", tags=["skills"])
     app.include_router(admin_router, tags=["admin"])

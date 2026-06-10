@@ -76,14 +76,10 @@ def _declared_skills(db: Session, cookbook_id: UUID) -> dict[str, dict[str, Any]
     """Return {slug: {skill_id, pinned_version, latest_semver, latest_sha256}}
     for every skill the cookbook DECLARES (source != disabled).
     """
-    latest_sq = (
-        db.query(
-            SkillVersion.skill_id,
-            func.max(SkillVersion.semver).label("latest_semver"),
-        )
-        .group_by(SkillVersion.skill_id)
-        .subquery()
-    )
+    # portal_0610 B2 — SEMANTIC latest per skill, not lexicographic
+    # func.max(semver). Fetch the declared rows, then resolve each skill's
+    # latest version semantically in Python.
+    from app.services.semver import latest_semver_for_skills
 
     rows = (
         db.query(
@@ -91,26 +87,27 @@ def _declared_skills(db: Session, cookbook_id: UUID) -> dict[str, dict[str, Any]
             Skill.slug,
             CookbookSkill.pinned_version,
             CookbookSkill.source,
-            latest_sq.c.latest_semver.label("latest_semver"),
         )
         .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .outerjoin(latest_sq, latest_sq.c.skill_id == Skill.id)
         .filter(CookbookSkill.cookbook_id == cookbook_id)
         .all()
     )
+
+    latest_by_skill = latest_semver_for_skills(db, {r.skill_id for r in rows})
 
     declared: dict[str, dict[str, Any]] = {}
     for r in rows:
         if r.source in _UNDECLARED_SOURCES:
             continue
+        latest_semver = latest_by_skill.get(r.skill_id)
         # The "target" version is the pin if set, else the latest published.
-        target = r.pinned_version or r.latest_semver
+        target = r.pinned_version or latest_semver
         declared[r.slug] = {
             "skill_id": r.skill_id,
             "slug": r.slug,
             "pinned_version": r.pinned_version,
             "target_version": target,
-            "latest_semver": r.latest_semver,
+            "latest_semver": latest_semver,
         }
     return declared
 

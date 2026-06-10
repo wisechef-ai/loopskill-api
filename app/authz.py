@@ -100,6 +100,33 @@ def can_install(ctx: AuthContext, skill: Any, db: "Session | None" = None) -> bo
     return can_read_skill(ctx, skill, db=db)
 
 
+def tier_rank_allows_install(caller_tier: str | None, skill_tier: str | None) -> bool:
+    """Return True if a caller of ``caller_tier`` may install a skill of ``skill_tier``.
+
+    portal_0610 R1 (P0 paywall-bypass closure, §6.6 / §6.7-L10).
+
+    The visibility predicates above only distinguish public/private — they do
+    NOT stop a FREE authenticated key from pulling a PRO skill's tarball. This
+    pure rank comparison is the missing tier gate, applied on EVERY install
+    surface (direct /api/skills/install, both cookbook install routes, and the
+    MCP recipes_cookbook_install tool).
+
+    Rank source is the single canonical ``ranking.TIER_RANK`` (free=1, pro=2,
+    pro_plus=3, plus the 30-day legacy aliases). A ``None`` or unknown tier on
+    either side floors to free (rank 1): an anonymous / lapsed / unresolved
+    caller may only reach free skills, and a skill with no tier is free.
+
+    Master callers resolve to ``pro_plus`` upstream (rank 3 ≥ everything), so
+    they need no special case here. This keeps the predicate pure and testable
+    in isolation (no Session, no request).
+    """
+    from app.ranking import TIER_RANK
+
+    caller_rank = TIER_RANK.get((caller_tier or "free").lower(), 1)
+    skill_rank = TIER_RANK.get((skill_tier or "free").lower(), 1)
+    return caller_rank >= skill_rank
+
+
 def can_write_cookbook(ctx: AuthContext, cookbook: Any) -> bool:
     """Return True if ctx may write (modify) the given cookbook.
 

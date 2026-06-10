@@ -16,10 +16,9 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models import Cookbook, CookbookSkill, Skill, SkillVersion
+from app.models import Cookbook, CookbookSkill, Skill
 
 logger = logging.getLogger("wiserecipes.cookbook_status")
 
@@ -70,35 +69,47 @@ def get_cookbook_status(db: Session, user_id: UUID | str | None) -> dict[str, An
         logger.debug("Redis cache read failed, proceeding with query")
 
     # ── DB query ─────────────────────────────────────────────────────────
-    # Subquery: latest semver per skill
-    latest_sq = (
-        db.query(
-            SkillVersion.skill_id,
-            func.max(SkillVersion.semver).label("latest_semver"),
-        )
-        .group_by(SkillVersion.skill_id)
-        .subquery()
-    )
+    # portal_0610 B2 — fetch all declared cookbook skills for this owner, then
+    # compute the SEMANTIC latest per skill in Python (SQL func.max(semver) is
+    # lexicographic and mis-ranks "1.10.0" < "1.9.0").
+    from app.services.semver import latest_semver_for_skills
 
-    # Main query: cookbooks owned by user with outdated skills
-    rows = (
+    candidate_rows = (
         db.query(
             Cookbook.id.label("cb_id"),
             Cookbook.name.label("cb_name"),
+            Skill.id.label("skill_id"),
             Skill.slug,
             CookbookSkill.pinned_version,
-            latest_sq.c.latest_semver.label("latest"),
         )
         .join(CookbookSkill, CookbookSkill.cookbook_id == Cookbook.id)
         .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .join(latest_sq, latest_sq.c.skill_id == Skill.id)
-        .filter(
-            Cookbook.cookbook_owner == user_id,
-            (CookbookSkill.pinned_version == None)  # noqa: E711
-            | (CookbookSkill.pinned_version != latest_sq.c.latest_semver),
-        )
+        .filter(Cookbook.cookbook_owner == user_id)
         .all()
     )
+
+    latest_by_skill = latest_semver_for_skills(db, {r.skill_id for r in candidate_rows})
+
+    # Outdated when the skill has a latest version AND (pin is NULL or pin != latest).
+    rows = []
+    for r in candidate_rows:
+        latest = latest_by_skill.get(r.skill_id)
+        if latest is None:
+            continue
+        if r.pinned_version is None or r.pinned_version != latest:
+            rows.append(
+                type(
+                    "Row",
+                    (),
+                    {
+                        "cb_id": r.cb_id,
+                        "cb_name": r.cb_name,
+                        "slug": r.slug,
+                        "pinned_version": r.pinned_version,
+                        "latest": latest,
+                    },
+                )()
+            )
 
     if not rows:
         # Cache empty sentinel so we don't re-query every call

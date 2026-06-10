@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app import authz
 from app.auth_ctx import AuthContext
-from app.models import Cookbook, CookbookSkill, Skill, SkillVersion
+from app.models import Cookbook, CookbookSkill, Skill
 
 
 def _find_outdated_skills(db: Session, cookbook_id: UUID) -> list[dict[str, Any]]:
@@ -29,43 +29,39 @@ def _find_outdated_skills(db: Session, cookbook_id: UUID) -> list[dict[str, Any]
 
     Each row dict has keys: skill_id, slug, pinned_version, latest.
     """
-    # Subquery: latest semver per skill
-    latest_sq = (
-        db.query(
-            SkillVersion.skill_id,
-            func.max(SkillVersion.semver).label("latest_semver"),
-        )
-        .group_by(SkillVersion.skill_id)
-        .subquery()
-    )
+    # portal_0610 B2 — SEMANTIC latest per skill (SQL func.max(semver) is
+    # lexicographic: max("1.9.0","1.10.0") wrongly returns "1.9.0", pinning
+    # fleets to the OLDER version once a skill hits double-digit minors).
+    from app.services.semver import latest_semver_for_skills
 
-    rows = (
+    declared = (
         db.query(
             CookbookSkill.skill_id,
             Skill.slug,
             CookbookSkill.pinned_version,
-            latest_sq.c.latest_semver.label("latest"),
         )
         .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .join(latest_sq, latest_sq.c.skill_id == Skill.id)
-        .filter(
-            CookbookSkill.cookbook_id == cookbook_id,
-            # outdated when pinned is NULL or pinned != latest
-            (CookbookSkill.pinned_version == None)  # noqa: E711
-            | (CookbookSkill.pinned_version != latest_sq.c.latest_semver),
-        )
+        .filter(CookbookSkill.cookbook_id == cookbook_id)
         .all()
     )
 
-    return [
-        {
-            "skill_id": r.skill_id,
-            "slug": r.slug,
-            "from": r.pinned_version,
-            "to": r.latest,
-        }
-        for r in rows
-    ]
+    latest_by_skill = latest_semver_for_skills(db, {r.skill_id for r in declared})
+
+    out: list[dict[str, Any]] = []
+    for r in declared:
+        latest = latest_by_skill.get(r.skill_id)
+        if latest is None:
+            continue  # skill has no published version — nothing to advance to
+        if r.pinned_version is None or r.pinned_version != latest:
+            out.append(
+                {
+                    "skill_id": r.skill_id,
+                    "slug": r.slug,
+                    "from": r.pinned_version,
+                    "to": latest,
+                }
+            )
+    return out
 
 
 def recipes_sync(

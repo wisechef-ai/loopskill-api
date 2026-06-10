@@ -128,6 +128,9 @@ def search_skills(
         tier_db = {"cook": "pro", "operator": "pro_plus", "studio": "pro_plus"}.get(
             tier, tier
         )  # legacy alias map
+        # portal_0610 S1: the tier filter was COMPUTED but never APPLIED — a
+        # tier=free search wrongly returned Pro skills. Apply it.
+        query = query.filter(Skill.tier == tier_db)
     # quality_1705 Phase C — quality_score floor filter for agent callers
     # who only want high-confidence skills. Skills without a score are
     # excluded (defensive: agent shouldn't pick a skill we haven't graded).

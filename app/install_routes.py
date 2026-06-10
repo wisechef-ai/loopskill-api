@@ -164,6 +164,25 @@ def install_skill(
 
     # WIS-902: Tier-aware install rate limit
     caller_tier = _resolve_caller_tier_for_install(db, request)
+
+    # portal_0610 R1 (P0 paywall-bypass closure, §6.6): tier-ACCESS gate.
+    # The visibility check above only stops PRIVATE skills. A FREE authenticated
+    # key passing that check could still pull a PRO skill's tarball (live-repro'd
+    # on prod 2026-06-10: free key → full `chef` tier=pro tarball, HTTP 200).
+    # Gate the caller's tier against the skill's tier BEFORE minting any URL.
+    # Anonymous free-install callers are already constrained to tier=free skills
+    # above (line ~128), so this is the gate for AUTHENTICATED callers.
+    if not is_anonymous_free_install:
+        from app.authz import tier_rank_allows_install
+
+        if not tier_rank_allows_install(caller_tier, skill.tier):
+            from app.tier_labels import display_label as _dl
+
+            raise HTTPException(
+                status_code=403,
+                detail=(f"This skill requires {_dl(skill.tier or 'pro')} tier. " f"Upgrade to install it."),
+            )
+
     install_limit = TIER_INSTALL_LIMITS.get(caller_tier, 5)
     api_key_id = getattr(request.state, "api_key_id", None)
 
@@ -298,7 +317,7 @@ def install_skill(
         from fastapi.responses import JSONResponse as _JR
 
         json_resp = _JR(content=resp.model_dump(mode="json"), headers=resp_headers)
-        _set_utm_ref_cookie(json_resp, ref)
+        _set_utm_ref_cookie(json_resp, ref, db=db)
         return json_resp
     return resp
 

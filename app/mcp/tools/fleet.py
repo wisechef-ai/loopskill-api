@@ -100,6 +100,19 @@ def recipes_fleet_subscribe(
     except (ValueError, AttributeError):
         return {"error": "invalid_fleet_id", "fleet_id": fleet_id}
 
+    # portal_0610 R8: VALID_CHANNELS was defined but never enforced — channel
+    # "turbo" was silently stored and treated as canary by channel_select. Reject
+    # any channel outside the canonical set so a typo can't create an inert
+    # subscription that looks subscribed but never syncs.
+    from app.services.channel_select import VALID_CHANNELS
+
+    if channel not in VALID_CHANNELS:
+        return {
+            "error": "invalid_channel",
+            "channel": channel,
+            "valid": sorted(VALID_CHANNELS),
+        }
+
     fleet = db.query(Fleet).filter(Fleet.id == fleet_uuid).first()
     if fleet is None:
         return {"error": "not_found", "fleet_id": fleet_id}

@@ -16,10 +16,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import func
 from sqlalchemy.orm import Session
-
-from app.models import SkillVersion
 
 CANARY = "canary"
 STABLE = "stable"
@@ -41,13 +38,12 @@ def latest_version_for_channel(db: Session, skill_id: UUID, channel: str) -> str
         # Frozen never moves; the caller keeps its existing pin.
         return None
 
-    q = db.query(func.max(SkillVersion.semver)).filter(SkillVersion.skill_id == skill_id)
-    if channel == STABLE:
-        q = q.filter(SkillVersion.promoted_to_stable_at.isnot(None))
-    # canary: no extra filter — latest of anything.
+    # portal_0610 B2 — SEMANTIC max, not lexicographic func.max(semver).
+    # max("1.9.0","1.10.0") must be "1.10.0"; SQL string-max gets it wrong.
+    from app.services.semver import latest_version_row_for_skill
 
-    result = q.scalar()
-    return result
+    row = latest_version_row_for_skill(db, skill_id, promoted_only=(channel == STABLE))
+    return row.semver if row else None
 
 
 def is_frozen(channel: str) -> bool:

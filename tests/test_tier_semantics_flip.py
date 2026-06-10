@@ -168,26 +168,31 @@ def _make_install_event(db, skill_id, api_key_id=None, when=None):
     db.add(ev)
 
 
-# ── Test 1: Cook installs operator-tagged skill → 200 ─────────────────────
+# ── Test 1: tier-access semantics under R1 (supersedes WIS-902 full-catalog) ──
+
 
 class TestCookFullCatalog:
-    def test_cook_installs_operator_skill(self, patched_client, db):
-        """WIS-902 acceptance: Cook tier installs operator-tagged skill → 200."""
-        skill = _make_skill(db, slug="graphify-op", title="Graphify", tier="pro_plus")
+    def test_cook_cannot_install_operator_skill(self, patched_client, db):
+        """portal_0610 R1 RETIRES WIS-902 'Cook gets full catalog'.
+
+        WIS-902 originally returned 200 here (pro installing a pro_plus skill —
+        the 'full catalog' framing). R1 (§6.6, Adam 2026-06-10) installs a strict
+        ``caller_rank >= skill_rank`` gate: a pro key MUST NOT pull a pro_plus
+        tarball, otherwise the pro_plus tier carries no catalog value and the
+        same class of paywall bypass that let a FREE key pull a Pro skill applies
+        one rung up. Pinned to 403.
+        """
+        _make_skill(db, slug="graphify-op", title="Graphify", tier="pro_plus")
         cook_key, _ = _make_user_with_key(db, tier="pro")
 
         resp = patched_client.get(
             "/api/skills/install?slug=graphify-op",
             headers={"x-api-key": cook_key},
         )
-        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
-        body = resp.json()
-        assert body["slug"] == "graphify-op"
-        # Rate-limit headers should be present for Cook tier
-        assert resp.headers.get("X-RateLimit-Limit") == "100"
+        assert resp.status_code == 403, f"Expected 403 (R1 tier gate), got {resp.status_code}: {resp.text}"
 
     def test_cook_installs_cook_skill(self, patched_client, db):
-        """Cook installs cook-tier skill → 200."""
+        """Cook installs cook-tier skill → 200 (in-tier install, with RL headers)."""
         _make_skill(db, slug="cook-skill-1", title="Cook Skill", tier="pro")
         cook_key, _ = _make_user_with_key(db, tier="pro")
 
@@ -196,17 +201,24 @@ class TestCookFullCatalog:
             headers={"x-api-key": cook_key},
         )
         assert resp.status_code == 200, resp.text
+        # Rate-limit headers should still be present for Pro tier.
+        assert resp.headers.get("X-RateLimit-Limit") == "100"
 
 
 # ── Test 2: Cook hits rate limit → 429 ────────────────────────────────────
 
+
 class TestCookRateLimit:
     def test_cook_rate_limit_429(self, patched_client, db):
-        """WIS-902: Cook tier hits 101st install → 429 with upgrade copy."""
-        # Create 101 skills with versions
+        """WIS-902: Cook tier hits 101st install → 429 with upgrade copy.
+
+        Probe skills are pro-tier so the pro key passes the R1 tier gate and the
+        RATE LIMIT (not the tier gate) is what's exercised on the 101st call.
+        """
+        # Create 101 pro-tier skills with versions
         skills = []
         for i in range(101):
-            skills.append(_make_skill(db, slug=f"rl-skill-{i}", title=f"RL Skill {i}"))
+            skills.append(_make_skill(db, slug=f"rl-skill-{i}", title=f"RL Skill {i}", tier="pro"))
 
         cook_key, ak_id = _make_user_with_key(db, tier="pro")
 
@@ -233,12 +245,17 @@ class TestCookRateLimit:
 
 # ── Test 3: Free tier rate limited at 5 ────────────────────────────────────
 
+
 class TestFreeTierRateLimit:
     def test_free_tier_5_installs_per_day(self, patched_client, db):
-        """WIS-902: Free tier limited to 5 installs/day."""
+        """WIS-902: Free tier limited to 5 installs/day.
+
+        Probe skills are free-tier so the free key passes the R1 tier gate and
+        the RATE LIMIT is what's exercised.
+        """
         skills = []
         for i in range(7):
-            skills.append(_make_skill(db, slug=f"free-skill-{i}", title=f"Free {i}"))
+            skills.append(_make_skill(db, slug=f"free-skill-{i}", title=f"Free {i}", tier="free"))
 
         free_key, ak_id = _make_user_with_key(db, tier="free")
 
@@ -259,6 +276,7 @@ class TestFreeTierRateLimit:
 
 # ── Test 4: Operator unlimited installs ────────────────────────────────────
 
+
 class TestOperatorUnlimited:
     def test_operator_no_rate_limit(self, patched_client, db):
         """WIS-902: Operator tier has unlimited installs (no rate-limit headers)."""
@@ -276,12 +294,17 @@ class TestOperatorUnlimited:
 
 # ── Test 5: Rate limit resets daily ───────────────────────────────────────
 
+
 class TestRateLimitReset:
     def test_old_installs_dont_count(self, patched_client, db):
-        """WIS-902: Installs from yesterday don't count toward today's limit."""
+        """WIS-902: Installs from yesterday don't count toward today's limit.
+
+        Probe skills are free-tier so the free key passes the R1 tier gate and
+        the daily-reset RATE LIMIT logic is what's exercised.
+        """
         skills = []
         for i in range(7):
-            skills.append(_make_skill(db, slug=f"reset-skill-{i}", title=f"Reset {i}"))
+            skills.append(_make_skill(db, slug=f"reset-skill-{i}", title=f"Reset {i}", tier="free"))
 
         free_key, ak_id = _make_user_with_key(db, tier="free")
 

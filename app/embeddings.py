@@ -11,6 +11,7 @@ import hashlib
 import math
 import re
 from collections.abc import Iterable
+from typing import Any
 
 EMBED_DIM = 384
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
@@ -19,7 +20,7 @@ _model = None
 _model_load_failed = False
 
 
-def _get_model():
+def _get_model() -> "Any":
     """Lazy singleton — load BAAI/bge-small-en-v1.5 once per process."""
     global _model, _model_load_failed
     if _model is not None or _model_load_failed:
@@ -65,7 +66,7 @@ def embed_text(text: str) -> list[float]:
     return [float(x) for x in vec]
 
 
-def embed_skill(skill) -> list[float]:
+def embed_skill(skill: "Any") -> list[float]:
     """Embed a Skill row using title + description + related_skills tags."""
     title = getattr(skill, "title", "") or ""
     description = getattr(skill, "description", "") or ""

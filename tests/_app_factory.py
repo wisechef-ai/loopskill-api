@@ -69,6 +69,7 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.canary", "router", ""),
     ("app.forks_routes", "router", ""),
     ("app.cookbook_routes", "router", ""),
+    ("app.promotion_routes", "router", ""),
     ("app.graph_routes", "router", ""),
     ("app.cookbook_deployment_routes", "router", ""),
     ("app.heartbeat_routes", "router", ""),

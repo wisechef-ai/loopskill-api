@@ -34,7 +34,6 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import Cookbook, CookbookSkill, Skill, SkillVersion, User
-from app._skill_helpers import _install_counts_for
 from app.services.cookbook_external import (
     install_descriptor_for,
     is_external_skill,
@@ -355,10 +354,22 @@ def _to_cb_out(cb: Cookbook) -> dict:
 def _public_cb_card(db: Session, cb: Cookbook) -> dict:
     """A compact, anonymous-safe public cookbook card for the discover feed."""
     skill_rows = _skills_for(db, cb.id, include_disabled=False)
-    skill_ids = [skill.id for _cs, skill in skill_rows]
-    counts = _install_counts_for(db, skill_ids) if skill_ids else {}
-    total_installs = sum(t for t, _7 in counts.values())
-    installs_7d = sum(s for _t, s in counts.values())
+    # portal_0610 R7: count installs ATTRIBUTED TO this cookbook (InstallEvent
+    # rows stamped with cookbook_id), NOT the sum of each member skill's global
+    # install count — the latter double-counts skills shared across cookbooks.
+    from app._skill_helpers import _cookbook_install_counts
+
+    total_installs, installs_7d = _cookbook_install_counts(db, cb.id)
+    # portal_0610 R2: emit the owner's CREATOR HANDLE as the ref so the attribution
+    # actually validates (a bare owner UUID was dropped by the allowlist). Falls
+    # back to the owner UUID string only when no creator/handle exists.
+    ref_value = str(cb.cookbook_owner) if cb.cookbook_owner else None
+    if cb.cookbook_owner is not None:
+        from app.models import Creator
+
+        _creator = db.query(Creator).filter(Creator.user_id == cb.cookbook_owner).first()
+        if _creator is not None and _creator.handle:
+            ref_value = _creator.handle
     return {
         "slug": cb.slug,
         "name": cb.name,
@@ -373,7 +384,8 @@ def _public_cb_card(db: Session, cb: Cookbook) -> dict:
         "is_verified": bool(cb.is_verified),
         # ?ref attribution: a creator-tagged clone link surfaced ON the card so
         # install attribution is visible from week 1 (GTM build-plan mod #2).
-        "ref": str(cb.cookbook_owner) if cb.cookbook_owner else None,
+        # portal_0610 R2: creator HANDLE (validatable), not the raw owner UUID.
+        "ref": ref_value,
     }
 
 
@@ -397,7 +409,10 @@ def discover_cookbooks(
         Cookbook.slug.isnot(None),
     )
     if sort == "newest":
-        q = q.order_by(Cookbook.created_at.desc())
+        # portal_0610 R6: add a deterministic tiebreaker. Seeded cookbooks share
+        # one created_at, so without a secondary key the order was arbitrary
+        # DB-insertion. Cookbook.id.desc() makes "newest" stable + reproducible.
+        q = q.order_by(Cookbook.created_at.desc(), Cookbook.id.desc())
         rows = q.offset(offset).limit(limit).all()
         cards = [_public_cb_card(db, cb) for cb in rows]
     else:
@@ -762,9 +777,23 @@ def install_cookbook(
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
     rows = _skills_for(db, cb.id, include_disabled=False)
 
+    # portal_0610 R1 (§6.6/§6.7-L10): tier-ACCESS gate, owner-tier-scoped.
+    # A cbt_ client agent installs against the cookbook OWNER's tier, not its
+    # own. A free-owner cookbook must never emit a Pro tarball; a Pro-owner
+    # cookbook may. Over-tier skills are SKIPPED in the bulk payload (a mixed
+    # cookbook still delivers the skills the owner is entitled to) rather than
+    # 403-ing the whole install.
+    from app.authz import tier_rank_allows_install
+    from app._skill_helpers import _resolve_cookbook_owner_tier
+
+    owner_tier = _resolve_cookbook_owner_tier(db, cb)
+
     skills_payload = []
     installed_skills: list[tuple[Skill, str, int]] = []
     for cs, skill in rows:
+        # portal_0610 R1: skip skills the cookbook owner's tier cannot install.
+        if not tier_rank_allows_install(owner_tier, getattr(skill, "tier", None)):
+            continue
         # federation_0604 Unit 2 — external rows get a CHEAP descriptor + a
         # cookbook-scoped single-install URL. No origin fetch in the bulk path
         # (isolation wall #2: bulk must not fan out N network calls).
@@ -972,6 +1001,27 @@ def install_single_skill_from_cookbook(
     )
     if cs is None:
         raise HTTPException(status_code=404, detail="skill_not_in_cookbook")
+
+    # portal_0610 R1 (§6.6/§6.7-L10): tier-ACCESS gate, owner-tier-scoped.
+    # An explicit single-skill install of an over-tier skill 403s (unlike the
+    # bulk path which silently skips). The cookbook OWNER's tier governs, so a
+    # free-owner cookbook cannot hand a client agent a Pro skill even by direct
+    # slug. External skills carry no tarball/tier contract → not gated here.
+    if not is_external_skill(skill):
+        from app.authz import tier_rank_allows_install
+        from app._skill_helpers import _resolve_cookbook_owner_tier
+
+        owner_tier = _resolve_cookbook_owner_tier(db, cb)
+        if not tier_rank_allows_install(owner_tier, getattr(skill, "tier", None)):
+            from app.tier_labels import display_label as _dl
+
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"This skill requires {_dl(skill.tier or 'pro')} tier; the "
+                    f"cookbook owner's plan does not include it."
+                ),
+            )
 
     # federation_0604 Unit 2 — external skill install resolves the real SKILL.md
     # from origin at install time (never rehosted), via the SHARED resolver also

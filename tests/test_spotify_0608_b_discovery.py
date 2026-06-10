@@ -114,8 +114,9 @@ def _attach(db, cb, skill, source="custom-added"):
     db.commit()
 
 
-def _install(db, skill, api_key_id=None):
-    db.add(InstallEvent(id=uuid.uuid4(), skill_id=skill.id, skill_slug=skill.slug, api_key_id=api_key_id))
+def _install(db, skill, api_key_id=None, cookbook_id=None):
+    db.add(InstallEvent(id=uuid.uuid4(), skill_id=skill.id, skill_slug=skill.slug,
+                        api_key_id=api_key_id, cookbook_id=cookbook_id))
     db.commit()
 
 
@@ -200,11 +201,13 @@ def test_discover_ranks_by_real_installs_excluding_test(db):
     _attach(db, cb_low, s_low)
     _attach(db, cb_high, s_high)
 
-    # low gets 5 TEST installs (should not count); high gets 2 organic
+    # portal_0610 R7: installs are attributed to the cookbook they came THROUGH
+    # (InstallEvent.cookbook_id), not summed from each skill's global count.
+    # low gets 5 TEST installs (should not count); high gets 2 organic.
     for _ in range(5):
-        _install(db, s_low, api_key_id=test_key.id)
-    _install(db, s_high, api_key_id=None)
-    _install(db, s_high, api_key_id=None)
+        _install(db, s_low, api_key_id=test_key.id, cookbook_id=cb_low.id)
+    _install(db, s_high, api_key_id=None, cookbook_id=cb_high.id)
+    _install(db, s_high, api_key_id=None, cookbook_id=cb_high.id)
 
     client = TestClient(_public_app(db))
     resp = client.get("/api/cookbooks/discover?sort=installs")

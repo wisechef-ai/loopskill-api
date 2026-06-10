@@ -119,19 +119,35 @@ def marketplace_stats(db: Session = Depends(get_db)):
     """
     from sqlalchemy import func as _f
 
-    total_skills = db.query(_f.count(Skill.id)).filter(Skill.is_public == True).scalar() or 0  # noqa: E712
-    total_installs = db.query(_f.count(InstallEvent.id)).scalar() or 0
+    from app.models import APIKey
+
+    # portal_0610 R5: exclude archived skills from public counts (was counting
+    # is_archived=True rows → /api/stats total_skills disagreed with search).
+    _public_skill = (Skill.is_public == True, Skill.is_archived == False)  # noqa: E712
+
+    # portal_0610 B3: exclude synthetic (test/CI) installs from public stats —
+    # the same §4.2 exclusion already applied to discover/leaderboard, now also
+    # on /api/stats (total_installs, installs_7d, top_installed). An install is
+    # organic when api_key_id is NULL (anon) OR its APIKey.is_test is false.
+    _organic = _f.coalesce(APIKey.is_test, False).is_(False)
+
+    total_skills = db.query(_f.count(Skill.id)).filter(*_public_skill).scalar() or 0
+    total_installs = (
+        db.query(_f.count(InstallEvent.id))
+        .outerjoin(APIKey, APIKey.id == InstallEvent.api_key_id)
+        .filter(_organic)
+        .scalar()
+        or 0
+    )
 
     # Tier breakdown
-    tier_rows = (
-        db.query(Skill.tier, _f.count(Skill.id)).filter(Skill.is_public == True).group_by(Skill.tier).all()  # noqa: E712
-    )
+    tier_rows = db.query(Skill.tier, _f.count(Skill.id)).filter(*_public_skill).group_by(Skill.tier).all()
     by_tier = {t or "uncategorized": int(c) for t, c in tier_rows}
 
     # Category breakdown
     cat_rows = (
         db.query(Skill.category, _f.count(Skill.id))
-        .filter(Skill.is_public == True)  # noqa: E712
+        .filter(*_public_skill)
         .group_by(Skill.category)
         .order_by(_f.count(Skill.id).desc())
         .limit(20)
@@ -139,9 +155,11 @@ def marketplace_stats(db: Session = Depends(get_db)):
     )
     by_category = [{"category": c or "uncategorized", "count": int(n)} for c, n in cat_rows]
 
-    # Top installed skills (lifetime)
+    # Top installed skills (lifetime) — organic only (B3).
     top_rows = (
         db.query(InstallEvent.skill_slug, _f.count(InstallEvent.id).label("installs"))
+        .outerjoin(APIKey, APIKey.id == InstallEvent.api_key_id)
+        .filter(_organic)
         .group_by(InstallEvent.skill_slug)
         .order_by(_f.count(InstallEvent.id).desc())
         .limit(10)
@@ -149,10 +167,14 @@ def marketplace_stats(db: Session = Depends(get_db)):
     )
     top_installed = [{"slug": s, "installs": int(c)} for s, c in top_rows]
 
-    # Recent installs (last 7d)
+    # Recent installs (last 7d) — organic only (B3).
     recent_window = datetime.now(UTC) - timedelta(days=7)
     installs_7d = (
-        db.query(_f.count(InstallEvent.id)).filter(InstallEvent.created_at >= recent_window).scalar() or 0
+        db.query(_f.count(InstallEvent.id))
+        .outerjoin(APIKey, APIKey.id == InstallEvent.api_key_id)
+        .filter(InstallEvent.created_at >= recent_window, _organic)
+        .scalar()
+        or 0
     )
 
     # Trending pairs (Stage 2, G16): top-weighted derived edges, deduplicated

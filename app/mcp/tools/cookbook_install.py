@@ -190,6 +190,16 @@ def recipes_cookbook_install(
     """
     cb = _resolve_cookbook(db, ctx, cookbook_id)
 
+    # portal_0610 R1 (§6.6/§6.7-L10): tier-ACCESS gate, owner-tier-scoped.
+    # The MCP install path is the primary cbt_ client-agent surface — it MUST
+    # honour the same tier gate as the HTTP routes. The cookbook OWNER's tier
+    # governs (a free-owner cookbook never emits a Pro tarball). External skills
+    # carry no tarball/tier contract and are not gated.
+    from app.authz import tier_rank_allows_install
+    from app._skill_helpers import _resolve_cookbook_owner_tier
+
+    _owner_tier = _resolve_cookbook_owner_tier(db, cb)
+
     if slug is not None:
         # Single-skill path
         skill = db.query(Skill).filter(Skill.slug == slug).first()
@@ -222,6 +232,17 @@ def recipes_cookbook_install(
             is_external_skill,
             resolve_external_install,
         )
+
+        # portal_0610 R1: owner-tier gate (single-skill → explicit 403-equivalent).
+        # External skills carry no tarball/tier contract → not gated.
+        if not is_external_skill(skill) and not tier_rank_allows_install(
+            _owner_tier, getattr(skill, "tier", None)
+        ):
+            raise CookbookInstallError(
+                "tier_insufficient",
+                f"This skill requires {skill.tier or 'pro'} tier; the cookbook owner's plan does not include it.",
+                status=403,
+            )
 
         if is_external_skill(skill):
             src_slug = descriptor_source_slug(skill)
@@ -287,6 +308,9 @@ def recipes_cookbook_install(
 
         if is_external_skill(skill):
             skills_payload.append(install_descriptor_for(str(cb.id), skill))
+            continue
+        # portal_0610 R1: skip skills the cookbook owner's tier cannot install.
+        if not tier_rank_allows_install(_owner_tier, getattr(skill, "tier", None)):
             continue
         version = _resolve_version(db, skill, cs.pinned_version)
         skills_payload.append(

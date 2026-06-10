@@ -117,12 +117,81 @@ def _install_counts_for(db: Session, skill_ids: list) -> dict:
     return {sid: (int(total or 0), int(last_7d or 0)) for sid, total, last_7d in rows}
 
 
-def _set_utm_ref_cookie(response, ref: str | None) -> None:
-    """Set httpOnly UTM ref cookie if ref is on the allowlist; silently drop others."""
-    if ref and ref in _UTM_REF_ALLOWLIST:
+def _cookbook_install_counts(db: Session, cookbook_id) -> tuple[int, int]:
+    """Return (total, last_7d) installs ATTRIBUTED TO this cookbook.
+
+    portal_0610 R7: the public cookbook card previously summed each member
+    skill's GLOBAL install count, so a skill shared across N cookbooks had its
+    installs counted N times (e.g. super-memory's ~1520 installs added to every
+    cookbook containing it — the marketplace-wide sum ran ~1.86× actual). That
+    overstates a cookbook's reach and is a GTM-trust problem.
+
+    The honest count is "installs that came THROUGH this cookbook" — InstallEvent
+    rows stamped with this cookbook_id (the cookbook install paths set it via
+    provenance). Organic-only: the same §4.2 is_test exclusion as
+    ``_install_counts_for``. A cookbook whose skills were all installed via the
+    direct /api/skills/install path (cookbook_id NULL) correctly shows 0 — those
+    installs were not attributable to the cookbook.
+    """
+    since_7d = datetime.now(UTC) - timedelta(days=7)
+    row = (
+        db.query(
+            func.count(InstallEvent.id).label("total"),
+            func.sum(case((InstallEvent.created_at >= since_7d, 1), else_=0)).label("last_7d"),
+        )
+        .outerjoin(APIKey, APIKey.id == InstallEvent.api_key_id)
+        .filter(
+            InstallEvent.cookbook_id == cookbook_id,
+            func.coalesce(APIKey.is_test, False).is_(False),
+        )
+        .one()
+    )
+    return int(row.total or 0), int(row.last_7d or 0)
+
+
+def _resolve_ref_value(ref: str | None, db: Session | None = None) -> str | None:
+    """Normalise an inbound ``?ref=`` value to a storable attribution token.
+
+    portal_0610 R2: previously only platform codes ({li,x,yt,ig,fb,agentpact})
+    were accepted; a creator-handle or owner-UUID ref (the value the public
+    cookbook card emits) never matched the allowlist and was SILENTLY DROPPED,
+    so the "install attribution visible from week 1" promise was false.
+
+    Resolution order:
+      * a known platform code → stored as-is (e.g. "x").
+      * a value resolving to a real Creator.handle (requires ``db``) → stored as
+        ``creator:<handle>`` so creator attribution is namespaced away from
+        platform codes and can be reported distinctly.
+      * anything else (unknown handle, malformed) → None (dropped, as before —
+        never store an unvalidated free-text ref).
+    """
+    if not ref:
+        return None
+    if ref in _UTM_REF_ALLOWLIST:
+        return ref
+    if db is not None:
+        from app.models import Creator
+
+        # Accept either a bare handle or an already-namespaced "creator:<handle>".
+        handle = ref.split("creator:", 1)[1] if ref.startswith("creator:") else ref
+        exists = db.query(Creator.id).filter(Creator.handle == handle).first()
+        if exists is not None:
+            return f"creator:{handle}"
+    return None
+
+
+def _set_utm_ref_cookie(response, ref: str | None, db: Session | None = None) -> None:
+    """Set httpOnly UTM ref cookie if ref resolves to a valid attribution token.
+
+    portal_0610 R2: now resolves creator-handle refs (via ``_resolve_ref_value``)
+    in addition to platform codes. Passing ``db`` enables handle validation; with
+    no db only platform codes are accepted (backward-compatible).
+    """
+    resolved = _resolve_ref_value(ref, db=db)
+    if resolved:
         response.set_cookie(
             _UTM_COOKIE_NAME,
-            value=ref,
+            value=resolved,
             max_age=_UTM_COOKIE_MAX_AGE,
             httponly=True,
             samesite="lax",
@@ -268,6 +337,35 @@ def _resolve_caller_tier_for_install(db: Session, request) -> str | None:
     if not user or user.subscription_status not in ("active", "trialing"):
         return None
     return user.subscription_tier
+
+
+def _resolve_cookbook_owner_tier(db: Session, cookbook) -> str | None:
+    """Resolve the effective install tier for a cookbook's OWNER.
+
+    portal_0610 R1 / §6.7-L10. Cookbook install paths gate tier-access on the
+    COOKBOOK OWNER's subscription, not the calling agent's — because the owner
+    (the paying customer) is who delivered the cookbook to a client agent via a
+    cbt_ share-token. A free-owner cookbook can therefore never hand out a Pro
+    skill, while a Pro-owner cookbook can — exactly the L10 ``tier_wide``
+    enforcement contract, resolved server-side at install time.
+
+    Returns:
+        - ``"pro_plus"`` for an owner-less / base catalog cookbook
+          (cookbook_owner is None): the WiseChef-curated catalog is not gated
+          by a personal subscription. Skill-level visibility still applies.
+        - the owner's ``subscription_tier`` when their subscription is
+          active/trialing.
+        - ``"free"`` when the owner exists but has no active paid subscription
+          (lapsed Pro must not keep leaking Pro skills to client agents).
+    """
+    owner_id = getattr(cookbook, "cookbook_owner", None)
+    if owner_id is None:
+        # Owner-less base/curated catalog — not personally gated.
+        return "pro_plus"
+    owner = db.query(User).filter(User.id == owner_id).first()
+    if not owner or owner.subscription_status not in ("active", "trialing"):
+        return "free"
+    return owner.subscription_tier or "free"
 
 
 # ── Install-event recording (denormalised counter sync) ────────────────────
