@@ -1363,3 +1363,76 @@ def handoff_cookbook(
         raise HTTPException(status_code=400, detail=error)
 
     return result
+
+
+# ── portal_0610 J8 — feedback-repo binding (delivery cockpit) ────────────────
+
+
+class FeedbackConfigIn(BaseModel):
+    """PATCH body for cookbook feedback routing (J8 cockpit binding UI)."""
+
+    repo: str | None = None  # 'owner/name'; null clears → default routing
+    mode: str | None = "pat"
+    pat: str | None = None  # fine-grained GitHub PAT (issues:write); never stored plaintext
+
+
+@router.get("/{cookbook_id}/feedback-config")
+def get_feedback_config(
+    cookbook_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """J8 — read where this cookbook's feedback routes (for the inbox panel).
+
+    Never returns the PAT — only repo + mode + whether a credential is bound.
+    """
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+    return {
+        "cookbook_id": str(cb.id),
+        "feedback_repo": cb.feedback_repo,
+        "feedback_mode": cb.feedback_mode,
+        "has_credential": bool(cb.feedback_pat_enc),
+        "default_repo": "wisechef-ai/recipes-api",
+    }
+
+
+@router.patch("/{cookbook_id}/feedback-config")
+def set_feedback_config(
+    cookbook_id: str,
+    body: FeedbackConfigIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """J8 — bind (or clear) per-cookbook feedback routing from the cockpit.
+
+    Delegates to the MCP tool for a single source of truth (tier gate, ownership,
+    repo validation, PAT verification + encryption all live there). Pro/Pro+ only.
+    """
+    from app.auth_ctx import AuthContext
+    from app.mcp.tools.configure_feedback import recipes_configure_feedback
+
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    # Resolve ownership first (404/403 before the tool's softer error dict).
+    _resolve_owned_cookbook(db, ctx, cookbook_id)
+
+    if ctx.is_master:
+        auth_ctx: AuthContext = AuthContext(scope="master")
+    elif ctx.user_id is not None:
+        auth_ctx = AuthContext(scope="user", user_id=ctx.user_id, tier=ctx.tier)
+    else:
+        raise HTTPException(status_code=401, detail="auth_required")
+
+    result = recipes_configure_feedback(
+        db,
+        ctx=auth_ctx,
+        cookbook_id=cookbook_id,
+        repo=body.repo,
+        mode=body.mode,
+        pat=body.pat,
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=422, detail=result.get("error", "feedback_config_failed"))
+    return result
