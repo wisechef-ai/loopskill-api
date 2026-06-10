@@ -278,7 +278,10 @@ queue:
     primary_skill: agent-rescue
     suggested_internal_links: [/skills/agent-rescue, /docs/troubleshooting, /docs/skill-format]
     intent: troubleshooting; high mid-workflow urgency
-    status: queued
+    status: drafting
+    claimed_by: chef
+    claimed_at: "2026-06-10T14:32:00Z"
+    pr_url: "https://github.com/wisechef-ai/recipes-portal/commit/bad307c"
 
   - id: 23
     slug: deploy-skill-as-cron-job
