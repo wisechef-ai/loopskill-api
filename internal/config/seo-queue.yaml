@@ -290,7 +290,10 @@ queue:
     primary_skill: chef
     suggested_internal_links: [/skills/chef, /docs/cron, /docs/cookbooks]
     intent: automation; converts ops-minded buyers
-    status: queued
+    status: drafting
+    claimed_by: chef
+    claimed_at: "2026-06-11T14:35:00Z"
+    pr_url: "https://github.com/wisechef-ai/recipes-portal/commit/0d569df"
 
   - id: 24
     slug: claude-skill-permissions
