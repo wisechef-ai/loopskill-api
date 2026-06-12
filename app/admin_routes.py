@@ -369,9 +369,9 @@ def admin_pulse(
                     status="active",
                     limit=5,
                     expand=["data.items.data.price", "data.discount"],
-                    timeout=8,
                 )
-                for sub in (subs or {}).get("data", []) or []:
+                sub_list = getattr(subs, "data", None) or []
+                for sub in sub_list:
                     cents = _monthly_cents_from_stripe_sub(dict(sub))
                     real_cash_cents += cents
                     if cents > 0:
