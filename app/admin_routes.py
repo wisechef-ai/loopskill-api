@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.search_index import reindex_all
 from app.tier_labels import _is_paid_tier
@@ -40,6 +41,63 @@ _TIER_MRR_USD: dict[str, int] = {"pro": 20, "pro_plus": 100}
 _LEGACY_TIER_TO_CANONICAL: dict[str, str] = {"cook": "pro", "operator": "pro_plus", "studio": "pro_plus"}
 # Subscription statuses that count as live, paying revenue.
 _HEALTHY_SUB_STATUSES: frozenset[str] = frozenset({"active", "trialing"})
+
+
+def _monthly_cents_from_stripe_sub(sub: dict) -> int:
+    """Real monthly cash (in cents) a Stripe subscription bills, net of discount.
+
+    Pure function — no network. Takes a Stripe Subscription dict (as returned by
+    Subscription.list with items.data.price expanded and discount expanded) and
+    returns the actual recurring cash per month after any coupon.
+
+    This is the fix for the promo-code illusion: a 100%-off coupon makes the
+    list-price irrelevant — the customer pays $0, and this returns 0. We never
+    infer revenue from tier list-price again; we read what Stripe actually bills.
+
+    Rules:
+      - Sum each line item: unit_amount * quantity.
+      - Normalise yearly prices to monthly (annual / 12).
+      - Apply a subscription-level coupon: percent_off (×(1-pct/100)) OR
+        amount_off (subtract, in the coupon's currency minor unit).
+      - Clamp at 0 (a discount can't make Stripe pay the customer).
+    Unknown/missing fields are treated conservatively as "no charge for that
+    item" so we under-count rather than re-introduce phantom revenue.
+    """
+    gross = 0.0
+    items = ((sub.get("items") or {}).get("data")) or []
+    for it in items:
+        price = it.get("price") or {}
+        unit = price.get("unit_amount")
+        if unit is None:
+            continue  # metered/unknown price → contributes no fixed cash
+        qty = it.get("quantity", 1) or 1
+        recurring = price.get("recurring") or {}
+        interval = recurring.get("interval", "month")
+        interval_count = recurring.get("interval_count", 1) or 1
+        amount = float(unit) * float(qty)
+        # Normalise to a monthly figure.
+        if interval == "year":
+            amount /= 12.0 * interval_count
+        elif interval == "week":
+            amount *= 52.0 / 12.0 / interval_count
+        elif interval == "day":
+            amount *= 365.0 / 12.0 / interval_count
+        elif interval == "month":
+            amount /= float(interval_count)
+        gross += amount
+
+    # Subscription-level coupon (the promo-code path). Stripe attaches the
+    # checkout coupon to the subscription's `discount.coupon`.
+    discount = sub.get("discount") or {}
+    coupon = (discount.get("coupon") if isinstance(discount, dict) else None) or {}
+    pct = coupon.get("percent_off")
+    amt = coupon.get("amount_off")
+    if pct is not None:
+        gross *= max(0.0, 1.0 - float(pct) / 100.0)
+    elif amt is not None:
+        gross -= float(amt)
+
+    return max(0, int(round(gross)))
 
 
 class ReindexAllResponse(BaseModel):
@@ -222,19 +280,28 @@ def admin_update_publish_request_status(
 class PulseOut(BaseModel):
     """The 'one number' demand scoreboard for the khaserto GTM loop.
 
-    Distinct from GET /api/stats (which is supply-side vanity: skill + install
-    counts). This is DEMAND-side truth: who is paying, how much MRR, and how
-    much paywall pressure / fleet-deploy activity is happening. Master-key only.
+    Distinct from GET /api/stats (supply-side vanity: skill + install counts).
+    This is DEMAND-side truth. The headline number is REAL CASH MRR — what
+    Stripe actually bills, net of promo-code discounts — not list-price ×
+    subscriber count. A 100%-off-coupon "customer" pays $0 and counts as $0.
+    Master-key only.
     """
 
-    paying_operators: int  # users on a healthy paid subscription (the NORTH STAR)
-    mrr_usd: int  # sum of monthly price across healthy paid subscriptions
-    by_tier: dict[str, int]  # canonical paid tier -> count of healthy subscribers
+    # ── The honest headline ──────────────────────────────────────────────
+    paying_operators: int  # subs whose REAL monthly cash > $0 (the NORTH STAR)
+    real_cash_mrr_usd: int | None  # actual billed $/mo net of discounts; None if Stripe unreachable
+    comped_subscriptions: int  # active subs paying $0 (promo/100%-off) — the illusion exposed
+    mrr_source: str  # "stripe" (real) | "stripe_unavailable" (could not verify)
+    # ── Context (DB-only, always available) ──────────────────────────────
+    active_subscriptions: int  # all healthy paid-tier subs regardless of what they pay
+    by_tier: dict[str, int]  # canonical paid tier -> count of active subscribers
+    list_mrr_ceiling_usd: int  # list-price × active subs — a CEILING, NOT revenue (labeled honestly)
+    # ── Paywall pressure + fleet deploy ──────────────────────────────────
     free_sync_used_total: int  # free users who burned their one free sync (felt the wall)
-    free_sync_used_7d: int  # ...of those, in the last 7 days (paywall pressure, recent)
+    free_sync_used_7d: int  # ...in the last 7 days (recent paywall pressure)
     fleets_total: int  # named fleets created
-    fleet_subscriptions_total: int  # cookbook->fleet deploy links (fleet_sync targets)
-    fleet_subscriptions_7d: int  # ...created in the last 7 days (recent deploy activity)
+    fleet_subscriptions_total: int  # cookbook->fleet deploys (the moat motion; 0 = never used)
+    fleet_subscriptions_7d: int  # ...in the last 7 days
     generated_at: str
 
 
@@ -245,10 +312,12 @@ def admin_pulse(
 ):
     """Return the north-star demand scoreboard. Master-key only.
 
-    Counts are computed live from users / fleets / fleet_subscriptions. No Stripe
-    API call (read-only DB), so it is cheap and cannot 5xx on a slow Stripe.
-    Legacy tier slugs (cook/operator/studio) are normalised to canonical before
-    MRR lookup so revenue is never under-counted during the alias window.
+    Headline = REAL CASH MRR from Stripe (net of promo discounts), because our
+    DB stores only tier+status, not what a customer pays — a 100%-off promo
+    sub looks identical to a full-price one locally. We resolve the truth from
+    Stripe per active subscriber. If Stripe is unreachable the cash figures are
+    returned as None with mrr_source="stripe_unavailable" — we NEVER fall back
+    to list-price as if it were revenue (that was the original bug).
     """
     api_key_user_id = getattr(request.state, "api_key_user_id", "MISSING")
     if api_key_user_id is not None:
@@ -259,28 +328,66 @@ def admin_pulse(
     now = datetime.now(UTC)
     cutoff_7d = now - timedelta(days=7)
 
-    # Paying operators + MRR, grouped by canonical tier. Only healthy statuses.
-    rows = (
-        db.query(User.subscription_tier, func.count(User.id))
+    # Active paid-tier subscribers (DB truth: who has a live paid tier).
+    active_users = (
+        db.query(User.id, User.subscription_tier, User.stripe_customer_id)
         .filter(
             User.subscription_status.in_(_HEALTHY_SUB_STATUSES),
             User.subscription_tier.isnot(None),
         )
-        .group_by(User.subscription_tier)
         .all()
     )
     by_tier: dict[str, int] = {}
-    paying_operators = 0
-    mrr_usd = 0
-    for tier_slug, count in rows:
+    active_subscriptions = 0
+    list_mrr_ceiling_usd = 0
+    for _uid, tier_slug, _cust in active_users:
         if not tier_slug or not _is_paid_tier(tier_slug):
-            continue  # skip None / 'free' / any non-paying tier defensively
-        canonical = _LEGACY_TIER_TO_CANONICAL.get(tier_slug, tier_slug)
-        by_tier[canonical] = by_tier.get(canonical, 0) + count
-        paying_operators += count
-        mrr_usd += _TIER_MRR_USD.get(canonical, 0) * count
+            continue
+        slug: str = tier_slug
+        canonical = _LEGACY_TIER_TO_CANONICAL.get(slug, slug)
+        by_tier[canonical] = by_tier.get(canonical, 0) + 1
+        active_subscriptions += 1
+        list_mrr_ceiling_usd += _TIER_MRR_USD.get(canonical, 0)
 
-    # Free-sync paywall pressure: users who burned their one free manual sync.
+    # ── Real cash MRR from Stripe (the source of truth for what's billed) ──
+    real_cash_cents = 0
+    paying_operators = 0
+    mrr_source = "stripe"
+    customer_ids = [c for (_u, _t, c) in active_users if c]
+    if not customer_ids:
+        # No Stripe customers at all → unambiguously $0 real cash, no API needed.
+        real_cash_mrr_usd: int | None = 0
+    else:
+        try:
+            import stripe
+
+            stripe.api_key = settings.STRIPE_SECRET_KEY
+            stripe.api_version = "2026-01-28.clover"
+            for cust_id in customer_ids:
+                subs = stripe.Subscription.list(
+                    customer=cust_id,
+                    status="active",
+                    limit=5,
+                    expand=["data.items.data.price", "data.discount"],
+                    timeout=8,
+                )
+                for sub in (subs or {}).get("data", []) or []:
+                    cents = _monthly_cents_from_stripe_sub(dict(sub))
+                    real_cash_cents += cents
+                    if cents > 0:
+                        paying_operators += 1
+            real_cash_mrr_usd = int(round(real_cash_cents / 100.0))
+        # Rationale: Stripe is the revenue source of truth; if it's unreachable we
+        # report None + a flag rather than inventing revenue from list-price.
+        except Exception:  # noqa: BLE001
+            logger.warning("admin pulse: Stripe MRR resolution failed — reporting unavailable", exc_info=True)
+            real_cash_mrr_usd = None
+            paying_operators = 0
+            mrr_source = "stripe_unavailable"
+
+    comped_subscriptions = active_subscriptions - paying_operators if mrr_source == "stripe" else 0
+
+    # Free-sync paywall pressure.
     free_sync_used_total = (
         db.query(func.count(User.id)).filter(User.free_sync_used_at.isnot(None)).scalar() or 0
     )
@@ -288,7 +395,7 @@ def admin_pulse(
         db.query(func.count(User.id)).filter(User.free_sync_used_at >= cutoff_7d).scalar() or 0
     )
 
-    # Fleet-deploy activity.
+    # Fleet-deploy activity (the moat motion).
     fleets_total = db.query(func.count(Fleet.id)).scalar() or 0
     fleet_subscriptions_total = db.query(func.count()).select_from(FleetSubscription).scalar() or 0
     fleet_subscriptions_7d = (
@@ -300,17 +407,23 @@ def admin_pulse(
     )
 
     logger.info(
-        "admin pulse: paying=%d mrr=$%d free_sync_used=%d fleets=%d",
+        "admin pulse: paying=%d real_cash_mrr=%s comped=%d active=%d fleet_subs=%d source=%s",
         paying_operators,
-        mrr_usd,
-        free_sync_used_total,
-        fleets_total,
+        real_cash_mrr_usd,
+        comped_subscriptions,
+        active_subscriptions,
+        fleet_subscriptions_total,
+        mrr_source,
     )
 
     return PulseOut(
         paying_operators=paying_operators,
-        mrr_usd=mrr_usd,
+        real_cash_mrr_usd=real_cash_mrr_usd,
+        comped_subscriptions=int(comped_subscriptions),
+        mrr_source=mrr_source,
+        active_subscriptions=active_subscriptions,
         by_tier=by_tier,
+        list_mrr_ceiling_usd=list_mrr_ceiling_usd,
         free_sync_used_total=int(free_sync_used_total),
         free_sync_used_7d=int(free_sync_used_7d),
         fleets_total=int(fleets_total),
