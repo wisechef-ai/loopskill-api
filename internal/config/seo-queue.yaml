@@ -311,7 +311,10 @@ queue:
     primary_skill: graphify
     suggested_internal_links: [/pricing, /docs/cookbooks, /docs/security]
     intent: Pro+ exclusive feature; high commercial intent
-    status: queued
+    status: drafting
+    claimed_by: chef
+    claimed_at: "2026-06-13T14:35:00Z"
+    pr_url: "https://github.com/wisechef-ai/recipes-portal/commit/a3ed211"
 
   - id: 26
     slug: cross-agent-skill-feedback-loop
