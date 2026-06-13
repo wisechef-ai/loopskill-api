@@ -175,3 +175,23 @@ Every install transport returns a `provenance_id` — a RANDOM, server-stored op
 
 **Feedback routing is provenance-deterministic.** `recipes_feedback` and `recipes_report_skill_error` accept `provenance_id`; the server resolves it to the EXACT cookbook the install came from and routes the issue to that cookbook's configured curator repo (`route_targets_for_provenance`). The old "first cookbook the user owns with a repo set" guess is DELETED — without a `provenance_id`, routing falls back to the default repo (no guessing). PAT path is live; GitHub App is a distinct future substream (`mode='github_app'` raises until registered).
 
+
+---
+
+## Cookbook → skill-bundle bridge (well-known, 2026-06-13)
+
+`app/cookbook_wellknown_routes.py` serves a public cookbook as an
+agentskills.io bundle so any agent can install it natively:
+
+```
+hermes skills install well-known:https://recipes.wisechef.ai/api/cookbooks/public/<slug>
+```
+
+Two PUBLIC routes under `/api/cookbooks/public/` (already in `PUBLIC_PREFIXES`):
+- `.../{slug}/.well-known/skills/index.json` — lists all skills; paid flagged `locked`.
+- `.../{slug}/.well-known/skills/{skill}/SKILL.md` — FREE → real `readme`; PAID → non-leaking stub.
+
+**Paywall invariant:** paid `readme` body never crosses this unauthenticated
+surface (tested in `tests/test_cookbook_wellknown.py::test_paid_skill_serves_stub_not_body`).
+This is the SERVE half of the federation `well-known` adapter (which CONSUMES).
+Vault: `shared-knowledge/recipes/cookbook-bundle-bridge.md`.
