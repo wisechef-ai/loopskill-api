@@ -18,6 +18,7 @@ from app.bootcamp_routes import router as bootcamp_router  # bootcamp_0607
 from app.checkout_routes import router as checkout_router
 from app.config import settings
 from app.cookbook_routes import router as cookbook_router
+from app.cookbook_wellknown_routes import router as cookbook_wellknown_router
 from app.creator_routes import router as creator_router
 from app.credits_routes import router as credits_router
 from app.discord_bot import bot as discord_bot
@@ -165,6 +166,10 @@ def create_app() -> FastAPI:
     app.include_router(canary_router, tags=["canary"])
     app.include_router(forks_router, tags=["forks"])
     app.include_router(cookbook_router, tags=["cookbooks"])
+    # Well-known bundle bridge MUST register AFTER cookbook_router so the more
+    # specific /public/{slug}/.well-known/... paths are matched (FastAPI is
+    # first-match; the generic /public/{slug} lives on cookbook_router).
+    app.include_router(cookbook_wellknown_router, tags=["cookbooks", "well-known"])
     app.include_router(graph_router, tags=["graph"])
     app.include_router(cookbook_deploy_router, tags=["cookbook-deploy"])
     app.include_router(heartbeat_router, tags=["heartbeat"])
