@@ -335,7 +335,15 @@ queue:
     primary_skill: skill-creator
     suggested_internal_links: [/skills/skill-creator, /docs/quality-gate, /docs/publishing]
     intent: author-facing; reinforces 9/10 quality narrative
-    status: queued
+    status: drafting
+    claimed_by: chef
+    claimed_at: "2026-06-14T14:30:00Z"
+    pr_url: "https://github.com/wisechef-ai/recipes-portal/commit/4c14df4"
+    note: |
+      /docs/quality-gate resolves 404 (not shipped); used live /docs/publishing,
+      /docs/security, /docs/cookbooks, /skills/skill-creator instead. Quality
+      mechanism described in prose, grounded on skill-creator quality_score 9.17
+      + unhappy_paths_count 4 from live catalog API.
 
   - id: 28
     slug: claude-skill-testing
