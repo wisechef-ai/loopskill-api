@@ -34,7 +34,7 @@ counts:
   pro_plus_exclusive_skills: 0    # 2026-05-13: all paid skills moved to Pro; Pro+ retains cookbooks/keys/private catalog perks (non-skill)
   mcp_tools_count: 6
   rest_endpoint_count: 11
-  last_refresh_at: '2026-06-13T03:05:01Z'
+  last_refresh_at: '2026-06-14T03:05:02Z'
 
 # ── TIERS — display layer (immutable contract with config/tiers.yaml) ───────
 # Mirror of config/tiers.yaml fields needed for marketing.
