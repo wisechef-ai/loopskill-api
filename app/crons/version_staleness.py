@@ -68,11 +68,19 @@ def fetch_latest_github(release_source: str, *, _http=None) -> str | None:
         import httpx
 
         _http = httpx
+    # Parse the host exactly rather than substring-matching the URL string.
+    # A naive ``"github.com" in src`` / ``startswith("github.com/")`` check is
+    # bypassable (e.g. ``github.com.evil.com/x``) — CodeQL flags this as
+    # py/incomplete-url-substring-sanitization. Normalize a scheme so urlparse
+    # populates .hostname, then compare the hostname to an exact allowlist.
+    from urllib.parse import urlparse
+
     src = release_source.strip()
-    src = src.replace("https://", "").replace("http://", "")
-    if not src.startswith("github.com/"):
+    candidate = src if "://" in src else f"https://{src}"
+    parsed = urlparse(candidate)
+    if (parsed.hostname or "").lower() != "github.com":
         return None
-    repo = src[len("github.com/") :].strip("/")
+    repo = parsed.path.strip("/")
     if repo.count("/") != 1:
         return None
     try:
