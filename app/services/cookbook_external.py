@@ -199,8 +199,39 @@ def resolve_external_install(source: str, slug: str) -> dict[str, Any] | None:
         # Deep-link / non-redistributable: never rehosted — caller hands back
         # the origin link instead of a body.
         return None
+
+    # REGISTER_MCP — no SKILL.md body; return a paste-ready MCP client-config
+    # block pointing at the server's endpoint. Shared by the cookbook single-
+    # install route and the public /skills/external/.../install route so the
+    # contract cannot drift.
+    if ext.install_path == InstallPath.REGISTER_MCP:
+        from app.services.federation_mcp import build_mcp_server_config
+
+        try:
+            cfg = build_mcp_server_config(ext)
+        except ValueError:
+            # No registrable endpoint — caller surfaces the honest 409.
+            return None
+        return {
+            "slug": ext.slug,
+            "source": ext.source,
+            "install_path": ext.install_path.value,
+            "license": ext.license,
+            "origin_url": ext.origin_url,
+            "namespace": "external",
+            "quality": QUALITY_AS_IS,
+            "scan_status": "unscanned",  # remote server — no body to scan
+            "scannable": False,
+            "server_key": cfg["server_key"],
+            "endpoint": cfg["endpoint"],
+            "mcp_config": cfg["mcp_config"],
+            "hermes_yaml": cfg["hermes_yaml"],
+            "claude_desktop_json": cfg["claude_desktop_json"],
+            "install_command": cfg["install_command"],
+        }
+
     if ext.install_path != InstallPath.FETCH_ORIGIN:
-        # register_mcp etc. have no file body to stream yet.
+        # any other non-fetch path has no file body to stream.
         return None
 
     fetcher: Callable[[str], tuple[str, str] | None] | None = get_origin_fetcher(source)

@@ -786,8 +786,77 @@ def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)
             f"curl -fsSL {raw_url} -o ~/.claude/skills/{leaf}/SKILL.md",
         }
 
-    # Other allowed paths (e.g. register_mcp) have no file body to stream yet —
-    # surface the routed decision honestly rather than pretend.
+    # REGISTER_MCP — federated MCP-server skill. There is no SKILL.md body to
+    # stream; "installing" means handing back a paste-ready MCP client-config
+    # block pointing at the server's own endpoint. This is an ATTRIBUTED install
+    # (we hand the agent a concrete, runnable server config), mirroring the
+    # FETCH_ORIGIN provenance branch above.
+    if skill.install_path == InstallPath.REGISTER_MCP:
+        from app.services.federation_mcp import build_mcp_server_config
+
+        try:
+            cfg = build_mcp_server_config(skill)
+        except ValueError:
+            # No registrable endpoint — honest 409 with the origin link rather
+            # than a fabricated config (mirrors the fetch-origin-not-wired 409).
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "reason": (
+                        f"register-mcp skill '{slug}' has no registrable "
+                        "MCP endpoint (origin_url is not a server URL)"
+                    ),
+                    "install_path": skill.install_path.value,
+                    "origin_url": skill.origin_url,
+                    "license": skill.license,
+                },
+            ) from None
+
+        prov_id = None
+        try:
+            from app.services.cookbook_external import materialize_external_skill
+            from app.services.provenance import (
+                ATTR_ATTRIBUTED,
+                record_install_with_provenance,
+            )
+
+            mat = materialize_external_skill(db, source, slug)
+            if mat is not None:
+                _ev, prov_id = record_install_with_provenance(
+                    db,
+                    skill=mat,
+                    version_semver="external",
+                    request=None,
+                    source="external",
+                    cookbook_id=None,
+                    attribution=ATTR_ATTRIBUTED,
+                )
+                db.commit()
+        # Rationale: provenance is best-effort observability; never block the
+        # real MCP-config response on a materialize/record hiccup.
+        except Exception:  # noqa: BLE001
+            logger.warning("register-mcp provenance failed for %s/%s", source, slug, exc_info=True)
+            db.rollback()
+
+        return {
+            "slug": skill.slug,
+            "source": skill.source,
+            "install_path": skill.install_path.value,
+            "license": skill.license,
+            "origin_url": skill.origin_url,
+            "namespace": "external",
+            "quality": "community · as-is",
+            "provenance_id": prov_id,
+            "server_key": cfg["server_key"],
+            "endpoint": cfg["endpoint"],
+            "mcp_config": cfg["mcp_config"],
+            "hermes_yaml": cfg["hermes_yaml"],
+            "claude_desktop_json": cfg["claude_desktop_json"],
+            "install_command": cfg["install_command"],
+        }
+
+    # Other allowed paths have no file body to stream yet — surface the routed
+    # decision honestly rather than pretend.
     # spotify_0608 Ph E — honest 'unattributed' provenance: a deep-link / non-fetch
     # install has no body, so we cannot attribute deeper than "this source/slug was
     # handed to an agent." We STILL mint a provenance_id (no hard-fail) mapping to
