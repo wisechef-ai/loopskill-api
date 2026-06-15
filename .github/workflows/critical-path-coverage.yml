@@ -42,7 +42,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-cov pytest-timeout
+          # python-frontmatter is a TEST-only dep (tests/test_hubs1505_smoke.py);
+          # mirror ci.yml's pytest job so this gate's collection phase doesn't
+          # ModuleNotFoundError before the coverage assertion runs.
+          pip install pytest pytest-cov pytest-timeout python-frontmatter
       - name: Critical-path coverage gate (>=80% on auth surface)
         run: |
           python -m pytest tests/ \
