@@ -102,9 +102,24 @@ def search_skills(
     ),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    limit: int | None = Query(
+        None,
+        ge=1,
+        le=100,
+        description=(
+            "Alias for page_size — callers may use either name. "
+            "When both are supplied, `limit` wins. "
+            "Cap is 100 regardless."
+        ),
+    ),
     db: Session = Depends(get_db),
 ):
     """Full-text skill search with hybrid recall fallback."""
+    # WIS-948: honour ?limit= alias so callers who use the idiomatic REST name
+    # (`?limit=200`) don't silently get the 20-result default.  Both params are
+    # clamped at 100 to avoid unbounded table scans.
+    effective_page_size = min(limit, 100) if limit is not None else page_size
+    page_size = effective_page_size
     query = (
         db.query(Skill)
         .options(

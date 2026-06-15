@@ -32,7 +32,7 @@ def recipes_search(
     query: str | None = None,
     category: str | None = None,
     tier: str | None = None,
-    limit: int = 20,
+    limit: int = 100,
     hybrid: bool = True,
 ) -> dict[str, Any]:
     """Search the public catalog by keyword, with hybrid fallback when sparse.
@@ -43,6 +43,11 @@ def recipes_search(
     - ``backend = "keyword"`` — literal ILIKE pass alone.
     - ``backend = "hybrid"``  — literal + recall results unioned.
     - ``backend = "recall_only"`` — literal returned zero, recall provided all.
+
+    WIS-948: default limit raised 20->100 so a bare recipes_search() call
+    returns the full (or near-full) catalog instead of silently capping at 20.
+    The HTTP search endpoint also honours a ?limit= alias for the same reason:
+    Pro-tier buyers browsing the catalog saw only 20/63 paid skills they own.
     """
     # Public-scope MCP tool: searches the public skill catalog only; is_public filter applied internally.
     q = (
