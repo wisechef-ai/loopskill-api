@@ -431,7 +431,10 @@ queue:
     primary_skill: chef
     suggested_internal_links: [/pricing, /skills, "/skills?tier=pro"]
     intent: pricing-page warm-up; conversion-adjacent
-    status: queued
+    status: drafting
+    claimed_by: chef
+    claimed_at: "2026-06-16T14:35:00Z"
+    pr_url: "https://github.com/wisechef-ai/recipes-portal/commit/4482531"
 
   - id: 30
     slug: install-skill-in-opencode
