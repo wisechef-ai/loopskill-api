@@ -443,7 +443,20 @@ queue:
     primary_skill: super-memory
     suggested_internal_links: [/skills, /docs/install-opencode, /docs/getting-started]
     intent: cross-vendor install (OpenCode flavor); rounds out vendor matrix
-    status: queued
+    status: drafting
+    claimed_by: chef
+    claimed_at: "2026-06-17T14:35:00Z"
+    pr_url: "https://github.com/wisechef-ai/recipes-portal/commit/7cd4d5c"
+    note: |
+      OpenCode has NATIVE SKILL.md support and reads ~/.claude/skills/<name>/SKILL.md
+      (same path as Claude Code) — headline of the post. Grounded on opencode.ai/docs/skills
+      (6 discovery paths), /docs/rules (AGENTS.md precedence), /docs/mcp-servers.
+      /docs/install-opencode + /docs/troubleshooting resolve 404 → NOT linked; used live
+      /docs/getting-started, /docs/mcp, /docs/cookbooks, /docs/sync, /docs/security, /skills,
+      /skills/super-memory, /pricing instead. super-memory free/MIT/quality 5.49 (install_count
+      not exposed by API — no count cited). 1220 words, 9 internal + 5 outbound links,
+      anti-claim body clean. /api/skills/.../skill.md returns 401 unauthed → no bare curl
+      shipped (downloads handled via Recipes MCP / recipes_install tool).
 
 # ── BACKLOG (queries Tori has mined but not yet sequenced) ───────────────────
 # Chef must NOT pick from here without Tori promoting an entry into queue:.
