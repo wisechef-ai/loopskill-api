@@ -130,7 +130,20 @@ def search_skills(
     )
 
     if q:
-        query = query.filter((Skill.title.ilike(f"%{q}%")) | (Skill.description.ilike(f"%{q}%")))
+        # issue: literal search matched title + description only, so a query
+        # that is really a *category* term ("ops", "devops") or only appears in
+        # the skill's readme body returned near-zero recall — measured live:
+        # q=ops returned 1 while 12 skills are category=ops; q=devops returned
+        # 0 while 2 skills are category=devops. Widen the literal pass to also
+        # match category + readme so category/body-only matches surface. Title
+        # still dominates ranking via the BM25 weights in app/ranking.py.
+        like = f"%{q}%"
+        query = query.filter(
+            Skill.title.ilike(like)
+            | Skill.description.ilike(like)
+            | Skill.category.ilike(like)
+            | Skill.readme.ilike(like)
+        )
     if category:
         query = query.filter(Skill.category == category)
     if vertical:
@@ -378,7 +391,7 @@ def trending_skills(
 
     if query is None:
         # Genuinely no install telemetry anywhere — return the empty shape.
-        return SkillSearchResult(results=[], total=0, page=page, page_size=page_size)
+        return SkillSearchResult(results=[], total=0, page=page, page_size=page_size, window="all")
 
     if chosen_window != period:
         logger.info(
@@ -395,6 +408,7 @@ def trending_skills(
         total=total,
         page=page,
         page_size=page_size,
+        window=chosen_window,
     )
 
 

@@ -73,6 +73,7 @@ def score_bm25(query: str, skill: "Any", db: Session | None = None) -> float:
         return 0.0
     title = getattr(skill, "title", "") or ""
     description = getattr(skill, "description", "") or ""
+    category = getattr(skill, "category", "") or ""
     related = getattr(skill, "related_skills", None) or []
     if isinstance(related, str):
         related_str = related
@@ -82,11 +83,15 @@ def score_bm25(query: str, skill: "Any", db: Session | None = None) -> float:
         # Rationale: related field may be an unconventional iterable; join failure → empty string
         except Exception:  # noqa: BLE001
             related_str = ""
-    # Title is weighted 3x, description 1x, tags 2x — title matches dominate.
+    # Title is weighted 3x, description 1x, tags 2x, category 2x — title
+    # matches dominate, but a bare category term ("ops", "devops") still
+    # scores so category-only queries surface in hybrid recall (mirrors the
+    # literal ILIKE widening in skill_routes.search_skills).
     title_score = _bm25_score_text(qt, title) * 3.0
     desc_score = _bm25_score_text(qt, description)
     tag_score = _bm25_score_text(qt, related_str) * 2.0
-    return title_score + desc_score + tag_score
+    category_score = _bm25_score_text(qt, category) * 2.0
+    return title_score + desc_score + tag_score + category_score
 
 
 def combine(

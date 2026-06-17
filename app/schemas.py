@@ -111,6 +111,11 @@ class SkillSearchResult(BaseModel):
     # Defaults to "keyword" for backward compatibility with old clients.
     backend: str = "keyword"  # "keyword" | "hybrid" | "recall_only"
     hybrid_augmented: bool = False
+    # RCP-11: trending widens its lookback (day→week→month→all-time) when the
+    # requested window has no install events. ``window`` reports the window the
+    # results actually came from so the UI can relabel "Trending" → "Most
+    # installed" when it widened to all-time. None for the search endpoint.
+    window: str | None = None
 
 
 # ── Telemetry ───────────────────────────────────────────────────────────
