@@ -249,6 +249,7 @@ def main():
 
         # Slot-1 pre-promotion gate — re-pick if it fails (helpers hoisted to module level for testability — see derive_tagline / slot1_quality_check / assign_role below)
         if picked:
+            rejected_skill_ids: set = set()
             attempts = 0
             while attempts < 5:
                 tag = derive_tagline(picked[0])
@@ -272,6 +273,7 @@ def main():
                     file=sys.stderr,
                 )
                 # Promote the next candidate by removing index 0
+                rejected_skill_ids.add(picked[0].get("skill_id"))
                 if len(picked) > 1:
                     picked = picked[1:]
                 else:
@@ -282,6 +284,21 @@ def main():
                     f"[carousel] WARN: slot-1 quality gate exhausted retries on {target_date}",
                     file=sys.stderr,
                 )
+
+            # Backfill the tail to SLOTS — the slot-1 gate drop (picked[1:])
+            # shrinks the lineup; refill from scored so count stays at 7.
+            # (carousel-content-quality-gate drop-shrink bug, fixed 2026-06-18.)
+            if len(picked) < SLOTS:
+                picked_ids = {p["skill_id"] for p in picked}
+                for cand in sorted(scored, key=lambda x: x["score_base"], reverse=True):
+                    if len(picked) >= SLOTS:
+                        break
+                    if cand["skill_id"] in picked_ids or cand["skill_id"] in rejected_skill_ids:
+                        continue
+                    cand["diversity"] = 0.0
+                    cand["final_score"] = cand["score_base"]
+                    picked.append(cand)
+                    picked_ids.add(cand["skill_id"])
 
         # Insert with slot (1-indexed), role, score, and description-derived tagline
         for idx, p in enumerate(picked):

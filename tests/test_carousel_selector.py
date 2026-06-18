@@ -217,6 +217,7 @@ def test_select_filter_clause_present_in_source():
     The point is to fail loudly the moment the filter is removed.
     """
     import pathlib
+    import pathlib
     src = pathlib.Path("app/crons/carousel_selector.py").read_text()
     required_fragments = [
         "s.description IS NOT NULL",
@@ -240,6 +241,7 @@ def test_insert_writes_slot_role_score_columns():
     in the INSERT.
     """
     import pathlib
+    import pathlib
     src = pathlib.Path("app/crons/carousel_selector.py").read_text()
     # The INSERT block must mention all three new columns
     assert "INSERT INTO carousel_entries" in src
@@ -253,3 +255,32 @@ def test_insert_writes_slot_role_score_columns():
     assert "slot" in insert_block, "slot column missing from INSERT column list"
     assert "role" in insert_block, "role column missing from INSERT column list"
     assert "score" in insert_block, "score column missing from INSERT column list"
+
+
+def test_tail_backfill_after_slot1_gate_present_in_source():
+    """Regression: the slot-1 quality gate drops candidates via `picked = picked[1:]`,
+    which shrinks the lineup below SLOTS. A tail-backfill MUST run after the gate so
+    the carousel always returns to 7 entries.
+
+    Drift incident 2026-06-18: `chef` was rejected slot-1 (slug_too_thin) and the
+    lineup permanently shrank 7->6 because no backfill ran after the gate. This test
+    fails loudly if the post-gate backfill is removed.
+    """
+    import pathlib
+    src = pathlib.Path("app/crons/carousel_selector.py").read_text()
+    gate_idx = src.find("# Slot-1 pre-promotion gate")
+    insert_idx = src.find("# Insert with slot (1-indexed)")
+    assert gate_idx != -1, "slot-1 gate block not found"
+    assert insert_idx != -1, "INSERT block not found"
+    between = src[gate_idx:insert_idx]
+    # The backfill must live AFTER the gate and BEFORE the INSERT loop.
+    assert "if len(picked) < SLOTS:" in between, (
+        "Tail-backfill `if len(picked) < SLOTS:` missing between the slot-1 gate "
+        "and the INSERT loop — slot-1 rejects will shrink the carousel below 7."
+    )
+    # Rejected candidates must be tracked and excluded from the backfill so a
+    # gate-failed candidate is not re-promoted into a later slot.
+    assert "rejected_skill_ids" in between, (
+        "rejected_skill_ids tracking missing — backfill could re-promote a "
+        "candidate the slot-1 gate just rejected."
+    )
