@@ -53,23 +53,23 @@ class TestSearchLimitAlias:
     """GET /api/skills/search with ?limit= alias."""
 
     def test_limit_alias_returns_more_than_default(self, client, db_session):
-        """?limit=50 must return >20 results when catalog has >20 skills."""
-        _seed_n_skills(db_session, 30)
+        """Default page_size=50; ?limit= alias must override it upward."""
+        _seed_n_skills(db_session, 60)
 
-        # Default (page_size=20)
+        # Default (page_size=50) — should return 50 of the 60 seeded skills
         r_default = client.get("/api/skills/search")
         assert r_default.status_code == 200
         default_results = r_default.json()["results"]
-        assert len(default_results) == 20, (
-            f"expected default page_size=20, got {len(default_results)}"
+        assert len(default_results) == 50, (
+            f"expected default page_size=50, got {len(default_results)}"
         )
 
-        # With ?limit=50 — must return 30 (all seeded) > 20
-        r_limit = client.get("/api/skills/search?limit=50")
+        # With ?limit=100 — must return all 60 (all seeded) > 50
+        r_limit = client.get("/api/skills/search?limit=100")
         assert r_limit.status_code == 200
         limit_results = r_limit.json()["results"]
-        assert len(limit_results) >= 30, (
-            f"?limit=50 should return >=30 skills, got {len(limit_results)}"
+        assert len(limit_results) >= 60, (
+            f"?limit=100 should return >=60 skills, got {len(limit_results)}"
         )
 
     def test_limit_alias_wins_over_page_size(self, client, db_session):
