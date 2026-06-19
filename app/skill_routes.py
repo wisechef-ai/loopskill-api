@@ -101,7 +101,7 @@ def search_skills(
         description="Threshold below which hybrid fallback activates. Default 3.",
     ),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(50, ge=1, le=100),
     limit: int | None = Query(
         None,
         ge=1,
