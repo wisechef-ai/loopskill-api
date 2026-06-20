@@ -18,7 +18,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Skill, WiseChefDemoRequest
+from app.models import Skill, WiseChefDemoRequest, Cookbook
 from app.schemas import DemoCTAOut, DemoRequestIn, DemoRequestOut
 from app.tier_labels import display_label
 
@@ -106,12 +106,21 @@ def marketing_counts(db: Session = Depends(get_db)) -> dict:
     pro_plus = by_tier.get("pro_plus", 0) + by_tier.get("operator", 0)  # operator: 30-day legacy alias
     pro_plus_exclusive = pro_plus  # see docstring; tracked separately for future
 
+    # Public cookbook count — surfaces the discoverable catalog size
+    cookbooks_total = (
+        db.query(func.count(Cookbook.id))
+        .filter(Cookbook.visibility == "public")  # noqa: E712
+        .scalar()
+        or 0
+    )
+
     return {
         "total": total,
         "free": free,
         "pro": pro,
         "pro_plus": pro_plus,
         "pro_plus_exclusive": pro_plus_exclusive,
+        "cookbooks_total": cookbooks_total,
         "last_added_at": last_added.isoformat() if last_added else None,
         # Display labels (single point where DB slugs become brand labels)
         "labels": {

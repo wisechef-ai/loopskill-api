@@ -314,3 +314,29 @@ class TestPayoutEngineCanonicalTiers:
 
         # 'operator' may be kept as legacy alias, but 'pro_plus' must be present
         assert "pro_plus" in pe.TIER_RATES, "'pro_plus' must be canonical key in TIER_RATES"
+
+class TestMarketingCountsCookbooksTotal:
+    """Test that marketing_counts includes cookbooks_total (public cookbook count)."""
+
+    def test_marketing_counts_has_cookbooks_total(self):
+        """marketing_routes.marketing_counts returns cookbooks_total field."""
+        import inspect
+        import app.marketing_routes as mr
+
+        src = inspect.getsource(mr.marketing_counts)
+        assert "cookbooks_total" in src, (
+            "marketing_counts should return cookbooks_total (public cookbook count)"
+        )
+
+    def test_marketing_counts_queries_cookbook_visibility(self):
+        """marketing_counts queries Cookbook.visibility == 'public' for cookbooks_total."""
+        import inspect
+        import app.marketing_routes as mr
+
+        src = inspect.getsource(mr.marketing_counts)
+        assert "Cookbook" in src, (
+            "marketing_counts should query the Cookbook model"
+        )
+        assert 'visibility' in src, (
+            "marketing_counts should filter by Cookbook.visibility"
+        )
