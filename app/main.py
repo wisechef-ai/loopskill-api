@@ -192,6 +192,14 @@ def create_app() -> FastAPI:
     app.include_router(feedback_status_router)
     app.include_router(credits_router, tags=["credits"])
 
+    # loopskill_0622 Phase 8 — runnable catalog types (loops + personalities).
+    # New, clean-vocab routers; independent of the cookbook->bundle rename.
+    from app.loop_routes import router as loop_router
+    from app.personality_routes import router as personality_router
+
+    app.include_router(loop_router, tags=["loops"])
+    app.include_router(personality_router, tags=["personalities"])
+
     # Phase 1 (v7.1): Mount StreamableHTTP ASGI sub-app at /api/mcp/http.
     # Must happen after include_router(mcp_router) so the session manager's
     # MCP server is built from the same build_mcp_server() factory.
