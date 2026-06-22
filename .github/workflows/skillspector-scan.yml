@@ -159,14 +159,14 @@ jobs:
       # -----------------------------------------------------------------------
       - name: Upload SARIF — skill bundle
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: skillspector-skill.sarif
           category: skillspector-skill
 
       - name: Upload SARIF — examples
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: skillspector-examples.sarif
           category: skillspector-examples
