@@ -321,3 +321,99 @@ class DemoRequestOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ── Loops + Personalities (loopskill_0622 Phase 8 — runnable catalog types) ──
+
+
+class LoopOut(BaseModel):
+    id: UUID
+    slug: str
+    title: str
+    description: str | None = None
+    category: str | None = None
+    tier: str | None = None
+    is_public: bool = True
+    creator_name: str | None = None
+    creator_handle: str | None = None
+    latest_version: str | None = None
+    install_count: int = 0
+    # Safety-bounded contract surfaced on every payload so a puller sees the
+    # bounds BEFORE running it (the trust signal of a vetted loop registry).
+    max_turns: int = 25
+    budget_usd: float | None = None
+    tool_allowlist: list[str] = []
+    rating_avg: float | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class LoopDetailOut(LoopOut):
+    readme: str | None = None
+    license: str | None = None
+    success_condition: str
+    verification_script: str
+    stopping_criteria: dict = {}
+    system_prompt: str | None = None
+    versions: list["VersionOut"] = []
+
+
+class LoopPublishIn(BaseModel):
+    slug: Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")]
+    title: str
+    description: str | None = None
+    category: str | None = None
+    readme: str | None = None
+    license: str | None = "MIT"
+    tier: str | None = "free"
+    is_public: bool = True
+    # Safety-bounded contract (validated by app.loop_validation).
+    success_condition: str
+    verification_script: str
+    system_prompt: str
+    max_turns: int = 25
+    budget_usd: float | None = None
+    tool_allowlist: list[str] = []
+    stopping_criteria: dict
+
+
+class PersonalityOut(BaseModel):
+    id: UUID
+    slug: str
+    title: str
+    description: str | None = None
+    category: str | None = None
+    tier: str | None = None
+    is_public: bool = True
+    creator_name: str | None = None
+    creator_handle: str | None = None
+    latest_version: str | None = None
+    install_count: int = 0
+    rating_avg: float | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PersonalityDetailOut(PersonalityOut):
+    readme: str | None = None
+    license: str | None = None
+    system_prompt: str | None = None
+    config: dict | None = None
+    versions: list["VersionOut"] = []
+
+
+class PersonalityPublishIn(BaseModel):
+    slug: Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")]
+    title: str
+    description: str | None = None
+    category: str | None = None
+    readme: str | None = None
+    license: str | None = "MIT"
+    tier: str | None = "free"
+    is_public: bool = True
+    system_prompt: str
+    config: dict | None = None

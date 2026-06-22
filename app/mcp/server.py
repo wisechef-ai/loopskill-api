@@ -44,6 +44,12 @@ from app.mcp.registry import _tool_definitions  # noqa: F401
 
 # ── Tool imports (for _dispatch + patch compatibility) ─────────────────────
 from app.mcp.cookbook_status import get_cookbook_status, invalidate_cookbook_status
+from app.mcp.tools import (  # noqa: F401  loopskill_0622 Phase 8 tools
+    loopskill_get_loop,
+    loopskill_get_personality,
+    loopskill_search_loops,
+    loopskill_search_personalities,
+)
 from app.mcp.tools import (
     recipes_carousel_today,
     recipes_configure_feedback,
@@ -126,6 +132,25 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             tier=args.get("tier"),
             limit=int(args.get("limit", 20)),
         )
+    # ── loopskill_0622 Phase 8: runnable catalog types ──────────────────────
+    if name == "loopskill_search_loops":
+        return loopskill_search_loops(
+            db,
+            query=args.get("query"),
+            category=args.get("category"),
+            limit=int(args.get("limit", 50)),
+        )
+    if name == "loopskill_get_loop":
+        return loopskill_get_loop(db, slug=args["slug"])
+    if name == "loopskill_search_personalities":
+        return loopskill_search_personalities(
+            db,
+            query=args.get("query"),
+            category=args.get("category"),
+            limit=int(args.get("limit", 50)),
+        )
+    if name == "loopskill_get_personality":
+        return loopskill_get_personality(db, slug=args["slug"])
     if name == "recipes_install":
         return _tool_ns.get("recipes_install", recipes_install)(
             db,

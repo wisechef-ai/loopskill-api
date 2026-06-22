@@ -1256,3 +1256,157 @@ class FederationIndexCache(Base):
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+# ── Runnable catalog types: loops + personalities (loopskill_0622 Phase 8) ──
+#
+# LoopSkill's star engine. Unlike skills/bundles (config artifacts), a loop and a
+# personality are RUNNABLE artifacts. These tables are NEW and born with clean
+# LoopSkill vocabulary (no cookbook/recipe lineage), so they do not depend on the
+# P3/P4 schema rename and ship in v1.
+
+
+class Loop(Base):
+    """A shareable, safety-bounded autonomous agentic loop.
+
+    A loop packages the autonomous Plan->Act->Observe cycle as a pullable
+    artifact. The SAFETY-BOUNDED execution contract is first-class and stored as
+    structured columns (not free text) so the registry can validate it on publish
+    and the runner can enforce it: stopping criteria (success / failure / budget),
+    a max-turns ceiling, an explicit tool allow-list, and a verification command
+    that proves the success condition objectively. No vetted loop registry exists
+    in the wild — this is the white space the 100k-star goal leans on.
+    """
+
+    __tablename__ = "loops"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    slug = Column(String(255), unique=True, nullable=False, index=True)
+    title = Column(String(512), nullable=False)
+    description = Column(Text, nullable=True)
+    category = Column(String(128), nullable=True, index=True)
+    readme = Column(Text, nullable=True)
+    license = Column(String(64), nullable=True)
+    tier = Column(String(32), nullable=True)  # free, pro
+    is_public = Column(Boolean, default=True, nullable=False)
+
+    creator_id = Column(UUID(as_uuid=True), ForeignKey("creators.id"), nullable=True)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id"), nullable=True)
+
+    # ── The safety-bounded execution contract (the load-bearing part) ──
+    # The natural-language goal the loop drives toward.
+    success_condition = Column(Text, nullable=False)
+    # Shell/command run after each cycle to OBJECTIVELY check success_condition.
+    # A loop with no verification is unsafe to share; required on publish.
+    verification_script = Column(Text, nullable=False)
+    # Hard ceiling on autonomous turns; prevents runaway. NOT NULL, must be > 0.
+    max_turns = Column(Integer, nullable=False, server_default="25")
+    # Budget stop (USD). NULL = no budget cap (must then rely on max_turns).
+    budget_usd = Column(Numeric(10, 2), nullable=True)
+    # Structured stopping criteria: {"success": ..., "failure": ..., "budget": ...}.
+    stopping_criteria = Column(JSON, nullable=False)
+    # Explicit tool allow-list (deny-by-default). JSON array of tool names.
+    tool_allowlist = Column(JSON, nullable=False)
+    # The system prompt that defines the loop's behavior.
+    system_prompt = Column(Text, nullable=False)
+
+    install_count = Column(Integer, default=0, nullable=False, server_default="0")
+    rating_avg = Column(Float, nullable=True)
+    is_archived = Column(Boolean, default=False, server_default="false", nullable=False)
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    creator = relationship("Creator")
+    org = relationship("Org")
+    versions = relationship(
+        "LoopVersion",
+        back_populates="loop",
+        order_by="LoopVersion.created_at.desc()",
+        cascade="all, delete-orphan",
+    )
+
+
+class LoopVersion(Base):
+    __tablename__ = "loop_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    loop_id = Column(UUID(as_uuid=True), ForeignKey("loops.id"), nullable=False, index=True)
+    semver = Column(String(32), nullable=False)
+    tarball_path = Column(Text, nullable=True)
+    tarball_size_bytes = Column(Integer, nullable=True)
+    checksum_sha256 = Column(String(64), nullable=True)
+    changelog = Column(Text, nullable=True)
+    manifest = Column(Text, nullable=True)  # stored loop.toml
+    created_at = Column(DateTime, server_default=func.now())
+
+    loop = relationship("Loop", back_populates="versions")
+
+    __table_args__ = (UniqueConstraint("loop_id", "semver", name="uq_loop_version"),)
+
+
+class Personality(Base):
+    """A deployable persona / SOUL — system prompt + agent config.
+
+    The other runnable type: a packaged agent identity (the SOUL.md shape) that a
+    user can pull and deploy onto their own agent. Born with clean vocabulary.
+    """
+
+    __tablename__ = "personalities"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    slug = Column(String(255), unique=True, nullable=False, index=True)
+    title = Column(String(512), nullable=False)
+    description = Column(Text, nullable=True)
+    category = Column(String(128), nullable=True, index=True)
+    readme = Column(Text, nullable=True)
+    license = Column(String(64), nullable=True)
+    tier = Column(String(32), nullable=True)  # free, pro
+    is_public = Column(Boolean, default=True, nullable=False)
+
+    creator_id = Column(UUID(as_uuid=True), ForeignKey("creators.id"), nullable=True)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id"), nullable=True)
+
+    # ── The persona contract ──
+    # The system prompt / SOUL body that defines the persona.
+    system_prompt = Column(Text, nullable=False)
+    # Optional structured agent config (model prefs, tool defaults, temperature…).
+    config = Column(JSON, nullable=True)
+
+    install_count = Column(Integer, default=0, nullable=False, server_default="0")
+    rating_avg = Column(Float, nullable=True)
+    is_archived = Column(Boolean, default=False, server_default="false", nullable=False)
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    creator = relationship("Creator")
+    org = relationship("Org")
+    versions = relationship(
+        "PersonalityVersion",
+        back_populates="personality",
+        order_by="PersonalityVersion.created_at.desc()",
+        cascade="all, delete-orphan",
+    )
+
+
+class PersonalityVersion(Base):
+    __tablename__ = "personality_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    personality_id = Column(
+        UUID(as_uuid=True), ForeignKey("personalities.id"), nullable=False, index=True
+    )
+    semver = Column(String(32), nullable=False)
+    tarball_path = Column(Text, nullable=True)
+    tarball_size_bytes = Column(Integer, nullable=True)
+    checksum_sha256 = Column(String(64), nullable=True)
+    changelog = Column(Text, nullable=True)
+    manifest = Column(Text, nullable=True)  # stored personality.toml
+    created_at = Column(DateTime, server_default=func.now())
+
+    personality = relationship("Personality", back_populates="versions")
+
+    __table_args__ = (
+        UniqueConstraint("personality_id", "semver", name="uq_personality_version"),
+    )

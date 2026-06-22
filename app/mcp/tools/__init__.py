@@ -44,6 +44,12 @@ from app.mcp.tools.subrecipe_resolve import recipes_subrecipe_resolve
 from app.mcp.tools.fork_deploy import recipes_cookbook_attach, recipes_tailor_version
 from app.mcp.tools.tailor import recipes_fork_list, recipes_tailor
 from app.mcp.tools.cookbook_handoff import recipes_cookbook_handoff
+from app.mcp.tools.loopskill_catalog import (
+    loopskill_get_loop,
+    loopskill_get_personality,
+    loopskill_search_loops,
+    loopskill_search_personalities,
+)
 
 __all__ = [
     "recipes_search",
@@ -89,4 +95,9 @@ __all__ = [
     "recipes_cookbook_handoff",
     # loopclose_3005 Phase J: user-routable feedback (THE MOAT)
     "recipes_configure_feedback",
+    # loopskill_0622 Phase 8: runnable catalog types (loops + personalities)
+    "loopskill_search_loops",
+    "loopskill_get_loop",
+    "loopskill_search_personalities",
+    "loopskill_get_personality",
 ]
