@@ -34,5 +34,5 @@ urllib3>=2.7.0
 mcp[cli]>=1.4
 
 # tests
-pytest>=8.0
+pytest>=8.4.2
 pytest-asyncio>=0.23
