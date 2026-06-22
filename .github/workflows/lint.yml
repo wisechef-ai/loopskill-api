@@ -17,7 +17,7 @@ jobs:
   lint:
     runs-on: wisechef-runner
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # W0.2 (integrator_2905): self-hosted runner is Ubuntu 20.04 ARM64, where
       # actions/setup-python has no 3.11/3.12 build → the action hard-fails and
       # reds the whole job. Make it non-fatal and fall back to the runner
@@ -47,7 +47,7 @@ jobs:
   dependency-audit:
     runs-on: wisechef-runner
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - id: setup-python
         continue-on-error: true
         uses: actions/setup-python@v6

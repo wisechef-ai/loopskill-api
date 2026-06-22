@@ -25,7 +25,7 @@ jobs:
   critical-path-coverage:
     runs-on: wisechef-runner
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - id: setup-python
         continue-on-error: true
         uses: actions/setup-python@v6

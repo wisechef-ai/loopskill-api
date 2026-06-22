@@ -39,7 +39,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # -----------------------------------------------------------------------
       # Python 3.12+ is required by SkillSpector. Try setup-python first;
