@@ -1,5 +1,5 @@
 # Recipes API runtime + test dependencies (Sprint 4 baseline)
-fastapi>=0.115.0
+fastapi>=0.128.8
 uvicorn[standard]>=0.27
 sqlalchemy>=2.0.49
 alembic>=1.16.5
