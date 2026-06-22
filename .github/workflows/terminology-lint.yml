@@ -1,0 +1,37 @@
+name: Terminology Lint (LoopSkill rename gate)
+
+# Phase 0 keystone — fails a PR that ADDS a banned kitchen noun
+# (cookbook / recipe / chef-brand) to code or UI. Enforces TERMINOLOGY.md.
+# Diff mode: only lines a PR adds are checked, so the legacy backlog
+# (~2455 refs being renamed phase-by-phase) does not make the baseline red.
+
+on:
+  pull_request:
+    branches:
+      - "**"
+  workflow_dispatch:
+
+jobs:
+  terminology-lint:
+    name: Banned-noun gate (diff mode)
+    runs-on: wisechef-runner
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full history for diff-base
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Self-test the linter
+        run: python3 scripts/terminology_lint.py --self-test
+
+      - name: Lint added lines vs base branch
+        run: |
+          BASE="origin/${{ github.base_ref }}"
+          git fetch origin "${{ github.base_ref }}" --depth=1 || true
+          python3 scripts/terminology_lint.py --diff-base "$BASE"
