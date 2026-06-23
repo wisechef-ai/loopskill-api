@@ -15,8 +15,14 @@ from alembic import context
 config = context.config
 
 # Set up Python logging from alembic.ini.
+# disable_existing_loggers=False is REQUIRED: fileConfig() defaults to disabling
+# every logger not named in alembic.ini, which silently kills application loggers
+# (e.g. wiserecipes.discord) for the rest of the process. That's harmless in a
+# standalone `alembic` CLI invocation but corrupts in-process callers — the test
+# suite (command.upgrade in migration tests) and the bootstrap.py upgrade path —
+# by clobbering loggers other tests/code rely on. Keep app loggers intact.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # -- Override URL from environment variable ----------------------------------
 _db_url = os.environ.get("WR_DATABASE_URL")
@@ -59,6 +65,11 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            # SQLite doesn't support ALTER TABLE for most DDL (ADD CONSTRAINT,
+            # DROP COLUMN, ALTER COLUMN, etc.).  render_as_batch=True makes
+            # Alembic use the copy-and-move strategy for such operations on
+            # SQLite while remaining a no-op on Postgres.
+            render_as_batch=True,
         )
 
         with context.begin_transaction():

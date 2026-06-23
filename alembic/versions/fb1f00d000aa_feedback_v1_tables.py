@@ -20,56 +20,73 @@ branch_labels = None
 depends_on = None
 
 
+def _uuid_pk(is_pg: bool) -> sa.Column:
+    col_type = postgresql.UUID(as_uuid=True) if is_pg else sa.String(36)
+    return sa.Column("id", col_type, primary_key=True, nullable=False)
+
+
+def _uuid_col(name: str, is_pg: bool, *, nullable: bool = True) -> sa.Column:
+    col_type = postgresql.UUID(as_uuid=True) if is_pg else sa.String(36)
+    return sa.Column(name, col_type, nullable=nullable)
+
+
+def _json_type(is_pg: bool) -> sa.types.TypeEngine:
+    return postgresql.JSONB() if is_pg else sa.JSON()
+
+
 def upgrade() -> None:
-    # ── recipify_requests ────────────────────────────────────────────────────
-    op.execute("""
-        CREATE TABLE IF NOT EXISTS recipify_requests (
-            id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            target_name      TEXT NOT NULL,
-            why_useful       TEXT NOT NULL,
-            suggested_sources JSONB NOT NULL DEFAULT '[]'::jsonb,
-            agent_id         TEXT,
-            api_key_id       UUID,
-            signature        TEXT NOT NULL,
-            issue_url        TEXT,
-            created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+    bind = op.get_bind()
+    is_pg = bind.dialect.name == "postgresql"
+    existing = set(sa.inspect(bind).get_table_names())
+    json_type = _json_type(is_pg)
+
+    # ── recipify_requests ─────────────────────────────────────────────────
+    if "recipify_requests" not in existing:
+        op.create_table(
+            "recipify_requests",
+            _uuid_pk(is_pg),
+            sa.Column("target_name", sa.Text(), nullable=False),
+            sa.Column("why_useful", sa.Text(), nullable=False),
+            sa.Column("suggested_sources", json_type, nullable=False,
+                      server_default="[]"),
+            sa.Column("agent_id", sa.Text(), nullable=True),
+            _uuid_col("api_key_id", is_pg, nullable=True),
+            sa.Column("signature", sa.Text(), nullable=False),
+            sa.Column("issue_url", sa.Text(), nullable=True),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
         )
-    """)
+        op.create_index("idx_rr_api_key_created", "recipify_requests",
+                        ["api_key_id", "created_at"])
+        op.create_index("idx_rr_signature", "recipify_requests", ["signature"])
 
-    op.execute("""
-        CREATE INDEX IF NOT EXISTS idx_rr_api_key_created
-            ON recipify_requests (api_key_id, created_at DESC)
-    """)
-
-    op.execute("""
-        CREATE INDEX IF NOT EXISTS idx_rr_signature
-            ON recipify_requests (signature)
-    """)
-
-    # ── feedback_submissions ─────────────────────────────────────────────────
-    op.execute("""
-        CREATE TABLE IF NOT EXISTS feedback_submissions (
-            id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            category     TEXT NOT NULL,
-            message      TEXT NOT NULL,
-            context      JSONB NOT NULL DEFAULT '{}'::jsonb,
-            agent_id     TEXT,
-            api_key_id   UUID,
-            signature    TEXT NOT NULL,
-            issue_url    TEXT,
-            created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    # ── feedback_submissions ──────────────────────────────────────────────
+    if "feedback_submissions" not in existing:
+        op.create_table(
+            "feedback_submissions",
+            _uuid_pk(is_pg),
+            sa.Column("category", sa.Text(), nullable=False),
+            sa.Column("message", sa.Text(), nullable=False),
+            sa.Column("context", json_type, nullable=False,
+                      server_default="{}"),
+            sa.Column("agent_id", sa.Text(), nullable=True),
+            _uuid_col("api_key_id", is_pg, nullable=True),
+            sa.Column("signature", sa.Text(), nullable=False),
+            sa.Column("issue_url", sa.Text(), nullable=True),
+            sa.Column(
+                "created_at",
+                sa.DateTime(timezone=True),
+                server_default=sa.func.now(),
+                nullable=False,
+            ),
         )
-    """)
-
-    op.execute("""
-        CREATE INDEX IF NOT EXISTS idx_fs_api_key_created
-            ON feedback_submissions (api_key_id, created_at DESC)
-    """)
-
-    op.execute("""
-        CREATE INDEX IF NOT EXISTS idx_fs_signature
-            ON feedback_submissions (signature)
-    """)
+        op.create_index("idx_fs_api_key_created", "feedback_submissions",
+                        ["api_key_id", "created_at"])
+        op.create_index("idx_fs_signature", "feedback_submissions", ["signature"])
 
 
 def downgrade() -> None:

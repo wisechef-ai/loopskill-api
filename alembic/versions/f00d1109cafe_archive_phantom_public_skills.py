@@ -39,16 +39,33 @@ down_revision: Union[str, None] = "fb89c02e7332"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
+_skills = sa.table(
+    "skills",
+    sa.column("id", sa.String()),
+    sa.column("slug", sa.String()),
+    sa.column("is_public", sa.Boolean()),
+    sa.column("is_archived", sa.Boolean()),
+    sa.column("archived_at", sa.DateTime()),
+    sa.column("search_vector", sa.Text()),
+)
+
+_skill_versions = sa.table(
+    "skill_versions",
+    sa.column("skill_id", sa.String()),
+    sa.column("id", sa.String()),
+)
+
 
 def upgrade() -> None:
     """Archive any public, non-archived skill row with no published versions."""
     bind = op.get_bind()
 
     # Find all phantom rows: public + not archived + 0 versions.
+    # Cast-free SQL so this runs on both Postgres and SQLite.
     result = bind.execute(
         sa.text(
             """
-            SELECT s.id::text AS id, s.slug
+            SELECT s.id AS id, s.slug
             FROM skills s
             LEFT JOIN skill_versions v ON v.skill_id = s.id
             WHERE s.is_public = TRUE
@@ -58,26 +75,40 @@ def upgrade() -> None:
             """
         )
     )
-    phantom_rows = [(row[0], row[1]) for row in result.fetchall()]
+    phantom_rows = [(str(row[0]), row[1]) for row in result.fetchall()]
 
     if not phantom_rows:
         return
 
-    # Archive them in one statement, stamping archived_at.
+    # Archive them — use dialect-aware approach to avoid Postgres-specific
+    # array syntax (ANY(CAST(:ids AS uuid[]))) that SQLite can't parse.
     ids = [pid for pid, _slug in phantom_rows]
-    bind.execute(
-        sa.text(
-            """
-            UPDATE skills
-            SET is_archived = TRUE,
-                archived_at = COALESCE(archived_at, NOW()),
-                search_vector = NULL
-            WHERE id = ANY(CAST(:ids AS uuid[]))
-            """
-        ).bindparams(sa.bindparam("ids", ids, type_=sa.ARRAY(sa.String()))),
-    )
+    is_pg = bind.dialect.name == "postgresql"
 
-    # Log the cleanup so the migration leaves a paper trail for ops review.
+    if is_pg and len(ids) > 1:
+        # Postgres: efficient single UPDATE with ANY
+        bind.execute(
+            sa.text(
+                """
+                UPDATE skills
+                SET is_archived = TRUE,
+                    archived_at = COALESCE(archived_at, NOW()),
+                    search_vector = NULL
+                WHERE id::text = ANY(:ids)
+                """
+            ).bindparams(sa.bindparam("ids", ids)),
+        )
+    else:
+        # SQLite (or single-row fast path): row-by-row UPDATE
+        for skill_id in ids:
+            bind.execute(
+                sa.text(
+                    "UPDATE skills SET is_archived = TRUE, "
+                    "archived_at = COALESCE(archived_at, CURRENT_TIMESTAMP), "
+                    "search_vector = NULL WHERE id = :id"
+                ).bindparams(id=skill_id)
+            )
+
     slugs = ", ".join(slug for _id, slug in phantom_rows)
     print(
         f"[migration f00d1109cafe] archived {len(phantom_rows)} phantom "

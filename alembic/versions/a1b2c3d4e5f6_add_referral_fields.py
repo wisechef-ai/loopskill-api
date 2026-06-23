@@ -24,51 +24,61 @@ branch_labels = None
 depends_on = None
 
 
-def upgrade() -> None:
-    # Add referral_code and referred_by to users
-    op.add_column("users", sa.Column("referral_code", sa.String(16), nullable=True))
-    op.add_column("users", sa.Column("referred_by", postgresql.UUID(as_uuid=True), nullable=True))
+def _is_pg() -> bool:
+    return op.get_bind().dialect.name == "postgresql"
 
-    # Create indexes
+
+def upgrade() -> None:
+    is_pg = _is_pg()
+    uuid_type = postgresql.UUID(as_uuid=True) if is_pg else sa.String(36)
+
+    op.add_column("users", sa.Column("referral_code", sa.String(16), nullable=True))
+    op.add_column("users", sa.Column("referred_by", uuid_type, nullable=True))
+
     op.create_index("ix_users_referral_code", "users", ["referral_code"], unique=True)
     op.create_index("ix_users_referred_by", "users", ["referred_by"], unique=False)
 
-    # Foreign key for referred_by
-    op.create_foreign_key(
-        "fk_users_referred_by_users",
-        "users", "users",
-        ["referred_by"], ["id"],
-        ondelete="SET NULL",
-    )
+    # FK constraint: Postgres only — SQLite doesn't enforce FKs and
+    # op.create_foreign_key raises NotImplementedError on the SQLite dialect.
+    if is_pg:
+        op.create_foreign_key(
+            "fk_users_referred_by_users",
+            "users", "users",
+            ["referred_by"], ["id"],
+            ondelete="SET NULL",
+        )
 
-    # Add rate column to referrals
     op.add_column(
         "referrals",
         sa.Column("rate", sa.Numeric(precision=5, scale=4), nullable=False, server_default="0.50"),
     )
 
-    # Drop unique constraint on referrals.referral_code (keep index for lookups)
-    # Guard: constraint may not exist if the table was created without unique=True
-    conn = op.get_bind()
-    result = conn.execute(sa.text(
-        "SELECT 1 FROM information_schema.table_constraints "
-        "WHERE constraint_name = 'referrals_referral_code_key' "
-        "AND table_name = 'referrals'"
-    ))
-    if result.fetchone():
-        op.drop_constraint("referrals_referral_code_key", "referrals", type_="unique")
+    # Drop unique constraint on referrals.referral_code (keep index for lookups).
+    # information_schema is Postgres-only; on SQLite the constraint doesn't
+    # exist in the same metadata so we skip the drop.
+    if is_pg:
+        result = op.get_bind().execute(sa.text(
+            "SELECT 1 FROM information_schema.table_constraints "
+            "WHERE constraint_name = 'referrals_referral_code_key' "
+            "AND table_name = 'referrals'"
+        ))
+        if result.fetchone():
+            op.drop_constraint("referrals_referral_code_key", "referrals", type_="unique")
 
 
 def downgrade() -> None:
-    # Restore unique constraint on referral_code
-    op.create_unique_constraint("referrals_referral_code_key", "referrals", ["referral_code"])
+    is_pg = _is_pg()
 
-    # Drop rate from referrals
+    # Restore unique constraint on referral_code (Postgres only)
+    if is_pg:
+        op.create_unique_constraint("referrals_referral_code_key", "referrals", ["referral_code"])
+
     op.drop_column("referrals", "rate")
 
-    # Drop FK and columns from users
-    op.drop_constraint("fk_users_referred_by_users", "users", type_="foreignkey")
+    if is_pg:
+        op.drop_constraint("fk_users_referred_by_users", "users", type_="foreignkey")
     op.drop_index("ix_users_referred_by", table_name="users")
     op.drop_index("ix_users_referral_code", table_name="users")
-    op.drop_column("users", "referred_by")
-    op.drop_column("users", "referral_code")
+    with op.batch_alter_table("users") as batch_op:
+        batch_op.drop_column("referred_by")
+        batch_op.drop_column("referral_code")

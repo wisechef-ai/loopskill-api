@@ -7,8 +7,6 @@ Create Date: 2026-06-03 00:00:00.000000
 Adds the ``reconcile_events`` table. The Phase D reconcile client emits one row
 per apply attempt against a (skill, version) on a channel; the Phase E promotion
 engine reads canary outcomes to gate canary→stable promotion.
-
-Postgres-only SQL.
 """
 from __future__ import annotations
 
@@ -25,16 +23,19 @@ depends_on = None
 
 def upgrade() -> None:
     """Create reconcile_events."""
+    is_pg = op.get_bind().dialect.name == "postgresql"
+    uuid_type = postgresql.UUID(as_uuid=True) if is_pg else sa.String(36)
+
     op.create_table(
         "reconcile_events",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("cookbook_id", postgresql.UUID(as_uuid=True), nullable=True, index=True),
-        sa.Column("skill_id", postgresql.UUID(as_uuid=True), nullable=False, index=True),
+        sa.Column("id", uuid_type, primary_key=True),
+        sa.Column("cookbook_id", uuid_type, nullable=True, index=True),
+        sa.Column("skill_id", uuid_type, nullable=False, index=True),
         sa.Column("semver", sa.String(length=32), nullable=False),
         sa.Column("channel", sa.String(length=20), nullable=False, server_default="canary"),
         sa.Column("outcome", sa.String(length=20), nullable=False),
         sa.Column("failure_reason", sa.Text(), nullable=True),
-        sa.Column("api_key_id", postgresql.UUID(as_uuid=True), nullable=True),
+        sa.Column("api_key_id", uuid_type, nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),

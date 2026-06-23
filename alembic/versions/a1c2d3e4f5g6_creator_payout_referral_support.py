@@ -25,33 +25,44 @@ branch_labels = None
 depends_on = None
 
 
+def _is_pg() -> bool:
+    return op.get_bind().dialect.name == "postgresql"
+
+
 def upgrade() -> None:
-    # Add referral support columns
+    is_pg = _is_pg()
+    uuid_type = postgresql.UUID(as_uuid=True) if is_pg else sa.String(36)
+
     op.add_column("creator_payouts", sa.Column("source", sa.String(32), nullable=False, server_default="skill_install"))
     op.add_column("creator_payouts", sa.Column("amount_cents", sa.Integer, nullable=True))
-    op.add_column("creator_payouts", sa.Column("referral_id", postgresql.UUID(as_uuid=True), nullable=True))
-    
-    # Create FK for referral_id
-    op.create_foreign_key(
-        "fk_creator_payouts_referral_id",
-        "creator_payouts", "referrals",
-        ["referral_id"], ["id"],
-        ondelete="SET NULL",
-    )
-    
-    # Make period_start and period_end nullable (legacy)
-    op.alter_column("creator_payouts", "period_start", existing_type=sa.DateTime(), nullable=True)
-    op.alter_column("creator_payouts", "period_end", existing_type=sa.DateTime(), nullable=True)
+    op.add_column("creator_payouts", sa.Column("referral_id", uuid_type, nullable=True))
+
+    # FK constraint: Postgres only
+    if is_pg:
+        op.create_foreign_key(
+            "fk_creator_payouts_referral_id",
+            "creator_payouts", "referrals",
+            ["referral_id"], ["id"],
+            ondelete="SET NULL",
+        )
+
+    # Make period_start/period_end nullable via batch (required for SQLite).
+    with op.batch_alter_table("creator_payouts") as batch_op:
+        batch_op.alter_column("period_start", existing_type=sa.DateTime(), nullable=True)
+        batch_op.alter_column("period_end", existing_type=sa.DateTime(), nullable=True)
 
 
 def downgrade() -> None:
-    # Restore period_start and period_end as NOT NULL
-    # WARNING: This will fail if there are NULL values; migrate data first if needed
-    op.alter_column("creator_payouts", "period_start", existing_type=sa.DateTime(), nullable=False)
-    op.alter_column("creator_payouts", "period_end", existing_type=sa.DateTime(), nullable=False)
-    
-    # Drop FK and columns
-    op.drop_constraint("fk_creator_payouts_referral_id", "creator_payouts", type_="foreignkey")
-    op.drop_column("creator_payouts", "referral_id")
-    op.drop_column("creator_payouts", "amount_cents")
-    op.drop_column("creator_payouts", "source")
+    is_pg = _is_pg()
+
+    # Restore period_start/period_end as NOT NULL via batch
+    with op.batch_alter_table("creator_payouts") as batch_op:
+        batch_op.alter_column("period_start", existing_type=sa.DateTime(), nullable=False)
+        batch_op.alter_column("period_end", existing_type=sa.DateTime(), nullable=False)
+
+    if is_pg:
+        op.drop_constraint("fk_creator_payouts_referral_id", "creator_payouts", type_="foreignkey")
+    with op.batch_alter_table("creator_payouts") as batch_op:
+        batch_op.drop_column("referral_id")
+        batch_op.drop_column("amount_cents")
+        batch_op.drop_column("source")

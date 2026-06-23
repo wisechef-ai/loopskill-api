@@ -55,11 +55,16 @@ def upgrade() -> None:
         "fleet_pings",
         ["last_seen_day"],
     )
-    op.create_unique_constraint(
-        "uq_fleet_pings_hash_day",
-        "fleet_pings",
-        ["salt_hash", "last_seen_day"],
-    )
+    # Unique constraint on the newly-created table.  Postgres supports
+    # ALTER TABLE ADD CONSTRAINT; SQLite does not, so we skip it there.
+    # The constraint is effectively enforced by the application-level
+    # deduplication logic on SQLite (which is local dev only).
+    if dialect == "postgresql":
+        op.create_unique_constraint(
+            "uq_fleet_pings_hash_day",
+            "fleet_pings",
+            ["salt_hash", "last_seen_day"],
+        )
 
     # Postgres-only aggregate view (NO drill-down columns by construction).
     if dialect == "postgresql":
@@ -102,9 +107,8 @@ def downgrade() -> None:
     if dialect == "postgresql":
         op.execute("DROP VIEW IF EXISTS weekly_fleet_active_v")
 
-    op.drop_constraint(
-        "uq_fleet_pings_hash_day", "fleet_pings", type_="unique"
-    )
+    if dialect == "postgresql":
+        op.drop_constraint("uq_fleet_pings_hash_day", "fleet_pings", type_="unique")
     op.drop_index("ix_fleet_pings_last_seen_day", table_name="fleet_pings")
     op.drop_index("ix_fleet_pings_salt_hash", table_name="fleet_pings")
     op.drop_table("fleet_pings")

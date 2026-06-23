@@ -24,13 +24,20 @@ depends_on = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    is_pg = bind.dialect.name == "postgresql"
+    uuid_type = postgresql.UUID(as_uuid=True) if is_pg else sa.String(36)
+
     op.create_table(
         "skill_publish_requests",
         sa.Column(
             "id",
-            postgresql.UUID(as_uuid=True),
+            uuid_type,
+            primary_key=True,
             nullable=False,
-            server_default=sa.text("gen_random_uuid()"),
+            # gen_random_uuid() is Postgres-only; on SQLite the UUID is
+            # always supplied by the ORM (uuid4()), so no server default needed.
+            server_default=sa.text("gen_random_uuid()") if is_pg else None,
         ),
         sa.Column("slug", sa.Text(), nullable=False),
         sa.Column("version", sa.Text(), nullable=False),
@@ -38,13 +45,13 @@ def upgrade() -> None:
         sa.Column("tarball_bytes", sa.LargeBinary(), nullable=True),
         sa.Column(
             "requester_user_id",
-            postgresql.UUID(as_uuid=True),
+            uuid_type,
             sa.ForeignKey("users.id", ondelete="SET NULL"),
             nullable=True,
         ),
         sa.Column(
             "requester_creator_id",
-            postgresql.UUID(as_uuid=True),
+            uuid_type,
             sa.ForeignKey("creators.id", ondelete="SET NULL"),
             nullable=True,
         ),
@@ -65,7 +72,6 @@ def upgrade() -> None:
         sa.Column("reviewed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("reviewed_by", sa.Text(), nullable=True),
         sa.Column("reject_reason", sa.Text(), nullable=True),
-        sa.PrimaryKeyConstraint("id"),
         sa.CheckConstraint(
             "status IN ('pending','approved','rejected','shipped')",
             name="ck_spr_status",

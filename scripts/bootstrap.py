@@ -19,12 +19,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 _DEV_API_KEY = "rec_dev_wiserecipes_local_testing_key"
 
 
-def _create_tables() -> None:
-    from app.database import engine
-    from app.models import Base
+def _run_alembic_upgrade() -> int:
+    import subprocess
 
-    Base.metadata.create_all(bind=engine)
-    print("  [bootstrap] tables created/verified via SQLAlchemy")
+    result = subprocess.run(["alembic", "upgrade", "head"])
+    if result.returncode != 0:
+        print("[bootstrap] ERROR: alembic upgrade failed", file=sys.stderr)
+    return result.returncode
 
 
 def _run_seed_skills() -> None:
@@ -67,17 +68,9 @@ def main() -> int:
     db_url = os.environ.get("WR_DATABASE_URL", "")
     print(f"[bootstrap] database: {db_url or '(default)'}")
 
-    if "sqlite" in db_url:
-        print("[bootstrap] sqlite mode — creating tables via create_all")
-        _create_tables()
-    else:
-        print("[bootstrap] non-sqlite mode — running alembic upgrade head")
-        import subprocess
-
-        result = subprocess.run(["alembic", "upgrade", "head"])
-        if result.returncode != 0:
-            print("[bootstrap] ERROR: alembic upgrade failed", file=sys.stderr)
-            return 1
+    print("[bootstrap] running alembic upgrade head")
+    if _run_alembic_upgrade() != 0:
+        return 1
 
     print("[bootstrap] seeding skills...")
     _run_seed_skills()

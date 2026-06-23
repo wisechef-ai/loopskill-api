@@ -194,6 +194,9 @@ def downgrade() -> None:
         sa.Column("install_order", sa.Integer(), nullable=False, server_default="100"),
     )
     op.create_index("ix_bucket_skills_bucket_id", "bucket_skills", ["bucket_id"])
+    op.create_index(
+        "ix_bucket_skills_bucket_install_order", "bucket_skills", ["bucket_id", "install_order"]
+    )
 
     if is_pg:
         # cookbooks with a slug that originated as a bucket → copy back.

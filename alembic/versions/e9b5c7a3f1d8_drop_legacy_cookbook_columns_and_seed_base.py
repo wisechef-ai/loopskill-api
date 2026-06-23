@@ -105,10 +105,13 @@ def downgrade() -> None:
     we have no way to backfill it without losing customer data.
     """
     bind = op.get_bind()
+    is_pg = bind.dialect.name == "postgresql"
+    from sqlalchemy.dialects import postgresql as _pg
+    uuid_type = _pg.UUID(as_uuid=True) if is_pg else sa.String(36)
     if not _has_column(bind, "cookbooks", "owner_fleet_id"):
         op.add_column(
             "cookbooks",
-            sa.Column("owner_fleet_id", sa.dialects.postgresql.UUID(as_uuid=True), nullable=True),
+            sa.Column("owner_fleet_id", uuid_type, nullable=True),
         )
     if not _has_column(bind, "cookbooks", "shared_key_hash"):
         op.add_column(

@@ -14,7 +14,10 @@ Adds two nullable columns to the ``cookbooks`` table:
 Constraint: when feedback_repo IS NOT NULL, feedback_mode MUST also be set.
 Both columns may be NULL simultaneously (no custom routing configured).
 
-Postgres-only SQL — no SQLite dialect needed.
+CHECK CONSTRAINT NOTE: SQLite supports CHECK constraints in CREATE TABLE but
+NOT via ALTER TABLE ADD CONSTRAINT.  Since cookbooks already exists, the check
+constraints are Postgres-only.  On SQLite (local dev), constraint semantics are
+maintained by application-layer validation.
 """
 from __future__ import annotations
 
@@ -30,6 +33,8 @@ depends_on = None
 
 def upgrade() -> None:
     """Add feedback_repo and feedback_mode to cookbooks."""
+    is_pg = op.get_bind().dialect.name == "postgresql"
+
     op.add_column(
         "cookbooks",
         sa.Column("feedback_repo", sa.Text(), nullable=True),
@@ -38,19 +43,22 @@ def upgrade() -> None:
         "cookbooks",
         sa.Column("feedback_mode", sa.Text(), nullable=True),
     )
-    # Enforce: feedback_mode IN ('pat','github_app') when set
-    op.create_check_constraint(
-        "ck_cookbooks_feedback_mode",
-        "cookbooks",
-        "feedback_mode IS NULL OR feedback_mode IN ('pat', 'github_app')",
-    )
-    # Enforce: if repo is set, mode must be set too
-    op.create_check_constraint(
-        "ck_cookbooks_feedback_repo_mode",
-        "cookbooks",
-        "feedback_repo IS NULL OR feedback_mode IS NOT NULL",
-    )
-    # Store encrypted PAT per cookbook (Fernet-encrypted, never plaintext in DB)
+
+    # CHECK constraints: Postgres only — SQLite doesn't support ALTER TABLE
+    # ADD CONSTRAINT.  op.create_check_constraint raises NotImplementedError
+    # on the SQLite dialect.
+    if is_pg:
+        op.create_check_constraint(
+            "ck_cookbooks_feedback_mode",
+            "cookbooks",
+            "feedback_mode IS NULL OR feedback_mode IN ('pat', 'github_app')",
+        )
+        op.create_check_constraint(
+            "ck_cookbooks_feedback_repo_mode",
+            "cookbooks",
+            "feedback_repo IS NULL OR feedback_mode IS NOT NULL",
+        )
+
     op.add_column(
         "cookbooks",
         sa.Column("feedback_pat_enc", sa.Text(), nullable=True),
@@ -59,8 +67,13 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Remove feedback routing columns from cookbooks."""
-    op.drop_constraint("ck_cookbooks_feedback_repo_mode", "cookbooks", type_="check")
-    op.drop_constraint("ck_cookbooks_feedback_mode", "cookbooks", type_="check")
-    op.drop_column("cookbooks", "feedback_pat_enc")
-    op.drop_column("cookbooks", "feedback_mode")
-    op.drop_column("cookbooks", "feedback_repo")
+    is_pg = op.get_bind().dialect.name == "postgresql"
+
+    if is_pg:
+        op.drop_constraint("ck_cookbooks_feedback_repo_mode", "cookbooks", type_="check")
+        op.drop_constraint("ck_cookbooks_feedback_mode", "cookbooks", type_="check")
+
+    with op.batch_alter_table("cookbooks") as batch_op:
+        batch_op.drop_column("feedback_pat_enc")
+        batch_op.drop_column("feedback_mode")
+        batch_op.drop_column("feedback_repo")

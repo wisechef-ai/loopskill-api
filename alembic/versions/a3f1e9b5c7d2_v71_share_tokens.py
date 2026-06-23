@@ -15,12 +15,15 @@ depends_on = None
 
 
 def upgrade() -> None:
+    is_pg = op.get_bind().dialect.name == "postgresql"
+    uuid_type = postgresql.UUID(as_uuid=True) if is_pg else sa.String(36)
+
     op.create_table(
         "cookbook_share_tokens",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("id", uuid_type, primary_key=True),
         sa.Column(
             "cookbook_id",
-            postgresql.UUID(as_uuid=True),
+            uuid_type,
             sa.ForeignKey("cookbooks.id", ondelete="CASCADE"),
             nullable=False,
         ),
@@ -30,7 +33,7 @@ def upgrade() -> None:
         sa.Column("name", sa.String(120), nullable=True),
         sa.Column(
             "created_by",
-            postgresql.UUID(as_uuid=True),
+            uuid_type,
             sa.ForeignKey("users.id"),
             nullable=True,
         ),

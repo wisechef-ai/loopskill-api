@@ -98,14 +98,14 @@ def upgrade() -> None:
         # cannot relax them in-place without a table-rebuild. Tests run
         # against fresh sqlite metadata which reads the updated
         # CheckConstraint from app.models, so this branch is a no-op except
-        # for the default flip.
-        op.alter_column(
-            "cookbook_share_tokens",
-            "scope",
-            existing_type=sa.String(length=8),
-            server_default="install",
-            existing_nullable=False,
-        )
+        # for the default flip.  op.alter_column requires batch mode on SQLite.
+        with op.batch_alter_table("cookbook_share_tokens") as batch_op:
+            batch_op.alter_column(
+                "scope",
+                existing_type=sa.String(length=8),
+                server_default="install",
+                existing_nullable=False,
+            )
 
 
 def downgrade() -> None:
@@ -129,10 +129,10 @@ def downgrade() -> None:
             "CHECK (scope IN ('read', 'edit'))"
         )
 
-    op.alter_column(
-        "cookbook_share_tokens",
-        "scope",
-        existing_type=sa.String(length=8),
-        server_default="edit",
-        existing_nullable=False,
-    )
+    with op.batch_alter_table("cookbook_share_tokens") as batch_op:
+        batch_op.alter_column(
+            "scope",
+            existing_type=sa.String(length=8),
+            server_default="edit",
+            existing_nullable=False,
+        )
