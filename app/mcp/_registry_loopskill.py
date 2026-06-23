@@ -3,6 +3,7 @@
 loopskill_0622 Phase 8: MCP discovery tools for the runnable catalog types
 (loops + personalities). Mirrors the _registry_d / _registry_j extraction pattern.
 """
+
 from __future__ import annotations
 
 import mcp.types as types

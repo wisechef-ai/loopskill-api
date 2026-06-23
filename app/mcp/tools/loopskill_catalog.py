@@ -4,6 +4,7 @@ loopskill_0622 Phase 8. Lets an agent discover and pull loops/personalities over
 MCP, the same way recipes_search/recipes_install work for skills. Reuses the
 SQLAlchemy primitives directly (no HTTP loopback).
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -54,12 +55,7 @@ def loopskill_search_loops(
 def loopskill_get_loop(db: Session, slug: str) -> dict[str, Any]:
     """Pull a loop's full safety-bounded contract by slug."""
     # Public-scope MCP tool: returns a published loop's public contract by slug; archived rows 404, no private data exposed.
-    r = (
-        db.query(Loop)
-        .options(joinedload(Loop.versions))
-        .filter(Loop.slug == slug)
-        .first()
-    )
+    r = db.query(Loop).options(joinedload(Loop.versions)).filter(Loop.slug == slug).first()
     if r is None or r.is_archived:
         return {"error": "loop not found", "slug": slug, "status": 404}
     return {
@@ -99,9 +95,7 @@ def loopskill_search_personalities(
         q = q.filter(Personality.category == category)
     if query:
         like = f"%{query}%"
-        q = q.filter(
-            or_(Personality.title.ilike(like), Personality.description.ilike(like))
-        )
+        q = q.filter(or_(Personality.title.ilike(like), Personality.description.ilike(like)))
     rows = q.order_by(Personality.install_count.desc()).limit(min(limit, 200)).all()
     results = [
         {

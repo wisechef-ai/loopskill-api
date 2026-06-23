@@ -581,5 +581,3 @@ def _tool_definitions() -> list[types.Tool]:
         *_phase_j_tools(),  # loopclose_3005 Phase J — see _registry_j.py
         *_loopskill_catalog_tools(),  # loopskill_0622 Phase 8 — loops + personalities
     ]
-
-

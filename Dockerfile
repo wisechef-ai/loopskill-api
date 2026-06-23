@@ -39,16 +39,32 @@ WORKDIR /app
 COPY app/ ./app/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
+# Seed + bootstrap scripts (required for first-boot entrypoint).
+COPY seed.py .
+COPY scripts/ ./scripts/
+# Runtime config (tier price IDs, schema, marketing prose) — read at import time
+# by app.subscription_service / marketing_routes. Without this the app crashes on
+# boot: FileNotFoundError: /app/config/tiers.yaml.
+COPY config/ ./config/
+COPY entrypoint.sh .
 
-RUN chown -R appuser:appuser /app
+RUN chmod +x /app/entrypoint.sh && chown -R appuser:appuser /app
+
+# Create the sqlite data dir and give it to appuser BEFORE the USER switch.
+# Docker seeds a fresh named volume from the image path's ownership on first
+# mount, so /data must be appuser-owned here or the non-root process cannot
+# create the sqlite file (OperationalError: unable to open database file).
+RUN mkdir -p /data && chown appuser:appuser /data
+VOLUME ["/data"]
+
 USER appuser
 
 EXPOSE 8200
 
-# Health-check: hit /healthz; fall back to a pure-Python TCP probe if curl
-# isn't available (shouldn't happen with the apt install above, but safe).
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:8200/healthz || \
-        python -c "import urllib.request; urllib.request.urlopen('http://localhost:8200/healthz')"
+# Health-check: /api/healthz (DB liveness probe).
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
+    CMD curl -f http://localhost:8200/api/healthz || \
+        python -c "import urllib.request; urllib.request.urlopen('http://localhost:8200/api/healthz')"
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8200", "--workers", "2"]
+# Default: zero-config sqlite boot via entrypoint (can override for prod).
+CMD ["/app/entrypoint.sh"]

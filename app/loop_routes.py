@@ -9,6 +9,7 @@ Routes:
   GET  /api/loops/{slug}        — loop detail incl. the full safety contract
   POST /api/loops               — publish a loop (auth required; contract validated)
 """
+
 from __future__ import annotations
 
 import logging

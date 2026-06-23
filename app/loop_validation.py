@@ -17,6 +17,7 @@ can enforce:
 This module is import-safe (stdlib only) so it can be reused by the publish route,
 the MCP publish tool, and any future runner without dragging in FastAPI/DB deps.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -73,10 +74,7 @@ def validate_loop_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     if turns <= 0:
         errors.append("max_turns is required and must be a positive integer")
     elif turns > MAX_TURNS_CEILING:
-        errors.append(
-            f"max_turns {turns} exceeds ceiling {MAX_TURNS_CEILING}; "
-            "loops must be bounded"
-        )
+        errors.append(f"max_turns {turns} exceeds ceiling {MAX_TURNS_CEILING}; " "loops must be bounded")
     out["max_turns"] = turns
 
     # — budget_usd: optional, but if present must be a non-negative number —
@@ -111,8 +109,7 @@ def validate_loop_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     stops = manifest.get("stopping_criteria")
     if not isinstance(stops, dict):
         errors.append(
-            "stopping_criteria is required and must be an object with keys "
-            f"{REQUIRED_STOP_KEYS}"
+            "stopping_criteria is required and must be an object with keys " f"{REQUIRED_STOP_KEYS}"
         )
         stops = {}
     else:
@@ -129,9 +126,7 @@ def validate_loop_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     # mandatory and bounded above, so this holds by construction — but assert it
     # so a future relaxation of max_turns can't silently produce an unbounded loop.
     if out["max_turns"] <= 0 and out["budget_usd"] in (None, 0):
-        errors.append(
-            "a loop must have at least one hard backstop (max_turns or budget_usd)"
-        )
+        errors.append("a loop must have at least one hard backstop (max_turns or budget_usd)")
 
     if errors:
         raise LoopValidationError("; ".join(errors))

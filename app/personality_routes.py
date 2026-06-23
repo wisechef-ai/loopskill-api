@@ -9,6 +9,7 @@ Routes:
   GET  /api/personalities/{slug}  — personality detail (system prompt + config)
   POST /api/personalities         — publish (auth required)
 """
+
 from __future__ import annotations
 
 import logging
@@ -67,9 +68,7 @@ def list_personalities(
         query = query.filter(Personality.category == category)
     if q:
         like = f"%{q}%"
-        query = query.filter(
-            or_(Personality.title.ilike(like), Personality.description.ilike(like))
-        )
+        query = query.filter(or_(Personality.title.ilike(like), Personality.description.ilike(like)))
     rows = query.order_by(Personality.install_count.desc()).limit(limit).all()
     return [_personality_to_out(p) for p in rows]
 
@@ -121,9 +120,7 @@ def publish_personality(
         raise HTTPException(status_code=422, detail="system_prompt is required")
 
     if db.query(Personality).filter(Personality.slug == payload.slug).first() is not None:
-        raise HTTPException(
-            status_code=409, detail=f"personality slug {payload.slug!r} exists"
-        )
+        raise HTTPException(status_code=409, detail=f"personality slug {payload.slug!r} exists")
 
     p = Personality(
         id=uuid4(),

@@ -1,3 +1,10 @@
+# LoopSkill — zero-config local development stack (SQLite, no secrets required)
+#
+# Quick start:
+#   docker compose up -d
+#   curl http://localhost:8200/api/healthz
+#
+# For a production-grade stack (Postgres + Redis), see docker-compose.prod.yml.
 version: "3.9"
 
 services:
@@ -5,46 +12,25 @@ services:
     build: .
     ports:
       - "8200:8200"
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
     environment:
-      WR_DATABASE_URL: "postgresql://wisechef:wisechef@db:5432/wiserecipes"
-      WR_REDIS_URL: "redis://redis:6379/0"
+      WR_DATABASE_URL: "sqlite:////data/loopskill.db"
+      WR_COOKIES_SECURE: "false"
+      # Redis is optional; the app degrades gracefully to in-memory rate limiting
+      # and last-used tracking when it is absent. Leave blank for zero-config.
+      WR_REDIS_URL: ""
     env_file:
       - path: .env
         required: false
+    volumes:
+      - loopskill_data:/data
+    entrypoint: ["/app/entrypoint.sh"]
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8200/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:8200/api/healthz"]
       interval: 30s
       timeout: 10s
-      start_period: 20s
-      retries: 3
-
-  db:
-    image: postgres:17
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    environment:
-      POSTGRES_USER: wisechef
-      POSTGRES_PASSWORD: wisechef
-      POSTGRES_DB: wiserecipes
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U wisechef -d wiserecipes"]
-      interval: 10s
-      timeout: 5s
+      start_period: 60s
       retries: 5
-    restart: unless-stopped
-
-  redis:
-    image: redis:7
-    volumes:
-      - redis_data:/data
-    restart: unless-stopped
 
 volumes:
-  postgres_data:
-  redis_data:
+  loopskill_data:

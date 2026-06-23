@@ -1394,9 +1394,7 @@ class PersonalityVersion(Base):
     __tablename__ = "personality_versions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    personality_id = Column(
-        UUID(as_uuid=True), ForeignKey("personalities.id"), nullable=False, index=True
-    )
+    personality_id = Column(UUID(as_uuid=True), ForeignKey("personalities.id"), nullable=False, index=True)
     semver = Column(String(32), nullable=False)
     tarball_path = Column(Text, nullable=True)
     tarball_size_bytes = Column(Integer, nullable=True)
@@ -1407,6 +1405,4 @@ class PersonalityVersion(Base):
 
     personality = relationship("Personality", back_populates="versions")
 
-    __table_args__ = (
-        UniqueConstraint("personality_id", "semver", name="uq_personality_version"),
-    )
+    __table_args__ = (UniqueConstraint("personality_id", "semver", name="uq_personality_version"),)

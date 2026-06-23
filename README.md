@@ -1,10 +1,28 @@
-# Recipes API
+# LoopSkill API
 
-**Recipes API** — skill marketplace backend for [recipes.wisechef.ai](https://recipes.wisechef.ai).
+**LoopSkill** — open-core, self-hostable skill registry for AI agents.
+Browse, install, and deploy skills · bundles · loops · personalities. Zero signup to self-host.
 
-Mirrors LarryBrain's API surface (`x-api-key`, 60 req/min, `mode=files`) plus carousel + telemetry + WiseChef cross-sell.
+---
 
-Sister repo: [github.com/wisechef-ai/recipes-skill](https://github.com/wisechef-ai/recipes-skill) (public meta-skill).
+## Run it locally in 60 seconds
+
+**One-liner (Docker):**
+```sh
+curl -fsSL loopskill.io/install | sh
+```
+
+**Or clone + make:**
+```sh
+git clone https://github.com/wisechef-ai/loopskill-api
+cd loopskill-api
+make dev
+```
+
+No `.env`, no secrets, no Postgres required. The default stack uses SQLite and seeds a
+starter catalog automatically. Your dev API key is printed on first boot.
+
+See [docs/SELF_HOST.md](docs/SELF_HOST.md) for the full quickstart.
 
 ---
 

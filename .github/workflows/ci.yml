@@ -194,6 +194,7 @@ jobs:
 
       - name: Upload coverage HTML artifact
         if: always()
+        continue-on-error: true  # diagnostic artifact; a storage-quota/upload failure must not red a passing test gate
         uses: actions/upload-artifact@v4
         with:
           name: coverage-html
@@ -202,6 +203,7 @@ jobs:
 
       - name: Upload coverage XML artifact
         if: always()
+        continue-on-error: true  # diagnostic artifact; a storage-quota/upload failure must not red a passing test gate
         uses: actions/upload-artifact@v4
         with:
           name: coverage-xml
