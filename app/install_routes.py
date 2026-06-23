@@ -180,7 +180,7 @@ def install_skill(
 
             raise HTTPException(
                 status_code=403,
-                detail=(f"This skill requires {_dl(skill.tier or 'pro')} tier. " f"Upgrade to install it."),
+                detail=(f"This skill requires {_dl(skill.tier or 'pro')} tier. Upgrade to install it."),
             )
 
     install_limit = TIER_INSTALL_LIMITS.get(caller_tier, 5)

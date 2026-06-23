@@ -74,7 +74,7 @@ def validate_loop_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     if turns <= 0:
         errors.append("max_turns is required and must be a positive integer")
     elif turns > MAX_TURNS_CEILING:
-        errors.append(f"max_turns {turns} exceeds ceiling {MAX_TURNS_CEILING}; " "loops must be bounded")
+        errors.append(f"max_turns {turns} exceeds ceiling {MAX_TURNS_CEILING}; loops must be bounded")
     out["max_turns"] = turns
 
     # — budget_usd: optional, but if present must be a non-negative number —
@@ -108,9 +108,7 @@ def validate_loop_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     # — stopping_criteria: explicit success/failure/budget stops —
     stops = manifest.get("stopping_criteria")
     if not isinstance(stops, dict):
-        errors.append(
-            "stopping_criteria is required and must be an object with keys " f"{REQUIRED_STOP_KEYS}"
-        )
+        errors.append(f"stopping_criteria is required and must be an object with keys {REQUIRED_STOP_KEYS}")
         stops = {}
     else:
         missing = [k for k in REQUIRED_STOP_KEYS if k not in stops]

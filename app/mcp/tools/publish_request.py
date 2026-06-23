@@ -87,7 +87,7 @@ def _build_tarball(
             f'tier = "{tier}"',
         ]
         if changelog:
-            toml_lines.append(f'changelog = "{changelog.replace(chr(34), chr(92)+chr(34))}"')
+            toml_lines.append(f'changelog = "{changelog.replace(chr(34), chr(92) + chr(34))}"')
         toml_bytes = ("\n".join(toml_lines) + "\n").encode("utf-8")
         ti2 = _tarfile.TarInfo(name="skill.toml")
         ti2.size = len(toml_bytes)

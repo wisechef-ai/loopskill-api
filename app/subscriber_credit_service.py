@@ -84,7 +84,7 @@ def grant_contributor_credit(
     )
     if existing is not None:
         logger.info(
-            "grant_contributor_credit: idempotent — credit %s already exists for " "user=%s skill=%s",
+            "grant_contributor_credit: idempotent — credit %s already exists for user=%s skill=%s",
             existing.id,
             user_id,
             skill_id,
@@ -131,7 +131,7 @@ def grant_contributor_credit(
     db.refresh(credit)
 
     logger.info(
-        "grant_contributor_credit: granted credit %s to user %s for skill %s " "(expires %s)",
+        "grant_contributor_credit: granted credit %s to user %s for skill %s (expires %s)",
         credit.id,
         user_id,
         skill_id,
@@ -183,7 +183,7 @@ def apply_credit_to_stripe_coupon(db: Session, credit_id: UUID) -> str:
         idempotency_key=f"coupon_{credit_id}",
     )
     logger.info(
-        "apply_credit_to_stripe_coupon: created Stripe coupon %s for credit %s " "(%.0f%% off)",
+        "apply_credit_to_stripe_coupon: created Stripe coupon %s for credit %s (%.0f%% off)",
         coupon.id,
         credit_id,
         credit.amount_pct,

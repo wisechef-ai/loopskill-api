@@ -355,7 +355,7 @@ def _tool_definitions() -> list[types.Tool]:
         types.Tool(
             name="recipes_fleet_subscribe",
             description=(
-                "Subscribe a cookbook to a fleet on a given channel " "(stable, canary, frozen). Idempotent."
+                "Subscribe a cookbook to a fleet on a given channel (stable, canary, frozen). Idempotent."
             ),
             inputSchema={
                 "type": "object",

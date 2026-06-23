@@ -119,7 +119,7 @@ def evaluate_gate(
     if len(successes) < config.min_success:
         return GateResult(
             promotable=False,
-            reason=(f"insufficient canary successes " f"({len(successes)}/{config.min_success})"),
+            reason=(f"insufficient canary successes ({len(successes)}/{config.min_success})"),
             success_count=len(successes),
             failure_count=0,
             distinct_agents=distinct_agents,
@@ -127,9 +127,7 @@ def evaluate_gate(
     if config.min_distinct_agents > 1 and distinct_agents < config.min_distinct_agents:
         return GateResult(
             promotable=False,
-            reason=(
-                f"insufficient distinct canary agents " f"({distinct_agents}/{config.min_distinct_agents})"
-            ),
+            reason=(f"insufficient distinct canary agents ({distinct_agents}/{config.min_distinct_agents})"),
             success_count=len(successes),
             failure_count=0,
             distinct_agents=distinct_agents,

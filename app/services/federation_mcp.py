@@ -113,9 +113,7 @@ def build_mcp_server_config(skill, *, endpoint: str | None = None) -> dict:
 
     mcp_config = {"mcpServers": {key: {"url": ep}}}
 
-    hermes_yaml = (
-        "# Add to your Hermes config (hermes.yaml)\n" "mcp_servers:\n" f"  {key}:\n" f"    url: {ep}\n"
-    )
+    hermes_yaml = f"# Add to your Hermes config (hermes.yaml)\nmcp_servers:\n  {key}:\n    url: {ep}\n"
 
     claude_desktop_json = json.dumps(
         {"mcpServers": {key: {"url": ep}}},
