@@ -63,7 +63,7 @@ def db(engine_fixture) -> Generator[Session, None, None]:
 
 def _public_app(db: Session) -> FastAPI:
     """App with just the cookbook router; no auth middleware (routes are public)."""
-    from app.cookbook_routes import router as cookbook_router
+    from app.bundle_routes import router as cookbook_router
 
     app = FastAPI()
 

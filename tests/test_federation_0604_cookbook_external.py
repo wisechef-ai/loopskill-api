@@ -88,7 +88,7 @@ def _make_user(db: Session, *, tier: str = "pro_plus") -> User:
 
 
 def _make_app(db: Session, *, api_key_user_id) -> FastAPI:
-    from app.cookbook_routes import router as cookbook_router
+    from app.bundle_routes import router as cookbook_router
 
     app = FastAPI()
 
@@ -129,7 +129,7 @@ def _stub_external(source="lobehub", slug="seo-writer") -> ExternalSkill:
 
 class TestMaterializeExternalSkill:
     def test_materialize_creates_private_pointer_row(self, db_session, monkeypatch):
-        from app.services import cookbook_external as ce
+        from app.services import bundle_external as ce
 
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: _stub_external(s, sl))
 
@@ -150,7 +150,7 @@ class TestMaterializeExternalSkill:
         assert skill.original_source_url == "https://lobehub.example/seo-writer"
 
     def test_materialize_is_idempotent(self, db_session, monkeypatch):
-        from app.services import cookbook_external as ce
+        from app.services import bundle_external as ce
 
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: _stub_external(s, sl))
 
@@ -164,13 +164,13 @@ class TestMaterializeExternalSkill:
         assert len(rows) == 1, "no duplicate Skill rows for the same external skill"
 
     def test_materialize_unresolvable_returns_none(self, db_session, monkeypatch):
-        from app.services import cookbook_external as ce
+        from app.services import bundle_external as ce
 
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: None)
         assert ce.materialize_external_skill(db_session, "lobehub", "ghost") is None
 
     def test_is_external_skill_predicate(self, db_session, monkeypatch):
-        from app.services import cookbook_external as ce
+        from app.services import bundle_external as ce
 
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: _stub_external(s, sl))
         ext = ce.materialize_external_skill(db_session, "clawhub", "x")
@@ -183,7 +183,7 @@ class TestMaterializeExternalSkill:
 
 class TestCatalogIsolation:
     def test_external_row_excluded_by_public_catalog_filter(self, db_session, monkeypatch):
-        from app.services import cookbook_external as ce
+        from app.services import bundle_external as ce
 
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: _stub_external(s, sl))
         ce.materialize_external_skill(db_session, "lobehub", "seo-writer")
@@ -204,7 +204,7 @@ class TestCatalogIsolation:
 
 class TestAddExternalSkillToCookbook:
     def test_add_external_materializes_and_links(self, db_session, monkeypatch):
-        from app.services import cookbook_external as ce
+        from app.services import bundle_external as ce
 
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: _stub_external(s, sl))
 
@@ -249,7 +249,7 @@ class TestAddExternalSkillToCookbook:
         assert r.json()["detail"] == "unknown_external_source"
 
     def test_add_external_unresolvable_404(self, db_session, monkeypatch):
-        from app.services import cookbook_external as ce
+        from app.services import bundle_external as ce
 
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: None)
         user = _make_user(db_session)
@@ -274,7 +274,7 @@ class TestBulkInstallDescriptor:
         """Bulk install must NOT fetch N origins — it returns a cheap
         per-skill descriptor with a cookbook-scoped install URL. The actual
         origin fetch happens per-skill on the single-install path."""
-        from app.services import cookbook_external as ce
+        from app.services import bundle_external as ce
 
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: _stub_external(s, sl))
 
@@ -309,7 +309,7 @@ class TestBulkInstallDescriptor:
 
 class TestSingleInstallResolvesOrigin:
     def test_single_external_install_streams_origin_content(self, db_session, monkeypatch):
-        from app.services import cookbook_external as ce
+        from app.services import bundle_external as ce
 
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: _stub_external(s, sl))
         # Stub the origin fetcher the resolver calls.
@@ -342,7 +342,7 @@ class TestSingleInstallResolvesOrigin:
         assert "curl" in body["install_command"]
 
     def test_single_external_install_origin_unreachable_404(self, db_session, monkeypatch):
-        from app.services import cookbook_external as ce
+        from app.services import bundle_external as ce
 
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: _stub_external(s, sl))
         monkeypatch.setattr(ce, "get_origin_fetcher", lambda source: (lambda sl: None))
@@ -367,7 +367,7 @@ class TestSingleInstallResolvesOrigin:
 
 class TestResolveExternalInstallSSOT:
     def test_resolver_returns_origin_payload(self, monkeypatch):
-        from app.services import cookbook_external as ce
+        from app.services import bundle_external as ce
 
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: _stub_external(s, sl))
         monkeypatch.setattr(
@@ -382,7 +382,7 @@ class TestResolveExternalInstallSSOT:
         assert out["source"] == "lobehub"
 
     def test_resolver_deep_link_blocks(self, monkeypatch):
-        from app.services import cookbook_external as ce
+        from app.services import bundle_external as ce
 
         locked = ExternalSkill(
             slug="x", title="X", source="clawhub",
@@ -402,7 +402,7 @@ class TestMcpExternalParity:
     agents can switch transports without re-parsing (AGENTS.md contract)."""
 
     def _setup_cb_with_external(self, db_session, monkeypatch):
-        from app.services import cookbook_external as ce
+        from app.services import bundle_external as ce
 
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: _stub_external(s, sl))
         user = _make_user(db_session)
@@ -416,8 +416,8 @@ class TestMcpExternalParity:
 
     def test_mcp_bulk_external_returns_descriptor(self, db_session, monkeypatch):
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.cookbook_install import recipes_cookbook_install
-        from app.services import cookbook_external as ce
+        from app.mcp.tools.bundle_install import recipes_cookbook_install
+        from app.services import bundle_external as ce
 
         user, cb = self._setup_cb_with_external(db_session, monkeypatch)
         # Tripwire: MCP bulk must not resolve origin content either.
@@ -436,8 +436,8 @@ class TestMcpExternalParity:
 
     def test_mcp_single_external_streams_origin(self, db_session, monkeypatch):
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.cookbook_install import recipes_cookbook_install
-        from app.services import cookbook_external as ce
+        from app.mcp.tools.bundle_install import recipes_cookbook_install
+        from app.services import bundle_external as ce
 
         user, cb = self._setup_cb_with_external(db_session, monkeypatch)
         monkeypatch.setattr(

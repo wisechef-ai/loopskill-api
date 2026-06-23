@@ -5,7 +5,7 @@ name: pyfile-size-check
 # (app/middleware/, app/mcp/). This gate stops the next monolith from forming.
 #
 # Threshold rationale: 600 lines. A handful of pre-existing modules
-# (models.py, subscription_service.py, cookbook_routes.py, skill_routes.py,
+# (models.py, subscription_service.py, bundle_routes.py, skill_routes.py,
 # graph_extension.py) are still above 500 and are tracked for future splits;
 # the gate is set just above them so it catches NEW bloat without forcing an
 # out-of-scope refactor of every legacy file in this PR. Lower the threshold
@@ -42,11 +42,11 @@ jobs:
           # is tracked, not hidden. NEW files still trip the gate at 600.
           #   models.py              (1093) → split in W1/W2/W4 (all edit it: forks, feedback cfg, pricing)
           #   subscription_service.py (741) → split in W4 (pricing caps live here)
-          #   cookbook_routes.py      (706) → split in W2/W7 (feedback re-target + handoff edit it)
+          #   bundle_routes.py       (1445) → split in W2/W7 (feedback re-target + handoff edit it)
           #   skill_routes.py         (691) → split in W3 (cookbook viz reads skill detail)
           #   graph_extension.py      (620) → split in W3 (graph viz extends it)
           # Remove an entry the moment its module drops <=600; do NOT add new ones.
-          WAIVER="app/models.py app/subscription_service.py app/cookbook_routes.py app/skill_routes.py app/graph_extension.py"
+          WAIVER="app/models.py app/subscription_service.py app/bundle_routes.py app/skill_routes.py app/graph_extension.py"
           FAIL=0
           while IFS= read -r f; do
             lines=$(wc -l < "$f")

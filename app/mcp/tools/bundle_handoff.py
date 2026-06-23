@@ -3,7 +3,7 @@
 loopclose_3005 Phase I.
 
 Modes:
-  transfer — moves cookbook_owner to the new user in-place. The cookbook UUID
+  transfer — moves bundle_owner to the new user in-place. The bundle UUID
              stays the same. The original owner loses access; the new owner
              gains it.
 
@@ -15,16 +15,16 @@ Modes:
              not copied — those are catalog-sync concerns, not user lineage.
 
 Authz:
-  - Only the current cookbook owner (ctx.user_id == cookbook_owner) or a
+  - Only the current cookbook owner (ctx.user_id == bundle_owner) or a  # compat-alias
     master-scope caller may hand off.
   - cbt_token / anonymous / fleet callers are always rejected.
   - The base system catalog (is_base=True) cannot be handed off.
   - The new owner must be a real User row (resolved by id OR by email).
   - Fails closed: unknown user, unknown cookbook, wrong owner → error dict.
 
-DB invariant: after transfer, cookbook_owner IS NOT NULL (required by the
+DB invariant: after transfer, bundle_owner IS NOT NULL (required by the
 CHECK constraint added in migration lc3005_x_cookbook_owner_ck). After fork,
-the new cookbook is created with cookbook_owner = new_owner.id immediately.
+the new cookbook is created with bundle_owner = new_owner.id immediately.  # compat-alias
 """
 
 from __future__ import annotations
@@ -89,7 +89,7 @@ def recipes_cookbook_handoff(
             "message": f"mode must be 'transfer' or 'fork', got {mode!r}.",
         }
 
-    # ── resolve cookbook (before new owner — auth-close: probe prevention) ──
+    # ── resolve bundle (before new owner — auth-close: probe prevention) ──
     try:
         cid = UUID(cookbook_id)
     except (ValueError, TypeError):

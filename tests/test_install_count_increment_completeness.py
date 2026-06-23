@@ -8,7 +8,7 @@ Code paths under test:
     1. /api/telemetry  (event_type=install)          [routes.py, RCP-13, tested by test_install_count_sync]
     2. /api/skills/install  (direct single-skill)    [install_routes.py, RCP-13, tested by test_install_count_sync]
     3. MCP recipes_install                           [mcp/tools/install.py — BUG: missing increment before this fix]
-    4. POST /api/cookbooks/{id}/install              [cookbook_routes.py, _record_install_event]
+    4. POST /api/cookbooks/{id}/install              [bundle_routes.py, _record_install_event]
     5. MCP recipes_cookbook_install single-skill     [mcp/tools/cookbook_install.py, _record_install_event]
     6. MCP recipes_cookbook_install bulk             [mcp/tools/cookbook_install.py, _record_install_event]
 

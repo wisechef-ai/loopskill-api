@@ -34,7 +34,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import Cookbook, CookbookSkill, Skill, SkillVersion, User
-from app.services.cookbook_external import (
+from app.services.bundle_external import (
     install_descriptor_for,
     is_external_skill,
     resolve_external_install,
@@ -53,11 +53,11 @@ UNLIMITED_TIERS = {"pro_plus"}  # canonical; legacy slugs handled via shim
 ACTIVE_SUB_STATUSES = {"active", "trialing"}
 ALLOWED_SOURCES = {"forked", "custom-added", "overridden", "disabled"}
 
-# WIS-902: Pro tier skill cap per cookbook
+# WIS-902: Pro tier skill cap per bundle
 COOK_SKILL_CAP = 25
 
 
-def _touch_cookbook_generation(db: Session, cookbook_id: UUID) -> None:
+def _touch_bundle_generation(db: Session, cookbook_id: UUID) -> None:  # compat-alias
     """Advance a cookbook's generation token (Cookbook.updated_at).
 
     evergreen_0206 Phase A — the cheap-poll generation token.
@@ -81,7 +81,7 @@ def _touch_cookbook_generation(db: Session, cookbook_id: UUID) -> None:
     )
 
 
-# ── CBT scope enforcement for cookbook routes ─────────────────────────────
+# ── CBT scope enforcement for bundle routes ─────────────────────────────
 
 
 def _enforce_cbt_scope_for_cookbook_route(request: Request, cookbook_id: str) -> None:
@@ -159,7 +159,7 @@ class CookbookCtx(BaseModel):
     is_master: bool = False
     tier: str | None = None
     # SECURITY: when populated, this caller authenticated via a cbt_ share token
-    # scoped to this single cookbook. Route-level checks must enforce that any
+    # scoped to this single bundle. Route-level checks must enforce that any
     # cb the request acts on equals this value, and must block writes if scope='read'.
     cbt_cookbook_id: UUID | None = None
 
@@ -218,7 +218,7 @@ class SkillAddIn(BaseModel):
     source: str | None = "custom-added"
     # federation_0604 Unit 2 — when set, ``slug`` is the EXTERNAL source's slug
     # and we materialize a private pointer Skill row before linking it. The
-    # cookbook-provenance ``source`` above (custom-added/forked/…) is unrelated
+    # bundle-provenance ``source`` above (custom-added/forked/…) is unrelated
     # to this federation source id (lobehub/clawhub/skills-sh/…).
     external_source: str | None = None
 
@@ -245,7 +245,7 @@ class CookbookSkillOut(BaseModel):
     source: str
     pinned_version: str | None = None
     added_at: datetime | None = None
-    # loopclose_3005 Phase E — fields the /cookbooks/<id> web viz consumes.
+    # loopclose_3005 Phase E — fields the /bundles/<id> web viz consumes.
     title: str | None = None
     skill_variant: str | None = None  # "catalog" | "custom" (tailored) — badge
     is_public: bool | None = None
@@ -279,7 +279,7 @@ def _resolve_owned_cookbook(db: Session, ctx: CookbookCtx, cookbook_id: str) -> 
         raise HTTPException(status_code=404, detail="cookbook_not_found")
 
     # cookbook_share_2105 Phase D: cbt_token callers (share-token holders) own
-    # the resolution path via cookbook_scope match. _enforce_cbt_scope_for_cookbook_route
+    # the resolution path via bundle_scope match. _enforce_cbt_scope_for_cookbook_route  # compat-alias
     # already enforced that ctx.cbt_cookbook_id == cid, so reaching here is
     # authorisation enough.
     if ctx.cbt_cookbook_id is not None and ctx.cbt_cookbook_id == cb.id:
@@ -328,7 +328,7 @@ def _corrections_absorbed_count(db: Session, slug: str) -> int:
             .count()
         )
     # Rationale: a missing table/column or dialect quirk must not break the
-    # cookbook view — the counter is decorative, the skill list is load-bearing.
+    # bundle view — the counter is decorative, the skill list is load-bearing.
     except Exception:  # noqa: BLE001
         return 0
 
@@ -394,7 +394,7 @@ def _cookbook_signals(db: Session, cb: Cookbook, skills: list[dict]) -> dict:
 # ── spotify_0608 Ph B — public discovery surface ─────────────────────────
 # These routes are UNAUTHENTICATED (allowlisted in middleware/api_key.py) and
 # MUST be registered before the `/{cookbook_id}` catch-all so FastAPI doesn't
-# capture "discover"/"public" as a cookbook_id. They expose ONLY cookbooks with
+# capture "discover"/"public" as a cookbook_id. They expose ONLY bundles with  # compat-alias
 # visibility='public'. Ranking + the public install-count surface EXCLUDE
 # test/CI installs via _install_counts_for (§4.2).
 
@@ -402,9 +402,9 @@ def _cookbook_signals(db: Session, cb: Cookbook, skills: list[dict]) -> dict:
 def _public_cb_card(db: Session, cb: Cookbook) -> dict:
     """A compact, anonymous-safe public cookbook card for the discover feed."""
     skill_rows = _skills_for(db, cb.id, include_disabled=False)
-    # portal_0610 R7: count installs ATTRIBUTED TO this cookbook (InstallEvent
+    # portal_0610 R7: count installs ATTRIBUTED TO this bundle (InstallEvent
     # rows stamped with cookbook_id), NOT the sum of each member skill's global
-    # install count — the latter double-counts skills shared across cookbooks.
+    # install count — the latter double-counts skills shared across bundles.
     from app._skill_helpers import _cookbook_install_counts
 
     total_installs, installs_7d = _cookbook_install_counts(db, cb.id)
@@ -457,15 +457,15 @@ def discover_cookbooks(
         Cookbook.slug.isnot(None),
     )
     if sort == "newest":
-        # portal_0610 R6: add a deterministic tiebreaker. Seeded cookbooks share
+        # portal_0610 R6: add a deterministic tiebreaker. Seeded bundles share
         # one created_at, so without a secondary key the order was arbitrary
-        # DB-insertion. Cookbook.id.desc() makes "newest" stable + reproducible.
+        # DB-insertion. Bundle.id.desc() makes "newest" stable + reproducible.
         q = q.order_by(Cookbook.created_at.desc(), Cookbook.id.desc())
         rows = q.offset(offset).limit(limit).all()
         cards = [_public_cb_card(db, cb) for cb in rows]
     else:
         # Rank by real installs. Small marketplace → compute cards then sort in
-        # Python (install counts are a per-cookbook aggregate, not a column).
+        # Python (install counts are a per-bundle aggregate, not a column).
         rows = q.all()
         cards = [_public_cb_card(db, cb) for cb in rows]
         cards.sort(key=lambda c: (c["installs_7d"], c["installs_total"]), reverse=True)
@@ -655,7 +655,7 @@ def get_cookbook(
         ).model_dump(mode="json")
         for cs, skill in rows
     ]
-    # portal_0610 J6 — living-object signals (the cookbook is alive, not a static
+    # portal_0610 J6 — living-object signals (the bundle is alive, not a static
     # list). All honest, organic-only counts; the frontend renders what's present.
     out["signals"] = _cookbook_signals(db, cb, out["skills"])
     return out
@@ -679,10 +679,10 @@ def add_skill_to_cookbook(
 
     # federation_0604 Unit 2 — external (federated) skill branch.
     # When external_source is set, the body.slug is the external source's slug.
-    # Materialize a private pointer Skill row so the FK + all cookbook plumbing
+    # Materialize a private pointer Skill row so the FK + all bundle plumbing
     # below work unchanged. Never rehosts: install resolves from origin later.
     if body.external_source:
-        from app.services.cookbook_external import (
+        from app.services.bundle_external import (
             known_external_source,
             materialize_external_skill,
         )
@@ -707,7 +707,7 @@ def add_skill_to_cookbook(
     )
     if existing is not None:
         existing.source = source
-        _touch_cookbook_generation(db, cb.id)
+        _touch_bundle_generation(db, cb.id)
         db.commit()
         return {
             "cookbook_id": str(cb.id),
@@ -745,7 +745,7 @@ def add_skill_to_cookbook(
         source=source,
     )
     db.add(cs)
-    _touch_cookbook_generation(db, cb.id)
+    _touch_bundle_generation(db, cb.id)
     db.commit()
     db.refresh(cs)
     return {
@@ -786,7 +786,7 @@ def remove_skill_from_cookbook(
         raise HTTPException(status_code=404, detail="skill_not_in_cookbook")
 
     cs.source = "disabled"
-    _touch_cookbook_generation(db, cb.id)
+    _touch_bundle_generation(db, cb.id)
     db.commit()
     return {"cookbook_id": str(cb.id), "slug": slug, "source": "disabled", "deleted": True}
 
@@ -819,7 +819,7 @@ def set_cookbook_visibility(
     if vis not in {"public", "private"}:
         raise HTTPException(status_code=422, detail="invalid_visibility")
     cb.visibility = vis
-    _touch_cookbook_generation(db, cb.id)
+    _touch_bundle_generation(db, cb.id)
     db.commit()
     return {"cookbook_id": str(cb.id), "visibility": vis}
 
@@ -883,7 +883,7 @@ def set_skill_pin(
             )
         cs.source = "overridden"  # provenance: explicitly version-pinned
     cs.pinned_version = pin
-    _touch_cookbook_generation(db, cb.id)
+    _touch_bundle_generation(db, cb.id)
     db.commit()
     return {"cookbook_id": str(cb.id), "slug": slug, "pinned_version": pin, "pinned": pin is not None}
 
@@ -934,7 +934,7 @@ def reorder_cookbook_skills(
             cs.install_order = pos * 10
             pos += 1
 
-    _touch_cookbook_generation(db, cb.id)
+    _touch_bundle_generation(db, cb.id)
     db.commit()
     return {
         "cookbook_id": str(cb.id),
@@ -979,10 +979,10 @@ def install_cookbook(
     rows = _skills_for(db, cb.id, include_disabled=False)
 
     # portal_0610 R1 (§6.6/§6.7-L10): tier-ACCESS gate, owner-tier-scoped.
-    # A cbt_ client agent installs against the cookbook OWNER's tier, not its
-    # own. A free-owner cookbook must never emit a Pro tarball; a Pro-owner
-    # cookbook may. Over-tier skills are SKIPPED in the bulk payload (a mixed
-    # cookbook still delivers the skills the owner is entitled to) rather than
+    # A cbt_ client agent installs against the bundle OWNER's tier, not its
+    # own. A free-owner bundle must never emit a Pro tarball; a Pro-owner
+    # bundle may. Over-tier skills are SKIPPED in the bulk payload (a mixed
+    # bundle still delivers the skills the owner is entitled to) rather than
     # 403-ing the whole install.
     from app.authz import tier_rank_allows_install
     from app._skill_helpers import _resolve_cookbook_owner_tier
@@ -992,11 +992,11 @@ def install_cookbook(
     skills_payload = []
     installed_skills: list[tuple[Skill, str, int]] = []
     for cs, skill in rows:
-        # portal_0610 R1: skip skills the cookbook owner's tier cannot install.
+        # portal_0610 R1: skip skills the bundle owner's tier cannot install.
         if not tier_rank_allows_install(owner_tier, getattr(skill, "tier", None)):
             continue
         # federation_0604 Unit 2 — external rows get a CHEAP descriptor + a
-        # cookbook-scoped single-install URL. No origin fetch in the bulk path
+        # bundle-scoped single-install URL. No origin fetch in the bulk path
         # (isolation wall #2: bulk must not fan out N network calls).
         if is_external_skill(skill):
             skills_payload.append(install_descriptor_for(str(cb.id), skill))
@@ -1030,12 +1030,12 @@ def install_cookbook(
         if version is not None:
             # Track the payload index so we can stamp this entry's provenance_id
             # PER-SKILL after recording (R4 nit (a): provenance rides per-skill
-            # under skills[], NOT cookbook-top-level).
+            # under skills[], NOT bundle-top-level).
             installed_skills.append((skill, version.semver, len(skills_payload) - 1))
 
     # spotify_0608 Ph E — record an InstallEvent + mint a PER-SKILL provenance_id
     # for every skill that returned a real version, stamping cookbook_id so the
-    # feedback harness can route a later report to THIS cookbook's curator repo.
+    # feedback harness can route a later report to THIS bundle's curator repo.
     # (Supersedes recipes-D's _record_install_event: same counter + is_test
     # integrity via record_install_with_provenance, plus provenance.)
     from app.services.provenance import record_install_with_provenance
@@ -1144,7 +1144,7 @@ def cookbook_sync(
     }
 
 
-# ── cookbook_share_2105 Phase D — single-skill install under cookbook prefix ──
+# ── cookbook_share_2105 Phase D — single-skill install under bundle prefix ──  # compat-alias
 
 
 @_h.get("/{cookbook_id}/skills/{slug}/install")  # compat-alias
@@ -1186,7 +1186,7 @@ def install_single_skill_from_cookbook(
 
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
 
-    # Find the skill globally; then check it's actually in this cookbook
+    # Find the skill globally; then check it's actually in this bundle
     skill = db.query(Skill).filter(Skill.slug == slug).first()
     if skill is None:
         raise HTTPException(status_code=404, detail="skill_not_found")
@@ -1205,8 +1205,8 @@ def install_single_skill_from_cookbook(
 
     # portal_0610 R1 (§6.6/§6.7-L10): tier-ACCESS gate, owner-tier-scoped.
     # An explicit single-skill install of an over-tier skill 403s (unlike the
-    # bulk path which silently skips). The cookbook OWNER's tier governs, so a
-    # free-owner cookbook cannot hand a client agent a Pro skill even by direct
+    # bulk path which silently skips). The bundle OWNER's tier governs, so a
+    # free-owner bundle cannot hand a client agent a Pro skill even by direct
     # slug. External skills carry no tarball/tier contract → not gated here.
     if not is_external_skill(skill):
         from app.authz import tier_rank_allows_install
@@ -1228,7 +1228,7 @@ def install_single_skill_from_cookbook(
     # from origin at install time (never rehosted), via the SHARED resolver also
     # used by /api/skills/external/.../install. No SkillVersion/tarball exists.
     if is_external_skill(skill):
-        from app.services.cookbook_external import descriptor_source_slug
+        from app.services.bundle_external import descriptor_source_slug
 
         src_slug = descriptor_source_slug(skill)
         if src_slug is None:
@@ -1241,7 +1241,7 @@ def install_single_skill_from_cookbook(
                 detail="external_skill_unresolvable",
             )
         # spotify_0608 Ph E — external single-install fetched the real body, so
-        # this IS an attributed install (we know source+slug+cookbook). Record +
+        # this IS an attributed install (we know source+slug+bundle). Record +
         # mint provenance. (A deep-link/non-fetch external skill never resolves a
         # body → resolve_external_install returns None → 404 above, never here;
         # the honestly-unattributed path is for the federated catalogue where the
@@ -1282,7 +1282,7 @@ def install_single_skill_from_cookbook(
         raise HTTPException(status_code=404, detail="no_versions")
 
     # spotify_0608 Ph E — record install + mint provenance (stamps cookbook_id
-    # so a later feedback/skill-error report routes to THIS cookbook's curator).
+    # so a later feedback/skill-error report routes to THIS bundle's curator).
     from app.services.provenance import record_install_with_provenance
 
     _ev, provenance_id = record_install_with_provenance(
@@ -1305,7 +1305,7 @@ def install_single_skill_from_cookbook(
     }
 
 
-# ── loopclose_3005 Phase I — cookbook handoff REST endpoint ──────────────
+# ── loopclose_3005 Phase I — bundle handoff REST endpoint ──────────────
 
 
 class HandoffIn(BaseModel):
@@ -1330,7 +1330,7 @@ def handoff_cookbook(
     Delegates to the MCP tool implementation for a single source of truth.
     """
     from app.auth_ctx import AuthContext
-    from app.mcp.tools.cookbook_handoff import recipes_cookbook_handoff
+    from app.mcp.tools.bundle_handoff import recipes_cookbook_handoff  # compat-alias
 
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
 

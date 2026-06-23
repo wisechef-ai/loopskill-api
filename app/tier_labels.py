@@ -51,7 +51,7 @@ def cookbook_limit(tier: str | None) -> int | None:
     """Return the max number of cookbooks a tier may own.
 
     SSOT: config/tiers.yaml `cookbook_limit` per tier (loopclose_3005 Phase A).
-    This is the ONLY source of cookbook caps — cookbook_routes.py and
+    This is the ONLY source of bundle caps — bundle_routes.py and
     auth_routes.py both read it here. Accepts legacy slugs ('cook', 'studio',
     'operator') transparently via _canonical().
 

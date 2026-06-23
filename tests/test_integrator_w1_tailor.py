@@ -245,7 +245,7 @@ class TestMCPDispatchIntegration:
             caller=caller,
             db=db,
         )
-        # call_tool_sync injects cookbook_status; verify the core result
+        # call_tool_sync injects bundle_status; verify the core result
         assert payload.get("status") in ("forked", "existing"), f"Unexpected: {payload}"
 
     def test_fork_list_dispatched_via_call_tool_sync(self, db: Session) -> None:

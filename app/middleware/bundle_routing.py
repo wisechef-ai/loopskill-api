@@ -43,7 +43,7 @@ class CookbookHostMiddleware(BaseHTTPMiddleware):
                 request.state.cookbook_id = str(cookbook.id)
                 request.state.cookbook_slug = cookbook.slug
                 request.state.cookbook_theme = cookbook.theme_json
-        # Rationale: cookbook domain lookup failure must not break the request; log and continue
+        # Rationale: bundle domain lookup failure must not break the request; log and continue
         except Exception as e:  # noqa: BLE001
             logger.warning("CookbookHostMiddleware lookup failed for host=%s: %s", host, e)
         finally:

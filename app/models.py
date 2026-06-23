@@ -137,7 +137,7 @@ class Creator(Base):
     # handle is the short social handle without "@" prefix (e.g. "adamkrawczyk").
     # url is the canonical profile/portfolio link the portal renders as the
     # author block "by <name> @<handle>". Both nullable — backfill cron
-    # (scripts/backfill_creator_identity.py) populates from cookbook frontmatter,
+    # (scripts/backfill_creator_identity.py) populates from bundle frontmatter,
     # SKILL.md `maintainer:` field, or git author info when present.
     handle = Column(String(64), nullable=True)
     url = Column(Text, nullable=True)
@@ -231,7 +231,7 @@ class Skill(Base):
     quality_score = Column(Float, nullable=True)
 
     # v6 Phase A — catalog topology columns
-    # 'original' = SHA-pinned Pantry snapshot; 'custom' = curated Menu/Cookbook skill
+    # 'original' = SHA-pinned Pantry snapshot; 'custom' = curated Menu/Bundle skill
     skill_variant = Column(String(20), nullable=False, server_default="custom")
     original_source_url = Column(Text, nullable=True)
     parent_skill_slug = Column(String(255), nullable=True)
@@ -292,12 +292,12 @@ class InstallEvent(Base):
     # F.6 rollback marker: 'ok' | 'rolled_back' | 'partial' | 'in_progress'
     status = Column(String(32), nullable=False, server_default="ok", index=True)
     # spotify_0608 Ph E — install-provenance (Sentry/npm pattern).
-    #   cookbook_id : which cookbook the install was triggered from (NULL for a
-    #                 direct, cookbook-less /api/skills/install). Threaded via
+    #   cookbook_id : which bundle the install was triggered from (NULL for a  # compat-alias
+    #                 direct, bundle-less /api/skills/install). Threaded via
     #                 _record_install_event(). Powers feedback → curator-repo
     #                 routing through the provenance_id resolution.
     #   attribution : 'attributed' (default — we know skill + version, and
-    #                 cookbook when present) | 'unattributed' (honest deep-link /
+    #                 bundle when present) | 'unattributed' (honest deep-link /
     #                 non-fetch install: no body fetched → no deeper attribution).
     #                 Transient FETCH_ORIGIN failures are NOT mis-stamped here —
     #                 they stay hard errors and never reach this row.
@@ -714,7 +714,7 @@ class ReplacementCandidate(Base):
 
 # ── Buckets RETIRED (spotify_0608 Ph A / D1) ─────────────────────────────
 # The Bucket + BucketSkill models were retired in spotify_0608 Phase A.
-# Cookbook is now the survivor primitive (D1): its new slug/visibility/
+# Bundle is now the survivor primitive (D1): its new slug/visibility/
 # is_white_label/custom_domain/pin_mode/theme_json columns re-home Bucket's
 # presentation + white-label capability set, and `CookbookDeployment` (defined
 # below, after CookbookShareToken) is the lossless replacement for BucketSkill's
@@ -1278,7 +1278,7 @@ class FederationIndexCache(Base):
 #
 # LoopSkill's star engine. Unlike skills/bundles (config artifacts), a loop and a
 # personality are RUNNABLE artifacts. These tables are NEW and born with clean
-# LoopSkill vocabulary (no cookbook/recipe lineage), so they do not depend on the
+# LoopSkill vocabulary (no bundle/recipe lineage), so they do not depend on the  # compat-alias
 # P3/P4 schema rename and ship in v1.
 
 

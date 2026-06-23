@@ -140,7 +140,7 @@ def recall_skills(
     backend_used = "hybrid" if is_model_loaded() else "bm25"
     used_fallback = not is_model_loaded()
 
-    # Cookbook membership (best-effort: ignore on schema mismatch).
+    # Bundle membership (best-effort: ignore on schema mismatch).
     in_cookbook_skill_ids: set = set()
     if user_id is not None:
         try:
@@ -152,7 +152,7 @@ def recall_skills(
                 .all()
             )
             in_cookbook_skill_ids = {r[0] for r in rows}
-        # Rationale: cookbook lookup failure must not abort recall; degrade to empty set
+        # Rationale: bundle lookup failure must not abort recall; degrade to empty set
         except Exception as exc:  # noqa: BLE001
             logger.debug("cookbook lookup skipped: %s", exc)
 

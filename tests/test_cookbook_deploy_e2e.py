@@ -31,7 +31,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.api_key_routes import router as api_key_router
 from app.auth_routes import get_current_user_optional
-from app.cookbook_routes import router as cookbook_router
+from app.bundle_routes import router as cookbook_router
 from app.database import get_db
 from app.middleware import APIKeyMiddleware
 from app.models import (
@@ -75,7 +75,7 @@ def db(engine) -> Session:
 class TestCookbookClientDeployE2E:
     """Verified happy path: Pro+ cookbook → client agent install."""
 
-    def test_e2e_cookbook_scoped_key_install_count(self, db: Session):
+    def test_e2e_bundle_scoped_key_install_count(self, db: Session):
         """
         Steps:
         1. Create a Pro+ user

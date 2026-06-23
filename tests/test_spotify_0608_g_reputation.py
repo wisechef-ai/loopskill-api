@@ -59,7 +59,7 @@ def _app(db, *, master=False, user_id=None):
     """App with the cookbook router. master=True simulates the admin key
     (api_key_user_id=None). Pass user_id to simulate an authenticated non-master
     user (so master-only routes reach their 403 rather than a 401)."""
-    from app.cookbook_routes import router
+    from app.bundle_routes import router
 
     app = FastAPI()
 

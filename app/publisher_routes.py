@@ -504,7 +504,7 @@ async def publish_skill(
         logger.exception("BM25 reindex failed for %s (non-fatal)", skill_obj.slug)
 
     # ── 11. Live-sync fan-out (Phase D) ─────────────────────────────────
-    # Notify every cookbook that has this skill (and isn't disabled). On
+    # Notify every bundle that has this skill (and isn't disabled). On
     # Postgres this goes via pg_notify so all processes receive it; on
     # SQLite tests it publishes directly to the in-process subscribers.
     try:

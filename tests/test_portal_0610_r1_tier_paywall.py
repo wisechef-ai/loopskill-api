@@ -273,7 +273,7 @@ def _user_ctx(user):
 
 
 def test_mcp_bulk_free_owner_skips_pro(db_session):
-    from app.mcp.tools.cookbook_install import recipes_cookbook_install
+    from app.mcp.tools.bundle_install import recipes_cookbook_install
 
     owner = _mk_user(db_session, tier="free")
     cb = _mk_cookbook(db_session, owner=owner)
@@ -289,7 +289,7 @@ def test_mcp_bulk_free_owner_skips_pro(db_session):
 
 
 def test_mcp_single_free_owner_pro_skill_raises(db_session):
-    from app.mcp.tools.cookbook_install import CookbookInstallError, recipes_cookbook_install
+    from app.mcp.tools.bundle_install import CookbookInstallError, recipes_cookbook_install
 
     owner = _mk_user(db_session, tier="free")
     cb = _mk_cookbook(db_session, owner=owner)
@@ -305,7 +305,7 @@ def test_mcp_single_free_owner_pro_skill_raises(db_session):
 
 
 def test_mcp_single_pro_owner_pro_skill_ok(db_session):
-    from app.mcp.tools.cookbook_install import recipes_cookbook_install
+    from app.mcp.tools.bundle_install import recipes_cookbook_install
 
     owner = _mk_user(db_session, tier="pro")
     cb = _mk_cookbook(db_session, owner=owner)

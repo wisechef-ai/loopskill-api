@@ -5,7 +5,7 @@ is the survivor primitive; this module is the *deployment* layer (ordered apply,
 forks, white-label custom domains, preflight, public manifest). It operates on
 ``Cookbook`` rows and the new ``CookbookDeployment`` table — the lossless
 replacement for ``BucketSkill``. The membership layer (``CookbookSkill`` + the
-existing ``/api/cookbooks`` CRUD in ``cookbook_routes``) is untouched.
+existing ``/api/cookbooks`` CRUD in ``bundle_routes``) is untouched.  # compat-alias
 
 Mounted under ``/api/cookbook-deploy`` to avoid any path collision with the
 existing ``/api/cookbooks`` CRUD surface.
@@ -40,7 +40,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth_routes import get_current_user_optional
-from app.cookbook_preflight import run_preflight
+from app.bundle_preflight import run_preflight
 from app.database import get_db
 from app.models import Cookbook, CookbookDeployment, InstallEvent, Skill, User
 
@@ -343,7 +343,7 @@ async def cookbook_job_status(
 
 
 @_h.post("/{slug}/preflight")
-async def cookbook_preflight(
+async def bundle_preflight(
     slug: str,
     body: dict = Body(default={}),
     db: Session = Depends(get_db),

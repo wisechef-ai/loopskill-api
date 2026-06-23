@@ -171,7 +171,7 @@ def search_skills(
     elif subset == "menu":
         query = query.filter(Skill.skill_variant == "custom", Skill.is_public == True)
     elif subset == "cookbook":
-        # Private subset — currently empty in v6 Phase A (cookbook auto-fork ships in Phase B)
+        # Private subset — currently empty in v6 Phase A (bundle auto-fork ships in Phase B)
         query = query.filter(Skill.is_public == False)
 
     # v6 Phase A: variant filter (orthogonal to subset)
@@ -771,11 +771,11 @@ def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)
         # spotify_0608 Ph E — provenance on the public external install. This is
         # a FETCH_ORIGIN install (real body streamed) so it's 'attributed'. We
         # materialize a private pointer Skill row (idempotent) to satisfy the
-        # InstallEvent FK, then record + mint provenance. No cookbook context
+        # InstallEvent FK, then record + mint provenance. No bundle context
         # here (cookbook_id stays NULL — this is the bare federation route).
         prov_id = None
         try:
-            from app.services.cookbook_external import materialize_external_skill
+            from app.services.bundle_external import materialize_external_skill
             from app.services.provenance import (
                 ATTR_ATTRIBUTED,
                 record_install_with_provenance,
@@ -843,7 +843,7 @@ def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)
 
         prov_id = None
         try:
-            from app.services.cookbook_external import materialize_external_skill
+            from app.services.bundle_external import materialize_external_skill
             from app.services.provenance import (
                 ATTR_ATTRIBUTED,
                 record_install_with_provenance,
@@ -893,7 +893,7 @@ def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)
     # TRANSIENT FETCH_ORIGIN fetch failure (those 404/409 above and never reach here).
     prov_id = None
     try:
-        from app.services.cookbook_external import materialize_external_skill
+        from app.services.bundle_external import materialize_external_skill
         from app.services.provenance import (
             ATTR_UNATTRIBUTED,
             record_install_with_provenance,

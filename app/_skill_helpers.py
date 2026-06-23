@@ -351,7 +351,7 @@ def _resolve_cookbook_owner_tier(db: Session, cookbook) -> str | None:
 
     Returns:
         - ``"pro_plus"`` for an owner-less / base catalog cookbook
-          (cookbook_owner is None): the WiseChef-curated catalog is not gated
+          (bundle_owner is None): the WiseChef-curated catalog is not gated
           by a personal subscription. Skill-level visibility still applies.
         - the owner's ``subscription_tier`` when their subscription is
           active/trialing.
@@ -374,7 +374,7 @@ def _resolve_cookbook_owner_tier(db: Session, cookbook) -> str | None:
 # cookbook bulk install, cookbook single-skill install, MCP recipes_cookbook_install)
 # write an InstallEvent row AND bump Skill.install_count in the same transaction.
 #
-# Before recipes-D, only /api/skills/install recorded events. Cookbook-share installs
+# Before recipes-D, only /api/skills/install recorded events. Bundle-share installs  # compat-alias
 # (the only path cbt_-token holders can use) were invisible in transparency stats —
 # install_count and InstallEvent.skill_id both stayed empty for those skills. The
 # Varys end-to-end install (cookbook_share_2105 OUTCOME, 2026-05-25) was the first

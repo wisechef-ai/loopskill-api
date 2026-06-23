@@ -10,7 +10,7 @@ Coverage:
   - apply → install_events get cookbook annotation
   - manifest endpoint is public (no auth required)
   - CookbookHostMiddleware: scoped catalog response on custom_domain hit
-  - cookbook_loader strips `_`-prefixed comment keys
+  - bundle_loader strips `_`-prefixed comment keys
   - preflight aggregator + pure check functions
 """
 from __future__ import annotations
@@ -88,7 +88,7 @@ def _build_app(db: Session, user: User | None) -> FastAPI:
     """Build a minimal FastAPI app with just the cookbook-deploy router and an
     overridden auth dependency that returns ``user`` (or None)."""
     from app import auth_routes
-    from app.cookbook_deployment_routes import router as cookbook_deploy_router
+    from app.bundle_deployment_routes import router as cookbook_deploy_router
 
     app = FastAPI()
 
@@ -403,11 +403,11 @@ def test_cookbook_host_middleware_no_match(db, monkeypatch):
     assert captured["cookbook_id"] is None
 
 
-# ── cookbook_loader strips comment keys ─────────────────────────────────
+# ── bundle_loader strips comment keys ─────────────────────────────────
 
 
 def test_cookbook_loader_strips_underscore_keys(tmp_path):
-    from app.cookbook_loader import load_cookbook_file, strip_comments
+    from app.bundle_loader import load_cookbook_file, strip_comments
 
     sample = {
         "_comment": "top-level note",
@@ -434,7 +434,7 @@ def test_wisechef_fleet_v1_loads_with_47_skills():
     """The dogfood cookbook file must parse and yield 47 skills, 12 crons, 6 services."""
     from pathlib import Path
 
-    from app.cookbook_loader import load_cookbook_file
+    from app.bundle_loader import load_cookbook_file
 
     repo_root = Path(__file__).parent.parent
     data = load_cookbook_file(repo_root / "internal" / "cookbooks" / "wisechef-fleet-v1.json")
@@ -448,7 +448,7 @@ def test_wisechef_fleet_v1_loads_with_47_skills():
 
 
 def test_preflight_returns_ok_for_empty_cookbook(db):
-    from app.cookbook_preflight import run_preflight
+    from app.bundle_preflight import run_preflight
 
     user = _make_user(db, "pro")
     cb = Cookbook(
@@ -464,7 +464,7 @@ def test_preflight_returns_ok_for_empty_cookbook(db):
 
 
 def test_preflight_detects_missing_cookbook(db):
-    from app.cookbook_preflight import run_preflight
+    from app.bundle_preflight import run_preflight
 
     report = run_preflight(db, "no-such-cookbook")
     assert report["ok"] is False
@@ -473,7 +473,7 @@ def test_preflight_detects_missing_cookbook(db):
 
 def test_preflight_port_conflict_check_on_pure_recipes():
     """Port conflict detection is callable in isolation on a list of recipes."""
-    from app.cookbook_preflight import check_port_conflicts
+    from app.bundle_preflight import check_port_conflicts
 
     recipes = [
         {"slug": "a", "recipe": {"runtime": {"services": [{"port": 8100}]}}},
@@ -484,7 +484,7 @@ def test_preflight_port_conflict_check_on_pure_recipes():
 
 
 def test_preflight_env_collision_check_on_pure_recipes():
-    from app.cookbook_preflight import check_env_collisions
+    from app.bundle_preflight import check_env_collisions
 
     recipes = [
         {"slug": "a", "recipe": {"runtime": {"env": {"required": ["DB_URL"]}}}},
@@ -495,7 +495,7 @@ def test_preflight_env_collision_check_on_pure_recipes():
 
 
 def test_preflight_arch_compat_rejects_mismatch():
-    from app.cookbook_preflight import check_arch_compat
+    from app.bundle_preflight import check_arch_compat
 
     recipes = [
         {"slug": "linux-only", "recipe": {"runtime": {"compatibility": {"os": ["linux"]}}}},

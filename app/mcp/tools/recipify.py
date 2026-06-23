@@ -63,7 +63,7 @@ def recipes_recipify(
 
     cb_id = _coerce_uuid(target_cookbook_id)
 
-    # Phase B (Issue #7): use ctx for cookbook ownership; default to master
+    # Phase B (Issue #7): use ctx for bundle ownership; default to master
     # for backwards compat (stdio, legacy callers without ctx).
     if ctx is None:
         ctx = AuthContext(scope="master")
@@ -73,7 +73,7 @@ def recipes_recipify(
     # — it passes the authenticated AuthContext but NO user_id kwarg, so
     # owner_id used to coerce to None and a non-base Cookbook(bundle_owner=None)  # compat-alias
     # orphan was written, invisible to every user forever (list_cookbooks filters
-    # on cookbook_owner == ctx.user_id). Resolve ownership from the explicit
+    # on bundle_owner == ctx.user_id). Resolve ownership from the explicit
     # user_id kwarg first (legacy callers), then fall back to ctx.user_id.
     owner_id = _coerce_uuid(user_id) or _coerce_uuid(ctx.user_id)
 
@@ -82,7 +82,7 @@ def recipes_recipify(
         cb = db.query(Cookbook).filter(Cookbook.id == cb_id).first()
         if cb is None:
             return {"error": f"cookbook_not_found: {cb_id}", "code": "cookbook_not_found"}
-        # Phase B (Issue #7): cookbook ownership check
+        # Phase B (Issue #7): bundle ownership check
         if not authz.can_write_cookbook(ctx, cb):
             return {"error": "cookbook_forbidden", "code": "cookbook_forbidden"}
     else:
@@ -94,11 +94,11 @@ def recipes_recipify(
                 .first()
             )
         if cb is None:
-            # loopclose_3005 Phase X — fail closed: a non-base cookbook may NEVER
+            # loopclose_3005 Phase X — fail closed: a non-base bundle may NEVER
             # be created owner-less. If no owner resolved (no kwarg, no
             # ctx.user_id) and this isn't a master/system context, refuse rather
             # than write an orphan. The DB CHECK invariant (is_base=true OR
-            # cookbook_owner IS NOT NULL) backstops this at the storage layer.
+            # bundle_owner IS NOT NULL) backstops this at the storage layer.
             if owner_id is None and ctx.scope != "master":
                 return {
                     "error": "no owner could be resolved for the new cookbook; "

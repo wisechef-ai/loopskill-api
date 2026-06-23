@@ -227,7 +227,7 @@ def db_session(engine_fixture) -> Generator[Session, None, None]:
 
 class TestBadgeOnMaterializedRow:
     def test_materialize_caches_clean_badge_and_descriptor_surfaces_it(self, db_session, monkeypatch):
-        import app.services.cookbook_external as ce
+        import app.services.bundle_external as ce
 
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: _ext())
         monkeypatch.setattr(ce, "get_origin_fetcher", lambda src: lambda sl: ("https://raw/x", CLEAN_BODY))
@@ -243,7 +243,7 @@ class TestBadgeOnMaterializedRow:
         assert desc["scannable"] is True
 
     def test_materialize_caches_flagged_badge(self, db_session, monkeypatch):
-        import app.services.cookbook_external as ce
+        import app.services.bundle_external as ce
 
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: _ext(slug="evil"))
         monkeypatch.setattr(
@@ -255,7 +255,7 @@ class TestBadgeOnMaterializedRow:
         assert skill.external_resources["scan_findings"]
 
     def test_materialize_deep_link_is_unscanned(self, db_session, monkeypatch):
-        import app.services.cookbook_external as ce
+        import app.services.bundle_external as ce
 
         dl = _ext(
             source="clawhub",
@@ -273,7 +273,7 @@ class TestBadgeOnMaterializedRow:
         assert skill.external_resources["scannable"] is False
 
     def test_pending_row_rescans_to_clean_on_recovery(self, db_session, monkeypatch):
-        import app.services.cookbook_external as ce
+        import app.services.bundle_external as ce
 
         # First add: origin transiently down → pending.
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: _ext())
@@ -288,7 +288,7 @@ class TestBadgeOnMaterializedRow:
         assert skill.external_resources["scan_status"] == BADGE_CLEAN
 
     def test_rescan_noop_on_non_pending_row(self, db_session, monkeypatch):
-        import app.services.cookbook_external as ce
+        import app.services.bundle_external as ce
 
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: _ext())
         monkeypatch.setattr(ce, "get_origin_fetcher", lambda src: lambda sl: ("https://raw/x", CLEAN_BODY))

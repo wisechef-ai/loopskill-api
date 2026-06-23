@@ -32,7 +32,7 @@ def test_anonymous_returns_anonymous_scope():
     assert ctx.scope == "anonymous"
     assert ctx.user_id is None
     assert ctx.api_key_id is None
-    assert ctx.cookbook_scope is None
+    assert ctx.bundle_scope is None
     assert ctx.tier is None
     assert ctx.is_sandbox_operator is False
 
@@ -61,13 +61,13 @@ def test_auth_context_user_scope():
 
 
 def test_auth_context_cbt_token_scope():
-    """cbt_token scope carries cookbook_scope."""
+    """cbt_token scope carries bundle_scope."""
     from app.auth_ctx import AuthContext
 
     cb_id = uuid4()
-    ctx = AuthContext(scope="cbt_token", cookbook_scope=cb_id)
+    ctx = AuthContext(scope="cbt_token", bundle_scope=cb_id)
     assert ctx.scope == "cbt_token"
-    assert ctx.cookbook_scope == cb_id
+    assert ctx.bundle_scope == cb_id
 
 
 def test_auth_context_sandbox_operator_flag():

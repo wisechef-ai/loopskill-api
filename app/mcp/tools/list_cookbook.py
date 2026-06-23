@@ -32,7 +32,7 @@ def recipes_list_cookbook(
     cookbook_id: str | None = None,
 ) -> dict[str, Any]:
     """Return the caller's cookbook and skill provenance rows."""
-    # Public-scope MCP tool: caller's own cookbook; list_cookbook filters by caller's user_id from auth context.
+    # Public-scope MCP tool: caller's own bundle; list_cookbook filters by caller's user_id from auth context.  # compat-alias
     cookbook = None
     if cookbook_id:
         cb_uuid = _coerce_uuid(cookbook_id)

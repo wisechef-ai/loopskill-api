@@ -20,8 +20,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.auth_ctx import AuthContext
-from app.mcp.tools.cookbook_install import CookbookInstallError
-from app.mcp.tools.cookbook_stream import (
+from app.mcp.tools.bundle_install import CookbookInstallError
+from app.mcp.tools.bundle_stream import (
     LINK_BARE,
     LINK_COOKBOOK,
     LINK_EXTERNAL,
@@ -174,14 +174,14 @@ def test_parse_link_skill_scheme():
 
 def test_parse_link_external_known_source(monkeypatch):
     monkeypatch.setattr(
-        "app.mcp.tools.cookbook_stream.known_external_source",
+        "app.mcp.tools.bundle_stream.known_external_source",
         lambda s: s == "clawhub",
     )
     assert _parse_link("clawhub:web-scraper") == (LINK_EXTERNAL, "clawhub", "web-scraper")
 
 
 def test_parse_link_unknown_scheme_falls_back_to_bare(monkeypatch):
-    monkeypatch.setattr("app.mcp.tools.cookbook_stream.known_external_source", lambda s: False)
+    monkeypatch.setattr("app.mcp.tools.bundle_stream.known_external_source", lambda s: False)
     # A slug that happens to contain a colon → whole thing is a bare token.
     assert _parse_link("weird:thing") == (LINK_BARE, "weird:thing")
 

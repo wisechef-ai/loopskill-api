@@ -514,12 +514,12 @@ class TestIssue15SyncRed:
 class TestIssue13CookbookScopedKey:
     """Cookbook-scoped API key must be rejected for other cookbooks.
 
-    APIKeyMiddleware stamps auth_ctx.cookbook_scope = api_key_obj.bundle_id.
+    APIKeyMiddleware stamps auth_ctx.bundle_scope = api_key_obj.bundle_id.
     authz.can_write_cookbook() already checks this (Phase A).
     End-to-end: scoped key + wrong cookbook → 403/forbidden.
     """
 
-    def test_cookbook_scoped_key_allows_correct_cookbook(self, db_session):
+    def test_bundle_scoped_key_allows_correct_cookbook(self, db_session):
         """Scoped key targeting the correct cookbook → allowed."""
         from app.authz import can_write_cookbook
         from unittest.mock import MagicMock
@@ -532,7 +532,7 @@ class TestIssue13CookbookScopedKey:
             scope="user",
             user_id=owner_id,
             api_key_id=uuid4(),
-            cookbook_scope=cb_id,  # key is scoped to THIS cookbook
+            bundle_scope=cb_id,  # key is scoped to THIS cookbook
         )
         cb = MagicMock()
         cb.id = cb_id
@@ -540,7 +540,7 @@ class TestIssue13CookbookScopedKey:
 
         assert can_write_cookbook(ctx, cb) is True
 
-    def test_cookbook_scoped_key_denies_other_cookbook(self, db_session):
+    def test_bundle_scoped_key_denies_other_cookbook(self, db_session):
         """Scoped key used against a DIFFERENT cookbook → denied (even if user owns it)."""
         from app.authz import can_write_cookbook
         from unittest.mock import MagicMock
@@ -553,7 +553,7 @@ class TestIssue13CookbookScopedKey:
             scope="user",
             user_id=owner_id,
             api_key_id=uuid4(),
-            cookbook_scope=scoped_cb_id,
+            bundle_scope=scoped_cb_id,
         )
         # Trying to write to a DIFFERENT cookbook
         other_cb = MagicMock()
@@ -564,13 +564,13 @@ class TestIssue13CookbookScopedKey:
             "EXPLOIT: cookbook-scoped key allowed to write to a different cookbook"
         )
 
-    def test_middleware_stamps_cookbook_scope_from_api_key(self, db_session):
-        """APIKeyMiddleware must stamp auth_ctx.cookbook_scope from api_key.bundle_id.
+    def test_middleware_stamps_bundle_scope_from_api_key(self, db_session):
+        """APIKeyMiddleware must stamp auth_ctx.bundle_scope from api_key.bundle_id.
 
         Tests the middleware's auth_ctx construction path directly by calling
         the APIKeyMiddleware code with a mock api_key_obj that has cookbook_id set.
         """
-        # Create an APIKey with cookbook_id to verify middleware stamps cookbook_scope
+        # Create an APIKey with cookbook_id to verify middleware stamps bundle_scope
         owner_id = uuid4()
         user = User(
             id=owner_id,
@@ -600,7 +600,7 @@ class TestIssue13CookbookScopedKey:
         db_session.add(api_key)
         db_session.flush()
 
-        # Verify the middleware correctly constructs AuthContext with cookbook_scope
+        # Verify the middleware correctly constructs AuthContext with bundle_scope
         # by simulating what APIKeyMiddleware.dispatch does
         from app.auth_ctx import AuthContext as AC
 
@@ -609,11 +609,11 @@ class TestIssue13CookbookScopedKey:
             scope="user",
             user_id=api_key.user_id,
             api_key_id=api_key.id,
-            cookbook_scope=api_key.bundle_id,  # Issue #13: the fix
+            bundle_scope=api_key.bundle_id,  # Issue #13: the fix
         )
 
-        assert stamped_ctx.cookbook_scope == cb_id, (
-            f"BUG: cookbook_scope should be {cb_id}, got {stamped_ctx.cookbook_scope!r}"
+        assert stamped_ctx.bundle_scope == cb_id, (
+            f"BUG: bundle_scope should be {cb_id}, got {stamped_ctx.bundle_scope!r}"
         )
         assert stamped_ctx.scope == "user"
 
@@ -652,7 +652,7 @@ class TestIssue13CookbookScopedKey:
             scope="user",
             user_id=owner_id,
             api_key_id=uuid4(),
-            cookbook_scope=cb_allowed.id,
+            bundle_scope=cb_allowed.id,
         )
 
         # Try to write to cb_other (even though user owns it)

@@ -124,7 +124,7 @@ def _make_token_row(db: Session, cookbook_id, *, scope: str = "edit", name: str 
 
 def _build_app(db: Session, *, api_key_user_id=None, is_master: bool = False, include_share_token_router: bool = True):
     """Build a test FastAPI app with cookbook + share-token routes."""
-    from app.cookbook_routes import router as cookbook_router
+    from app.bundle_routes import router as cookbook_router
     from app.share_token_routes import router as share_token_router
 
     app = FastAPI()
@@ -158,7 +158,7 @@ def _build_app(db: Session, *, api_key_user_id=None, is_master: bool = False, in
 
 def _build_cbt_app(db: Session, token: str, *, scope: str = "edit", cookbook_id=None):
     """Build a test app that simulates cbt_ token middleware having already authenticated."""
-    from app.cookbook_routes import router as cookbook_router
+    from app.bundle_routes import router as cookbook_router
     from app.share_token_routes import router as share_token_router
 
     app = FastAPI()
@@ -458,7 +458,7 @@ class TestPhase3CriticReviewFixes:
     def test_cookbook_ctx_does_not_grant_master_for_cbt(self, client, db_session):
         """Direct check: require_cookbook_tier called with cbt_ state must
         return is_master=False. This prevents the HIGH#1 escalation."""
-        from app.cookbook_routes import require_cookbook_tier
+        from app.bundle_routes import require_cookbook_tier
         from uuid import uuid4
 
         class _MockState:
@@ -479,7 +479,7 @@ class TestPhase3CriticReviewFixes:
 
     def test_cookbook_ctx_does_grant_master_for_static_master_key_only(self, client, db_session):
         """Sanity: pure master key (api_key_user_id=None, no cbt_ flag) still grants master."""
-        from app.cookbook_routes import require_cookbook_tier
+        from app.bundle_routes import require_cookbook_tier
 
         class _MockState:
             api_key_user_id = None  # static master key signal
@@ -495,7 +495,7 @@ class TestPhase3CriticReviewFixes:
     def test_publish_path_blocked_for_cbt_via_cookbook_helper(self):
         """MED#5: even if a /api/cookbooks/{id}/_publish route is added later,
         _enforce_cbt_scope_for_cookbook_route blocks it for cbt_ tokens."""
-        from app.cookbook_routes import _enforce_cbt_scope_for_cookbook_route
+        from app.bundle_routes import _enforce_cbt_scope_for_cookbook_route
         from fastapi import HTTPException
         from uuid import uuid4
 

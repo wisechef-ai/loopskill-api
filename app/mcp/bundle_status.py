@@ -1,10 +1,10 @@
-"""cookbook_status — query outdated skills for a user's cookbooks.
+"""bundle_status — query outdated skills for a user's bundles.
 
-Used by the MCP dispatcher to inject a ``cookbook_status`` block into every
+Used by the MCP dispatcher to inject a ``bundle_status`` block into every
 tool response when the authenticated user has skills with newer versions
 available.
 
-Caching: Redis with 60 s TTL, keyed on ``cookbook_status:<user_id>``.
+Caching: Redis with 60 s TTL, keyed on ``bundle_status:<user_id>``.
 If Redis is unavailable (e.g., in the test environment), caching is skipped
 gracefully.
 """
@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Cookbook, CookbookSkill, Skill
 
-logger = logging.getLogger("wiserecipes.cookbook_status")
+logger = logging.getLogger("wiserecipes.bundle_status")
 
 _TTL = 60  # seconds
 
@@ -37,8 +37,8 @@ def _redis_client():  # pragma: no cover — optional dependency
         return None
 
 
-def get_cookbook_status(db: Session, user_id: UUID | str | None) -> dict[str, Any] | None:
-    """Return the ``cookbook_status`` dict or *None* if nothing to report.
+def get_bundle_status(db: Session, user_id: UUID | str | None) -> dict[str, Any] | None:
+    """Return the ``bundle_status`` dict or *None* if nothing to report.
 
     Returns *None* when:
       - user_id is None
@@ -56,7 +56,7 @@ def get_cookbook_status(db: Session, user_id: UUID | str | None) -> dict[str, An
             return None
 
     # Try Redis cache
-    cache_key = f"cookbook_status:{user_id}"
+    cache_key = f"bundle_status:{user_id}"
     try:
         rds = _redis_client()
         if rds:
@@ -69,7 +69,7 @@ def get_cookbook_status(db: Session, user_id: UUID | str | None) -> dict[str, An
         logger.debug("Redis cache read failed, proceeding with query")
 
     # ── DB query ─────────────────────────────────────────────────────────
-    # portal_0610 B2 — fetch all declared cookbook skills for this owner, then
+    # portal_0610 B2 — fetch all declared bundle skills for this owner, then
     # compute the SEMANTIC latest per skill in Python (SQL func.max(semver) is
     # lexicographic and mis-ranks "1.10.0" < "1.9.0").
     from app.services.semver import latest_semver_for_skills
@@ -116,7 +116,7 @@ def get_cookbook_status(db: Session, user_id: UUID | str | None) -> dict[str, An
         _cache_set(cache_key, {})
         return None
 
-    # Group by cookbook
+    # Group by bundle
     cookbooks_map: dict[UUID, dict[str, Any]] = {}
     for r in rows:
         cb_id = r.cb_id
@@ -145,14 +145,14 @@ def get_cookbook_status(db: Session, user_id: UUID | str | None) -> dict[str, An
     return result
 
 
-def invalidate_cookbook_status(user_id: UUID | str | None) -> None:
+def invalidate_bundle_status(user_id: UUID | str | None) -> None:
     """Invalidate cached status for a user (called after recipes_sync applies)."""
     if user_id is None:
         return
     try:
         rds = _redis_client()
         if rds:
-            rds.delete(f"cookbook_status:{user_id}")
+            rds.delete(f"bundle_status:{user_id}")
     # Rationale: Redis cache invalidation is non-critical; any error → log and continue
     except Exception:  # noqa: BLE001
         logger.debug("Redis cache invalidation failed (non-critical)")

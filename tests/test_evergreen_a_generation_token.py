@@ -10,8 +10,8 @@ agent would never reconcile.
 
 This suite pins the contract: ANY mutation to a cookbook's declared skill set
 advances the parent generation token. Three write paths:
-  1. add_skill_to_cookbook        (cookbook_routes.py)
-  2. remove_skill_from_cookbook   (cookbook_routes.py)
+  1. add_skill_to_cookbook        (bundle_routes.py)
+  2. remove_skill_from_cookbook   (bundle_routes.py)
   3. recipes_sync pin-write       (mcp/tools/recipes_sync.py)
 
 RED until Phase A wires `_touch_cookbook_generation(db, cb)` into all three.
@@ -112,7 +112,7 @@ def _make_skill(db: Session, slug: str, *, with_version: bool = True) -> Skill:
 
 
 def _make_app(db: Session, owner_id) -> FastAPI:
-    from app.cookbook_routes import router as cookbook_router
+    from app.bundle_routes import router as cookbook_router
 
     app = FastAPI()
 

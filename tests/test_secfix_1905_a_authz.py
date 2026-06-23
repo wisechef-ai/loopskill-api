@@ -163,26 +163,26 @@ def test_cannot_write_cookbook_cross_tenant():
     assert can_write_cookbook(ctx, cb) is False
 
 
-def test_cookbook_scoped_key_correct_cookbook():
+def test_bundle_scoped_key_correct_cookbook():
     """Cookbook-scoped key on the correct cookbook → allowed."""
     uid = uuid4()
     cb_id = uuid4()
-    ctx = AuthContext(scope="user", user_id=uid, cookbook_scope=cb_id)
+    ctx = AuthContext(scope="user", user_id=uid, bundle_scope=cb_id)
     cb = make_cookbook(bundle_owner=uid, cookbook_id=cb_id)
     assert can_write_cookbook(ctx, cb) is True
 
 
-def test_cookbook_scoped_key_wrong_cookbook():
+def test_bundle_scoped_key_wrong_cookbook():
     """Cookbook-scoped key on a DIFFERENT cookbook → denied (even if owner matches)."""
     uid = uuid4()
-    ctx = AuthContext(scope="user", user_id=uid, cookbook_scope=uuid4())
+    ctx = AuthContext(scope="user", user_id=uid, bundle_scope=uuid4())
     cb = make_cookbook(bundle_owner=uid, cookbook_id=uuid4())
     assert can_write_cookbook(ctx, cb) is False
 
 
-def test_cookbook_scoped_master_key_different_cookbook():
+def test_bundle_scoped_master_key_different_cookbook():
     """Cookbook-scoped master key on a different cookbook → denied."""
-    ctx = AuthContext(scope="master", cookbook_scope=uuid4())
+    ctx = AuthContext(scope="master", bundle_scope=uuid4())
     cb = make_cookbook(cookbook_id=uuid4())
     assert can_write_cookbook(ctx, cb) is False
 

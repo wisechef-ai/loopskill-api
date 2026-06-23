@@ -106,7 +106,7 @@ def marketing_counts(db: Session = Depends(get_db)) -> dict:
     pro_plus = by_tier.get("pro_plus", 0) + by_tier.get("operator", 0)  # operator: 30-day legacy alias
     pro_plus_exclusive = pro_plus  # see docstring; tracked separately for future
 
-    # Public cookbook count — surfaces the discoverable catalog size
+    # Public bundle count — surfaces the discoverable catalog size
     cookbooks_total = (
         db.query(func.count(Cookbook.id))
         .filter(Cookbook.visibility == "public")  # noqa: E712
@@ -160,9 +160,9 @@ def marketing_snapshot(db: Session = Depends(get_db)) -> dict:
     snap["counts"]["pro_plus_exclusive_skills"] = live["pro_plus"]
     snap["counts"]["last_added_at"] = live["last_added_at"]
 
-    # Cookbook caps — read from the tiers.yaml SSOT (loopclose_3005 Phase A) so
+    # Bundle caps — read from the tiers.yaml SSOT (loopclose_3005 Phase A) so
     # bullets interpolate {pro_cookbooks}/{pro_plus_cookbooks} and can never
-    # drift from the number cookbook_routes.py enforces.
+    # drift from the number bundle_routes.py enforces.
     from app.tier_labels import cookbook_limit
 
     snap["counts"]["pro_cookbooks"] = cookbook_limit("pro")

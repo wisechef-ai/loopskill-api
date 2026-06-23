@@ -6,11 +6,11 @@ same callable serves the SSE transport, the stdio transport, and unit tests.
 
 from app.mcp.tools.carousel_today import recipes_carousel_today
 from app.mcp.tools.configure_feedback import recipes_configure_feedback
-from app.mcp.tools.cookbook_install import (
+from app.mcp.tools.bundle_install import (
     CookbookInstallError,
     recipes_cookbook_install,
 )
-from app.mcp.tools.cookbook_stream import (
+from app.mcp.tools.bundle_stream import (
     recipes_compose_cookbook_from_links,
     recipes_install_from_cookbook,
     recipes_pick_best_from_cookbook,
@@ -43,7 +43,7 @@ from app.mcp.tools.skill_patch import recipes_propose_skill_patch
 from app.mcp.tools.subrecipe_resolve import recipes_subrecipe_resolve
 from app.mcp.tools.fork_deploy import recipes_cookbook_attach, recipes_tailor_version
 from app.mcp.tools.tailor import recipes_fork_list, recipes_tailor
-from app.mcp.tools.cookbook_handoff import recipes_cookbook_handoff
+from app.mcp.tools.bundle_handoff import recipes_cookbook_handoff  # compat-alias
 from app.mcp.tools.loopskill_catalog import (
     loopskill_get_loop,
     loopskill_get_personality,
@@ -78,10 +78,10 @@ __all__ = [
     "recipes_fleet_list",
     # Phase C: publish-request MCP tool
     "recipes_publish_request",
-    # cookbook_share_2105 Phase F: cookbook-scoped install
+    # cookbook_share_2105 Phase F: bundle-scoped install  # compat-alias
     "recipes_cookbook_install",
     "CookbookInstallError",
-    # spotify_0608 Ph D: streaming cookbook-composition verbs
+    # spotify_0608 Ph D: streaming bundle-composition verbs
     "recipes_install_from_cookbook",
     "recipes_pick_best_from_cookbook",
     "recipes_compose_cookbook_from_links",
@@ -91,7 +91,7 @@ __all__ = [
     # loopclose_3005 Phase C: close the MCP tailor loop
     "recipes_tailor_version",
     "recipes_cookbook_attach",
-    # loopclose_3005 Phase I: cookbook handoff
+    # loopclose_3005 Phase I: bundle handoff
     "recipes_cookbook_handoff",
     # loopclose_3005 Phase J: user-routable feedback (THE MOAT)
     "recipes_configure_feedback",

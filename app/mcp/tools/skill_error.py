@@ -118,8 +118,8 @@ def recipes_report_skill_error(
     db.refresh(report)
 
     # spotify_0608 Ph E — provenance-routed delivery. When a provenance_id maps
-    # to a cookbook with a configured curator repo, file the issue THERE (PAT
-    # path) so the creator who curated the cookbook gets "how agents used your
+    # to a bundle with a configured curator repo, file the issue THERE (PAT
+    # path) so the creator who curated the bundle gets "how agents used your
     # skill + what broke" in their own repo. Falls back to the default
     # dispatch_event pipeline when no provenance / no custom routing.
     if provenance_id:

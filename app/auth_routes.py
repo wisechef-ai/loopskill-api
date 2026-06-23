@@ -357,7 +357,7 @@ async def get_me(
             }.get(user.subscription_tier, 5),
             # cookbook_limit — SSOT in config/tiers.yaml (loopclose_3005 Phase A).
             # Read via tier_labels.cookbook_limit() so this never drifts from the
-            # number cookbook_routes.py enforces. Handles legacy slugs.
+            # number bundle_routes.py enforces. Handles legacy slugs.
             "cookbook_limit": cookbook_limit(user.subscription_tier),
             "cookbook_skill_cap": {
                 "free": 0,

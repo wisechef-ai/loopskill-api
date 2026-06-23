@@ -143,7 +143,7 @@ def test_r7_cookbook_card_no_double_count(middleware_client, db_session):
     for _ in range(2):
         _mk_install(db_session, shared, key=organic, cookbook_id=cb_b.id)
 
-    from app.cookbook_routes import _public_cb_card
+    from app.bundle_routes import _public_cb_card
 
     card_a = _public_cb_card(db_session, cb_a)
     card_b = _public_cb_card(db_session, cb_b)
@@ -179,7 +179,7 @@ def test_r2_creator_handle_ref_resolves(db_session):
 
 
 def test_r2_cookbook_card_emits_handle(db_session):
-    from app.cookbook_routes import _public_cb_card
+    from app.bundle_routes import _public_cb_card
     from app.models import Cookbook, Creator, User
 
     u = User(id=uuid.uuid4(), display_name="creator", email=f"{uuid.uuid4().hex[:8]}@e.com")

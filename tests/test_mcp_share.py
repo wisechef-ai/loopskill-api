@@ -102,7 +102,7 @@ def _user_ctx(user_id, cookbook_id=None) -> AuthContext:
     return AuthContext(
         scope="user",
         user_id=user_id,
-        cookbook_scope=UUID(str(cookbook_id)) if cookbook_id else None,
+        bundle_scope=UUID(str(cookbook_id)) if cookbook_id else None,
     )
 
 

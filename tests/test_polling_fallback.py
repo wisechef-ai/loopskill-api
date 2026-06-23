@@ -71,7 +71,7 @@ def _make_skill(db: Session, slug: str) -> Skill:
 
 
 def _build_client(db: Session, *, uid) -> TestClient:
-    from app.cookbook_routes import router as cookbook_router
+    from app.bundle_routes import router as cookbook_router
 
     app = FastAPI()
 

@@ -278,7 +278,7 @@ class TestTapInstall:
         """decision #13 hard gate: a redistributable skill from EVERY single-license
         facet (gstack/hf/nvidia/superpowers) resolves a real SKILL.md."""
         import app.services.federation_install as fi
-        from app.services.cookbook_external import resolve_external_install
+        from app.services.bundle_external import resolve_external_install
 
         for facet, repo, lic in [
             ("github-gstack", "garrytan/gstack", "mit"),
@@ -302,7 +302,7 @@ class TestTapInstall:
     def test_source_available_facet_skill_deep_links(self, monkeypatch):
         """A source-available skill (anthropic docx) must NOT resolve a body —
         it deep-links, installable=false."""
-        from app.services.cookbook_external import resolve_external_install
+        from app.services.bundle_external import resolve_external_install
 
         slug = "github-anthropic--docx"
         rows = [{"slug": slug, "name": "docx", "license": "licenseref-anthropic",

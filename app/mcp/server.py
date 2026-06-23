@@ -43,7 +43,7 @@ from app.mcp.auth import validate_key
 from app.mcp.registry import _tool_definitions  # noqa: F401
 
 # ── Tool imports (for _dispatch + patch compatibility) ─────────────────────
-from app.mcp.cookbook_status import get_cookbook_status, invalidate_cookbook_status
+from app.mcp.bundle_status import get_bundle_status, invalidate_bundle_status
 from app.mcp.tools import (  # noqa: F401  loopskill_0622 Phase 8 tools
     loopskill_get_loop,
     loopskill_get_personality,
@@ -170,7 +170,7 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             )
         except CookbookInstallError as exc:
             return {"error": exc.message, "code": exc.code, "status": exc.status}
-    # ── spotify_0608 Ph D: streaming cookbook-composition verbs ─────────────
+    # ── spotify_0608 Ph D: streaming bundle-composition verbs ─────────────
     if name == "recipes_install_from_cookbook":
         try:
             return _tool_ns.get("recipes_install_from_cookbook", recipes_install_from_cookbook)(
@@ -405,7 +405,7 @@ def call_tool_sync(
 ) -> dict[str, Any]:
     """Direct synchronous entry-point used by tests and the stdio loop.
 
-    Injects a ``cookbook_status`` block when the caller is an authenticated
+    Injects a ``bundle_status`` block when the caller is an authenticated
     user with outdated skills in their cookbooks.
     """
     caller = caller or {"scope": "operator", "user_id": None}  # legacy alias (pre-Phase-5 stdio default)
@@ -416,15 +416,15 @@ def call_tool_sync(
 
         # After a successful recipes_sync apply, invalidate cached status
         if name == "recipes_sync" and isinstance(payload, dict) and payload.get("applied"):
-            invalidate_cookbook_status(caller.get("user_id"))
+            invalidate_bundle_status(caller.get("user_id"))
 
-        # Inject cookbook_status for authenticated users (skip for recipes_sync
+        # Inject bundle_status for authenticated users (skip for recipes_sync  # compat-alias
         # itself to avoid noisy double-reporting — sync already returns the diff).
         if isinstance(payload, dict) and name != "recipes_sync":
             user_id = caller.get("user_id")
-            status = get_cookbook_status(session, user_id)
+            status = get_bundle_status(session, user_id)
             if status:
-                payload["cookbook_status"] = status
+                payload["bundle_status"] = status
 
         return payload
     finally:

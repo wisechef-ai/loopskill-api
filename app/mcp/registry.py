@@ -52,7 +52,7 @@ def _tool_definitions() -> list[types.Tool]:
                         "type": "string",
                         "description": (
                             "Cookbook UUID. Optional for cbt_token (defaults "
-                            "to token's cookbook_scope); required otherwise."
+                            "to token's bundle_scope); required otherwise."
                         ),
                     },
                     "slug": {
@@ -554,7 +554,7 @@ def _tool_definitions() -> list[types.Tool]:
                 },
             },
         ),
-        # ── loopclose_3005 Phase I: cookbook handoff ──────────────────────────
+        # ── loopclose_3005 Phase I: bundle handoff ──────────────────────────
         types.Tool(
             name="recipes_cookbook_handoff",
             description=(

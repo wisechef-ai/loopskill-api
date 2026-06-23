@@ -91,8 +91,8 @@ def reconcile_report(
         response.status_code = 404
         return {"error": "cookbook_not_found"}
 
-    # Resolve the skill by slug AND confirm it's declared in this cookbook
-    # (a report can only concern a skill the cookbook actually ships).
+    # Resolve the skill by slug AND confirm it's declared in this bundle
+    # (a report can only concern a skill the bundle actually ships).
     skill = db.query(Skill).filter(Skill.slug == body.slug).first()
     if skill is None:
         response.status_code = 404

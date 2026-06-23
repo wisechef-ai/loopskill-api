@@ -341,7 +341,7 @@ def recipes_cookbook_attach(
     if fork_version is None:
         return {"error": "no_versions", "code": "no_versions"}
 
-    # Ownership of the target cookbook (no-oracle: forbidden → cookbook_not_found).
+    # Ownership of the target bundle (no-oracle: forbidden → cookbook_not_found).  # compat-alias
     try:
         from uuid import UUID
 

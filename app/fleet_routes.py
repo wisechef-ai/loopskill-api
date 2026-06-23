@@ -55,7 +55,7 @@ def resolve_fleet_ctx(request: Request, db: Session = Depends(get_db)) -> AuthCo
         return AuthContext(scope="master")
 
     if api_key_user_id in ("MISSING", "CBT_TOKEN"):
-        # cbt_ tokens are cookbook-scoped, not fleet-capable.
+        # cbt_ tokens are bundle-scoped, not fleet-capable.
         raise HTTPException(status_code=401, detail="auth_required")
 
     user = db.query(User).filter(User.id == api_key_user_id).first()

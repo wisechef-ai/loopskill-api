@@ -41,7 +41,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.auth_ctx import AuthContext
 from app.models import Base, Cookbook, CookbookSkill, Skill, User
-from app.mcp.tools.cookbook_handoff import recipes_cookbook_handoff
+from app.mcp.tools.bundle_handoff import recipes_cookbook_handoff
 
 
 # ─────────────────────────── Fixtures ───────────────────────────────────
@@ -518,7 +518,7 @@ def test_rest_handoff_transfer(db_session):
     from starlette.middleware.base import BaseHTTPMiddleware
 
     from app.database import get_db
-    from app.cookbook_routes import router as cookbook_router
+    from app.bundle_routes import router as cookbook_router
 
     user_a = _make_user(db_session)
     user_b = _make_user(db_session)

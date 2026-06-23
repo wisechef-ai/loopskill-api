@@ -1,6 +1,6 @@
 """Tests for Issue #27: Cookbook install URL fix.
 
-_make_install_url in cookbook_routes.py must now produce a signed
+_make_install_url in bundle_routes.py must now produce a signed
 /api/skills/_download?token=... URL that can actually be followed
 to get the tarball bytes.
 
@@ -22,7 +22,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.models import Base, Skill, SkillVersion, Cookbook, CookbookSkill, User, APIKey
 from app.database import get_db
-from app.cookbook_routes import router as cookbook_router, _make_install_url
+from app.bundle_routes import router as cookbook_router, _make_install_url
 from app.config import settings
 
 

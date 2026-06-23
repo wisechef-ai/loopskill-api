@@ -210,7 +210,7 @@ def scan_on_add(
     try:
         got = fetcher(fetch_slug)
     # Rationale: an origin outage / parse error must degrade to a retryable
-    # pending badge, never crash the cookbook-add request.
+    # pending badge, never crash the bundle-add request.
     except Exception:  # noqa: BLE001
         logger.warning("scan-on-add fetch raised for %s", fetch_slug, exc_info=True)
         return ScanVerdict(

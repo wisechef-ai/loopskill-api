@@ -224,7 +224,7 @@ class TestProCbtTokenPublicSkillInstall:
         # Build app with pro cbt_token AuthContext (allow_public_catalog=True)
         cbt_ctx = AuthContext(
             scope="cbt_token",
-            cookbook_scope=cb.id,
+            bundle_scope=cb.id,
             allow_public_catalog=True,
         )
         app = _build_install_app(db_session, cbt_ctx)
@@ -255,7 +255,7 @@ class TestNonProCbtTokenPublicSkillInstall:
         # Non-pro token: allow_public_catalog=False
         cbt_ctx = AuthContext(
             scope="cbt_token",
-            cookbook_scope=cb.id,
+            bundle_scope=cb.id,
             allow_public_catalog=False,
         )
         app = _build_install_app(db_session, cbt_ctx)
@@ -287,7 +287,7 @@ class TestProCbtTokenPrivateSkillNotInCookbook:
 
         cbt_ctx = AuthContext(
             scope="cbt_token",
-            cookbook_scope=cb.id,
+            bundle_scope=cb.id,
             allow_public_catalog=True,
         )
         app = _build_install_app(db_session, cbt_ctx)
@@ -372,7 +372,7 @@ class TestAuthzCanInstallPublicCatalogClause:
         db_session.flush()
 
         # Even an anonymous-ish cbt_token can read a public skill (is_public short-circuits)
-        ctx = AuthContext(scope="cbt_token", cookbook_scope=uuid4(), allow_public_catalog=True)
+        ctx = AuthContext(scope="cbt_token", bundle_scope=uuid4(), allow_public_catalog=True)
         assert can_read_skill(ctx, public_skill, db=db_session) is True
 
     def test_private_skill_not_in_cookbook_still_returns_false(self, db_session):
@@ -384,6 +384,6 @@ class TestAuthzCanInstallPublicCatalogClause:
         private_skill = _make_skill(db_session, slug="priv-unit", is_public=False)
         db_session.flush()
 
-        ctx = AuthContext(scope="cbt_token", cookbook_scope=cb.id, allow_public_catalog=True)
+        ctx = AuthContext(scope="cbt_token", bundle_scope=cb.id, allow_public_catalog=True)
         # Private, not in cookbook → False
         assert can_read_skill(ctx, private_skill, db=db_session) is False

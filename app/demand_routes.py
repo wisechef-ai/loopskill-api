@@ -223,7 +223,7 @@ def _activation_gap_theme(db: Session, days: int) -> dict | None:
     )
     real_installs_7d = max(0, int(installs_7d) - int(vanity_7d))
 
-    # Personal/forked cookbooks = real adoption (base cookbook is ours).
+    # Personal/forked bundles = real adoption (base bundle is ours).
     cookbooks_adopted = (
         db.query(func.count(Cookbook.id))
         .filter(Cookbook.is_base == False)  # noqa: E712

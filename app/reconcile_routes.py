@@ -72,7 +72,7 @@ def reconcile_cookbook(
             response.headers["Retry-After"] = str(ceiling.retry_after)
             return {"error": "rate_limited", "retry_after": ceiling.retry_after}
 
-    # ── Resolve cookbook + OWNERSHIP FIRST (tenant isolation §7). ────────
+    # ── Resolve bundle + OWNERSHIP FIRST (tenant isolation §7). ────────
     try:
         cb_uuid = UUID(cookbook_id)
     except (ValueError, AttributeError):

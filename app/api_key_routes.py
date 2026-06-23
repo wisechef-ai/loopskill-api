@@ -171,7 +171,7 @@ async def create_api_key(
             detail=f"key_cap_exceeded — max {cap} active key(s) on {tier} tier",
         )
 
-    # ── Optional cookbook scoping ─────────────────────────────────────────
+    # ── Optional bundle scoping ─────────────────────────────────────────
     cookbook_id: UUID | None = None
     if body.get("cookbook_id"):
         try:

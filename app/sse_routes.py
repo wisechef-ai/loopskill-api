@@ -33,7 +33,7 @@ from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.cookbook_routes import (
+from app.bundle_routes import (
     CookbookCtx,
     _resolve_owned_cookbook,
     require_cookbook_tier,
@@ -87,7 +87,7 @@ async def cookbook_sync_sse(
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
     cid = str(cb.id)
 
-    # evergreen_0206 Phase G: require_cookbook_tier now admits free (cookbook
+    # evergreen_0206 Phase G: require_cookbook_tier now admits free (bundle  # compat-alias
     # on-ramp). But a persistent SSE subscription IS the always-on reconcile
     # daemon path — a PRO capability (free gets ONE manual sync, not a held
     # subscription). Gate it explicitly so opening the shared gate didn't expose

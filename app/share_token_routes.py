@@ -114,7 +114,7 @@ def _get_cookbook_and_check_scope(
     token_cookbook_id = getattr(request.state, "cookbook_token_cookbook_id", None)
 
     if scope is not None:
-        # cbt_ token present — check cookbook match
+        # cbt_ token present — check bundle match
         try:
             cid = UUID(cookbook_id)
         except (ValueError, TypeError):
@@ -126,7 +126,7 @@ def _get_cookbook_and_check_scope(
                 detail="Token scope mismatch (wrong cookbook)",
             )
 
-    # Load the cookbook
+    # Load the bundle
     try:
         cid = UUID(cookbook_id)
     except (ValueError, TypeError):

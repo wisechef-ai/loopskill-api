@@ -42,7 +42,7 @@ def _resolve_or_create_creator(
 
     user_obj = db.query(User).filter(User.id == user_id).first()
     if user_obj is None:
-        # User row doesn't exist (anonymous cookbook owner, test fixtures, etc.)
+        # User row doesn't exist (anonymous bundle owner, test fixtures, etc.)
         # — cannot satisfy the FK constraint, so leave creator_id unset.
         return None
     creator_slug = str(user_id).replace("-", "")[:32]

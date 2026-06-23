@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.cookbook_routes import CookbookCtx, require_cookbook_tier
+from app.bundle_routes import CookbookCtx, require_cookbook_tier  # compat-alias
 from app.database import get_db
 from app.models import Cookbook
 from app.recipify import (
@@ -85,9 +85,9 @@ def recipify(
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
     """Validate and store a new SKILL.md draft as a CookbookSkill."""
-    # evergreen_0206 Phase G: require_cookbook_tier now ADMITS free (the cookbook
+    # evergreen_0206 Phase G: require_cookbook_tier now ADMITS free (the bundle  # compat-alias
     # on-ramp). Recipify is an AUTHORING capability, not part of the free taste
-    # (free = install + one cookbook + one sync). Keep authoring paid-gated with an
+    # (free = install + one bundle + one sync). Keep authoring paid-gated with an
     # explicit check so opening the shared gate didn't accidentally expose it.
     from app.tier_labels import _is_paid_tier
 
@@ -129,7 +129,7 @@ def recipify(
         raise HTTPException(status_code=422, detail={"reason": "invalid_input", "error": str(exc)})
 
     if body.target_subrecipe_id is not None:
-        # Phase-C wiring is a stub: scope row stays at the cookbook level.
+        # Phase-C wiring is a stub: scope row stays at the bundle level.
         logger.info(
             "recipify: subrecipe scope requested (%s) — Phase C not wired, wrote at cookbook scope instead.",
             body.target_subrecipe_id,

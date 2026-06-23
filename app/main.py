@@ -11,14 +11,14 @@ from app.admin_routes import router as admin_router
 from app.demand_routes import router as demand_router
 from app.api_key_routes import router as api_key_router
 from app.auth_routes import router as auth_router
-from app.cookbook_deployment_routes import router as cookbook_deploy_router
+from app.bundle_deployment_routes import router as cookbook_deploy_router  # compat-alias
 from app.canary import router as canary_router
 from app.carousel.routes import router as carousel_router
 from app.bootcamp_routes import router as bootcamp_router  # bootcamp_0607
 from app.checkout_routes import router as checkout_router
 from app.config import settings
-from app.cookbook_routes import router as cookbook_router
-from app.cookbook_wellknown_routes import router as cookbook_wellknown_router
+from app.bundle_routes import router as cookbook_router  # compat-alias
+from app.bundle_wellknown_routes import router as cookbook_wellknown_router  # compat-alias
 from app.creator_routes import router as creator_router
 from app.credits_routes import router as credits_router
 from app.discord_bot import bot as discord_bot
@@ -193,7 +193,7 @@ def create_app() -> FastAPI:
     app.include_router(credits_router, tags=["credits"])
 
     # loopskill_0622 Phase 8 — runnable catalog types (loops + personalities).
-    # New, clean-vocab routers; independent of the cookbook->bundle rename.
+    # New, clean-vocab routers; independent of the bundle->bundle rename.
     from app.loop_routes import router as loop_router
     from app.personality_routes import router as personality_router
 

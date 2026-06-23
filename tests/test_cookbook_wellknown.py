@@ -1,4 +1,4 @@
-"""Tests for the cookbook→bundle well-known bridge (app/cookbook_wellknown_routes.py).
+"""Tests for the cookbook→bundle well-known bridge (app/bundle_wellknown_routes.py).
 
 Verifies the agentskills.io discovery surface a public cookbook exposes:
   - index.json lists every skill (free + paid), paid flagged `locked`
@@ -59,7 +59,7 @@ def db_session(engine_fixture) -> Generator[Session, None, None]:
 
 
 def _app(db: Session) -> FastAPI:
-    from app.cookbook_wellknown_routes import router as wk_router
+    from app.bundle_wellknown_routes import router as wk_router
 
     app = FastAPI()
 

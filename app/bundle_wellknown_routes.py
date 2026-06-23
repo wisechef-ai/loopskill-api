@@ -111,9 +111,9 @@ def cookbook_wellknown_index(slug: str, db: Session = Depends(get_db)) -> JSONRe
 
     Public (no auth). 404 unless the cookbook is visibility='public'.
     """
-    # Local import avoids a circular import at module load (cookbook_routes
+    # Local import avoids a circular import at module load (bundle_routes
     # imports this router's host module in some app-factory orderings).
-    from app.cookbook_routes import _skills_for
+    from app.bundle_routes import _skills_for
 
     cb = _resolve_public_cookbook(db, slug)
     rows = _skills_for(db, cb.id, include_disabled=False)
@@ -151,7 +151,7 @@ def cookbook_wellknown_skill_md(
     Public (no auth). FREE skill → real readme body. PAID skill → stub pointer
     (no paid IP crosses this surface). 404 if the skill is not in this cookbook.
     """
-    from app.cookbook_routes import _skills_for
+    from app.bundle_routes import _skills_for
 
     cb = _resolve_public_cookbook(db, slug)
     rows = _skills_for(db, cb.id, include_disabled=False)

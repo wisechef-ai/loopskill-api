@@ -109,7 +109,7 @@ def _resolve_external(source: str, slug: str) -> ExternalSkill | None:
     try:
         return adapter.resolve(slug)
     # Rationale: a source outage / parse error must degrade to "unresolvable",
-    # never crash the cookbook-add request.
+    # never crash the bundle-add request.
     except Exception:  # noqa: BLE001
         logger.warning("external resolve failed: %s/%s", source, slug, exc_info=True)
         return None
@@ -201,7 +201,7 @@ def resolve_external_install(source: str, slug: str) -> dict[str, Any] | None:
         return None
 
     # REGISTER_MCP — no SKILL.md body; return a paste-ready MCP client-config
-    # block pointing at the server's endpoint. Shared by the cookbook single-
+    # block pointing at the server's endpoint. Shared by the bundle single-
     # install route and the public /skills/external/.../install route so the
     # contract cannot drift.
     if ext.install_path == InstallPath.REGISTER_MCP:

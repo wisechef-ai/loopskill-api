@@ -27,7 +27,7 @@ THRESHOLD = 600
 LEGACY_WAIVER = {
     "app/models.py",
     "app/subscription_service.py",
-    "app/cookbook_routes.py",
+    "app/bundle_routes.py",
     "app/skill_routes.py",
     "app/graph_extension.py",
 }

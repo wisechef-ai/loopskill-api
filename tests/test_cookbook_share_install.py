@@ -162,7 +162,7 @@ def _make_token_row(
 
 def _build_cbt_app(db: Session, scope: str, cookbook_id: UUID):
     """Test app simulating APIKeyMiddleware after cbt_ token authentication."""
-    from app.cookbook_routes import router as cookbook_router
+    from app.bundle_routes import router as cookbook_router
 
     app = FastAPI()
 
@@ -184,7 +184,7 @@ def _build_cbt_app(db: Session, scope: str, cookbook_id: UUID):
             request.state.cookbook_token_cookbook_id = cookbook_id
             request.state.auth_ctx = AuthContext(
                 scope="cbt_token",
-                cookbook_scope=cookbook_id,
+                bundle_scope=cookbook_id,
             )
             return await call_next(request)
 
@@ -204,7 +204,7 @@ class TestCanReadSkillForCookbookScope:
         cb = _make_cookbook(db_session, owner.id)
         skill = _make_skill(db_session, is_public=False, owner_id=owner.id)
         _add_skill_to_cookbook(db_session, cb, skill)
-        ctx = AuthContext(scope="cbt_token", cookbook_scope=cb.id)
+        ctx = AuthContext(scope="cbt_token", bundle_scope=cb.id)
 
         # New 4-arg signature: db threaded through for the cookbook-skill lookup
         assert can_read_skill(ctx, skill, db=db_session) is True
@@ -214,7 +214,7 @@ class TestCanReadSkillForCookbookScope:
         cb = _make_cookbook(db_session, owner.id)
         # skill exists but is NOT in the cookbook
         skill = _make_skill(db_session, is_public=False, owner_id=owner.id)
-        ctx = AuthContext(scope="cbt_token", cookbook_scope=cb.id)
+        ctx = AuthContext(scope="cbt_token", bundle_scope=cb.id)
 
         assert can_read_skill(ctx, skill, db=db_session) is False
         assert can_install(ctx, skill, db=db_session) is False
@@ -223,7 +223,7 @@ class TestCanReadSkillForCookbookScope:
         owner = _make_user(db_session)
         cb = _make_cookbook(db_session, owner.id)
         public_skill = _make_skill(db_session, slug="public-skill", is_public=True)
-        ctx = AuthContext(scope="cbt_token", cookbook_scope=cb.id)
+        ctx = AuthContext(scope="cbt_token", bundle_scope=cb.id)
 
         # Public-skill clause runs first, no DB lookup needed
         assert can_read_skill(ctx, public_skill, db=db_session) is True
@@ -384,7 +384,7 @@ class TestMcpCookbookInstall:
     """recipes_cookbook_install MCP tool — NEW in Phase F."""
 
     def test_mcp_tool_bulk_install_with_cbt_token_default_cookbook_id(self, db_session):
-        from app.mcp.tools.cookbook_install import recipes_cookbook_install
+        from app.mcp.tools.bundle_install import recipes_cookbook_install
 
         owner = _make_user(db_session)
         cb = _make_cookbook(db_session, owner.id)
@@ -393,14 +393,14 @@ class TestMcpCookbookInstall:
         _make_skill_version(db_session, skill)
         db_session.commit()
 
-        ctx = AuthContext(scope="cbt_token", cookbook_scope=cb.id)
+        ctx = AuthContext(scope="cbt_token", bundle_scope=cb.id)
         result = recipes_cookbook_install(ctx=ctx, db=db_session)
         assert result["cookbook_id"] == str(cb.id)
         assert len(result["skills"]) == 1
         assert result["skills"][0]["slug"] == "ahe"
 
     def test_mcp_tool_single_skill_via_slug_arg(self, db_session):
-        from app.mcp.tools.cookbook_install import recipes_cookbook_install
+        from app.mcp.tools.bundle_install import recipes_cookbook_install
 
         owner = _make_user(db_session)
         cb = _make_cookbook(db_session, owner.id)
@@ -412,14 +412,14 @@ class TestMcpCookbookInstall:
         _make_skill_version(db_session, skill_b)
         db_session.commit()
 
-        ctx = AuthContext(scope="cbt_token", cookbook_scope=cb.id)
+        ctx = AuthContext(scope="cbt_token", bundle_scope=cb.id)
         result = recipes_cookbook_install(ctx=ctx, db=db_session, slug="ahe")
         # Single-skill shape mirrors /api/skills/install: slug + version + tarball_url
         assert result["slug"] == "ahe"
         assert "/api/skills/_download?token=" in result["tarball_url"]
 
     def test_mcp_tool_master_key_requires_explicit_cookbook_id(self, db_session):
-        from app.mcp.tools.cookbook_install import recipes_cookbook_install
+        from app.mcp.tools.bundle_install import recipes_cookbook_install
 
         owner = _make_user(db_session)
         cb = _make_cookbook(db_session, owner.id)
@@ -496,7 +496,7 @@ class TestMcpCookbookInstallErrorContract:
 
     def test_mcp_cbt_token_explicit_mismatched_cookbook_id_raises_token_scope_mismatch(self, db_session):
         """cbt_ caller passing a foreign cookbook_id → CookbookInstallError(code=token_scope_mismatch, status=403)."""
-        from app.mcp.tools.cookbook_install import (
+        from app.mcp.tools.bundle_install import (
             CookbookInstallError,
             recipes_cookbook_install,
         )
@@ -507,7 +507,7 @@ class TestMcpCookbookInstallErrorContract:
         db_session.commit()
 
         # Token scoped to A, but caller passes B's id explicitly
-        ctx = AuthContext(scope="cbt_token", cookbook_scope=cb_a.id)
+        ctx = AuthContext(scope="cbt_token", bundle_scope=cb_a.id)
         with pytest.raises(CookbookInstallError) as exc_info:
             recipes_cookbook_install(ctx=ctx, db=db_session, cookbook_id=str(cb_b.id))
         assert exc_info.value.code == "token_scope_mismatch"
@@ -515,7 +515,7 @@ class TestMcpCookbookInstallErrorContract:
 
     def test_mcp_anonymous_context_raises_auth_required(self, db_session):
         """Anonymous AuthContext → CookbookInstallError(code=auth_required, status=401)."""
-        from app.mcp.tools.cookbook_install import (
+        from app.mcp.tools.bundle_install import (
             CookbookInstallError,
             recipes_cookbook_install,
         )
@@ -534,7 +534,7 @@ class TestMcpCookbookInstallErrorContract:
         exists by guessing slugs; the response is indistinguishable from
         "skill doesn't exist at all".
         """
-        from app.mcp.tools.cookbook_install import (
+        from app.mcp.tools.bundle_install import (
             CookbookInstallError,
             recipes_cookbook_install,
         )
@@ -547,7 +547,7 @@ class TestMcpCookbookInstallErrorContract:
         _make_skill_version(db_session, skill_in_b)
         db_session.commit()
 
-        ctx = AuthContext(scope="cbt_token", cookbook_scope=cb_a.id)
+        ctx = AuthContext(scope="cbt_token", bundle_scope=cb_a.id)
         with pytest.raises(CookbookInstallError) as exc_info:
             recipes_cookbook_install(ctx=ctx, db=db_session, slug="b-only")
         assert exc_info.value.code == "skill_not_in_cookbook"
@@ -563,7 +563,7 @@ class TestMcpCookbookInstallErrorContract:
         from urllib.parse import parse_qs, urlsplit
 
         from app.config import settings
-        from app.mcp.tools.cookbook_install import recipes_cookbook_install
+        from app.mcp.tools.bundle_install import recipes_cookbook_install
 
         owner = _make_user(db_session)
         cb = _make_cookbook(db_session, owner.id)
@@ -572,7 +572,7 @@ class TestMcpCookbookInstallErrorContract:
         _make_skill_version(db_session, skill)
         db_session.commit()
 
-        ctx = AuthContext(scope="cbt_token", cookbook_scope=cb.id)
+        ctx = AuthContext(scope="cbt_token", bundle_scope=cb.id)
         result = recipes_cookbook_install(ctx=ctx, db=db_session)
 
         url = result["skills"][0]["tarball_url"]
@@ -589,26 +589,26 @@ class TestMcpCookbookInstallErrorContract:
 # ─────────────────────────── 8. MCP tool error-path coverage ──────────
 #
 # These pin the remaining MCP error paths so a refactor of _resolve_cookbook
-# can't silently drop a guard. Pushes app.mcp.tools.cookbook_install coverage
+# can't silently drop a guard. Pushes app.mcp.tools.bundle_install coverage
 # past the 90% floor required by cookbook_share_2105/REGRESSION.
 
 
 class TestMcpCookbookInstallEdgeCases:
     """Edge-case pins for recipes_cookbook_install scope resolution."""
 
-    def test_mcp_cbt_token_without_cookbook_scope_raises_cookbook_id_missing(self, db_session):
-        """cbt_token AuthContext with cookbook_scope=None → cookbook_id_missing/422.
+    def test_mcp_cbt_token_without_bundle_scope_raises_cookbook_id_missing(self, db_session):
+        """cbt_token AuthContext with bundle_scope=None → cookbook_id_missing/422.
 
         Defensive guard: a cbt_token row that somehow lacks a cookbook binding
         (corruption / partial migration) must surface a structured error rather
         than silently returning data for an arbitrary cookbook.
         """
-        from app.mcp.tools.cookbook_install import (
+        from app.mcp.tools.bundle_install import (
             CookbookInstallError,
             recipes_cookbook_install,
         )
 
-        ctx = AuthContext(scope="cbt_token", cookbook_scope=None)
+        ctx = AuthContext(scope="cbt_token", bundle_scope=None)
         with pytest.raises(CookbookInstallError) as exc_info:
             recipes_cookbook_install(ctx=ctx, db=db_session)
         assert exc_info.value.code == "cookbook_id_missing"
@@ -620,7 +620,7 @@ class TestMcpCookbookInstallEdgeCases:
         UUID parsing failures used to leak ValueError tracebacks; the structured
         error envelope keeps the MCP transport clean for downstream agents.
         """
-        from app.mcp.tools.cookbook_install import (
+        from app.mcp.tools.bundle_install import (
             CookbookInstallError,
             recipes_cookbook_install,
         )
@@ -629,7 +629,7 @@ class TestMcpCookbookInstallEdgeCases:
         cb = _make_cookbook(db_session, owner.id)
         db_session.commit()
 
-        ctx = AuthContext(scope="cbt_token", cookbook_scope=cb.id)
+        ctx = AuthContext(scope="cbt_token", bundle_scope=cb.id)
         with pytest.raises(CookbookInstallError) as exc_info:
             recipes_cookbook_install(ctx=ctx, db=db_session, cookbook_id="not-a-uuid")
         assert exc_info.value.code == "cookbook_not_found"
@@ -642,7 +642,7 @@ class TestMcpCookbookInstallEdgeCases:
         must always pass cookbook_id explicitly so cross-tenant accidents fail
         loudly rather than silently picking the wrong cookbook.
         """
-        from app.mcp.tools.cookbook_install import (
+        from app.mcp.tools.bundle_install import (
             CookbookInstallError,
             recipes_cookbook_install,
         )
@@ -661,7 +661,7 @@ class TestMcpCookbookInstallEdgeCases:
         "cookbook exists but you don't own it" for non-master callers, otherwise
         an enumeration attack could discover cookbook UUIDs across tenants.
         """
-        from app.mcp.tools.cookbook_install import (
+        from app.mcp.tools.bundle_install import (
             CookbookInstallError,
             recipes_cookbook_install,
         )
@@ -685,7 +685,7 @@ class TestMcpCookbookInstallEdgeCases:
         useful feedback: "this skill was renamed" vs "this skill isn't in
         your cookbook".
         """
-        from app.mcp.tools.cookbook_install import (
+        from app.mcp.tools.bundle_install import (
             CookbookInstallError,
             recipes_cookbook_install,
         )
@@ -694,14 +694,14 @@ class TestMcpCookbookInstallEdgeCases:
         cb = _make_cookbook(db_session, owner.id)
         db_session.commit()
 
-        ctx = AuthContext(scope="cbt_token", cookbook_scope=cb.id)
+        ctx = AuthContext(scope="cbt_token", bundle_scope=cb.id)
         with pytest.raises(CookbookInstallError) as exc_info:
             recipes_cookbook_install(ctx=ctx, db=db_session, slug="nonexistent-skill-slug")
         assert exc_info.value.code == "skill_not_found"
         assert exc_info.value.status == 404
 
     def test_mcp_cbt_token_pointing_to_deleted_cookbook_returns_cookbook_not_found(self, db_session):
-        """cbt_token with cookbook_scope=<deleted UUID> → 404 cookbook_not_found.
+        """cbt_token with bundle_scope=<deleted UUID> → 404 cookbook_not_found.
 
         Pins the post-resolution branch: the UUID parses fine and matches the
         token's scope, but the cookbook row is gone (deleted out from under the
@@ -709,7 +709,7 @@ class TestMcpCookbookInstallEdgeCases:
         structured 404, not silently return an empty payload that the caller
         would treat as a valid empty cookbook.
         """
-        from app.mcp.tools.cookbook_install import (
+        from app.mcp.tools.bundle_install import (
             CookbookInstallError,
             recipes_cookbook_install,
         )
@@ -717,7 +717,7 @@ class TestMcpCookbookInstallEdgeCases:
         # Synthesize a token scope pointing at a UUID that has no Cookbook row.
         # uuid4() is uncorrelated with anything seeded by _make_cookbook.
         orphan_cookbook_id = uuid4()
-        ctx = AuthContext(scope="cbt_token", cookbook_scope=orphan_cookbook_id)
+        ctx = AuthContext(scope="cbt_token", bundle_scope=orphan_cookbook_id)
         with pytest.raises(CookbookInstallError) as exc_info:
             recipes_cookbook_install(ctx=ctx, db=db_session)
         assert exc_info.value.code == "cookbook_not_found"
@@ -729,7 +729,7 @@ class TestMcpCookbookInstallEdgeCases:
         Symmetric to the cbt_token UUID-parse pin; covers the user/master
         branch of _resolve_cookbook's UUID-validation guard.
         """
-        from app.mcp.tools.cookbook_install import (
+        from app.mcp.tools.bundle_install import (
             CookbookInstallError,
             recipes_cookbook_install,
         )
@@ -822,7 +822,7 @@ class TestCookbookInstallEventRecording:
 
     def test_mcp_bulk_install_writes_install_events(self, db_session):
         """recipes_cookbook_install MCP tool writes events for every shipped skill."""
-        from app.mcp.tools.cookbook_install import recipes_cookbook_install
+        from app.mcp.tools.bundle_install import recipes_cookbook_install
 
         owner = _make_user(db_session)
         cb = _make_cookbook(db_session, owner.id)
@@ -833,7 +833,7 @@ class TestCookbookInstallEventRecording:
 
         before = skill.install_count or 0
 
-        ctx = AuthContext(scope="cbt_token", cookbook_scope=cb.id)
+        ctx = AuthContext(scope="cbt_token", bundle_scope=cb.id)
         result = recipes_cookbook_install(ctx=ctx, db=db_session)
         assert len(result["skills"]) == 1
 
@@ -846,7 +846,7 @@ class TestCookbookInstallEventRecording:
 
     def test_mcp_single_skill_install_writes_install_event(self, db_session):
         """recipes_cookbook_install MCP tool with explicit slug writes 1 event."""
-        from app.mcp.tools.cookbook_install import recipes_cookbook_install
+        from app.mcp.tools.bundle_install import recipes_cookbook_install
 
         owner = _make_user(db_session)
         cb = _make_cookbook(db_session, owner.id)
@@ -858,7 +858,7 @@ class TestCookbookInstallEventRecording:
         _make_skill_version(db_session, other)
         db_session.commit()
 
-        ctx = AuthContext(scope="cbt_token", cookbook_scope=cb.id)
+        ctx = AuthContext(scope="cbt_token", bundle_scope=cb.id)
         result = recipes_cookbook_install(ctx=ctx, db=db_session, slug="ahe")
         assert result["slug"] == "ahe"
 

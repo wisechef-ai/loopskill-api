@@ -87,12 +87,12 @@ def recipes_sync(
     except (ValueError, AttributeError):
         return {"error": "invalid_cookbook_id", "cookbook_id": cookbook_id}
 
-    # Verify cookbook exists
+    # Verify bundle exists
     cb = db.query(Cookbook).filter(Cookbook.id == cb_uuid).first()
     if not cb:
         return {"error": "not_found", "cookbook_id": cookbook_id}
 
-    # Phase B (Issue #15b): cookbook ownership check
+    # Phase B (Issue #15b): bundle ownership check
     if not authz.can_write_cookbook(ctx, cb):
         return {"error": "cookbook_forbidden", "cookbook_id": cookbook_id}
 
@@ -131,8 +131,8 @@ def recipes_sync(
             CookbookSkill.skill_id == o["skill_id"],
         ).update({"pinned_version": o["to"]})
 
-    # evergreen_0206 Phase A: a pin-write changes the cookbook's declared state,
-    # so advance the generation token (Cookbook.updated_at). SQLAlchemy onupdate
+    # evergreen_0206 Phase A: a pin-write changes the bundle's declared state,
+    # so advance the generation token (Bundle.updated_at). SQLAlchemy onupdate
     # does NOT fire on child CookbookSkill writes — bump the parent explicitly so
     # the cheap-poll 304-fast-path (Phase D) stays truthful. Only on the apply
     # path with real outdated rows; a no-op sync returns early above and never

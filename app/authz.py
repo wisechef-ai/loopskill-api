@@ -46,13 +46,13 @@ def can_read_skill(ctx: AuthContext, skill: Any, db: "Session | None" = None) ->
     skill_owner = getattr(skill, "skill_owner", None)
     if ctx.scope == "user" and ctx.user_id is not None and ctx.user_id == skill_owner:
         return True
-    # loopclose_3005 Phase C — user-scope cookbook-ownership clause.
-    # A user may read/install a private skill that lives in a cookbook they
+    # loopclose_3005 Phase C — user-scope bundle-ownership clause.
+    # A user may read/install a private skill that lives in a bundle they
     # own. This is symmetric with the cbt_token clause below (delegated access
-    # to a cookbook's skills) and matches the canonical REST cookbook-install
-    # path, which authorizes via cookbook ownership rather than skill ownership.
+    # to a bundle's skills) and matches the canonical REST bundle-install
+    # path, which authorizes via bundle ownership rather than skill ownership.
     # Required so an agent can install its OWN tailored fork after
-    # recipes_cookbook_attach promotes it into a cookbook (the dogfood loop).
+    # recipes_cookbook_attach promotes it into a bundle (the dogfood loop).  # compat-alias
     # Fails closed without ``db`` — callers in private-skill paths thread it.
     if ctx.scope == "user" and ctx.user_id is not None and db is not None:
         from app.models import Cookbook, CookbookSkill
@@ -71,7 +71,7 @@ def can_read_skill(ctx: AuthContext, skill: Any, db: "Session | None" = None) ->
         if owns_via_cookbook:
             return True
     # cookbook_share_2105 Phase C — cbt_token scope clause.
-    if ctx.scope == "cbt_token" and ctx.cookbook_scope is not None and db is not None:
+    if ctx.scope == "cbt_token" and ctx.bundle_scope is not None and db is not None:
         # Local import: app.models imports authz indirectly via app.database in
         # some test fixtures; deferring keeps the import graph acyclic.
         from app.models import CookbookSkill
@@ -79,7 +79,7 @@ def can_read_skill(ctx: AuthContext, skill: Any, db: "Session | None" = None) ->
         exists = (
             db.query(CookbookSkill)
             .filter(
-                CookbookSkill.bundle_id == ctx.cookbook_scope,  # compat-alias
+                CookbookSkill.bundle_id == ctx.bundle_scope,  # compat-alias
                 CookbookSkill.skill_id == skill.id,
                 CookbookSkill.source != "disabled",
             )
@@ -134,11 +134,11 @@ def can_write_cookbook(ctx: AuthContext, cookbook: Any) -> bool:
     - Master scope: always allowed
     - User scope: allowed if ctx.user_id == cookbook.bundle_owner  # compat-alias
     - Cookbook-scoped key: additionally restricted to the specific cookbook
-      (ctx.cookbook_scope must match cookbook.id)
+      (ctx.bundle_scope must match cookbook.id)  # compat-alias
     - All other cases: False
     """
-    # If this is a cookbook-scoped key restricted to a different cookbook → deny
-    if ctx.cookbook_scope is not None and ctx.cookbook_scope != cookbook.id:
+    # If this is a bundle-scoped key restricted to a different bundle → deny
+    if ctx.bundle_scope is not None and ctx.bundle_scope != cookbook.id:  # compat-alias
         return False
 
     if ctx.scope == "master":

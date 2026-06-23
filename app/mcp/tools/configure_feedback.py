@@ -58,9 +58,9 @@ def recipes_configure_feedback(
 ) -> dict[str, Any]:
     """Configure per-cookbook feedback routing to the user's own GitHub repo.
 
-    # Public-scope MCP tool: tier + cookbook-ownership gates enforced inline
-    # (Pro/Pro+ tier check + cookbook_owner == ctx.user_id); no authz.can_* used
-    # because the relevant predicate is "owns this cookbook and has pro tier",
+    # Public-scope MCP tool: tier + bundle-ownership gates enforced inline
+    # (Pro/Pro+ tier check + bundle_owner == ctx.user_id); no authz.can_* used
+    # because the relevant predicate is "owns this bundle and has pro tier",
     # which is checked inline.  See _PRO_TIERS and ownership gate below.
     """
     # ── Tier gate: Pro / Pro+ only ───────────────────────────────────────────
@@ -74,7 +74,7 @@ def recipes_configure_feedback(
             ),
         }
 
-    # ── Resolve cookbook ──────────────────────────────────────────────────────
+    # ── Resolve bundle ──────────────────────────────────────────────────────
     cb: Cookbook | None = None
     if cookbook_id:
         cb_uuid = _coerce_uuid(cookbook_id)

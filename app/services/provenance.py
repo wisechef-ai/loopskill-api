@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 ATTR_ATTRIBUTED = "attributed"
 ATTR_UNATTRIBUTED = "unattributed"
 
-# Default repo for feedback when no creator/cookbook routing resolves.
+# Default repo for feedback when no creator/bundle routing resolves.
 DEFAULT_FEEDBACK_REPO = "wisechef-ai/recipes-api"
 
 

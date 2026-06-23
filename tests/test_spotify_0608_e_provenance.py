@@ -334,7 +334,7 @@ def _attach(db, cb, skill, source="custom-added", pinned=None):
 
 
 def test_mcp_cookbook_install_single_returns_provenance(db):
-    from app.mcp.tools.cookbook_install import recipes_cookbook_install
+    from app.mcp.tools.bundle_install import recipes_cookbook_install
 
     owner = _mk_user(db)
     cb = _mk_cookbook(db, owner)
@@ -351,7 +351,7 @@ def test_mcp_cookbook_install_single_returns_provenance(db):
 
 def test_mcp_cookbook_install_bulk_per_skill_provenance(db):
     """R4 nit (a): provenance rides PER-SKILL under skills[], not top-level."""
-    from app.mcp.tools.cookbook_install import recipes_cookbook_install
+    from app.mcp.tools.bundle_install import recipes_cookbook_install
 
     owner = _mk_user(db)
     cb = _mk_cookbook(db, owner)
@@ -375,7 +375,7 @@ def test_mcp_cookbook_install_bulk_per_skill_provenance(db):
 
 
 def test_cookbook_rest_bulk_install_per_skill_provenance(db):
-    from app import cookbook_routes
+    from app import bundle_routes
 
     owner = _mk_user(db)
     cb = _mk_cookbook(db, owner)
@@ -398,10 +398,10 @@ def test_cookbook_rest_bulk_install_per_skill_provenance(db):
 
     # Bypass the cbt-scope + ownership resolution with direct stubs.
     with (
-        patch.object(cookbook_routes, "_enforce_cbt_scope_for_cookbook_route", return_value=None),
-        patch.object(cookbook_routes, "_resolve_owned_cookbook", return_value=cb),
+        patch.object(bundle_routes, "_enforce_cbt_scope_for_cookbook_route", return_value=None),
+        patch.object(bundle_routes, "_resolve_owned_cookbook", return_value=cb),
     ):
-        out = cookbook_routes.install_cookbook(cookbook_id=str(cb.id), request=_Req(), db=db, ctx=_Ctx())
+        out = bundle_routes.install_cookbook(cookbook_id=str(cb.id), request=_Req(), db=db, ctx=_Ctx())
     assert out["skills"][0]["provenance_id"]
     resolved = resolve_provenance(db, out["skills"][0]["provenance_id"])
     assert resolved.bundle_id == cb.id

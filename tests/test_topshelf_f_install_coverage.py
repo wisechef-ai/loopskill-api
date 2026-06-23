@@ -200,7 +200,7 @@ class TestInstallSkillCoverage:
             async def dispatch(self, request, call_next):
                 request.state.auth_ctx = AuthContext(
                     scope="cbt_token",
-                    cookbook_scope=uuid4(),
+                    bundle_scope=uuid4(),
                     allow_public_catalog=False,
                 )
                 request.state.api_key_user_id = "CBT_TOKEN"

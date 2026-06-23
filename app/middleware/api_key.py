@@ -136,7 +136,7 @@ def _auth_ctx_from_api_key(request) -> "AuthContext | None":
 
     key = request.headers.get("x-api-key")
     if not key or not key.startswith(API_KEY_PREFIX):
-        # No key, or a cbt_ share token (handled only on cookbook routes) —
+        # No key, or a cbt_ share token (handled only on bundle routes) —
         # nothing to resolve here.
         return None
 
@@ -165,7 +165,7 @@ def _auth_ctx_from_api_key(request) -> "AuthContext | None":
             scope="user",
             user_id=api_key_obj.user_id,
             api_key_id=api_key_obj.id,
-            cookbook_scope=api_key_obj.bundle_id,  # compat-alias
+            bundle_scope=api_key_obj.bundle_id,  # compat-alias
             is_sandbox_operator=bool(getattr(api_key_obj, "is_sandbox_operator", False)),
             tier=tier,
         )
@@ -271,7 +271,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         # surface (hero, /skills, /pricing, /docs); reachable without auth so the
         # static-build pipeline can pull it; no PII.
         "/api/marketing/",
-        # spotify_0608 Ph B — public cookbook discovery (CRUD stays auth-gated).
+        # spotify_0608 Ph B — public bundle discovery (CRUD stays auth-gated).
         "/api/cookbooks/discover",
         "/api/cookbooks/public/",
         # spotify_0608 Ph G — public reputation leaderboards (verify stays auth-gated).
@@ -428,10 +428,10 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
         # Enforce rec_ prefix — but first check for cbt_ share tokens
         if key.startswith("cbt_"):
-            # SECURITY: cbt_ tokens are scoped strictly to cookbook routes — without
+            # SECURITY: cbt_ tokens are scoped strictly to bundle routes — without
             # this gate they'd inherit the master-key signal (api_key_user_id=None)
             # on any endpoint using `is_master = (api_key_user_id is None)`. Anything
-            # off the cookbook prefix → 403, no info leak. EXCEPTION (repohygiene_2605/
+            # off the bundle prefix → 403, no info leak. EXCEPTION (repohygiene_2605/
             # H.1, Issue #290): pro/pro_plus cbt_tokens with allow_public_catalog=True
             # may also call GET /api/skills/install + /_download for public-catalog
             # skills. Token is validated first (full DB lookup) so the path-broadening
@@ -505,7 +505,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
                 request.state.auth_ctx = AuthContext(
                     scope="cbt_token",
-                    cookbook_scope=match.bundle_id,  # compat-alias
+                    bundle_scope=match.bundle_id,  # compat-alias
                     allow_public_catalog=allow_pub,
                 )
                 return await call_next(request)
@@ -584,8 +584,8 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                     scope="user",
                     user_id=api_key_obj.user_id,
                     api_key_id=api_key_obj.id,
-                    # secfix_1905/B: cookbook-scoped key restriction (Issue #13)
-                    cookbook_scope=api_key_obj.bundle_id,  # compat-alias
+                    # secfix_1905/B: bundle-scoped key restriction (Issue #13)
+                    bundle_scope=api_key_obj.bundle_id,  # compat-alias
                     # secfix_1905/C: propagate sandbox execution privilege
                     is_sandbox_operator=bool(getattr(api_key_obj, "is_sandbox_operator", False)),
                     # secfix_1905/H: subscription tier for paywall checks (#25)

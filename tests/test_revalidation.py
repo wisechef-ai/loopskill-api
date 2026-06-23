@@ -1,4 +1,4 @@
-"""Phase 2 revalidation — cookbook_status on every MCP response + recipes_sync.
+"""Phase 2 revalidation — bundle_status on every MCP response + recipes_sync.
 
 Seven spec tests (a–g).  All must FAIL against the pre-Phase-2 codebase
 (RED commit), then PASS after the implementation (GREEN commit).
@@ -62,7 +62,7 @@ def _caller(user_id):
 # ── (a) status block present when outdated skills exist ──────────────────────
 
 def test_status_block_present_on_search(db_session):
-    """One outdated skill in cookbook → cookbook_status with updates_available=1."""
+    """One outdated skill in cookbook → bundle_status with updates_available=1."""
     user = _make_user(db_session)
     skill = _make_skill(db_session, slug="outdated-a")
     _make_version(db_session, skill.id, "1.0")
@@ -76,8 +76,8 @@ def test_status_block_present_on_search(db_session):
         caller=_caller(user.id),
         db=db_session,
     )
-    assert "cookbook_status" in result, "cookbook_status block missing from MCP response"
-    status = result["cookbook_status"]
+    assert "bundle_status" in result, "bundle_status block missing from MCP response"
+    status = result["bundle_status"]
     assert status["your_cookbooks"], "expected at least one cookbook with updates"
     cb_status = status["your_cookbooks"][0]
     assert cb_status["updates_available"] == 1
@@ -87,7 +87,7 @@ def test_status_block_present_on_search(db_session):
 # ── (b) status block absent when user has no cookbooks ───────────────────────
 
 def test_status_block_omits_when_no_outdated(db_session):
-    """Fresh user with no cookbooks → cookbook_status field absent."""
+    """Fresh user with no cookbooks → bundle_status field absent."""
     user = _make_user(db_session)
 
     result = call_tool_sync(
@@ -96,8 +96,8 @@ def test_status_block_omits_when_no_outdated(db_session):
         caller=_caller(user.id),
         db=db_session,
     )
-    assert "cookbook_status" not in result, (
-        "cookbook_status should be absent when no outdated skills"
+    assert "bundle_status" not in result, (
+        "bundle_status should be absent when no outdated skills"
     )
 
 
@@ -159,7 +159,7 @@ def test_sync_dry_run_returns_diff_no_pull(db_session):
 # ── (e) F2 regression — sync writes pinned, then status reports correctly ───
 
 def test_sync_apply_writes_pinned_version(db_session):
-    """After applying sync, cookbook_status must NOT report the skill as outdated."""
+    """After applying sync, bundle_status must NOT report the skill as outdated."""
     user = _make_user(db_session)
     skill = _make_skill(db_session, slug="sync-f2")
     _make_version(db_session, skill.id, "1.0")
@@ -182,8 +182,8 @@ def test_sync_apply_writes_pinned_version(db_session):
         caller=_caller(user.id),
         db=db_session,
     )
-    assert "cookbook_status" not in result, (
-        "F2: cookbook_status should be absent after applying all updates"
+    assert "bundle_status" not in result, (
+        "F2: bundle_status should be absent after applying all updates"
     )
 
 
@@ -203,8 +203,8 @@ def test_status_silent_when_no_outdated_skills(db_session):
         caller=_caller(user.id),
         db=db_session,
     )
-    assert "cookbook_status" not in result, (
-        "cookbook_status should be absent when all skills are current"
+    assert "bundle_status" not in result, (
+        "bundle_status should be absent when all skills are current"
     )
 
 

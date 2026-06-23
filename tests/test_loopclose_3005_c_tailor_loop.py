@@ -407,7 +407,7 @@ class TestDogfoodRoundTrip:
     def test_tailor_to_install(self, db: Session, storage_dirs) -> None:
         """tailor -> version -> attach -> cookbook_install, end to end."""
         from app.mcp.tools.fork_deploy import recipes_cookbook_attach, recipes_tailor_version
-        from app.mcp.tools.cookbook_install import recipes_cookbook_install
+        from app.mcp.tools.bundle_install import recipes_cookbook_install
         from app.mcp.tools.tailor import recipes_tailor
 
         user = _make_user(db, "pro")
@@ -445,7 +445,7 @@ class TestDogfoodRoundTrip:
 
         from app.config import settings
         from app.mcp.tools.fork_deploy import recipes_cookbook_attach, recipes_tailor_version
-        from app.mcp.tools.cookbook_install import recipes_cookbook_install
+        from app.mcp.tools.bundle_install import recipes_cookbook_install
         from app.mcp.tools.tailor import recipes_tailor
 
         user = _make_user(db, "pro")

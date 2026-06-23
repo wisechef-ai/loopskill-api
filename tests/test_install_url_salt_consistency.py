@@ -5,7 +5,7 @@ Phase 3+4 renamed the canonical salt from "recipes-skill-install" to
 (_verify_signed_token) accepts BOTH salts so in-flight URLs survive the rename.
 
 Three producers that drifted in the original incident are pinned here:
-  - cookbook_routes._make_install_url
+  - bundle_routes._make_install_url
   - mcp/tools/install
   - mcp/tools/recipes_sync._build_install_urls
 """
@@ -42,11 +42,11 @@ def test_install_routes_signer_uses_canonical_salt() -> None:
 
 def test_cookbook_routes_signer_uses_canonical_salt() -> None:
     """The cookbook install URL builder MUST pin the canonical salt."""
-    from app import cookbook_routes
+    from app import bundle_routes
 
-    src = inspect.getsource(cookbook_routes._make_install_url)
+    src = inspect.getsource(bundle_routes._make_install_url)
     assert f'salt="{INSTALL_SALT}"' in src, (
-        "cookbook_routes._make_install_url drifted off the canonical install salt. "
+        "bundle_routes._make_install_url drifted off the canonical install salt. "
         "Every cookbook install URL would silently break."
     )
 

@@ -121,7 +121,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # order — the last add_middleware in main.py is outermost on the
         # request path), so request.state.auth_ctx is already populated.
         # Real consumers — master scope, rec_live_* user keys, MCP fleet keys,
-        # cookbook-bound CBT tokens, and the Astro portal build itself —
+        # bundle-bound CBT tokens, and the Astro portal build itself —
         # routinely fire dozens of requests in a few hundred ms from a single
         # IP. That instantly busts the 60/min bucket and the portal hero
         # falls back to a hardcoded count, the spotlight grid empties, etc.

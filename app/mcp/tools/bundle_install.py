@@ -11,7 +11,7 @@ HTTP routes:
 
 Auth handling (via the shared AuthContext):
   - cbt_token scope: ``cookbook_id`` is OPTIONAL — defaults to
-    ``ctx.cookbook_scope``. An explicit ``cookbook_id`` that doesn't match
+    ``ctx.bundle_scope``. An explicit ``cookbook_id`` that doesn't match  # compat-alias
     the token's scope is rejected (404 token_scope_mismatch).
   - user/master scope: ``cookbook_id`` is REQUIRED. user-scope must own the
     cookbook; master can install from any cookbook.
@@ -36,12 +36,12 @@ from app.models import Cookbook, CookbookSkill, Skill, SkillVersion
 
 
 def _make_install_url(skill_slug: str, version_id: UUID, version_semver: str) -> str:
-    """DRY copy of cookbook_routes._make_install_url so the MCP path uses the
+    """DRY copy of bundle_routes._make_install_url so the MCP path uses the
     same salt + URL shape as the HTTP path. Salt MUST stay
     'recipes-skill-install' to verify against
     install_routes._download — see secfix_1905/I-followup.
 
-    Why duplicated: cookbook_routes is FastAPI-route-shaped (HTTPException,
+    Why duplicated: bundle_routes is FastAPI-route-shaped (HTTPException,
     Depends, Response) and pulling it in here would drag a fastapi import
     into a pure-MCP module. The two-line URL builder is small enough to
     duplicate; salt/secret are both centralised in settings so drift is
@@ -80,7 +80,7 @@ def _resolve_cookbook(
 ) -> Cookbook:
     """Pick the right cookbook for this caller.
 
-    cbt_token  : cookbook_id optional; defaults to ctx.cookbook_scope.
+    cbt_token  : cookbook_id optional; defaults to ctx.bundle_scope.  # compat-alias
                  Explicit cookbook_id must match (no cross-scope reads).
     user       : cookbook_id REQUIRED; must own.
     master     : cookbook_id REQUIRED; any cookbook.
@@ -90,24 +90,24 @@ def _resolve_cookbook(
         raise CookbookInstallError("auth_required", "Authentication required.", status=401)
 
     if ctx.scope == "cbt_token":
-        # Default to scope-bound cookbook
+        # Default to scope-bound bundle
         if cookbook_id is None:
-            if ctx.cookbook_scope is None:
+            if ctx.bundle_scope is None:
                 raise CookbookInstallError(
                     "cookbook_id_missing",
-                    "cbt_token caller has no cookbook_scope; cannot infer cookbook_id.",
+                    "cbt_token caller has no bundle_scope; cannot infer cookbook_id.",  # compat-alias
                     status=422,
                 )
-            target_id = ctx.cookbook_scope
+            target_id = ctx.bundle_scope
         else:
             try:
                 target_id = UUID(cookbook_id)
             except (ValueError, TypeError) as exc:
                 raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404) from exc
-            if target_id != ctx.cookbook_scope:
+            if target_id != ctx.bundle_scope:
                 raise CookbookInstallError(
                     "token_scope_mismatch",
-                    "cookbook_id does not match the token's cookbook_scope.",
+                    "cookbook_id does not match the token's bundle_scope.",  # compat-alias
                     status=403,
                 )
         cb = db.query(Cookbook).filter(Cookbook.id == target_id).first()
@@ -173,7 +173,7 @@ def recipes_cookbook_install(
             validate_key path same as recipes_install).
         ctx: AuthContext (required). cbt_token callers may omit ``cookbook_id``.
         cookbook_id: Cookbook UUID string. Optional for cbt_token (defaults
-            to ctx.cookbook_scope), required for user/master.
+            to ctx.bundle_scope), required for user/master.
         slug: Optional single-skill filter. When provided, returns one skill
             payload mirroring GET /api/skills/install. When omitted, returns
             the bulk payload mirroring POST /api/cookbooks/{id}/install.
@@ -192,8 +192,8 @@ def recipes_cookbook_install(
 
     # portal_0610 R1 (§6.6/§6.7-L10): tier-ACCESS gate, owner-tier-scoped.
     # The MCP install path is the primary cbt_ client-agent surface — it MUST
-    # honour the same tier gate as the HTTP routes. The cookbook OWNER's tier
-    # governs (a free-owner cookbook never emits a Pro tarball). External skills
+    # honour the same tier gate as the HTTP routes. The bundle OWNER's tier
+    # governs (a free-owner bundle never emits a Pro tarball). External skills
     # carry no tarball/tier contract and are not gated.
     from app.authz import tier_rank_allows_install
     from app._skill_helpers import _resolve_cookbook_owner_tier
@@ -206,11 +206,11 @@ def recipes_cookbook_install(
         if skill is None:
             raise CookbookInstallError("skill_not_found", "skill_not_found", status=404)
 
-        # SECURITY: gate via the shared predicate so the cookbook-scope clause
+        # SECURITY: gate via the shared predicate so the bundle-scope clause
         # (Phase C) is consulted. authz.can_install with db threaded checks
-        # the cookbook→skill membership for cbt_token callers.
+        # the bundle→skill membership for cbt_token callers.
         if not authz.can_install(ctx, skill, db=db):
-            # No oracle: indistinguishable from "not in cookbook" / "private".
+            # No oracle: indistinguishable from "not in bundle" / "private".
             raise CookbookInstallError("skill_not_in_cookbook", "skill_not_in_cookbook", status=404)
 
         cs = (
@@ -227,7 +227,7 @@ def recipes_cookbook_install(
 
         # federation_0604 Unit 2 — external skill: resolve real SKILL.md from
         # origin (never rehosted) via the SHARED resolver. No SkillVersion.
-        from app.services.cookbook_external import (
+        from app.services.bundle_external import (
             descriptor_source_slug,
             is_external_skill,
             resolve_external_install,
@@ -296,20 +296,20 @@ def recipes_cookbook_install(
     installed: list[tuple[Skill, str, int]] = []
     for cs, skill in rows:
         # SECURITY: per-skill authz gate. For cbt_token callers this MUST pass
-        # because the skill is in their scoped cookbook (the Phase C predicate
+        # because the skill is in their scoped bundle (the Phase C predicate
         # asks exactly that). The defensive call is still here so that a
-        # private skill incorrectly added to a cookbook the caller doesn't
+        # private skill incorrectly added to a bundle the caller doesn't
         # own (e.g. via master action) is filtered out rather than leaked.
         if not authz.can_install(ctx, skill, db=db):
             continue
         # federation_0604 Unit 2 — external rows: cheap descriptor + scoped URL,
         # no origin fetch in the bulk path (isolation wall #2).
-        from app.services.cookbook_external import install_descriptor_for, is_external_skill
+        from app.services.bundle_external import install_descriptor_for, is_external_skill
 
         if is_external_skill(skill):
             skills_payload.append(install_descriptor_for(str(cb.id), skill))
             continue
-        # portal_0610 R1: skip skills the cookbook owner's tier cannot install.
+        # portal_0610 R1: skip skills the bundle owner's tier cannot install.
         if not tier_rank_allows_install(_owner_tier, getattr(skill, "tier", None)):
             continue
         version = _resolve_version(db, skill, cs.pinned_version)
@@ -327,7 +327,7 @@ def recipes_cookbook_install(
 
     # spotify_0608 Ph E — record install events + mint a PER-SKILL provenance_id
     # for MCP-driven bulk installs (R4 nit (a): provenance rides per-skill under
-    # skills[], not cookbook-top-level). Stamps cookbook_id for feedback routing.
+    # skills[], not bundle-top-level). Stamps cookbook_id for feedback routing.  # compat-alias
     from app.services.provenance import record_install_with_provenance
 
     for skill, semver, idx in installed:

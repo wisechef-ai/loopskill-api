@@ -77,7 +77,7 @@ def validate_key(key: str | None, db: Session) -> dict[str, Any]:
             scope="user",
             user_id=api_key_obj.user_id,
             api_key_id=api_key_obj.id,
-            cookbook_scope=api_key_obj.bundle_id,  # None if not scoped  # compat-alias
+            bundle_scope=api_key_obj.bundle_id,  # None if not scoped  # compat-alias
         )
         return {
             "scope": "user",

@@ -57,13 +57,13 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from app.auth_ctx import AuthContext
-from app.mcp.tools.cookbook_install import (
+from app.mcp.tools.bundle_install import (
     CookbookInstallError,
     _make_install_url,
     _resolve_version,
 )
 from app.models import Cookbook, CookbookSkill, Skill
-from app.services.cookbook_external import (
+from app.services.bundle_external import (
     install_descriptor_for,
     is_external_skill,
     known_external_source,
@@ -185,7 +185,7 @@ def _skill_install_entry(
     }
 
 
-# ── Verb 1: install-from-cookbook ──────────────────────────────────────────
+# ── Verb 1: install-from-bundle ──────────────────────────────────────────
 
 
 def recipes_install_from_cookbook(
@@ -240,7 +240,7 @@ def recipes_install_from_cookbook(
     }
 
 
-# ── Verb 2: pick-best-from-cookbook ────────────────────────────────────────
+# ── Verb 2: pick-best-from-bundle ────────────────────────────────────────
 
 
 def _relevance(skill: Skill, need: str) -> int:
@@ -308,7 +308,7 @@ def recipes_pick_best_from_cookbook(
         scored.append((rel, last7, total, cs, skill))
 
     # When a need is supplied, drop zero-relevance candidates UNLESS that leaves
-    # nothing (then fall back to popularity over the whole cookbook).
+    # nothing (then fall back to popularity over the whole bundle).
     if need_s:
         relevant = [s for s in scored if s[0] > 0]
         pool = relevant if relevant else scored
@@ -339,7 +339,7 @@ def recipes_pick_best_from_cookbook(
     }
 
 
-# ── Verb 3: compose-new-cookbook-from-links ────────────────────────────────
+# ── Verb 3: compose-new-bundle-from-links ────────────────────────────────
 
 
 def _resolve_one_link_to_skills(db: Session, link: str) -> list[Skill]:
@@ -374,7 +374,7 @@ def _resolve_one_link_to_skills(db: Session, link: str) -> list[Skill]:
             )
         return [skill]
 
-    # bare token: cookbook first, then internal skill
+    # bare token: bundle first, then internal skill
     token = kind[1]
     cb = db.query(Cookbook).filter(Cookbook.slug == token, Cookbook.visibility == "public").first()
     if cb is not None:
@@ -416,7 +416,7 @@ def recipes_compose_cookbook_from_links(
     if len(links) > 25:
         raise CookbookInstallError("too_many_links", "compose accepts at most 25 links per call.", status=422)
 
-    # Tier cookbook cap (free=1, pro=10, pro+=200; None=unlimited).
+    # Tier bundle cap (free=1, pro=10, pro+=200; None=unlimited).
     limit = cookbook_limit(ctx.tier)
     if limit is not None:
         existing = db.query(Cookbook).filter(Cookbook.bundle_owner == ctx.user_id).count()  # compat-alias

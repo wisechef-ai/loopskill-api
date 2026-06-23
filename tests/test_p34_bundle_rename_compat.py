@@ -146,8 +146,8 @@ def _make_test_app():
 
 
 def test_bundle_route_prefix_exists() -> None:
-    """cookbook_routes.py must expose /api/bundles prefix routes."""
-    from app.cookbook_routes import router  # type: ignore[attr-defined]
+    """bundle_routes.py must expose /api/bundles prefix routes."""
+    from app.bundle_routes import router  # type: ignore[attr-defined]
 
     paths = [r.path for r in router.routes]
     bundle_paths = [p for p in paths if "/bundles" in p]
@@ -157,8 +157,8 @@ def test_bundle_route_prefix_exists() -> None:
 
 
 def test_bundle_deploy_route_prefix_exists() -> None:
-    """cookbook_deployment_routes.py must expose /api/bundle-deploy prefix routes."""
-    from app.cookbook_deployment_routes import router  # type: ignore[attr-defined]
+    """bundle_deployment_routes.py must expose /api/bundle-deploy prefix routes."""
+    from app.bundle_deployment_routes import router  # type: ignore[attr-defined]
 
     paths = [r.path for r in router.routes]
     bundle_paths = [p for p in paths if "bundle-deploy" in p]
@@ -169,7 +169,7 @@ def test_bundle_deploy_route_prefix_exists() -> None:
 
 def test_old_cookbooks_route_still_in_router() -> None:
     """Old /api/cookbooks paths must still be present as compat-alias routes."""  # compat-test
-    from app.cookbook_routes import router  # type: ignore[attr-defined]
+    from app.bundle_routes import router  # type: ignore[attr-defined]
 
     paths = [r.path for r in router.routes]
     compat_paths = [p for p in paths if "/cookbooks" in p]

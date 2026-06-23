@@ -67,7 +67,7 @@ from app.middleware.api_key import (  # noqa: E402
     _auth_ctx_from_jwt_cookie,
     APIKeyMiddleware,
 )
-from app.middleware.cookbook_routing import CookbookHostMiddleware  # noqa: E402
+from app.middleware.bundle_routing import CookbookHostMiddleware  # noqa: E402  # compat-alias
 from app.middleware.rate_limit import RateLimitMiddleware  # noqa: E402
 
 __all__ = [

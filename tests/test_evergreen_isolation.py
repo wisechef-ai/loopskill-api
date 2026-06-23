@@ -89,7 +89,7 @@ def _make_skill(db: Session, slug: str) -> Skill:
 
 def _app_as(db: Session, acting_user_id) -> FastAPI:
     """Build the cookbook router with auth state injected for a given user."""
-    from app.cookbook_routes import router as cookbook_router
+    from app.bundle_routes import router as cookbook_router
 
     app = FastAPI()
 

@@ -1,4 +1,4 @@
-"""Tests for v7 Phase B cookbook endpoints (app/cookbook_routes.py)."""
+"""Tests for v7 Phase B cookbook endpoints (app/bundle_routes.py)."""
 
 from __future__ import annotations
 
@@ -96,7 +96,7 @@ def _make_skill(db: Session, slug: str = "src-skill", with_version: bool = False
 
 
 def _make_app(db: Session, *, api_key_user_id, is_admin: bool = False) -> FastAPI:
-    from app.cookbook_routes import router as cookbook_router
+    from app.bundle_routes import router as cookbook_router
 
     app = FastAPI()
 

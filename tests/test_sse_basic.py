@@ -94,7 +94,7 @@ class _InjectAuthASGI:
 
 
 def _build_app(db: Session, *, api_key_user_id) -> FastAPI:
-    from app.cookbook_routes import router as cookbook_router
+    from app.bundle_routes import router as cookbook_router
     from app.sse_routes import router as sse_router
 
     app = FastAPI()

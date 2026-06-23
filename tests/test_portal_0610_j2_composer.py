@@ -238,7 +238,7 @@ def test_reorder_persists_install_order(middleware_client, db_session):
     assert r.json()["order"][:3] == ["j2-c", "j2-b", "j2-a"]
 
     # Verify _skills_for now emits in the new order.
-    from app.cookbook_routes import _skills_for
+    from app.bundle_routes import _skills_for
 
     rows = _skills_for(db_session, cb.id, include_disabled=False)
     slugs = [skill.slug for _cs, skill in rows]

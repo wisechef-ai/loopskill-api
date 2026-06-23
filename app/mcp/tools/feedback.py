@@ -55,7 +55,7 @@ def _resolve_feedback_target(
     targets = route_targets_for_provenance(db, provenance_id)
     if not targets:
         return None, None, None
-    # Route to the first resolved target (curator repo for the cookbook used).
+    # Route to the first resolved target (curator repo for the bundle used).
     t = targets[0]
     return t.repo, t.mode, t.pat_enc
 
