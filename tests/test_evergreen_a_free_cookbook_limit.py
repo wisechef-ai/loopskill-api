@@ -31,14 +31,14 @@ class TestFreeCookbookLimitSSOT:
         assert cookbook_limit(None) == 1
 
     def test_pro_unchanged(self):
-        assert cookbook_limit("pro") == 10
+        assert cookbook_limit("pro") == 50
 
     def test_pro_plus_unchanged(self):
         assert cookbook_limit("pro_plus") == 200
 
     def test_legacy_aliases_unchanged(self):
         """30-day legacy aliases still resolve (remove after 2026-06-10)."""
-        assert cookbook_limit("cook") == 10
+        assert cookbook_limit("cook") == 50
         assert cookbook_limit("operator") == 200
 
 

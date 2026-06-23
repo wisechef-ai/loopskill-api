@@ -1,51 +1,30 @@
-# SSOT for tier display metadata.
-# db_slug is the immutable contract: it matches DB column, API responses, and tests.
-# display_name is what /pricing and /skills cards render.
-# DO NOT rename db_slug without a coordinated DB migration + API + test sweep.
-# To change display labels or pricing: edit ONLY this file, then run:
-#   python3 scripts/recipes_stripe_sync.py --check-only   (verify)
-#   python3 scripts/recipes_claims_reconcile.py --strict   (confirm no drift)
 version: 1
-
 tiers:
   free:
     db_slug: free
     display_name: Free
     price_usd: 0
     price_id_env: null
-    accent_color: "#6B7280"
+    accent_color: '#6B7280'
     badge: Free
-    # Cookbook cap SSOT (loopclose_3005 Phase A; free 0→1 in evergreen_0206
-    # Phase A — the on-ramp taste, decision #10). The ONLY source of this
-    # number — cookbook_routes.py, auth_routes.py, checkout_routes.py read it
-    # via tier_labels.cookbook_limit(). null = unlimited (reserved for a future
-    # contact-us tier; no current tier is unlimited).
     cookbook_limit: 1
-
   pro:
     db_slug: pro
     display_name: Pro
-    price_usd: 20
-    # Canonical env var (RCP-INCIDENT-2026-05-11 Phase 6). The resolver
-    # in app/subscription_service.py also accepts the legacy
-    # WR_STRIPE_PRICE_COOK as a fallback until 2026-06-10.
+    price_usd: 9.95
     price_id_env: WR_STRIPE_PRICE_PRO
     price_id_env_legacy: WR_STRIPE_PRICE_COOK
-    stripe_nickname: "Pro $20/mo"
-    accent_color: "#3B82F6"
+    stripe_nickname: LoopSkill Pro $9.95/mo
+    accent_color: '#3B82F6'
     badge: Pro
-    cookbook_limit: 10
-
+    cookbook_limit: 50
   pro_plus:
     db_slug: pro_plus
     display_name: Pro+
     price_usd: 100
-    # Canonical env var (RCP-INCIDENT-2026-05-11 Phase 6). The resolver
-    # in app/subscription_service.py also accepts the legacy
-    # WR_STRIPE_PRICE_STUDIO as a fallback until 2026-06-10.
     price_id_env: WR_STRIPE_PRICE_PRO_PLUS
     price_id_env_legacy: WR_STRIPE_PRICE_STUDIO
-    stripe_nickname: "Pro+ $100/mo"
-    accent_color: "#D4A017"
+    stripe_nickname: Pro+ $100/mo
+    accent_color: '#D4A017'
     badge: Pro+
     cookbook_limit: 200

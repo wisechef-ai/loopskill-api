@@ -85,7 +85,7 @@ class TestTierPriceIdsFromYaml:
     def test_tier_usd_price_values_correct(self):
         """TIER_USD_PRICE canonical values are 20.0 and 100.0."""
         ss = self._fresh_ss()
-        assert ss.TIER_USD_PRICE.get("pro") == 20.0
+        assert ss.TIER_USD_PRICE.get("pro") == 9.95
         assert ss.TIER_USD_PRICE.get("pro_plus") == 100.0
         assert ss.TIER_USD_PRICE.get("free") == 0.0
 
@@ -106,7 +106,7 @@ class TestTierPriceIdsFromYaml:
         ss = self._fresh_ss()
         ss._load_tier_usd_price.cache_clear()
         result = ss._load_tier_usd_price()
-        assert result["pro"] == 20.0
+        assert result["pro"] == 9.95
         assert result["pro_plus"] == 100.0
         assert result["free"] == 0.0
 

@@ -28,7 +28,7 @@ def test_build_embed_payload_full() -> None:
         user_email="alice@example.com",
         user_id="11111111-1111-1111-1111-111111111111",
         tier="cook",
-        amount_usd=20.0,
+        amount_usd=9.95,
         extra_lines=["Stripe checkout: cs_test_123"],
     )
     embed = payload["embeds"][0]
@@ -43,7 +43,7 @@ def test_build_embed_payload_full() -> None:
     tier_field = next(f for f in embed["fields"] if f["name"] == "Tier")
     assert tier_field["value"] == "Pro"
     mrr_field = next(f for f in embed["fields"] if f["name"] == "MRR impact")
-    assert mrr_field["value"] == "$20.00/mo"
+    assert mrr_field["value"] == "$9.95/mo"
 
 
 def test_build_embed_payload_pro_plus_aliases() -> None:
@@ -95,7 +95,7 @@ def test_post_revenue_event_silent_when_unconfigured(monkeypatch: pytest.MonkeyP
             user_email="x@y.z",
             user_id="x",
             tier="cook",
-            amount_usd=20.0,
+            amount_usd=9.95,
         )
         mock_thread.assert_not_called()
 

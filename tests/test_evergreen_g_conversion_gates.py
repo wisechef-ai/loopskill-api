@@ -79,7 +79,7 @@ class TestCookbookCreateGate:
         assert out.upgrade_to == "pro"
 
     def test_pro_at_limit_upgrades_to_pro_plus(self):
-        out = gate_cookbook_create("pro", current_count=10, limit=10)
+        out = gate_cookbook_create("pro", current_count=50, limit=50)
         assert out.allowed is False
         assert out.upgrade_to == "pro_plus"
 

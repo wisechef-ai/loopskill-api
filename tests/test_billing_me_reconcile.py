@@ -274,7 +274,7 @@ def test_no_stripe_customer_id_no_call(db):
 
 @pytest.mark.parametrize(
     "tier,expected_limit",
-    [("pro", 10), ("pro_plus", 200), (None, 1)],
+    [("pro", 50), ("pro_plus", 200), (None, 1)],
 )
 def test_billing_me_returns_cookbook_limit_from_ssot(db, tier, expected_limit):
     """Phase X: /api/billing/me must expose cookbook_limit read from the
