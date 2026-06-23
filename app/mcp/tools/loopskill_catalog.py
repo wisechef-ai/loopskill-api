@@ -21,6 +21,7 @@ def loopskill_search_loops(
     limit: int = 50,
 ) -> dict[str, Any]:
     """Search public loops. Returns {results, total}."""
+    # Public-scope MCP tool: public loop registry only; is_public + non-archived filters applied internally, no user-specific data returned.
     q = (
         db.query(Loop)
         .options(joinedload(Loop.versions))
@@ -52,6 +53,7 @@ def loopskill_search_loops(
 
 def loopskill_get_loop(db: Session, slug: str) -> dict[str, Any]:
     """Pull a loop's full safety-bounded contract by slug."""
+    # Public-scope MCP tool: returns a published loop's public contract by slug; archived rows 404, no private data exposed.
     r = (
         db.query(Loop)
         .options(joinedload(Loop.versions))
@@ -87,6 +89,7 @@ def loopskill_search_personalities(
     limit: int = 50,
 ) -> dict[str, Any]:
     """Search public personalities. Returns {results, total}."""
+    # Public-scope MCP tool: public personality registry only; is_public + non-archived filters applied internally, no user-specific data returned.
     q = (
         db.query(Personality)
         .options(joinedload(Personality.versions))
@@ -117,6 +120,7 @@ def loopskill_search_personalities(
 
 def loopskill_get_personality(db: Session, slug: str) -> dict[str, Any]:
     """Pull a personality's system prompt + config by slug."""
+    # Public-scope MCP tool: returns a published personality's public config by slug; archived rows 404, no private data exposed.
     r = (
         db.query(Personality)
         .options(joinedload(Personality.versions))
