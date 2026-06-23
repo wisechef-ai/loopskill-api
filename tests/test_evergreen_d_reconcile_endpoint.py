@@ -65,7 +65,7 @@ def _user(db: Session) -> User:
 
 
 def _cookbook(db: Session, owner: User) -> Cookbook:
-    cb = Cookbook(id=uuid4(), name="CB", is_base=False, cookbook_owner=owner.id)
+    cb = Cookbook(id=uuid4(), name="CB", is_base=False, bundle_owner=owner.id)
     db.add(cb)
     db.flush()
     return cb
@@ -122,7 +122,7 @@ class TestReconcileEndpoint:
         cb = _cookbook(db, owner)
         skill = _skill(db, "ep-add")
         db.add(
-            CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source="overridden", pinned_version="1.0.0")
+            CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="overridden", pinned_version="1.0.0")
         )
         db.commit()
 

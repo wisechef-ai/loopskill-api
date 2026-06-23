@@ -71,7 +71,7 @@ def recipes_recipify(
     # loopclose_3005 Phase X — owner resolution fixed for good.
     # The bug: server.py:_dispatch invokes recipes_recipify(db, ctx=ctx, **args)
     # — it passes the authenticated AuthContext but NO user_id kwarg, so
-    # owner_id used to coerce to None and a non-base Cookbook(cookbook_owner=None)
+    # owner_id used to coerce to None and a non-base Cookbook(bundle_owner=None)  # compat-alias
     # orphan was written, invisible to every user forever (list_cookbooks filters
     # on cookbook_owner == ctx.user_id). Resolve ownership from the explicit
     # user_id kwarg first (legacy callers), then fall back to ctx.user_id.
@@ -89,7 +89,7 @@ def recipes_recipify(
         if owner_id is not None:
             cb = (
                 db.query(Cookbook)
-                .filter(Cookbook.cookbook_owner == owner_id)
+                .filter(Cookbook.bundle_owner == owner_id)  # compat-alias
                 .order_by(Cookbook.created_at.asc())
                 .first()
             )
@@ -105,7 +105,7 @@ def recipes_recipify(
                     "authenticate with a user-scoped key",
                     "code": "owner_required",
                 }
-            cb = Cookbook(id=uuid4(), name="MCP Cookbook", cookbook_owner=owner_id, is_base=False)
+            cb = Cookbook(id=uuid4(), name="MCP Bundle", bundle_owner=owner_id, is_base=False)  # compat-alias
             db.add(cb)
             db.commit()
             db.refresh(cb)

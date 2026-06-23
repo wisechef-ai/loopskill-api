@@ -243,11 +243,13 @@ def install_skill(
     # Generate a signed token (HMAC-style with itsdangerous)
     # Issue #24 (secfix_1905/H): salt added so install tokens cannot be
     # reused as tokens for any other URLSafeTimedSerializer in this app.
+    # Phase 3+4: primary salt is now "loopskill-install"; verifier falls back
+    # to "recipes-skill-install" so in-flight signed URLs still work.  # compat-alias
     from itsdangerous import URLSafeTimedSerializer
 
     from app.config import settings
 
-    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="recipes-skill-install")
+    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="loopskill-install")
     token = serializer.dumps({"slug": slug, "version_id": str(latest.id), "mode": mode})
 
     # Build signed download URL — use the public origin so installs work
@@ -322,24 +324,34 @@ def install_skill(
     return resp
 
 
+def _verify_signed_token(token: str, *, secret: str, max_age: int = 3600) -> dict:
+    """Verify a signed install token, trying new salt then falling back to old.
+
+    Phase 3+4 dual-salt: primary salt is "loopskill-install"; tokens signed
+    with the old "recipes-skill-install" salt are still accepted so in-flight  # compat-alias
+    URLs from before the rename continue to work.
+    """
+    from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+
+    for salt in ("loopskill-install", "recipes-skill-install"):  # compat-alias
+        try:
+            return URLSafeTimedSerializer(secret, salt=salt).loads(token, max_age=max_age)
+        except SignatureExpired:
+            raise HTTPException(status_code=410, detail="Download token expired")
+        except BadSignature:
+            continue
+    raise HTTPException(status_code=403, detail="Invalid download token")
+
+
 @router.get("/skills/_download", tags=["skills"])
 def download_tarball(
     token: str = Query(..., description="Signed download token"),
     db: Session = Depends(get_db),
 ):
     """Verify signed token and return tarball info."""
-    from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
-
     from app.config import settings
 
-    # Issue #24 (secfix_1905/H): salt must match the signer in install_skill().
-    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="recipes-skill-install")
-    try:
-        data = serializer.loads(token, max_age=3600)
-    except SignatureExpired:
-        raise HTTPException(status_code=410, detail="Download token expired")
-    except BadSignature:
-        raise HTTPException(status_code=403, detail="Invalid download token")
+    data = _verify_signed_token(token, secret=settings.SIGNING_SECRET)
 
     slug = data["slug"]
     version_id = data["version_id"]

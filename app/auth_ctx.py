@@ -15,7 +15,9 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import UUID
 
-Scope = Literal["anonymous", "user", "operator", "master", "cbt_token", "fleet"]
+Scope = Literal[
+    "anonymous", "user", "operator", "master", "cbt_token", "bdl_token", "fleet"
+]  # bdl_token added Phase 3+4
 
 
 @dataclass(frozen=True)

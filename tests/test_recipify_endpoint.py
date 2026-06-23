@@ -110,7 +110,7 @@ def test_free_tier_returns_401(db_session):
 
 def test_cook_user_creates_cookbook_skill(db_session):
     user = _make_user(db_session, tier="cook")
-    cb = Cookbook(id=uuid4(), name="My", cookbook_owner=user.id)
+    cb = Cookbook(id=uuid4(), name="My", bundle_owner=user.id)
     db_session.add(cb)
     db_session.commit()
 
@@ -135,7 +135,7 @@ def test_cook_user_creates_cookbook_skill(db_session):
     cs = (
         db_session.query(CookbookSkill)
         .filter(
-            CookbookSkill.cookbook_id == cb.id,
+            CookbookSkill.bundle_id == cb.id,
             CookbookSkill.skill_id == skill.id,
         )
         .first()
@@ -146,7 +146,7 @@ def test_cook_user_creates_cookbook_skill(db_session):
 
 def test_rerun_with_same_slug_is_idempotent_and_updated(db_session):
     user = _make_user(db_session, tier="cook")
-    cb = Cookbook(id=uuid4(), name="My", cookbook_owner=user.id)
+    cb = Cookbook(id=uuid4(), name="My", bundle_owner=user.id)
     db_session.add(cb)
     db_session.commit()
 
@@ -198,7 +198,7 @@ def test_invalid_frontmatter_returns_422(db_session):
 
 def test_cook_with_subrecipe_target_blocked_403(db_session):
     user = _make_user(db_session, tier="cook")
-    cb = Cookbook(id=uuid4(), name="My", cookbook_owner=user.id)
+    cb = Cookbook(id=uuid4(), name="My", bundle_owner=user.id)
     db_session.add(cb)
     db_session.commit()
 
@@ -219,7 +219,7 @@ def test_cook_with_subrecipe_target_blocked_403(db_session):
 
 def test_operator_with_subrecipe_target_succeeds(db_session):
     user = _make_user(db_session, tier="operator")
-    cb = Cookbook(id=uuid4(), name="My", cookbook_owner=user.id)
+    cb = Cookbook(id=uuid4(), name="My", bundle_owner=user.id)
     db_session.add(cb)
     db_session.commit()
 

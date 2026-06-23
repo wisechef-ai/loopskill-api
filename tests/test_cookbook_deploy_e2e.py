@@ -102,7 +102,7 @@ class TestCookbookClientDeployE2E:
             id=uuid4(),
             name="Client Cookbook",
             is_base=False,
-            cookbook_owner=user.id,
+            bundle_owner=user.id,
         )
         db.add(cookbook)
         db.commit()
@@ -131,14 +131,14 @@ class TestCookbookClientDeployE2E:
             )
         assert r.status_code == 200, f"Key creation failed: {r.text}"
         key_data = r.json()
-        assert key_data["cookbook_id"] == str(cookbook.id)
+        assert key_data["bundle_id"] == str(cookbook.id)
         assert key_data["label"] == "client-agency-key"
         created_key_id = key_data["id"]
 
         # Retrieve the DB row
         api_key = db.query(APIKey).filter(APIKey.id == UUID(created_key_id)).first()
         assert api_key is not None
-        assert str(api_key.cookbook_id) == str(cookbook.id)
+        assert str(api_key.bundle_id) == str(cookbook.id)
 
         # ── Step 4: Simulate an install event for this key ─────────────────
         # Add a minimal skill to install
@@ -172,7 +172,7 @@ class TestCookbookClientDeployE2E:
         # Find the key we just created
         found = next((k for k in keys_data if k["id"] == created_key_id), None)
         assert found is not None, "Created key not in GET /api-keys response"
-        assert found["cookbook_id"] == str(cookbook.id), "cookbook_id not in response"
+        assert found["bundle_id"] == str(cookbook.id), "cookbook_id not in response"
         assert found["install_count_total"] >= 1, (
             f"Expected install_count_total >= 1, got {found['install_count_total']}"
         )

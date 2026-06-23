@@ -446,7 +446,7 @@ class TestCbtTokenValidation:
             name="TestCB",
             description="x",
             is_base=False,
-            cookbook_owner=user.id,
+            bundle_owner=user.id,
         )
         db_session.add(cb)
         db_session.flush()
@@ -458,7 +458,7 @@ class TestCbtTokenValidation:
 
         row = CookbookShareToken(
             id=uuid4(),
-            cookbook_id=cb.id,
+            bundle_id=cb.id,
             token_prefix=prefix,
             token_hash=key_hash,
             scope="install",

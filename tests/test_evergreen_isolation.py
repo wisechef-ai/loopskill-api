@@ -74,7 +74,7 @@ def _make_user(db: Session, *, tier: str = "pro") -> User:
 
 
 def _make_cookbook(db: Session, owner: User, name: str = "Private CB") -> Cookbook:
-    cb = Cookbook(id=uuid4(), name=name, is_base=False, cookbook_owner=owner.id)
+    cb = Cookbook(id=uuid4(), name=name, is_base=False, bundle_owner=owner.id)
     db.add(cb)
     db.flush()
     return cb
@@ -140,7 +140,7 @@ class TestPhaseACookbookIsolation:
         intruder = _make_user(db_session)
         cb = _make_cookbook(db_session, owner)
         skill = _make_skill(db_session, "iso-rm")
-        db_session.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source="custom-added"))
+        db_session.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
         db_session.commit()
 
         app = _app_as(db_session, intruder.id)

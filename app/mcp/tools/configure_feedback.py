@@ -39,7 +39,7 @@ def _resolve_user_cookbook(db: Session, ctx: AuthContext) -> Cookbook | None:
     return (
         db.query(Cookbook)
         .filter(
-            Cookbook.cookbook_owner == ctx.user_id,
+            Cookbook.bundle_owner == ctx.user_id,  # compat-alias
             Cookbook.is_base.is_(False),
         )
         .order_by(Cookbook.created_at.asc())
@@ -90,7 +90,7 @@ def recipes_configure_feedback(
     # ── Ownership gate ────────────────────────────────────────────────────────
     if ctx.scope != "master":
         user_uuid = _coerce_uuid(ctx.user_id)
-        if cb.cookbook_owner != user_uuid:
+        if cb.bundle_owner != user_uuid:
             return {"ok": False, "error": "You do not own this cookbook"}
 
     # ── Clear path ────────────────────────────────────────────────────────────

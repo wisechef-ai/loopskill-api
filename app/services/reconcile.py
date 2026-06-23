@@ -89,7 +89,7 @@ def _declared_skills(db: Session, cookbook_id: UUID) -> dict[str, dict[str, Any]
             CookbookSkill.source,
         )
         .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(CookbookSkill.cookbook_id == cookbook_id)
+        .filter(CookbookSkill.bundle_id == cookbook_id)  # compat-alias
         .all()
     )
 
@@ -249,7 +249,7 @@ def recipes_reconcile(
         if skill is None:
             continue
         db.query(CookbookSkill).filter(
-            CookbookSkill.cookbook_id == cb_uuid,
+            CookbookSkill.bundle_id == cb_uuid,  # compat-alias
             CookbookSkill.skill_id == skill.id,
         ).update({"pinned_version": to_version})
         mutated = True

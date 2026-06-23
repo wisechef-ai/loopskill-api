@@ -65,7 +65,7 @@ def _mk_key(db, user):
 def _mk_cookbook(db, owner, *, visibility="private"):
     from app.models import Cookbook
 
-    cb = Cookbook(id=uuid.uuid4(), name="deck", cookbook_owner=owner.id, visibility=visibility)
+    cb = Cookbook(id=uuid.uuid4(), name="deck", bundle_owner=owner.id, visibility=visibility)
     db.add(cb)
     db.flush()
     return cb
@@ -103,7 +103,7 @@ def _mk_skill_with_versions(db, slug, semvers=("1.0.0",)):
 def _add(db, cb, skill, *, source="custom-added", order=100):
     from app.models import CookbookSkill
 
-    db.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source=source, install_order=order))
+    db.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source=source, install_order=order))
     db.flush()
 
 
@@ -202,7 +202,7 @@ def test_pin_external_skill_rejected(middleware_client, db_session):
     )
     db_session.add(ext)
     db_session.flush()
-    db_session.add(CookbookSkill(cookbook_id=cb.id, skill_id=ext.id, source="custom-added"))
+    db_session.add(CookbookSkill(bundle_id=cb.id, skill_id=ext.id, source="custom-added"))
     db_session.flush()
 
     r = middleware_client.patch(

@@ -65,7 +65,7 @@ def app_and_data(db_engine, monkeypatch):
 
     cb = Cookbook(
         id=uuid.uuid4(),
-        cookbook_owner=uid,
+        bundle_owner=uid,
         name="My Cookbook",
         created_at=datetime.now(timezone.utc),
     )

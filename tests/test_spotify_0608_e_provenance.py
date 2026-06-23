@@ -95,7 +95,7 @@ def _mk_cookbook(db, owner, slug=None, **kw):
     cb = Cookbook(
         id=uuid.uuid4(),
         name=kw.pop("name", "CB"),
-        cookbook_owner=owner.id if owner else None,
+        bundle_owner=owner.id if owner else None,
         slug=slug,
         visibility=kw.pop("visibility", "private"),
         **kw,
@@ -171,7 +171,7 @@ def test_record_install_stamps_cookbook_id(db):
         db, skill=s, version_semver="1.0.0", source="cookbook", cookbook_id=cb.id, commit=True
     )
     resolved = resolve_provenance(db, pid)
-    assert resolved.cookbook_id == cb.id
+    assert resolved.bundle_id == cb.id
 
 
 def test_unattributed_stamp(db):
@@ -329,7 +329,7 @@ def test_direct_install_returns_provenance(db):
 
 
 def _attach(db, cb, skill, source="custom-added", pinned=None):
-    db.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source=source, pinned_version=pinned))
+    db.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source=source, pinned_version=pinned))
     db.commit()
 
 
@@ -346,7 +346,7 @@ def test_mcp_cookbook_install_single_returns_provenance(db):
     out = recipes_cookbook_install(db=db, ctx=ctx, cookbook_id=str(cb.id), slug="mcp-single")
     assert out.get("provenance_id"), "MCP single install must return provenance_id"
     resolved = resolve_provenance(db, out["provenance_id"])
-    assert resolved.cookbook_id == cb.id  # stamped with the cookbook
+    assert resolved.bundle_id == cb.id  # stamped with the cookbook
 
 
 def test_mcp_cookbook_install_bulk_per_skill_provenance(db):
@@ -404,7 +404,7 @@ def test_cookbook_rest_bulk_install_per_skill_provenance(db):
         out = cookbook_routes.install_cookbook(cookbook_id=str(cb.id), request=_Req(), db=db, ctx=_Ctx())
     assert out["skills"][0]["provenance_id"]
     resolved = resolve_provenance(db, out["skills"][0]["provenance_id"])
-    assert resolved.cookbook_id == cb.id
+    assert resolved.bundle_id == cb.id
 
 
 # ── feedback tool e2e: provenance routes to curator repo ─────────────────────

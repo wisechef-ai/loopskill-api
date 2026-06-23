@@ -259,13 +259,13 @@ class TestListCookbookUsesCallerUserId:
         cookbook = Cookbook(
             id=uuid4(),
             name="Charlie's Cookbook",
-            cookbook_owner=user.id,
+            bundle_owner=user.id,
         )
         db_session.add(cookbook)
         skill = make_skill(db_session, slug="charlie-skill", title="Charlie Skill")
         db_session.add(
             CookbookSkill(
-                cookbook_id=cookbook.id,
+                bundle_id=cookbook.id,
                 skill_id=skill.id,
                 source="custom-added",
             )

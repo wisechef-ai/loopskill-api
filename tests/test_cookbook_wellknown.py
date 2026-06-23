@@ -102,14 +102,14 @@ def _seed_public_cookbook(db: Session, *, visibility: str = "public") -> Cookboo
         name="Test Bundle",
         slug="test-bundle",
         visibility=visibility,
-        cookbook_owner=owner.id,
+        bundle_owner=owner.id,
     )
     db.add(cb)
     db.flush()
     db.add_all(
         [
-            CookbookSkill(cookbook_id=cb.id, skill_id=free.id, source="custom-added", install_order=0),
-            CookbookSkill(cookbook_id=cb.id, skill_id=paid.id, source="custom-added", install_order=1),
+            CookbookSkill(bundle_id=cb.id, skill_id=free.id, source="custom-added", install_order=0),
+            CookbookSkill(bundle_id=cb.id, skill_id=paid.id, source="custom-added", install_order=1),
         ]
     )
     db.commit()

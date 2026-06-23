@@ -104,10 +104,10 @@ def _skill_with_versions(db: Session, slug: str, versions: list[tuple[str, bool]
 
 
 def _cookbook_with_skill(db: Session, owner: User, skill: Skill, pin: str) -> Cookbook:
-    cb = Cookbook(id=uuid4(), name="CB", is_base=False, cookbook_owner=owner.id)
+    cb = Cookbook(id=uuid4(), name="CB", is_base=False, bundle_owner=owner.id)
     db.add(cb)
     db.flush()
-    db.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source="overridden", pinned_version=pin))
+    db.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="overridden", pinned_version=pin))
     db.flush()
     return cb
 
@@ -169,9 +169,9 @@ class TestThreeChannelDivergence:
         fleet = _fleet(db, owner)
         db.add_all(
             [
-                FleetSubscription(fleet_id=fleet.id, cookbook_id=cb_canary.id, channel="canary"),
-                FleetSubscription(fleet_id=fleet.id, cookbook_id=cb_stable.id, channel="stable"),
-                FleetSubscription(fleet_id=fleet.id, cookbook_id=cb_frozen.id, channel="frozen"),
+                FleetSubscription(fleet_id=fleet.id, bundle_id=cb_canary.id, channel="canary"),
+                FleetSubscription(fleet_id=fleet.id, bundle_id=cb_stable.id, channel="stable"),
+                FleetSubscription(fleet_id=fleet.id, bundle_id=cb_frozen.id, channel="frozen"),
             ]
         )
         db.commit()
@@ -203,13 +203,13 @@ class TestThreeChannelDivergence:
         # Verify the actual DB pins
         db.expire_all()
         canary_pin = (
-            db.query(CookbookSkill).filter(CookbookSkill.cookbook_id == cb_canary.id).first().pinned_version
+            db.query(CookbookSkill).filter(CookbookSkill.bundle_id == cb_canary.id).first().pinned_version
         )
         stable_pin = (
-            db.query(CookbookSkill).filter(CookbookSkill.cookbook_id == cb_stable.id).first().pinned_version
+            db.query(CookbookSkill).filter(CookbookSkill.bundle_id == cb_stable.id).first().pinned_version
         )
         frozen_pin = (
-            db.query(CookbookSkill).filter(CookbookSkill.cookbook_id == cb_frozen.id).first().pinned_version
+            db.query(CookbookSkill).filter(CookbookSkill.bundle_id == cb_frozen.id).first().pinned_version
         )
         assert canary_pin == "2.0.0"
         assert stable_pin == "1.0.0"
@@ -221,7 +221,7 @@ class TestThreeChannelDivergence:
         skill = _skill_with_versions(db, "promote-skill", [("1.0.0", True), ("2.0.0", True)])
         cb = _cookbook_with_skill(db, owner, skill, pin="1.0.0")
         fleet = _fleet(db, owner)
-        db.add(FleetSubscription(fleet_id=fleet.id, cookbook_id=cb.id, channel="stable"))
+        db.add(FleetSubscription(fleet_id=fleet.id, bundle_id=cb.id, channel="stable"))
         db.commit()
 
         ctx = AuthContext(scope="master")
@@ -235,7 +235,7 @@ class TestFleetSyncDryRun:
         skill = _skill_with_versions(db, "dry-skill", [("1.0.0", False), ("2.0.0", False)])
         cb = _cookbook_with_skill(db, owner, skill, pin="1.0.0")
         fleet = _fleet(db, owner)
-        db.add(FleetSubscription(fleet_id=fleet.id, cookbook_id=cb.id, channel="canary"))
+        db.add(FleetSubscription(fleet_id=fleet.id, bundle_id=cb.id, channel="canary"))
         db.commit()
 
         ctx = AuthContext(scope="master")
@@ -244,5 +244,5 @@ class TestFleetSyncDryRun:
         assert results[0]["applied"] is False
         # No write
         db.expire_all()
-        pin = db.query(CookbookSkill).filter(CookbookSkill.cookbook_id == cb.id).first().pinned_version
+        pin = db.query(CookbookSkill).filter(CookbookSkill.bundle_id == cb.id).first().pinned_version
         assert pin == "1.0.0", "dry_run must not write"

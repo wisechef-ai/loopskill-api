@@ -49,7 +49,7 @@ def db_session() -> Generator[Session, None, None]:
 
 def _make_cookbook(db: Session) -> Cookbook:
     """Create and persist a minimal cookbook."""
-    cb = Cookbook(id=uuid4(), name="Test CB", cookbook_owner=None)
+    cb = Cookbook(id=uuid4(), name="Test CB", bundle_owner=None)
     db.add(cb)
     db.commit()
     return cb

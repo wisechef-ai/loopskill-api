@@ -101,7 +101,7 @@ def _make_cookbook(db: Session, owner_id: UUID, name: str = "CB") -> Cookbook:
         name=name,
         description="test",
         is_base=False,
-        cookbook_owner=owner_id,
+        bundle_owner=owner_id,
     )
     db.add(cb)
     db.flush()
@@ -157,7 +157,7 @@ def _make_cbt_token(
     token_hash = hashlib.sha256(full_token.encode()).hexdigest()
     row = CookbookShareToken(
         id=uuid4(),
-        cookbook_id=cookbook_id,
+        bundle_id=cookbook_id,
         token_hash=token_hash,
         token_prefix=cb_prefix,
         scope=scope,

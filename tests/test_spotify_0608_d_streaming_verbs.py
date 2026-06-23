@@ -96,7 +96,7 @@ def _mk_cookbook(db, owner, slug, visibility="public", name="CB"):
     cb = Cookbook(
         id=uuid.uuid4(),
         name=name,
-        cookbook_owner=owner.id if owner else None,
+        bundle_owner=owner.id if owner else None,
         slug=slug,
         visibility=visibility,
     )
@@ -131,7 +131,7 @@ def _mk_version(db, skill, semver="1.0.0"):
 
 
 def _attach(db, cb, skill, source="custom-added"):
-    db.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source=source))
+    db.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source=source))
     db.commit()
 
 
@@ -374,7 +374,7 @@ def test_compose_unions_skills_from_multiple_links(db):
     assert out["name"] == "My Awakened Agent"
     # new cookbook persisted + owned by caller
     cb = db.query(Cookbook).filter(Cookbook.id == uuid.UUID(out["cookbook"])).first()
-    assert cb is not None and cb.cookbook_owner == owner.id
+    assert cb is not None and cb.bundle_owner == owner.id
     assert cb.visibility == "private"
 
 

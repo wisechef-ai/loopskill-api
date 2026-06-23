@@ -146,8 +146,8 @@ def recall_skills(
         try:
             rows = (
                 db.query(CookbookSkill.skill_id)
-                .join(Cookbook, Cookbook.id == CookbookSkill.cookbook_id)
-                .filter(Cookbook.cookbook_owner == user_id)
+                .join(Cookbook, Cookbook.id == CookbookSkill.bundle_id)  # compat-alias
+                .filter(Cookbook.bundle_owner == user_id)  # compat-alias
                 .filter(CookbookSkill.source != "disabled")
                 .all()
             )

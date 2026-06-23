@@ -55,7 +55,7 @@ def run_preflight(
         }
     rows = (
         db.query(CookbookDeployment)
-        .filter(CookbookDeployment.cookbook_id == cookbook.id)
+        .filter(CookbookDeployment.bundle_id == cookbook.id)  # compat-alias
         .order_by(CookbookDeployment.install_order.asc())
         .all()
     )

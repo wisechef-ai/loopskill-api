@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import mcp.types as types
+from app.mcp._registry_bundle import _bundle_tools
 from app.mcp._registry_d import _phase_d_tools, _phase_e_tools
 from app.mcp._registry_j import _phase_j_tools
 from app.mcp._registry_loopskill import _loopskill_catalog_tools
@@ -10,6 +11,9 @@ from app.mcp._registry_loopskill import _loopskill_catalog_tools
 
 def _tool_definitions() -> list[types.Tool]:
     return [
+        *_bundle_tools(),  # Phase 3+4 new-vocab tools (bundle_list, bundle_install)
+        # ── Legacy compat aliases — existing agents continue to work unchanged ─
+        # compat-alias: recipes_* and cookbook_* names remain registered.
         types.Tool(
             name="recipes_search",
             description="Full-text search across the public skill catalog.",

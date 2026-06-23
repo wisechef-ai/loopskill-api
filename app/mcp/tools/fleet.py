@@ -130,7 +130,7 @@ def recipes_fleet_subscribe(
         db.query(FleetSubscription)
         .filter(
             FleetSubscription.fleet_id == fleet_uuid,
-            FleetSubscription.cookbook_id == cb_uuid,
+            FleetSubscription.bundle_id == cb_uuid,
         )
         .first()
     )
@@ -143,7 +143,7 @@ def recipes_fleet_subscribe(
 
     sub = FleetSubscription(
         fleet_id=fleet_uuid,
-        cookbook_id=cb_uuid,
+        bundle_id=cb_uuid,
         channel=channel,
     )
     db.add(sub)
@@ -217,7 +217,10 @@ def recipes_fleet_list(
             {
                 "fleet_id": str(fleet.id),
                 "name": fleet.name,
-                "subscriptions": [{"cookbook_id": str(s.cookbook_id), "channel": s.channel} for s in subs],
+                "subscriptions": [
+                    {"cookbook_id": str(s.bundle_id), "channel": s.channel}  # compat-alias
+                    for s in subs
+                ],
             }
         )
 

@@ -87,7 +87,7 @@ def _make_cookbook(db: Session, *, owner_id) -> Cookbook:
         name="MCP Share Test CB",
         description="test",
         is_base=False,
-        cookbook_owner=owner_id,
+        bundle_owner=owner_id,
     )
     db.add(cb)
     db.flush()
@@ -215,7 +215,7 @@ class TestRecipesShareList:
         inactive_hash = hashlib.sha256(inactive_token.encode()).hexdigest()
         inactive_row = CookbookShareToken(
             id=uuid4(),
-            cookbook_id=cb.id,
+            bundle_id=cb.id,
             token_hash=inactive_hash,
             token_prefix=cb_prefix,
             scope="edit",

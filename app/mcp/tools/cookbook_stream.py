@@ -151,7 +151,7 @@ def _cookbook_member_rows(db: Session, cookbook_id: Any) -> list[tuple[CookbookS
         db.query(CookbookSkill, Skill)
         .join(Skill, Skill.id == CookbookSkill.skill_id)
         .filter(
-            CookbookSkill.cookbook_id == cookbook_id,
+            CookbookSkill.bundle_id == cookbook_id,  # compat-alias
             CookbookSkill.source != "disabled",
         )
         .order_by(CookbookSkill.added_at.asc())
@@ -230,7 +230,7 @@ def recipes_install_from_cookbook(
     if to_record:
         db.commit()
 
-    ref_q = f"?ref={cb.cookbook_owner}" if cb.cookbook_owner else ""
+    ref_q = f"?ref={cb.bundle_owner}" if cb.bundle_owner else ""
     return {
         "cookbook": str(cb.id),
         "name": cb.name,
@@ -419,7 +419,7 @@ def recipes_compose_cookbook_from_links(
     # Tier cookbook cap (free=1, pro=10, pro+=200; None=unlimited).
     limit = cookbook_limit(ctx.tier)
     if limit is not None:
-        existing = db.query(Cookbook).filter(Cookbook.cookbook_owner == ctx.user_id).count()
+        existing = db.query(Cookbook).filter(Cookbook.bundle_owner == ctx.user_id).count()  # compat-alias
         if existing >= limit:
             raise CookbookInstallError(
                 "cookbook_limit",
@@ -460,14 +460,14 @@ def recipes_compose_cookbook_from_links(
         name=cb_name,
         description="Composed via recipes_compose_cookbook_from_links.",
         is_base=False,
-        cookbook_owner=ctx.user_id,
+        bundle_owner=ctx.user_id,
     )
     db.add(cb)
     db.flush()  # need cb.id before adding members
 
     member_out: list[dict[str, Any]] = []
     for sk in resolved:
-        db.add(CookbookSkill(cookbook_id=cb.id, skill_id=sk.id, source="custom-added"))
+        db.add(CookbookSkill(bundle_id=cb.id, skill_id=sk.id, source="custom-added"))  # compat-alias
         member_out.append({"slug": sk.slug, "title": sk.title, "external": bool(is_external_skill(sk))})
     db.commit()
     db.refresh(cb)

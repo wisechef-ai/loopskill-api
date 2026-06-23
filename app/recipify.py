@@ -289,7 +289,7 @@ def infer_related_skills(
     rows = (
         db.query(CookbookSkill, Skill)
         .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(CookbookSkill.cookbook_id == cookbook_id)
+        .filter(CookbookSkill.bundle_id == cookbook_id)  # compat-alias
         .filter(CookbookSkill.source != "disabled")
         .all()
     )
@@ -380,14 +380,14 @@ def write_cookbook_skill(
     cs = (
         db.query(CookbookSkill)
         .filter(
-            CookbookSkill.cookbook_id == cb.id,
+            CookbookSkill.bundle_id == cb.id,  # compat-alias
             CookbookSkill.skill_id == skill.id,
         )
         .first()
     )
     if cs is None:
         cs = CookbookSkill(
-            cookbook_id=cb.id,
+            bundle_id=cb.id,
             skill_id=skill.id,
             source="custom-added",
         )

@@ -41,7 +41,7 @@ def test_r8_invalid_channel_rejected(db_session):
     owner = User(id=uuid.uuid4(), display_name="o", email=f"{uuid.uuid4().hex[:8]}@e.com")
     db_session.add(owner)
     db_session.flush()
-    cb = Cookbook(id=uuid.uuid4(), name="cb", cookbook_owner=owner.id)
+    cb = Cookbook(id=uuid.uuid4(), name="cb", bundle_owner=owner.id)
     db_session.add(cb)
     db_session.flush()
     ctx = _user_ctx(owner.id)
@@ -68,7 +68,7 @@ def test_r8_valid_channels_accepted(db_session):
     fleet_id = fleet["fleet_id"] if "fleet_id" in fleet else fleet.get("id")
 
     for ch in ("canary", "stable", "frozen"):
-        cb = Cookbook(id=uuid.uuid4(), name=f"cb-{ch}", cookbook_owner=owner.id)
+        cb = Cookbook(id=uuid.uuid4(), name=f"cb-{ch}", bundle_owner=owner.id)
         db_session.add(cb)
         db_session.flush()
         out = recipes_fleet_subscribe(
@@ -93,7 +93,7 @@ def test_r6_newest_is_deterministic(middleware_client, db_session):
             name=f"tie-{i}",
             slug=f"tie-{i}",
             visibility="public",
-            cookbook_owner=uuid.uuid4(),
+            bundle_owner=uuid.uuid4(),
             created_at=same_ts,
         )
         db_session.add(cb)

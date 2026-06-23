@@ -179,7 +179,11 @@ async def create_api_key(
         except (ValueError, TypeError):
             raise HTTPException(status_code=400, detail="invalid_cookbook_id")
 
-        cb = db.query(Cookbook).filter(Cookbook.id == cookbook_id, Cookbook.cookbook_owner == user.id).first()
+        cb = (
+            db.query(Cookbook)  # compat-alias
+            .filter(Cookbook.id == cookbook_id, Cookbook.bundle_owner == user.id)  # compat-alias
+            .first()
+        )
         if not cb:
             raise HTTPException(status_code=404, detail="cookbook_not_found")
 
@@ -198,7 +202,7 @@ async def create_api_key(
         key_hash=key_hash,
         name=label,  # keep `name` populated for backwards-compat reads
         label=label,
-        cookbook_id=cookbook_id,
+        bundle_id=cookbook_id,  # compat-alias
         is_active=True,
     )
     db.add(new_key)
@@ -222,7 +226,7 @@ async def create_api_key(
         "prefix": prefix12,
         "label": new_key.label,
         "name": new_key.name,
-        "cookbook_id": str(new_key.cookbook_id) if new_key.cookbook_id else None,
+        "bundle_id": str(new_key.bundle_id) if new_key.bundle_id else None,
         "created_at": new_key.created_at.isoformat() if new_key.created_at else None,
         "warning": "Save this key now — it will not be shown again.",
     }
@@ -255,7 +259,7 @@ async def list_api_keys(
                 "prefix": k.key_prefix,
                 "label": k.label or k.name,
                 "name": k.name,
-                "cookbook_id": str(k.cookbook_id) if k.cookbook_id else None,
+                "bundle_id": str(k.bundle_id) if k.bundle_id else None,
                 "is_active": k.is_active,
                 "created_at": k.created_at.isoformat() if k.created_at else None,
                 "last_used_at": k.last_used_at.isoformat() if k.last_used_at else None,

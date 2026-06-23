@@ -79,7 +79,7 @@ def test_seed_creates_system_user_and_public_cookbooks(db):
 
     system = db.query(User).filter(User.email == seed_mod.SYSTEM_EMAIL).first()
     assert system is not None
-    cbs = db.query(Cookbook).filter(Cookbook.cookbook_owner == system.id).all()
+    cbs = db.query(Cookbook).filter(Cookbook.bundle_owner == system.id).all()
     assert len(cbs) == len(seed_mod.EDITORIAL_COOKBOOKS) == 10
     for cb in cbs:
         assert cb.visibility == "public"
@@ -96,7 +96,7 @@ def test_hero_cookbook_composition(db):
     skills = (
         db.query(Skill.slug)
         .join(CookbookSkill, CookbookSkill.skill_id == Skill.id)
-        .filter(CookbookSkill.cookbook_id == hero.id)
+        .filter(CookbookSkill.bundle_id == hero.id)
         .all()
     )
     slugs = {s[0] for s in skills}
@@ -133,7 +133,7 @@ def test_missing_slug_is_skipped_not_fabricated(db):
         s[0]
         for s in db.query(Skill.slug)
         .join(CookbookSkill, CookbookSkill.skill_id == Skill.id)
-        .filter(CookbookSkill.cookbook_id == hero.id)
+        .filter(CookbookSkill.bundle_id == hero.id)
         .all()
     }
     assert "chef" not in hero_slugs

@@ -87,7 +87,7 @@ def reconcile_cookbook(
     # Ownership: master, or the owner. A non-owner gets 404 — existence + the
     # 304/200 change-state must NEVER leak to a non-owner.
     is_owner = auth_ctx.scope == "master" or (
-        auth_ctx.user_id is not None and cb.cookbook_owner == auth_ctx.user_id
+        auth_ctx.user_id is not None and cb.bundle_owner == auth_ctx.user_id
     )
     if not is_owner:
         response.status_code = 404

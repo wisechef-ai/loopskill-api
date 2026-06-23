@@ -52,7 +52,7 @@ def db(engine_fixture) -> Generator[Session, None, None]:
 def _event(db, cb_id, skill_id, semver, outcome, *, ago_hours=0):
     db.add(
         ReconcileEvent(
-            cookbook_id=cb_id,
+            bundle_id=cb_id,
             skill_id=skill_id,
             semver=semver,
             channel="canary",

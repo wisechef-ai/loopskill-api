@@ -32,10 +32,10 @@ def make_skill(is_public: bool = True, skill_owner=None):
     return skill
 
 
-def make_cookbook(cookbook_owner=None, cookbook_id=None):
+def make_cookbook(bundle_owner=None, cookbook_id=None):
     """Create a mock cookbook object."""
     cb = MagicMock()
-    cb.cookbook_owner = cookbook_owner
+    cb.bundle_owner = bundle_owner
     cb.id = cookbook_id or uuid4()
     return cb
 
@@ -144,7 +144,7 @@ def test_can_install_master_all():
 def test_can_write_cookbook_master():
     """Master can write any cookbook."""
     ctx = AuthContext(scope="master")
-    cb = make_cookbook(cookbook_owner=uuid4())
+    cb = make_cookbook(bundle_owner=uuid4())
     assert can_write_cookbook(ctx, cb) is True
 
 
@@ -152,14 +152,14 @@ def test_can_write_cookbook_owner():
     """User can write their own cookbook."""
     uid = uuid4()
     ctx = AuthContext(scope="user", user_id=uid)
-    cb = make_cookbook(cookbook_owner=uid)
+    cb = make_cookbook(bundle_owner=uid)
     assert can_write_cookbook(ctx, cb) is True
 
 
 def test_cannot_write_cookbook_cross_tenant():
     """User cannot write another user's cookbook (cross-tenant deny)."""
     ctx = AuthContext(scope="user", user_id=uuid4())
-    cb = make_cookbook(cookbook_owner=uuid4())
+    cb = make_cookbook(bundle_owner=uuid4())
     assert can_write_cookbook(ctx, cb) is False
 
 
@@ -168,7 +168,7 @@ def test_cookbook_scoped_key_correct_cookbook():
     uid = uuid4()
     cb_id = uuid4()
     ctx = AuthContext(scope="user", user_id=uid, cookbook_scope=cb_id)
-    cb = make_cookbook(cookbook_owner=uid, cookbook_id=cb_id)
+    cb = make_cookbook(bundle_owner=uid, cookbook_id=cb_id)
     assert can_write_cookbook(ctx, cb) is True
 
 
@@ -176,7 +176,7 @@ def test_cookbook_scoped_key_wrong_cookbook():
     """Cookbook-scoped key on a DIFFERENT cookbook → denied (even if owner matches)."""
     uid = uuid4()
     ctx = AuthContext(scope="user", user_id=uid, cookbook_scope=uuid4())
-    cb = make_cookbook(cookbook_owner=uid, cookbook_id=uuid4())
+    cb = make_cookbook(bundle_owner=uid, cookbook_id=uuid4())
     assert can_write_cookbook(ctx, cb) is False
 
 
@@ -190,7 +190,7 @@ def test_cookbook_scoped_master_key_different_cookbook():
 def test_cannot_write_cookbook_anonymous():
     """Anonymous callers cannot write cookbooks."""
     ctx = AuthContext.anonymous()
-    cb = make_cookbook(cookbook_owner=uuid4())
+    cb = make_cookbook(bundle_owner=uuid4())
     assert can_write_cookbook(ctx, cb) is False
 
 

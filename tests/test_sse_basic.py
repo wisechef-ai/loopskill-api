@@ -64,7 +64,7 @@ def _make_user_and_cookbook(db: Session, *, tier: str = "cook") -> tuple[User, C
     )
     db.add(user)
     db.flush()
-    cb = Cookbook(id=uuid4(), name="SSE Cookbook", cookbook_owner=user.id)
+    cb = Cookbook(id=uuid4(), name="SSE Cookbook", bundle_owner=user.id)
     db.add(cb)
     db.commit()
     return user, cb

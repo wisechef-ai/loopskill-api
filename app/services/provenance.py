@@ -63,7 +63,7 @@ class ResolvedProvenance:
     install_event_id: UUID
     skill_id: UUID | None
     skill_slug: str | None
-    cookbook_id: UUID | None
+    bundle_id: UUID | None
     version_semver: str | None
     attribution: str
 
@@ -153,7 +153,7 @@ def record_install_with_provenance(
         api_key_id=api_key_id,
         version_semver=version_semver,
         client_ip=client_ip,
-        cookbook_id=cb_uuid,
+        bundle_id=cb_uuid,
         attribution=attribution,
     )
     db.add(event)
@@ -195,7 +195,7 @@ def resolve_provenance(db: "Session", provenance_id: str) -> ResolvedProvenance 
         install_event_id=ev.id,
         skill_id=ev.skill_id,
         skill_slug=ev.skill_slug,
-        cookbook_id=ev.cookbook_id,
+        bundle_id=ev.bundle_id,
         version_semver=ev.version_semver,
         attribution=ev.attribution or ATTR_ATTRIBUTED,
     )
@@ -236,7 +236,7 @@ def route_targets_for_provenance(db: "Session", provenance_id: str | None) -> li
     if resolved is None:
         return []
     targets: list[FeedbackTarget] = []
-    curator = _curator_target(db, resolved.cookbook_id)
+    curator = _curator_target(db, resolved.bundle_id)
     if curator is not None:
         targets.append(curator)
     return targets

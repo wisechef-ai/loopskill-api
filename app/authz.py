@@ -59,11 +59,11 @@ def can_read_skill(ctx: AuthContext, skill: Any, db: "Session | None" = None) ->
 
         owns_via_cookbook = (
             db.query(CookbookSkill)
-            .join(Cookbook, Cookbook.id == CookbookSkill.cookbook_id)
+            .join(Cookbook, Cookbook.id == CookbookSkill.bundle_id)  # compat-alias
             .filter(
                 CookbookSkill.skill_id == skill.id,
                 CookbookSkill.source != "disabled",
-                Cookbook.cookbook_owner == ctx.user_id,
+                Cookbook.bundle_owner == ctx.user_id,  # compat-alias
             )
             .first()
             is not None
@@ -79,7 +79,7 @@ def can_read_skill(ctx: AuthContext, skill: Any, db: "Session | None" = None) ->
         exists = (
             db.query(CookbookSkill)
             .filter(
-                CookbookSkill.cookbook_id == ctx.cookbook_scope,
+                CookbookSkill.bundle_id == ctx.cookbook_scope,  # compat-alias
                 CookbookSkill.skill_id == skill.id,
                 CookbookSkill.source != "disabled",
             )
@@ -132,7 +132,7 @@ def can_write_cookbook(ctx: AuthContext, cookbook: Any) -> bool:
 
     Access rules:
     - Master scope: always allowed
-    - User scope: allowed if ctx.user_id == cookbook.cookbook_owner
+    - User scope: allowed if ctx.user_id == cookbook.bundle_owner  # compat-alias
     - Cookbook-scoped key: additionally restricted to the specific cookbook
       (ctx.cookbook_scope must match cookbook.id)
     - All other cases: False
@@ -143,7 +143,11 @@ def can_write_cookbook(ctx: AuthContext, cookbook: Any) -> bool:
 
     if ctx.scope == "master":
         return True
-    if ctx.scope == "user" and ctx.user_id is not None and ctx.user_id == cookbook.cookbook_owner:
+    if (
+        ctx.scope == "user"
+        and ctx.user_id is not None
+        and ctx.user_id == cookbook.bundle_owner  # compat-alias
+    ):
         return True
     return False
 

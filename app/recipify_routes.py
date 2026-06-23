@@ -55,13 +55,13 @@ def _resolve_or_create_cookbook(db: Session, ctx: CookbookCtx, target_cookbook_i
         cb = db.query(Cookbook).filter(Cookbook.id == target_cookbook_id).first()
         if cb is None:
             raise HTTPException(status_code=404, detail="cookbook_not_found")
-        if not ctx.is_master and cb.cookbook_owner != ctx.user_id:
+        if not ctx.is_master and cb.bundle_owner != ctx.user_id:
             raise HTTPException(status_code=404, detail="cookbook_not_found")
         return cb
 
     cb = (
         db.query(Cookbook)
-        .filter(Cookbook.cookbook_owner == ctx.user_id)
+        .filter(Cookbook.bundle_owner == ctx.user_id)  # compat-alias
         .order_by(Cookbook.created_at.asc())
         .first()
     )
@@ -69,7 +69,7 @@ def _resolve_or_create_cookbook(db: Session, ctx: CookbookCtx, target_cookbook_i
         cb = Cookbook(
             id=uuid4(),
             name="My Cookbook",
-            cookbook_owner=ctx.user_id,
+            bundle_owner=ctx.user_id,
             is_base=False,
         )
         db.add(cb)

@@ -257,7 +257,7 @@ def _make_cookbook(db, owner_id, is_base=False):
         id=uuid.uuid4(),
         name="Test Cookbook",
         is_base=is_base,
-        cookbook_owner=owner_id,
+        bundle_owner=owner_id,
     )
     db.add(cb)
     db.flush()
@@ -434,7 +434,7 @@ class TestFeedbackRouting:
             id=uuid.uuid4(),
             name="Test",
             is_base=False,
-            cookbook_owner=user_id,
+            bundle_owner=user_id,
             feedback_repo=repo,
             feedback_mode=mode,
             feedback_pat_enc=pat_enc,
@@ -606,7 +606,7 @@ class TestRegressions:
             id=uuid.uuid4(),
             name="LogTest",
             is_base=False,
-            cookbook_owner=user_id,
+            bundle_owner=user_id,
             feedback_repo="testuser/logrepo",
             feedback_mode="pat",
             feedback_pat_enc=enc,
@@ -652,7 +652,7 @@ class TestRegressions:
             id=cb_id,
             name="Dispatch Wiring Test",
             is_base=False,
-            cookbook_owner=user_id,
+            bundle_owner=user_id,
         )
         db_session.add(cb)
         db_session.flush()

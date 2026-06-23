@@ -1,8 +1,9 @@
-"""SQLAlchemy models for WiseRecipes.
+"""SQLAlchemy models for WiseRecipes / LoopSkill.
 
-Schema per recipes-plan-v4-locked.md: users, api_keys, skills, skill_versions,
-install_events, telemetry_events, carousel_entries, referrals, creator_payouts,
-wisechef_demo_requests. Plus supporting tables: creators, orgs, recipes, api_library.
+Schema: users, api_keys, skills, skill_versions, install_events, telemetry_events,
+carousel_entries, referrals, creator_payouts, wisechef_demo_requests.
+Plus supporting tables: creators, orgs, api_library.
+Bundle tables: bundles, bundle_skills, bundle_share_tokens, bundle_deployments.
 """
 
 from uuid import uuid4
@@ -96,11 +97,11 @@ class APIKey(Base):
     key_prefix = Column(String(12), nullable=False)  # first 8 chars for lookup
     key_hash = Column(String(255), nullable=False)  # full sha256 of key
     name = Column(String(255), nullable=True)  # label like "production"
-    # Phase C — per-cookbook scoping + human label
+    # Phase C — per-bundle scoping + human label
     label = Column(String(100), nullable=True)  # human label e.g. "ACME client"
-    cookbook_id = Column(
+    bundle_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("cookbooks.id", ondelete="SET NULL"),
+        ForeignKey("bundles.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -300,7 +301,7 @@ class InstallEvent(Base):
     #                 non-fetch install: no body fetched → no deeper attribution).
     #                 Transient FETCH_ORIGIN failures are NOT mis-stamped here —
     #                 they stay hard errors and never reach this row.
-    cookbook_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    bundle_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     attribution = Column(String(16), nullable=False, server_default="attributed")
     created_at = Column(DateTime, server_default=func.now())
 
@@ -760,7 +761,7 @@ class ReconcileEvent(Base):
     __tablename__ = "reconcile_events"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    cookbook_id = Column(UUID(as_uuid=True), index=True, nullable=True)
+    bundle_id = Column(UUID(as_uuid=True), index=True, nullable=True)
     skill_id = Column(UUID(as_uuid=True), index=True, nullable=False)
     semver = Column(String(32), nullable=False)
     channel = Column(String(20), nullable=False, default="canary")
@@ -807,31 +808,33 @@ class IntentSurveyResponse(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
-# ── v6 Phase A — Cookbooks + Fleets ──────────────────────────────────────
+# ── v6 Phase A — Bundles + Fleets (was: Cookbooks) ───────────────────────  # compat-alias
 
 
-class Cookbook(Base):
-    """Customer-facing skill Cookbook — base or personal fork.
+class Bundle(Base):
+    """Customer-facing skill Bundle — base or personal fork.
 
-    is_base=True identifies the single WiseChef base Cookbook (unique constraint
-    at DB level for Postgres). Personal Cookbooks have parent_cookbook_id=<base>.
-    Agency master Cookbooks have synced_from_cookbook_id pointing at the source.
+    is_base=True identifies the single LoopSkill base Bundle (unique constraint
+    at DB level for Postgres). Personal Bundles have parent_bundle_id=<base>.
+    Agency master Bundles have synced_from_bundle_id pointing at the source.
+
+    Renamed from Cookbook (cookbooks table) in Phase 3+4 (loopskill_0622/p34).  # compat-alias
     """
 
-    __tablename__ = "cookbooks"
+    __tablename__ = "bundles"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     is_base = Column(Boolean, nullable=False, default=False, server_default="0")
-    parent_cookbook_id = Column(
-        UUID(as_uuid=True), ForeignKey("cookbooks.id", ondelete="SET NULL"), nullable=True, index=True
+    parent_bundle_id = Column(
+        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    cookbook_owner = Column(UUID(as_uuid=True), nullable=True, index=True)
-    cookbook_link_token = Column(String(64), nullable=True)
+    bundle_owner = Column(UUID(as_uuid=True), nullable=True, index=True)
+    bundle_link_token = Column(String(64), nullable=True)
     link_expires_at = Column(DateTime(timezone=True), nullable=True)
-    synced_from_cookbook_id = Column(
-        UUID(as_uuid=True), ForeignKey("cookbooks.id", ondelete="SET NULL"), nullable=True
+    synced_from_bundle_id = Column(
+        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="SET NULL"), nullable=True
     )
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
@@ -839,7 +842,7 @@ class Cookbook(Base):
     )
 
     # loopclose_3005 Phase J — user-routable feedback (THE MOAT)
-    # feedback_repo: NULL = use system default (wisechef-ai/recipes-api)
+    # feedback_repo: NULL = use system default (wisechef-ai/loopskill-api)
     #                set  = route feedback issues to this 'owner/name' repo
     # feedback_mode: 'pat' (PAT stored encrypted in feedback_pat_enc)
     #              | 'github_app' (future — App installation token, not yet live)
@@ -849,14 +852,14 @@ class Cookbook(Base):
     feedback_mode = Column(Text, nullable=True)
     feedback_pat_enc = Column(Text, nullable=True)
 
-    # spotify_0608 Ph A — Bucket absorption (D1). Cookbook is the survivor
+    # spotify_0608 Ph A — Bucket absorption (D1). Bundle is the survivor
     # primitive; these columns re-home the public/presentation + white-label
     # capability set that previously lived on the retired `buckets` table.
-    #   slug          : globally-unique public handle → shareable cookbook URL.
-    #                   NULL for private/unpublished cookbooks (most rows).
+    #   slug          : globally-unique public handle → shareable bundle URL.
+    #                   NULL for private/unpublished bundles (most rows).
     #   visibility    : 'private' | 'team' | 'public' (Ph B discovery consumes this).
     #   is_white_label: Pro+ "host on your own domain" toggle.
-    #   custom_domain : CNAME host matched by CookbookHostMiddleware.
+    #   custom_domain : CNAME host matched by BundleHostMiddleware.
     #   pin_mode      : 'latest-stable' | 'pinned-current' | 'frozen' (ordered apply).
     #   theme_json    : white-label theme payload echoed in the public manifest.
     slug = Column(String(255), unique=True, nullable=True, index=True)
@@ -866,34 +869,34 @@ class Cookbook(Base):
     pin_mode = Column(String(32), nullable=False, default="latest-stable", server_default="latest-stable")
     theme_json = Column(JSON, nullable=True)
 
-    # spotify_0608 Ph G — verified-maintainer badge. Set by an admin/master
-    # action (POST /api/cookbooks/{id}/verify); surfaced on the public cookbook
-    # page + the discover/leaderboard feeds. Default false.
+    # spotify_0608 Ph G — verified-maintainer badge.
     is_verified = Column(Boolean, nullable=False, default=False, server_default="0")
 
-    share_tokens = relationship("CookbookShareToken", back_populates="cookbook", cascade="all, delete-orphan")
+    share_tokens = relationship("BundleShareToken", back_populates="bundle", cascade="all, delete-orphan")
     deployments = relationship(
-        "CookbookDeployment",
-        back_populates="cookbook",
+        "BundleDeployment",
+        back_populates="bundle",
         cascade="all, delete-orphan",
-        order_by="CookbookDeployment.install_order",
+        order_by="BundleDeployment.install_order",
     )
 
 
-class CookbookSkill(Base):
-    """Provenance row linking a skill to a Cookbook.
+class BundleSkill(Base):
+    """Provenance row linking a skill to a Bundle.
 
     source enum: 'forked' | 'custom-added' | 'overridden' | 'disabled'
     - forked         = inherited from base, auto-updates on rebase
     - custom-added   = customer's own skill
     - overridden     = customer pinned this to a specific version
-    - disabled       = customer removed it from their Cookbook
+    - disabled       = customer removed it from their Bundle
+
+    Renamed from CookbookSkill (cookbook_skills table) in Phase 3+4.  # compat-alias
     """
 
-    __tablename__ = "cookbook_skills"
+    __tablename__ = "bundle_skills"
 
-    cookbook_id = Column(
-        UUID(as_uuid=True), ForeignKey("cookbooks.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    bundle_id = Column(
+        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="CASCADE"), primary_key=True, nullable=False
     )
     skill_id = Column(
         UUID(as_uuid=True), ForeignKey("skills.id", ondelete="CASCADE"), primary_key=True, nullable=False
@@ -901,29 +904,33 @@ class CookbookSkill(Base):
     source = Column(String(20), nullable=False)
     pinned_version = Column(String(50), nullable=True)
     # portal_0610 J2 — Composer reorder. install + manifest emit in this order;
-    # ties fall back to added_at. Default 100 matches CookbookDeployment.
+    # ties fall back to added_at. Default 100 matches BundleDeployment.
     install_order = Column(Integer, nullable=False, default=100, server_default="100")
     added_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
-        Index("ix_cookbook_skills_source", "source"),
-        Index("ix_cookbook_skills_order", "cookbook_id", "install_order"),
+        Index("ix_bundle_skills_source", "source"),
+        Index("ix_bundle_skills_order", "bundle_id", "install_order"),
     )
 
 
-class CookbookShareToken(Base):
-    """Share token for scoped delegation of cookbook access (Phase 3).
+class BundleShareToken(Base):
+    """Share token for scoped delegation of bundle access (Phase 3).
 
-    Token format: cbt_<8-hex-cookbook-prefix>_<32-hex-random>
+    Token format: bdl_<8-hex-bundle-prefix>_<32-hex-random>
+    Old format cbt_<8-hex-bundle-prefix>_<32-hex-random> is accepted via
+    middleware compat-alias for the parallel-run period.
     Only the sha256 hash is stored; the plaintext is shown exactly once at creation.
+
+    Renamed from CookbookShareToken (cookbook_share_tokens table) in Phase 3+4.  # compat-alias
     """
 
-    __tablename__ = "cookbook_share_tokens"
+    __tablename__ = "bundle_share_tokens"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    cookbook_id = Column(
+    bundle_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("cookbooks.id", ondelete="CASCADE"),
+        ForeignKey("bundles.id", ondelete="CASCADE"),
         nullable=False,
     )
     token_hash = Column(Text, nullable=False)
@@ -935,49 +942,49 @@ class CookbookShareToken(Base):
     is_active = Column(Boolean, default=True, server_default="true", nullable=False)
     last_used_at = Column(DateTime(timezone=True), nullable=True)
     # repohygiene_2605/H.1 (Issue #290): when True this token may call
-    # GET /api/skills/install for public-catalog skills the cookbook owner is
+    # GET /api/skills/install for public-catalog skills the bundle owner is
     # entitled to.  Default True — set to False for non-pro/non-pro_plus owners
     # by the migration backfill so the wider public access is restricted to
     # paid tiers by default.
     allow_public_catalog = Column(Boolean, default=True, server_default="true", nullable=False)
 
-    cookbook = relationship("Cookbook", back_populates="share_tokens")
+    bundle = relationship("Bundle", back_populates="share_tokens")
 
     __table_args__ = (
         CheckConstraint(
             # cookbook_share_2105 Phase E: 'install' added as a third scope value
-            # for "share my cookbook so another agent can install all skills."
-            # See alembic/versions/d8c8a3f721ec_cookbook_share_install_scope.py
             "scope IN ('read', 'edit', 'install')",
-            name="ck_cookbook_share_tokens_scope",
+            name="ck_bundle_share_tokens_scope",
         ),
-        Index("idx_cbst_prefix", "token_prefix"),
-        Index("idx_cbst_cookbook_active", "cookbook_id", "is_active"),
+        Index("idx_bst_prefix", "token_prefix"),
+        Index("idx_bst_bundle_active", "bundle_id", "is_active"),
     )
 
 
-class CookbookDeployment(Base):
-    """Ordered deployment row linking a Cookbook to a public skill OR a fork.
+class BundleDeployment(Base):
+    """Ordered deployment row linking a Bundle to a public skill OR a fork.
 
     spotify_0608 Ph A — this is the lossless replacement for the retired
     ``BucketSkill`` table (D1 / R3 data-model contract). It is the *deployment*
     layer — ordered, fork-aware, version-pinned — kept deliberately separate
-    from ``CookbookSkill`` (the membership layer, untouched). Two tables, two
-    concerns, zero join breakage: ``CookbookSkill`` keeps its NOT-NULL
-    ``(cookbook_id, skill_id)`` PK and every inner-join that depends on it.
+    from ``BundleSkill`` (the membership layer, untouched). Two tables, two
+    concerns, zero join breakage: ``BundleSkill`` keeps its NOT-NULL
+    ``(bundle_id, skill_id)`` PK and every inner-join that depends on it.
 
     Exactly one of ``(skill_id, fork_id)`` must be set — enforced by the same
     CHECK constraint ``BucketSkill`` carried. ``install_order`` controls the
     order the meta-skill applies them (lower = earlier); every deployment
     read / bulk-install / MCP-list path orders by it.
+
+    Renamed from CookbookDeployment (cookbook_deployments table) in Phase 3+4.  # compat-alias
     """
 
-    __tablename__ = "cookbook_deployments"
+    __tablename__ = "bundle_deployments"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    cookbook_id = Column(
+    bundle_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("cookbooks.id", ondelete="CASCADE"),
+        ForeignKey("bundles.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -989,15 +996,24 @@ class CookbookDeployment(Base):
     version_pin = Column(String(64), nullable=True)
     install_order = Column(Integer, nullable=False, default=100, server_default="100")
 
-    cookbook = relationship("Cookbook", back_populates="deployments")
+    bundle = relationship("Bundle", back_populates="deployments")
 
     __table_args__ = (
         CheckConstraint(
             "(skill_id IS NOT NULL) <> (fork_id IS NOT NULL)",
-            name="ck_cookbook_deployments_skill_xor_fork",
+            name="ck_bundle_deployments_skill_xor_fork",
         ),
-        Index("ix_cookbook_deployments_order", "cookbook_id", "install_order"),
+        Index("ix_bundle_deployments_order", "bundle_id", "install_order"),
     )
+
+
+# ── Compat aliases (loopskill_0622/p34) — keep old class names importable ──
+# Code that imported Cookbook/CookbookSkill/etc. directly still works.  # compat-alias
+# These aliases will be removed after the parallel-run period ends.
+Cookbook = Bundle  # compat-alias
+CookbookSkill = BundleSkill  # compat-alias
+CookbookShareToken = BundleShareToken  # compat-alias
+CookbookDeployment = BundleDeployment  # compat-alias
 
 
 class Fleet(Base):
@@ -1027,8 +1043,8 @@ class FleetSubscription(Base):
     fleet_id = Column(
         UUID(as_uuid=True), ForeignKey("fleets.id", ondelete="CASCADE"), primary_key=True, nullable=False
     )
-    cookbook_id = Column(
-        UUID(as_uuid=True), ForeignKey("cookbooks.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    bundle_id = Column(
+        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="CASCADE"), primary_key=True, nullable=False
     )
     channel = Column(String(20), nullable=False, default="stable", server_default="stable")
     subscribed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

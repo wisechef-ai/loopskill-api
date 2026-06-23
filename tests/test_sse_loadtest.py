@@ -122,7 +122,7 @@ async def test_n200_first_100_succeed_rest_get_503(db_session, engine_fixture):
     )
     db_session.add(user)
     db_session.flush()
-    cb = Cookbook(id=uuid4(), name="LT-CB", cookbook_owner=user.id)
+    cb = Cookbook(id=uuid4(), name="LT-CB", bundle_owner=user.id)
     db_session.add(cb)
     db_session.commit()
 

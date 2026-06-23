@@ -308,7 +308,7 @@ class TestDogfoodIsolationProbe:
         )
         db.add_all([owner, intruder])
         db.flush()
-        cb = Cookbook(id=uuid4(), name="Chef Internal Cookbook", is_base=False, cookbook_owner=owner.id)
+        cb = Cookbook(id=uuid4(), name="Chef Internal Cookbook", is_base=False, bundle_owner=owner.id)
         db.add(cb)
         db.commit()
 

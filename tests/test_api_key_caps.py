@@ -72,7 +72,7 @@ def _make_cookbook(db: Session, owner: User) -> Cookbook:
         id=uuid4(),
         name="Test Cookbook",
         is_base=False,
-        cookbook_owner=owner.id,
+        bundle_owner=owner.id,
     )
     db.add(cb)
     db.commit()
@@ -131,7 +131,7 @@ class TestFreeUserCap:
         data = r.json()
         assert data["label"] == "first"
         assert data["key"].startswith("rec_live_")
-        assert data["cookbook_id"] is None
+        assert data["bundle_id"] is None
 
     def test_create_second_key_blocked(self, db):
         """Free user with 1 active key cannot create another (cap=1)."""
@@ -212,7 +212,7 @@ class TestCookbookScoping:
         })
         assert r.status_code == 200, r.text
         data = r.json()
-        assert data["cookbook_id"] == str(cb.id)
+        assert data["bundle_id"] == str(cb.id)
 
     def test_invalid_cookbook_id_returns_404(self, db):
         """POST with cookbook_id that doesn't belong to user → 404."""
@@ -265,7 +265,7 @@ class TestGetApiKeys:
         user = _make_user(db, tier="pro_plus")
         cb = _make_cookbook(db, user)
         k = _make_active_key(db, user)
-        k.cookbook_id = cb.id
+        k.bundle_id = cb.id
         db.commit()
         client = _make_test_app(db, user)
         r = client.get("/api/api-keys")
@@ -273,7 +273,7 @@ class TestGetApiKeys:
         keys = r.json()["keys"]
         found = next((x for x in keys if x["id"] == str(k.id)), None)
         assert found is not None
-        assert found["cookbook_id"] == str(cb.id)
+        assert found["bundle_id"] == str(cb.id)
 
     def test_list_includes_label(self, db):
         """GET /api-keys items include label field."""

@@ -149,7 +149,7 @@ def _do_transfer(
     new_owner: User,
 ) -> dict[str, Any]:
     """In-place ownership swap."""
-    cb.cookbook_owner = new_owner.id
+    cb.bundle_owner = new_owner.id
     db.commit()
     db.refresh(cb)
     return {
@@ -170,9 +170,9 @@ def _do_fork(
         name=source.name,
         description=source.description,
         is_base=False,
-        cookbook_owner=new_owner.id,
-        parent_cookbook_id=source.id,
-        synced_from_cookbook_id=source.id,
+        bundle_owner=new_owner.id,
+        parent_bundle_id=source.id,
+        synced_from_bundle_id=source.id,
     )
     db.add(new_cb)
     db.flush()  # get new_cb.id
@@ -181,7 +181,7 @@ def _do_fork(
     tailored = (
         db.query(CookbookSkill)
         .filter(
-            CookbookSkill.cookbook_id == source.id,
+            CookbookSkill.bundle_id == source.id,  # compat-alias
             CookbookSkill.source.in_(_TAILORED_SOURCES),
         )
         .all()
@@ -189,7 +189,7 @@ def _do_fork(
 
     for cs in tailored:
         new_cs = CookbookSkill(
-            cookbook_id=new_cb.id,
+            bundle_id=new_cb.id,
             skill_id=cs.skill_id,
             source=cs.source,
             pinned_version=cs.pinned_version,

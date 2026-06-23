@@ -93,7 +93,7 @@ def _mk_cookbook(db, owner, slug, visibility="public", name="CB"):
     cb = Cookbook(
         id=uuid.uuid4(),
         name=name,
-        cookbook_owner=owner.id,
+        bundle_owner=owner.id,
         slug=slug,
         visibility=visibility,
     )
@@ -110,13 +110,13 @@ def _mk_skill(db, slug):
 
 
 def _attach(db, cb, skill, source="custom-added"):
-    db.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source=source))
+    db.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source=source))
     db.commit()
 
 
 def _install(db, skill, api_key_id=None, cookbook_id=None):
     db.add(InstallEvent(id=uuid.uuid4(), skill_id=skill.id, skill_slug=skill.slug,
-                        api_key_id=api_key_id, cookbook_id=cookbook_id))
+                        api_key_id=api_key_id, bundle_id=cookbook_id))
     db.commit()
 
 

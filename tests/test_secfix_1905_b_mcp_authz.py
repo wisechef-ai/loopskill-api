@@ -74,7 +74,7 @@ def _make_user_and_api_key(
         key_hash=hashlib.sha256(key_value.encode()).hexdigest(),
         name="test-key",
         is_active=True,
-        cookbook_id=cookbook_id,
+        bundle_id=cookbook_id,
     )
     db.add(api_key)
     db.flush()
@@ -293,7 +293,7 @@ class TestIssue7RecipifyCrossTenantRed:
         user_a_cookbook = Cookbook(
             id=uuid4(),
             name="Alice's Private Cookbook",
-            cookbook_owner=user_a.id,
+            bundle_owner=user_a.id,
         )
         db_session.add_all([user_a, user_a_cookbook])
         db_session.flush()
@@ -314,7 +314,7 @@ class TestIssue7RecipifyCrossTenantRed:
 
     def test_red_anonymous_cannot_write_cookbook(self, db_session):
         """RED: anonymous caller cannot write to any cookbook."""
-        cb = Cookbook(id=uuid4(), name="Anon Target", cookbook_owner=uuid4())
+        cb = Cookbook(id=uuid4(), name="Anon Target", bundle_owner=uuid4())
         db_session.add(cb)
         db_session.flush()
 
@@ -333,7 +333,7 @@ class TestIssue7RecipifyCrossTenantRed:
     def test_red_owner_can_write_own_cookbook(self, db_session):
         """GREEN (sanity): the legitimate owner CAN write their cookbook."""
         owner_id = uuid4()
-        cb = Cookbook(id=uuid4(), name="Owner CB", cookbook_owner=owner_id)
+        cb = Cookbook(id=uuid4(), name="Owner CB", bundle_owner=owner_id)
         db_session.add(cb)
         db_session.flush()
 
@@ -351,7 +351,7 @@ class TestIssue7RecipifyCrossTenantRed:
 
     def test_red_master_can_write_any_cookbook(self, db_session):
         """GREEN (sanity): master scope can write ANY cookbook."""
-        cb = Cookbook(id=uuid4(), name="Master Target CB", cookbook_owner=uuid4())
+        cb = Cookbook(id=uuid4(), name="Master Target CB", bundle_owner=uuid4())
         db_session.add(cb)
         db_session.flush()
 
@@ -387,7 +387,7 @@ class TestIssue15SyncRed:
         """Create a cookbook with one outdated pinned skill version."""
         owner_id = uuid4()
         cookbook = Cookbook(
-            id=uuid4(), name="SyncTestCB", cookbook_owner=owner_id
+            id=uuid4(), name="SyncTestCB", bundle_owner=owner_id
         )
         db.add(cookbook)
         db.flush()  # flush Cookbook first so FK is satisfied
@@ -405,7 +405,7 @@ class TestIssue15SyncRed:
         db.add_all([old_ver, new_ver])
         db.flush()  # flush skill and versions before CookbookSkill FK
         cs = CookbookSkill(
-            cookbook_id=cookbook.id,
+            bundle_id=cookbook.id,
             skill_id=skill.id,
             source="forked",
             pinned_version=semver_old,
@@ -458,7 +458,7 @@ class TestIssue15SyncRed:
         # Force reload from DB
         db_session.expire_all()
         updated_cs = db_session.query(CookbookSkill).filter(
-            CookbookSkill.cookbook_id == cookbook.id,
+            CookbookSkill.bundle_id == cookbook.id,
             CookbookSkill.skill_id == skill.id,
         ).one()
         assert updated_cs.pinned_version == "2.0.0", (
@@ -493,7 +493,7 @@ class TestIssue15SyncRed:
         )
         db_session.flush()
 
-        owner_ctx = AuthContext(scope="user", user_id=cookbook.cookbook_owner)
+        owner_ctx = AuthContext(scope="user", user_id=cookbook.bundle_owner)
         out = recipes_sync(
             db_session,
             cookbook_id=str(cookbook.id),
@@ -514,7 +514,7 @@ class TestIssue15SyncRed:
 class TestIssue13CookbookScopedKey:
     """Cookbook-scoped API key must be rejected for other cookbooks.
 
-    APIKeyMiddleware stamps auth_ctx.cookbook_scope = api_key_obj.cookbook_id.
+    APIKeyMiddleware stamps auth_ctx.cookbook_scope = api_key_obj.bundle_id.
     authz.can_write_cookbook() already checks this (Phase A).
     End-to-end: scoped key + wrong cookbook → 403/forbidden.
     """
@@ -536,7 +536,7 @@ class TestIssue13CookbookScopedKey:
         )
         cb = MagicMock()
         cb.id = cb_id
-        cb.cookbook_owner = owner_id
+        cb.bundle_owner = owner_id
 
         assert can_write_cookbook(ctx, cb) is True
 
@@ -558,14 +558,14 @@ class TestIssue13CookbookScopedKey:
         # Trying to write to a DIFFERENT cookbook
         other_cb = MagicMock()
         other_cb.id = other_cb_id
-        other_cb.cookbook_owner = owner_id  # user owns it, but key is scoped
+        other_cb.bundle_owner = owner_id  # user owns it, but key is scoped
 
         assert can_write_cookbook(ctx, other_cb) is False, (
             "EXPLOIT: cookbook-scoped key allowed to write to a different cookbook"
         )
 
     def test_middleware_stamps_cookbook_scope_from_api_key(self, db_session):
-        """APIKeyMiddleware must stamp auth_ctx.cookbook_scope from api_key.cookbook_id.
+        """APIKeyMiddleware must stamp auth_ctx.cookbook_scope from api_key.bundle_id.
 
         Tests the middleware's auth_ctx construction path directly by calling
         the APIKeyMiddleware code with a mock api_key_obj that has cookbook_id set.
@@ -583,7 +583,7 @@ class TestIssue13CookbookScopedKey:
         db_session.flush()  # flush User first for FK
 
         cb_id = uuid4()
-        cb = Cookbook(id=cb_id, name="ScopedCB", cookbook_owner=owner_id)
+        cb = Cookbook(id=cb_id, name="ScopedCB", bundle_owner=owner_id)
         db_session.add(cb)
         db_session.flush()
 
@@ -595,7 +595,7 @@ class TestIssue13CookbookScopedKey:
             key_hash=hashlib.sha256(key_value.encode()).hexdigest(),
             name="scoped-test",
             is_active=True,
-            cookbook_id=cb_id,  # cookbook-scoped key
+            bundle_id=cb_id,  # cookbook-scoped key  # compat-alias
         )
         db_session.add(api_key)
         db_session.flush()
@@ -609,7 +609,7 @@ class TestIssue13CookbookScopedKey:
             scope="user",
             user_id=api_key.user_id,
             api_key_id=api_key.id,
-            cookbook_scope=api_key.cookbook_id,  # Issue #13: the fix
+            cookbook_scope=api_key.bundle_id,  # Issue #13: the fix
         )
 
         assert stamped_ctx.cookbook_scope == cb_id, (
@@ -624,13 +624,13 @@ class TestIssue13CookbookScopedKey:
         # Correct cookbook → allowed
         cb_mock = MagicMock()
         cb_mock.id = cb_id
-        cb_mock.cookbook_owner = owner_id
+        cb_mock.bundle_owner = owner_id
         assert can_write_cookbook(stamped_ctx, cb_mock) is True
 
         # Different cookbook → denied (even though user owns it)
         other_cb = MagicMock()
         other_cb.id = uuid4()
-        other_cb.cookbook_owner = owner_id
+        other_cb.bundle_owner = owner_id
         assert can_write_cookbook(stamped_ctx, other_cb) is False, (
             "BUG: cookbook-scoped key should not write to a different cookbook"
         )
@@ -639,10 +639,10 @@ class TestIssue13CookbookScopedKey:
         """End-to-end: cookbook-scoped key + wrong cookbook → cookbook_forbidden."""
         owner_id = uuid4()
         cb_allowed = Cookbook(
-            id=uuid4(), name="Allowed CB", cookbook_owner=owner_id
+            id=uuid4(), name="Allowed CB", bundle_owner=owner_id
         )
         cb_other = Cookbook(
-            id=uuid4(), name="Other CB", cookbook_owner=owner_id
+            id=uuid4(), name="Other CB", bundle_owner=owner_id
         )
         db_session.add_all([cb_allowed, cb_other])
         db_session.flush()

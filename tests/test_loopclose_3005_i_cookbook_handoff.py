@@ -7,7 +7,7 @@ Contract:
                            new_owner_email=None, mode='transfer'|'fork')
 
   transfer:
-    - cookbook.cookbook_owner → new_owner.id (in-place)
+    - cookbook.bundle_owner → new_owner.id (in-place)
     - new_owner sees it via list_cookbooks
     - old_owner no longer sees it (unless also new owner, impossible)
     - Returns {status: 'transferred', cookbook_id: …, new_owner_user_id: …}
@@ -23,7 +23,7 @@ Contract:
     - Returns {status: 'forked', new_cookbook_id: …, parent_cookbook_id: …, …}
 
 Authz:
-  - Only cookbook owner (ctx.user_id == cookbook.cookbook_owner) or master can handoff
+  - Only cookbook owner (ctx.user_id == cookbook.bundle_owner) or master can handoff
   - new_owner must be a real User row
   - fails closed: unknown user → error, wrong owner → error
   - master key without user_id CAN handoff (admin path)
@@ -90,7 +90,7 @@ def _make_cookbook(db: Session, owner_id: UUID, name: str = "My Cookbook") -> Co
         id=uuid4(),
         name=name,
         is_base=False,
-        cookbook_owner=owner_id,
+        bundle_owner=owner_id,
     )
     db.add(cb)
     db.flush()
@@ -114,7 +114,7 @@ def _add_cookbook_skill(
     db: Session, cookbook_id: UUID, skill_id: UUID, source: str = "custom-added"
 ) -> CookbookSkill:
     cs = CookbookSkill(
-        cookbook_id=cookbook_id,
+        bundle_id=cookbook_id,
         skill_id=skill_id,
         source=source,
     )
@@ -147,7 +147,7 @@ def test_transfer_changes_owner(db_session):
     assert result["new_owner_user_id"] == str(user_b.id)
 
     db_session.refresh(cb)
-    assert cb.cookbook_owner == user_b.id
+    assert cb.bundle_owner == user_b.id
 
 
 def test_transfer_new_owner_can_list(db_session):
@@ -164,11 +164,11 @@ def test_transfer_new_owner_can_list(db_session):
     )
 
     # user_b owns it now
-    b_books = db_session.query(Cookbook).filter(Cookbook.cookbook_owner == user_b.id).all()
+    b_books = db_session.query(Cookbook).filter(Cookbook.bundle_owner == user_b.id).all()
     assert any(book.id == cb.id for book in b_books)
 
     # user_a does not
-    a_books = db_session.query(Cookbook).filter(Cookbook.cookbook_owner == user_a.id).all()
+    a_books = db_session.query(Cookbook).filter(Cookbook.bundle_owner == user_a.id).all()
     assert not any(book.id == cb.id for book in a_books)
 
 
@@ -192,7 +192,7 @@ def test_transfer_by_email(db_session):
     assert result["new_owner_user_id"] == str(user_b.id)
 
     db_session.refresh(cb)
-    assert cb.cookbook_owner == user_b.id
+    assert cb.bundle_owner == user_b.id
 
 
 def test_transfer_master_can_handoff(db_session):
@@ -212,7 +212,7 @@ def test_transfer_master_can_handoff(db_session):
     )
     assert result["status"] == "transferred"
     db_session.refresh(cb)
-    assert cb.cookbook_owner == user_b.id
+    assert cb.bundle_owner == user_b.id
 
 
 # ─────────────────────────── FORK mode ──────────────────────────────────
@@ -242,12 +242,12 @@ def test_fork_creates_new_cookbook(db_session):
 
     # Source unchanged
     db_session.refresh(cb)
-    assert cb.cookbook_owner == user_a.id
+    assert cb.bundle_owner == user_a.id
 
     # New cookbook created
     new_cb = db_session.query(Cookbook).filter(Cookbook.id == new_cb_id).first()
     assert new_cb is not None
-    assert new_cb.cookbook_owner == user_b.id
+    assert new_cb.bundle_owner == user_b.id
 
 
 def test_fork_lineage_set(db_session):
@@ -269,8 +269,8 @@ def test_fork_lineage_set(db_session):
     new_cb = db_session.query(Cookbook).filter(
         Cookbook.id == UUID(result["new_cookbook_id"])
     ).first()
-    assert new_cb.parent_cookbook_id == cb.id
-    assert new_cb.synced_from_cookbook_id == cb.id
+    assert new_cb.parent_bundle_id == cb.id
+    assert new_cb.synced_from_bundle_id == cb.id
     assert result["parent_cookbook_id"] == str(cb.id)
 
 
@@ -298,7 +298,7 @@ def test_fork_copies_only_custom_added_skills(db_session):
 
     new_cb_id = UUID(result["new_cookbook_id"])
     new_skills = db_session.query(CookbookSkill).filter(
-        CookbookSkill.cookbook_id == new_cb_id
+        CookbookSkill.bundle_id == new_cb_id
     ).all()
 
     slugs_in_new = {
@@ -348,7 +348,7 @@ def test_fork_new_owner_can_list(db_session):
     )
 
     new_cb_id = UUID(result["new_cookbook_id"])
-    b_books = db_session.query(Cookbook).filter(Cookbook.cookbook_owner == user_b.id).all()
+    b_books = db_session.query(Cookbook).filter(Cookbook.bundle_owner == user_b.id).all()
     assert any(book.id == new_cb_id for book in b_books)
 
 
@@ -466,7 +466,7 @@ def test_handoff_base_cookbook_rejected(db_session):
         id=uuid4(),
         name="WiseChef Base",
         is_base=True,
-        cookbook_owner=None,  # base catalog has no owner
+        bundle_owner=None,  # base catalog has no owner
     )
     db_session.add(base_cb)
     db_session.commit()

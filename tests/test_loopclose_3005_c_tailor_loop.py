@@ -119,7 +119,7 @@ def _make_public_skill(db: Session, slug: str) -> Skill:
 
 
 def _make_cookbook(db: Session, owner: User) -> Cookbook:
-    cb = Cookbook(id=uuid4(), name="Test Cookbook", cookbook_owner=owner.id, is_base=False)
+    cb = Cookbook(id=uuid4(), name="Test Cookbook", bundle_owner=owner.id, is_base=False)
     db.add(cb)
     db.flush()
     return cb

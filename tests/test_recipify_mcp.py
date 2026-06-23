@@ -46,7 +46,7 @@ def db_session() -> Generator[Session, None, None]:
 def test_mcp_tool_round_trip(db_session):
     user = User(id=uuid4(), display_name="T", email="m@x.example",
                 subscription_tier="cook", subscription_status="active")
-    cb = Cookbook(id=uuid4(), name="MCP CB", cookbook_owner=user.id)
+    cb = Cookbook(id=uuid4(), name="MCP CB", bundle_owner=user.id)
     db_session.add_all([user, cb])
     db_session.commit()
 
@@ -65,7 +65,7 @@ def test_mcp_tool_round_trip(db_session):
     skill = db_session.query(Skill).filter(Skill.slug == "scrape-bot").first()
     assert skill is not None
     cs = db_session.query(CookbookSkill).filter(
-        CookbookSkill.cookbook_id == cb.id,
+        CookbookSkill.bundle_id == cb.id,
         CookbookSkill.skill_id == skill.id,
     ).first()
     assert cs is not None
@@ -74,7 +74,7 @@ def test_mcp_tool_round_trip(db_session):
 def test_mcp_tool_no_longer_returns_not_implemented(db_session):
     user = User(id=uuid4(), display_name="T", email="m2@x.example",
                 subscription_tier="cook", subscription_status="active")
-    cb = Cookbook(id=uuid4(), name="MCP CB", cookbook_owner=user.id)
+    cb = Cookbook(id=uuid4(), name="MCP CB", bundle_owner=user.id)
     db_session.add_all([user, cb])
     db_session.commit()
 
@@ -92,7 +92,7 @@ def test_mcp_tool_no_longer_returns_not_implemented(db_session):
 def test_mcp_tool_rejects_bad_frontmatter(db_session):
     user = User(id=uuid4(), display_name="T", email="m3@x.example",
                 subscription_tier="cook", subscription_status="active")
-    cb = Cookbook(id=uuid4(), name="MCP CB", cookbook_owner=user.id)
+    cb = Cookbook(id=uuid4(), name="MCP CB", bundle_owner=user.id)
     db_session.add_all([user, cb])
     db_session.commit()
 

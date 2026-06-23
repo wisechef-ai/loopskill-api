@@ -40,7 +40,7 @@ def _channel_outdated(db: Session, cookbook_id: UUID, channel: str) -> list[dict
         )
         .join(Skill, Skill.id == CookbookSkill.skill_id)
         .filter(
-            CookbookSkill.cookbook_id == cookbook_id,
+            CookbookSkill.bundle_id == cookbook_id,  # compat-alias
             CookbookSkill.source != "disabled",
         )
         .all()
@@ -88,7 +88,7 @@ def sync_fleet(
 
     results: list[dict[str, Any]] = []
     for sub in subs:
-        cb_id = str(sub.cookbook_id)
+        cb_id = str(sub.bundle_id)
         channel = sub.channel
 
         # FROZEN: hold — no movement, report explicitly.
@@ -104,7 +104,7 @@ def sync_fleet(
             )
             continue
 
-        outdated = _channel_outdated(db, sub.cookbook_id, channel)
+        outdated = _channel_outdated(db, sub.bundle_id, channel)
         changes = [
             {"slug": o["slug"], "from": o["from"], "to": o["to"], "action": "update"} for o in outdated
         ]
@@ -113,11 +113,11 @@ def sync_fleet(
         if not dry_run and outdated:
             for o in outdated:
                 db.query(CookbookSkill).filter(
-                    CookbookSkill.cookbook_id == sub.cookbook_id,
+                    CookbookSkill.bundle_id == sub.bundle_id,  # compat-alias
                     CookbookSkill.skill_id == o["skill_id"],
                 ).update({"pinned_version": o["to"]})
             # evergreen_0206 Phase A: advance the generation token on mutation.
-            db.query(Cookbook).filter(Cookbook.id == sub.cookbook_id).update(
+            db.query(Cookbook).filter(Cookbook.id == sub.bundle_id).update(  # compat-alias
                 {"updated_at": func.now()}, synchronize_session=False
             )
             db.commit()

@@ -73,7 +73,7 @@ def _user(db: Session) -> User:
 
 
 def _cookbook(db: Session, owner: User) -> Cookbook:
-    cb = Cookbook(id=uuid4(), name="CB", is_base=False, cookbook_owner=owner.id)
+    cb = Cookbook(id=uuid4(), name="CB", is_base=False, bundle_owner=owner.id)
     db.add(cb)
     db.flush()
     return cb
@@ -100,7 +100,7 @@ def _skill(db: Session, slug: str, versions: list[tuple[str, str]]) -> Skill:
 
 
 def _declare(db: Session, cb: Cookbook, skill: Skill, *, source="custom-added", pin=None):
-    db.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source=source, pinned_version=pin))
+    db.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source=source, pinned_version=pin))
     db.flush()
 
 
@@ -238,7 +238,7 @@ class TestRecipesReconcileTool:
         assert "applied" not in res
         # No write: pin still 1.0.0 absent (cookbook declared 2.0.0 but local at 1.0.0;
         # dry run must not have mutated the CookbookSkill pin which was 2.0.0 already)
-        cs = db.query(CookbookSkill).filter(CookbookSkill.cookbook_id == cb.id).first()
+        cs = db.query(CookbookSkill).filter(CookbookSkill.bundle_id == cb.id).first()
         assert cs.pinned_version == "2.0.0"
 
     def test_apply_advances_generation(self, db):

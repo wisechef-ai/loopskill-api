@@ -52,8 +52,12 @@ def cb_client(engine_cb, session_cb):
     from app.routes import router as routes_router
     from starlette.middleware.base import BaseHTTPMiddleware
 
-    user = User(id=uuid4(), email="cbtest@test.com", display_name="CB Test User",
-                created_at=datetime.now(timezone.utc))
+    user = User(
+        id=uuid4(),
+        email="cbtest@test.com",
+        display_name="CB Test User",
+        created_at=datetime.now(timezone.utc),
+    )
     session_cb.add(user)
     session_cb.flush()
 
@@ -69,8 +73,12 @@ def cb_client(engine_cb, session_cb):
     session_cb.add(api_key)
 
     skill = Skill(
-        id=uuid4(), slug="cb-test-skill", title="CB Test Skill",
-        category="devops", is_public=True, is_archived=False,
+        id=uuid4(),
+        slug="cb-test-skill",
+        title="CB Test Skill",
+        category="devops",
+        is_public=True,
+        is_archived=False,
         created_at=datetime.now(timezone.utc),
     )
     session_cb.add(skill)
@@ -87,15 +95,17 @@ def cb_client(engine_cb, session_cb):
     session_cb.add(version)
 
     cookbook = Cookbook(
-        id=uuid4(), name="Test Cookbook",
-        cookbook_owner=user.id,
+        id=uuid4(),
+        name="Test Cookbook",
+        bundle_owner=user.id,
         created_at=datetime.now(timezone.utc),
     )
     session_cb.add(cookbook)
     session_cb.flush()
 
     cs = CookbookSkill(
-        cookbook_id=cookbook.id, skill_id=skill.id,
+        bundle_id=cookbook.id,
+        skill_id=skill.id,
         source="marketplace",
     )
     session_cb.add(cs)
@@ -123,6 +133,7 @@ def cb_client(engine_cb, session_cb):
     app.include_router(cookbook_router)  # router already has /api/cookbooks prefix
     app.include_router(routes_router)
     from app.install_routes import router as install_router  # Phase E: _download moved
+
     app.include_router(install_router, prefix="/api")  # Phase E: /skills/_download
     app.dependency_overrides[get_db] = override_db
 
@@ -132,19 +143,16 @@ def cb_client(engine_cb, session_cb):
 
 # ── Unit test: _make_install_url returns correct URL ──────────────────────────
 
+
 def test_make_install_url_produces_download_url():
     """_make_install_url must return a /api/skills/_download?token=... URL."""
     skill_slug = "test-skill"
     version_id = uuid4()
     url = _make_install_url(skill_slug, version_id, "1.0.0")
 
-    assert "/api/skills/_download" in url, (
-        f"URL must point to /api/skills/_download, got: {url}"
-    )
+    assert "/api/skills/_download" in url, f"URL must point to /api/skills/_download, got: {url}"
     assert "token=" in url, f"URL must contain a signed token, got: {url}"
-    assert f"/api/skills/{version_id}" not in url, (
-        f"Old /tarball URL pattern must not be present, got: {url}"
-    )
+    assert f"/api/skills/{version_id}" not in url, f"Old /tarball URL pattern must not be present, got: {url}"
 
 
 def test_make_install_url_token_is_valid():
@@ -156,14 +164,9 @@ def test_make_install_url_token_is_valid():
     url = _make_install_url(skill_slug, version_id, "2.0.0")
 
     token = url.split("token=", 1)[1]
-    # _make_install_url signs with salt="recipes-skill-install" (the canonical
-    # install salt — see test_install_url_salt_consistency). The verifier MUST
-    # pass the same salt or itsdangerous raises BadSignature. The bare
-    # URLSafeTimedSerializer(secret) the test used before had no salt and so
-    # always failed against the salted producer.
-    serializer = URLSafeTimedSerializer(
-        settings.SIGNING_SECRET, salt="recipes-skill-install"
-    )
+    # Phase 3+4: canonical salt is now "loopskill-install" (renamed from
+    # "recipes-skill-install"). See test_install_url_salt_consistency.
+    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="loopskill-install")
     data = serializer.loads(token, max_age=3600)
 
     assert data["slug"] == skill_slug
@@ -186,7 +189,5 @@ def test_cookbook_install_returns_signed_download_urls(cb_client):
     assert skill_entry is not None
 
     url = skill_entry.get("tarball_url", "")
-    assert "/api/skills/_download" in url, (
-        f"tarball_url must point to /api/skills/_download, got: {url}"
-    )
+    assert "/api/skills/_download" in url, f"tarball_url must point to /api/skills/_download, got: {url}"
     assert "token=" in url

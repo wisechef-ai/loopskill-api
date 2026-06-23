@@ -190,7 +190,7 @@ def record_reconcile_event(
 ) -> ReconcileEvent:
     """Persist one canary reconcile outcome (called by the Phase D client path)."""
     ev = ReconcileEvent(
-        cookbook_id=cookbook_id,
+        bundle_id=cookbook_id,  # compat-alias
         skill_id=skill_id,
         semver=semver,
         channel=channel,

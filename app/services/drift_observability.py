@@ -29,7 +29,7 @@ DEFAULT_STALE_DAYS = 7
 
 @dataclass
 class CookbookDriftStatus:
-    cookbook_id: str
+    bundle_id: str
     last_reconcile_at: str | None = None
     last_rollback_at: str | None = None
     success_count: int = 0
@@ -39,7 +39,7 @@ class CookbookDriftStatus:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "cookbook_id": self.cookbook_id,
+            "bundle_id": self.bundle_id,
             "last_reconcile_at": self.last_reconcile_at,
             "last_rollback_at": self.last_rollback_at,
             "success_count": self.success_count,
@@ -67,13 +67,13 @@ def cookbook_drift_status(
     events = (
         db.query(ReconcileEvent)
         .filter(
-            ReconcileEvent.cookbook_id == cookbook_id,
+            ReconcileEvent.bundle_id == cookbook_id,  # compat-alias
             ReconcileEvent.created_at >= window_start,
         )
         .all()
     )
 
-    status = CookbookDriftStatus(cookbook_id=str(cookbook_id))
+    status = CookbookDriftStatus(bundle_id=str(cookbook_id))  # compat-alias
     failing: dict[tuple, dict[str, Any]] = {}
     last_success: datetime | None = None
     last_rollback: datetime | None = None

@@ -174,7 +174,7 @@ def test_add_skill(db):
 
     rows = (
         db.query(CookbookDeployment)
-        .filter(CookbookDeployment.cookbook_id == uuid.UUID(cb["id"]))
+        .filter(CookbookDeployment.bundle_id == uuid.UUID(cb["id"]))
         .all()
     )
     assert len(rows) == 1
@@ -272,7 +272,7 @@ def test_apply_orders_by_install_order(db):
                 json={"skill_id": str(sa_.id), "install_order": 10})
     rows = (
         db.query(CookbookDeployment)
-        .filter(CookbookDeployment.cookbook_id == uuid.UUID(cb["id"]))
+        .filter(CookbookDeployment.bundle_id == uuid.UUID(cb["id"]))
         .order_by(CookbookDeployment.install_order.asc())
         .all()
     )
@@ -353,7 +353,7 @@ def test_cookbook_host_middleware_scopes_request(db, monkeypatch):
     user = _make_user(db, "pro")
     cb = Cookbook(
         id=uuid.uuid4(),
-        cookbook_owner=user.id,
+        bundle_owner=user.id,
         name="ACME",
         slug="acme-stack",
         visibility="public",
@@ -452,7 +452,7 @@ def test_preflight_returns_ok_for_empty_cookbook(db):
 
     user = _make_user(db, "pro")
     cb = Cookbook(
-        id=uuid.uuid4(), cookbook_owner=user.id, name="Empty", slug="empty-stack",
+        id=uuid.uuid4(), bundle_owner=user.id, name="Empty", slug="empty-stack",
         visibility="private",
     )
     db.add(cb)

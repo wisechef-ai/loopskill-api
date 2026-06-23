@@ -102,7 +102,7 @@ def _mk_cb(db, owner, slug, *, visibility="public", verified=False, created=None
     cb = Cookbook(
         id=uuid.uuid4(),
         name=slug,
-        cookbook_owner=owner.id,
+        bundle_owner=owner.id,
         slug=slug,
         visibility=visibility,
         is_verified=verified,
@@ -122,7 +122,7 @@ def _mk_skill(db, slug):
 
 
 def _attach(db, cb, skill):
-    db.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source="custom-added"))
+    db.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
     db.commit()
 
 

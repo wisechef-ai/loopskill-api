@@ -133,7 +133,7 @@ def _resolve_cookbook(
 
     if ctx.scope == "master":
         return cb
-    if ctx.scope == "user" and ctx.user_id is not None and cb.cookbook_owner == ctx.user_id:
+    if ctx.scope == "user" and ctx.user_id is not None and cb.bundle_owner == ctx.user_id:
         return cb
 
     # Default: 404 (no oracle for non-owners — keep parity with REST routes)
@@ -216,7 +216,7 @@ def recipes_cookbook_install(
         cs = (
             db.query(CookbookSkill)
             .filter(
-                CookbookSkill.cookbook_id == cb.id,
+                CookbookSkill.bundle_id == cb.id,  # compat-alias
                 CookbookSkill.skill_id == skill.id,
                 CookbookSkill.source != "disabled",
             )
@@ -288,7 +288,7 @@ def recipes_cookbook_install(
     rows = (
         db.query(CookbookSkill, Skill)
         .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(CookbookSkill.cookbook_id == cb.id, CookbookSkill.source != "disabled")
+        .filter(CookbookSkill.bundle_id == cb.id, CookbookSkill.source != "disabled")  # compat-alias
         .all()
     )
 

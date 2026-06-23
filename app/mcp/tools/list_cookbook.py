@@ -43,7 +43,7 @@ def recipes_list_cookbook(
         if owner is not None:
             cookbook = (
                 db.query(Cookbook)
-                .filter(Cookbook.cookbook_owner == owner)
+                .filter(Cookbook.bundle_owner == owner)  # compat-alias
                 .order_by(Cookbook.created_at.desc())
                 .first()
             )
@@ -54,7 +54,7 @@ def recipes_list_cookbook(
     rows = (
         db.query(CookbookSkill, Skill)
         .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(CookbookSkill.cookbook_id == cookbook.id)
+        .filter(CookbookSkill.bundle_id == cookbook.id)  # compat-alias
         .all()
     )
 
@@ -63,8 +63,10 @@ def recipes_list_cookbook(
             "id": str(cookbook.id),
             "name": cookbook.name,
             "is_base": bool(cookbook.is_base),
-            "parent_cookbook_id": (str(cookbook.parent_cookbook_id) if cookbook.parent_cookbook_id else None),
-            "owner": (str(cookbook.cookbook_owner) if cookbook.cookbook_owner else None),
+            "parent_cookbook_id": (  # compat-alias: legacy field kept for MCP client compat
+                str(cookbook.parent_bundle_id) if cookbook.parent_bundle_id else None  # compat-alias
+            ),
+            "owner": (str(cookbook.bundle_owner) if cookbook.bundle_owner else None),  # compat-alias
         },
         "skills": [
             {

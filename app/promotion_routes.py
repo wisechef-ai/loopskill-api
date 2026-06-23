@@ -85,7 +85,7 @@ def reconcile_report(
         return {"error": "cookbook_not_found"}
 
     is_owner = auth_ctx.scope == "master" or (
-        auth_ctx.user_id is not None and cb.cookbook_owner == auth_ctx.user_id
+        auth_ctx.user_id is not None and cb.bundle_owner == auth_ctx.user_id
     )
     if not is_owner:
         response.status_code = 404
@@ -100,7 +100,7 @@ def reconcile_report(
     cs = (
         db.query(CookbookSkill)
         .filter(
-            CookbookSkill.cookbook_id == cb.id,
+            CookbookSkill.bundle_id == cb.id,  # compat-alias
             CookbookSkill.skill_id == skill.id,
             CookbookSkill.source != "disabled",
         )

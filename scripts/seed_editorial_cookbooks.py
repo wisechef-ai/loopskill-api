@@ -198,7 +198,7 @@ def seed(dry_run: bool = False) -> int:
                     id=uuid4(),
                     name=spec["name"],
                     slug=slug,
-                    cookbook_owner=system.id,
+                    bundle_owner=system.id,
                     visibility="public",
                 )
                 db.add(cb)
@@ -215,7 +215,7 @@ def seed(dry_run: bool = False) -> int:
 
             cb.name = spec["name"]
             cb.description = spec["description"]
-            cb.cookbook_owner = system.id
+            cb.bundle_owner = system.id
             cb.visibility = "public"
             cb.is_verified = bool(spec.get("verified", False))
 
@@ -231,13 +231,13 @@ def seed(dry_run: bool = False) -> int:
                 exists = (
                     db.query(CookbookSkill)
                     .filter(
-                        CookbookSkill.cookbook_id == cb.id,
+                        CookbookSkill.bundle_id == cb.id,
                         CookbookSkill.skill_id == skill.id,
                     )
                     .first()
                 )
                 if exists is None:
-                    db.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source="custom-added"))
+                    db.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
 
         if dry_run:
             print(f"[dry-run] would create={created} update={updated}")
@@ -253,7 +253,7 @@ def seed(dry_run: bool = False) -> int:
         # Verification read-back.
         n_public = (
             db.query(Cookbook)
-            .filter(Cookbook.cookbook_owner == system.id, Cookbook.visibility == "public")
+            .filter(Cookbook.bundle_owner == system.id, Cookbook.visibility == "public")
             .count()
         )
         print(f"verify: {n_public} public editorial cookbooks owned by {system.email}")

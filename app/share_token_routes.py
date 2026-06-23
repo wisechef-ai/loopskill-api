@@ -173,7 +173,7 @@ def _require_owner(request: Request, db: Session, cookbook_id: str) -> Cookbook:
     if cb is None:
         raise HTTPException(status_code=404, detail="cookbook_not_found")
 
-    if not is_master and cb.cookbook_owner != api_key_user_id:
+    if not is_master and cb.bundle_owner != api_key_user_id:
         raise HTTPException(status_code=403, detail="not_cookbook_owner")
 
     return cb
@@ -225,7 +225,7 @@ def _create_service(
 
     row = CookbookShareToken(
         id=uuid4(),
-        cookbook_id=cookbook.id,
+        bundle_id=cookbook.id,  # compat-alias
         token_hash=token_hash,
         token_prefix=token_prefix,
         scope=scope,
@@ -282,7 +282,7 @@ def _create_share_token_service(
     if ctx.scope != "master":
         # Owner check — cbt_token callers cannot mint child tokens (would
         # be a privilege loop). Only user-owner or master may create.
-        if ctx.scope != "user" or ctx.user_id is None or cb.cookbook_owner != ctx.user_id:
+        if ctx.scope != "user" or ctx.user_id is None or cb.bundle_owner != ctx.user_id:
             raise HTTPException(status_code=404, detail="cookbook_not_found")
 
     created_by = ctx.user_id if ctx.scope == "user" else None
@@ -307,7 +307,7 @@ def _list_service(db: Session, *, cookbook: Cookbook) -> list[dict]:
     """
     rows = (
         db.query(CookbookShareToken)
-        .filter(CookbookShareToken.cookbook_id == cookbook.id)
+        .filter(CookbookShareToken.bundle_id == cookbook.id)  # compat-alias
         .order_by(CookbookShareToken.created_at.desc())
         .all()
     )
@@ -355,7 +355,7 @@ def _rotate_service(
         db.query(CookbookShareToken)
         .filter(
             CookbookShareToken.id == tid,
-            CookbookShareToken.cookbook_id == cookbook.id,
+            CookbookShareToken.bundle_id == cookbook.id,  # compat-alias
         )
         .with_for_update()  # SECURITY: serialize concurrent rotates so two
         # parallel calls cannot both produce a new active
@@ -373,7 +373,7 @@ def _rotate_service(
 
     new_row = CookbookShareToken(
         id=uuid4(),
-        cookbook_id=cookbook.id,
+        bundle_id=cookbook.id,  # compat-alias
         token_hash=token_hash,
         token_prefix=token_prefix,
         scope=old.scope,
@@ -420,7 +420,7 @@ def _revoke_service(
         db.query(CookbookShareToken)
         .filter(
             CookbookShareToken.id == tid,
-            CookbookShareToken.cookbook_id == cookbook.id,
+            CookbookShareToken.bundle_id == cookbook.id,  # compat-alias
         )
         .first()
     )

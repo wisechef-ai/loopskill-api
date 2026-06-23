@@ -141,7 +141,7 @@ def _cookbook_install_counts(db: Session, cookbook_id) -> tuple[int, int]:
         )
         .outerjoin(APIKey, APIKey.id == InstallEvent.api_key_id)
         .filter(
-            InstallEvent.cookbook_id == cookbook_id,
+            InstallEvent.bundle_id == cookbook_id,  # compat-alias
             func.coalesce(APIKey.is_test, False).is_(False),
         )
         .one()
@@ -358,7 +358,7 @@ def _resolve_cookbook_owner_tier(db: Session, cookbook) -> str | None:
         - ``"free"`` when the owner exists but has no active paid subscription
           (lapsed Pro must not keep leaking Pro skills to client agents).
     """
-    owner_id = getattr(cookbook, "cookbook_owner", None)
+    owner_id = getattr(cookbook, "bundle_owner", None)  # compat-alias
     if owner_id is None:
         # Owner-less base/curated catalog — not personally gated.
         return "pro_plus"

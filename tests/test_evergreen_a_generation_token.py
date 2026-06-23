@@ -86,7 +86,7 @@ def _make_user(db: Session, *, tier: str = "pro") -> User:
 
 
 def _make_cookbook(db: Session, owner: User) -> Cookbook:
-    cb = Cookbook(id=uuid4(), name="Gen CB", is_base=False, cookbook_owner=owner.id)
+    cb = Cookbook(id=uuid4(), name="Gen CB", is_base=False, bundle_owner=owner.id)
     db.add(cb)
     db.flush()
     return cb
@@ -184,7 +184,7 @@ class TestGenerationTokenAdvancesOnChildMutation:
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, user)
         skill = _make_skill(db_session, "gen-rm")
-        db_session.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source="custom-added"))
+        db_session.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
         db_session.commit()
 
         before = _backdate(db_session, cb.id)
@@ -205,7 +205,7 @@ class TestGenerationTokenAdvancesOnChildMutation:
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, user)
         skill = _make_skill(db_session, "gen-react")
-        db_session.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source="disabled"))
+        db_session.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="disabled"))
         db_session.commit()
 
         before = _backdate(db_session, cb.id)
@@ -243,7 +243,7 @@ class TestGenerationTokenSyncPinWrite:
         )
         db_session.add(
             CookbookSkill(
-                cookbook_id=cb.id,
+                bundle_id=cb.id,
                 skill_id=skill.id,
                 source="overridden",
                 pinned_version="0.1.0",
@@ -278,7 +278,7 @@ class TestGenerationTokenSyncPinWrite:
         skill = _make_skill(db_session, "gen-noop")  # only 0.1.0 exists
         db_session.add(
             CookbookSkill(
-                cookbook_id=cb.id,
+                bundle_id=cb.id,
                 skill_id=skill.id,
                 source="overridden",
                 pinned_version="0.1.0",

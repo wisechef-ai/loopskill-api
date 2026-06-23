@@ -160,7 +160,7 @@ class TestTierGates:
         assert r.status_code == 201, r.text
         body = r.json()
         assert body["name"] == "Cook's Book"
-        assert body["cookbook_owner"] == str(user.id)
+        assert body["bundle_owner"] == str(user.id)
         assert body["is_base"] is False
 
     def test_pro_tier_allows_up_to_ten(self, db_session):
@@ -212,7 +212,7 @@ class TestTierGates:
         # Seed 199 cookbooks directly so the next POST is the 200th (allowed)
         # and the one after is the 201st (blocked).
         for i in range(199):
-            db_session.add(Cookbook(id=uuid4(), name=f"seed{i}", cookbook_owner=user.id))
+            db_session.add(Cookbook(id=uuid4(), name=f"seed{i}", bundle_owner=user.id))
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
@@ -233,8 +233,8 @@ class TestListDetail:
     def test_list_only_returns_mine(self, db_session):
         mine = _make_user(db_session, tier="pro_plus")
         other = _make_user(db_session, tier="pro_plus")
-        cb_mine = Cookbook(id=uuid4(), name="Mine", cookbook_owner=mine.id)
-        cb_other = Cookbook(id=uuid4(), name="Other", cookbook_owner=other.id)
+        cb_mine = Cookbook(id=uuid4(), name="Mine", bundle_owner=mine.id)
+        cb_other = Cookbook(id=uuid4(), name="Other", bundle_owner=other.id)
         db_session.add_all([cb_mine, cb_other])
         db_session.commit()
 
@@ -248,11 +248,11 @@ class TestListDetail:
 
     def test_get_detail_includes_skills(self, db_session):
         user = _make_user(db_session, tier="pro_plus")
-        cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Mine", bundle_owner=user.id)
         skill = _make_skill(db_session, slug="alpha")
         db_session.add(cb)
         db_session.flush()
-        db_session.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source="custom-added"))
+        db_session.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
@@ -268,7 +268,7 @@ class TestListDetail:
     def test_get_other_users_cookbook_returns_404(self, db_session):
         owner = _make_user(db_session, tier="pro_plus")
         intruder = _make_user(db_session, tier="pro_plus")
-        cb = Cookbook(id=uuid4(), name="Private", cookbook_owner=owner.id)
+        cb = Cookbook(id=uuid4(), name="Private", bundle_owner=owner.id)
         db_session.add(cb)
         db_session.commit()
 
@@ -283,7 +283,7 @@ class TestListDetail:
         skill_variant + is_public (tailored-vs-catalog badge), parent_skill_slug
         (fork-lineage edge), and a pinned flag — not just slug/source."""
         user = _make_user(db_session, tier="pro_plus")
-        cb = Cookbook(id=uuid4(), name="Viz CB", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Viz CB", bundle_owner=user.id)
         db_session.add(cb)
         db_session.flush()
 
@@ -298,10 +298,10 @@ class TestListDetail:
         tailored.parent_skill_slug = "catalog-skill"
         tailored.title = "Tailored Skill"
         db_session.flush()
-        db_session.add(CookbookSkill(cookbook_id=cb.id, skill_id=catalog.id, source="forked"))
+        db_session.add(CookbookSkill(bundle_id=cb.id, skill_id=catalog.id, source="forked"))
         db_session.add(
             CookbookSkill(
-                cookbook_id=cb.id, skill_id=tailored.id, source="custom-added", pinned_version="1.2.3"
+                bundle_id=cb.id, skill_id=tailored.id, source="custom-added", pinned_version="1.2.3"
             )
         )
         db_session.commit()
@@ -338,7 +338,7 @@ class TestListDetail:
 class TestAddRemoveSkill:
     def test_add_skill_succeeds(self, db_session):
         user = _make_user(db_session, tier="pro_plus")
-        cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Mine", bundle_owner=user.id)
         _make_skill(db_session, slug="beta")
         db_session.add(cb)
         db_session.commit()
@@ -352,7 +352,7 @@ class TestAddRemoveSkill:
 
     def test_add_unknown_skill_returns_404(self, db_session):
         user = _make_user(db_session, tier="pro_plus")
-        cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Mine", bundle_owner=user.id)
         db_session.add(cb)
         db_session.commit()
 
@@ -363,11 +363,11 @@ class TestAddRemoveSkill:
 
     def test_delete_skill_soft_deletes(self, db_session):
         user = _make_user(db_session, tier="pro_plus")
-        cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Mine", bundle_owner=user.id)
         skill = _make_skill(db_session, slug="gamma")
         db_session.add(cb)
         db_session.flush()
-        db_session.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source="custom-added"))
+        db_session.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
@@ -380,7 +380,7 @@ class TestAddRemoveSkill:
         db_session.expire_all()
         cs = (
             db_session.query(CookbookSkill)
-            .filter(CookbookSkill.cookbook_id == cb.id, CookbookSkill.skill_id == skill.id)
+            .filter(CookbookSkill.bundle_id == cb.id, CookbookSkill.skill_id == skill.id)
             .first()
         )
         assert cs is not None
@@ -393,13 +393,13 @@ class TestAddRemoveSkill:
 class TestManifest:
     def test_manifest_yaml_roundtrip(self, db_session):
         user = _make_user(db_session, tier="pro_plus")
-        cb = Cookbook(id=uuid4(), name="Manifest CB", description="My desc", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Manifest CB", description="My desc", bundle_owner=user.id)
         skill = _make_skill(db_session, slug="delta")
         db_session.add(cb)
         db_session.flush()
         db_session.add(
             CookbookSkill(
-                cookbook_id=cb.id,
+                bundle_id=cb.id,
                 skill_id=skill.id,
                 source="custom-added",
                 pinned_version="1.2.3",
@@ -426,11 +426,11 @@ class TestManifest:
 class TestInstall:
     def test_install_idempotent(self, db_session):
         user = _make_user(db_session, tier="pro_plus")
-        cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Mine", bundle_owner=user.id)
         skill = _make_skill(db_session, slug="epsilon", with_version=True)
         db_session.add(cb)
         db_session.flush()
-        db_session.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source="custom-added"))
+        db_session.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
@@ -466,15 +466,15 @@ class TestInstall:
 
     def test_install_skips_disabled(self, db_session):
         user = _make_user(db_session, tier="pro_plus")
-        cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Mine", bundle_owner=user.id)
         kept = _make_skill(db_session, slug="kept", with_version=True)
         gone = _make_skill(db_session, slug="gone", with_version=True)
         db_session.add(cb)
         db_session.flush()
         db_session.add_all(
             [
-                CookbookSkill(cookbook_id=cb.id, skill_id=kept.id, source="custom-added"),
-                CookbookSkill(cookbook_id=cb.id, skill_id=gone.id, source="disabled"),
+                CookbookSkill(bundle_id=cb.id, skill_id=kept.id, source="custom-added"),
+                CookbookSkill(bundle_id=cb.id, skill_id=gone.id, source="disabled"),
             ]
         )
         db_session.commit()
@@ -493,7 +493,7 @@ class TestInstall:
 class TestSync:
     def test_sync_since_filter(self, db_session):
         user = _make_user(db_session, tier="pro_plus")
-        cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Mine", bundle_owner=user.id)
         s1 = _make_skill(db_session, slug="t1")
         s2 = _make_skill(db_session, slug="t2")
         s3 = _make_skill(db_session, slug="t3")
@@ -504,7 +504,7 @@ class TestSync:
         base = datetime(2026, 1, 1, 12, 0, 0)
         db_session.add(
             CookbookSkill(
-                cookbook_id=cb.id,
+                bundle_id=cb.id,
                 skill_id=s1.id,
                 source="custom-added",
                 added_at=base,
@@ -512,7 +512,7 @@ class TestSync:
         )
         db_session.add(
             CookbookSkill(
-                cookbook_id=cb.id,
+                bundle_id=cb.id,
                 skill_id=s2.id,
                 source="custom-added",
                 added_at=base + timedelta(hours=1),
@@ -520,7 +520,7 @@ class TestSync:
         )
         db_session.add(
             CookbookSkill(
-                cookbook_id=cb.id,
+                bundle_id=cb.id,
                 skill_id=s3.id,
                 source="custom-added",
                 added_at=base + timedelta(hours=2),
@@ -541,7 +541,7 @@ class TestSync:
 
     def test_sync_partitions_by_source(self, db_session):
         user = _make_user(db_session, tier="pro_plus")
-        cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Mine", bundle_owner=user.id)
         a = _make_skill(db_session, slug="add-me")
         u = _make_skill(db_session, slug="update-me")
         r_skill = _make_skill(db_session, slug="remove-me")
@@ -549,9 +549,9 @@ class TestSync:
         db_session.flush()
         db_session.add_all(
             [
-                CookbookSkill(cookbook_id=cb.id, skill_id=a.id, source="custom-added"),
-                CookbookSkill(cookbook_id=cb.id, skill_id=u.id, source="overridden", pinned_version="2.0.0"),
-                CookbookSkill(cookbook_id=cb.id, skill_id=r_skill.id, source="disabled"),
+                CookbookSkill(bundle_id=cb.id, skill_id=a.id, source="custom-added"),
+                CookbookSkill(bundle_id=cb.id, skill_id=u.id, source="overridden", pinned_version="2.0.0"),
+                CookbookSkill(bundle_id=cb.id, skill_id=r_skill.id, source="disabled"),
             ]
         )
         db_session.commit()
@@ -566,7 +566,7 @@ class TestSync:
 
     def test_sync_invalid_since_returns_422(self, db_session):
         user = _make_user(db_session, tier="pro_plus")
-        cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Mine", bundle_owner=user.id)
         db_session.add(cb)
         db_session.commit()
 

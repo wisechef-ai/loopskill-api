@@ -81,7 +81,7 @@ def _make_cookbook(db: Session, owner_id=None) -> Cookbook:
     cb = Cookbook(
         id=uuid4(),
         name="Fleet Test Cookbook",
-        cookbook_owner=owner_id or uuid4(),
+        bundle_owner=owner_id or uuid4(),
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -204,7 +204,7 @@ def test_fleet_subscribe_idempotent(fleet_db):
         fleet_db.query(FleetSubscription)
         .filter(
             FleetSubscription.fleet_id == UUID(fleet_id),
-            FleetSubscription.cookbook_id == cookbook.id,
+            FleetSubscription.bundle_id == cookbook.id,
         )
         .all()
     )
@@ -234,7 +234,7 @@ def test_fleet_sync_aggregates_across_cookbooks(fleet_db):
     # Add outdated skills to each cookbook
     for cb, skill in [(cb1, skill1), (cb2, skill2)]:
         cs = CookbookSkill(
-            cookbook_id=cb.id,
+            bundle_id=cb.id,
             skill_id=skill.id,
             pinned_version="1.0.0",
             source="custom-added",

@@ -41,7 +41,7 @@ def _find_outdated_skills(db: Session, cookbook_id: UUID) -> list[dict[str, Any]
             CookbookSkill.pinned_version,
         )
         .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(CookbookSkill.cookbook_id == cookbook_id)
+        .filter(CookbookSkill.bundle_id == cookbook_id)  # compat-alias
         .all()
     )
 
@@ -127,7 +127,7 @@ def recipes_sync(
     # ── APPLY path (default) ─────────────────────────────────────────────
     for o in outdated:
         db.query(CookbookSkill).filter(
-            CookbookSkill.cookbook_id == cb_uuid,
+            CookbookSkill.bundle_id == cb_uuid,  # compat-alias
             CookbookSkill.skill_id == o["skill_id"],
         ).update({"pinned_version": o["to"]})
 
@@ -159,9 +159,9 @@ def _build_install_urls(db: Session, outdated: list[dict[str, Any]]) -> list[dic
     from app.config import settings
 
     try:
-        # Issue #27 (secfix_1905/I-followup): salt MUST match install_routes._download
-        # verifier (salt="recipes-skill-install"). Caught by codex re-pass.
-        serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="recipes-skill-install")
+        # Issue #27 (secfix_1905/I-followup): salt MUST match install_routes._verify_signed_token.
+        # Phase 3+4: primary salt changed to "loopskill-install"; verifier accepts both.
+        serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="loopskill-install")
     # Rationale: URLSafeTimedSerializer init can fail if SIGNING_SECRET is empty; return empty list
     except Exception:  # noqa: BLE001
         return []

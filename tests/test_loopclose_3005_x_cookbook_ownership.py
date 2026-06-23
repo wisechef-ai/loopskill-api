@@ -5,7 +5,7 @@ RED-first tests (authored before the recipify.py fix) pinning the contract:
   1. A user-scoped MCP recipify call (ctx carries user_id, no user_id kwarg —
      exactly how server.py:_dispatch invokes it) creates a cookbook OWNED BY
      ctx.user_id and visible in that user's list_cookbooks. This is the
-     reported bug: the orphan ("MCP Cookbook", cookbook_owner=NULL) was
+     reported bug: the orphan ("MCP Cookbook", bundle_owner=NULL) was
      invisible to every user forever.
   2. Fail-closed: a recipify create path that resolves no owner (no kwarg, no
      ctx.user_id, no target_cookbook_id) returns owner_required and writes
@@ -94,14 +94,14 @@ def test_recipify_via_ctx_creates_owned_cookbook(db_session):
     from uuid import UUID as _UUID
     cb = db_session.query(Cookbook).filter(Cookbook.id == _UUID(out["cookbook_id"])).first()
     assert cb is not None
-    assert cb.cookbook_owner == user.id, (
-        f"cookbook must be owned by ctx.user_id, got owner={cb.cookbook_owner!r} "
-        "(the orphan bug: cookbook_owner=NULL → invisible to every user)"
+    assert cb.bundle_owner == user.id, (
+        f"cookbook must be owned by ctx.user_id, got owner={cb.bundle_owner!r} "
+        "(the orphan bug: bundle_owner=NULL → invisible to every user)"
     )
     # And it must be visible when filtering by that user's id (list_cookbooks semantics).
     visible = (
         db_session.query(Cookbook)
-        .filter(Cookbook.cookbook_owner == user.id)
+        .filter(Cookbook.bundle_owner == user.id)
         .all()
     )
     assert cb.id in [c.id for c in visible]
@@ -123,7 +123,7 @@ def test_recipify_via_ctx_reuses_existing_owned_cookbook(db_session):
     assert out1["cookbook_id"] == out2["cookbook_id"]
     owned = (
         db_session.query(Cookbook)
-        .filter(Cookbook.cookbook_owner == user.id)
+        .filter(Cookbook.bundle_owner == user.id)
         .count()
     )
     assert owned == 1
@@ -149,7 +149,7 @@ def test_recipify_fails_closed_when_no_owner_resolves(db_session):
     # And specifically: no owner-less non-base cookbook exists.
     orphans = (
         db_session.query(Cookbook)
-        .filter(Cookbook.is_base == False, Cookbook.cookbook_owner.is_(None))  # noqa: E712
+        .filter(Cookbook.is_base == False, Cookbook.bundle_owner.is_(None))  # noqa: E712
         .count()
     )
     assert orphans == 0
@@ -167,4 +167,4 @@ def test_recipify_with_explicit_user_id_kwarg_still_works(db_session):
     assert "error" not in out, out
     from uuid import UUID as _UUID
     cb = db_session.query(Cookbook).filter(Cookbook.id == _UUID(out["cookbook_id"])).first()
-    assert cb.cookbook_owner == user.id
+    assert cb.bundle_owner == user.id

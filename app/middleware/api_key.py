@@ -165,7 +165,7 @@ def _auth_ctx_from_api_key(request) -> "AuthContext | None":
             scope="user",
             user_id=api_key_obj.user_id,
             api_key_id=api_key_obj.id,
-            cookbook_scope=api_key_obj.cookbook_id,
+            cookbook_scope=api_key_obj.bundle_id,  # compat-alias
             is_sandbox_operator=bool(getattr(api_key_obj, "is_sandbox_operator", False)),
             tier=tier,
         )
@@ -436,8 +436,9 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             # may also call GET /api/skills/install + /_download for public-catalog
             # skills. Token is validated first (full DB lookup) so the path-broadening
             # only applies to genuine active tokens, not any cbt_-prefixed string.
+            _cbt_prefixes = ("/api/cookbooks/", "/api/bundles/")  # compat-alias
             is_install_path = request.url.path in ("/api/skills/install", "/api/skills/_download")
-            if not request.url.path.startswith("/api/cookbooks/") and not is_install_path:
+            if not request.url.path.startswith(_cbt_prefixes) and not is_install_path:
                 return JSONResponse(
                     status_code=403,
                     content={"detail": "Share tokens can only access cookbook routes"},
@@ -451,7 +452,6 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 )
             cookbook_prefix_8 = parts[1]
             from datetime import datetime
-
             from app.database import SessionLocal
             from app.models import CookbookShareToken
 
@@ -492,7 +492,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                     )
 
                 request.state.cookbook_token_scope = match.scope
-                request.state.cookbook_token_cookbook_id = match.cookbook_id
+                request.state.cookbook_token_cookbook_id = match.bundle_id  # compat-alias
                 # SECURITY: do NOT set api_key_user_id=None — that's the master-key
                 # sentinel. Use a string sentinel so any code that checks
                 # `is_master = (api_key_user_id is None)` correctly excludes cbt_.
@@ -505,7 +505,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
                 request.state.auth_ctx = AuthContext(
                     scope="cbt_token",
-                    cookbook_scope=match.cookbook_id,
+                    cookbook_scope=match.bundle_id,  # compat-alias
                     allow_public_catalog=allow_pub,
                 )
                 return await call_next(request)
@@ -568,7 +568,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 _last_used_tracker.record(api_key_obj.id, datetime.now(UTC))
                 request.state.api_key_id = api_key_obj.id
                 request.state.api_key_user_id = api_key_obj.user_id
-                # auth_ctx: user scope — Phase B stamps cookbook_scope from api_key.cookbook_id
+                # auth_ctx: user scope — Phase B stamps bundle_scope from api_key.bundle_id
                 # Issue #25 (secfix_1905/H): stamp tier from User so routes can use
                 # request.state.auth_ctx.tier instead of a separate DB lookup.
                 from app.models import User as _User
@@ -585,7 +585,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                     user_id=api_key_obj.user_id,
                     api_key_id=api_key_obj.id,
                     # secfix_1905/B: cookbook-scoped key restriction (Issue #13)
-                    cookbook_scope=api_key_obj.cookbook_id,
+                    cookbook_scope=api_key_obj.bundle_id,  # compat-alias
                     # secfix_1905/C: propagate sandbox execution privilege
                     is_sandbox_operator=bool(getattr(api_key_obj, "is_sandbox_operator", False)),
                     # secfix_1905/H: subscription tier for paywall checks (#25)

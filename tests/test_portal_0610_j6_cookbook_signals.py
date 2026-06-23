@@ -59,7 +59,7 @@ def _mk_key(db, user):
 def _mk_cookbook(db, owner, *, visibility="private"):
     from app.models import Cookbook
 
-    cb = Cookbook(id=uuid.uuid4(), name="deck", cookbook_owner=owner.id, visibility=visibility)
+    cb = Cookbook(id=uuid.uuid4(), name="deck", bundle_owner=owner.id, visibility=visibility)
     db.add(cb)
     db.flush()
     return cb
@@ -79,7 +79,7 @@ def _add_skill(db, cb, slug):
     )
     db.add(sk)
     db.flush()
-    db.add(CookbookSkill(cookbook_id=cb.id, skill_id=sk.id, source="custom-added"))
+    db.add(CookbookSkill(bundle_id=cb.id, skill_id=sk.id, source="custom-added"))
     db.flush()
     return sk
 
@@ -123,7 +123,7 @@ def test_fleet_usage_counts_subscriptions(middleware_client, db_session):
     fleet = Fleet(id=uuid.uuid4(), owner_user_id=owner.id, name="f", fleet_api_key_hash="x" * 64)
     db_session.add(fleet)
     db_session.flush()
-    db_session.add(FleetSubscription(fleet_id=fleet.id, cookbook_id=cb.id, channel="stable"))
+    db_session.add(FleetSubscription(fleet_id=fleet.id, bundle_id=cb.id, channel="stable"))
     db_session.flush()
 
     r = middleware_client.get(f"/api/cookbooks/{cb.id}", headers={"x-api-key": key})

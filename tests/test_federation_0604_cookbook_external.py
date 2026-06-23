@@ -209,7 +209,7 @@ class TestAddExternalSkillToCookbook:
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: _stub_external(s, sl))
 
         user = _make_user(db_session)
-        cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Mine", bundle_owner=user.id)
         db_session.add(cb)
         db_session.commit()
 
@@ -228,14 +228,14 @@ class TestAddExternalSkillToCookbook:
         cs = (
             db_session.query(CookbookSkill)
             .join(Skill, Skill.id == CookbookSkill.skill_id)
-            .filter(CookbookSkill.cookbook_id == cb.id, Skill.slug == "ext:lobehub:seo-writer")
+            .filter(CookbookSkill.bundle_id == cb.id, Skill.slug == "ext:lobehub:seo-writer")
             .first()
         )
         assert cs is not None, "cookbook_skills join row must exist (FK satisfied)"
 
     def test_add_external_unknown_source_422(self, db_session):
         user = _make_user(db_session)
-        cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Mine", bundle_owner=user.id)
         db_session.add(cb)
         db_session.commit()
 
@@ -253,7 +253,7 @@ class TestAddExternalSkillToCookbook:
 
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: None)
         user = _make_user(db_session)
-        cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Mine", bundle_owner=user.id)
         db_session.add(cb)
         db_session.commit()
 
@@ -285,11 +285,11 @@ class TestBulkInstallDescriptor:
         monkeypatch.setattr(ce, "resolve_external_install", _boom)
 
         user = _make_user(db_session)
-        cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Mine", bundle_owner=user.id)
         db_session.add(cb)
         skill = ce.materialize_external_skill(db_session, "lobehub", "seo-writer")
         db_session.flush()
-        db_session.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source="custom-added"))
+        db_session.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
@@ -320,11 +320,11 @@ class TestSingleInstallResolvesOrigin:
         )
 
         user = _make_user(db_session)
-        cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Mine", bundle_owner=user.id)
         db_session.add(cb)
         skill = ce.materialize_external_skill(db_session, "lobehub", "seo-writer")
         db_session.flush()
-        db_session.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source="custom-added"))
+        db_session.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
@@ -348,11 +348,11 @@ class TestSingleInstallResolvesOrigin:
         monkeypatch.setattr(ce, "get_origin_fetcher", lambda source: (lambda sl: None))
 
         user = _make_user(db_session)
-        cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Mine", bundle_owner=user.id)
         db_session.add(cb)
         skill = ce.materialize_external_skill(db_session, "lobehub", "seo-writer")
         db_session.flush()
-        db_session.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source="custom-added"))
+        db_session.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
@@ -406,11 +406,11 @@ class TestMcpExternalParity:
 
         monkeypatch.setattr(ce, "_resolve_external", lambda s, sl: _stub_external(s, sl))
         user = _make_user(db_session)
-        cb = Cookbook(id=uuid4(), name="Mine", cookbook_owner=user.id)
+        cb = Cookbook(id=uuid4(), name="Mine", bundle_owner=user.id)
         db_session.add(cb)
         skill = ce.materialize_external_skill(db_session, "lobehub", "seo-writer")
         db_session.flush()
-        db_session.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source="custom-added"))
+        db_session.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
         db_session.commit()
         return user, cb
 

@@ -139,7 +139,7 @@ def _mk_skill(db, *, slug: str, tier: str, is_public: bool = True):
 def _mk_cookbook(db, *, owner, name: str = "deliverable"):
     from app.models import Cookbook
 
-    cb = Cookbook(id=uuid.uuid4(), name=name, cookbook_owner=owner.id if owner else None)
+    cb = Cookbook(id=uuid.uuid4(), name=name, bundle_owner=owner.id if owner else None)
     db.add(cb)
     db.flush()
     return cb
@@ -149,7 +149,7 @@ def _add_to_cookbook(db, cb, skill, source: str = "custom-added"):
     from app.models import CookbookSkill
 
     cs = CookbookSkill(
-        cookbook_id=cb.id,
+        bundle_id=cb.id,
         skill_id=skill.id,
         source=source,
     )

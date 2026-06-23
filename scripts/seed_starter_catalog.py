@@ -259,7 +259,7 @@ def _seed_bundles(db, system_user) -> int:
                 id=uuid4(),
                 name=spec["name"],
                 slug=slug,
-                cookbook_owner=system_user.id,
+                bundle_owner=system_user.id,
                 visibility="public",
             )
             db.add(cb)
@@ -268,7 +268,7 @@ def _seed_bundles(db, system_user) -> int:
 
         cb.name = spec["name"]
         cb.description = spec["description"]
-        cb.cookbook_owner = system_user.id
+        cb.bundle_owner = system_user.id
         cb.visibility = "public"
         cb.is_verified = bool(spec.get("verified", False))
 

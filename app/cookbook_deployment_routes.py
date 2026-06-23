@@ -45,7 +45,7 @@ from app.database import get_db
 from app.models import Cookbook, CookbookDeployment, InstallEvent, Skill, User
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/cookbook-deploy", tags=["cookbook-deploy"])
+_h = APIRouter(tags=["bundle-deploy"])  # Phase 3+4: handlers prefix-free; combined router below
 
 
 # pro/pro_plus + legacy aliases (cook/studio sunset 2026-06-10)
@@ -100,7 +100,7 @@ def _slugify(name: str) -> str:
 def _cookbook_dict(cb: Cookbook) -> dict:
     return {
         "id": str(cb.id),
-        "owner_id": str(cb.cookbook_owner) if cb.cookbook_owner else None,
+        "owner_id": str(cb.bundle_owner) if cb.bundle_owner else None,
         "name": cb.name,
         "slug": cb.slug,
         "description": cb.description,
@@ -121,7 +121,7 @@ def _resolve_cookbook_or_404(db: Session, cookbook_id: str, user: User) -> Cookb
     cb = db.query(Cookbook).filter(Cookbook.id == cb_uuid).first()
     if not cb:
         raise HTTPException(status_code=404, detail="cookbook_not_found")
-    if cb.cookbook_owner != user.id:
+    if cb.bundle_owner != user.id:
         raise HTTPException(status_code=403, detail="forbidden")
     return cb
 
@@ -129,7 +129,7 @@ def _resolve_cookbook_or_404(db: Session, cookbook_id: str, user: User) -> Cookb
 # ── Endpoints ───────────────────────────────────────────────────────────
 
 
-@router.post("/create")
+@_h.post("/create")
 async def create_deploy_cookbook(
     req: DeployCookbookCreateRequest,
     db: Session = Depends(get_db),
@@ -151,7 +151,7 @@ async def create_deploy_cookbook(
 
     cb = Cookbook(
         id=uuid.uuid4(),
-        cookbook_owner=user.id,
+        bundle_owner=user.id,
         name=req.name,
         slug=slug,
         description=req.description,
@@ -165,7 +165,7 @@ async def create_deploy_cookbook(
     return {"status": "created", "cookbook": _cookbook_dict(cb)}
 
 
-@router.get("/list")
+@_h.get("/list")
 async def list_deploy_cookbooks(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
@@ -174,14 +174,14 @@ async def list_deploy_cookbooks(
     user = _require_deploy_tier(user)
     rows = (
         db.query(Cookbook)
-        .filter(Cookbook.cookbook_owner == user.id, Cookbook.slug.isnot(None))
+        .filter(Cookbook.bundle_owner == user.id, Cookbook.slug.isnot(None))  # compat-alias
         .order_by(Cookbook.created_at.desc())
         .all()
     )
     return {"cookbooks": [_cookbook_dict(c) for c in rows]}
 
 
-@router.post("/{cookbook_id}/skills/add")
+@_h.post("/{cookbook_id}/skills/add")  # compat-alias
 async def add_deployment(
     cookbook_id: str = Path(...),
     req: DeploymentAddRequest = Body(...),
@@ -217,7 +217,7 @@ async def add_deployment(
 
     row = CookbookDeployment(
         id=uuid.uuid4(),
-        cookbook_id=cb.id,
+        bundle_id=cb.id,
         skill_id=skill_uuid,
         fork_id=fork_uuid,
         version_pin=req.version_pin,
@@ -237,7 +237,7 @@ async def add_deployment(
     }
 
 
-@router.delete("/{cookbook_id}/skills/{skill_id}")
+@_h.delete("/{cookbook_id}/skills/{skill_id}")  # compat-alias
 async def remove_deployment(
     cookbook_id: str,
     skill_id: str,
@@ -255,7 +255,7 @@ async def remove_deployment(
     rows = (
         db.query(CookbookDeployment)
         .filter(
-            CookbookDeployment.cookbook_id == cb.id,
+            CookbookDeployment.bundle_id == cb.id,  # compat-alias
             (CookbookDeployment.skill_id == skill_uuid) | (CookbookDeployment.fork_id == skill_uuid),
         )
         .all()
@@ -266,7 +266,7 @@ async def remove_deployment(
     return {"status": "removed", "count": len(rows)}
 
 
-@router.post("/{cookbook_id}/apply")
+@_h.post("/{cookbook_id}/apply")  # compat-alias
 async def apply_cookbook(
     cookbook_id: str,
     request: Request,
@@ -285,7 +285,7 @@ async def apply_cookbook(
     cb = _resolve_cookbook_or_404(db, cookbook_id, user)
     rows = (
         db.query(CookbookDeployment)
-        .filter(CookbookDeployment.cookbook_id == cb.id)
+        .filter(CookbookDeployment.bundle_id == cb.id)  # compat-alias
         .order_by(CookbookDeployment.install_order.asc())
         .all()
     )
@@ -324,7 +324,7 @@ async def apply_cookbook(
     }
 
 
-@router.get("/{cookbook_id}/jobs/{job_id}")
+@_h.get("/{cookbook_id}/jobs/{job_id}")  # compat-alias
 async def cookbook_job_status(
     cookbook_id: str,
     job_id: str,
@@ -342,7 +342,7 @@ async def cookbook_job_status(
     return {"job_id": job_id, "status": "applying"}
 
 
-@router.post("/{slug}/preflight")
+@_h.post("/{slug}/preflight")
 async def cookbook_preflight(
     slug: str,
     body: dict = Body(default={}),
@@ -366,7 +366,7 @@ async def cookbook_preflight(
     )
 
 
-@router.get("/{slug}/manifest")
+@_h.get("/{slug}/manifest")
 async def cookbook_deploy_manifest(
     slug: str,
     db: Session = Depends(get_db),
@@ -385,7 +385,7 @@ async def cookbook_deploy_manifest(
 
     rows = (
         db.query(CookbookDeployment)
-        .filter(CookbookDeployment.cookbook_id == cb.id)
+        .filter(CookbookDeployment.bundle_id == cb.id)  # compat-alias
         .order_by(CookbookDeployment.install_order.asc())
         .all()
     )
@@ -415,3 +415,11 @@ async def cookbook_deploy_manifest(
         },
         "skills": skills,
     }
+
+
+# ── Phase 3+4: combined router with new canonical prefix + compat alias ──────
+# /api/bundle-deploy is the new primary vocabulary; /api/cookbook-deploy stays as  # compat-alias
+# a compat-alias so existing callers (JWT-authed portal, test suite) still work.
+router = APIRouter()
+router.include_router(_h, prefix="/api/bundle-deploy", tags=["bundle-deploy"])
+router.include_router(_h, prefix="/api/cookbook-deploy", tags=["cookbook-deploy"])  # compat-alias

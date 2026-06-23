@@ -94,7 +94,7 @@ def _make_cookbook(db: Session, owner_id: UUID, name: str = "Cookbook") -> Cookb
         name=name,
         description="test",
         is_base=False,
-        cookbook_owner=owner_id,
+        bundle_owner=owner_id,
     )
     db.add(cb)
     db.flush()
@@ -121,7 +121,7 @@ def _make_skill(
 
 
 def _add_skill_to_cookbook(db: Session, cookbook: Cookbook, skill: Skill, source: str = "custom-added") -> CookbookSkill:
-    cs = CookbookSkill(cookbook_id=cookbook.id, skill_id=skill.id, source=source)
+    cs = CookbookSkill(bundle_id=cookbook.id, skill_id=skill.id, source=source)
     db.add(cs)
     db.flush()
     return cs
@@ -149,7 +149,7 @@ def _make_token_row(
     token_hash = hashlib.sha256(full_token.encode()).hexdigest()
     row = CookbookShareToken(
         id=uuid4(),
-        cookbook_id=cookbook_id,
+        bundle_id=cookbook_id,
         token_hash=token_hash,
         token_prefix=cb_prefix,
         scope=scope,

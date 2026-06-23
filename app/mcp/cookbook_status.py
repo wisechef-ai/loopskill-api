@@ -82,9 +82,9 @@ def get_cookbook_status(db: Session, user_id: UUID | str | None) -> dict[str, An
             Skill.slug,
             CookbookSkill.pinned_version,
         )
-        .join(CookbookSkill, CookbookSkill.cookbook_id == Cookbook.id)
+        .join(CookbookSkill, CookbookSkill.bundle_id == Cookbook.id)  # compat-alias
         .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(Cookbook.cookbook_owner == user_id)
+        .filter(Cookbook.bundle_owner == user_id)  # compat-alias
         .all()
     )
 

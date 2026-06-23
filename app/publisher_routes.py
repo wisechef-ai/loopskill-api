@@ -509,7 +509,7 @@ async def publish_skill(
     # SQLite tests it publishes directly to the in-process subscribers.
     try:
         cookbook_ids = [
-            str(cs.cookbook_id)
+            str(cs.bundle_id)
             for cs in db.query(CookbookSkill)
             .filter(
                 CookbookSkill.skill_id == skill_obj.id,

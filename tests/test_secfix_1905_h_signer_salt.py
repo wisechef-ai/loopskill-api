@@ -1,9 +1,12 @@
-"""Issue #24 — URLSafeTimedSerializer uses salt="recipes-skill-install".
+"""Issue #24 / Phase 3+4 — install URL signer salt discipline.
 
-Tests:
-1. Both the install signer and the download signer use the same salt.
-2. A token signed with salt A is rejected by a verifier with salt B.
-3. The same salt round-trips correctly.
+Phase 3+4 renamed the canonical salt from "recipes-skill-install" to
+"loopskill-install". The verifier (_verify_signed_token) accepts BOTH salts
+so in-flight tokens survive the rename. Tests:
+1. The signer uses the new "loopskill-install" salt.
+2. The old "recipes-skill-install" salt is still accepted as a fallback.
+3. A token signed with salt A is rejected by a verifier with salt B.
+4. The same salt round-trips correctly.
 """
 
 from __future__ import annotations
@@ -13,27 +16,21 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 
 _SECRET = "test-signing-secret"
-_SALT = "recipes-skill-install"
+_SALT = "loopskill-install"  # Phase 3+4 canonical salt
+_OLD_SALT = "recipes-skill-install"  # compat fallback — still accepted
 _OTHER_SALT = "some-other-salt"
 
 
 def test_install_serializer_uses_correct_salt() -> None:
-    """The salt in install_routes.py must be 'recipes-skill-install'.
-
-    We verify by round-tripping a token with the expected salt — if the
-    production code uses a different salt the integration test will catch it.
-    """
-    # Grep the source to confirm the literal salt is present.
+    """The signer must use the new 'loopskill-install' salt (Phase 3+4)."""
     from pathlib import Path
+
     src = (Path(__file__).parents[1] / "app" / "install_routes.py").read_text()
-    assert 'salt="recipes-skill-install"' in src, (
-        "install_routes.py does not contain salt=\"recipes-skill-install\" — issue #24 not fixed"
-    )
-    # Both occurrences (sign + verify) must be present
-    assert src.count('salt="recipes-skill-install"') == 2, (
-        "Expected exactly 2 occurrences of salt=\"recipes-skill-install\" in install_routes.py "
-        "(got {})".format(src.count('salt="recipes-skill-install"'))
-    )
+    assert (
+        'salt="loopskill-install"' in src
+    ), 'install_routes.py does not contain salt="loopskill-install" — Phase 3+4 not applied'
+    # The old salt must still be present in the fallback verifier
+    assert _OLD_SALT in src, f"Old salt {_OLD_SALT!r} not in install_routes.py — compat fallback missing"
 
 
 def test_cross_salt_token_rejected() -> None:

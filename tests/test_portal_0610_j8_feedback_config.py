@@ -64,7 +64,7 @@ def _mk_key(db, user):
 def _mk_cookbook(db, owner):
     from app.models import Cookbook
 
-    cb = Cookbook(id=uuid.uuid4(), name="client-deck", cookbook_owner=owner.id, visibility="private")
+    cb = Cookbook(id=uuid.uuid4(), name="client-deck", bundle_owner=owner.id, visibility="private")
     db.add(cb)
     db.flush()
     return cb

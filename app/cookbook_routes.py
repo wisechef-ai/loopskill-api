@@ -42,7 +42,7 @@ from app.services.cookbook_external import (
 from app.tier_labels import cookbook_limit
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/cookbooks", tags=["cookbooks"])
+_h = APIRouter(tags=["bundles"])  # Phase 3+4: handlers registered prefix-free; combined below
 
 # RCP-INCIDENT-2026-05-11: COOKBOOK_TIERS and UNLIMITED_TIERS now use helper
 # functions (_is_paid_tier, _is_operator_tier) defined in tier_labels.py which
@@ -260,8 +260,8 @@ class CookbookOut(BaseModel):
     name: str
     description: str | None = None
     is_base: bool
-    parent_cookbook_id: str | None = None
-    cookbook_owner: str | None = None
+    parent_bundle_id: str | None = None
+    bundle_owner: str | None = None
     created_at: datetime | None = None
 
 
@@ -285,7 +285,7 @@ def _resolve_owned_cookbook(db: Session, ctx: CookbookCtx, cookbook_id: str) -> 
     if ctx.cbt_cookbook_id is not None and ctx.cbt_cookbook_id == cb.id:
         return cb
 
-    if not ctx.is_master and cb.cookbook_owner != ctx.user_id:
+    if not ctx.is_master and cb.bundle_owner != ctx.user_id:
         raise HTTPException(status_code=404, detail="cookbook_not_found")
     return cb
 
@@ -296,7 +296,7 @@ def _skills_for(
     q = (
         db.query(CookbookSkill, Skill)
         .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(CookbookSkill.cookbook_id == cookbook_id)
+        .filter(CookbookSkill.bundle_id == cookbook_id)  # compat-alias
     )
     if not include_disabled:
         q = q.filter(CookbookSkill.source != "disabled")
@@ -339,8 +339,8 @@ def _to_cb_out(cb: Cookbook) -> dict:
         name=cb.name,
         description=cb.description,
         is_base=bool(cb.is_base),
-        parent_cookbook_id=str(cb.parent_cookbook_id) if cb.parent_cookbook_id else None,
-        cookbook_owner=str(cb.cookbook_owner) if cb.cookbook_owner else None,
+        parent_bundle_id=str(cb.parent_bundle_id) if cb.parent_bundle_id else None,
+        bundle_owner=str(cb.bundle_owner) if cb.bundle_owner else None,
         created_at=cb.created_at,
     ).model_dump(mode="json")
 
@@ -377,7 +377,7 @@ def _cookbook_signals(db: Session, cb: Cookbook, skills: list[dict]) -> dict:
         signals["last_synced"] = None
     try:
         signals["fleet_usage"] = (
-            db.query(FleetSubscription).filter(FleetSubscription.cookbook_id == cb.id).count()
+            db.query(FleetSubscription).filter(FleetSubscription.bundle_id == cb.id).count()
         )
     except Exception:  # noqa: BLE001  # Rationale: signal is best-effort.
         signals["fleet_usage"] = None
@@ -411,11 +411,11 @@ def _public_cb_card(db: Session, cb: Cookbook) -> dict:
     # portal_0610 R2: emit the owner's CREATOR HANDLE as the ref so the attribution
     # actually validates (a bare owner UUID was dropped by the allowlist). Falls
     # back to the owner UUID string only when no creator/handle exists.
-    ref_value = str(cb.cookbook_owner) if cb.cookbook_owner else None
-    if cb.cookbook_owner is not None:
+    ref_value = str(cb.bundle_owner) if cb.bundle_owner else None
+    if cb.bundle_owner is not None:
         from app.models import Creator
 
-        _creator = db.query(Creator).filter(Creator.user_id == cb.cookbook_owner).first()
+        _creator = db.query(Creator).filter(Creator.user_id == cb.bundle_owner).first()
         if _creator is not None and _creator.handle:
             ref_value = _creator.handle
     return {
@@ -437,7 +437,7 @@ def _public_cb_card(db: Session, cb: Cookbook) -> dict:
     }
 
 
-@router.get("/discover")
+@_h.get("/discover")
 def discover_cookbooks(
     db: Session = Depends(get_db),
     limit: int = 30,
@@ -474,7 +474,7 @@ def discover_cookbooks(
     return {"cookbooks": cards, "limit": limit, "offset": offset, "sort": sort}
 
 
-@router.get("/public/{slug}")
+@_h.get("/public/{slug}")
 def public_cookbook_page(slug: str, db: Session = Depends(get_db)):
     """Public cookbook page by slug. No auth. 404 unless visibility='public'.
 
@@ -508,7 +508,7 @@ def public_cookbook_page(slug: str, db: Session = Depends(get_db)):
 # ── spotify_0608 Ph G — reputation surfaces ──────────────────────────────
 
 
-@router.get("/leaderboard")
+@_h.get("/leaderboard")
 def cookbook_leaderboard(
     db: Session = Depends(get_db),
     limit: int = 10,
@@ -539,7 +539,7 @@ def cookbook_leaderboard(
     return {"top_weekly": top_weekly, "latest": latest, "limit": limit}
 
 
-@router.post("/{cookbook_id}/verify")
+@_h.post("/{cookbook_id}/verify")  # compat-alias
 def verify_cookbook(
     cookbook_id: str,
     request: Request,
@@ -570,7 +570,7 @@ def verify_cookbook(
 # ── Endpoints ────────────────────────────────────────────────────────────
 
 
-@router.post("", status_code=201)
+@_h.post("", status_code=201)
 def create_cookbook(
     body: CookbookCreateIn,
     db: Session = Depends(get_db),
@@ -589,7 +589,7 @@ def create_cookbook(
     # G on-ramp), Pro=10, Pro+=200.
     limit = cookbook_limit(ctx.tier)
     if limit is not None:
-        existing = db.query(Cookbook).filter(Cookbook.cookbook_owner == ctx.user_id).count()
+        existing = db.query(Cookbook).filter(Cookbook.bundle_owner == ctx.user_id).count()  # compat-alias
         if existing >= limit:
             raise HTTPException(
                 status_code=403,
@@ -601,7 +601,7 @@ def create_cookbook(
         name=name,
         description=body.description,
         is_base=False,
-        cookbook_owner=ctx.user_id,
+        bundle_owner=ctx.user_id,
     )
     db.add(cb)
     db.commit()
@@ -609,7 +609,7 @@ def create_cookbook(
     return _to_cb_out(cb)
 
 
-@router.get("")
+@_h.get("")
 def list_cookbooks(
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
@@ -620,14 +620,14 @@ def list_cookbooks(
 
     rows = (
         db.query(Cookbook)
-        .filter(Cookbook.cookbook_owner == ctx.user_id)
+        .filter(Cookbook.bundle_owner == ctx.user_id)  # compat-alias
         .order_by(Cookbook.created_at.desc())
         .all()
     )
     return {"cookbooks": [_to_cb_out(r) for r in rows]}
 
 
-@router.get("/{cookbook_id}")
+@_h.get("/{cookbook_id}")  # compat-alias
 def get_cookbook(
     cookbook_id: str,
     request: Request,
@@ -661,7 +661,7 @@ def get_cookbook(
     return out
 
 
-@router.post("/{cookbook_id}/skills", status_code=201)
+@_h.post("/{cookbook_id}/skills", status_code=201)  # compat-alias
 def add_skill_to_cookbook(
     cookbook_id: str,
     body: SkillAddIn,
@@ -700,7 +700,7 @@ def add_skill_to_cookbook(
     existing = (
         db.query(CookbookSkill)
         .filter(
-            CookbookSkill.cookbook_id == cb.id,
+            CookbookSkill.bundle_id == cb.id,  # compat-alias
             CookbookSkill.skill_id == skill.id,
         )
         .first()
@@ -723,7 +723,7 @@ def add_skill_to_cookbook(
         active_count = (
             db.query(CookbookSkill)
             .filter(
-                CookbookSkill.cookbook_id == cb.id,
+                CookbookSkill.bundle_id == cb.id,  # compat-alias
                 CookbookSkill.source != "disabled",
             )
             .count()
@@ -740,7 +740,7 @@ def add_skill_to_cookbook(
             )
 
     cs = CookbookSkill(
-        cookbook_id=cb.id,
+        bundle_id=cb.id,
         skill_id=skill.id,
         source=source,
     )
@@ -758,7 +758,7 @@ def add_skill_to_cookbook(
     }
 
 
-@router.delete("/{cookbook_id}/skills/{slug}")
+@_h.delete("/{cookbook_id}/skills/{slug}")  # compat-alias
 def remove_skill_from_cookbook(
     cookbook_id: str,
     slug: str,
@@ -777,7 +777,7 @@ def remove_skill_from_cookbook(
     cs = (
         db.query(CookbookSkill)
         .filter(
-            CookbookSkill.cookbook_id == cb.id,
+            CookbookSkill.bundle_id == cb.id,  # compat-alias
             CookbookSkill.skill_id == skill.id,
         )
         .first()
@@ -800,7 +800,7 @@ class VisibilityIn(BaseModel):
     visibility: str  # 'public' | 'private'
 
 
-@router.patch("/{cookbook_id}/visibility")
+@_h.patch("/{cookbook_id}/visibility")  # compat-alias
 def set_cookbook_visibility(
     cookbook_id: str,
     body: VisibilityIn,
@@ -830,7 +830,7 @@ class SkillPinIn(BaseModel):
     pinned_version: str | None = None  # null clears the pin (always-latest)
 
 
-@router.patch("/{cookbook_id}/skills/{slug}/pin")
+@_h.patch("/{cookbook_id}/skills/{slug}/pin")  # compat-alias
 def set_skill_pin(
     cookbook_id: str,
     slug: str,
@@ -854,7 +854,7 @@ def set_skill_pin(
         raise HTTPException(status_code=404, detail="skill_not_found")
     cs = (
         db.query(CookbookSkill)
-        .filter(CookbookSkill.cookbook_id == cb.id, CookbookSkill.skill_id == skill.id)
+        .filter(CookbookSkill.bundle_id == cb.id, CookbookSkill.skill_id == skill.id)  # compat-alias
         .first()
     )
     if cs is None:
@@ -894,7 +894,7 @@ class ReorderIn(BaseModel):
     order: list[str]  # slugs in the desired install order
 
 
-@router.patch("/{cookbook_id}/reorder")
+@_h.patch("/{cookbook_id}/reorder")  # compat-alias
 def reorder_cookbook_skills(
     cookbook_id: str,
     body: ReorderIn,
@@ -915,7 +915,7 @@ def reorder_cookbook_skills(
     rows = (
         db.query(CookbookSkill, Skill)
         .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(CookbookSkill.cookbook_id == cb.id, CookbookSkill.source != "disabled")
+        .filter(CookbookSkill.bundle_id == cb.id, CookbookSkill.source != "disabled")  # compat-alias
         .all()
     )
     by_slug = {skill.slug: cs for cs, skill in rows}
@@ -954,10 +954,9 @@ def _make_install_url(skill_slug: str, version_id: UUID, version_semver: str) ->
     """
     from itsdangerous import URLSafeTimedSerializer
 
-    # Issue #27 (secfix_1905/I-followup): salt MUST match install_routes._download
-    # verifier (salt="recipes-skill-install"). Without this match, every cookbook
-    # install URL fails with "Invalid download token" — caught by codex re-pass.
-    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="recipes-skill-install")
+    # Issue #27 (secfix_1905/I-followup): salt MUST match install_routes._verify_signed_token.
+    # Phase 3+4: primary salt changed to "loopskill-install"; verifier accepts both.
+    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="loopskill-install")
     token = serializer.dumps({"slug": skill_slug, "version_id": str(version_id), "mode": "install"})
     public_origin = (
         getattr(settings, "PUBLIC_ORIGIN", None)
@@ -967,7 +966,7 @@ def _make_install_url(skill_slug: str, version_id: UUID, version_semver: str) ->
     return public_origin.rstrip("/") + "/api/skills/_download?token=" + token
 
 
-@router.post("/{cookbook_id}/install")
+@_h.post("/{cookbook_id}/install")  # compat-alias
 def install_cookbook(
     cookbook_id: str,
     request: Request,
@@ -1061,7 +1060,7 @@ def install_cookbook(
     }
 
 
-@router.get("/{cookbook_id}/manifest")
+@_h.get("/{cookbook_id}/manifest")  # compat-alias
 def cookbook_manifest(
     cookbook_id: str,
     request: Request,
@@ -1089,7 +1088,7 @@ def cookbook_manifest(
     return Response(content=body, media_type="application/x-yaml")
 
 
-@router.get("/{cookbook_id}/sync")
+@_h.get("/{cookbook_id}/sync")  # compat-alias
 def cookbook_sync(
     cookbook_id: str,
     request: Request,
@@ -1113,7 +1112,7 @@ def cookbook_sync(
     q = (
         db.query(CookbookSkill, Skill)
         .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(CookbookSkill.cookbook_id == cb.id)
+        .filter(CookbookSkill.bundle_id == cb.id)  # compat-alias
     )
     if since_dt is not None:
         # SQLite stores naive datetimes; compare naively if necessary.
@@ -1148,7 +1147,7 @@ def cookbook_sync(
 # ── cookbook_share_2105 Phase D — single-skill install under cookbook prefix ──
 
 
-@router.get("/{cookbook_id}/skills/{slug}/install")
+@_h.get("/{cookbook_id}/skills/{slug}/install")  # compat-alias
 def install_single_skill_from_cookbook(
     cookbook_id: str,
     slug: str,
@@ -1195,7 +1194,7 @@ def install_single_skill_from_cookbook(
     cs = (
         db.query(CookbookSkill)
         .filter(
-            CookbookSkill.cookbook_id == cb.id,
+            CookbookSkill.bundle_id == cb.id,  # compat-alias
             CookbookSkill.skill_id == skill.id,
             CookbookSkill.source != "disabled",
         )
@@ -1317,7 +1316,7 @@ class HandoffIn(BaseModel):
     mode: str = "transfer"
 
 
-@router.post("/{cookbook_id}/handoff")
+@_h.post("/{cookbook_id}/handoff")  # compat-alias
 def handoff_cookbook(
     cookbook_id: str,
     body: HandoffIn,
@@ -1376,7 +1375,7 @@ class FeedbackConfigIn(BaseModel):
     pat: str | None = None  # fine-grained GitHub PAT (issues:write); never stored plaintext
 
 
-@router.get("/{cookbook_id}/feedback-config")
+@_h.get("/{cookbook_id}/feedback-config")  # compat-alias
 def get_feedback_config(
     cookbook_id: str,
     request: Request,
@@ -1398,7 +1397,7 @@ def get_feedback_config(
     }
 
 
-@router.patch("/{cookbook_id}/feedback-config")
+@_h.patch("/{cookbook_id}/feedback-config")  # compat-alias
 def set_feedback_config(
     cookbook_id: str,
     body: FeedbackConfigIn,
@@ -1436,3 +1435,11 @@ def set_feedback_config(
     if not result.get("ok"):
         raise HTTPException(status_code=422, detail=result.get("error", "feedback_config_failed"))
     return result
+
+
+# ── Phase 3+4: combined router with new canonical prefix + compat alias ──────
+# /api/bundles is the new primary vocabulary; /api/cookbooks is kept as a  # compat-alias
+# compat-alias so existing clients, agents, and integrations continue to work.
+router = APIRouter()
+router.include_router(_h, prefix="/api/bundles", tags=["bundles"])
+router.include_router(_h, prefix="/api/cookbooks", tags=["cookbooks"])  # compat-alias
