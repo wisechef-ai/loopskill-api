@@ -79,9 +79,7 @@ STARTER_LOOPS = [
             "A review comment has been posted on the target pull request "
             "covering correctness, performance, and style findings."
         ),
-        "verification_script": (
-            'gh pr view "$PR_NUMBER" --json comments ' "| jq -e '.comments | length > 0'"
-        ),
+        "verification_script": ("gh pr view \"$PR_NUMBER\" --json comments | jq -e '.comments | length > 0'"),
         "max_turns": 10,
         "budget_usd": None,
         "stopping_criteria": {
@@ -129,7 +127,7 @@ STARTER_LOOPS = [
             "summarised headline from each configured source."
         ),
         "verification_script": (
-            "test -f /tmp/briefing.md " "&& wc -l /tmp/briefing.md | awk '$1 > 3 {exit 0} {exit 1}'"
+            "test -f /tmp/briefing.md && wc -l /tmp/briefing.md | awk '$1 > 3 {exit 0} {exit 1}'"
         ),
         "max_turns": 5,
         "budget_usd": "0.10",
@@ -245,7 +243,7 @@ def _get_or_create_system_user(db):
 
 
 def _seed_bundles(db, system_user) -> int:
-    from app.models import Cookbook, CookbookSkill, Skill
+    from app.models import Bundle, BundleSkill, Skill
 
     created = 0
     known_slugs = {
@@ -253,9 +251,9 @@ def _seed_bundles(db, system_user) -> int:
     }
     for spec in STARTER_BUNDLES:
         slug = spec["slug"]
-        cb = db.query(Cookbook).filter(Cookbook.slug == slug).first()
+        cb = db.query(Bundle).filter(Bundle.slug == slug).first()
         if cb is None:
-            cb = Cookbook(
+            cb = Bundle(
                 id=uuid4(),
                 name=spec["name"],
                 slug=slug,
@@ -279,15 +277,15 @@ def _seed_bundles(db, system_user) -> int:
             if skill is None:
                 continue
             exists = (
-                db.query(CookbookSkill)
+                db.query(BundleSkill)
                 .filter(
-                    CookbookSkill.cookbook_id == cb.id,
-                    CookbookSkill.skill_id == skill.id,
+                    BundleSkill.bundle_id == cb.id,
+                    BundleSkill.skill_id == skill.id,
                 )
                 .first()
             )
             if exists is None:
-                db.add(CookbookSkill(cookbook_id=cb.id, skill_id=skill.id, source="custom-added"))
+                db.add(BundleSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
     return created
 
 
