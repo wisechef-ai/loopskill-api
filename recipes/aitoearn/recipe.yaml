@@ -1,0 +1,31 @@
+# recipes/aitoearn/recipe.yaml
+# Thin MCP-first wrapper. Upstream maintains the runtime (hosted MCP server,
+# OpenClaw plugin, Docker image, or Node/Electron source build). No local
+# service to install — the recipe just documents the install path.
+
+runtime:
+  binaries: []
+  services:
+    - name: aitoearn-mcp
+      type: external
+      url: "https://aitoearn.ai/api/unified/mcp"
+      health: "GET https://aitoearn.ai/api/unified/mcp"
+  env:
+    required: [AITOEARN_API_KEY]
+    optional: [AITOEARN_REGION]   # 'intl' (default) or 'cn'
+  cron: []
+  compatibility:
+    os: [linux, macos, windows]
+    arch: [x86_64, arm64]
+    ram_gb:
+      minimum: 0
+      recommended: 0
+    disk_gb: 0
+    network: required
+upstream:
+  source: "https://github.com/yikart/AiToEarn"
+  license: MIT
+  install_paths:
+    - mcp: "Add https://aitoearn.ai/api/unified/mcp to your agent's MCP config"
+    - openclaw_plugin: "npx -y @aitoearn/openclaw-plugin-cli install"
+    - web_only: "Sign in at aitoearn.ai (INTL) or aitoearn.cn (CN)"

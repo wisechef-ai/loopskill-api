@@ -1,0 +1,99 @@
+# super-memory stack — macOS / Apple Silicon (Docker Compose)
+# Works on both macOS and Linux (adjust Ollama binding per platform)
+#
+# Prerequisites:
+#   - Docker Desktop (macOS) or docker-ce (Linux) with compose
+#   - Ollama running on host with OLLAMA_HOST=0.0.0.0:11434
+#   - Ollama models: qwen3:8b, text-embedding-3-small (alias of nomic-embed-text)
+#   - Environment variables from ~/.hermes/super-memory.env
+#
+# Usage:
+#   set -a && source ~/.hermes/super-memory.env && set +a
+#   docker-compose -f docker-compose.macos.yml up -d
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: sm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${SM_PG_USER:-cognee}
+      POSTGRES_PASSWORD: ${SM_PG_PASSWORD}
+      POSTGRES_DB: ${SM_PG_DB:-cognee_db}
+    ports:
+      - "127.0.0.1:${SM_PG_PORT:-5432}:5432"
+    volumes:
+      - ${HOME}/super-memory/postgres/data:/var/lib/postgresql/data
+      - ${HOME}/super-memory/postgres/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SM_PG_USER:-cognee} -d ${SM_PG_DB:-cognee_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  couchdb:
+    image: couchdb:3
+    container_name: sm-couchdb
+    restart: unless-stopped
+    environment:
+      COUCHDB_USER: ${SM_COUCH_ADMIN:-admin}
+      COUCHDB_PASSWORD: ${SM_COUCH_PASSWORD}
+    ports:
+      - "127.0.0.1:${SM_COUCH_PORT:-5984}:5984"
+    volumes:
+      - ${HOME}/super-memory/couchdb/data:/opt/couchdb/data
+      - ${HOME}/super-memory/couchdb/config:/opt/couchdb/etc/local.d
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5984/_up"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # LiteLLM: OPTIONAL when going 100% Ollama.
+  # No ARM64 Docker image available — use native venv on Apple Silicon:
+  #   python3.11 -m venv ~/super-memory/litellm/.venv
+  #   ~/super-memory/litellm/.venv/bin/pip install 'litellm[proxy]'
+  #   ~/super-memory/litellm/.venv/bin/litellm --config config.yaml --port 4000
+
+  cognee:
+    image: cognee/cognee:latest
+    container_name: sm-cognee
+    restart: unless-stopped
+    ports:
+      # Internal port is 8000 (NOT 8100) — see pitfall 9
+      - "127.0.0.1:${SM_COGNEE_PORT:-8100}:8000"
+    volumes:
+      - ${HOME}/super-memory-vault:/data/vault
+    environment:
+      # --- Database ---
+      GRAPH_DATABASE_PROVIDER: "postgres"          # NOT "pgvector" or "falkordb" — pitfall 10
+      GRAPH_DATABASE_URL: "postgresql+asyncpg://${SM_PG_USER:-cognee}:${SM_PG_PASSWORD}@postgres:5432/${SM_PG_DB:-cognee_db}"  # +asyncpg required — pitfall 10
+      VECTOR_DB_PROVIDER: "pgvector"
+      DB_PROVIDER: "postgres"
+      ENABLE_BACKEND_ACCESS_CONTROL: "false"       # Required without neo4j — pitfall 11
+      COGNEE_SKIP_CONNECTION_TEST: "true"           # Postgres graph breaks health check — pitfall 13
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USERNAME: ${SM_PG_USER:-cognee}
+      DB_PASSWORD: ${SM_PG_PASSWORD}
+      DB_NAME: ${SM_PG_DB:-cognee_db}
+      # --- LLM via Ollama (self-hosted) ---
+      LLM_PROVIDER: "openai"
+      LLM_MODEL: "ollama/qwen3:8b"                # MUST include provider prefix — pitfall 15
+      LLM_ENDPOINT: "http://host.docker.internal:11434"  # NO /v1 for ollama/ prefix
+      LLM_API_KEY: "ollama"                        # any non-empty string
+      # --- Embedding via Ollama (aliased) ---
+      EMBEDDING_PROVIDER: "openai"
+      EMBEDDING_MODEL: "openai/text-embedding-3-small"   # Ollama alias for nomic-embed-text — pitfall 14
+      EMBEDDING_API_KEY: "ollama"
+      EMBEDDING_ENDPOINT: "http://host.docker.internal:11434/v1"  # NEEDS /v1 for openai/ prefix
+      EMBEDDING_DIMENSIONS: "768"                  # nomic-embed-text = 768d, NOT 1536
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # Use / not /health — postgres graph backend always returns "not ready" — pitfall 13
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 15s
+      timeout: 10s
+      retries: 5

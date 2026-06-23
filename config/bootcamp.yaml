@@ -1,0 +1,86 @@
+# Agent Bootcamp — curated install curricula (bootcamp_0607)
+#
+# WHY THIS EXISTS
+# ---------------
+# The carousel is daily-rotating DISCOVERY (what's new/hot). A bootcamp is an
+# opinionated, ORDERED install path: "you are a builder standing up an agent —
+# here is the exact sequence of skills to install, and why, in order." This is
+# the "#1 agent hub" wedge: Recipes stops being a flat catalog and becomes the
+# default INSTALL ORDER. Tracks start on the free on-ramp and cross the
+# free→Pro boundary exactly where "free works" stops working — the conversion
+# moment the atomic-habits REVENUE frame is built around.
+#
+# CLAIM-GROUNDING CONTRACT (enforced by tests/test_bootcamp.py)
+# ------------------------------------------------------------
+# Every `slug` below MUST exist in the live catalog. The test loads this file
+# and asserts each slug resolves to a real, non-archived skill, and that the
+# declared `tier` matches the catalog tier. A track that references a phantom
+# skill fails CI — the bootcamp can never advertise a skill you can't install.
+# This mirrors the carousel's tagline-integrity contract.
+#
+# To add/reorder a track: edit ONLY this file. The loader + endpoint are generic.
+version: 1
+
+tracks:
+  - id: zero-to-agent
+    title: "Zero to Agent"
+    subtitle: "Stand up a production-grade agent from scratch — memory first, then capability."
+    audience: "A builder running Claude Code / Codex / Hermes / OpenClaw who wants the canonical setup, not 50 tabs of trial-and-error."
+    outcome: "A persistent-memory agent that survives restarts, keeps its own skills current, and runs a daily operating loop."
+    steps:
+      - slug: super-memory
+        tier: free
+        why: "Start here. One command installs the full memory stack (knowledge graph + vault). Without persistent memory every other skill is amnesiac. This is the free on-ramp — it works on day one with zero spend."
+      - slug: recipes-cookbook-reconcile
+        tier: free
+        why: "Keep the agent EVERGREEN. Install once and its skills auto-update instead of rotting. The second free seed — together with super-memory these two prove the loop before you pay a cent."
+      - slug: cognee
+        tier: pro
+        why: "The conversion boundary. Free memory works until you need self-hosted graph retrieval at scale (Postgres 17 + pgvector + graph store). This is where 'free works' stops — and the first Pro skill earns its $20."
+      - slug: maestro
+        tier: pro
+        why: "The operating loop. A solo-founder agent that runs the business while you sleep: morning brief, marketing, code delegation. Turns 'I have an agent' into 'my agent runs my day.'"
+      - slug: framework-v0
+        tier: pro
+        why: "One-call bootstrap that installs Maestro + its 4 dependencies — the fast path once you know you want the full operating stack."
+
+  - id: content-engine
+    title: "Content Engine"
+    subtitle: "A self-hosted media + distribution pipeline an agent can drive end-to-end."
+    audience: "Operators who want their agent to produce and ship media — video, audio, scraped source material — without per-call API bills."
+    outcome: "An agent that scrapes source material and produces finished video + audio locally — no per-generation API spend."
+    steps:
+      - slug: super-memory
+        tier: free
+        why: "Free on-ramp again — the content agent needs memory of what it has already produced to avoid duplicate work. Costs nothing to start."
+      - slug: scrapling-official
+        tier: pro
+        why: "Source material. Headless scraping for JS-heavy / Cloudflare-protected pages — the input side of any content pipeline."
+      - slug: comfyui
+        tier: pro
+        why: "Generate images, video, and audio locally with ComfyUI — no per-frame API spend. The conversion boundary for anyone tired of paying per generation."
+      - slug: local-tts-kokoro
+        tier: pro
+        why: "Local text-to-speech at 2.6x realtime — voiceover for the reel without an ElevenLabs bill."
+      - slug: manim-video
+        tier: pro
+        why: "3Blue1Brown-style explainer animations — the high-retention format for technical content, and the capstone of a local-first media stack with zero per-generation API spend."
+
+  - id: agent-fleet
+    title: "Run a Fleet"
+    subtitle: "Coordinate multiple agents without infinite loops or split-brain."
+    audience: "Operators graduating from one agent to a coordinated team — the hardest part is making them talk without spamming each other to death."
+    outcome: "A multi-agent setup with shared memory, loop-safe Discord coordination, and per-client reporting."
+    steps:
+      - slug: super-memory
+        tier: free
+        why: "Shared memory is the substrate a fleet coordinates on. Free on-ramp — stand up the brain before wiring the agents."
+      - slug: multi-agent-discord-coordination
+        tier: pro
+        why: "The hard-won protocol for 2+ agents on Discord without infinite loops or runaway spam — the exact failure mode that kills naive fleets. The conversion boundary: free gets you one agent, this gets you a coordinated team."
+      - slug: chef
+        tier: pro
+        why: "Automate a one-person company: morning brief, marketing pipeline, code delegation — the per-agent operating template you replicate across the fleet."
+      - slug: client-reporter
+        tier: pro
+        why: "Pull GA4, GSC, Meta + TikTok Ads and generate a branded client PDF — the deliverable that turns a fleet into billable client work."

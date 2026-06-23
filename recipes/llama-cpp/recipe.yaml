@@ -1,0 +1,30 @@
+# recipe.yaml — runtime + compatibility manifest for the llama-cpp skill
+# Source SKILL.md: ~/.hermes/skills/mlops/inference/llama-cpp/SKILL.md
+# Local LLM inference via llama.cpp. CPU-only is fully supported (Metal on
+# macOS, AVX2 on x86_64); GPU is preferred for >7B models.
+
+runtime:
+  binaries:
+    - name: llama-server
+      version: "0.3.0"
+      release_source: "github.com/ggerganov/llama.cpp"
+      check_latest: weekly
+  services:
+    - name: llama-server
+      type: systemd-user
+      port: 8080
+      health: "GET http://localhost:8080/health"
+  env:
+    optional: [LLAMA_MODEL_PATH, LLAMA_N_GPU_LAYERS]
+  compatibility:
+    os: [linux, macos]
+    arch: [x86_64, arm64]
+    gpu:
+      required: false
+      preferred: nvidia
+      vram_gb: 4
+    ram_gb:
+      minimum: 4
+      recommended: 16
+    disk_gb: 8
+    network: optional

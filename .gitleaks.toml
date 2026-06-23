@@ -1,0 +1,26 @@
+# LoopSkill gitleaks config — allowlist known placeholder/fixture values.
+# Every entry below is a documentation EXAMPLE or a TEST FIXTURE, never a real
+# credential. Real secrets are never committed (config via env / gitignored files).
+title = "LoopSkill gitleaks allowlist"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documentation placeholders and test fixtures"
+regexes = [
+  '''YOUR_API_KEY''',
+  '''cbt_a1b2c3d4_e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0''',
+  '''cbt_abcd1234_0123456789abcdef0123456789abcd''',
+  '''rec_dev_wiserecipes_local_testing_key''',
+  '''rec_prod_test_key_1234567890abcdef''',
+  '''tok_abcdef12''',
+  '''admin:PASSWORD''',
+  '''123456789012345678''',
+  '''sk_liv[._]*1234''',
+]
+paths = [
+  '''docs/.*\.md''',
+  '''recipes/.*/SKILL\.md''',
+  '''tests/.*\.py''',
+]

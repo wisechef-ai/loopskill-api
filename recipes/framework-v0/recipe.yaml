@@ -1,0 +1,24 @@
+# recipes/framework-v0/recipe.yaml
+# framework-v0 is a one-call bootstrap that installs Maestro + 4 companion
+# skills. It is a pure orchestration skill: no compiled binaries, no
+# long-running services, no GPU. It shells out to the recipes installer and
+# runs a short interactive config wizard.
+
+runtime:
+  binaries:
+    - name: python
+      provides: [python]
+      minimum: "python>=3.10"
+  env:
+    required: []
+    optional: [RECIPES_API_KEY]
+  compatibility:
+    os: [linux, macos]
+    arch: [x86_64, arm64]
+    gpu:
+      required: false
+    ram_gb:
+      minimum: 1
+      recommended: 2
+    disk_gb: 1
+    network: required

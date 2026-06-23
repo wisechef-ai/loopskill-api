@@ -1,0 +1,24 @@
+# examples/mcp/01-hermes-config-snippet.yaml
+#
+# Drop-in Hermes MCP server entry for recipes.wisechef.ai
+#
+# Instructions:
+#   1. Copy the `mcpServers` block into your ~/.hermes/hermes.yaml
+#      (merge with any existing `mcpServers` section — don't duplicate the key).
+#   2. Set the environment variable:
+#        export MCP_RECIPES_API_KEY=rec_xxxxxxxxxxxxxxxx
+#   3. Restart Hermes.  The `recipes_*` tools will appear automatically.
+#
+# Note: the trailing slash on the URL is REQUIRED — FastMCP routing returns
+#       HTTP 307 without it.
+#
+# Tier notes (legacy aliases sunset 2026-06-10):
+#   cook     → pro       (accepted until 2026-06-10)
+#   operator → pro_plus  (accepted until 2026-06-10)
+
+mcpServers:
+  recipes:
+    type: http
+    url: https://recipes.wisechef.ai/api/mcp/http/
+    headers:
+      x-api-key: "${MCP_RECIPES_API_KEY}"

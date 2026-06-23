@@ -1,0 +1,25 @@
+# recipes/maestro/recipe.yaml
+# Maestro is the solo-operator orchestrator skill. It coordinates five daily/
+# weekly loops (morning, code, marketing, tickets, weekly) by delegating to
+# companion skills and the user's configured tools. No compiled binaries, no
+# bundled services, no GPU — it reads ~/.maestro/config.toml and drives the
+# user's existing GitHub / Stripe / Discord / calendar integrations.
+
+runtime:
+  binaries:
+    - name: python
+      provides: [python]
+      minimum: "python>=3.10"
+  env:
+    required: []
+    optional: [ANTHROPIC_API_KEY, GITHUB_TOKEN, STRIPE_API_KEY]
+  compatibility:
+    os: [linux, macos]
+    arch: [x86_64, arm64]
+    gpu:
+      required: false
+    ram_gb:
+      minimum: 1
+      recommended: 2
+    disk_gb: 1
+    network: required

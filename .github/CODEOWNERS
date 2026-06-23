@@ -1,0 +1,29 @@
+# Code owners — recipes-api
+#
+# These paths require an explicit review before merge. The list is
+# deliberately narrow: the auth / authorization / migration surface is
+# where a silent mistake becomes a security incident or a prod-down event,
+# so a change there should never land unseen.
+#
+# Syntax: <path glob>  <owner>. GitHub requests a review from every owner
+# listed for any file a PR touches. Branch protection (when enabled — see
+# SECURITY.md) turns that request into a hard requirement.
+
+# Default owner for everything not matched more specifically below.
+*                       @adamkrawczyk
+
+# Auth & authorization — the security-critical core.
+/app/auth_ctx.py        @adamkrawczyk
+/app/authz.py           @adamkrawczyk
+/app/middleware.py      @adamkrawczyk
+/app/auth_routes.py     @adamkrawczyk
+/app/mcp/auth.py        @adamkrawczyk
+
+# Database migrations — a bad migration is hard to roll back on a live DB.
+/alembic/               @adamkrawczyk
+
+# CI / deploy pipeline — controls what reaches production.
+/.github/workflows/     @adamkrawczyk
+
+# Boot-time config & the production secrets gate.
+/app/config.py          @adamkrawczyk

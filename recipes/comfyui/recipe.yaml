@@ -1,0 +1,33 @@
+# recipe.yaml — runtime + compatibility manifest for the comfyui skill
+# Source SKILL.md: ~/.hermes/skills/creative/comfyui/SKILL.md
+# ComfyUI image/video pipeline. GPU strongly preferred — Comfy Cloud is the
+# fallback for hosts that fail the GPU check (handled by F.7 alt-suggestion).
+
+runtime:
+  binaries:
+    - name: python3
+      minimum: "python3>=3.10"
+    - name: comfy
+      provides: [comfy]
+      release_source: "github.com/Comfy-Org/comfy-cli"
+      check_latest: weekly
+  services:
+    - name: comfyui-api
+      type: systemd-user
+      port: 8188
+      health: "GET http://localhost:8188/system_stats"
+  env:
+    optional: [COMFY_BASE_PATH, COMFY_API_KEY]
+  compatibility:
+    os: [linux, macos, windows]
+    arch: [x86_64, arm64]
+    gpu:
+      required: false
+      preferred: nvidia
+      vram_gb: 8
+      cuda: ">=11.8"
+    ram_gb:
+      minimum: 8
+      recommended: 16
+    disk_gb: 20
+    network: required

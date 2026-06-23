@@ -1,0 +1,59 @@
+name: critical-path-coverage
+
+# Critical-path coverage gate (topshelf_2605/F).
+#
+# The aggregate coverage gate in ci.yml sits at 76%. That number is honest but
+# it lets the most dangerous modules — auth, authz, MCP auth — drift downward
+# as long as easy-to-test modules pull the average up. This gate closes that
+# hole: the security-critical surface is gated SEPARATELY at >=80% line
+# coverage. A scope leak or auth bypass introduced in these modules will fail
+# CI even if the aggregate stays green.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: critical-path-coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  critical-path-coverage:
+    runs-on: wisechef-runner
+    steps:
+      - uses: actions/checkout@v6
+      - id: setup-python
+        continue-on-error: true
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          check-latest: true
+      - name: Ensure a usable Python (fallback to system)
+        run: |
+          # W0.2: self-hosted Ubuntu 20.04 ARM64 has no setup-python build →
+          # fall back to the runner's pre-installed python3.
+          command -v python >/dev/null 2>&1 || sudo ln -sf "$(command -v python3)" /usr/local/bin/python
+          python --version
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # python-frontmatter is a TEST-only dep (tests/test_hubs1505_smoke.py);
+          # mirror ci.yml's pytest job so this gate's collection phase doesn't
+          # ModuleNotFoundError before the coverage assertion runs.
+          pip install pytest pytest-cov pytest-timeout python-frontmatter
+      - name: Critical-path coverage gate (>=80% on auth surface)
+        run: |
+          python -m pytest tests/ \
+            --cov=app/middleware \
+            --cov=app/authz \
+            --cov=app/mcp/auth \
+            --cov-report=term-missing \
+            --cov-fail-under=80 \
+            --timeout=120 \
+            --timeout-method=thread \
+            -q

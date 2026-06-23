@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 520" font-family="'Courier New', monospace" font-size="13">
+  <defs>
+    <style>
+      .terminal-bg { fill: #1a1b26; }
+      .terminal-border { fill: none; stroke: #414868; stroke-width: 2; rx: 8; }
+      .titlebar { fill: #24283b; }
+      .dot-red { fill: #f7768e; }
+      .dot-yellow { fill: #e0af68; }
+      .dot-green { fill: #9ece6a; }
+      .text { fill: #a9b1d6; }
+      .prompt { fill: #7aa2f7; }
+      .cmd { fill: #9ece6a; }
+      .output { fill: #c0caf5; }
+      .highlight { fill: #bb9af7; }
+      .cursor { fill: #c0caf5; }
+    </style>
+  </defs>
+
+  <!-- Terminal window -->
+  <rect class="terminal-bg" x="10" y="10" width="780" height="500" rx="8"/>
+  <rect class="terminal-border" x="10" y="10" width="780" height="500"/>
+
+  <!-- Title bar -->
+  <rect class="titlebar" x="10" y="10" width="780" height="32" rx="8"/>
+  <rect class="titlebar" x="10" y="34" width="780" height="8"/>
+  <circle class="dot-red" cx="32" cy="26" r="6"/>
+  <circle class="dot-yellow" cx="52" cy="26" r="6"/>
+  <circle class="dot-green" cx="72" cy="26" r="6"/>
+  <text x="400" y="30" text-anchor="middle" fill="#565f89" font-size="12">recipes — skill marketplace for AI agents</text>
+
+  <!-- Line 1: Search -->
+  <g>
+    <text class="prompt" x="24" y="68">❯</text>
+    <text class="cmd" x="44" y="68">
+      recipes_search "marketing calendar"
+      <animate attributeName="opacity" values="0;0;1" dur="2s" fill="freeze"/>
+    </text>
+  </g>
+
+  <!-- Line 2-7: Search results -->
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1" dur="2s" begin="2s" fill="freeze"/>
+    <text class="output" x="24" y="90">Found 3 skills:</text>
+    <text class="output" x="24" y="110">  1. content-calendar-pro   ★4.8  — "Automated editorial calendars for agencies"</text>
+    <text class="output" x="24" y="130">  2. social-scheduler       ★4.6  — "Multi-platform posting with analytics"</text>
+    <text class="output" x="24" y="150">  3. seo-audit-pro          ★4.5  — "Technical SEO audit + fix suggestions"</text>
+  </g>
+
+  <!-- Line 8: Install -->
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1" dur="2s" begin="5s" fill="freeze"/>
+    <text class="prompt" x="24" y="180">❯</text>
+    <text class="cmd" x="44" y="180">recipes_install content-calendar-pro</text>
+  </g>
+
+  <!-- Line 9: Install result -->
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1" dur="2s" begin="7s" fill="freeze"/>
+    <text class="highlight" x="24" y="200">✓ Installed content-calendar-pro v2.1.0 → skills/content-calendar-pro/</text>
+  </g>
+
+  <!-- Line 10: Share -->
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1" dur="2s" begin="9s" fill="freeze"/>
+    <text class="prompt" x="24" y="230">❯</text>
+    <text class="cmd" x="44" y="230">python3 tools/recipes_cli.py share abc-123 --name "Team access"</text>
+  </g>
+
+  <!-- Line 11-12: Share result -->
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1" dur="2s" begin="11s" fill="freeze"/>
+    <text class="highlight" x="24" y="250">✓ Share token created</text>
+    <text class="output" x="24" y="270">  Token: cbt_f4e3d2c1_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6</text>
+  </g>
+
+  <!-- Line 13: Config block header -->
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1" dur="2s" begin="13s" fill="freeze"/>
+    <text class="text" x="24" y="300">──────────────────────────────────────────────</text>
+    <text class="text" x="24" y="318">Hermes config.yaml:</text>
+  </g>
+
+  <!-- Config block -->
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1" dur="2s" begin="14s" fill="freeze"/>
+    <text class="output" x="36" y="338">mcpServers:</text>
+    <text class="output" x="36" y="356">  recipes-shared:</text>
+    <text class="output" x="36" y="374">    transport: streamable-http</text>
+    <text class="output" x="36" y="392">    url: https://recipes.wisechef.ai/api/mcp/http</text>
+    <text class="output" x="36" y="410">    headers:</text>
+    <text class="highlight" x="36" y="428">      x-api-key: cbt_f4e3d2c1_a1b2...c5d6</text>
+  </g>
+
+  <!-- Final line -->
+  <g opacity="0">
+    <animate attributeName="opacity" values="0;0;1" dur="2s" begin="16s" fill="freeze"/>
+    <text class="text" x="24" y="458">──────────────────────────────────────────────</text>
+    <text class="highlight" x="24" y="478">Search → Install → Share → Done in 60 seconds. 🚀</text>
+  </g>
+
+  <!-- Blinking cursor -->
+  <rect class="cursor" x="44" y="458" width="8" height="16" opacity="0">
+    <animate attributeName="opacity" values="0;0;1" dur="2s" begin="16s" fill="freeze"/>
+    <animate attributeName="opacity" values="1;0;1" dur="1s" begin="18s" repeatCount="indefinite"/>
+  </rect>
+</svg>

@@ -1,0 +1,133 @@
+# Phase E.3 — meta-skill patch for `recipes apply bucket://<slug>`
+#
+# This patch is shipped as a unified-diff fragment that the recipes
+# meta-skill (https://github.com/wisechef-ai/recipes-meta) merges in. It is
+# packaged as a .patch file rather than committed source because the
+# meta-skill repo is the source of truth — Tori applies this on the meta-skill
+# tree, runs its tests, and ships a new tag.
+#
+# Behaviour summary (per Plan v5.4 §E.3):
+#   - Subcommand: `recipes apply bucket://<slug>`
+#   - Calls POST /api/buckets/<slug>/preflight with the host fingerprint
+#     before touching the host. Refuses to proceed if `ok=false`.
+#   - Idempotent: re-applies just sync missing pieces (skills already at
+#     the pinned version are skipped).
+#   - Reports e.g. `45/47 skills, 12/12 crons, 6/6 services healthy in 87s`.
+#
+# To apply:  cd /path/to/recipes-meta && git apply e3-bucket-apply.patch
+
+--- a/recipes_meta/cli.py
++++ b/recipes_meta/cli.py
+@@ -120,6 +120,11 @@ def main(argv=None):
+     install = sub.add_parser("install", help="install a single skill")
+     install.add_argument("slug")
+
++    apply_p = sub.add_parser("apply", help="apply a bucket (multi-skill atomic install)")
++    apply_p.add_argument("target", help="bucket://<slug> URI")
++    apply_p.add_argument("--dry-run", action="store_true",
++                         help="run pre-flight only; do not install")
++
+     args = parser.parse_args(argv)
+
+     if args.cmd == "install":
+@@ -130,6 +135,9 @@ def main(argv=None):
+     elif args.cmd == "fork":
+         from .fork import run as fork_run
+         return fork_run(args)
++    elif args.cmd == "apply":
++        from .bucket_apply import run as bucket_apply_run
++        return bucket_apply_run(args)
+     else:
+         parser.print_help()
+         return 1
+
+--- /dev/null
++++ b/recipes_meta/bucket_apply.py
+@@ -0,0 +1,140 @@
++"""`recipes apply bucket://<slug>` — atomic bucket install.
++
++Per Plan v5.4 §E.3 — the meta-skill calls the server-side preflight first,
++refuses to touch the host on red-light, then applies skills in install_order.
++Idempotent: skills already at the pinned version are skipped.
++"""
++from __future__ import annotations
++
++import json
++import sys
++import time
++import urllib.request
++from urllib.parse import urlparse
++
++from .config import API_BASE_URL, load_api_key
++from .host_probe import collect_fingerprint
++from .install import install_skill
++
++
++def run(args) -> int:
++    target = args.target
++    if not target.startswith("bucket://"):
++        print(f"error: expected bucket://<slug>, got {target}", file=sys.stderr)
++        return 2
++    slug = target[len("bucket://"):].strip("/")
++
++    fp = collect_fingerprint()
++    preflight = _post_json(
++        f"{API_BASE_URL}/api/buckets/{slug}/preflight",
++        {
++            "host_fingerprint": fp,
++            "host_ports_in_use": fp.get("ports_in_use", []),
++            "host_env": fp.get("env_snapshot", {}),
++        },
++    )
++    if not preflight.get("ok"):
++        print(f"preflight FAILED for bucket://{slug}", file=sys.stderr)
++        for p in preflight.get("problems", []):
++            print(f"  - {p}", file=sys.stderr)
++        return 3
++    print(f"preflight ok ({preflight.get('skills_inspected', 0)} skills inspected)")
++
++    if args.dry_run:
++        return 0
++
++    manifest = _get_json(f"{API_BASE_URL}/api/buckets/{slug}/manifest")
++    skills = manifest.get("skills", [])
++    started = time.time()
++    installed = 0
++    skipped = 0
++    for entry in skills:
++        skill = entry.get("skill")
++        if not skill:
++            continue
++        result = install_skill(
++            slug=skill["slug"],
++            version_pin=entry.get("version_pin"),
++            idempotent=True,
++        )
++        if result.get("status") == "already_current":
++            skipped += 1
++        else:
++            installed += 1
++    elapsed = int(time.time() - started)
++    print(f"{installed}/{len(skills)} skills installed "
++          f"({skipped} already current) in {elapsed}s")
++    return 0
++
++
++def _post_json(url: str, body: dict) -> dict:
++    req = urllib.request.Request(
++        url,
++        method="POST",
++        data=json.dumps(body).encode("utf-8"),
++        headers={
++            "content-type": "application/json",
++            "x-api-key": load_api_key(),
++        },
++    )
++    with urllib.request.urlopen(req, timeout=30) as resp:
++        return json.loads(resp.read())
++
++
++def _get_json(url: str) -> dict:
++    req = urllib.request.Request(url, headers={"x-api-key": load_api_key()})
++    with urllib.request.urlopen(req, timeout=30) as resp:
++        return json.loads(resp.read())

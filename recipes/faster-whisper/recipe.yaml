@@ -1,0 +1,28 @@
+# recipe.yaml — runtime + compatibility manifest for the faster-whisper skill
+# Source SKILL.md: ~/.hermes/skills/media/faster-whisper/SKILL.md
+# Local speech-to-text via CTranslate2 + ffmpeg. GPU is "preferred" (~20x
+# speedup), CPU still works. Models are downloaded on first run, hence the
+# disk requirement.
+
+runtime:
+  binaries:
+    - name: ffmpeg
+      provides: [ffmpeg]
+      minimum: "ffmpeg>=4.4"
+    - name: python3
+      minimum: "python3>=3.10"
+  env:
+    optional: [WHISPER_MODEL_DIR, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE]
+  compatibility:
+    os: [linux, macos]
+    arch: [x86_64, arm64]
+    gpu:
+      required: false
+      preferred: nvidia
+      vram_gb: 6
+      cuda: ">=11.8"
+    ram_gb:
+      minimum: 4
+      recommended: 8
+    disk_gb: 4
+    network: optional

@@ -1,0 +1,25 @@
+# recipe.yaml — runtime + compatibility manifest for the kokoro-tts skill
+# Source SKILL.md: ~/.hermes/skills/media/local-tts-kokoro/SKILL.md
+# Local text-to-speech model. CPU-friendly; GPU optional. Models are ~300MB.
+
+runtime:
+  binaries:
+    - name: ffmpeg
+      provides: [ffmpeg]
+      minimum: "ffmpeg>=4.4"
+    - name: python3
+      minimum: "python3>=3.10"
+  env:
+    optional: [KOKORO_MODEL_DIR, KOKORO_VOICE]
+  compatibility:
+    os: [linux, macos]
+    arch: [x86_64, arm64]
+    gpu:
+      required: false
+      preferred: nvidia
+      vram_gb: 2
+    ram_gb:
+      minimum: 2
+      recommended: 4
+    disk_gb: 1
+    network: optional

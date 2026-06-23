@@ -1,0 +1,166 @@
+name: recipes-skill-drift-check
+
+# Purpose: Verify that the tool list documented in docs/recipes-skill/SKILL.md
+# exactly matches the tools registered in app/mcp/server.py.
+# Closes #327 (Phase C — meta-skill rewrite + drift-detection CI gate).
+
+on:
+  pull_request:
+    paths:
+      - "docs/recipes-skill/SKILL.md"
+  schedule:
+    # Daily at 06:00 UTC
+    - cron: "0 6 * * *"
+
+jobs:
+  drift-check:
+    runs-on: wisechef-runner
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Check SKILL.md tool list matches server.py
+        run: |
+          python - <<'PYEOF'
+          """
+          Drift detection: compare tools documented in SKILL.md against tools
+          registered in app/mcp/server.py (_tool_definitions).
+
+          Strategy A (primary): parse server.py statically for
+              types.Tool(name="<tool_name>", ...)
+          Strategy B (fallback): call GET /api/mcp/healthz if RECIPES_API_URL
+              is set in the environment (live server check).
+
+          Exit 1 if any mismatch is found.
+          """
+
+          import ast
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          REPO_ROOT = Path(__file__).parent if "__file__" in dir() else Path(".")
+          # Tool definitions live in registry.py (_tool_definitions), not
+          # server.py — the server imports them. The AST parser must read the
+          # file that actually contains the types.Tool(name=...) calls.
+          SERVER_PY = Path("app/mcp/registry.py")
+          SKILL_MD = Path("docs/recipes-skill/SKILL.md")
+
+          # ── 1. Extract tool names from server.py ──────────────────────────
+          def tools_from_server_py(path: Path) -> set[str]:
+              """Parse server.py with AST to find all types.Tool(name=...) calls."""
+              source = path.read_text(encoding="utf-8")
+              tree = ast.parse(source, filename=str(path))
+              found: set[str] = set()
+
+              class ToolVisitor(ast.NodeVisitor):
+                  def visit_Call(self, node: ast.Call) -> None:
+                      # Match: types.Tool(name="...", ...)
+                      is_types_tool = (
+                          isinstance(node.func, ast.Attribute)
+                          and node.func.attr == "Tool"
+                          and isinstance(node.func.value, ast.Name)
+                          and node.func.value.id == "types"
+                      )
+                      if is_types_tool:
+                          for kw in node.keywords:
+                              if kw.arg == "name" and isinstance(kw.value, ast.Constant):
+                                  found.add(kw.value.value)
+                      self.generic_visit(node)
+
+              ToolVisitor().visit(tree)
+              return found
+
+          # ── 2. Extract tool names from SKILL.md ──────────────────────────
+          def tools_from_skill_md(path: Path) -> set[str]:
+              """
+              Extract tool names from SKILL.md by scanning for backtick-quoted
+              identifiers that start with 'recipes_'.
+
+              Matches both table cells (`recipes_foo`) and inline code mentions.
+              """
+              text = path.read_text(encoding="utf-8")
+              # Find all `recipes_*` backtick tokens
+              return set(re.findall(r"`(recipes_[a-z_]+)`", text))
+
+          # ── 3. Optionally verify against live server ──────────────────────
+          def tools_from_live_server(base_url: str, api_key: str) -> set[str] | None:
+              """Call GET /api/mcp/healthz and return tool names, or None on error."""
+              try:
+                  import urllib.request
+                  import json as _json
+                  url = base_url.rstrip("/") + "/api/mcp/healthz"
+                  req = urllib.request.Request(url, headers={"x-api-key": api_key})
+                  with urllib.request.urlopen(req, timeout=10) as resp:
+                      data = _json.loads(resp.read())
+                  return set(data.get("tools", []))
+              except Exception as exc:
+                  print(f"  [warn] live server check skipped: {exc}", file=sys.stderr)
+                  return None
+
+          # ── Main ──────────────────────────────────────────────────────────
+          print("=== Recipes SKILL.md drift check ===")
+
+          if not SERVER_PY.exists():
+              print(f"ERROR: {SERVER_PY} not found — are you running from repo root?")
+              sys.exit(1)
+          if not SKILL_MD.exists():
+              print(f"ERROR: {SKILL_MD} not found.")
+              sys.exit(1)
+
+          registered = tools_from_server_py(SERVER_PY)
+          documented = tools_from_skill_md(SKILL_MD)
+
+          print(f"Tools in server.py  : {len(registered)}")
+          print(f"Tools in SKILL.md   : {len(documented)}")
+
+          # Optional live check
+          live_url = os.environ.get("RECIPES_API_URL", "")
+          live_key = os.environ.get("RECIPES_API_KEY", "")
+          if live_url and live_key:
+              live = tools_from_live_server(live_url, live_key)
+              if live is not None:
+                  print(f"Tools on live server: {len(live)}")
+                  extra_live = live - registered
+                  missing_live = registered - live
+                  if extra_live:
+                      print(f"  [warn] Live server has tools not in server.py: {sorted(extra_live)}")
+                  if missing_live:
+                      print(f"  [warn] server.py has tools not on live server: {sorted(missing_live)}")
+
+          # ── Compute diff ──────────────────────────────────────────────────
+          only_in_server = registered - documented
+          only_in_docs = documented - registered
+          drift = bool(only_in_server or only_in_docs)
+
+          if only_in_server:
+              print()
+              print("DRIFT: tools in server.py but NOT documented in SKILL.md:")
+              for t in sorted(only_in_server):
+                  print(f"  + {t}")
+
+          if only_in_docs:
+              print()
+              print("DRIFT: tools in SKILL.md but NOT registered in server.py:")
+              for t in sorted(only_in_docs):
+                  print(f"  - {t}")
+
+          if not drift:
+              print()
+              print("OK: SKILL.md tool list is in sync with server.py.")
+              print("Registered tools:")
+              for t in sorted(registered):
+                  print(f"  * {t}")
+              sys.exit(0)
+          else:
+              print()
+              print("FAIL: SKILL.md tool list is out of sync with server.py.")
+              print("Update docs/recipes-skill/SKILL.md to match app/mcp/server.py.")
+              sys.exit(1)
+          PYEOF

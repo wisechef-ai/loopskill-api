@@ -1,0 +1,57 @@
+# Caddy snippet for white-label bucket custom domains (Phase E.4, v5.4).
+#
+# Apply by Tori on production: drop into /etc/caddy/conf.d/buckets.conf and
+# `systemctl reload caddy`. Do NOT auto-load — this file ships in deploy/ so
+# the operator can review before mounting.
+#
+# How it works:
+#   - Studio tenants point a CNAME from `<their-subdomain>.<their-domain>` to
+#     `recipes.wisechef.ai`.
+#   - The wildcard handler below catches every host that is NOT one of our
+#     canonical domains, terminates TLS via Caddy's ACME-DNS issuer, and
+#     proxies the request to the FastAPI backend untouched.
+#   - The backend's `BucketHostMiddleware` reads the `Host` header, looks up
+#     the bucket by `custom_domain`, and stamps `request.state.bucket_id`.
+#     Catalog handlers then scope responses to that bucket.
+
+# Canonical domains — leave alone (these have their own server blocks).
+(canonical_domains) {
+    @canonical host recipes.wisechef.ai api.recipes.wisechef.ai dashboard.recipes.wisechef.ai
+}
+
+# Wildcard host catch-all — every CNAME-mapped tenant domain hits this.
+:443 {
+    import canonical_domains
+
+    # If the host matches a canonical domain, hand off to that block instead
+    # of the wildcard. Caddy's host matcher already filters this above.
+    @bucket_host not host recipes.wisechef.ai api.recipes.wisechef.ai dashboard.recipes.wisechef.ai
+
+    handle @bucket_host {
+        # On-demand TLS — Caddy issues a certificate the first time a new
+        # tenant CNAME points at us. Configure the `ask` endpoint to call
+        # back into the API so we only mint certs for known buckets.
+        tls {
+            on_demand
+        }
+
+        reverse_proxy localhost:8000 {
+            header_up Host {host}
+            header_up X-Real-IP {remote}
+            header_up X-Forwarded-For {remote}
+            header_up X-Forwarded-Proto {scheme}
+            # Carries the original tenant host through to BucketHostMiddleware.
+        }
+    }
+}
+
+# On-demand TLS authorizer — Caddy will only issue a cert if this endpoint
+# returns 200. Pointed at the buckets API: the handler returns 200 when a
+# bucket exists for that domain, 404 otherwise.
+{
+    on_demand_tls {
+        ask https://api.recipes.wisechef.ai/api/buckets/_ondemand_check
+        interval 2m
+        burst 5
+    }
+}

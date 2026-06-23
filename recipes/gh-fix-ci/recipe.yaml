@@ -1,0 +1,25 @@
+# recipes/gh-fix-ci/recipe.yaml
+# Imported from openai/skills .curated/gh-fix-ci (Apache-2.0).
+# Patched 2026-05-16: TSV fallback when `gh pr checks --json` is unsupported (gh < 2.55).
+runtime:
+  binaries:
+    - name: gh
+      minimum: "gh>=2.0"
+    - name: python3
+      minimum: "python3>=3.10"
+  services: []
+  env:
+    optional: []
+  cron: []
+  compatibility:
+    os: [linux, macos, windows]
+    arch: [x86_64, arm64]
+    ram_gb:
+      minimum: 0
+      recommended: 0
+    disk_gb: 0
+    network: required
+upstream:
+  source: "https://github.com/openai/skills/tree/main/skills/.curated/gh-fix-ci"
+  license: Apache-2.0
+  notes: "Patched gh < 2.55 TSV fallback (added 2026-05-16)."

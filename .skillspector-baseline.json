@@ -1,0 +1,49 @@
+{
+  "_comment": "SkillSpector suppression baseline — Phase K (loopclose_3005). Generated 2026-06-02.",
+  "_how_to_update": "Run: python scripts/build_skillspector_baseline.py > .skillspector-baseline.json",
+  "_format": "rule_id -> list of 'file:line' patterns or '*' (suppress all locations). Entries are verified false positives only.",
+
+  "suppressed": {
+    "P2": [
+      "asciinema-demo.svg:20"
+    ],
+    "TM1": [
+      "QUICKSTART-share.md:25",
+      "mcp/03-cookbook-share.sh:10"
+    ],
+    "E1": [
+      "QUICKSTART-publisher.md:58",
+      "mcp/03-cookbook-share.sh:37"
+    ],
+    "SC2": [
+      "mcp/03-cookbook-share.sh:37",
+      "mcp/03-cookbook-share.sh:66",
+      "mcp/03-cookbook-share.sh:83",
+      "mcp/03-cookbook-share.sh:104"
+    ],
+    "TT3": [
+      "rest/01-list-public-skills.py:49",
+      "rest/02-install-signed-url-roundtrip.py:41",
+      "rest/03-publish-skill.py:179",
+      "rest/04-stripe-checkout.py:90",
+      "rest/04-stripe-checkout.py:110"
+    ],
+    "E2": [
+      "rest/01-list-public-skills.py:80",
+      "rest/02-install-signed-url-roundtrip.py:97",
+      "rest/03-publish-skill.py:135",
+      "rest/03-publish-skill.py:194"
+    ]
+  },
+
+  "_rationale": {
+    "P2/asciinema-demo.svg:20": "SVG HTML comments in a demo animation file; not AI-readable instruction plane. Not a real prompt injection vector.",
+    "TM1/QUICKSTART-share.md:25": "DELETE HTTP method in documentation example. REST docs showing the full CRUD surface; no actual shell execution.",
+    "TM1/mcp/03-cookbook-share.sh:10": "DELETE in shell script comment line. Comment block describing REST endpoints, never executed as a shell command.",
+    "E1/QUICKSTART-publisher.md:58": "curl POST to recipes.wisechef.ai in publisher quickstart docs. Legitimate first-party API call to owned endpoint.",
+    "E1/mcp/03-cookbook-share.sh:37": "curl POST to ${BASE_URL}/api/cookbooks/ — base URL is user-supplied, calling our own API. Legitimate example code.",
+    "SC2/mcp/03-cookbook-share.sh:*": "curl calls piped to `python3 -m json.tool` for pretty-printing JSON. Not executing remote code — using stdlib json.tool as a formatter. curl responses are JSON, not scripts.",
+    "TT3/rest/*": "Example REST API clients reading RECIPES_API_KEY from env and sending it as an Authorization header to recipes.wisechef.ai (our own API). This is the intended pattern for API authentication, not credential exfiltration.",
+    "E2/rest/*": "Same as TT3 — os.environ.get('RECIPES_API_KEY') is the correct way to read an API key for authenticating against our own service in example code."
+  }
+}

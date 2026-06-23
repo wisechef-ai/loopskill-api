@@ -1,0 +1,23 @@
+# recipes/minto/recipe.yaml
+# Pure-prompt skill — no runtime dependencies, no binaries, no services.
+# Activated by trigger phrases in the host agent's conversation.
+
+runtime:
+  binaries: []
+  services: []
+  env:
+    optional: []
+  cron: []
+  compatibility:
+    os: [linux, macos, windows]
+    arch: [x86_64, arm64]
+    ram_gb:
+      minimum: 0
+      recommended: 0
+    disk_gb: 0
+    network: optional
+
+upstream:
+  source: "https://github.com/olelehmann1337/claude-skills/tree/main/skills/minto"
+  license: "unspecified-upstream"
+  notes: "Ported verbatim from olelehmann1337/claude-skills 2026-05-18. Upstream repo carries no LICENSE file; downstream port published under Apache-2.0 with attribution. Flag for upstream relicense outreach before broad distribution."

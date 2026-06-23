@@ -1,0 +1,1424 @@
+"""SQLAlchemy models for WiseRecipes / LoopSkill.
+
+Schema: users, api_keys, skills, skill_versions, install_events, telemetry_events,
+carousel_entries, referrals, creator_payouts, wisechef_demo_requests.
+Plus supporting tables: creators, orgs, api_library.
+Bundle tables: bundles, bundle_skills, bundle_share_tokens, bundle_deployments.
+"""
+
+from uuid import uuid4
+
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import DeclarativeBase, relationship
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+# ── Users & Auth ─────────────────────────────────────────────────────────
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    github_id = Column(Integer, unique=True, nullable=True, index=True)
+    google_id = Column(String(255), unique=True, nullable=True, index=True)
+    email = Column(String(512), nullable=True, index=True)
+    display_name = Column(String(255), nullable=False)
+    avatar_url = Column(Text, nullable=True)
+    stripe_connect_id = Column(String(255), nullable=True)  # Stripe Connect Express account ID
+    # ── Subscription billing (Free/Pro/Pro+ tiers) ─────────────────
+    stripe_customer_id = Column(String(255), unique=True, nullable=True, index=True)
+    subscription_status = Column(
+        String(32), nullable=True, index=True
+    )  # active, past_due, canceled, incomplete, trialing, unpaid, paused
+    subscription_tier = Column(String(32), nullable=True)  # free, pro, pro_plus (legacy: cook, operator)
+    subscription_id = Column(String(255), nullable=True)  # Stripe subscription id
+    subscription_current_period_end = Column(DateTime(timezone=True), nullable=True)
+    # evergreen_0206 Phase G — free-tier conversion taste. When a free user runs
+    # their ONE allowed manual reconcile/sync, this is stamped. A second manual
+    # sync → 402/upgrade. NULL = the free sync has not been used yet.
+    free_sync_used_at = Column(DateTime(timezone=True), nullable=True)
+    # ── Discord integration (Phase D) ─────────────────────────────────────
+    # 17-19 digit Discord snowflake; bot uses this to assign roles after
+    # Stripe webhooks. NULL when the user hasn't linked Discord yet.
+    discord_user_id = Column(String(32), nullable=True, index=True)
+    # Author-track score (creator quality signal) — populated elsewhere.
+    creator_track_record_score = Column(Float, nullable=True)
+    # ── Referral / Affiliate tracking (WIS-660) ──────────────────────────
+    # Each user gets a base62 referral_code (8-16 chars) lazily on first
+    # sign-in. `referred_by` is the FK to the user whose code triggered this
+    # signup. Both nullable because the columns are added by an in-place
+    # migration over an existing table.
+    referral_code = Column(String(16), nullable=True, unique=True, index=True)
+    referred_by = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # ── marketing_1205: UTM ref attribution ──────────────────────────────
+    # Set from ?ref= query param on /install or /pricing. Propagated to Stripe
+    # checkout metadata so subscriptions can be attributed per platform.
+    utm_ref = Column(String(32), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    api_keys = relationship("APIKey", back_populates="user", cascade="all, delete-orphan")
+    payouts = relationship("CreatorPayout", back_populates="creator")
+
+
+class APIKey(Base):
+    __tablename__ = "api_keys"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    key_prefix = Column(String(12), nullable=False)  # first 8 chars for lookup
+    key_hash = Column(String(255), nullable=False)  # full sha256 of key
+    name = Column(String(255), nullable=True)  # label like "production"
+    # Phase C — per-bundle scoping + human label
+    label = Column(String(100), nullable=True)  # human label e.g. "ACME client"
+    bundle_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("bundles.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())
+    last_used_at = Column(DateTime, nullable=True)
+    # secfix_1905/C: sandbox execution privilege flag
+    is_sandbox_operator = Column(Boolean, nullable=False, server_default="false")
+    # spotify_0608 Ph B (§4.2 install-count integrity): marks keys whose installs
+    # are synthetic (test/CI/internal harness traffic) so they can be EXCLUDED from
+    # every public-ranking surface — discovery ranking, leaderboards, the carousel
+    # popularity term, and the GTM kill/scale install signal. Flag at the key level,
+    # filter at count time (cheapest correct path). Default false = organic.
+    is_test = Column(Boolean, nullable=False, server_default="false")
+
+    user = relationship("User", back_populates="api_keys")
+
+
+# ── Creators & Orgs ─────────────────────────────────────────────────────
+
+
+class Creator(Base):
+    __tablename__ = "creators"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, unique=True)
+    name = Column(String(255), nullable=False)
+    slug = Column(String(255), unique=True, nullable=False, index=True)
+    avatar_url = Column(Text, nullable=True)
+    bio = Column(Text, nullable=True)
+    is_founder = Column(Boolean, default=False)  # first-50 publishers get 75% rate
+    # polish_1805 item 4 — author identity surfacing.
+    # handle is the short social handle without "@" prefix (e.g. "adamkrawczyk").
+    # url is the canonical profile/portfolio link the portal renders as the
+    # author block "by <name> @<handle>". Both nullable — backfill cron
+    # (scripts/backfill_creator_identity.py) populates from bundle frontmatter,
+    # SKILL.md `maintainer:` field, or git author info when present.
+    handle = Column(String(64), nullable=True)
+    url = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    skills = relationship("Skill", back_populates="creator")
+    recipes = relationship("Recipe", back_populates="creator")
+
+
+class Org(Base):
+    __tablename__ = "orgs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    name = Column(String(255), nullable=False)
+    slug = Column(String(255), unique=True, nullable=False, index=True)
+    api_key_hash = Column(String(255), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+    skills = relationship("Skill", back_populates="org")
+
+
+# ── Skills & Versions ───────────────────────────────────────────────────
+
+
+class Skill(Base):
+    __tablename__ = "skills"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    slug = Column(String(255), unique=True, nullable=False, index=True)
+    title = Column(String(512), nullable=False)
+    description = Column(Text, nullable=True)
+    category = Column(String(128), nullable=True, index=True)
+    readme = Column(Text, nullable=True)
+    license = Column(String(64), nullable=True)
+    tier = Column(
+        String(32), nullable=True
+    )  # free, pro, pro_plus (legacy: cook, operator, studio retired v7/phase-F)
+    is_public = Column(Boolean, default=True)
+
+    creator_id = Column(UUID(as_uuid=True), ForeignKey("creators.id"), nullable=True)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id"), nullable=True)
+
+    # D1 additions (Sprint 4) — nullable so existing rows are unaffected
+    # vertical: agency | solo | enterprise | horizontal
+    vertical = Column(String(64), nullable=True)
+    # free-tier pricing flag for carousel public filter
+    is_free = Column(Boolean, nullable=True)
+    # denormalised install counter for scoring; NOT NULL default 0
+    install_count = Column(Integer, default=0, nullable=False, server_default="0")
+    # average user rating 0..5; scoring defaults to 3.0 when NULL
+    rating_avg = Column(Float, nullable=True)
+
+    # Stage 1 (G15) — declared edges from SKILL.md frontmatter `related_skills:`.
+    # Stored as a JSON array of slugs for cross-DB portability (Postgres uses JSONB
+    # under the hood; SQLite tests get plain JSON). The /api/skills/{slug}/related
+    # endpoint resolves these slugs to public SkillOut objects, filtering internals,
+    # dangling references, and self-loops. See tests/test_related_skills.py.
+    related_skills = Column(JSON, nullable=True)
+
+    # v7 Phase E — recall embedding (384-dim BAAI/bge-small-en-v1.5)
+    # Postgres uses pgvector vector(384); SQLite/tests store JSON-encoded floats
+    # in this Text column. The column is nullable so existing rows are unaffected
+    # until the backfill script runs.
+    embedding = Column(Text, nullable=True)
+
+    # v7.1 Phase 4 — BM25 search index (Postgres tsvector; SQLite stores raw text).
+    # Embeddings deferred to v7.2; BM25-only per Adam directive 2026-05-07.
+    search_vector = Column(Text, nullable=True)
+
+    # v7.1 Phase 4 — soft-archive flag. Archived skills are hidden from search
+    # (search_vector is NULLed) but remain in the DB for audit/recovery.
+    is_archived = Column(Boolean, default=False, server_default="false", nullable=False)
+
+    # quality_1705 Phase A — explicit timestamps for catalog hygiene.
+    # ``archived_at`` is set when ``is_archived`` flips to true (was previously
+    # only inferred). ``last_verified`` is stamped to now() by the Phase A
+    # backfill and is later updated by the Phase C ``last_verified`` cron
+    # whenever the skill's smoke test passes.
+    archived_at = Column(DateTime(timezone=True), nullable=True)
+    last_verified = Column(DateTime(timezone=True), nullable=True)
+
+    # quality_1705 Phase C — weighted catalog quality score (0-10 float).
+    # Computed nightly by scripts/quality_1705_compute_quality_score.py from:
+    #   - install_count percentile
+    #   - days since last_verified (freshness)
+    #   - description length + outcome verb presence
+    #   - declared unhappy_paths count (Phase C content backfill)
+    #   - demo video presence (Phase D)
+    #   - smoke test pass rate (Phase C cron)
+    # Capped at 8.5 for first 14 days post-publish (no-data window, F8 mitigation).
+    quality_score = Column(Float, nullable=True)
+
+    # v6 Phase A — catalog topology columns
+    # 'original' = SHA-pinned Pantry snapshot; 'custom' = curated Menu/Bundle skill
+    skill_variant = Column(String(20), nullable=False, server_default="custom")
+    original_source_url = Column(Text, nullable=True)
+    parent_skill_slug = Column(String(255), nullable=True)
+    pinned_sha = Column(String(64), nullable=True)
+    upstream_status = Column(String(20), nullable=False, server_default="active")
+    external_resources = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    creator = relationship("Creator", back_populates="skills")
+    org = relationship("Org", back_populates="skills")
+    versions = relationship(
+        "SkillVersion",
+        back_populates="skill",
+        order_by="SkillVersion.created_at.desc()",
+    )
+    carousel_entries = relationship("CarouselEntry", back_populates="skill")
+    install_events = relationship("InstallEvent", back_populates="skill")
+
+
+class SkillVersion(Base):
+    __tablename__ = "skill_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    semver = Column(String(32), nullable=False)
+    tarball_path = Column(Text, nullable=True)
+    tarball_size_bytes = Column(Integer, nullable=True)
+    checksum_sha256 = Column(String(64), nullable=True)
+    changelog = Column(Text, nullable=True)
+    skill_toml = Column(Text, nullable=True)  # stored manifest
+    created_at = Column(DateTime, server_default=func.now())
+    # evergreen_0206 Phase C/E: when this version passed the health/eval gate
+    # and became eligible for the STABLE channel. NULL = canary-only (not yet
+    # promoted). Written by the Phase E promotion engine; read by channel-aware
+    # version selection (Phase C). canary=latest any · stable=latest promoted ·
+    # frozen=no movement.
+    promoted_to_stable_at = Column(DateTime(timezone=True), nullable=True)
+
+    skill = relationship("Skill", back_populates="versions")
+
+    __table_args__ = (UniqueConstraint("skill_id", "semver", name="uq_skill_version"),)
+
+
+# ── Events ──────────────────────────────────────────────────────────────
+
+
+class InstallEvent(Base):
+    __tablename__ = "install_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    skill_slug = Column(String(255), nullable=True, index=True)
+    api_key_id = Column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=True)
+    version_semver = Column(String(32), nullable=True)
+    client_ip = Column(String(64), nullable=True)
+    # F.6 rollback marker: 'ok' | 'rolled_back' | 'partial' | 'in_progress'
+    status = Column(String(32), nullable=False, server_default="ok", index=True)
+    # spotify_0608 Ph E — install-provenance (Sentry/npm pattern).
+    #   cookbook_id : which bundle the install was triggered from (NULL for a  # compat-alias
+    #                 direct, bundle-less /api/skills/install). Threaded via
+    #                 _record_install_event(). Powers feedback → curator-repo
+    #                 routing through the provenance_id resolution.
+    #   attribution : 'attributed' (default — we know skill + version, and
+    #                 bundle when present) | 'unattributed' (honest deep-link /
+    #                 non-fetch install: no body fetched → no deeper attribution).
+    #                 Transient FETCH_ORIGIN failures are NOT mis-stamped here —
+    #                 they stay hard errors and never reach this row.
+    bundle_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    attribution = Column(String(16), nullable=False, server_default="attributed")
+    created_at = Column(DateTime, server_default=func.now())
+
+    skill = relationship("Skill", back_populates="install_events")
+
+
+class ProvenanceRecord(Base):
+    """spotify_0608 Ph E — RANDOM, server-stored install-provenance token.
+
+    The carrier that lets anonymous feedback / skill-error reports attribute to
+    the ARTIFACT (skill + cookbook + version) without ever carrying agent
+    identity. ``provenance_id = secrets.token_urlsafe(32)`` is RANDOM and stored
+    server-side mapping → ``install_event_id``; the token carries ZERO
+    client-readable metadata (this is the fix for the original itsdangerous
+    "signed but not encrypted" leak — a signed payload would have exposed
+    cookbook_id/skill_id to the client).
+
+    Resolution is a pure server-side join:
+        provenance_id → ProvenanceRecord → InstallEvent
+                      → (cookbook_id, skill_id, version_semver)
+
+    Feedback / skill-error tools accept the provenance_id, resolve it here, and
+    route the issue to the correct creator repo — replacing the
+    "_resolve_feedback_target first-cookbook guess" with deterministic routing.
+    """
+
+    __tablename__ = "provenance_records"
+
+    provenance_id = Column(String(64), primary_key=True)
+    install_event_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("install_events.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    install_event = relationship("InstallEvent")
+
+
+class TelemetryEvent(Base):
+    __tablename__ = "telemetry_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    event_type = Column(String(128), nullable=False, index=True)
+    skill_slug = Column(String(255), nullable=True, index=True)
+    payload = Column(Text, nullable=True)  # JSON string (legacy mode)
+    client_ip = Column(String(64), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    # ── Typed telemetry columns (D3 — Sprint 4) ─────────────────────────
+    # skill_id resolves skill_slug → FK; stored alongside slug for back-compat
+    # Uses UUID type to match skills.id (both stored as 32-char hex in SQLite)
+    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=True, index=True)
+    # open enum — store as text, no server-side rejection on unknown value
+    goal_class = Column(String(128), nullable=True)
+    # task duration in seconds (0..86400); NULL when not provided
+    duration_seconds = Column(Integer, nullable=True)
+    # number of retries before success/failure; NULL when not provided
+    retry_count = Column(Integer, nullable=True)
+    # True = human intervened; False = fully automated; NULL = not reported
+    user_intervention = Column(Boolean, nullable=True)
+    # sha256 short-hash identifying agent class; regex ^[a-f0-9]{8,64}$
+    agent_class_hash = Column(String(64), nullable=True)
+    # optional link to the install_event that preceded this telemetry event
+    # Uses UUID type to match install_events.id
+    install_event_id = Column(UUID(as_uuid=True), ForeignKey("install_events.id"), nullable=True)
+
+
+# ── Carousel ────────────────────────────────────────────────────────────
+
+
+class CarouselEntry(Base):
+    __tablename__ = "carousel_entries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False)
+    featured_date = Column(DateTime, nullable=False, index=True)
+    tagline = Column(String(512), nullable=True)
+    position = Column(Integer, default=0)
+    created_at = Column(DateTime, server_default=func.now())
+
+    # Sprint 4 — carousel scoring output columns (added via migration a7f7db696591)
+    slot = Column(Integer, nullable=True)  # 1-indexed slot in today's carousel (1..7)
+    role = Column(String(64), nullable=True)  # new-capability | replaces | experimental
+    verdict = Column(String(32), nullable=True)  # promote | hold | archive — set by verdict cron
+    score = Column(Float, nullable=True)  # scoring algo output 0..10
+
+    skill = relationship("Skill", back_populates="carousel_entries")
+
+
+# ── Recipes ─────────────────────────────────────────────────────────────
+
+
+class Recipe(Base):
+    __tablename__ = "recipes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    slug = Column(String(255), unique=True, nullable=False, index=True)
+    title = Column(String(512), nullable=False)
+    description = Column(Text, nullable=True)
+    content = Column(Text, nullable=True)  # markdown
+    category = Column(String(128), nullable=True, index=True)
+    is_public = Column(Boolean, default=True)
+
+    creator_id = Column(UUID(as_uuid=True), ForeignKey("creators.id"), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    creator = relationship("Creator", back_populates="recipes")
+
+
+# ── API Library ─────────────────────────────────────────────────────────
+
+
+class APILibraryEntry(Base):
+    __tablename__ = "api_library"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    slug = Column(String(255), unique=True, nullable=False, index=True)
+    title = Column(String(512), nullable=False)
+    description = Column(Text, nullable=True)
+    content = Column(Text, nullable=True)  # markdown
+    category = Column(String(128), nullable=True)
+    base_url = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+# ── Payouts ─────────────────────────────────────────────────────────────
+
+
+class CreatorPayout(Base):
+    __tablename__ = "creator_payouts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    creator_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    # ── Legacy skill-install fields (period_start/period_end were NOT NULL on
+    # the original schema; relaxed to NULL by WIS-660 migration so referral
+    # payouts — which have no billing period — can use the same table.)
+    period_start = Column(DateTime, nullable=True)
+    period_end = Column(DateTime, nullable=True)
+    installs_count = Column(Integer, nullable=False, default=0)
+    gross_revenue_cents = Column(Integer, nullable=False, default=0)
+    creator_share_cents = Column(Integer, nullable=False, default=0)
+    currency = Column(String(8), default="eur")
+    status = Column(String(32), default="pending")  # pending, accrued, paid, failed
+    stripe_transfer_id = Column(String(255), nullable=True)
+    # ── WIS-660: multi-source payout attribution ─────────────────────────
+    # source: skill_install | referral_first_invoice
+    # amount_cents: convenience copy of creator_share_cents for referral payouts
+    # referral_id: backref to the Referral row that triggered the payout
+    source = Column(String(32), nullable=False, default="skill_install", server_default="skill_install")
+    amount_cents = Column(Integer, nullable=True)
+    referral_id = Column(UUID(as_uuid=True), ForeignKey("referrals.id"), nullable=True, index=True)
+    created_at = Column(DateTime, server_default=func.now())
+    paid_at = Column(DateTime, nullable=True)
+
+    creator = relationship("User", back_populates="payouts")
+
+
+# ── Referrals ───────────────────────────────────────────────────────────
+
+
+class Referral(Base):
+    __tablename__ = "referrals"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    referrer_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    referred_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    referral_code = Column(
+        String(64), nullable=False, index=True
+    )  # referrer's code; non-unique (a referrer can be linked to many referred users)
+    referred_email = Column(String(512), nullable=True)
+    status = Column(String(32), default="pending")  # pending, signed_up, converted
+    reward_cents = Column(Integer, nullable=True)
+    # WIS-660: rate-locked at the moment the referral was created — first 50
+    # referrers get 0.50 (50%), everyone after that defaults to 0.30 (30%).
+    rate = Column(Numeric(precision=5, scale=4), nullable=False, server_default="0.50")
+    created_at = Column(DateTime, server_default=func.now())
+    converted_at = Column(DateTime, nullable=True)
+
+
+# ── WiseChef Demo Requests ──────────────────────────────────────────────
+
+
+class WiseChefDemoRequest(Base):
+    __tablename__ = "wisechef_demo_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    email = Column(String(512), nullable=False, index=True)
+    company_name = Column(String(255), nullable=True)
+    company_size = Column(String(32), nullable=True)  # "5-20", "20-50", etc.
+    source = Column(String(128), nullable=True)  # "recipes_carousel", "landing", etc.
+    message = Column(Text, nullable=True)
+    status = Column(String(32), default="new")  # new, contacted, converted, lost
+    created_at = Column(DateTime, server_default=func.now())
+    contacted_at = Column(DateTime, nullable=True)
+
+
+# ── Skill aliases (Phase J — chef→maestro rename) ───────────────────────
+
+
+class SkillAlias(Base):
+    """Old-slug → new-slug redirect for renamed skills.
+
+    `expires_at` enforces a finite redirect window (default 90d) so that we
+    don't carry forward unbounded compatibility shims. After expiry, requests
+    for the old slug fall through to a 404.
+    """
+
+    __tablename__ = "skill_aliases"
+
+    old_slug = Column(String(255), primary_key=True)
+    new_slug = Column(String(255), nullable=False, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# ── Legacy Version model alias for backward compat during migration ─────
+# The old model was called "Version" — keep a redirect so seed.py works
+Version = SkillVersion
+
+# Legacy Payout model for backward compat
+Payout = CreatorPayout
+
+
+# ── Skill Graph Stage 2 (G16) — derived edges ───────────────────────────
+
+
+class SkillDerivedEdge(Base):
+    """Edges between skills derived by the offline edge-builder.
+
+    Stage 2 supplements declared `Skill.related_skills` (Stage 1) with edges
+    inferred from three signals:
+        - tag overlap (Jaccard similarity of latest skill_toml tags)
+        - same-category co-occurrence
+        - co-install score (same api_key installs both within 30 days)
+
+    `weight` is the combined score in [0..1]; rows with weight below
+    `app.edge_builder.WEIGHT_THRESHOLD` are not persisted. Idempotent rebuilds
+    are achieved by atomic delete-then-insert in `persist_edges`.
+
+    Edges are stored DIRECTED (a→b and b→a both written) so that lookups by
+    source_slug stay simple and indexable. The /api/stats trending_pairs view
+    deduplicates back to undirected pairs.
+    """
+
+    __tablename__ = "skill_derived_edges"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    source_slug = Column(String(255), nullable=False, index=True)
+    target_slug = Column(String(255), nullable=False, index=True)
+    weight = Column(Float, nullable=False)
+    signals = Column(JSON, nullable=True)  # {jaccard, category, coinstall}
+    last_built_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+    __table_args__ = (UniqueConstraint("source_slug", "target_slug", name="uq_skill_edge_pair"),)
+
+
+# ── Auto-improve incident network (Phase B) ─────────────────────────────
+
+
+class IncidentReport(Base):
+    """B.3 — Anonymous failure reports submitted by `recipes-auto-improve`.
+
+    Sanitized at the wire (regex audit on POST), normalized error_signature
+    is sha256 of the top-5 stack frames. Indexed for clustering by signature
+    and for per-skill recency.
+    """
+
+    __tablename__ = "incident_reports"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    error_signature = Column(Text, nullable=False, index=True)
+    env_fingerprint = Column(JSON, nullable=False)
+    agent_fp_anon = Column(Text, nullable=False, index=True)
+    occurred_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    command = Column(Text, nullable=True)
+    exit_code = Column(Integer, nullable=True)
+    stack_trace_top = Column(Text, nullable=True)
+
+
+class PatchCandidate(Base):
+    """B.4/B.6 — Clustered incident signatures awaiting patch drafting.
+
+    State machine:
+        pending  → drafted   (LLM produced patch + regression test)
+        drafted  → canary    (passed STATIC + PROPERTY + SHADOW gates)
+        canary   → rolled_out (made it to 100%)
+        canary   → rolled_back (auto-rollback fired)
+        any      → rejected   (manual queue, no runnable test)
+    """
+
+    __tablename__ = "patch_candidates"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    error_signature = Column(Text, nullable=False, index=True)
+    cluster_count = Column(Integer, nullable=False, default=0)
+    distinct_agents = Column(Integer, nullable=False, default=0)
+    status = Column(String(32), nullable=False, default="pending", index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_clustered_at = Column(DateTime(timezone=True), nullable=True)
+    proposal_path = Column(Text, nullable=True)
+
+    __table_args__ = (UniqueConstraint("skill_id", "error_signature", name="uq_patch_candidate_sig"),)
+
+
+# ── Pro+-tier forks (Phase D.1) ──────────────────────────────────────
+
+
+class SkillFork(Base):
+    """A user's editable copy of a public skill.
+
+    Created via POST /api/forks/create. Each fork is a private workspace
+    keyed on (user_id, slug). Soft-deletes set visibility=NULL and clear
+    readme so the row remains for audit but no longer surfaces in lists.
+    """
+
+    __tablename__ = "skill_forks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    source_skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    name = Column(Text, nullable=False)
+    slug = Column(Text, nullable=False)
+    readme = Column(Text, nullable=True)
+    visibility = Column(Text, server_default="private", nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    latest_version_id = Column(UUID(as_uuid=True), nullable=True)
+
+    versions = relationship(
+        "ForkVersion",
+        back_populates="fork",
+        order_by="ForkVersion.created_at.desc()",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "visibility IS NULL OR visibility IN ('private','team','public')",
+            name="ck_skill_forks_visibility",
+        ),
+        UniqueConstraint("user_id", "slug", name="uq_skill_forks_user_slug"),
+    )
+
+
+class ForkVersion(Base):
+    __tablename__ = "fork_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    fork_id = Column(UUID(as_uuid=True), ForeignKey("skill_forks.id"), nullable=False, index=True)
+    semver = Column(Text, nullable=False)
+    tarball_path = Column(Text, nullable=False)
+    tarball_size_bytes = Column(BigInteger, nullable=False)
+    checksum_sha256 = Column(Text, nullable=False)
+    changelog = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    fork = relationship("SkillFork", back_populates="versions")
+
+
+# ── Skill graph extension (Phase B.5) ────────────────────────────────────
+
+
+class SkillReplacement(Base):
+    """Manual curator-edited skill replacement edges (B.5).
+
+    Inserted via master-API-key endpoint when a curator decides skill A is
+    superseded by skill B. Surfaced through GET /api/graph/related as the
+    `replaced_by` edge type alongside auto-detected candidates.
+    """
+
+    __tablename__ = "skill_replacements"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    source_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    target_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    reason = Column(Text, nullable=True)
+    created_by = Column(String(255), nullable=True)  # curator label / "master"
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (UniqueConstraint("source_id", "target_id", name="uq_skill_replacement_pair"),)
+
+
+class ReplacementCandidate(Base):
+    """Auto-detected replacement candidates awaiting human review (B.5).
+
+    Populated by the candidate sweep: looks for skills with high recent
+    incident rate where another skill has a strong co_invoked edge AND a
+    lower incident rate. Council/Adam confirm before any candidate becomes a
+    SkillReplacement.
+    """
+
+    __tablename__ = "replacement_candidates"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    source_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    target_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    evidence_json = Column(JSON, nullable=True)  # incident rates, co-invoke weight, sample count
+    status = Column(
+        String(32), nullable=False, default="pending", index=True
+    )  # pending | approved | rejected
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (UniqueConstraint("source_id", "target_id", name="uq_replacement_candidate_pair"),)
+
+
+# ── Buckets RETIRED (spotify_0608 Ph A / D1) ─────────────────────────────
+# The Bucket + BucketSkill models were retired in spotify_0608 Phase A.
+# Bundle is now the survivor primitive (D1): its new slug/visibility/
+# is_white_label/custom_domain/pin_mode/theme_json columns re-home Bucket's
+# presentation + white-label capability set, and `CookbookDeployment` (defined
+# below, after CookbookShareToken) is the lossless replacement for BucketSkill's
+# ordered/fork-aware deployment rows. The `buckets`/`bucket_skills` tables are
+# dropped by migration `spotify_0608_a_cb_absorbs_bkt` after the 1:1
+# data migration into `cookbooks`/`cookbook_deployments`.
+
+
+class FleetPing(Base):
+    """Mathematically-anonymous fleet heartbeat row (Phase D, F8 fix).
+
+    Stores ONLY a keyed blake2b(salt) hash and the day-of-last-seen. There is
+    no IP, no user_id, no user-agent column — by schema we cannot identify or
+    track an individual customer. Even a full DB compromise reveals nothing
+    because the hash is keyed by a server-side pepper.
+
+    Idempotency: unique index on (salt_hash, last_seen_day) collapses repeats
+    for the same device on the same day to a single row.
+    """
+
+    __tablename__ = "fleet_pings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    salt_hash = Column(LargeBinary, nullable=False, index=True)
+    last_seen_day = Column(Date, nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (UniqueConstraint("salt_hash", "last_seen_day", name="uq_fleet_pings_hash_day"),)
+
+
+class ReconcileEvent(Base):
+    """Canary reconcile outcome telemetry — evergreen_0206 Phase D/E.
+
+    A thin reconcile client (Phase D) emits one row per apply attempt against a
+    specific (skill, version) on a given channel. The Phase E promotion engine
+    reads these to decide whether a version on canary may advance to stable:
+    a version is promotable only when canary agents reconciled it with NO
+    `reconcile_failed`/rollback inside the observation window (the default gate).
+
+    Privacy: keyed per (cookbook_id, skill_id, semver, channel). No PII; the
+    agent identity is the fleet api_key_id (nullable for anonymous self-test).
+    """
+
+    __tablename__ = "reconcile_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    bundle_id = Column(UUID(as_uuid=True), index=True, nullable=True)
+    skill_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    semver = Column(String(32), nullable=False)
+    channel = Column(String(20), nullable=False, default="canary")
+    # outcome: 'success' | 'reconcile_failed' | 'rolled_back'
+    outcome = Column(String(20), nullable=False)
+    failure_reason = Column(Text, nullable=True)
+    api_key_id = Column(UUID(as_uuid=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    __table_args__ = (Index("ix_reconcile_events_skill_semver", "skill_id", "semver"),)
+
+
+class StripeEventId(Base):
+    """Idempotency table for Stripe webhook events.
+
+    Inserting a row succeeds only on first sight; subsequent receptions
+    of the same event_id raise IntegrityError, which the webhook handler
+    treats as a no-op replay (HTTP 200 with already_processed=True).
+    """
+
+    __tablename__ = "stripe_event_ids"
+
+    event_id = Column(String(255), primary_key=True)
+    event_type = Column(String(128), nullable=False)
+    processed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    livemode = Column(Boolean, nullable=True)
+
+
+class IntentSurveyResponse(Base):
+    """Anonymous exit-intent survey responses (stabilization_2605 phase A).
+
+    No PII required: q1/q4 are enums, q2/q3/q5 free-text optional. Email (q5)
+    is optional and stored for opt-in followups only.
+    """
+
+    __tablename__ = "intent_survey_responses"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    q1 = Column(String(16), nullable=False, index=True)
+    q2 = Column(Text, nullable=True)
+    q3 = Column(Text, nullable=True)
+    q4 = Column(String(32), nullable=False, index=True)
+    q5 = Column(String(512), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# ── v6 Phase A — Bundles + Fleets (was: Cookbooks) ───────────────────────  # compat-alias
+
+
+class Bundle(Base):
+    """Customer-facing skill Bundle — base or personal fork.
+
+    is_base=True identifies the single LoopSkill base Bundle (unique constraint
+    at DB level for Postgres). Personal Bundles have parent_bundle_id=<base>.
+    Agency master Bundles have synced_from_bundle_id pointing at the source.
+
+    Renamed from Cookbook (cookbooks table) in Phase 3+4 (loopskill_0622/p34).  # compat-alias
+    """
+
+    __tablename__ = "bundles"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    is_base = Column(Boolean, nullable=False, default=False, server_default="0")
+    parent_bundle_id = Column(
+        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    bundle_owner = Column(UUID(as_uuid=True), nullable=True, index=True)
+    bundle_link_token = Column(String(64), nullable=True)
+    link_expires_at = Column(DateTime(timezone=True), nullable=True)
+    synced_from_bundle_id = Column(
+        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    # loopclose_3005 Phase J — user-routable feedback (THE MOAT)
+    # feedback_repo: NULL = use system default (wisechef-ai/loopskill-api)
+    #                set  = route feedback issues to this 'owner/name' repo
+    # feedback_mode: 'pat' (PAT stored encrypted in feedback_pat_enc)
+    #              | 'github_app' (future — App installation token, not yet live)
+    #              | NULL (no custom routing)
+    # feedback_pat_enc: Fernet-encrypted GitHub PAT for issues:write. NEVER stored plaintext.
+    feedback_repo = Column(Text, nullable=True)
+    feedback_mode = Column(Text, nullable=True)
+    feedback_pat_enc = Column(Text, nullable=True)
+
+    # spotify_0608 Ph A — Bucket absorption (D1). Bundle is the survivor
+    # primitive; these columns re-home the public/presentation + white-label
+    # capability set that previously lived on the retired `buckets` table.
+    #   slug          : globally-unique public handle → shareable bundle URL.
+    #                   NULL for private/unpublished bundles (most rows).
+    #   visibility    : 'private' | 'team' | 'public' (Ph B discovery consumes this).
+    #   is_white_label: Pro+ "host on your own domain" toggle.
+    #   custom_domain : CNAME host matched by BundleHostMiddleware.
+    #   pin_mode      : 'latest-stable' | 'pinned-current' | 'frozen' (ordered apply).
+    #   theme_json    : white-label theme payload echoed in the public manifest.
+    slug = Column(String(255), unique=True, nullable=True, index=True)
+    visibility = Column(String(32), nullable=False, default="private", server_default="private")
+    is_white_label = Column(Boolean, nullable=False, default=False, server_default="0")
+    custom_domain = Column(Text, nullable=True, index=True)
+    pin_mode = Column(String(32), nullable=False, default="latest-stable", server_default="latest-stable")
+    theme_json = Column(JSON, nullable=True)
+
+    # spotify_0608 Ph G — verified-maintainer badge.
+    is_verified = Column(Boolean, nullable=False, default=False, server_default="0")
+
+    share_tokens = relationship("BundleShareToken", back_populates="bundle", cascade="all, delete-orphan")
+    deployments = relationship(
+        "BundleDeployment",
+        back_populates="bundle",
+        cascade="all, delete-orphan",
+        order_by="BundleDeployment.install_order",
+    )
+
+
+class BundleSkill(Base):
+    """Provenance row linking a skill to a Bundle.
+
+    source enum: 'forked' | 'custom-added' | 'overridden' | 'disabled'
+    - forked         = inherited from base, auto-updates on rebase
+    - custom-added   = customer's own skill
+    - overridden     = customer pinned this to a specific version
+    - disabled       = customer removed it from their Bundle
+
+    Renamed from CookbookSkill (cookbook_skills table) in Phase 3+4.  # compat-alias
+    """
+
+    __tablename__ = "bundle_skills"
+
+    bundle_id = Column(
+        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    )
+    skill_id = Column(
+        UUID(as_uuid=True), ForeignKey("skills.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    )
+    source = Column(String(20), nullable=False)
+    pinned_version = Column(String(50), nullable=True)
+    # portal_0610 J2 — Composer reorder. install + manifest emit in this order;
+    # ties fall back to added_at. Default 100 matches BundleDeployment.
+    install_order = Column(Integer, nullable=False, default=100, server_default="100")
+    added_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("ix_bundle_skills_source", "source"),
+        Index("ix_bundle_skills_order", "bundle_id", "install_order"),
+    )
+
+
+class BundleShareToken(Base):
+    """Share token for scoped delegation of bundle access (Phase 3).
+
+    Token format: bdl_<8-hex-bundle-prefix>_<32-hex-random>
+    Old format cbt_<8-hex-bundle-prefix>_<32-hex-random> is accepted via
+    middleware compat-alias for the parallel-run period.
+    Only the sha256 hash is stored; the plaintext is shown exactly once at creation.
+
+    Renamed from CookbookShareToken (cookbook_share_tokens table) in Phase 3+4.  # compat-alias
+    """
+
+    __tablename__ = "bundle_share_tokens"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    bundle_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("bundles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    token_hash = Column(Text, nullable=False)
+    token_prefix = Column(String(20), nullable=False)
+    scope = Column(String(8), nullable=False, default="install", server_default="install")
+    name = Column(String(120), nullable=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    is_active = Column(Boolean, default=True, server_default="true", nullable=False)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    # repohygiene_2605/H.1 (Issue #290): when True this token may call
+    # GET /api/skills/install for public-catalog skills the bundle owner is
+    # entitled to.  Default True — set to False for non-pro/non-pro_plus owners
+    # by the migration backfill so the wider public access is restricted to
+    # paid tiers by default.
+    allow_public_catalog = Column(Boolean, default=True, server_default="true", nullable=False)
+
+    bundle = relationship("Bundle", back_populates="share_tokens")
+
+    __table_args__ = (
+        CheckConstraint(
+            # cookbook_share_2105 Phase E: 'install' added as a third scope value
+            "scope IN ('read', 'edit', 'install')",
+            name="ck_bundle_share_tokens_scope",
+        ),
+        Index("idx_bst_prefix", "token_prefix"),
+        Index("idx_bst_bundle_active", "bundle_id", "is_active"),
+    )
+
+
+class BundleDeployment(Base):
+    """Ordered deployment row linking a Bundle to a public skill OR a fork.
+
+    spotify_0608 Ph A — this is the lossless replacement for the retired
+    ``BucketSkill`` table (D1 / R3 data-model contract). It is the *deployment*
+    layer — ordered, fork-aware, version-pinned — kept deliberately separate
+    from ``BundleSkill`` (the membership layer, untouched). Two tables, two
+    concerns, zero join breakage: ``BundleSkill`` keeps its NOT-NULL
+    ``(bundle_id, skill_id)`` PK and every inner-join that depends on it.
+
+    Exactly one of ``(skill_id, fork_id)`` must be set — enforced by the same
+    CHECK constraint ``BucketSkill`` carried. ``install_order`` controls the
+    order the meta-skill applies them (lower = earlier); every deployment
+    read / bulk-install / MCP-list path orders by it.
+
+    Renamed from CookbookDeployment (cookbook_deployments table) in Phase 3+4.  # compat-alias
+    """
+
+    __tablename__ = "bundle_deployments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    bundle_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("bundles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=True)
+    # NOTE: cross-branch FK target. The `skill_forks` table is created by the
+    # sibling forks branch. We don't declare the FK here at the ORM level so the
+    # model loads cleanly whether or not the table exists (mirrors BucketSkill).
+    fork_id = Column(UUID(as_uuid=True), nullable=True)
+    version_pin = Column(String(64), nullable=True)
+    install_order = Column(Integer, nullable=False, default=100, server_default="100")
+
+    bundle = relationship("Bundle", back_populates="deployments")
+
+    __table_args__ = (
+        CheckConstraint(
+            "(skill_id IS NOT NULL) <> (fork_id IS NOT NULL)",
+            name="ck_bundle_deployments_skill_xor_fork",
+        ),
+        Index("ix_bundle_deployments_order", "bundle_id", "install_order"),
+    )
+
+
+# ── Compat aliases (loopskill_0622/p34) — keep old class names importable ──
+# Code that imported Cookbook/CookbookSkill/etc. directly still works.  # compat-alias
+# These aliases will be removed after the parallel-run period ends.
+Cookbook = Bundle  # compat-alias
+CookbookSkill = BundleSkill  # compat-alias
+CookbookShareToken = BundleShareToken  # compat-alias
+CookbookDeployment = BundleDeployment  # compat-alias
+
+
+class Fleet(Base):
+    """A named fleet of agents belonging to one owner user.
+
+    fleet_api_key_hash is a SHA-256 hash of the fleet's API key (UNIQUE).
+    Used to authenticate fleet sync requests via x-fleet-key header.
+    """
+
+    __tablename__ = "fleets"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    owner_user_id = Column(UUID(as_uuid=True), nullable=False)
+    name = Column(String(255), nullable=False)
+    fleet_api_key_hash = Column(String(64), unique=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class FleetSubscription(Base):
+    """Fleet subscription to a Cookbook on a given channel.
+
+    channel: 'canary' | 'stable' | 'frozen'
+    """
+
+    __tablename__ = "fleet_subscriptions"
+
+    fleet_id = Column(
+        UUID(as_uuid=True), ForeignKey("fleets.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    )
+    bundle_id = Column(
+        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    )
+    channel = Column(String(20), nullable=False, default="stable", server_default="stable")
+    subscribed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# ── Feedback v1 tables (Stream 1 — feedback-loop sprint) ────────────────────
+
+
+class RecipifyRequest(Base):
+    """User request to add a new recipe/skill to the marketplace.
+
+    Created via POST /api/v1/recipify-request or the recipes_request_recipe
+    MCP tool. Dispatches a GitHub repository_dispatch event of type
+    'recipify-request'.
+    """
+
+    __tablename__ = "recipify_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    target_name = Column(Text, nullable=False)
+    why_useful = Column(Text, nullable=False)
+    suggested_sources = Column(JSON, nullable=False, default=list)
+    agent_id = Column(Text, nullable=True)
+    api_key_id = Column(UUID(as_uuid=True), nullable=True)
+    signature = Column(Text, nullable=False)  # sha256(target_name|why_useful) hex
+    issue_url = Column(Text, nullable=True)
+    feedback_status = Column(Text, default="pending")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("idx_rr_api_key_created", "api_key_id", "created_at"),
+        Index("idx_rr_signature", "signature"),
+    )
+
+
+class FeedbackSubmission(Base):
+    """User/agent feedback submission.
+
+    Created via POST /api/v1/feedback or the recipes_feedback MCP tool.
+    Dispatches a GitHub repository_dispatch event of type 'feedback'.
+    """
+
+    __tablename__ = "feedback_submissions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    category = Column(Text, nullable=False)
+    message = Column(Text, nullable=False)
+    context = Column(JSON, nullable=False, default=dict)
+    agent_id = Column(Text, nullable=True)
+    api_key_id = Column(UUID(as_uuid=True), nullable=True)
+    signature = Column(Text, nullable=False)  # sha256(category|message) hex
+    issue_url = Column(Text, nullable=True)
+    feedback_status = Column(Text, default="pending")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("idx_fs_api_key_created", "api_key_id", "created_at"),
+        Index("idx_fs_signature", "signature"),
+    )
+
+
+class SkillPublishRequest(Base):
+    """Creator-submitted publish request for a new public skill.
+
+    Created via the recipes_publish_request MCP tool.
+    Dispatches a GitHub repository_dispatch event of type 'skill-publish-request'.
+    Adam reviews the GitHub issue and approves/rejects by labelling it.
+    """
+
+    __tablename__ = "skill_publish_requests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    slug = Column(Text, nullable=False, index=True)
+    version = Column(Text, nullable=False)
+    sha256 = Column(Text, nullable=False)
+    # BYTEA: full tarball, capped at 10 MB at app level
+    tarball_bytes = Column(LargeBinary, nullable=True)
+    requester_user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    requester_creator_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("creators.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # status: pending | approved | rejected | shipped
+    status = Column(String(32), nullable=False, default="pending")
+    issue_url = Column(Text, nullable=True)
+    issue_number = Column(Integer, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    reviewed_by = Column(Text, nullable=True)
+    reject_reason = Column(Text, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','approved','rejected','shipped')",
+            name="ck_spr_status",
+        ),
+        Index("idx_spr_slug_created", "slug", "created_at"),
+        Index("idx_spr_status", "status"),
+    )
+
+
+class SkillPatch(Base):
+    """Agent-submitted skill patch awaiting draft PR creation.
+
+    Created via POST /api/v1/skill-patch or the recipes_propose_skill_patch
+    MCP tool. Dispatches a GitHub repository_dispatch event of type 'skill-patch'.
+    """
+
+    __tablename__ = "skill_patches"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    ts = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    api_key_h = Column(Text, nullable=True)  # sha256 of the api key (anon)
+    slug = Column(Text, nullable=True)
+    base_version = Column(Text, nullable=False)
+    dedup_hash = Column(Text, nullable=False, unique=True)
+    file_paths_json = Column(JSON, nullable=False, default=list)
+    anon_hash = Column(Text, nullable=False, default="")
+    gh_pr_number = Column(Integer, nullable=True)
+    gh_pr_url = Column(Text, nullable=True)
+    # status values: pending | opened | merged | closed | rejected
+    status = Column(String(32), nullable=False, default="pending")
+    rejection_reason = Column(Text, nullable=True)
+    rationale = Column(Text, nullable=False, default="")
+    evidence_install_id = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("idx_sp_api_key_h", "api_key_h"),
+        Index("idx_sp_slug", "slug"),
+    )
+
+
+# ── Subscriber Credits ───────────────────────────────────────────────────
+
+
+class SubscriberCredit(Base):
+    """Contributor-discount credit for pro/pro_plus subscribers.
+
+    Granted automatically when a skill published by the user is approved.
+    Stores a 50% discount that can be applied to the user's next billing renewal
+    via a one-time Stripe coupon.
+
+    Lifecycle:
+      used_at IS NULL  → credit is active and available
+      used_at IS NOT NULL → credit has been consumed (or expired by the cron)
+    """
+
+    __tablename__ = "subscriber_credits"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    type = Column(Text, nullable=False)
+    amount_pct = Column(Integer, nullable=False)
+    granted_for_skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=True)
+    granted_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used_at = Column(DateTime(timezone=True), nullable=True)
+    used_on_stripe_invoice_id = Column(Text, nullable=True)
+
+
+# ── Voice-of-customer: searched-but-missing skill queries (topshelf_2605/H) ──
+
+
+class MissingSkillQuery(Base):
+    """Passive VOC signal — search queries that returned zero results.
+
+    One row per (lower(query), day); repeated zero-result searches increment
+    ``count`` so the weekly digest surfaces catalog gaps without row explosion.
+    The functional unique index is defined in migration
+    topshelf_2605_h_missing_skill_queries.py.
+    """
+
+    __tablename__ = "missing_skill_queries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    query = Column(Text, nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=True)
+    day = Column(Date, nullable=False)
+    count = Column(Integer, nullable=False, default=1, server_default="1")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# ── Federation index cache (superset_0606 Phase B) ──────────────────────────
+
+
+class FederationIndexCache(Base):
+    """Persistent per-source federation index cache (superset_0606 Phase B).
+
+    The storage backbone the depth adapters (Phase C facets, Phase D giants)
+    fill and the ``/api/skills/external`` route reads from. A cold page load
+    must NEVER trigger a 68k cursor-walk — the walk runs in a background reindex
+    cron (``recipes-federation-reindex``) and writes one row per source here;
+    pages read cached counts + cached first-page only.
+
+    One row per ``source`` (e.g. ``clawhub``, ``skills-sh``, ``github-anthropic``).
+    Survives restart (this is the difference from the per-process _TTLCache).
+
+    Honest counts (decision #5): ``indexed_count`` is everything discovered;
+    ``installable_count`` is the resolved redistributable subset — NEVER equal
+    by construction, NEVER fabricated. A source that failed its last walk keeps
+    ``indexed_count = NULL`` so the route omits it from the sum rather than
+    inventing a number. ``walked_at`` + ``ttl_seconds`` drive the ``stale`` flag.
+    """
+
+    __tablename__ = "federation_index_cache"
+
+    source = Column(String(64), primary_key=True)
+    indexed_count = Column(Integer, nullable=True)  # NULL = never successfully walked
+    installable_count = Column(Integer, nullable=True)
+    first_page = Column(JSON, nullable=True)  # list[dict] — cached first page of results
+    walked_at = Column(DateTime(timezone=True), nullable=True)
+    ttl_seconds = Column(Integer, nullable=False, server_default="86400")  # daily default
+    last_error = Column(Text, nullable=True)  # last walk failure message, if any
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+# ── Runnable catalog types: loops + personalities (loopskill_0622 Phase 8) ──
+#
+# LoopSkill's star engine. Unlike skills/bundles (config artifacts), a loop and a
+# personality are RUNNABLE artifacts. These tables are NEW and born with clean
+# LoopSkill vocabulary (no bundle/recipe lineage), so they do not depend on the  # compat-alias
+# P3/P4 schema rename and ship in v1.
+
+
+class Loop(Base):
+    """A shareable, safety-bounded autonomous agentic loop.
+
+    A loop packages the autonomous Plan->Act->Observe cycle as a pullable
+    artifact. The SAFETY-BOUNDED execution contract is first-class and stored as
+    structured columns (not free text) so the registry can validate it on publish
+    and the runner can enforce it: stopping criteria (success / failure / budget),
+    a max-turns ceiling, an explicit tool allow-list, and a verification command
+    that proves the success condition objectively. No vetted loop registry exists
+    in the wild — this is the white space the 100k-star goal leans on.
+    """
+
+    __tablename__ = "loops"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    slug = Column(String(255), unique=True, nullable=False, index=True)
+    title = Column(String(512), nullable=False)
+    description = Column(Text, nullable=True)
+    category = Column(String(128), nullable=True, index=True)
+    readme = Column(Text, nullable=True)
+    license = Column(String(64), nullable=True)
+    tier = Column(String(32), nullable=True)  # free, pro
+    is_public = Column(Boolean, default=True, nullable=False)
+
+    creator_id = Column(UUID(as_uuid=True), ForeignKey("creators.id"), nullable=True)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id"), nullable=True)
+
+    # ── The safety-bounded execution contract (the load-bearing part) ──
+    # The natural-language goal the loop drives toward.
+    success_condition = Column(Text, nullable=False)
+    # Shell/command run after each cycle to OBJECTIVELY check success_condition.
+    # A loop with no verification is unsafe to share; required on publish.
+    verification_script = Column(Text, nullable=False)
+    # Hard ceiling on autonomous turns; prevents runaway. NOT NULL, must be > 0.
+    max_turns = Column(Integer, nullable=False, server_default="25")
+    # Budget stop (USD). NULL = no budget cap (must then rely on max_turns).
+    budget_usd = Column(Numeric(10, 2), nullable=True)
+    # Structured stopping criteria: {"success": ..., "failure": ..., "budget": ...}.
+    stopping_criteria = Column(JSON, nullable=False)
+    # Explicit tool allow-list (deny-by-default). JSON array of tool names.
+    tool_allowlist = Column(JSON, nullable=False)
+    # The system prompt that defines the loop's behavior.
+    system_prompt = Column(Text, nullable=False)
+
+    install_count = Column(Integer, default=0, nullable=False, server_default="0")
+    rating_avg = Column(Float, nullable=True)
+    is_archived = Column(Boolean, default=False, server_default="false", nullable=False)
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    creator = relationship("Creator")
+    org = relationship("Org")
+    versions = relationship(
+        "LoopVersion",
+        back_populates="loop",
+        order_by="LoopVersion.created_at.desc()",
+        cascade="all, delete-orphan",
+    )
+
+
+class LoopVersion(Base):
+    __tablename__ = "loop_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    loop_id = Column(UUID(as_uuid=True), ForeignKey("loops.id"), nullable=False, index=True)
+    semver = Column(String(32), nullable=False)
+    tarball_path = Column(Text, nullable=True)
+    tarball_size_bytes = Column(Integer, nullable=True)
+    checksum_sha256 = Column(String(64), nullable=True)
+    changelog = Column(Text, nullable=True)
+    manifest = Column(Text, nullable=True)  # stored loop.toml
+    created_at = Column(DateTime, server_default=func.now())
+
+    loop = relationship("Loop", back_populates="versions")
+
+    __table_args__ = (UniqueConstraint("loop_id", "semver", name="uq_loop_version"),)
+
+
+class Personality(Base):
+    """A deployable persona / SOUL — system prompt + agent config.
+
+    The other runnable type: a packaged agent identity (the SOUL.md shape) that a
+    user can pull and deploy onto their own agent. Born with clean vocabulary.
+    """
+
+    __tablename__ = "personalities"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    slug = Column(String(255), unique=True, nullable=False, index=True)
+    title = Column(String(512), nullable=False)
+    description = Column(Text, nullable=True)
+    category = Column(String(128), nullable=True, index=True)
+    readme = Column(Text, nullable=True)
+    license = Column(String(64), nullable=True)
+    tier = Column(String(32), nullable=True)  # free, pro
+    is_public = Column(Boolean, default=True, nullable=False)
+
+    creator_id = Column(UUID(as_uuid=True), ForeignKey("creators.id"), nullable=True)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id"), nullable=True)
+
+    # ── The persona contract ──
+    # The system prompt / SOUL body that defines the persona.
+    system_prompt = Column(Text, nullable=False)
+    # Optional structured agent config (model prefs, tool defaults, temperature…).
+    config = Column(JSON, nullable=True)
+
+    install_count = Column(Integer, default=0, nullable=False, server_default="0")
+    rating_avg = Column(Float, nullable=True)
+    is_archived = Column(Boolean, default=False, server_default="false", nullable=False)
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    creator = relationship("Creator")
+    org = relationship("Org")
+    versions = relationship(
+        "PersonalityVersion",
+        back_populates="personality",
+        order_by="PersonalityVersion.created_at.desc()",
+        cascade="all, delete-orphan",
+    )
+
+
+class PersonalityVersion(Base):
+    __tablename__ = "personality_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    personality_id = Column(UUID(as_uuid=True), ForeignKey("personalities.id"), nullable=False, index=True)
+    semver = Column(String(32), nullable=False)
+    tarball_path = Column(Text, nullable=True)
+    tarball_size_bytes = Column(Integer, nullable=True)
+    checksum_sha256 = Column(String(64), nullable=True)
+    changelog = Column(Text, nullable=True)
+    manifest = Column(Text, nullable=True)  # stored personality.toml
+    created_at = Column(DateTime, server_default=func.now())
+
+    personality = relationship("Personality", back_populates="versions")
+
+    __table_args__ = (UniqueConstraint("personality_id", "semver", name="uq_personality_version"),)

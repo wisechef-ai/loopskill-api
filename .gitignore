@@ -1,0 +1,95 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+
+# Secrets — never commit actual env files
+wiserecipes-api.env
+.env
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# Environment / secrets — NEVER COMMIT
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# Logs
+*.log
+logs/
+
+# Distribution / packaging
+*.tar.gz
+*.whl
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.gitnexus
+
+# gitnexus auto-generated, regenerated locally on `npx gitnexus analyze`
+CLAUDE.md
+.claude/
+.gitnexus/
+.omx/
+.v6venv/
+*.bak
+.venv
+test_dev.db
+test.db
+t2.db
+
+# Internal company docs — never ship to the public OSS repo
+internal/
+
+# Anonymizer real token list (deployment-specific PII — never commit)
+config/anonymizer_tokens.json
+
+# Stray internal sprint contracts/reports — never ship public
+SPRINT*.md
+frontend-patches/

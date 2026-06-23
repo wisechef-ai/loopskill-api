@@ -1,0 +1,22 @@
+# recipes/incident-response-openclaw/recipe.yaml
+# Imported from ClawHub (https://open-claw.bot/docs/tools/clawhub/) slug=incident-response.
+# Renamed slug to incident-response-openclaw. License MIT-ish per _meta.json (clawhub:public).
+# Patched 2026-05-16: description quoted to fix YAML parse failure.
+runtime:
+  binaries: []
+  services: []
+  env:
+    optional: []
+  cron: []
+  compatibility:
+    os: [linux, macos, windows]
+    arch: [x86_64, arm64]
+    ram_gb:
+      minimum: 0
+      recommended: 0
+    disk_gb: 0
+    network: optional
+upstream:
+  source: "clawhub:incident-response (https://open-claw.bot/docs/tools/clawhub/)"
+  license: MIT
+  notes: "Patched YAML quoting (description has unquoted colons that broke parse). Verified via Tori 2026-05-16."

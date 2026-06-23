@@ -1,0 +1,57 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^app/.*\.py$
+      - id: ruff-format
+        files: ^app/.*\.py$
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.0
+    hooks:
+      - id: bandit
+        # -lll = HIGH severity only. MEDIUM findings (12 currently in app/)
+        # tracked as follow-up: 'bandit MEDIUM-severity audit', goes through
+        # the same ratchet pattern as the ruff rule rollout (B → BLE+D+B → …).
+        args: [-r, -lll, app/]
+        pass_filenames: false
+        always_run: true
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        # Scope: 4 designated modules per plan §3 Phase G + premortem F7.
+        # Broader mypy --strict is a follow-up; tracking issue: secfix_1906 hygiene roll-out.
+        args:
+          - --strict
+          - --ignore-missing-imports
+          - --explicit-package-bases
+          - app/auth_ctx.py
+          - app/authz.py
+        pass_filenames: false
+        always_run: true
+        additional_dependencies:
+          - pydantic
+          - sqlalchemy
+          - fastapi
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.4
+    hooks:
+      - id: actionlint
+        # actionlint surfaces many pre-existing issues in legacy workflows;
+        # scope to the new lint.yml + ci.yml + deploy.yml as initial gate,
+        # broader cleanup is a follow-up.
+        files: ^\.github/workflows/(lint|ci|deploy)\.yml$
+
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        # Scope to config/ marketing yaml only; legacy workflow yamls in
+        # .github/workflows/ remain on their own schedule.
+        files: ^config/.*\.ya?ml$
+        args: [-d, "{rules: {line-length: disable, document-start: disable, truthy: {check-keys: false}}}"]

@@ -1,0 +1,46 @@
+name: Recipe / Skill Request
+description: Request a new recipe (skill) to be added to the marketplace.
+title: "[recipe:request] "
+labels:
+  - recipe:request
+  - agent-reported
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > **Preferred path:** use the MCP tool `recipes_request_recipe` from your agent.
+        > GitHub UI is the fallback for human reporters.
+
+  - type: input
+    id: target_name
+    attributes:
+      label: Recipe / tool name
+      description: Name of the tool, library, or workflow you want recipified
+      placeholder: e.g. "whisper.cpp", "n8n self-hosted", "Playwright browser automation"
+    validations:
+      required: true
+
+  - type: textarea
+    id: why_useful
+    attributes:
+      label: Why is this useful?
+      description: Describe the use case and who would benefit
+      placeholder: "This would let agents automatically transcribe audio files without relying on cloud APIs..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggested_sources
+    attributes:
+      label: Suggested sources / references (optional)
+      description: Links to GitHub repos, docs, or existing recipes to build from (one per line)
+      placeholder: |
+        https://github.com/ggerganov/whisper.cpp
+        https://whisper.cpp/docs
+
+  - type: input
+    id: agent_id
+    attributes:
+      label: Agent ID (optional)
+      description: Your agent fingerprint, if applicable
+      placeholder: agent_abc123

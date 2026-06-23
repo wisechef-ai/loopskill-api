@@ -1,0 +1,96 @@
+name: recipes-skill-md-content-check
+
+# quality_1705 Phase C — content-quality gates on SKILL.md files.
+#
+# Banned phrases (caught at PR-CI time so they never ship):
+#   - "production-ready" / "production ready" — replaced per plan §3 Phase C
+#     step 2 with a measurable outcome ("saves N hours/week", "tested on M
+#     installs", etc.). Vague claims undermine the 9/10 quality bar.
+#
+# Structural gates:
+#   - unhappy_paths frontmatter: ≥3 entries required (plan §3 step 1)
+#     — enforced by C-content sprint 2026-05-17. Backfilled to 53 catalog
+#     skills via scripts/quality_1705_unhappy_paths_backfill.py.
+#
+# Future gates (when their infra ships):
+#   - last_verified frontmatter: must be within 90 days
+#   - smoke_test command must be declared
+#
+# This workflow runs on any PR that touches recipes/**/SKILL.md.
+
+on:
+  pull_request:
+    paths:
+      - 'recipes/**/SKILL.md'
+      - '.github/workflows/recipes-skill-md-content-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  content-check:
+    name: SKILL.md content check
+    runs-on: wisechef-runner
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: List changed SKILL.md files
+        id: changed
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          git diff --name-only "origin/${{ github.base_ref }}"...HEAD \
+            | grep -E '^recipes/[^/]+/SKILL\.md$' > changed_skill_md.txt || true
+          echo "── changed SKILL.md files ──"
+          cat changed_skill_md.txt
+          echo "────────────────────────────"
+
+      - name: Ban "production-ready" claims
+        run: |
+          set -e
+          if [ ! -s changed_skill_md.txt ]; then
+            echo "No SKILL.md files changed — skipping content gates."
+            exit 0
+          fi
+
+          FAIL=0
+          while IFS= read -r file; do
+            if [ -z "$file" ] || [ ! -f "$file" ]; then continue; fi
+            if grep -inE 'production[- ]ready' "$file"; then
+              echo ""
+              echo "❌ $file contains a banned 'production-ready' claim."
+              echo "   quality_1705 Phase C step 2: replace with a measurable outcome."
+              echo "   Examples of acceptable phrasing:"
+              echo "     - 'saves 4 hours/week of client reporting'"
+              echo "     - 'tested on 12 Claude Code installs'"
+              echo "     - 'replaces N manual steps in your release flow'"
+              FAIL=1
+            fi
+          done < changed_skill_md.txt
+
+          if [ "$FAIL" -eq 1 ]; then
+            echo ""
+            echo "Content check FAILED. See banned phrases above."
+            exit 1
+          fi
+          echo "✅ No banned phrases detected."
+
+      - name: Require >=3 unhappy_paths entries
+        run: |
+          set -e
+          if [ ! -s changed_skill_md.txt ]; then
+            exit 0
+          fi
+          python3 -m pip install --quiet pyyaml
+          FAIL=0
+          while IFS= read -r file; do
+            if [ -z "$file" ] || [ ! -f "$file" ]; then continue; fi
+            python3 scripts/check_skill_md_unhappy_paths.py "$file" || FAIL=1
+          done < changed_skill_md.txt
+          if [ "$FAIL" -eq 1 ]; then
+            echo ""
+            echo "unhappy_paths gate FAILED. Every published skill MUST declare >=3 entries."
+            exit 1
+          fi

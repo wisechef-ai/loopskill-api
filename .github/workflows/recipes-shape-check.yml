@@ -1,0 +1,106 @@
+name: recipes-shape-check
+
+# Pre-publish shape gate for any PR that touches recipes/<slug>/**.
+# Enforces the contracts the auto-publish pipeline (tori_recipes_publish.py)
+# depends on. Catches malformed PRs at OPEN time so the watchdog never has to.
+#
+# Pass conditions:
+#   1. Every changed path is either under recipes/<slug>/ OR an allowlisted
+#      ancillary path (scripts/, tests/, app/, config/, .github/, docs/,
+#      alembic/, or known root-level files).
+#   2. At least one recipe slug is touched (otherwise this isn't a recipes PR
+#      and the workflow no-ops with success — it skips itself via paths filter).
+#   3. Slug names match the [a-z][a-z0-9-]* pattern.
+#
+# Multi-slug PRs are allowed (the publish CLI iterates over them since 2026-05-16).
+# Forbidden = touching arbitrary other paths in the same PR — e.g. a recipe
+# change + an unrelated app/ refactor in one PR makes review noisy and the
+# publish CLI cannot disambiguate scope.
+
+on:
+  pull_request:
+    paths:
+      - 'recipes/**'
+      - '.github/workflows/recipes-shape-check.yml'
+
+jobs:
+  shape-check:
+    name: shape-check
+    runs-on: wisechef-runner
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: List changed files
+        id: changed
+        run: |
+          git fetch origin "${{ github.base_ref }}"
+          git diff --name-only "origin/${{ github.base_ref }}"...HEAD > changed.txt
+          echo "── changed files ──"
+          cat changed.txt
+          echo "───────────────────"
+
+      - name: Validate PR shape
+        run: |
+          python3 - <<'PYEOF'
+          import re
+          import sys
+          from pathlib import Path
+
+          ANCILLARY_PREFIXES = (
+              "scripts/", "tests/", "app/", "config/", ".github/",
+              "docs/", "alembic/",
+          )
+          ANCILLARY_FILE_RE = re.compile(
+              r"^(README\.md|CHANGELOG\.md|requirements.*\.txt|pyproject\.toml|"
+              r"Makefile|\.gitignore|\.dockerignore|Dockerfile)$"
+          )
+          SLUG_RE = re.compile(r"^recipes/([a-z][a-z0-9-]*)/")
+
+          files = [
+              line.strip()
+              for line in Path("changed.txt").read_text().splitlines()
+              if line.strip()
+          ]
+          slugs = set()
+          forbidden = []
+          ancillary = []
+          for path in files:
+              m = SLUG_RE.match(path)
+              if m:
+                  slugs.add(m.group(1))
+                  continue
+              if any(path.startswith(p) for p in ANCILLARY_PREFIXES):
+                  ancillary.append(path)
+                  continue
+              if "/" not in path and ANCILLARY_FILE_RE.match(path):
+                  ancillary.append(path)
+                  continue
+              forbidden.append(path)
+
+          print(f"Recipe slugs touched: {sorted(slugs) or '(none)'}")
+          print(f"Ancillary files:      {len(ancillary)}")
+          print(f"Forbidden paths:      {len(forbidden)}")
+
+          if forbidden:
+              print("")
+              print("❌ PR touches paths that are neither under recipes/<slug>/ nor on the")
+              print("   ancillary allowlist. Either split the PR or add the path prefix to")
+              print("   ANCILLARY_PREFIXES in .github/workflows/recipes-shape-check.yml.")
+              print("")
+              print("Offending paths:")
+              for f in forbidden:
+                  print(f"  · {f}")
+              sys.exit(1)
+
+          if not slugs:
+              print("")
+              print("ℹ️  PR touches no recipe slugs (ancillary-only). Shape-check passes,")
+              print("   but the publish pipeline will not be triggered by this PR.")
+              sys.exit(0)
+
+          print("")
+          print(f"✅ Shape OK — {len(slugs)} slug(s) touched, all paths allowlisted.")
+          PYEOF

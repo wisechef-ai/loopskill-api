@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://recipes.wisechef.ai/schemas/recipe-runtime.v1.json",
+  "title": "recipe.yaml runtime block (Phase F.1)",
+  "description": "Schema for the `runtime:` block of a skill's recipe.yaml. Validated at publish-time by the Phase A.7 linter.",
+  "type": "object",
+  "required": ["runtime"],
+  "additionalProperties": true,
+  "properties": {
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["compatibility"],
+      "properties": {
+        "binaries": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/binary"}
+        },
+        "services": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/service"}
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "required": {"type": "array", "items": {"type": "string"}},
+            "optional": {"type": "array", "items": {"type": "string"}}
+          }
+        },
+        "cron": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/cron"}
+        },
+        "compatibility": {"$ref": "#/$defs/compatibility"}
+      }
+    }
+  },
+  "$defs": {
+    "binary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string"},
+        "capability": {"type": "string"},
+        "provides": {"type": "array", "items": {"type": "string"}},
+        "minimum": {"type": "string"},
+        "version": {"type": "string"},
+        "release_source": {"type": "string"},
+        "check_latest": {"type": "string", "enum": ["daily", "weekly", "monthly", "never"]},
+        "sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}
+      },
+      "anyOf": [
+        {"required": ["name"]},
+        {"required": ["capability"]}
+      ]
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": {"type": "string"},
+        "type": {"type": "string", "enum": ["docker-compose", "systemd-user", "launchd"]},
+        "compose": {"type": "string"},
+        "unit": {"type": "string"},
+        "plist": {"type": "string"},
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "health": {"type": "string"}
+      }
+    },
+    "cron": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "schedule", "cmd"],
+      "properties": {
+        "name": {"type": "string"},
+        "schedule": {"type": "string"},
+        "cmd": {"type": "string"}
+      }
+    },
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "arch", "ram_gb", "network"],
+      "properties": {
+        "os": {
+          "type": "array",
+          "items": {"type": "string", "enum": ["linux", "macos", "windows"]},
+          "minItems": 1
+        },
+        "arch": {
+          "type": "array",
+          "items": {"type": "string", "enum": ["x86_64", "arm64", "aarch64"]},
+          "minItems": 1
+        },
+        "gpu": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "required": {"type": "boolean"},
+            "preferred": {"type": "string"},
+            "vram_gb": {"type": "number", "minimum": 0},
+            "cuda": {"type": "string"}
+          }
+        },
+        "ram_gb": {
+          "oneOf": [
+            {"type": "number", "minimum": 0},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["minimum"],
+              "properties": {
+                "minimum": {"type": "number", "minimum": 0},
+                "recommended": {"type": "number", "minimum": 0}
+              }
+            }
+          ]
+        },
+        "disk_gb": {"type": "number", "minimum": 0},
+        "network": {
+          "oneOf": [
+            {"type": "string", "enum": ["required", "optional", "none"]},
+            {"type": "boolean"}
+          ]
+        }
+      }
+    }
+  }
+}

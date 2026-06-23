@@ -1,0 +1,384 @@
+{
+  "rewrites": [
+    {
+      "slug": "local-skills-discovery",
+      "old": "Scan every installed-skills location on the host (Claude Code, Codex, Hermes, OpenClaw) and surface a unified catalog with freshness, audit, and version metadata — so an agent can pick the right local skill without re-installing it.",
+      "new": "Surface a unified skill catalog across Claude Code, Codex, Hermes, and OpenClaw — with freshness and version metadata so your agent picks the right skill without reinstalling.",
+      "char_count": 175,
+      "outcome_verb": "surface"
+    },
+    {
+      "slug": "strix",
+      "old": "Detect web-app vulnerabilities with Strix — an autonomous web security scanner that probes auth, injection, SSRF, and IDOR patterns. Use on staging or pen-test scope; never on prod without owner consent.",
+      "new": "Scan staging apps for auth bypasses, injection flaws, SSRF, and IDOR using autonomous AI hackers that validate every finding with a real proof-of-concept. Pen-test scope only.",
+      "char_count": 175,
+      "outcome_verb": "scan"
+    },
+    {
+      "slug": "llm-wiki-hermes",
+      "old": "Karpathy's LLM Wiki: build/query interlinked markdown KB.",
+      "new": "Build and query an interlinked markdown knowledge base using Karpathy's LLM Wiki — auto-link pages and surface connections across your notes and docs.",
+      "char_count": 150,
+      "outcome_verb": "build"
+    },
+    {
+      "slug": "skill-creator",
+      "old": "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy.",
+      "new": "Ship new agent skills from scratch, optimize existing ones, and benchmark triggering accuracy with variance-based evals — all in one workflow.",
+      "char_count": 142,
+      "outcome_verb": "ship"
+    },
+    {
+      "slug": "incident-response",
+      "old": "Structured incident response for OpenClaw system failures. Use when a user reports something broken, missing, changed, or misbehaving — config loss, agent routing failures, binding changes, gateway crashes, missing settings, or any system regression. Follows a strict 7-phase loop: Triage → Evidence → 5 Whys → Restore → Prevent → Monitor → Document. Triggers on: 'investigate', 'why did X stop working', 'something changed', 'bindings lost', 'gateway down', 'gateway crashed', 'setting disappeared', 'something disappeared', 'fix this', 'who changed X', 'root cause', 'audit', 'misconfigured', 'agent not responding'.",
+      "new": "Diagnose and restore OpenClaw system failures through 7 structured phases: Triage → Evidence → 5 Whys → Restore → Prevent → Monitor → Document.",
+      "char_count": 143,
+      "outcome_verb": "diagnose"
+    },
+    {
+      "slug": "gh-fix-ci",
+      "old": "Use when a user asks to debug or fix failing GitHub PR checks that run in GitHub Actions; use `gh` to inspect checks and logs, summarize failure context, draft a fix plan, and implement only after explicit approval. Treat external providers (for example Buildkite) as out of scope and report only the details URL.",
+      "new": "Debug failing GitHub Actions checks on any PR — inspect logs with gh, summarize the root cause, draft a fix plan, and implement only after explicit approval.",
+      "char_count": 157,
+      "outcome_verb": "debug"
+    },
+    {
+      "slug": "ruthless-mentor",
+      "old": "Stress-test the team's plan, idea, or decision in attack mode — sort proposals into gold / trash / directionally-right-but-flawed and push each to bulletproof. Different from premortem (which imagines the plan already failed and works backward) — ruthless-mentor goes line-by-line through stated decisions and attacks each one specifically. MANDATORY TRIGGERS: 'be my ruthless mentor', 'be ruthless', 'stress test everything', 'if my ideas are trash say why', 'where am i full of shit', 'push back hard', 'don't be polite', 'attack mode', 'where am i wrong', 'bulletproof this'. STRONG TRIGGERS: 'poke holes', 'tear this apart', 'be honest', 'no sycophancy', 'push back where i'm wrong'. DO NOT trigger on: simple feedback requests, factual questions, premortem requests (load premortem instead). DO trigger when the user has expressed multiple opinions / made multiple decisions in one turn and asks for honest pushback.",
+      "new": "Stress-test your plan or decision in attack mode — sort proposals into gold, trash, or fixable and push each to bulletproof. One high-leverage change per session.",
+      "char_count": 162,
+      "outcome_verb": "stress-test"
+    },
+    {
+      "slug": "plan-for-goal",
+      "old": "Author a goal-execution plan-doc that is ready to paste into your goal/issue tracker as N discrete, falsifiable goals. Use when the conversation has produced a punch-list of decisions + scope and the next step is 'ship it as a tracked sprint with budget, phases, premortem, and acceptance gates.' Different from a generic markdown plan: plan-for-goal specifically closes with pre-formatted goal seeds and a single-paste 'go <codename>' trigger so the same plan-doc drives execution. Aliased as `golazo` (Polish/Spanish slang for spectacular goal — the plan IS the goal).",
+      "new": "Turn any decision and scope into a sprint-ready plan-doc with falsifiable goals, budget, phases, premortem, and acceptance gates — paste-ready for your issue tracker.",
+      "char_count": 166,
+      "outcome_verb": "turn"
+    },
+    {
+      "slug": "aitoearn",
+      "old": "Multi-platform content marketing agent (Douyin, Xiaohongshu, Kuaishou, Bilibili, WeChat Channels, TikTok, YouTube, Facebook, Instagram, Threads, X, Pinterest, LinkedIn). Thin MCP-first wrapper around the open-source AiToEarn project — publishes, engages, and tracks monetization (CPS / CPE / CPM payouts) across the channels above from one MCP server. Use when the team ships content across ≥3 platforms and wants one tool to publish/engage/monetize instead of N per-platform recipes. ICP: 1-person AI owners and 1-7 person builder teams running multi-platform content for clients.",
+      "new": "Publish, engage, and track monetization across TikTok, Instagram, YouTube, LinkedIn, Xiaohongshu, and 8 other platforms via a single MCP-first automation layer.",
+      "char_count": 160,
+      "outcome_verb": "publish"
+    },
+    {
+      "slug": "super-memory",
+      "old": "One-command installer for a full agent-memory stack: cognee 1.0.x knowledge graph on pghybrid, LiteLLM proxy with rotation, watchdog cron, nightly ingest, CouchDB single-node document store, and a markdown vault wired to Obsidian. Numbered scripts run in order; the top-level orchestrator runs only what is missing. Use when provisioning a fresh Linux box for an agent that needs persistent cross-session recall.",
+      "new": "Provision the full agent-memory stack in one command: cognee 1.0.x knowledge graph, LiteLLM proxy, nightly ingest, CouchDB, and Obsidian vault. Detects and skips what's already installed.",
+      "char_count": 187,
+      "outcome_verb": "provision"
+    },
+    {
+      "slug": "larry",
+      "old": "Autonomous TikTok slideshow marketing for any app or product. Onboarding, competitor research, AI image generation, text overlays, Postiz posting, analytics feedback loop, optional RevenueCat conversion attribution.",
+      "new": "Generate TikTok slideshows for any app — competitor research, AI images, text overlays, multi-platform posting via Postiz, and a daily analytics feedback loop with optional RevenueCat attribution.",
+      "char_count": 196,
+      "outcome_verb": "generate"
+    },
+    {
+      "slug": "launch-readiness-check",
+      "old": "Pre-flight checklist before declaring any deployment \"live\" — DNS resolves to your tunnel, origin code is current commit, alembic head matches, smoke tests on PUBLIC URL not localhost.",
+      "new": "Run pre-launch checks before going live: verify DNS resolves to your tunnel, origin is current commit, Alembic head matches, and smoke tests pass on the public URL.",
+      "char_count": 164,
+      "outcome_verb": "run"
+    },
+    {
+      "slug": "chef",
+      "old": "Run your one-person company on autopilot. Daily morning brief, marketing pipeline, code task delegation, ticket triage, weekly retro with MRR tracking. Battle-tested by WiseChef for 6+ weeks.",
+      "new": "Automate your one-person company: daily morning brief, marketing pipeline, code task delegation, ticket triage, and weekly MRR retro — all from a single chef command.",
+      "char_count": 166,
+      "outcome_verb": "automate"
+    },
+    {
+      "slug": "vision-driven-svg-iteration",
+      "old": "Iterate on SVG icon/logo geometry using vision-AI feedback in a separate test harness BEFORE touching production. Covers the test-harness-first pattern, vision-inconsistency mitigation (same path can score 9/10 then 4/10 across calls), the \"vision sees lobes wrong\" calibration step, and the rule that human-eyeball-on-real-browser is the final gate for animated/aesthetic work. Use when designing iconography (chef hats, logos, marks), writing parametric SVG paths, or any visual iteration where you need objective feedback before deploying.",
+      "new": "Iterate on SVG icons and logos using vision-AI feedback in a test harness before touching production — handles score variance and gates on human eyeball review.",
+      "char_count": 160,
+      "outcome_verb": "iterate"
+    },
+    {
+      "slug": "tavily-search",
+      "old": "AI-optimized web search via Tavily API. Returns clean, relevant content designed for AI agent consumption. Supports deep search and news.",
+      "new": "Search the web and get clean, AI-ready results via Tavily API — deep research mode, news search, and agent-native output format built for pipelines.",
+      "char_count": 148,
+      "outcome_verb": "search"
+    },
+    {
+      "slug": "summarize-cli",
+      "old": "Summarize any content via the summarize CLI — URLs, PDFs, images, audio files, YouTube videos. Multi-provider LLM support.",
+      "new": "Summarize any content via the summarize CLI — URLs, PDFs, images, audio files, YouTube videos. Multi-provider LLM support.",
+      "char_count": 122,
+      "outcome_verb": "summarize",
+      "kept_original": true
+    },
+    {
+      "slug": "stripe-sdk-15-webhook-compat",
+      "old": "Diagnose and fix Stripe webhook handlers crashing with AttributeError get or KeyError get after a Stripe Python SDK 15.x upgrade. SDK 15.x StripeObject (including Event) no longer supports dict-style .get() / [] mapping access cleanly — every handler that does event.get(type) or event[data][object] dies on the first webhook delivery. Symptom from the user side is \"payment thinking… then error message\". Fix is to convert the verified Event to a plain dict immediately after stripe.Webhook.construct_event so all downstream handlers work unchanged. Validated 2026-04-29 on recipes.wisechef.ai (4× consecutive 500s → 200 OK in one patch + restart).",
+      "new": "Fix Stripe webhook handlers crashing after a Python SDK 15.x upgrade — converts dict-style .get() calls to attribute access so payments stop silently failing.",
+      "char_count": 158,
+      "outcome_verb": "fix"
+    },
+    {
+      "slug": "stripe-live-price-rotation",
+      "old": "Rotate live Stripe prices on a running production product without breaking checkout for in-flight customers. Creates a new Price, swaps it on the Product as default, deactivates the old Price. Works with existing subscriptions (they keep their old price unless you explicitly migrate).",
+      "new": "Rotate Stripe prices on a live product without breaking in-flight checkouts — creates the new Price, swaps the default, and deactivates the old one safely.",
+      "char_count": 155,
+      "outcome_verb": "rotate"
+    },
+    {
+      "slug": "startup-architect",
+      "old": "A comprehensive workflow for researching a startup idea and generating a full startup kit including market analysis, competitor mapping, product specs, and a high-fidelity landing page.",
+      "new": "Research any startup idea and generate a full kit: market analysis, competitor map, product specs, and a high-fidelity landing page — ready to pitch or build.",
+      "char_count": 158,
+      "outcome_verb": "generate"
+    },
+    {
+      "slug": "repo-viz",
+      "old": "Generate visual diagrams and hero images from code repositories using GitNexus + D2 + Playwright pipeline. Great for READMEs, blog posts, and architecture overviews.",
+      "new": "Generate architecture diagrams and hero images from any codebase using GitNexus + D2 + Playwright — ship visual READMEs, blog assets, and architecture overviews.",
+      "char_count": 161,
+      "outcome_verb": "generate"
+    },
+    {
+      "slug": "railway-serverless-diagnose",
+      "old": "Diagnose a Railway-hosted service that \"looks dead\" before declaring an outage. Railway serverless mode returns HTTP 404 \"Application not found\" during the ~3-second cold-start wake window after idle, which is easily and repeatedly misdiagnosed as a deleted/crashed deployment by autonomous agents. Use BEFORE filing infrastructure tickets, opening blocked Paperclip issues, or planning a redeploy. Validated 2026-04-24 on AgentPact (api/mcp/web all \"dead\" → all healthy after wake).",
+      "new": "Diagnose Railway services returning 404 before you file an outage ticket — distinguishes the ~3-second cold-start wake window from actual deployment failures.",
+      "char_count": 158,
+      "outcome_verb": "diagnose"
+    },
+    {
+      "slug": "pr-draft",
+      "old": "Generate structured PR descriptions from git diffs using Conventional Commits format. Analyzes branch diff, commits, and status to produce ready-to-paste PR descriptions.",
+      "new": "Generate structured PR descriptions from git diffs using Conventional Commits format. Analyzes branch diff, commits, and status to produce ready-to-paste PR descriptions.",
+      "char_count": 170,
+      "outcome_verb": "generate",
+      "kept_original": true
+    },
+    {
+      "slug": "obviously-awesome",
+      "old": "Define product positioning by mapping competitive alternatives, unique attributes, and best-fit customers to the right market category. Use when the user mentions \"positioning\", \"competitive alternatives\", \"how to position\", \"market category\", or \"why customers don''t get it\". Covers positioning canvas and team workshops. For customer jobs analysis, see jobs-to-be-done. For go-to-market, see crossing-the-chasm.",
+      "new": "Map your competitive alternatives, unique attributes, and best-fit customers to the right market category — ship a defensible positioning canvas in one session.",
+      "char_count": 160,
+      "outcome_verb": "map"
+    },
+    {
+      "slug": "nano-pdf",
+      "old": "Edit PDFs with natural-language instructions using the nano-pdf CLI. Modify text, fix typos, update titles, and make content changes to specific pages without manual editing.",
+      "new": "Edit PDFs with natural-language instructions using the nano-pdf CLI. Modify text, fix typos, update titles, and make content changes to specific pages without manual editing.",
+      "char_count": 174,
+      "outcome_verb": "edit",
+      "kept_original": true
+    },
+    {
+      "slug": "mom-test",
+      "old": "Talk to customers without leading them using Mom Test rules: discuss their life not your idea, ask about specifics in the past, and talk less. Use when the user mentions \"customer interviews\", \"validate my idea\", \"users say they want it but don''t buy\", \"leading questions\", or \"The Mom Test\". Covers commitment and advancement, avoiding compliments, and extracting signal from noise. For product-market fit, see jobs-to-be-done. For rapid prototype testing, see design-sprint.",
+      "new": "Run customer interviews that extract real signal — ask about past behavior not your idea, build commitment ladders, and avoid leading questions that produce false positives.",
+      "char_count": 173,
+      "outcome_verb": "run"
+    },
+    {
+      "slug": "mcp-builder",
+      "old": "Guide for building production-quality MCP servers in Python (FastMCP/Pydantic) or TypeScript (MCP SDK/Zod). 4-phase process — Research, Implement, Review, Evaluate.",
+      "new": "Build production-quality MCP servers in Python (FastMCP/Pydantic) or TypeScript (MCP SDK/Zod) using a 4-phase process: Research, Implement, Review, Evaluate.",
+      "char_count": 157,
+      "outcome_verb": "build"
+    },
+    {
+      "slug": "lean-startup",
+      "old": "Design MVPs, validated learning experiments, and pivot-or-persevere decisions using Build-Measure-Learn. Use when the user mentions \"MVP scope\", \"validated learning\", \"pivot or persevere\", \"vanity metrics\", or \"test assumptions\". Covers innovation accounting and actionable metrics. For 5-day prototype testing, see design-sprint. For customer motivation analysis, see jobs-to-be-done.",
+      "new": "Design MVPs and validated learning experiments using Build-Measure-Learn — define actionable metrics, run pivot-or-persevere decisions, and cut vanity metrics.",
+      "char_count": 159,
+      "outcome_verb": "design"
+    },
+    {
+      "slug": "hyperspace-matrix",
+      "old": "Search 100k+ indexed AI skills, tools, agents, and apps by natural language task description. \"Google for AI capabilities.",
+      "new": "Search 100k+ indexed AI skills, tools, agents, and apps by natural language task description. \"Google for AI capabilities.\"",
+      "char_count": 123,
+      "outcome_verb": "search",
+      "kept_original": true
+    },
+    {
+      "slug": "hyperframes-video",
+      "old": "Production pipeline for HTML-based video rendering using HeyGen's HyperFrames framework. HTML plus CSS plus GSAP rendered to deterministic MP4 via headless Chrome and FFmpeg. Agent-native with no React and no bundler. Use when generating marketing reels, educational carousels-as-video, animated explainers, or any composition where you would reach for Remotion. HyperFrames is Apache-2.0 licensed and frame-accurate for GSAP timelines.",
+      "new": "Render marketing reels, explainers, and animated carousels as deterministic MP4 from HTML + CSS + GSAP — headless Chrome + FFmpeg pipeline, no React, no bundler.",
+      "char_count": 161,
+      "outcome_verb": "render"
+    },
+    {
+      "slug": "hyperframes-invitation-card",
+      "old": "Production pipeline for vertical animated invitation cards (wedding, save-the-date, birthday, event) using HyperFrames. 1080x1920 H.264 MP4 under 4MB that plays inline on WhatsApp, Messenger, Instagram Stories, and email. Covers the 6-scene template (hero, names + circular photo cameo, date, venue/ceremony, reception, closing), music-bed preprocessing with ffmpeg, and the bilingual-fork workflow for shipping the same invitation in multiple languages. Read BEFORE authoring any personal invitation — the pattern is different from the marketing/explainer use case that `hyperframes-video` documents.",
+      "new": "Generate vertical animated invitation cards (wedding, birthday, event) as 1080x1920 H.264 MP4 under 4MB — plays inline on WhatsApp, Instagram Stories, and email.",
+      "char_count": 161,
+      "outcome_verb": "generate"
+    },
+    {
+      "slug": "hundred-million-offers",
+      "old": "Create irresistible offers using the Value Equation, bonus stacking, risk-reversing guarantees, and ethical scarcity. Use when the user mentions \"pricing strategy\", \"irresistible offer\", \"bonuses and guarantees\", \"value-to-price ratio\", or \"offer naming\". Covers the MAGIC naming formula and starving-crowd targeting. For product positioning, see obviously-awesome. For outbound sales, see predictable-revenue.",
+      "new": "Craft irresistible offers using the Value Equation, bonus stacking, risk-reversing guarantees, and the MAGIC naming formula — includes starving-crowd targeting and ethical scarcity.",
+      "char_count": 181,
+      "outcome_verb": "craft"
+    },
+    {
+      "slug": "hostinger-dns-api",
+      "old": "Read and edit DNS records on Hostinger-registered domains via the Hostinger Developer API. Use when a domain's nameservers are ns1/ns2.dns-parking.com (Hostinger default), when registrar lookup via RDAP returns \"HOSTINGER operations, UAB\", or whenever you need to script DNS changes without logging into hpanel. Validated 2026-04-24 on agentpact.xyz (CNAME swap to update Railway custom-domain target).",
+      "new": "Read and edit DNS records on Hostinger domains via their Developer API — no hpanel login needed. Validated on live CNAME swaps for Railway custom-domain updates.",
+      "char_count": 161,
+      "outcome_verb": "edit"
+    },
+    {
+      "slug": "graphify",
+      "old": "Build knowledge graphs from codebases, docs, papers, and images using Graphify. Produces interactive HTML visualization, queryable JSON, and audit report with god nodes, communities, and surprising connections. Use when analyzing unfamiliar repos, understanding architecture, or building structured context before a complex task.",
+      "new": "Build a knowledge graph from any codebase, docs, or paper — generates interactive HTML, queryable JSON, and an audit report exposing god nodes, communities, and surprising connections.",
+      "char_count": 184,
+      "outcome_verb": "build"
+    },
+    {
+      "slug": "gitnexus",
+      "old": "Analyze codebases using GitNexus — a knowledge graph engine that indexes every dependency, call chain, cluster, and execution flow. Use for bug hunting, architecture reviews, and understanding unfamiliar codebases.",
+      "new": "Analyze any codebase with GitNexus — index dependencies, call chains, clusters, and execution flows to accelerate bug hunting and architecture reviews.",
+      "char_count": 151,
+      "outcome_verb": "analyze"
+    },
+    {
+      "slug": "frontend-design",
+      "old": "Frontend development guidelines for React/Next.js/Tailwind — mobile-first, typography, color theory (70-20-10), accessibility, performance targets, memorable design elements.",
+      "new": "Ship React/Next.js/Tailwind UIs that pass accessibility checks — mobile-first layout, 70-20-10 color theory, performance targets, and memorable design patterns.",
+      "char_count": 160,
+      "outcome_verb": "ship"
+    },
+    {
+      "slug": "faster-whisper",
+      "old": "Local, offline speech-to-text using CTranslate2 reimplementation of OpenAI Whisper. 4-6x faster, 99+ languages, word-level timestamps, VAD support.",
+      "new": "Transcribe audio locally with CTranslate2-Whisper — 4-6x faster than OpenAI Whisper, 99+ languages, word-level timestamps, and VAD support. No API key.",
+      "char_count": 151,
+      "outcome_verb": "transcribe"
+    },
+    {
+      "slug": "domain-driven-design",
+      "old": "Model software around the business domain using bounded contexts, aggregates, and ubiquitous language. Use when the user mentions \"domain modeling\", \"bounded context\", \"aggregate root\", \"ubiquitous language\", or \"anti-corruption layer\". Covers entities vs value objects, domain events, and context mapping strategies. For architecture layers, see clean-architecture. For complexity, see software-design-philosophy.",
+      "new": "Model software around bounded contexts, aggregates, and ubiquitous language — map domain events, define context boundaries, and ship code that mirrors your business.",
+      "char_count": 165,
+      "outcome_verb": "model"
+    },
+    {
+      "slug": "customer-discovery-competitive-intel",
+      "old": "Combined customer discovery + competitive intelligence analysis for a product or startup niche. Produces: niche pain profiles, early adopter personas, discovery questions, validation criteria, vitamin/painkiller verdict, cobbled-solution audit, competitor map with real pricing, indirect competitor landscape, moat assessment. Use when user says 'validate the problem', 'map the competition', 'customer discovery for X', or 'competitive analysis for Y'.",
+      "new": "Generate niche pain profiles, early-adopter personas, and a competitor map with real pricing — includes vitamin/painkiller verdict, cobbled-solution audit, and moat assessment.",
+      "char_count": 176,
+      "outcome_verb": "generate"
+    },
+    {
+      "slug": "critical-code-reviewer",
+      "old": "Adversarial code review — scrutinizes code for security holes, lazy patterns, race conditions, edge cases, and bad practices. Structured output with Blocking/Required/Suggestions severity tiers.",
+      "new": "Scrutinize code for security holes, race conditions, and bad patterns — structured output with Blocking, Required, and Suggestions severity tiers for every finding.",
+      "char_count": 164,
+      "outcome_verb": "scrutinize"
+    },
+    {
+      "slug": "creative-ideation",
+      "old": "Generate project ideas through creative constraints. Use when the user says 'I want to build something', 'give me a project idea', 'I'm bored', 'what should I make', 'inspire me', or any variant of 'I have tools but no direction'. Works for code, art, hardware, writing, tools, and anything that can be made.",
+      "new": "Generate project ideas through creative constraints — works for code, hardware, art, writing, and tools. Use when you have skills but no direction.",
+      "char_count": 147,
+      "outcome_verb": "generate"
+    },
+    {
+      "slug": "code-review",
+      "old": "Guidelines for performing thorough code reviews with security and quality focus",
+      "new": "Review code with a security-first lens — catch SQL injection, race conditions, and quality anti-patterns using structured guidelines for thorough PR reviews.",
+      "char_count": 157,
+      "outcome_verb": "review"
+    },
+    {
+      "slug": "clean-code",
+      "old": "Write readable, maintainable code through disciplined naming, small functions, and clean error handling. Use when the user mentions \"code review\", \"naming conventions\", \"function too long\", \"code smells\", or \"readable code\". Covers SRP, comment discipline, formatting, and unit testing. For refactoring techniques, see refactoring-patterns. For architecture, see clean-architecture.",
+      "new": "Write readable, maintainable code using disciplined naming, small functions, and clean error handling — covers SRP, comment discipline, formatting, and unit testing.",
+      "char_count": 165,
+      "outcome_verb": "write"
+    },
+    {
+      "slug": "clean-architecture",
+      "old": "Structure software around the Dependency Rule: source code dependencies point inward from frameworks to use cases to entities. Use when the user mentions \"architecture layers\", \"dependency rule\", \"ports and adapters\", \"hexagonal architecture\", or \"use case boundary\". Covers component principles, boundaries, and SOLID. For code quality, see clean-code. For domain modeling, see domain-driven-design.",
+      "new": "Structure software so dependencies point inward from frameworks → use cases → entities — covers hexagonal architecture, SOLID, ports and adapters, and component principles.",
+      "char_count": 172,
+      "outcome_verb": "structure"
+    },
+    {
+      "slug": "caddy-multipage-static-deploy",
+      "old": "Diagnose and fix Caddy serving a static multi-page site (Astro, Next static-export, Eleventy, Hugo) where every route returns the homepage. Covers the SPA-fallback `try_files` trap, the silent-no-op port conflict (manual caddy process holding the port while systemd thinks it's down), and the caddy-user-cannot-traverse-home-directory permission trap. Use when \"links don't work,\" \"all routes return same content,\" or \"caddy says active but pages 404 / serve wrong content.",
+      "new": "Fix Caddy serving the homepage on every route for static multi-page sites (Astro, Next, Hugo, Eleventy) — diagnoses SPA fallback traps, port conflicts, and permission issues.",
+      "char_count": 174,
+      "outcome_verb": "fix"
+    },
+    {
+      "slug": "brand-rollout-meta-repo",
+      "old": "Build and roll out a stack-agnostic brand meta-repo across multiple consumer products. Use when unifying design/brand/assets across different web stacks (Astro + React + Vite + others) without forcing them onto the same framework. Establishes a single source of truth for tokens, logos, Tailwind preset, and ships an auto-propagation workflow that opens bump PRs in every consumer repo on tag.",
+      "new": "Ship a stack-agnostic brand meta-repo with design tokens, logos, and Tailwind preset — auto-opens bump PRs in every consumer repo (Astro, React, Vite) on tag release.",
+      "char_count": 166,
+      "outcome_verb": "ship"
+    },
+    {
+      "slug": "brainstorming",
+      "old": "Use before any creative work — designing features, building components, adding functionality, or modifying behavior. Explores user intent, requirements, and design before implementation. Especially valuable when scope is ambiguous, multiple approaches exist, or the work touches unfamiliar codebases.",
+      "new": "Explore requirements and design before implementation — run structured brainstorming for features, components, or behavior changes when scope is ambiguous.",
+      "char_count": 155,
+      "outcome_verb": "explore"
+    },
+    {
+      "slug": "whitelabel-dashboard",
+      "old": "Spin up a per-client Streamlit dashboard with live GA4/GSC/Meta/TikTok metrics. Branded, password-protected.",
+      "new": "Spin up a branded client dashboard with live GA4, GSC, Meta Ads, and TikTok metrics in under 60 seconds. White-label, password-protected — replace Whatagraph today.",
+      "char_count": 164,
+      "outcome_verb": "spin up"
+    },
+    {
+      "slug": "seo-audit-engine",
+      "old": "Lighthouse + content audit + competitor diff. Generates branded PDF or markdown report.",
+      "new": "Run a full SEO audit on any URL — Lighthouse scores, crawl for broken links and missing meta/alt text, schema.org check, and optional competitor diff. Outputs PDF or markdown.",
+      "char_count": 175,
+      "outcome_verb": "run"
+    },
+    {
+      "slug": "proposal-builder",
+      "old": "Discovery transcript → branded SOW PDF with scope, pricing tiers, case studies. Powered by Anthropic Claude.",
+      "new": "Convert a discovery call transcript into a branded SOW PDF with scope, pricing tiers, and case studies — Claude-powered extraction, weasyprint-rendered output.",
+      "char_count": 159,
+      "outcome_verb": "convert"
+    },
+    {
+      "slug": "cold-outreach",
+      "old": "Personalized cold email generator with MX deliverability check. Optional safe SMTP send.",
+      "new": "Generate personalized cold emails with MX deliverability checks — feed a CSV of prospects and ship outreach at scale with optional SMTP send.",
+      "char_count": 141,
+      "outcome_verb": "generate"
+    },
+    {
+      "slug": "client-reporter",
+      "old": "Pull GA4, Google Search Console, Meta Ads, and TikTok Ads data for any client and generate a branded PDF report. White-label-ready. Saves 4h/week per client.",
+      "new": "Pull GA4, GSC, Meta Ads, and TikTok Ads data for any client and generate a branded PDF in under a minute. White-label-ready.",
+      "char_count": 124,
+      "outcome_verb": "pull"
+    },
+    {
+      "slug": "image-generator",
+      "old": "Generate images from text prompts using Stable Diffusion, FLUX, or OpenAI's gpt-image-1. Picks the right backend based on cost, style, and resolution constraints. Returns a URL or local file path.",
+      "new": "Generate images from text prompts using Stable Diffusion, FLUX, or OpenAI gpt-image-1 — picks the right backend based on cost, style, and resolution. Returns URL or file path.",
+      "char_count": 175,
+      "outcome_verb": "generate"
+    },
+    {
+      "slug": "data-pipeline",
+      "old": "Visual pipeline builder for ETL workflows with 50+ connectors.",
+      "new": "Build ETL pipelines with schema pre-flight checks, cursor-based pagination recovery, and idempotent inserts — handles 50+ connector patterns across SQL and REST sources.",
+      "char_count": 169,
+      "outcome_verb": "build"
+    }
+  ],
+  "stats": {
+    "total": 53,
+    "rewritten": 49,
+    "kept_original": 4
+  }
+}

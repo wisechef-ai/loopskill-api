@@ -1,0 +1,15 @@
+[skill]
+title = "Hello Sandbox"
+description = "Minimal test skill that prints hello from inside a sandbox"
+slug = "hello-sandbox"
+category = "test"
+tier = "cook"
+license = "MIT"
+
+[sandbox]
+network_allow = []
+fs_write = ["/tmp"]
+exec_allow = ["bash", "sh"]
+memory_mb = 128
+timeout_seconds = 30
+env_pass = ["PATH", "LANG"]

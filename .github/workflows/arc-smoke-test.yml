@@ -1,0 +1,34 @@
+name: arc-smoke-test
+# Proves the self-hosted `wisechef-runner` (ARC on wise-mac02) is wired
+# to the wisechef-ai org end-to-end. Manual dispatch only — does NOT run
+# on push/PR so it can't accidentally block merges if the runner is down.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: wisechef-runner
+    timeout-minutes: 5
+    steps:
+      - name: Runner identity
+        run: |
+          echo "host:    $(hostname)"
+          echo "arch:    $(uname -m)"
+          echo "kernel:  $(uname -r)"
+          echo "user:    $(id)"
+          echo "runner:  ${RUNNER_NAME:-unknown}"
+          echo "labels:  ${RUNNER_LABELS:-unknown}"
+
+      - name: Docker-in-Docker reachable
+        run: docker version
+
+      - name: Workspace writable
+        run: |
+          mkdir -p _work_check && touch _work_check/canary && ls -la _work_check
+          rm -rf _work_check
+
+      - name: Egress to github.com (registry/api)
+        run: |
+          curl -sS -o /dev/null -w 'github.com %{http_code}\n' https://github.com
+          curl -sS -o /dev/null -w 'api.github.com %{http_code}\n' https://api.github.com

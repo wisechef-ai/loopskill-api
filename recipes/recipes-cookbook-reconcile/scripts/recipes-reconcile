@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""recipes-reconcile — self-contained reconcile client.
+
+The runnable executable shipped inside the recipes-cookbook-reconcile skill
+bundle. SELF-CONTAINED: it vendors the reconcile lib (_reconcile_lib/) beside
+itself, so a stranger who installs ONLY this skill bundle can run it with zero
+external dependencies (stdlib only). This is the cold-path the public docs
+promise — verified by the Mom-test gate.
+
+Delegates to the tested reconcile loop: lockfile → /api/reconcile conditional
+304/200 → CDN delta fetch → atomic apply + auto-rollback. Intelligence is
+server-side; this is the thin host-side trigger.
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+# Make the vendored lib importable (it sits beside this script).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _reconcile_lib.reconcile_cli import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main())

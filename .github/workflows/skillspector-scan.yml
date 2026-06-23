@@ -1,0 +1,185 @@
+name: SkillSpector Security Scan
+
+# Phase K (loopclose_3005) — NVIDIA SkillSpector static security scan wall.
+# Runs on PRs that touch skill content. Outputs SARIF to GitHub Security tab.
+#
+# Advisory mode (default): findings shown, nothing blocked.
+# Blocker mode: set SKILLSPECTOR_BLOCK_ON_HIGH=true in repo/env secrets to
+# promote HIGH/CRITICAL findings to a hard gate.
+#
+# See docs/security/skillspector.md for tuning, baselining, and escalation.
+
+on:
+  pull_request:
+    paths:
+      - "docs/recipes-skill/**"
+      - "examples/**"
+      - "tests/fixtures/skills/**"
+  push:
+    branches: [main]
+    paths:
+      - "docs/recipes-skill/**"
+      - "examples/**"
+      - "tests/fixtures/skills/**"
+
+permissions:
+  contents: read
+  security-events: write   # required for upload-sarif
+  pull-requests: read
+
+concurrency:
+  group: skillspector-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  skillspector-scan:
+    name: SkillSpector static security scan
+    runs-on: wisechef-runner
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # Python 3.12+ is required by SkillSpector. Try setup-python first;
+      # fall back to system python3.12 on self-hosted runners.
+      # -----------------------------------------------------------------------
+      - name: Set up Python 3.12
+        id: setup-python
+        continue-on-error: true
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Ensure Python 3.12 available (runner fallback)
+        run: |
+          if command -v python3.12 >/dev/null 2>&1; then
+            echo "Python 3.12 found: $(python3.12 --version)"
+          elif command -v python3 >/dev/null 2>&1 && python3 -c "import sys; sys.exit(0 if sys.version_info >= (3,12) else 1)" 2>/dev/null; then
+            echo "python3 is 3.12+: $(python3 --version)"
+          else
+            echo "::error::Python 3.12+ required for SkillSpector"
+            exit 1
+          fi
+
+      # -----------------------------------------------------------------------
+      # uv is the fast installer. Install it if the runner doesn't already
+      # have it (self-hosted runner usually has it pinned).
+      # -----------------------------------------------------------------------
+      - name: Ensure uv is available
+        run: |
+          if ! command -v uv >/dev/null 2>&1; then
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          fi
+          uv --version
+
+      # -----------------------------------------------------------------------
+      # libyara system library — required by yara-python (SkillSpector dep).
+      # We install the apt package only when the .so isn't already present;
+      # self-hosted runners with libyara already skip this step.
+      # -----------------------------------------------------------------------
+      - name: Install libyara system library (if needed)
+        run: |
+          if ! python3 -c "import yara" 2>/dev/null && ! ldconfig -p 2>/dev/null | grep -q libyara; then
+            sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libyara-dev
+          fi
+
+      # -----------------------------------------------------------------------
+      # SkillSpector venv — cached by uv's built-in content-addressed store.
+      # Pinned to commit 2eb844780ab163f01468ecf142c40a2ec0fcaec0 (v2.0.0).
+      # -----------------------------------------------------------------------
+      - name: Cache SkillSpector venv
+        uses: actions/cache@v4
+        id: venv-cache
+        with:
+          path: .skillspector-venv
+          key: skillspector-venv-${{ runner.os }}-v2.0.0-2eb8447
+
+      - name: Create SkillSpector venv and install
+        if: steps.venv-cache.outputs.cache-hit != 'true'
+        run: |
+          uv venv .skillspector-venv --python python3.12
+          source .skillspector-venv/bin/activate
+          # Pin to exact commit for reproducibility (v2.0.0 tag)
+          uv pip install "skillspector @ git+https://github.com/NVIDIA/skillspector.git@2eb844780ab163f01468ecf142c40a2ec0fcaec0"
+          skillspector --version
+
+      - name: Verify SkillSpector available (cache hit path)
+        run: |
+          source .skillspector-venv/bin/activate
+          skillspector --version
+
+      # -----------------------------------------------------------------------
+      # Scan 1: docs/recipes-skill/ — the published Recipes skill bundle
+      # -----------------------------------------------------------------------
+      - name: Scan docs/recipes-skill/
+        id: scan-skill
+        run: |
+          source .skillspector-venv/bin/activate
+          python scripts/skillspector_ci.py \
+            docs/recipes-skill/ \
+            --sarif-out skillspector-skill.sarif
+        env:
+          SKILLSPECTOR_BLOCK_ON_HIGH: ${{ vars.SKILLSPECTOR_BLOCK_ON_HIGH || 'false' }}
+          SKILLSPECTOR_BASELINE_FILE: .skillspector-baseline.json
+
+      # -----------------------------------------------------------------------
+      # Scan 2: examples/ — REST + MCP usage examples
+      # -----------------------------------------------------------------------
+      - name: Scan examples/
+        id: scan-examples
+        run: |
+          source .skillspector-venv/bin/activate
+          python scripts/skillspector_ci.py \
+            examples/ \
+            --sarif-out skillspector-examples.sarif
+        env:
+          SKILLSPECTOR_BLOCK_ON_HIGH: ${{ vars.SKILLSPECTOR_BLOCK_ON_HIGH || 'false' }}
+          SKILLSPECTOR_BASELINE_FILE: .skillspector-baseline.json
+
+      # -----------------------------------------------------------------------
+      # SkillSpector self-tests (isolated from app conftest — skillspector venv)
+      # -----------------------------------------------------------------------
+      - name: Run SkillSpector CI tests
+        run: |
+          source .skillspector-venv/bin/activate
+          python -m pytest tests/skillspector/ \
+            --noconftest \
+            -v \
+            --tb=short \
+            -p no:cacheprovider
+        env:
+          SKILLSPECTOR_BASELINE_FILE: .skillspector-baseline.json
+
+      # -----------------------------------------------------------------------
+      # Upload SARIF to GitHub Security tab
+      # (runs even if advisory scan found issues — advisory = always green)
+      # -----------------------------------------------------------------------
+      - name: Upload SARIF — skill bundle
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: skillspector-skill.sarif
+          category: skillspector-skill
+
+      - name: Upload SARIF — examples
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: skillspector-examples.sarif
+          category: skillspector-examples
+
+      # -----------------------------------------------------------------------
+      # Archive SARIF as workflow artifact (14-day retention)
+      # -----------------------------------------------------------------------
+      - name: Archive SARIF artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: skillspector-sarif-${{ github.run_id }}
+          path: |
+            skillspector-skill.sarif
+            skillspector-examples.sarif
+          retention-days: 14

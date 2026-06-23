@@ -1,0 +1,21 @@
+# recipes/hub-search-openclaw/recipe.yaml
+# Pure-prompt skill — queries npm registry to search for OpenClaw plugins.
+# npm binary is required for the registry search (network call).
+
+runtime:
+  binaries:
+    - name: python3
+      minimum: "python3>=3.10"
+    - name: npm
+  services: []
+  env:
+    optional: []
+  cron: []
+  compatibility:
+    os: [linux, macos, windows]
+    arch: [x86_64, arm64]
+    ram_gb:
+      minimum: 0
+      recommended: 0
+    disk_gb: 0
+    network: required

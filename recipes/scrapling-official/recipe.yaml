@@ -1,0 +1,23 @@
+# recipe.yaml — runtime + compatibility manifest for the scrapling-official skill
+# Source SKILL.md: ~/.hermes/skills/research/scrapling-official/SKILL.md
+# Scrapling is a Python scraping toolkit with optional Playwright integration.
+# Pure-Python core works on CPU; no GPU; network required for scraping.
+
+runtime:
+  binaries:
+    - name: python3
+      minimum: "python3>=3.10"
+    - name: uv
+      version: "0.5.0"
+      release_source: "github.com/astral-sh/uv"
+      check_latest: weekly
+  env:
+    optional: [SCRAPLING_PROXY_URL, SCRAPLING_USER_AGENT]
+  compatibility:
+    os: [linux, macos, windows]
+    arch: [x86_64, arm64]
+    ram_gb:
+      minimum: 1
+      recommended: 2
+    disk_gb: 1
+    network: required

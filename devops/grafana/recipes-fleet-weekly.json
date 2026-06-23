@@ -1,0 +1,143 @@
+{
+  "annotations": {"list": []},
+  "description": "Recipes fleet — weekly active devices.\n\nUses the schema-locked aggregate view `weekly_fleet_active_v` defined in alembic migration `d1f7e2a4b9c8`. The view exposes ONLY (week, active_count): per-customer drill-down is mathematically impossible because `fleet_pings` only stores `(salt_hash, last_seen_day)` and the salt is hashed with a server-side pepper.\n\nLoad: Grafana → Dashboards → Import → Upload JSON file → pick this file. Datasource UID may need to be re-mapped to your local Postgres source.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {"type": "postgres", "uid": "postgres-recipes"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {"legend": false, "tooltip": false, "viz": false},
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 6,
+            "scaleDistribution": {"type": "linear"},
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {"group": "A", "mode": "none"},
+            "thresholdsStyle": {"mode": "off"}
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [{"color": "green", "value": null}]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "options": {
+        "legend": {"calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true},
+        "tooltip": {"mode": "single", "sort": "none"}
+      },
+      "targets": [
+        {
+          "datasource": {"type": "postgres", "uid": "postgres-recipes"},
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT week, active_count FROM weekly_fleet_active_v ORDER BY week",
+          "refId": "A"
+        }
+      ],
+      "title": "Recipes fleet — weekly active devices",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres-recipes"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 9},
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {"type": "postgres", "uid": "postgres-recipes"},
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT active_count FROM weekly_fleet_active_v ORDER BY week DESC LIMIT 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Active devices this ISO week",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "postgres", "uid": "postgres-recipes"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": null},
+              {"color": "orange", "value": 0},
+              {"color": "green", "value": 0.05}
+            ]
+          },
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 9},
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false},
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {"type": "postgres", "uid": "postgres-recipes"},
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH lw AS (SELECT active_count, ROW_NUMBER() OVER (ORDER BY week DESC) AS r FROM weekly_fleet_active_v) SELECT (current.active_count - prev.active_count)::float / NULLIF(prev.active_count, 0) AS wow FROM lw current JOIN lw prev ON current.r = 1 AND prev.r = 2",
+          "refId": "A"
+        }
+      ],
+      "title": "Week-over-week change",
+      "type": "stat"
+    }
+  ],
+  "refresh": "1h",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["recipes", "fleet", "stabilization_2605"],
+  "templating": {"list": []},
+  "time": {"from": "now-90d", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "Recipes fleet — weekly active",
+  "uid": "recipes-fleet-weekly",
+  "version": 1,
+  "weekStart": ""
+}

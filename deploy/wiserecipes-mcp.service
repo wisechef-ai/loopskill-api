@@ -1,0 +1,22 @@
+[Unit]
+Description=WiseRecipes MCP (single-worker FastAPI on port 3362) — serves /api/mcp/*
+# Single-worker is REQUIRED. The MCP StreamableHTTP session manager keeps
+# session state in-process; multi-worker breaks the SDK's POST→GET→POST
+# handshake (worker B returns 404 "Session not found" for sessions created
+# on worker A). See deploy/MCP-DEPLOYMENT.md.
+After=network.target postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=wisechef
+Group=wisechef
+WorkingDirectory=/home/wisechef/wiserecipes-api
+EnvironmentFile=/home/wisechef/wiserecipes-api/.env
+ExecStartPre=-/usr/bin/fuser -k 3362/tcp
+ExecStart=/home/wisechef/wiserecipes-api/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 3362 --workers 1
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

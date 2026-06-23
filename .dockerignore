@@ -1,0 +1,38 @@
+# Python virtual environment — never include in image
+.venv/
+venv/
+
+# Python bytecode cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Git history — not needed in image
+.git/
+.gitignore
+
+# Internal / private files
+internal/
+
+# SQLite dev databases
+*.db
+
+# Test artifacts
+htmlcov/
+.coverage
+.pytest_cache/
+
+# Node (if any frontend tooling is present)
+node_modules/
+
+# Editor / OS artifacts
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Docker build artifacts
+Dockerfile
+docker-compose.yml
+.dockerignore

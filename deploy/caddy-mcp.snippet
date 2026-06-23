@@ -1,0 +1,16 @@
+# MCP — single-worker on :3362 (session state is in-process; multi-worker breaks StreamableHTTP).
+# MUST be placed BEFORE the catch-all `handle /api/*` block in the recipes.wisechef.ai site.
+# flush_interval -1 disables Caddy's response buffering so SSE events stream byte-by-byte.
+# read_timeout 0 + response_header_timeout 0 keep long-lived GET streams open.
+handle /api/mcp/* {
+    reverse_proxy 127.0.0.1:3362 {
+        flush_interval -1
+        transport http {
+            read_timeout 0
+            response_header_timeout 0
+        }
+    }
+}
+handle /api/mcp {
+    reverse_proxy 127.0.0.1:3362
+}

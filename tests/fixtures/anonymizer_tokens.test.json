@@ -1,0 +1,6 @@
+{
+  "user_tokens": ["Testuser", "Codename", "Reviewer", "Contact", "Deployer", "Approver"],
+  "infra_refs": ["test-agents", "test-hq", "ticketboard", "notes-vault", "test-box", "testvision"],
+  "agent_names": ["AgentAlpha", "AgentBeta", "AgentGamma"],
+  "paths": ["/home/testuser/", "/Users/testuser/", "$HOME/"]
+}

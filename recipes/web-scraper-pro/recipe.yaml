@@ -1,0 +1,28 @@
+# recipe.yaml — runtime + compatibility manifest for the web-scraper-pro skill
+# Headless-browser scraper variant. Adds Playwright + a per-skill systemd-user
+# proxy daemon so cookies persist across runs.
+
+runtime:
+  binaries:
+    - name: python3
+      minimum: "python3>=3.10"
+    - name: node
+      minimum: "node>=18"
+  services:
+    - name: cookie-jar
+      type: systemd-user
+      health: "GET http://localhost:7799/jar/health"
+  env:
+    optional: [WEB_SCRAPER_PROXY_URL, WEB_SCRAPER_HEADLESS]
+  cron:
+    - name: rotate-cookies
+      schedule: "0 4 * * *"
+      cmd: "python -m web_scraper_pro.tools.rotate_cookies"
+  compatibility:
+    os: [linux, macos]
+    arch: [x86_64, arm64]
+    ram_gb:
+      minimum: 2
+      recommended: 4
+    disk_gb: 2
+    network: required

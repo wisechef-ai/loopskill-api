@@ -1,0 +1,10 @@
+[Unit]
+Description=Recipes — daily version-staleness sweep schedule (Phase F.8)
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

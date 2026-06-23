@@ -1,0 +1,36 @@
+# LoopSkill — zero-config local development stack (SQLite, no secrets required)
+#
+# Quick start:
+#   docker compose up -d
+#   curl http://localhost:8200/api/healthz
+#
+# For a production-grade stack (Postgres + Redis), see docker-compose.prod.yml.
+version: "3.9"
+
+services:
+  api:
+    build: .
+    ports:
+      - "8200:8200"
+    environment:
+      WR_DATABASE_URL: "sqlite:////data/loopskill.db"
+      WR_COOKIES_SECURE: "false"
+      # Redis is optional; the app degrades gracefully to in-memory rate limiting
+      # and last-used tracking when it is absent. Leave blank for zero-config.
+      WR_REDIS_URL: ""
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - loopskill_data:/data
+    entrypoint: ["/app/entrypoint.sh"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/api/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 5
+
+volumes:
+  loopskill_data:
