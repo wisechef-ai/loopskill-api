@@ -190,7 +190,7 @@ where the aggregate number sits.
 
 ## License
 
-Apache 2.0 — see [LICENSE](./LICENSE)
+MPL-2.0 — see [LICENSE](./LICENSE)
 
 ## Related
 
