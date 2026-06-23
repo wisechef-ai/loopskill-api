@@ -34,6 +34,8 @@ make dev
 No `.env`, no secrets, no Postgres required. The default stack uses SQLite and seeds a
 starter catalog automatically. Your dev API key is printed on first boot.
 
+Browse the live registry: **[app.loopskill.io](https://app.loopskill.io)**
+
 See [docs/SELF_HOST.md](docs/SELF_HOST.md) for the full quickstart.
 
 ---
