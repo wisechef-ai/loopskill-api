@@ -27,15 +27,14 @@ Stdlib only. Python 3.10+.
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import os
 import re
 import sys
 import tarfile
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Literal
 
 VERSION = "1.0.0"
 
@@ -250,6 +249,16 @@ def _is_private_or_example_ip(ip: str) -> bool:
     return False
 
 
+# Deployment-specific leak tokens — env-driven so the OSS tree carries no real
+# fleet hostnames / chat IDs. Empty (default) => that rule is a no-op.
+def _csv_env(name: str) -> list[str]:
+    return [t.strip() for t in os.environ.get(name, "").split(",") if t.strip()]
+
+
+_INTERNAL_HOSTNAMES = _csv_env("WR_LEAK_HOSTNAMES")
+_CHAT_ID_PREFIXES = _csv_env("WR_LEAK_CHAT_ID_PREFIXES")
+_NEVER = re.compile(r"(?!x)x")  # matches nothing — public default when unconfigured
+
 PATTERNS_LEAK = [
     ("internal_uuid", "block",
      re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.I),
@@ -258,8 +267,9 @@ PATTERNS_LEAK = [
      re.compile(r"<@\d{15,}>"),
      "Discord user mention with ID. Use <@YOUR_USER_ID>"),
     ("discord_channel_id", "block",
-     re.compile(r"\b1488562[0-9]{12}|1485171[0-9]{12}|1469991[0-9]{12}|1469290[0-9]{12}\b"),
-     "WiseChef Discord channel/server ID"),
+     re.compile(r"\b(?:" + "|".join(re.escape(p) + r"[0-9]+" for p in _CHAT_ID_PREFIXES) + r")\b")
+     if _CHAT_ID_PREFIXES else _NEVER,
+     "Chat channel/server ID for the configured workspace"),
     ("slack_webhook", "block",
      re.compile(r"https://hooks\.slack\.com/services/T[A-Z0-9]+/B[A-Z0-9]+/[A-Za-z0-9]+"),
      "Slack incoming webhook URL — credential-equivalent"),
@@ -267,7 +277,8 @@ PATTERNS_LEAK = [
      re.compile(r"https://(?:discord|discordapp)\.com/api/webhooks/\d+/[\w\-]+"),
      "Discord webhook URL — credential-equivalent"),
     ("internal_hostname", "warn",
-     re.compile(r"\b(?:wisechef-agents|wisechef-hq|adam-xps|rescue-medic|chef-vps|tori-host)\b"),
+     re.compile(r"\b(?:" + "|".join(re.escape(h) for h in _INTERNAL_HOSTNAMES) + r")\b")
+     if _INTERNAL_HOSTNAMES else _NEVER,
      "Internal hostname. Use a generic placeholder like <YOUR_HOST>"),
     ("ssh_user_combo", "block",
      re.compile(r"\b(?:ssh|scp|sftp)\s+(?:-[A-Za-z0-9]+\s+)*[a-z][a-z0-9_-]*@[a-z0-9][\w.\-]{2,}"),

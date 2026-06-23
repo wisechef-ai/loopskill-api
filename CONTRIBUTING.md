@@ -16,7 +16,7 @@ pip install pre-commit && pre-commit install
 ## The golden rule: `main` is production
 
 Every push to `main` triggers `.github/workflows/deploy.yml`, which rsyncs
-to `wisechef-hq` and restarts `wiserecipes-api`. There is no staging branch.
+to the production host and restarts the API service. There is no staging branch.
 **Never push directly to `main`** — always go through a PR.
 
 ## Workflow

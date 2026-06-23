@@ -11,23 +11,59 @@ Usage:
 
 from __future__ import annotations
 
+import json
+import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
-ADAM_TOKENS: list[str] = ["Adam", "Bombilla", "Marco", "Karol", "Olek", "Mariusz"]
+# ── Sensitive-token configuration ──────────────────────────────────────────
+# The anonymizer redacts deployment-specific names, infra refs, home paths, and
+# agent names from text. These lists are DEPLOYMENT-SPECIFIC and must NOT be
+# hard-coded in the open-source tree (doing so would leak the very identifiers
+# the scrubber exists to hide). They load from an optional JSON config:
+#
+#   config/anonymizer_tokens.json   (gitignored; copy from the .example file)
+#
+# Self-hosters populate it with their own names / hostnames. When the
+# file is absent the scrubber still runs with safe, generic defaults (paths +
+# email redaction always active; name/infra lists empty unless configured).
+_DEFAULTS: dict[str, list[str]] = {
+    "user_tokens": [],
+    "infra_refs": [],
+    "agent_names": [],
+    "paths": ["/home/", "/Users/", "$HOME/"],
+}
 
-INFRA_REFS: list[str] = [
-    "wisechef-agents",
-    "wisechef-hq",
-    "paperclip",
-    "obsidian-vault",
-    "adam-xps",
-    "wisevision",
-]
 
-_PATHS: list[str] = ["/home/adam/", "/Users/adam/", "$HOME/"]
+def _load_tokens() -> dict[str, list[str]]:
+    cfg_path = os.environ.get(
+        "WR_ANONYMIZER_CONFIG",
+        str(Path(__file__).resolve().parent.parent.parent / "config" / "anonymizer_tokens.json"),
+    )
+    merged = {k: list(v) for k, v in _DEFAULTS.items()}
+    try:
+        with open(cfg_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        for key in merged:
+            if isinstance(data.get(key), list):
+                # config replaces defaults for name/infra lists; paths extend
+                if key == "paths":
+                    merged[key] = list(dict.fromkeys(merged[key] + data[key]))
+                else:
+                    merged[key] = list(data[key])
+    except FileNotFoundError:
+        pass  # Rationale: config is optional; generic defaults are the public-safe baseline.
+    except (json.JSONDecodeError, OSError):
+        pass  # Rationale: a malformed/unreadable config must never break request handling.
+    return merged
 
-_AGENT_NAMES: list[str] = ["Tori", "Wise", "Chef"]
+
+_TOKENS = _load_tokens()
+ADAM_TOKENS: list[str] = _TOKENS["user_tokens"]
+INFRA_REFS: list[str] = _TOKENS["infra_refs"]
+_PATHS: list[str] = _TOKENS["paths"]
+_AGENT_NAMES: list[str] = _TOKENS["agent_names"]
 
 # Matches any email EXCEPT @example.com and @wisechef.ai (allowlisted)
 _EMAIL_RE = re.compile(

@@ -13,6 +13,7 @@ Stdlib only.
 from __future__ import annotations
 
 import io
+import os
 import re
 import tarfile
 from dataclasses import asdict, dataclass
@@ -22,6 +23,23 @@ from typing import Literal
 VERSION = "1.0.0"
 
 Severity = Literal["block", "warn", "info"]
+
+
+# ── Deployment-specific leak patterns ──────────────────────────────────────
+# Internal hostnames and chat/server IDs are deployment-specific and must NOT be
+# hard-coded in the open-source tree (that would itself leak the fleet topology
+# the gate exists to protect). They come from env vars with safe public defaults
+# (empty → that specific rule is a no-op for self-hosters who haven't configured
+# their own). Set as comma-separated values:
+#   WR_LEAK_HOSTNAMES="my-api-host,my-db-host"
+#   WR_LEAK_CHAT_ID_PREFIXES="123456,234567"   (leading digits of your chat IDs)
+def _csv_env(name: str) -> list[str]:
+    raw = os.environ.get(name, "")
+    return [tok.strip() for tok in raw.split(",") if tok.strip()]
+
+
+_INTERNAL_HOSTNAMES = _csv_env("WR_LEAK_HOSTNAMES")
+_CHAT_ID_PREFIXES = _csv_env("WR_LEAK_CHAT_ID_PREFIXES")
 
 
 @dataclass
@@ -109,8 +127,10 @@ _LEAK_PATTERNS: list[tuple[str, Severity, re.Pattern[str], str, str]] = [
     (
         "discord_channel_id",
         "block",
-        re.compile(r"\b1488562[0-9]{12}|1485171[0-9]{12}|1469991[0-9]{12}|1469290[0-9]{12}\b"),
-        "WiseChef Discord channel/server ID.",
+        re.compile(r"\b(?:" + "|".join(re.escape(p) + r"[0-9]+" for p in _CHAT_ID_PREFIXES) + r")\b")
+        if _CHAT_ID_PREFIXES
+        else re.compile(r"(?!x)x"),  # never-match when unconfigured (public default)
+        "Chat channel/server ID for the configured workspace.",
         "leak",
     ),
     (
@@ -137,7 +157,9 @@ _LEAK_PATTERNS: list[tuple[str, Severity, re.Pattern[str], str, str]] = [
     (
         "internal_hostname",
         "warn",
-        re.compile(r"\b(?:wisechef-agents|wisechef-hq|adam-xps|rescue-medic|chef-vps|tori-host)\b"),
+        re.compile(r"\b(?:" + "|".join(re.escape(h) for h in _INTERNAL_HOSTNAMES) + r")\b")
+        if _INTERNAL_HOSTNAMES
+        else re.compile(r"(?!x)x"),  # never-match when unconfigured (public default)
         "Internal hostname. Use a generic placeholder.",
         "leak",
     ),

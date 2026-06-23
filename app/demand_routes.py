@@ -356,12 +356,12 @@ def demand_brief(
 def _cli() -> int:
     """Local JSON emitter for the demand brief — no HTTP, no auth.
 
-    Run ON the host that owns the DB (wisechef-hq):
+    Run ON the host that owns the DB:
 
         python -m app.demand_routes --json [--days N] [--limit M]
 
     This is the producer path for demandbrief_3005 P1: a Tori bridge cron SSHes
-    into wisechef-hq, runs this against the LOCAL DB session, captures stdout
+    into the DB host, runs this against the LOCAL DB session, captures stdout
     JSON, and renders it into the Obsidian shared-knowledge vault. No admin key
     is ever provisioned anywhere — the brief is computed where the data lives.
     """

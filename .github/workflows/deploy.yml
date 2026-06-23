@@ -1,9 +1,9 @@
 name: Deploy to recipes.wisechef.ai (production)
 
-# Architecture: recipes.wisechef.ai is served by wisechef-hq (Hetzner CX22, 77.42.92.141)
-# via Cloudflare tunnel 7c703ff8-2520-4b52-91ef-1cb4f02348ec → uvicorn on :3360.
-# This workflow replicates the manual procedure documented in recipes-marketplace-deploy SKILL.md
-# and the recipes-platform-host-migration SKILL.md cutover playbook.
+# Architecture: the production host serves the API behind a tunnel.
+# (deployment target + tunnel config are environment-specific; see your own infra docs).
+# This workflow replicates a standard rsync + service-restart deploy procedure.
+
 
 on:
   push:

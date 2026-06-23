@@ -195,7 +195,7 @@ def search_skills(
     # When the literal ILIKE pass returns fewer than ``hybrid_min_keyword_hits``
     # AND the caller supplied a non-empty query, augment with recall_skills
     # (BM25 + optional vector). This closes the "recall finds many, search
-    # finds zero" gap reported by hermes-mac01.
+    # finds zero" gap reported in testing.
     backend = "keyword"
     augmented = False
     final_outs = keyword_skill_outs

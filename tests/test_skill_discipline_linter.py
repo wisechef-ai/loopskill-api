@@ -23,6 +23,19 @@ from scripts.skill_discipline_linter import (  # noqa: E402
     lint_skill,
     main,
 )
+import scripts.skill_discipline_linter as _linter  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _configure_linter_tokens(monkeypatch):
+    """Populate the env-driven banned-token lists with the tokens these tests probe.
+
+    The linter ships with EMPTY defaults (no real operator names in the OSS tree);
+    tests configure their own fixture tokens so the detection mechanism is verified.
+    """
+    monkeypatch.setattr(_linter, "USER_NAMES", ("Adam", "Tori", "Wise", "Chef"))
+    monkeypatch.setattr(_linter, "INTERNAL_INFRA", ("Paperclip", "wisechef-hq", "adam-xps"))
+    yield
 
 
 CLEAN_RECIPE_YAML = """\

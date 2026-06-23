@@ -430,20 +430,6 @@ def test_cookbook_loader_strips_underscore_keys(tmp_path):
     assert strip_comments({"_x": 1, "y": 2}) == {"y": 2}
 
 
-def test_wisechef_fleet_v1_loads_with_47_skills():
-    """The dogfood cookbook file must parse and yield 47 skills, 12 crons, 6 services."""
-    from pathlib import Path
-
-    from app.bundle_loader import load_cookbook_file
-
-    repo_root = Path(__file__).parent.parent
-    data = load_cookbook_file(repo_root / "internal" / "cookbooks" / "wisechef-fleet-v1.json")
-    assert data["slug"] == "wisechef-fleet-v1"
-    assert len(data["skills"]) == 47
-    assert len(data["crons"]) == 12
-    assert len(data["services"]) == 6
-
-
 # ── Preflight aggregator ─────────────────────────────────────────────────
 
 

@@ -1,0 +1,7 @@
+{
+  "_comment": "Copy to config/anonymizer_tokens.json (gitignored) and fill with YOUR deployment's sensitive tokens. The anonymizer redacts these from text before it reaches logs/responses. Leave lists empty to disable a category.",
+  "user_tokens": ["YourName", "Cofounder"],
+  "infra_refs": ["your-api-host", "your-db-host", "your-vault"],
+  "agent_names": ["Agent1", "Agent2"],
+  "paths": ["/home/youruser/", "/Users/youruser/"]
+}

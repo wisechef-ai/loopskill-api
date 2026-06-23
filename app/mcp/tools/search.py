@@ -7,7 +7,7 @@ the MCP path free of HTTP loopback.
 Issue #111: when the literal ILIKE pass returns fewer than
 ``HYBRID_MIN_KEYWORD_HITS`` results AND the caller supplied a non-empty query,
 augment with ``recall_skills`` (BM25 + optional vector). This closes the
-"recall finds many, search finds zero" gap reported by hermes-mac01 on a broad
+"recall finds many, search finds zero" gap reported on a broad
 multi-keyword dev query.
 """
 

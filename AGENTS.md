@@ -134,7 +134,7 @@ Hooks:
 3. **mypy --strict scope is ONLY**: `app/auth_ctx.py`, `app/authz.py`, `app/middleware.py`, `app/utils/`. Broader mypy errors → file a tracking issue, don't expand scope.
 4. **Before editing a god node** (APIKeyMiddleware.dispatch, validate_key, recipes_install, SandboxRunner.run, scan_tarball) run `gitnexus_impact` and confirm blast radius.
 5. **One PR per phase**. Never modify `.coveragerc` or coverage CI step — that's Phase F's domain.
-6. **Production deploy target**: `wisechef-hq:/home/wisechef/wiserecipes-api/`. Systemd unit: `wiserecipes-api.service`.
+6. **Production deploy target**: your own host (see deploy.yml). This is open-core — self-host anywhere.
 
 ---
 

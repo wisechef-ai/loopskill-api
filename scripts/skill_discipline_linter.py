@@ -7,10 +7,10 @@ running it. Used at publish-time by the FastAPI gate and during the one-time
 sanitization sweep over the existing skill catalog.
 
 Rules:
-    no_user_names                  — Adam/Tori/Wise/Chef/Mariusz/Olek/Marco/Karol
+    no_user_names                  — configured names (via WR_LINT_USER_NAMES)
     no_curl_bash                   — `curl ... | bash`, `wget ... | sh`
     no_hardcoded_home_paths        — /home/<user>/, /Users/<user>/
-    no_internal_infra_refs         — Paperclip/wisechef-agents/wisechef-hq/adam-xps/obsidian-vault
+    no_internal_infra_refs         — infra refs (configured via WR_LINT_INFRA)
     no_agent_discipline_text       — "the agent should always", "always ask", "when in doubt"
     no_external_promo              — non-allowlisted external links
     must_declare_compat            — recipe.yaml requires runtime.compatibility
@@ -100,8 +100,16 @@ _ALL_OS_PATH_PREFIXES: frozenset[str] = frozenset(
 )
 
 
-USER_NAMES = ("Adam", "Tori", "Wise", "Chef", "Mariusz", "Olek", "Marco", "Karol")
-INTERNAL_INFRA = ("Paperclip", "wisechef-agents", "wisechef-hq", "adam-xps", "obsidian-vault")
+# Deployment-specific banned tokens — env-driven so the OSS tree carries no real
+# names/infra. Empty (default) => those checks are no-ops for self-hosters until
+# they configure their own. Set comma-separated: WR_LINT_USER_NAMES, WR_LINT_INFRA.
+def _csv_env_tuple(name: str) -> tuple[str, ...]:
+    import os as _os
+    return tuple(t.strip() for t in _os.environ.get(name, "").split(",") if t.strip())
+
+
+USER_NAMES = _csv_env_tuple("WR_LINT_USER_NAMES")
+INTERNAL_INFRA = _csv_env_tuple("WR_LINT_INFRA")
 
 # Tokens we're willing to accept inside emails/URLs even if they collide with
 # a banned user name (e.g. adam@example.com, /Users/adam/.cache).

@@ -99,8 +99,24 @@ def test_scan_text_warns_hermes_path() -> None:
     assert any(f.category == "hermes_path" for f in findings)
 
 
-def test_scan_text_warns_internal_hostname() -> None:
-    findings = _scan_text("SKILL.md", "Deploy to wisechef-agents")
+def test_scan_text_warns_internal_hostname(monkeypatch) -> None:
+    # The hostname list is env-driven (empty in the OSS default). Patch the
+    # module's compiled hostname list + rebuild that one pattern so the detector
+    # is exercised with a fixture hostname (no real infra in the OSS tree).
+    import re as _re
+
+    import app.skill_quality_gate as _qg
+
+    monkeypatch.setattr(_qg, "_INTERNAL_HOSTNAMES", ["test-agents", "test-hq"])
+    patched = []
+    for entry in _qg._LEAK_PATTERNS:
+        if entry[0] == "internal_hostname":
+            rx = _re.compile(r"\b(?:" + "|".join(_re.escape(h) for h in _qg._INTERNAL_HOSTNAMES) + r")\b")
+            patched.append((entry[0], entry[1], rx, entry[3], entry[4]))
+        else:
+            patched.append(entry)
+    monkeypatch.setattr(_qg, "_LEAK_PATTERNS", patched)
+    findings = _scan_text("SKILL.md", "Deploy to test-agents")
     assert any(f.category == "internal_hostname" for f in findings)
 
 

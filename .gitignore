@@ -83,3 +83,13 @@ CLAUDE.md
 test_dev.db
 test.db
 t2.db
+
+# Internal company docs — never ship to the public OSS repo
+internal/
+
+# Anonymizer real token list (deployment-specific PII — never commit)
+config/anonymizer_tokens.json
+
+# Stray internal sprint contracts/reports — never ship public
+SPRINT*.md
+frontend-patches/

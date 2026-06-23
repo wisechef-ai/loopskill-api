@@ -144,7 +144,7 @@ def git_auto_commit(yaml_path: Path) -> tuple[bool, str]:
     (False, "no diff vs HEAD") and exits without invoking git commit.
 
     Designed for the nightly cron + watchdog auto-heal path on
-    wisechef-hq. Must NOT raise on transient git failures (e.g.
+    the production host. Must NOT raise on transient git failures (e.g.
     network blip on push) — the cron should keep running and the
     watchdog will retry within 4h.
 

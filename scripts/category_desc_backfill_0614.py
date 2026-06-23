@@ -13,7 +13,7 @@ Canonical decision log:
   - Short desc rewrites are problem-first: what problem does the buyer solve?
   - This is a copy-only change: no tier, no Stripe, no pricing touched.
 
-Usage (run from recipes-api repo root on wisechef-hq or locally with tunnel):
+Usage (run from the repo root on the DB host, or locally with a tunnel):
   DATABASE_URL=postgresql://... python scripts/category_desc_backfill_0614.py [--dry-run]
 
 Exit codes:
