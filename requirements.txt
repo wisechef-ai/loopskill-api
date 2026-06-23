@@ -1,5 +1,5 @@
 # Recipes API runtime + test dependencies (Sprint 4 baseline)
-fastapi>=0.115.0
+fastapi>=0.115.0,<0.137.0
 uvicorn[standard]>=0.27
 sqlalchemy>=2.0.49
 alembic>=1.16.5
@@ -25,13 +25,13 @@ tomli>=2.0; python_version < "3.11"
 #   starlette 1.0.0 → PYSEC-2026-161 (fixed 1.0.1)
 #   idna      3.13  → CVE-2026-45409 (fixed 3.15)
 #   urllib3   2.6.3 → PYSEC-2026-141/142 (fixed 2.7.0)
-starlette>=1.0.1
+starlette>=1.0.1,<1.3.0
 idna>=3.15
 urllib3>=2.7.0
 
 # MCP server (Phase A → Phase 1 v7.1) — official Python SDK
 # 1.4+ required for StreamableHTTP transport (StreamableHTTPSessionManager)
-mcp[cli]>=1.4
+mcp[cli]>=1.4,<1.28.0
 
 # tests
 pytest>=8.0

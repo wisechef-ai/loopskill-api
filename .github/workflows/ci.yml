@@ -65,4 +65,4 @@ jobs:
             | tar -xz -C /usr/local/bin gitleaks
           gitleaks version
       - name: Scan working tree
-        run: gitleaks detect --source . --config .gitleaks.toml --no-banner --redact
+        run: gitleaks detect --source . --config .gitleaks.toml --no-git --no-banner --redact

@@ -3,6 +3,18 @@
 **LoopSkill** — open-core, self-hostable skill registry for AI agents.
 Browse, install, and deploy skills · bundles · loops · personalities. Zero signup to self-host.
 
+<p>
+  <a href="https://github.com/wisechef-ai/loopskill-api/actions/workflows/ci.yml"><img src="https://github.com/wisechef-ai/loopskill-api/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MPL--2.0-blue.svg" alt="License: MPL-2.0"></a>
+  <a href="https://github.com/wisechef-ai/loopskill-api/stargazers"><img src="https://img.shields.io/github/stars/wisechef-ai/loopskill-api?style=flat" alt="Stars"></a>
+  <a href="https://loopskill.io"><img src="https://img.shields.io/badge/home-loopskill.io-7c5cff.svg" alt="loopskill.io"></a>
+  <img src="https://img.shields.io/badge/MCP-native-00e5c0.svg" alt="MCP native">
+</p>
+
+> **Spotify for AI agents.** A registry your agents pull runnable artifacts from —
+> and the only one with vetted, safety-bounded **loops** and deployable **personalities**,
+> not just config. `docker compose up` → a working registry in 60 seconds.
+
 ---
 
 ## Run it locally in 60 seconds
