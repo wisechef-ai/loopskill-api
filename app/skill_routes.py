@@ -158,7 +158,25 @@ def search_skills(
         )  # legacy alias map
         # portal_0610 S1: the tier filter was COMPUTED but never APPLIED — a
         # tier=free search wrongly returned Pro skills. Apply it.
-        query = query.filter(Skill.tier == tier_db)
+        #
+        # fix/tier-search-cook-alias-gap (2026-06-12): the marketing snapshot
+        # counts pro + cook (legacy alias rows still in DB) but search was
+        # filtering ONLY on the canonical slug — causing a 7-skill gap between
+        # snapshot.pro_skills (70) and search?tier=pro (63). Extend the filter
+        # to include both canonical AND the legacy alias so the two surfaces
+        # agree. Same logic as marketing_routes.marketing_counts().
+        _tier_aliases: dict[str, list[str]] = {
+            "pro": ["pro", "cook"],  # legacy alias: cook = pro pre-2026-06-10
+            "pro_plus": ["pro_plus", "operator", "studio"],  # legacy alias: operator/studio = pro_plus
+            "free": ["free"],
+        }
+        canonical_tiers = _tier_aliases.get(tier_db, [tier_db])
+        if len(canonical_tiers) == 1:
+            query = query.filter(Skill.tier == canonical_tiers[0])
+        else:
+            from sqlalchemy import or_
+
+            query = query.filter(or_(*[Skill.tier == t for t in canonical_tiers]))
     # quality_1705 Phase C — quality_score floor filter for agent callers
     # who only want high-confidence skills. Skills without a score are
     # excluded (defensive: agent shouldn't pick a skill we haven't graded).
@@ -208,10 +226,21 @@ def search_skills(
             tier_for_recall: list[str] = ["free", "pro", "pro_plus"]
             if tier:
                 # Caller asked for a specific tier — respect it.
+                # fix/tier-search-cook-alias-gap: include legacy aliases so
+                # hybrid recall doesn't miss cook/operator rows either.
                 tier_db = {"cook": "pro", "operator": "pro_plus", "studio": "pro_plus"}.get(
                     tier, tier
                 )  # legacy alias map
-                tier_for_recall = [tier_db]
+                _recall_aliases: dict[str, list[str]] = {
+                    "pro": ["pro", "cook"],  # legacy alias: cook = pro pre-2026-06-10
+                    "pro_plus": [
+                        "pro_plus",
+                        "operator",
+                        "studio",
+                    ],  # legacy alias: operator/studio = pro_plus
+                    "free": ["free"],
+                }
+                tier_for_recall = _recall_aliases.get(tier_db, [tier_db])
 
             recall_blob = recall_skills(
                 db,
