@@ -138,15 +138,16 @@ def search_skills(
         # to include both canonical AND the legacy alias so the two surfaces
         # agree. Same logic as marketing_routes.marketing_counts().
         _tier_aliases: dict[str, list[str]] = {
-            "pro":      ["pro", "cook"],
-            "pro_plus": ["pro_plus", "operator", "studio"],
-            "free":     ["free"],
+            "pro": ["pro", "cook"],  # legacy alias: cook = pro pre-2026-06-10
+            "pro_plus": ["pro_plus", "operator", "studio"],  # legacy alias: operator/studio = pro_plus
+            "free": ["free"],
         }
         canonical_tiers = _tier_aliases.get(tier_db, [tier_db])
         if len(canonical_tiers) == 1:
             query = query.filter(Skill.tier == canonical_tiers[0])
         else:
             from sqlalchemy import or_
+
             query = query.filter(or_(*[Skill.tier == t for t in canonical_tiers]))
     # quality_1705 Phase C — quality_score floor filter for agent callers
     # who only want high-confidence skills. Skills without a score are
@@ -203,9 +204,13 @@ def search_skills(
                     tier, tier
                 )  # legacy alias map
                 _recall_aliases: dict[str, list[str]] = {
-                    "pro":      ["pro", "cook"],
-                    "pro_plus": ["pro_plus", "operator", "studio"],
-                    "free":     ["free"],
+                    "pro": ["pro", "cook"],  # legacy alias: cook = pro pre-2026-06-10
+                    "pro_plus": [
+                        "pro_plus",
+                        "operator",
+                        "studio",
+                    ],  # legacy alias: operator/studio = pro_plus
+                    "free": ["free"],
                 }
                 tier_for_recall = _recall_aliases.get(tier_db, [tier_db])
 
