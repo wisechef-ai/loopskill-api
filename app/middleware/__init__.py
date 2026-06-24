@@ -32,10 +32,21 @@ _redis_next_retry_at: float = 0.0  # F-API-05: backoff timestamp
 
 
 def get_redis():
-    """Get Redis client with lazy initialization, health check, and 30s backoff."""
+    """Get Redis client with lazy initialization, health check, and 30s backoff.
+
+    A blank/unset REDIS_URL is the documented zero-config self-host path
+    (docker-compose.yml sets ``WR_REDIS_URL: ""``): treat it as "no Redis"
+    and fall back to in-memory rate limiting instead of letting
+    ``redis.from_url("")`` raise ValueError, which previously 500'd every
+    anonymous request on a fresh ``docker compose up``.
+    """
     global _redis_client, _redis_available, _redis_next_retry_at
     if _redis_client is not None and _redis_available:
         return _redis_client
+    # Zero-config path: no Redis URL configured -> in-memory fallback, no retry churn.
+    if not (settings.REDIS_URL or "").strip():
+        _redis_available = False
+        return None
     # F-API-05: if we're in the backoff window, skip retry
     if not _redis_available and time.monotonic() < _redis_next_retry_at:
         return None
@@ -46,7 +57,7 @@ def get_redis():
         _redis_available = True
         logger.info("Redis connected for rate limiting")
         return client
-    except (redis.ConnectionError, redis.TimeoutError) as e:
+    except (redis.ConnectionError, redis.TimeoutError, ValueError) as e:
         _redis_available = False
         _redis_next_retry_at = time.monotonic() + 30.0  # F-API-05: 30s backoff
         logger.warning("Redis unavailable, falling back to in-memory rate limiting: %s", e)
