@@ -38,6 +38,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app import config
 from app.database import get_db
 from app.models import ForkVersion, Skill, SkillFork, User
 from app.tier_labels import _is_pro_tier
@@ -371,11 +372,7 @@ def install_fork(
         }
     )
 
-    public_origin = (
-        getattr(settings, "PUBLIC_ORIGIN", None)
-        or os.environ.get("RECIPES_PUBLIC_ORIGIN")
-        or "https://recipes.wisechef.ai"
-    )
+    public_origin = config.public_origin()
     url = public_origin.rstrip("/") + f"/api/forks/_download?token={token}"
     expires_at = datetime.now(UTC) + timedelta(seconds=INSTALL_TOKEN_TTL_SECONDS)
     return {

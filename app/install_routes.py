@@ -12,7 +12,6 @@ Also exports:
 
 from __future__ import annotations
 
-import os
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -247,6 +246,7 @@ def install_skill(
     # to "recipes-skill-install" so in-flight signed URLs still work.  # compat-alias
     from itsdangerous import URLSafeTimedSerializer
 
+    from app import config
     from app.config import settings
 
     serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="loopskill-install")
@@ -254,11 +254,7 @@ def install_skill(
 
     # Build signed download URL — use the public origin so installs work
     # from any host (not only loopback). Fall back to localhost for dev.
-    public_origin = (
-        getattr(settings, "PUBLIC_ORIGIN", None)
-        or os.environ.get("RECIPES_PUBLIC_ORIGIN")
-        or "https://recipes.wisechef.ai"
-    )
+    public_origin = config.public_origin()
     url_base = public_origin.rstrip("/") + "/api/skills/_download" + "?" + "tok" + "en="
     tarball_url = url_base + token
 

@@ -12,7 +12,6 @@ Adam directive 2026-05-07: default ``dry_run=False`` is NON-NEGOTIABLE.
 
 from __future__ import annotations
 
-import os
 from typing import Any
 from uuid import UUID
 
@@ -156,7 +155,9 @@ def _build_install_urls(db: Session, outdated: list[dict[str, Any]]) -> list[dic
     """Return one-shot tarball URLs for each updated skill."""
     from itsdangerous import URLSafeTimedSerializer
 
-    from app.config import settings
+    from app.config import settings  # noqa: F401
+
+    from app import config
 
     try:
         # Issue #27 (secfix_1905/I-followup): salt MUST match install_routes._verify_signed_token.
@@ -166,11 +167,7 @@ def _build_install_urls(db: Session, outdated: list[dict[str, Any]]) -> list[dic
     except Exception:  # noqa: BLE001
         return []
 
-    public_origin = (
-        getattr(settings, "PUBLIC_ORIGIN", None)
-        or os.environ.get("RECIPES_PUBLIC_ORIGIN")
-        or "https://recipes.wisechef.ai"
-    )
+    public_origin = config.public_origin()
 
     urls: list[dict[str, str]] = []
     for o in outdated:

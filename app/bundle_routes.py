@@ -20,7 +20,6 @@ tier_labels.cookbook_limit); a 403 fires when a user is at their tier's limit.
 from __future__ import annotations
 
 import logging
-import os
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -32,6 +31,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app import config
 from app.database import get_db
 from app.models import Cookbook, CookbookSkill, Skill, SkillVersion, User
 from app.services.bundle_external import (
@@ -958,11 +958,7 @@ def _make_install_url(skill_slug: str, version_id: UUID, version_semver: str) ->
     # Phase 3+4: primary salt changed to "loopskill-install"; verifier accepts both.
     serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="loopskill-install")
     token = serializer.dumps({"slug": skill_slug, "version_id": str(version_id), "mode": "install"})
-    public_origin = (
-        getattr(settings, "PUBLIC_ORIGIN", None)
-        or os.environ.get("RECIPES_PUBLIC_ORIGIN")
-        or "https://recipes.wisechef.ai"
-    )
+    public_origin = config.public_origin()
     return public_origin.rstrip("/") + "/api/skills/_download?token=" + token
 
 
