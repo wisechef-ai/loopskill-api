@@ -48,7 +48,8 @@ class ReconcileReportIn(BaseModel):
     failure_reason: str | None = None
 
 
-@router.post("/api/cookbooks/{cookbook_id}/reconcile-report")
+@router.post("/api/bundles/{cookbook_id}/reconcile-report")
+@router.post("/api/cookbooks/{cookbook_id}/reconcile-report")  # compat-alias
 def reconcile_report(
     cookbook_id: str,
     body: ReconcileReportIn,

@@ -42,7 +42,7 @@ from app.database import get_db
 from app.sync_fanout import get_fanout
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/cookbooks", tags=["live-sync"])
+_h = APIRouter(tags=["live-sync"])  # prefix-free; dual-mounted below
 
 
 SSE_MAX_CONNECTIONS = 100
@@ -75,7 +75,7 @@ def _format_event(envelope: dict) -> str:
     return f"id: {envelope['id']}\nevent: cookbook_event\ndata: {json.dumps(envelope['data'])}\n\n"
 
 
-@router.get("/{cookbook_id}/sync/sse")
+@_h.get("/{cookbook_id}/sync/sse")
 async def cookbook_sync_sse(
     cookbook_id: str,
     request: Request,
@@ -150,3 +150,9 @@ async def cookbook_sync_sse(
             await _gate_release(request.app)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+# Dual-mount: bundle surface primary; /api/cookbooks kept as compat alias.  # compat-alias
+router = APIRouter()
+router.include_router(_h, prefix="/api/bundles")
+router.include_router(_h, prefix="/api/cookbooks")  # compat-alias

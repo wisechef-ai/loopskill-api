@@ -47,7 +47,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Bundle
 
-router = APIRouter(prefix="/api/cookbooks", tags=["cookbooks", "well-known"])
+_h = APIRouter(tags=["bundles", "well-known"])  # prefix-free; dual-mounted below
 
 # Tiers whose SKILL.md body is safe to serve verbatim over the unauthenticated
 # well-known surface. Everything else gets a stub pointer.
@@ -105,7 +105,7 @@ def _stub_skill_md(skill, cookbook_slug: str) -> str:
     )
 
 
-@router.get("/public/{slug}/.well-known/skills/index.json")
+@_h.get("/public/{slug}/.well-known/skills/index.json")
 def cookbook_wellknown_index(slug: str, db: Session = Depends(get_db)) -> JSONResponse:
     """agentskills.io discovery index for a public cookbook.
 
@@ -142,7 +142,7 @@ def cookbook_wellknown_index(slug: str, db: Session = Depends(get_db)) -> JSONRe
     return JSONResponse(body)
 
 
-@router.get("/public/{slug}/.well-known/skills/{skill_name}/SKILL.md")
+@_h.get("/public/{slug}/.well-known/skills/{skill_name}/SKILL.md")
 def cookbook_wellknown_skill_md(
     slug: str, skill_name: str, db: Session = Depends(get_db)
 ) -> PlainTextResponse:
@@ -165,3 +165,9 @@ def cookbook_wellknown_skill_md(
 
     # Paid (or free-but-empty-body): serve the non-leaking stub.
     return PlainTextResponse(_stub_skill_md(match, cb.slug), media_type="text/markdown")
+
+
+# Dual-mount: bundle surface primary; /api/cookbooks kept as compat alias.  # compat-alias
+router = APIRouter()
+router.include_router(_h, prefix="/api/bundles")
+router.include_router(_h, prefix="/api/cookbooks")  # compat-alias

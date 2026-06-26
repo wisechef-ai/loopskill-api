@@ -32,7 +32,7 @@ from app.models import Bundle
 from app.reconcile_abuse_ceiling import check_reconcile_abuse_ceiling
 from app.services.reconcile import recipes_reconcile
 
-router = APIRouter(prefix="/api/cookbooks", tags=["reconcile"])
+_h = APIRouter(tags=["reconcile"])  # handlers registered prefix-free; dual-mounted below
 
 
 class LocalSkillIn(BaseModel):
@@ -52,7 +52,7 @@ def _generation_token(cb: Bundle) -> str:
     return cb.updated_at.isoformat() if cb.updated_at else ""
 
 
-@router.post("/{cookbook_id}/reconcile")
+@_h.post("/{cookbook_id}/reconcile")
 def reconcile_cookbook(
     cookbook_id: str,
     body: ReconcileIn,
@@ -114,3 +114,10 @@ def reconcile_cookbook(
     )
     response.headers["ETag"] = f'"{generation}"'
     return result
+
+
+# Dual-mount: the bundle surface is primary; /api/cookbooks kept as the
+# backward-compat alias (same handlers, both prefixes).  # compat-alias
+router = APIRouter()
+router.include_router(_h, prefix="/api/bundles")
+router.include_router(_h, prefix="/api/cookbooks")  # compat-alias

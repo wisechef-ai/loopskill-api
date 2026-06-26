@@ -34,10 +34,10 @@ if TYPE_CHECKING:
     from app.auth_ctx import AuthContext
 
 logger = logging.getLogger(__name__)
-router = APIRouter(
-    prefix="/api/cookbooks/{cookbook_id}/share-tokens",
+_h = APIRouter(
+    prefix="/{cookbook_id}/share-tokens",
     tags=["share-tokens"],
-)
+)  # prefix-free of the /api/<surface> base; dual-mounted below
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────
@@ -434,7 +434,7 @@ def _revoke_service(
 # ── Endpoints ────────────────────────────────────────────────────────────
 
 
-@router.post("", status_code=201)
+@_h.post("", status_code=201)
 def create_share_token(
     cookbook_id: str,
     body: ShareTokenCreateIn,
@@ -453,7 +453,7 @@ def create_share_token(
     )
 
 
-@router.get("")
+@_h.get("")
 def list_share_tokens(
     cookbook_id: str,
     request: Request,
@@ -464,7 +464,7 @@ def list_share_tokens(
     return _list_service(db, cookbook=cb)
 
 
-@router.post("/{token_id}/rotate")
+@_h.post("/{token_id}/rotate")
 def rotate_share_token(
     cookbook_id: str,
     token_id: str,
@@ -486,7 +486,7 @@ def rotate_share_token(
     }
 
 
-@router.delete("/{token_id}", status_code=204)
+@_h.delete("/{token_id}", status_code=204)
 def revoke_share_token(
     cookbook_id: str,
     token_id: str,
@@ -497,3 +497,9 @@ def revoke_share_token(
     cb = _require_owner(request, db, cookbook_id)
     _revoke_service(db, cookbook=cb, token_id=token_id)
     return None
+
+
+# Dual-mount: bundle surface primary; /api/cookbooks kept as compat alias.  # compat-alias
+router = APIRouter()
+router.include_router(_h, prefix="/api/bundles")
+router.include_router(_h, prefix="/api/cookbooks")  # compat-alias
