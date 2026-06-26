@@ -7,7 +7,7 @@ The thin client polls this with If-None-Match: <generation>. The endpoint:
      non-owner gets 404, never 304/200, so cookbook existence never leaks.
   2. Enforces the per-agent abuse ceiling (Phase A — 60/5min per api_key_id).
   3. CHEAP 304: if the caller's If-None-Match == the cookbook's current
-     generation (Cookbook.updated_at), returns 304 after ONE indexed lookup —
+     generation (Bundle.updated_at), returns 304 after ONE indexed lookup —
      the reconcile engine is never invoked. ~99% of polls collapse to this.
   4. On 200: runs the reconcile engine (Phase B) against the caller's reported
      local lockfile state and returns the {add,update,remove,drift} diff plus
@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.auth_ctx import AuthContext
 from app.database import get_db
-from app.models import Cookbook
+from app.models import Bundle
 from app.reconcile_abuse_ceiling import check_reconcile_abuse_ceiling
 from app.services.reconcile import recipes_reconcile
 
@@ -47,8 +47,8 @@ class ReconcileIn(BaseModel):
     dry_run: bool = True  # the poll path defaults to plan (read-only)
 
 
-def _generation_token(cb: Cookbook) -> str:
-    """Stable string form of Cookbook.updated_at for ETag / If-None-Match."""
+def _generation_token(cb: Bundle) -> str:
+    """Stable string form of Bundle.updated_at for ETag / If-None-Match."""
     return cb.updated_at.isoformat() if cb.updated_at else ""
 
 
@@ -79,7 +79,7 @@ def reconcile_cookbook(
         response.status_code = 404
         return {"error": "cookbook_not_found"}
 
-    cb = db.query(Cookbook).filter(Cookbook.id == cb_uuid).first()
+    cb = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
     if cb is None:
         response.status_code = 404
         return {"error": "cookbook_not_found"}

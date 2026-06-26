@@ -20,7 +20,7 @@ from sqlalchemy.pool import StaticPool
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.database import get_db
-from app.models import Base, Cookbook, CookbookSkill, Skill, User
+from app.models import Base, Bundle, BundleSkill, Skill, User
 
 
 @pytest.fixture()
@@ -101,7 +101,7 @@ def _build_client(db: Session, *, uid) -> TestClient:
 
 def test_since_filter_returns_only_new_events(db_session):
     user = _make_user(db_session)
-    cb = Cookbook(id=uuid4(), name="X", bundle_owner=user.id)
+    cb = Bundle(id=uuid4(), name="X", bundle_owner=user.id)
     s_old = _make_skill(db_session, "older")
     s_new = _make_skill(db_session, "newer")
     db_session.add(cb)
@@ -109,10 +109,10 @@ def test_since_filter_returns_only_new_events(db_session):
 
     old_ts = datetime(2026, 1, 1, 0, 0, 0)
     new_ts = datetime(2026, 5, 1, 0, 0, 0)
-    db_session.add(CookbookSkill(
+    db_session.add(BundleSkill(
         bundle_id=cb.id, skill_id=s_old.id, source="custom-added", added_at=old_ts,
     ))
-    db_session.add(CookbookSkill(
+    db_session.add(BundleSkill(
         bundle_id=cb.id, skill_id=s_new.id, source="custom-added", added_at=new_ts,
     ))
     db_session.commit()
@@ -129,11 +129,11 @@ def test_since_filter_returns_only_new_events(db_session):
 
 def test_disabled_classified_as_removed(db_session):
     user = _make_user(db_session)
-    cb = Cookbook(id=uuid4(), name="X", bundle_owner=user.id)
+    cb = Bundle(id=uuid4(), name="X", bundle_owner=user.id)
     skill = _make_skill(db_session, "ghost")
     db_session.add(cb)
     db_session.flush()
-    db_session.add(CookbookSkill(
+    db_session.add(BundleSkill(
         bundle_id=cb.id, skill_id=skill.id, source="disabled",
         added_at=datetime(2026, 5, 1, 0, 0, 0),
     ))
@@ -149,11 +149,11 @@ def test_disabled_classified_as_removed(db_session):
 
 def test_overridden_classified_as_updated(db_session):
     user = _make_user(db_session)
-    cb = Cookbook(id=uuid4(), name="X", bundle_owner=user.id)
+    cb = Bundle(id=uuid4(), name="X", bundle_owner=user.id)
     skill = _make_skill(db_session, "patched")
     db_session.add(cb)
     db_session.flush()
-    db_session.add(CookbookSkill(
+    db_session.add(BundleSkill(
         bundle_id=cb.id, skill_id=skill.id, source="overridden",
         added_at=datetime(2026, 5, 1, 0, 0, 0),
     ))
@@ -168,7 +168,7 @@ def test_overridden_classified_as_updated(db_session):
 
 def test_invalid_since_returns_422(db_session):
     user = _make_user(db_session)
-    cb = Cookbook(id=uuid4(), name="X", bundle_owner=user.id)
+    cb = Bundle(id=uuid4(), name="X", bundle_owner=user.id)
     db_session.add(cb)
     db_session.commit()
 
@@ -181,7 +181,7 @@ def test_invalid_since_returns_422(db_session):
 def test_sync_other_users_cookbook_returns_404(db_session):
     owner = _make_user(db_session)
     intruder = _make_user(db_session)
-    cb = Cookbook(id=uuid4(), name="X", bundle_owner=owner.id)
+    cb = Bundle(id=uuid4(), name="X", bundle_owner=owner.id)
     db_session.add(cb)
     db_session.commit()
 

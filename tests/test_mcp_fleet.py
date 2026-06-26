@@ -36,7 +36,7 @@ from app.mcp.tools.fleet import (
     recipes_fleet_subscribe,
     recipes_fleet_sync,
 )
-from app.models import Base, Cookbook, CookbookSkill, Fleet, Skill, SkillVersion
+from app.models import Base, Bundle, BundleSkill, Fleet, Skill, SkillVersion
 
 
 # ── in-memory SQLite engine for fleet tests ───────────────────────────────
@@ -77,8 +77,8 @@ def fleet_db(fleet_engine):
         conn.close()
 
 
-def _make_cookbook(db: Session, owner_id=None) -> Cookbook:
-    cb = Cookbook(
+def _make_cookbook(db: Session, owner_id=None) -> Bundle:
+    cb = Bundle(
         id=uuid4(),
         name="Fleet Test Cookbook",
         bundle_owner=owner_id or uuid4(),
@@ -233,7 +233,7 @@ def test_fleet_sync_aggregates_across_cookbooks(fleet_db):
 
     # Add outdated skills to each cookbook
     for cb, skill in [(cb1, skill1), (cb2, skill2)]:
-        cs = CookbookSkill(
+        cs = BundleSkill(
             bundle_id=cb.id,
             skill_id=skill.id,
             pinned_version="1.0.0",

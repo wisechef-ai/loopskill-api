@@ -1,6 +1,6 @@
-"""Cookbook-definition loader (spotify_0608 Ph A — re-homed from bucket_loader).
+"""Bundle-definition loader (spotify_0608 Ph A — re-homed from bucket_loader).
 
-Cookbook definition files live under ``cookbooks/<slug>.json``. They are the
+Bundle definition files live under ``cookbooks/<slug>.json``. They are the
 data a Pro+ user authors to describe their fleet stack. Standard JSON forbids
 comments, so we adopt a **convention**: any dict key whose name starts with an
 underscore is treated as a comment and stripped at load time. This keeps the

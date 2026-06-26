@@ -18,7 +18,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.models import Cookbook, CookbookSkill, Skill
+from app.models import Bundle, BundleSkill, Skill
 
 logger = logging.getLogger("wiserecipes.bundle_status")
 
@@ -76,15 +76,15 @@ def get_bundle_status(db: Session, user_id: UUID | str | None) -> dict[str, Any]
 
     candidate_rows = (
         db.query(
-            Cookbook.id.label("cb_id"),
-            Cookbook.name.label("cb_name"),
+            Bundle.id.label("cb_id"),
+            Bundle.name.label("cb_name"),
             Skill.id.label("skill_id"),
             Skill.slug,
-            CookbookSkill.pinned_version,
+            BundleSkill.pinned_version,
         )
-        .join(CookbookSkill, CookbookSkill.bundle_id == Cookbook.id)  # compat-alias
-        .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(Cookbook.bundle_owner == user_id)  # compat-alias
+        .join(BundleSkill, BundleSkill.bundle_id == Bundle.id)  # compat-alias
+        .join(Skill, Skill.id == BundleSkill.skill_id)
+        .filter(Bundle.bundle_owner == user_id)  # compat-alias
         .all()
     )
 

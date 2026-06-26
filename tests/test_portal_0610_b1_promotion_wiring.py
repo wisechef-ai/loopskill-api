@@ -93,12 +93,12 @@ def _mk_skill_version(db, slug, semver="1.0.0"):
 
 
 def _mk_cookbook_with_skill(db, owner, skill):
-    from app.models import Cookbook, CookbookSkill
+    from app.models import Bundle, BundleSkill
 
-    cb = Cookbook(id=uuid.uuid4(), name="cb", bundle_owner=owner.id)
+    cb = Bundle(id=uuid.uuid4(), name="cb", bundle_owner=owner.id)
     db.add(cb)
     db.flush()
-    db.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
+    db.add(BundleSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
     db.flush()
     return cb
 

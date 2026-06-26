@@ -22,8 +22,8 @@ from sqlalchemy.pool import StaticPool
 from app.auth_ctx import AuthContext
 from app.models import (
     Base,
-    Cookbook,
-    CookbookSkill,
+    Bundle,
+    BundleSkill,
     Fleet,
     FleetSubscription,
     Skill,
@@ -103,11 +103,11 @@ def _skill_with_versions(db: Session, slug: str, versions: list[tuple[str, bool]
     return s
 
 
-def _cookbook_with_skill(db: Session, owner: User, skill: Skill, pin: str) -> Cookbook:
-    cb = Cookbook(id=uuid4(), name="CB", is_base=False, bundle_owner=owner.id)
+def _cookbook_with_skill(db: Session, owner: User, skill: Skill, pin: str) -> Bundle:
+    cb = Bundle(id=uuid4(), name="CB", is_base=False, bundle_owner=owner.id)
     db.add(cb)
     db.flush()
-    db.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="overridden", pinned_version=pin))
+    db.add(BundleSkill(bundle_id=cb.id, skill_id=skill.id, source="overridden", pinned_version=pin))
     db.flush()
     return cb
 
@@ -203,13 +203,13 @@ class TestThreeChannelDivergence:
         # Verify the actual DB pins
         db.expire_all()
         canary_pin = (
-            db.query(CookbookSkill).filter(CookbookSkill.bundle_id == cb_canary.id).first().pinned_version
+            db.query(BundleSkill).filter(BundleSkill.bundle_id == cb_canary.id).first().pinned_version
         )
         stable_pin = (
-            db.query(CookbookSkill).filter(CookbookSkill.bundle_id == cb_stable.id).first().pinned_version
+            db.query(BundleSkill).filter(BundleSkill.bundle_id == cb_stable.id).first().pinned_version
         )
         frozen_pin = (
-            db.query(CookbookSkill).filter(CookbookSkill.bundle_id == cb_frozen.id).first().pinned_version
+            db.query(BundleSkill).filter(BundleSkill.bundle_id == cb_frozen.id).first().pinned_version
         )
         assert canary_pin == "2.0.0"
         assert stable_pin == "1.0.0"
@@ -244,5 +244,5 @@ class TestFleetSyncDryRun:
         assert results[0]["applied"] is False
         # No write
         db.expire_all()
-        pin = db.query(CookbookSkill).filter(CookbookSkill.bundle_id == cb.id).first().pinned_version
+        pin = db.query(BundleSkill).filter(BundleSkill.bundle_id == cb.id).first().pinned_version
         assert pin == "1.0.0", "dry_run must not write"

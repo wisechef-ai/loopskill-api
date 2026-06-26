@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 
 from app import authz
 from app.auth_ctx import AuthContext
-from app.models import Cookbook, CookbookSkill, Skill, SkillVersion
+from app.models import Bundle, BundleSkill, Skill, SkillVersion
 
 # Sources that mean "this skill is NOT part of the declared desired state".
 # A removed skill is soft-deleted via source='disabled' (no removed_at column —
@@ -83,13 +83,13 @@ def _declared_skills(db: Session, cookbook_id: UUID) -> dict[str, dict[str, Any]
 
     rows = (
         db.query(
-            CookbookSkill.skill_id,
+            BundleSkill.skill_id,
             Skill.slug,
-            CookbookSkill.pinned_version,
-            CookbookSkill.source,
+            BundleSkill.pinned_version,
+            BundleSkill.source,
         )
-        .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(CookbookSkill.bundle_id == cookbook_id)  # compat-alias
+        .join(Skill, Skill.id == BundleSkill.skill_id)
+        .filter(BundleSkill.bundle_id == cookbook_id)  # compat-alias
         .all()
     )
 
@@ -208,7 +208,7 @@ def recipes_reconcile(
     except (ValueError, AttributeError):
         return {"error": "invalid_cookbook_id", "cookbook_id": cookbook_id}
 
-    cb = db.query(Cookbook).filter(Cookbook.id == cb_uuid).first()
+    cb = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
     if not cb:
         return {"error": "not_found", "cookbook_id": cookbook_id}
 
@@ -248,14 +248,14 @@ def recipes_reconcile(
         skill = db.query(Skill).filter(Skill.slug == slug).first()
         if skill is None:
             continue
-        db.query(CookbookSkill).filter(
-            CookbookSkill.bundle_id == cb_uuid,  # compat-alias
-            CookbookSkill.skill_id == skill.id,
+        db.query(BundleSkill).filter(
+            BundleSkill.bundle_id == cb_uuid,  # compat-alias
+            BundleSkill.skill_id == skill.id,
         ).update({"pinned_version": to_version})
         mutated = True
 
     if mutated:
-        db.query(Cookbook).filter(Cookbook.id == cb_uuid).update(
+        db.query(Bundle).filter(Bundle.id == cb_uuid).update(
             {"updated_at": func.now()}, synchronize_session=False
         )
 

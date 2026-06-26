@@ -123,17 +123,17 @@ def test_r5_stats_excludes_archived_skills(middleware_client, db_session):
 
 
 def test_r7_cookbook_card_no_double_count(middleware_client, db_session):
-    from app.models import Cookbook, CookbookSkill
+    from app.models import Bundle, BundleSkill
 
     owner = uuid.uuid4()
     shared = _mk_skill(db_session, "r7-shared")
     # Two cookbooks both contain the shared skill.
-    cb_a = Cookbook(id=uuid.uuid4(), name="A", slug="r7-a", visibility="public", bundle_owner=owner)
-    cb_b = Cookbook(id=uuid.uuid4(), name="B", slug="r7-b", visibility="public", bundle_owner=owner)
+    cb_a = Bundle(id=uuid.uuid4(), name="A", slug="r7-a", visibility="public", bundle_owner=owner)
+    cb_b = Bundle(id=uuid.uuid4(), name="B", slug="r7-b", visibility="public", bundle_owner=owner)
     db_session.add_all([cb_a, cb_b])
     db_session.flush()
-    db_session.add(CookbookSkill(bundle_id=cb_a.id, skill_id=shared.id, source="custom-added"))
-    db_session.add(CookbookSkill(bundle_id=cb_b.id, skill_id=shared.id, source="custom-added"))
+    db_session.add(BundleSkill(bundle_id=cb_a.id, skill_id=shared.id, source="custom-added"))
+    db_session.add(BundleSkill(bundle_id=cb_b.id, skill_id=shared.id, source="custom-added"))
     db_session.flush()
 
     organic = _mk_key(db_session, is_test=False)
@@ -180,13 +180,13 @@ def test_r2_creator_handle_ref_resolves(db_session):
 
 def test_r2_cookbook_card_emits_handle(db_session):
     from app.bundle_routes import _public_cb_card
-    from app.models import Cookbook, Creator, User
+    from app.models import Bundle, Creator, User
 
     u = User(id=uuid.uuid4(), display_name="creator", email=f"{uuid.uuid4().hex[:8]}@e.com")
     db_session.add(u)
     db_session.flush()
     db_session.add(Creator(id=uuid.uuid4(), user_id=u.id, name="C", slug="c2-slug", handle="adamk2"))
-    cb = Cookbook(id=uuid.uuid4(), name="cb", slug="r2-cb", visibility="public", bundle_owner=u.id)
+    cb = Bundle(id=uuid.uuid4(), name="cb", slug="r2-cb", visibility="public", bundle_owner=u.id)
     db_session.add(cb)
     db_session.flush()
 

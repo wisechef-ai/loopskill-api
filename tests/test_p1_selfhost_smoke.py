@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 
 from uuid import uuid4
 
-from app.models import Cookbook, Loop, Personality, Skill
+from app.models import Bundle, Loop, Personality, Skill
 from scripts.seed_starter_catalog import seed_starter_catalog
 from tests._app_factory import build_test_app
 
@@ -67,7 +67,7 @@ def test_seed_produces_at_least_one_skill(seeded):
 
 
 def test_seed_produces_at_least_one_bundle(seeded):
-    count = seeded.query(Cookbook).count()
+    count = seeded.query(Bundle).count()
     assert count >= 1, f"Expected ≥1 bundle (Cookbook) after seed, got {count}"
 
 

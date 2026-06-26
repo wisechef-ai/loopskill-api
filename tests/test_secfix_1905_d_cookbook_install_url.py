@@ -20,7 +20,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.models import Base, Skill, SkillVersion, Cookbook, CookbookSkill, User, APIKey
+from app.models import Base, Skill, SkillVersion, Bundle, BundleSkill, User, APIKey
 from app.database import get_db
 from app.bundle_routes import router as cookbook_router, _make_install_url
 from app.config import settings
@@ -94,7 +94,7 @@ def cb_client(engine_cb, session_cb):
     )
     session_cb.add(version)
 
-    cookbook = Cookbook(
+    cookbook = Bundle(
         id=uuid4(),
         name="Test Cookbook",
         bundle_owner=user.id,
@@ -103,7 +103,7 @@ def cb_client(engine_cb, session_cb):
     session_cb.add(cookbook)
     session_cb.flush()
 
-    cs = CookbookSkill(
+    cs = BundleSkill(
         bundle_id=cookbook.id,
         skill_id=skill.id,
         source="marketplace",

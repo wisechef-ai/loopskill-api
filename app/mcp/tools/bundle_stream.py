@@ -62,7 +62,7 @@ from app.mcp.tools.bundle_install import (
     _make_install_url,
     _resolve_version,
 )
-from app.models import Cookbook, CookbookSkill, Skill
+from app.models import Bundle, BundleSkill, Skill
 from app.services.bundle_external import (
     install_descriptor_for,
     is_external_skill,
@@ -137,32 +137,32 @@ def _parse_link(link: str) -> tuple[str, ...]:
     return (LINK_BARE, raw)
 
 
-def _resolve_public_cookbook(db: Session, slug: str) -> Cookbook:
+def _resolve_public_cookbook(db: Session, slug: str) -> Bundle:
     """Return a PUBLIC cookbook by slug or raise 404. Never leaks private ones."""
-    cb = db.query(Cookbook).filter(Cookbook.slug == slug).first()
+    cb = db.query(Bundle).filter(Bundle.slug == slug).first()
     if cb is None or cb.visibility != "public":
         raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404)
     return cb
 
 
-def _cookbook_member_rows(db: Session, cookbook_id: Any) -> list[tuple[CookbookSkill, Skill]]:
+def _cookbook_member_rows(db: Session, cookbook_id: Any) -> list[tuple[BundleSkill, Skill]]:
     """Active (non-disabled) member rows of a cookbook, ordered deterministically."""
     return (
-        db.query(CookbookSkill, Skill)
-        .join(Skill, Skill.id == CookbookSkill.skill_id)
+        db.query(BundleSkill, Skill)
+        .join(Skill, Skill.id == BundleSkill.skill_id)
         .filter(
-            CookbookSkill.bundle_id == cookbook_id,  # compat-alias
-            CookbookSkill.source != "disabled",
+            BundleSkill.bundle_id == cookbook_id,  # compat-alias
+            BundleSkill.source != "disabled",
         )
-        .order_by(CookbookSkill.added_at.asc())
+        .order_by(BundleSkill.added_at.asc())
         .all()
     )
 
 
 def _skill_install_entry(
     db: Session,
-    cb: Cookbook,
-    cs: CookbookSkill,
+    cb: Bundle,
+    cs: BundleSkill,
     skill: Skill,
 ) -> dict[str, Any]:
     """Build one install entry for a skill in a public-cookbook stream.
@@ -301,7 +301,7 @@ def recipes_pick_best_from_cookbook(
     counts = _install_counts_for(db, skill_ids)
 
     need_s = (need or "").strip()
-    scored: list[tuple[int, int, int, CookbookSkill, Skill]] = []
+    scored: list[tuple[int, int, int, BundleSkill, Skill]] = []
     for cs, skill in rows:
         rel = _relevance(skill, need_s) if need_s else 1
         total, last7 = counts.get(skill.id, (0, 0))
@@ -317,7 +317,7 @@ def recipes_pick_best_from_cookbook(
 
     pool.sort(key=lambda t: (t[0], t[1], t[2]), reverse=True)
 
-    def _entry(item: tuple[int, int, int, CookbookSkill, Skill]) -> dict[str, Any]:
+    def _entry(item: tuple[int, int, int, BundleSkill, Skill]) -> dict[str, Any]:
         rel, last7, total, cs, skill = item
         e = _skill_install_entry(db, cb, cs, skill)
         e["installs_7d"] = last7
@@ -376,7 +376,7 @@ def _resolve_one_link_to_skills(db: Session, link: str) -> list[Skill]:
 
     # bare token: bundle first, then internal skill
     token = kind[1]
-    cb = db.query(Cookbook).filter(Cookbook.slug == token, Cookbook.visibility == "public").first()
+    cb = db.query(Bundle).filter(Bundle.slug == token, Bundle.visibility == "public").first()
     if cb is not None:
         return [skill for _cs, skill in _cookbook_member_rows(db, cb.id)]
     skill = db.query(Skill).filter(Skill.slug == token, Skill.is_public.is_(True)).first()
@@ -419,7 +419,7 @@ def recipes_compose_cookbook_from_links(
     # Tier bundle cap (free=1, pro=10, pro+=200; None=unlimited).
     limit = cookbook_limit(ctx.tier)
     if limit is not None:
-        existing = db.query(Cookbook).filter(Cookbook.bundle_owner == ctx.user_id).count()  # compat-alias
+        existing = db.query(Bundle).filter(Bundle.bundle_owner == ctx.user_id).count()  # compat-alias
         if existing >= limit:
             raise CookbookInstallError(
                 "cookbook_limit",
@@ -455,7 +455,7 @@ def recipes_compose_cookbook_from_links(
         )
 
     cb_name = (name or "").strip() or f"Composed stack ({len(resolved)} skills)"
-    cb = Cookbook(
+    cb = Bundle(
         id=uuid4(),
         name=cb_name,
         description="Composed via recipes_compose_cookbook_from_links.",
@@ -467,7 +467,7 @@ def recipes_compose_cookbook_from_links(
 
     member_out: list[dict[str, Any]] = []
     for sk in resolved:
-        db.add(CookbookSkill(bundle_id=cb.id, skill_id=sk.id, source="custom-added"))  # compat-alias
+        db.add(BundleSkill(bundle_id=cb.id, skill_id=sk.id, source="custom-added"))  # compat-alias
         member_out.append({"slug": sk.slug, "title": sk.title, "external": bool(is_external_skill(sk))})
     db.commit()
     db.refresh(cb)

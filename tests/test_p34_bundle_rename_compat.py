@@ -97,19 +97,6 @@ def test_bundle_model_fk_columns() -> None:
     assert hasattr(BundleShareToken, "bundle_id")
 
 
-def test_cookbook_compat_aliases() -> None:
-    """Cookbook/CookbookSkill/etc. must still be importable as compat aliases."""  # compat-test
-    from app.models import Cookbook, CookbookDeployment, CookbookShareToken, CookbookSkill  # compat-test
-
-    # Same classes as the renamed ones
-    from app.models import Bundle, BundleDeployment, BundleShareToken, BundleSkill
-
-    assert Cookbook is Bundle  # compat-test
-    assert CookbookSkill is BundleSkill  # compat-test
-    assert CookbookShareToken is BundleShareToken  # compat-test
-    assert CookbookDeployment is BundleDeployment  # compat-test
-
-
 # ── Route tests ────────────────────────────────────────────────────────────
 
 

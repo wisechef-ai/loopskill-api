@@ -15,7 +15,6 @@ Stream 4 additions:
 
 from __future__ import annotations
 
-import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -26,6 +25,7 @@ from sqlalchemy.orm import Session
 from app import authz
 from app.auth_ctx import AuthContext
 from app.config import settings
+from app import config
 from app.models import InstallEvent, Skill, SkillDerivedEdge
 from app.routes import _build_manifest
 
@@ -111,11 +111,7 @@ def recipes_install(
     # Phase 3+4: primary salt changed to "loopskill-install"; verifier accepts both.
     serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="loopskill-install")
     token = serializer.dumps({"slug": base_slug, "version_id": str(target.id), "mode": "files"})
-    public_origin = (
-        getattr(settings, "PUBLIC_ORIGIN", None)
-        or os.environ.get("RECIPES_PUBLIC_ORIGIN")
-        or "https://recipes.wisechef.ai"
-    )
+    public_origin = config.public_origin()
     tarball_url = public_origin.rstrip("/") + "/api/skills/_download?token=" + token
 
     db.add(

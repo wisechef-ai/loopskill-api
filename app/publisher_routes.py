@@ -31,7 +31,7 @@ from app._creator_helpers import _resolve_or_create_creator
 from app.auth_ctx import AuthContext
 from app.config import settings
 from app.database import get_db
-from app.models import CookbookSkill, Creator, Skill, SkillVersion
+from app.models import BundleSkill, Creator, Skill, SkillVersion
 from app.security_scan import scan_tarball
 from app.sync_fanout import emit_cookbook_event
 
@@ -510,10 +510,10 @@ async def publish_skill(
     try:
         cookbook_ids = [
             str(cs.bundle_id)
-            for cs in db.query(CookbookSkill)
+            for cs in db.query(BundleSkill)
             .filter(
-                CookbookSkill.skill_id == skill_obj.id,
-                CookbookSkill.source != "disabled",
+                BundleSkill.skill_id == skill_obj.id,
+                BundleSkill.source != "disabled",
             )
             .all()
         ]

@@ -19,8 +19,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.database import get_db
 from app.models import (
     Base,
-    Cookbook,
-    CookbookShareToken,
+    Bundle,
+    BundleShareToken,
     Skill,
     User,
 )
@@ -75,8 +75,8 @@ def _make_user(db: Session, *, tier: str | None = "operator", status: str | None
     return user
 
 
-def _make_cookbook(db: Session, *, owner_id, name: str = "Test Cookbook") -> Cookbook:
-    cb = Cookbook(
+def _make_cookbook(db: Session, *, owner_id, name: str = "Test Cookbook") -> Bundle:
+    cb = Bundle(
         id=uuid4(),
         name=name,
         description="test",
@@ -101,14 +101,14 @@ def _make_skill(db: Session, slug: str = "test-skill") -> Skill:
     return s
 
 
-def _make_token_row(db: Session, cookbook_id, *, scope: str = "edit", name: str | None = None) -> tuple[CookbookShareToken, str]:
+def _make_token_row(db: Session, cookbook_id, *, scope: str = "edit", name: str | None = None) -> tuple[BundleShareToken, str]:
     """Create a CookbookShareToken row and return (row, plaintext_token)."""
     cb_prefix = str(cookbook_id).replace("-", "")[:8]
     random_hex = secrets.token_hex(16)
     full_token = f"cbt_{cb_prefix}_{random_hex}"
     token_hash = hashlib.sha256(full_token.encode()).hexdigest()
 
-    row = CookbookShareToken(
+    row = BundleShareToken(
         id=uuid4(),
         bundle_id=cookbook_id,
         token_hash=token_hash,

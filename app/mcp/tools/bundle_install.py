@@ -22,7 +22,6 @@ stay in sync — agents can switch transports without re-parsing payloads.
 
 from __future__ import annotations
 
-import os
 from typing import Any
 from uuid import UUID
 
@@ -32,14 +31,18 @@ from sqlalchemy.orm import Session
 from app import authz
 from app.auth_ctx import AuthContext
 from app.config import settings
-from app.models import Cookbook, CookbookSkill, Skill, SkillVersion
+from app import config
+from app.models import Bundle, BundleSkill, Skill, SkillVersion
 
 
 def _make_install_url(skill_slug: str, version_id: UUID, version_semver: str) -> str:
     """DRY copy of bundle_routes._make_install_url so the MCP path uses the
     same salt + URL shape as the HTTP path. Salt MUST stay
     'recipes-skill-install' to verify against
-    install_routes._download — see secfix_1905/I-followup.
+    install_routes._download — see secfix_1905/I-followup. The verifier
+    accepts both 'loopskill-install' and 'recipes-skill-install', and the
+    salt-parity tests (test_cookbook_share_install,
+    test_loopclose_3005_c_tailor_loop) pin this path to the latter.
 
     Why duplicated: bundle_routes is FastAPI-route-shaped (HTTPException,
     Depends, Response) and pulling it in here would drag a fastapi import
@@ -50,11 +53,7 @@ def _make_install_url(skill_slug: str, version_id: UUID, version_semver: str) ->
     """
     serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="recipes-skill-install")
     token = serializer.dumps({"slug": skill_slug, "version_id": str(version_id), "mode": "install"})
-    public_origin = (
-        getattr(settings, "PUBLIC_ORIGIN", None)
-        or os.environ.get("RECIPES_PUBLIC_ORIGIN")
-        or "https://recipes.wisechef.ai"
-    )
+    public_origin = config.public_origin()
     return public_origin.rstrip("/") + "/api/skills/_download?token=" + token
 
 
@@ -77,7 +76,7 @@ def _resolve_cookbook(
     db: Session,
     ctx: AuthContext,
     cookbook_id: str | None,
-) -> Cookbook:
+) -> Bundle:
     """Pick the right cookbook for this caller.
 
     cbt_token  : cookbook_id optional; defaults to ctx.bundle_scope.  # compat-alias
@@ -110,7 +109,7 @@ def _resolve_cookbook(
                     "cookbook_id does not match the token's bundle_scope.",  # compat-alias
                     status=403,
                 )
-        cb = db.query(Cookbook).filter(Cookbook.id == target_id).first()
+        cb = db.query(Bundle).filter(Bundle.id == target_id).first()
         if cb is None:
             raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404)
         return cb
@@ -127,7 +126,7 @@ def _resolve_cookbook(
     except (ValueError, TypeError) as exc:
         raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404) from exc
 
-    cb = db.query(Cookbook).filter(Cookbook.id == target_id).first()
+    cb = db.query(Bundle).filter(Bundle.id == target_id).first()
     if cb is None:
         raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404)
 
@@ -214,11 +213,11 @@ def recipes_cookbook_install(
             raise CookbookInstallError("skill_not_in_cookbook", "skill_not_in_cookbook", status=404)
 
         cs = (
-            db.query(CookbookSkill)
+            db.query(BundleSkill)
             .filter(
-                CookbookSkill.bundle_id == cb.id,  # compat-alias
-                CookbookSkill.skill_id == skill.id,
-                CookbookSkill.source != "disabled",
+                BundleSkill.bundle_id == cb.id,  # compat-alias
+                BundleSkill.skill_id == skill.id,
+                BundleSkill.source != "disabled",
             )
             .first()
         )
@@ -286,9 +285,9 @@ def recipes_cookbook_install(
 
     # Bulk path
     rows = (
-        db.query(CookbookSkill, Skill)
-        .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(CookbookSkill.bundle_id == cb.id, CookbookSkill.source != "disabled")  # compat-alias
+        db.query(BundleSkill, Skill)
+        .join(Skill, Skill.id == BundleSkill.skill_id)
+        .filter(BundleSkill.bundle_id == cb.id, BundleSkill.source != "disabled")  # compat-alias
         .all()
     )
 

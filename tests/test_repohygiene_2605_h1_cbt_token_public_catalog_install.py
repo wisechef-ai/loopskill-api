@@ -35,9 +35,9 @@ from app.auth_ctx import AuthContext
 from app.database import get_db
 from app.models import (
     Base,
-    Cookbook,
-    CookbookShareToken,
-    CookbookSkill,
+    Bundle,
+    BundleShareToken,
+    BundleSkill,
     Skill,
     SkillVersion,
     User,
@@ -95,8 +95,8 @@ def _make_user(db: Session, tier: str = "pro", status: str = "active") -> User:
     return user
 
 
-def _make_cookbook(db: Session, owner_id: UUID, name: str = "CB") -> Cookbook:
-    cb = Cookbook(
+def _make_cookbook(db: Session, owner_id: UUID, name: str = "CB") -> Bundle:
+    cb = Bundle(
         id=uuid4(),
         name=name,
         description="test",
@@ -149,13 +149,13 @@ def _make_cbt_token(
     cookbook_id: UUID,
     scope: str = "install",
     allow_public_catalog: bool = True,
-) -> tuple[CookbookShareToken, str]:
+) -> tuple[BundleShareToken, str]:
     """Create a CookbookShareToken row and return (row, plaintext_token)."""
     cb_prefix = str(cookbook_id).replace("-", "")[:8]
     random_hex = secrets.token_hex(16)
     full_token = f"cbt_{cb_prefix}_{random_hex}"
     token_hash = hashlib.sha256(full_token.encode()).hexdigest()
-    row = CookbookShareToken(
+    row = BundleShareToken(
         id=uuid4(),
         bundle_id=cookbook_id,
         token_hash=token_hash,

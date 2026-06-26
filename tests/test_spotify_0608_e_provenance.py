@@ -28,8 +28,8 @@ from app.auth_ctx import AuthContext
 from app.models import (
     APIKey,
     Base,
-    Cookbook,
-    CookbookSkill,
+    Bundle,
+    BundleSkill,
     InstallEvent,
     ProvenanceRecord,
     Skill,
@@ -92,7 +92,7 @@ def _mk_user(db, tier="pro"):
 
 
 def _mk_cookbook(db, owner, slug=None, **kw):
-    cb = Cookbook(
+    cb = Bundle(
         id=uuid.uuid4(),
         name=kw.pop("name", "CB"),
         bundle_owner=owner.id if owner else None,
@@ -329,7 +329,7 @@ def test_direct_install_returns_provenance(db):
 
 
 def _attach(db, cb, skill, source="custom-added", pinned=None):
-    db.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source=source, pinned_version=pinned))
+    db.add(BundleSkill(bundle_id=cb.id, skill_id=skill.id, source=source, pinned_version=pinned))
     db.commit()
 
 

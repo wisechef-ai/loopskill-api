@@ -36,12 +36,12 @@ def _user_ctx(user_id):
 
 def test_r8_invalid_channel_rejected(db_session):
     from app.mcp.tools.fleet import recipes_fleet_create, recipes_fleet_subscribe
-    from app.models import Cookbook, User
+    from app.models import Bundle, User
 
     owner = User(id=uuid.uuid4(), display_name="o", email=f"{uuid.uuid4().hex[:8]}@e.com")
     db_session.add(owner)
     db_session.flush()
-    cb = Cookbook(id=uuid.uuid4(), name="cb", bundle_owner=owner.id)
+    cb = Bundle(id=uuid.uuid4(), name="cb", bundle_owner=owner.id)
     db_session.add(cb)
     db_session.flush()
     ctx = _user_ctx(owner.id)
@@ -58,7 +58,7 @@ def test_r8_invalid_channel_rejected(db_session):
 
 def test_r8_valid_channels_accepted(db_session):
     from app.mcp.tools.fleet import recipes_fleet_create, recipes_fleet_subscribe
-    from app.models import Cookbook, User
+    from app.models import Bundle, User
 
     owner = User(id=uuid.uuid4(), display_name="o", email=f"{uuid.uuid4().hex[:8]}@e.com")
     db_session.add(owner)
@@ -68,7 +68,7 @@ def test_r8_valid_channels_accepted(db_session):
     fleet_id = fleet["fleet_id"] if "fleet_id" in fleet else fleet.get("id")
 
     for ch in ("canary", "stable", "frozen"):
-        cb = Cookbook(id=uuid.uuid4(), name=f"cb-{ch}", bundle_owner=owner.id)
+        cb = Bundle(id=uuid.uuid4(), name=f"cb-{ch}", bundle_owner=owner.id)
         db_session.add(cb)
         db_session.flush()
         out = recipes_fleet_subscribe(
@@ -82,13 +82,13 @@ def test_r8_valid_channels_accepted(db_session):
 
 
 def test_r6_newest_is_deterministic(middleware_client, db_session):
-    from app.models import Cookbook
+    from app.models import Bundle
 
     # Three public cookbooks sharing the SAME created_at.
     same_ts = datetime.now(timezone.utc) - timedelta(days=1)
     ids = []
     for i in range(3):
-        cb = Cookbook(
+        cb = Bundle(
             id=uuid.uuid4(),
             name=f"tie-{i}",
             slug=f"tie-{i}",

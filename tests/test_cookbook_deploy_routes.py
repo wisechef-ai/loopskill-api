@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import get_db
-from app.models import Base, Cookbook, CookbookDeployment, InstallEvent, Skill, User
+from app.models import Base, Bundle, BundleDeployment, InstallEvent, Skill, User
 
 
 # ── DB fixtures ──────────────────────────────────────────────────────────
@@ -173,8 +173,8 @@ def test_add_skill(db):
     assert body["install_order"] == 50
 
     rows = (
-        db.query(CookbookDeployment)
-        .filter(CookbookDeployment.bundle_id == uuid.UUID(cb["id"]))
+        db.query(BundleDeployment)
+        .filter(BundleDeployment.bundle_id == uuid.UUID(cb["id"]))
         .all()
     )
     assert len(rows) == 1
@@ -271,9 +271,9 @@ def test_apply_orders_by_install_order(db):
     client.post(f"/api/cookbook-deploy/{cb['id']}/skills/add",
                 json={"skill_id": str(sa_.id), "install_order": 10})
     rows = (
-        db.query(CookbookDeployment)
-        .filter(CookbookDeployment.bundle_id == uuid.UUID(cb["id"]))
-        .order_by(CookbookDeployment.install_order.asc())
+        db.query(BundleDeployment)
+        .filter(BundleDeployment.bundle_id == uuid.UUID(cb["id"]))
+        .order_by(BundleDeployment.install_order.asc())
         .all()
     )
     assert [r.install_order for r in rows] == [10, 90]
@@ -295,7 +295,7 @@ def test_manifest_endpoint_is_public(db):
 
     # Public manifest requires non-private visibility; flip via DB so we don't
     # depend on an "update cookbook" endpoint that isn't part of this surface.
-    db_cb = db.query(Cookbook).filter(Cookbook.id == uuid.UUID(cb["id"])).first()
+    db_cb = db.query(Bundle).filter(Bundle.id == uuid.UUID(cb["id"])).first()
     db_cb.visibility = "public"
     db.commit()
 
@@ -351,7 +351,7 @@ def test_cookbook_host_middleware_scopes_request(db, monkeypatch):
     from app.middleware import CookbookHostMiddleware
 
     user = _make_user(db, "pro")
-    cb = Cookbook(
+    cb = Bundle(
         id=uuid.uuid4(),
         bundle_owner=user.id,
         name="ACME",
@@ -437,7 +437,7 @@ def test_preflight_returns_ok_for_empty_cookbook(db):
     from app.bundle_preflight import run_preflight
 
     user = _make_user(db, "pro")
-    cb = Cookbook(
+    cb = Bundle(
         id=uuid.uuid4(), bundle_owner=user.id, name="Empty", slug="empty-stack",
         visibility="private",
     )

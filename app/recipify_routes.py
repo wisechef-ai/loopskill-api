@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.bundle_routes import CookbookCtx, require_cookbook_tier  # compat-alias
 from app.database import get_db
-from app.models import Cookbook
+from app.models import Bundle
 from app.recipify import (
     ValidationError,
     classify_skill,
@@ -50,9 +50,9 @@ class RecipifyOut(BaseModel):
     status: Literal["created", "updated"]
 
 
-def _resolve_or_create_cookbook(db: Session, ctx: CookbookCtx, target_cookbook_id: UUID | None) -> Cookbook:
+def _resolve_or_create_cookbook(db: Session, ctx: CookbookCtx, target_cookbook_id: UUID | None) -> Bundle:
     if target_cookbook_id is not None:
-        cb = db.query(Cookbook).filter(Cookbook.id == target_cookbook_id).first()
+        cb = db.query(Bundle).filter(Bundle.id == target_cookbook_id).first()
         if cb is None:
             raise HTTPException(status_code=404, detail="cookbook_not_found")
         if not ctx.is_master and cb.bundle_owner != ctx.user_id:
@@ -60,15 +60,15 @@ def _resolve_or_create_cookbook(db: Session, ctx: CookbookCtx, target_cookbook_i
         return cb
 
     cb = (
-        db.query(Cookbook)
-        .filter(Cookbook.bundle_owner == ctx.user_id)  # compat-alias
-        .order_by(Cookbook.created_at.asc())
+        db.query(Bundle)
+        .filter(Bundle.bundle_owner == ctx.user_id)  # compat-alias
+        .order_by(Bundle.created_at.asc())
         .first()
     )
     if cb is None:
-        cb = Cookbook(
+        cb = Bundle(
             id=uuid4(),
-            name="My Cookbook",
+            name="My Bundle",
             bundle_owner=ctx.user_id,
             is_base=False,
         )

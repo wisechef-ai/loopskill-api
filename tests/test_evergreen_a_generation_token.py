@@ -31,7 +31,7 @@ from sqlalchemy.pool import StaticPool
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.database import get_db
-from app.models import Base, Cookbook, CookbookSkill, Skill, SkillVersion, User
+from app.models import Base, Bundle, BundleSkill, Skill, SkillVersion, User
 
 
 # ─────────────────────────── Fixtures ───────────────────────────────────
@@ -85,8 +85,8 @@ def _make_user(db: Session, *, tier: str = "pro") -> User:
     return user
 
 
-def _make_cookbook(db: Session, owner: User) -> Cookbook:
-    cb = Cookbook(id=uuid4(), name="Gen CB", is_base=False, bundle_owner=owner.id)
+def _make_cookbook(db: Session, owner: User) -> Bundle:
+    cb = Bundle(id=uuid4(), name="Gen CB", is_base=False, bundle_owner=owner.id)
     db.add(cb)
     db.flush()
     return cb
@@ -135,7 +135,7 @@ def _make_app(db: Session, owner_id) -> FastAPI:
 def _generation(db: Session, cb_id) -> object:
     """Read the live generation token (Cookbook.updated_at) fresh from DB."""
     db.expire_all()
-    cb = db.query(Cookbook).filter(Cookbook.id == cb_id).first()
+    cb = db.query(Bundle).filter(Bundle.id == cb_id).first()
     return cb.updated_at
 
 
@@ -151,7 +151,7 @@ def _backdate(db: Session, cb_id) -> object:
     from datetime import datetime, timezone
 
     old = datetime(2020, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-    db.query(Cookbook).filter(Cookbook.id == cb_id).update({"updated_at": old}, synchronize_session=False)
+    db.query(Bundle).filter(Bundle.id == cb_id).update({"updated_at": old}, synchronize_session=False)
     db.commit()
     return _generation(db, cb_id)
 
@@ -184,7 +184,7 @@ class TestGenerationTokenAdvancesOnChildMutation:
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, user)
         skill = _make_skill(db_session, "gen-rm")
-        db_session.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
+        db_session.add(BundleSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
         db_session.commit()
 
         before = _backdate(db_session, cb.id)
@@ -205,7 +205,7 @@ class TestGenerationTokenAdvancesOnChildMutation:
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, user)
         skill = _make_skill(db_session, "gen-react")
-        db_session.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="disabled"))
+        db_session.add(BundleSkill(bundle_id=cb.id, skill_id=skill.id, source="disabled"))
         db_session.commit()
 
         before = _backdate(db_session, cb.id)
@@ -242,7 +242,7 @@ class TestGenerationTokenSyncPinWrite:
             )
         )
         db_session.add(
-            CookbookSkill(
+            BundleSkill(
                 bundle_id=cb.id,
                 skill_id=skill.id,
                 source="overridden",
@@ -277,7 +277,7 @@ class TestGenerationTokenSyncPinWrite:
         cb = _make_cookbook(db_session, user)
         skill = _make_skill(db_session, "gen-noop")  # only 0.1.0 exists
         db_session.add(
-            CookbookSkill(
+            BundleSkill(
                 bundle_id=cb.id,
                 skill_id=skill.id,
                 source="overridden",

@@ -1,6 +1,6 @@
 """recipes_list_cookbook — list a caller's cookbook + skill provenance.
 
-Phase A only ships a read path against the existing ``Cookbook`` /
+Phase A only ships a read path against the existing ``Bundle`` /
 ``CookbookSkill`` tables (added in PR #19). The full CRUD endpoints are
 Phase B's responsibility.
 """
@@ -12,7 +12,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.models import Cookbook, CookbookSkill, Skill
+from app.models import Bundle, BundleSkill, Skill
 
 
 def _coerce_uuid(value: Any) -> UUID | None:
@@ -37,14 +37,14 @@ def recipes_list_cookbook(
     if cookbook_id:
         cb_uuid = _coerce_uuid(cookbook_id)
         if cb_uuid is not None:
-            cookbook = db.query(Cookbook).filter(Cookbook.id == cb_uuid).first()
+            cookbook = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
     elif user_id is not None:
         owner = _coerce_uuid(user_id)
         if owner is not None:
             cookbook = (
-                db.query(Cookbook)
-                .filter(Cookbook.bundle_owner == owner)  # compat-alias
-                .order_by(Cookbook.created_at.desc())
+                db.query(Bundle)
+                .filter(Bundle.bundle_owner == owner)  # compat-alias
+                .order_by(Bundle.created_at.desc())
                 .first()
             )
 
@@ -52,9 +52,9 @@ def recipes_list_cookbook(
         return {"cookbook": None, "skills": []}
 
     rows = (
-        db.query(CookbookSkill, Skill)
-        .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(CookbookSkill.bundle_id == cookbook.id)  # compat-alias
+        db.query(BundleSkill, Skill)
+        .join(Skill, Skill.id == BundleSkill.skill_id)
+        .filter(BundleSkill.bundle_id == cookbook.id)  # compat-alias
         .all()
     )
 

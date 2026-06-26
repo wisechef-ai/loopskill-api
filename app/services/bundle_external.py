@@ -1,6 +1,6 @@
 """federation_0604 Unit 2 — cookbooks hold external (federated) skills.
 
-This module is the single seam that lets a Cookbook hold a federated skill
+This module is the single seam that lets a Bundle hold a federated skill
 (lobehub, clawhub, skills-sh, hermes-hub, browse-sh, well-known) and hand it
 to an agent as ONE link — exactly like an internal skill — WITHOUT ever
 rehosting external content.
@@ -18,7 +18,7 @@ rule):
   2. ``resolve_external_install`` — the shared resolver that fetches the real
      SKILL.md from origin at install time (never rehosted), reusing the same
      federation adapters + origin fetchers the ``/skills/external/.../install``
-     route uses. Cookbook single-install and the federation route both call
+     route uses. Bundle single-install and the federation route both call
      this, so the install contract can never drift.
 
 Isolation contract (enforced by callers + the catalog filter):

@@ -63,9 +63,9 @@ def _mk_key(db, user):
 
 
 def _mk_cookbook(db, owner, *, visibility="private"):
-    from app.models import Cookbook
+    from app.models import Bundle
 
-    cb = Cookbook(id=uuid.uuid4(), name="deck", bundle_owner=owner.id, visibility=visibility)
+    cb = Bundle(id=uuid.uuid4(), name="deck", bundle_owner=owner.id, visibility=visibility)
     db.add(cb)
     db.flush()
     return cb
@@ -101,9 +101,9 @@ def _mk_skill_with_versions(db, slug, semvers=("1.0.0",)):
 
 
 def _add(db, cb, skill, *, source="custom-added", order=100):
-    from app.models import CookbookSkill
+    from app.models import BundleSkill
 
-    db.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source=source, install_order=order))
+    db.add(BundleSkill(bundle_id=cb.id, skill_id=skill.id, source=source, install_order=order))
     db.flush()
 
 
@@ -184,7 +184,7 @@ def test_pin_nonexistent_version_404(middleware_client, db_session):
 
 def test_pin_external_skill_rejected(middleware_client, db_session):
     """L5: federation skills have no version contract — pinning must 422."""
-    from app.models import Skill, CookbookSkill
+    from app.models import Skill, BundleSkill
 
     owner = _mk_user(db_session)
     key = _mk_key(db_session, owner)
@@ -202,7 +202,7 @@ def test_pin_external_skill_rejected(middleware_client, db_session):
     )
     db_session.add(ext)
     db_session.flush()
-    db_session.add(CookbookSkill(bundle_id=cb.id, skill_id=ext.id, source="custom-added"))
+    db_session.add(BundleSkill(bundle_id=cb.id, skill_id=ext.id, source="custom-added"))
     db_session.flush()
 
     r = middleware_client.patch(

@@ -51,7 +51,7 @@ def _tool_definitions() -> list[types.Tool]:
                     "cookbook_id": {
                         "type": "string",
                         "description": (
-                            "Cookbook UUID. Optional for cbt_token (defaults "
+                            "Bundle UUID. Optional for cbt_token (defaults "
                             "to token's bundle_scope); required otherwise."
                         ),
                     },

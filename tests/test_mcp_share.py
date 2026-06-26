@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.auth_ctx import AuthContext
-from app.models import Base, Cookbook, CookbookShareToken, User
+from app.models import Base, Bundle, BundleShareToken, User
 
 
 # ─────────────────────────── DB Fixtures ─────────────────────────────────────
@@ -81,8 +81,8 @@ def _make_user(db: Session) -> User:
     return user
 
 
-def _make_cookbook(db: Session, *, owner_id) -> Cookbook:
-    cb = Cookbook(
+def _make_cookbook(db: Session, *, owner_id) -> Bundle:
+    cb = Bundle(
         id=uuid4(),
         name="MCP Share Test CB",
         description="test",
@@ -148,8 +148,8 @@ class TestRecipesShareCreate:
 
         # Fetch the row directly from DB
         row = (
-            db_session.query(CookbookShareToken)
-            .filter(CookbookShareToken.id == UUID(result["id"]))
+            db_session.query(BundleShareToken)
+            .filter(BundleShareToken.id == UUID(result["id"]))
             .first()
         )
         assert row is not None
@@ -213,7 +213,7 @@ class TestRecipesShareList:
         rand_hex = secrets.token_hex(16)
         inactive_token = f"cbt_{cb_prefix}_{rand_hex}"
         inactive_hash = hashlib.sha256(inactive_token.encode()).hexdigest()
-        inactive_row = CookbookShareToken(
+        inactive_row = BundleShareToken(
             id=uuid4(),
             bundle_id=cb.id,
             token_hash=inactive_hash,
@@ -281,8 +281,8 @@ class TestRecipesShareRevoke:
         assert revoke_result.get("token_id") == token_id
 
         # Verify in DB
-        row = db_session.query(CookbookShareToken).filter(
-            CookbookShareToken.id == UUID(token_id)
+        row = db_session.query(BundleShareToken).filter(
+            BundleShareToken.id == UUID(token_id)
         ).first()
         assert row is not None
         assert row.is_active is False
@@ -350,15 +350,15 @@ class TestRecipesShareRotate:
         assert rotate_result["new_token_id"] != old_token_id
 
         # Old token should be inactive in DB
-        old_row = db_session.query(CookbookShareToken).filter(
-            CookbookShareToken.id == UUID(old_token_id)
+        old_row = db_session.query(BundleShareToken).filter(
+            BundleShareToken.id == UUID(old_token_id)
         ).first()
         assert old_row is not None
         assert old_row.is_active is False
 
         # New token should be active in DB
-        new_row = db_session.query(CookbookShareToken).filter(
-            CookbookShareToken.id == UUID(rotate_result["new_token_id"])
+        new_row = db_session.query(BundleShareToken).filter(
+            BundleShareToken.id == UUID(rotate_result["new_token_id"])
         ).first()
         assert new_row is not None
         assert new_row.is_active is True

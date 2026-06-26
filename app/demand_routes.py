@@ -24,7 +24,7 @@ Signals merged (all FIRST-PARTY — already collected, zero new instrumentation)
    assembling itself: cold-outreach ↔ proposal-builder ↔ seo-audit ↔
    whitelabel-dashboard). Drives the "You can SEND this as a cookbook" angle —
    the distribution-activation MRR unlock.
-3. ``InstallEvent`` + ``Cookbook`` + ``Fleet`` — the distribution funnel. When
+3. ``InstallEvent`` + ``Bundle`` + ``Fleet`` — the distribution funnel. When
    cookbooks/fleets sit at ~zero adoption while skills install fine, the gap is
    marketing education, not catalog. Surfaced as an explicit activation theme.
 
@@ -56,7 +56,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import (
-    Cookbook,
+    Bundle,
     Fleet,
     InstallEvent,
     MissingSkillQuery,
@@ -225,8 +225,8 @@ def _activation_gap_theme(db: Session, days: int) -> dict | None:
 
     # Personal/forked bundles = real adoption (base bundle is ours).
     cookbooks_adopted = (
-        db.query(func.count(Cookbook.id))
-        .filter(Cookbook.is_base == False)  # noqa: E712
+        db.query(func.count(Bundle.id))
+        .filter(Bundle.is_base == False)  # noqa: E712
         .scalar()
         or 0
     )

@@ -251,9 +251,9 @@ class TestFeedbackGithub:
 
 def _make_cookbook(db, owner_id, is_base=False):
     """Helper: create a cookbook row in the test DB."""
-    from app.models import Cookbook
+    from app.models import Bundle
 
-    cb = Cookbook(
+    cb = Bundle(
         id=uuid.uuid4(),
         name="Test Cookbook",
         is_base=is_base,
@@ -428,9 +428,9 @@ class TestFeedbackRouting:
 
     def _make_feedback_db(self, db_session, user_id, repo=None, mode=None, pat_enc=None):
         """Setup: create a cookbook with optional feedback routing."""
-        from app.models import Cookbook
+        from app.models import Bundle
 
-        cb = Cookbook(
+        cb = Bundle(
             id=uuid.uuid4(),
             name="Test",
             is_base=False,
@@ -600,9 +600,9 @@ class TestRegressions:
         user_id = uuid.uuid4()
         enc = encrypt_pat(secret_token)
 
-        from app.models import Cookbook
+        from app.models import Bundle
 
-        cb = Cookbook(
+        cb = Bundle(
             id=uuid.uuid4(),
             name="LogTest",
             is_base=False,
@@ -634,11 +634,11 @@ class TestRegressions:
 
     def test_new_columns_in_model(self):
         """T27: Cookbook model has the new Phase J columns."""
-        from app.models import Cookbook
+        from app.models import Bundle
 
-        assert hasattr(Cookbook, "feedback_repo")
-        assert hasattr(Cookbook, "feedback_mode")
-        assert hasattr(Cookbook, "feedback_pat_enc")
+        assert hasattr(Bundle, "feedback_repo")
+        assert hasattr(Bundle, "feedback_mode")
+        assert hasattr(Bundle, "feedback_pat_enc")
 
     def test_configure_feedback_dispatch_wiring(self, db_session, monkeypatch):
         """T28: MCP _dispatch routes 'recipes_configure_feedback' correctly."""
@@ -646,9 +646,9 @@ class TestRegressions:
 
         user_id = uuid.uuid4()
         cb_id = uuid.uuid4()
-        from app.models import Cookbook
+        from app.models import Bundle
 
-        cb = Cookbook(
+        cb = Bundle(
             id=cb_id,
             name="Dispatch Wiring Test",
             is_base=False,

@@ -29,7 +29,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models import Cookbook, CookbookDeployment, Skill
+from app.models import Bundle, BundleDeployment, Skill
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ def run_preflight(
     host_env: dict | None = None,
 ) -> dict:
     """Run all three pre-flight checks and return a structured report."""
-    cookbook = db.query(Cookbook).filter(Cookbook.slug == cookbook_slug).first()
+    cookbook = db.query(Bundle).filter(Bundle.slug == cookbook_slug).first()
     if not cookbook:
         return {
             "ok": False,
@@ -54,9 +54,9 @@ def run_preflight(
             "checks": {},
         }
     rows = (
-        db.query(CookbookDeployment)
-        .filter(CookbookDeployment.bundle_id == cookbook.id)  # compat-alias
-        .order_by(CookbookDeployment.install_order.asc())
+        db.query(BundleDeployment)
+        .filter(BundleDeployment.bundle_id == cookbook.id)  # compat-alias
+        .order_by(BundleDeployment.install_order.asc())
         .all()
     )
     skill_recipes = _load_recipes(db, rows)
@@ -82,7 +82,7 @@ def run_preflight(
 # ── Loaders ─────────────────────────────────────────────────────────────
 
 
-def _load_recipes(db: Session, rows: list[CookbookDeployment]) -> list[dict]:
+def _load_recipes(db: Session, rows: list[BundleDeployment]) -> list[dict]:
     """Hydrate each deployment row into a ``{slug, recipe}`` dict.
 
     ``recipe`` is read from the skill's stored manifest blob (the publishing

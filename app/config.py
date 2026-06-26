@@ -1,5 +1,7 @@
 """WiseRecipes API — configuration via env vars."""
 
+import os
+
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
@@ -120,7 +122,13 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = ""
 
     # OAuth redirect base URL (used to build callback URLs)
-    OAUTH_REDIRECT_BASE: str = ""  # e.g. https://recipes.wisechef.ai
+    OAUTH_REDIRECT_BASE: str = ""  # e.g. https://loopskill.io
+
+    # Public origin used to build install / download URLs handed to agents.
+    # Empty by default so config.public_origin() can apply the env-fallback
+    # chain (LOOPSKILL_PUBLIC_ORIGIN -> RECIPES_PUBLIC_ORIGIN compat -> brand
+    # default). Set WR_PUBLIC_ORIGIN to pin it explicitly for a self-host.
+    PUBLIC_ORIGIN: str = ""
 
     # JWT for creator auth
     JWT_SECRET: str = "wr-jwt-secret-change-me"
@@ -208,3 +216,27 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+# Brand default for install / download URLs when nothing is configured.
+LOOPSKILL_DEFAULT_ORIGIN = "https://loopskill.io"
+
+
+def public_origin() -> str:
+    """Resolve the public origin used to build install / download URLs.
+
+    Single seam every URL builder must route through. Priority:
+      1. WR_PUBLIC_ORIGIN  (Settings.PUBLIC_ORIGIN — pydantic env_prefix=WR_)
+      2. LOOPSKILL_PUBLIC_ORIGIN  (primary standalone env var)
+      3. RECIPES_PUBLIC_ORIGIN    (backward-compat with pre-rename deploys)
+      4. https://loopskill.io     (brand default — never the old domain)
+
+    Trailing slashes are stripped so callers can append paths directly.
+    """
+    origin = (
+        (settings.PUBLIC_ORIGIN or "").strip()
+        or os.environ.get("LOOPSKILL_PUBLIC_ORIGIN", "").strip()
+        or os.environ.get("RECIPES_PUBLIC_ORIGIN", "").strip()
+        or LOOPSKILL_DEFAULT_ORIGIN
+    )
+    return origin.rstrip("/")

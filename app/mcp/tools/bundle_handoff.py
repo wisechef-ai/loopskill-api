@@ -36,7 +36,7 @@ from sqlalchemy.orm import Session
 
 from app import authz
 from app.auth_ctx import AuthContext
-from app.models import Cookbook, CookbookSkill, User
+from app.models import Bundle, BundleSkill, User
 
 #: Only these sources represent the owner's own customisation work.
 _TAILORED_SOURCES = {"custom-added"}
@@ -95,7 +95,7 @@ def recipes_cookbook_handoff(
     except (ValueError, TypeError):
         return {"error": "cookbook_not_found", "message": "Invalid cookbook_id."}
 
-    cb = db.query(Cookbook).filter(Cookbook.id == cid).first()
+    cb = db.query(Bundle).filter(Bundle.id == cid).first()
     if cb is None:
         return {"error": "cookbook_not_found", "message": "Cookbook not found."}
 
@@ -145,7 +145,7 @@ def recipes_cookbook_handoff(
 
 def _do_transfer(
     db: Session,
-    cb: Cookbook,
+    cb: Bundle,
     new_owner: User,
 ) -> dict[str, Any]:
     """In-place ownership swap."""
@@ -161,11 +161,11 @@ def _do_transfer(
 
 def _do_fork(
     db: Session,
-    source: Cookbook,
+    source: Bundle,
     new_owner: User,
 ) -> dict[str, Any]:
     """Create a new cookbook for new_owner with lineage + custom-added skills."""
-    new_cb = Cookbook(
+    new_cb = Bundle(
         id=uuid4(),
         name=source.name,
         description=source.description,
@@ -179,16 +179,16 @@ def _do_fork(
 
     # Copy only custom-added skills (tailored content, not catalog-sync rows)
     tailored = (
-        db.query(CookbookSkill)
+        db.query(BundleSkill)
         .filter(
-            CookbookSkill.bundle_id == source.id,  # compat-alias
-            CookbookSkill.source.in_(_TAILORED_SOURCES),
+            BundleSkill.bundle_id == source.id,  # compat-alias
+            BundleSkill.source.in_(_TAILORED_SOURCES),
         )
         .all()
     )
 
     for cs in tailored:
-        new_cs = CookbookSkill(
+        new_cs = BundleSkill(
             bundle_id=new_cb.id,
             skill_id=cs.skill_id,
             source=cs.source,

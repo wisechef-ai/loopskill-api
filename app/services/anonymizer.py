@@ -1,7 +1,7 @@
 """app/services/anonymizer.py
 
 Regex-based anonymizer for skill content before it enters the public Menu or
-Base Cookbook. Strips personal tokens, infra references, paths, agent names
+Base Bundle. Strips personal tokens, infra references, paths, agent names
 (optional), and non-allowlisted email addresses.
 
 Usage:

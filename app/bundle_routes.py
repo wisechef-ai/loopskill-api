@@ -1,4 +1,4 @@
-"""Cookbook CRUD endpoints — v7 Phase B.
+"""Bundle CRUD endpoints — v7 Phase B.
 
 Endpoints (all gated to subscription_tier in {'pro','pro_plus'} OR master key):
 Legacy slugs 'cook'/'operator' accepted via _is_paid_tier/_is_pro_plus_tier shims for 30 days.
@@ -20,7 +20,6 @@ tier_labels.cookbook_limit); a 403 fires when a user is at their tier's limit.
 from __future__ import annotations
 
 import logging
-import os
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -32,8 +31,9 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app import config
 from app.database import get_db
-from app.models import Cookbook, CookbookSkill, Skill, SkillVersion, User
+from app.models import Bundle, BundleSkill, Skill, SkillVersion, User
 from app.services.bundle_external import (
     install_descriptor_for,
     is_external_skill,
@@ -58,11 +58,11 @@ COOK_SKILL_CAP = 25
 
 
 def _touch_bundle_generation(db: Session, cookbook_id: UUID) -> None:  # compat-alias
-    """Advance a cookbook's generation token (Cookbook.updated_at).
+    """Advance a cookbook's generation token (Bundle.updated_at).
 
     evergreen_0206 Phase A — the cheap-poll generation token.
 
-    SQLAlchemy's ``onupdate=func.now()`` on ``Cookbook.updated_at`` fires ONLY
+    SQLAlchemy's ``onupdate=func.now()`` on ``Bundle.updated_at`` fires ONLY
     when the parent ``cookbooks`` row is UPDATEd — never when a child
     ``CookbookSkill`` row is added, removed, or re-pinned. That made the
     generation token lie: a cookbook's declared skill set could change while
@@ -76,7 +76,7 @@ def _touch_bundle_generation(db: Session, cookbook_id: UUID) -> None:  # compat-
     Uses ``func.now()`` (DB-side clock) for a single source of time truth,
     consistent with the column's ``server_default``/``onupdate``.
     """
-    db.query(Cookbook).filter(Cookbook.id == cookbook_id).update(
+    db.query(Bundle).filter(Bundle.id == cookbook_id).update(
         {"updated_at": func.now()}, synchronize_session=False
     )
 
@@ -268,13 +268,13 @@ class CookbookOut(BaseModel):
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
-def _resolve_owned_cookbook(db: Session, ctx: CookbookCtx, cookbook_id: str) -> Cookbook:
+def _resolve_owned_cookbook(db: Session, ctx: CookbookCtx, cookbook_id: str) -> Bundle:
     try:
         cid = UUID(cookbook_id)
     except (ValueError, TypeError):
         raise HTTPException(status_code=404, detail="cookbook_not_found")
 
-    cb = db.query(Cookbook).filter(Cookbook.id == cid).first()
+    cb = db.query(Bundle).filter(Bundle.id == cid).first()
     if cb is None:
         raise HTTPException(status_code=404, detail="cookbook_not_found")
 
@@ -292,16 +292,16 @@ def _resolve_owned_cookbook(db: Session, ctx: CookbookCtx, cookbook_id: str) -> 
 
 def _skills_for(
     db: Session, cookbook_id: UUID, include_disabled: bool = True
-) -> list[tuple[CookbookSkill, Skill]]:
+) -> list[tuple[BundleSkill, Skill]]:
     q = (
-        db.query(CookbookSkill, Skill)
-        .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(CookbookSkill.bundle_id == cookbook_id)  # compat-alias
+        db.query(BundleSkill, Skill)
+        .join(Skill, Skill.id == BundleSkill.skill_id)
+        .filter(BundleSkill.bundle_id == cookbook_id)  # compat-alias
     )
     if not include_disabled:
-        q = q.filter(CookbookSkill.source != "disabled")
+        q = q.filter(BundleSkill.source != "disabled")
     # portal_0610 J2 — emit in Composer order (install_order), ties by added_at.
-    q = q.order_by(CookbookSkill.install_order.asc(), CookbookSkill.added_at.asc())
+    q = q.order_by(BundleSkill.install_order.asc(), BundleSkill.added_at.asc())
     return q.all()
 
 
@@ -333,7 +333,7 @@ def _corrections_absorbed_count(db: Session, slug: str) -> int:
         return 0
 
 
-def _to_cb_out(cb: Cookbook) -> dict:
+def _to_cb_out(cb: Bundle) -> dict:
     return CookbookOut(
         id=str(cb.id),
         name=cb.name,
@@ -345,7 +345,7 @@ def _to_cb_out(cb: Cookbook) -> dict:
     ).model_dump(mode="json")
 
 
-def _cookbook_signals(db: Session, cb: Cookbook, skills: list[dict]) -> dict:
+def _cookbook_signals(db: Session, cb: Bundle, skills: list[dict]) -> dict:
     """portal_0610 J6 — living-object signals for a cookbook detail page.
 
     All honest + organic-only. The cookbook is a living object, not a static
@@ -354,7 +354,7 @@ def _cookbook_signals(db: Session, cb: Cookbook, skills: list[dict]) -> dict:
     null/0 for that field, never a 500 (the skill list is the load-bearing data).
 
       installs_total / installs_7d : attributed installs (R7 dedup, is_test-excluded)
-      last_synced                  : generation token (Cookbook.updated_at)
+      last_synced                  : generation token (Bundle.updated_at)
       fleet_usage                  : how many fleets subscribe this cookbook
       corrections_absorbed         : field-feedback items across member skills
       skill_count                  : active (non-disabled) skills
@@ -399,7 +399,7 @@ def _cookbook_signals(db: Session, cb: Cookbook, skills: list[dict]) -> dict:
 # test/CI installs via _install_counts_for (§4.2).
 
 
-def _public_cb_card(db: Session, cb: Cookbook) -> dict:
+def _public_cb_card(db: Session, cb: Bundle) -> dict:
     """A compact, anonymous-safe public cookbook card for the discover feed."""
     skill_rows = _skills_for(db, cb.id, include_disabled=False)
     # portal_0610 R7: count installs ATTRIBUTED TO this bundle (InstallEvent
@@ -452,15 +452,15 @@ def discover_cookbooks(
     limit = max(1, min(int(limit or 30), 100))
     offset = max(0, int(offset or 0))
 
-    q = db.query(Cookbook).filter(
-        Cookbook.visibility == "public",
-        Cookbook.slug.isnot(None),
+    q = db.query(Bundle).filter(
+        Bundle.visibility == "public",
+        Bundle.slug.isnot(None),
     )
     if sort == "newest":
         # portal_0610 R6: add a deterministic tiebreaker. Seeded bundles share
         # one created_at, so without a secondary key the order was arbitrary
         # DB-insertion. Bundle.id.desc() makes "newest" stable + reproducible.
-        q = q.order_by(Cookbook.created_at.desc(), Cookbook.id.desc())
+        q = q.order_by(Bundle.created_at.desc(), Bundle.id.desc())
         rows = q.offset(offset).limit(limit).all()
         cards = [_public_cb_card(db, cb) for cb in rows]
     else:
@@ -482,7 +482,7 @@ def public_cookbook_page(slug: str, db: Session = Depends(get_db)):
     so an agent can compose it via MCP from the public page (GTM gate, Ph F will
     render this). Carries ?ref attribution.
     """
-    cb = db.query(Cookbook).filter(Cookbook.slug == slug).first()
+    cb = db.query(Bundle).filter(Bundle.slug == slug).first()
     if not cb or cb.visibility != "public":
         raise HTTPException(status_code=404, detail="cookbook_not_found")
 
@@ -524,7 +524,7 @@ def cookbook_leaderboard(
     Each entry is the standard public card (carries is_verified + ?ref).
     """
     limit = max(1, min(int(limit or 10), 50))
-    rows = db.query(Cookbook).filter(Cookbook.visibility == "public", Cookbook.slug.isnot(None)).all()
+    rows = db.query(Bundle).filter(Bundle.visibility == "public", Bundle.slug.isnot(None)).all()
     cards = [_public_cb_card(db, cb) for cb in rows]
 
     top_weekly = sorted(cards, key=lambda c: (c["installs_7d"], c["installs_total"]), reverse=True)[:limit]
@@ -557,7 +557,7 @@ def verify_cookbook(
         cb_uuid = UUID(cookbook_id)
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=404, detail="cookbook_not_found") from exc
-    cb = db.query(Cookbook).filter(Cookbook.id == cb_uuid).first()
+    cb = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
     if cb is None:
         raise HTTPException(status_code=404, detail="cookbook_not_found")
 
@@ -589,14 +589,14 @@ def create_cookbook(
     # G on-ramp), Pro=10, Pro+=200.
     limit = cookbook_limit(ctx.tier)
     if limit is not None:
-        existing = db.query(Cookbook).filter(Cookbook.bundle_owner == ctx.user_id).count()  # compat-alias
+        existing = db.query(Bundle).filter(Bundle.bundle_owner == ctx.user_id).count()  # compat-alias
         if existing >= limit:
             raise HTTPException(
                 status_code=403,
                 detail={"reason": "pro_tier_limit", "max_cookbooks": limit},
             )
 
-    cb = Cookbook(
+    cb = Bundle(
         id=uuid4(),
         name=name,
         description=body.description,
@@ -619,9 +619,9 @@ def list_cookbooks(
         return {"cookbooks": []}
 
     rows = (
-        db.query(Cookbook)
-        .filter(Cookbook.bundle_owner == ctx.user_id)  # compat-alias
-        .order_by(Cookbook.created_at.desc())
+        db.query(Bundle)
+        .filter(Bundle.bundle_owner == ctx.user_id)  # compat-alias
+        .order_by(Bundle.created_at.desc())
         .all()
     )
     return {"cookbooks": [_to_cb_out(r) for r in rows]}
@@ -698,10 +698,10 @@ def add_skill_to_cookbook(
             raise HTTPException(status_code=404, detail="skill_not_found")
 
     existing = (
-        db.query(CookbookSkill)
+        db.query(BundleSkill)
         .filter(
-            CookbookSkill.bundle_id == cb.id,  # compat-alias
-            CookbookSkill.skill_id == skill.id,
+            BundleSkill.bundle_id == cb.id,  # compat-alias
+            BundleSkill.skill_id == skill.id,
         )
         .first()
     )
@@ -721,10 +721,10 @@ def add_skill_to_cookbook(
     # WIS-902: Pro tier skill cap
     if ctx.tier == "pro" or ctx.tier == "cook":  # cook=legacy alias, remove after 2026-06-10
         active_count = (
-            db.query(CookbookSkill)
+            db.query(BundleSkill)
             .filter(
-                CookbookSkill.bundle_id == cb.id,  # compat-alias
-                CookbookSkill.source != "disabled",
+                BundleSkill.bundle_id == cb.id,  # compat-alias
+                BundleSkill.source != "disabled",
             )
             .count()
         )
@@ -739,7 +739,7 @@ def add_skill_to_cookbook(
                 },
             )
 
-    cs = CookbookSkill(
+    cs = BundleSkill(
         bundle_id=cb.id,
         skill_id=skill.id,
         source=source,
@@ -775,10 +775,10 @@ def remove_skill_from_cookbook(
         raise HTTPException(status_code=404, detail="skill_not_found")
 
     cs = (
-        db.query(CookbookSkill)
+        db.query(BundleSkill)
         .filter(
-            CookbookSkill.bundle_id == cb.id,  # compat-alias
-            CookbookSkill.skill_id == skill.id,
+            BundleSkill.bundle_id == cb.id,  # compat-alias
+            BundleSkill.skill_id == skill.id,
         )
         .first()
     )
@@ -853,8 +853,8 @@ def set_skill_pin(
     if skill is None:
         raise HTTPException(status_code=404, detail="skill_not_found")
     cs = (
-        db.query(CookbookSkill)
-        .filter(CookbookSkill.bundle_id == cb.id, CookbookSkill.skill_id == skill.id)  # compat-alias
+        db.query(BundleSkill)
+        .filter(BundleSkill.bundle_id == cb.id, BundleSkill.skill_id == skill.id)  # compat-alias
         .first()
     )
     if cs is None:
@@ -913,9 +913,9 @@ def reorder_cookbook_skills(
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
 
     rows = (
-        db.query(CookbookSkill, Skill)
-        .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(CookbookSkill.bundle_id == cb.id, CookbookSkill.source != "disabled")  # compat-alias
+        db.query(BundleSkill, Skill)
+        .join(Skill, Skill.id == BundleSkill.skill_id)
+        .filter(BundleSkill.bundle_id == cb.id, BundleSkill.source != "disabled")  # compat-alias
         .all()
     )
     by_slug = {skill.slug: cs for cs, skill in rows}
@@ -958,11 +958,7 @@ def _make_install_url(skill_slug: str, version_id: UUID, version_semver: str) ->
     # Phase 3+4: primary salt changed to "loopskill-install"; verifier accepts both.
     serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="loopskill-install")
     token = serializer.dumps({"slug": skill_slug, "version_id": str(version_id), "mode": "install"})
-    public_origin = (
-        getattr(settings, "PUBLIC_ORIGIN", None)
-        or os.environ.get("RECIPES_PUBLIC_ORIGIN")
-        or "https://recipes.wisechef.ai"
-    )
+    public_origin = config.public_origin()
     return public_origin.rstrip("/") + "/api/skills/_download?token=" + token
 
 
@@ -1110,13 +1106,13 @@ def cookbook_sync(
             since_dt = since_dt.replace(tzinfo=UTC)
 
     q = (
-        db.query(CookbookSkill, Skill)
-        .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(CookbookSkill.bundle_id == cb.id)  # compat-alias
+        db.query(BundleSkill, Skill)
+        .join(Skill, Skill.id == BundleSkill.skill_id)
+        .filter(BundleSkill.bundle_id == cb.id)  # compat-alias
     )
     if since_dt is not None:
         # SQLite stores naive datetimes; compare naively if necessary.
-        q = q.filter(CookbookSkill.added_at >= since_dt.replace(tzinfo=None))
+        q = q.filter(BundleSkill.added_at >= since_dt.replace(tzinfo=None))
 
     added: list[dict] = []
     removed: list[dict] = []
@@ -1192,11 +1188,11 @@ def install_single_skill_from_cookbook(
         raise HTTPException(status_code=404, detail="skill_not_found")
 
     cs = (
-        db.query(CookbookSkill)
+        db.query(BundleSkill)
         .filter(
-            CookbookSkill.bundle_id == cb.id,  # compat-alias
-            CookbookSkill.skill_id == skill.id,
-            CookbookSkill.source != "disabled",
+            BundleSkill.bundle_id == cb.id,  # compat-alias
+            BundleSkill.skill_id == skill.id,
+            BundleSkill.source != "disabled",
         )
         .first()
     )

@@ -43,7 +43,7 @@ from app.mcp.server import (
     build_mcp_server,
     router as mcp_router,
 )
-from app.models import APIKey, Cookbook, CookbookSkill, InstallEvent, SkillVersion, User
+from app.models import APIKey, Bundle, BundleSkill, InstallEvent, SkillVersion, User
 from tests.conftest import make_skill
 
 
@@ -256,7 +256,7 @@ class TestListCookbookUsesCallerUserId:
 
     def test_no_cookbook_id_resolves_caller_user_cookbook(self, db_session):
         user, api_key = _make_user_and_key(db_session, "rec_charlie_token")
-        cookbook = Cookbook(
+        cookbook = Bundle(
             id=uuid4(),
             name="Charlie's Cookbook",
             bundle_owner=user.id,
@@ -264,7 +264,7 @@ class TestListCookbookUsesCallerUserId:
         db_session.add(cookbook)
         skill = make_skill(db_session, slug="charlie-skill", title="Charlie Skill")
         db_session.add(
-            CookbookSkill(
+            BundleSkill(
                 bundle_id=cookbook.id,
                 skill_id=skill.id,
                 source="custom-added",

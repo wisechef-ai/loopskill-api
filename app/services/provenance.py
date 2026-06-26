@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from app.models import (
-    Cookbook,
+    Bundle,
     InstallEvent,
     ProvenanceRecord,
     Skill,
@@ -205,7 +205,7 @@ def _curator_target(db: "Session", cookbook_id: UUID | None) -> FeedbackTarget |
     """The cookbook curator's configured feedback repo, if any."""
     if cookbook_id is None:
         return None
-    cb = db.query(Cookbook).filter(Cookbook.id == cookbook_id).first()
+    cb = db.query(Bundle).filter(Bundle.id == cookbook_id).first()
     if cb is None or not cb.feedback_repo:
         return None
     return FeedbackTarget(
@@ -226,7 +226,7 @@ def route_targets_for_provenance(db: "Session", provenance_id: str | None) -> li
 
     Routing target = the cookbook-curator repo bound to the cookbook the install
     actually came from. (The skill-author repo path keys on the same
-    Cookbook.feedback_repo mechanism — a skill author who curates a cookbook
+    Bundle.feedback_repo mechanism — a skill author who curates a cookbook
     configures routing there; we do not invent a separate Skill.repo column that
     does not exist in the schema.)
     """

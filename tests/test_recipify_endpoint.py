@@ -13,7 +13,7 @@ from sqlalchemy.pool import StaticPool
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.database import get_db
-from app.models import Base, Cookbook, CookbookSkill, Skill, User
+from app.models import Base, Bundle, BundleSkill, Skill, User
 
 
 _GOOD = """---
@@ -110,7 +110,7 @@ def test_free_tier_returns_401(db_session):
 
 def test_cook_user_creates_cookbook_skill(db_session):
     user = _make_user(db_session, tier="cook")
-    cb = Cookbook(id=uuid4(), name="My", bundle_owner=user.id)
+    cb = Bundle(id=uuid4(), name="My", bundle_owner=user.id)
     db_session.add(cb)
     db_session.commit()
 
@@ -133,10 +133,10 @@ def test_cook_user_creates_cookbook_skill(db_session):
     skill = db_session.query(Skill).filter(Skill.slug == "scrape-bot").first()
     assert skill is not None
     cs = (
-        db_session.query(CookbookSkill)
+        db_session.query(BundleSkill)
         .filter(
-            CookbookSkill.bundle_id == cb.id,
-            CookbookSkill.skill_id == skill.id,
+            BundleSkill.bundle_id == cb.id,
+            BundleSkill.skill_id == skill.id,
         )
         .first()
     )
@@ -146,7 +146,7 @@ def test_cook_user_creates_cookbook_skill(db_session):
 
 def test_rerun_with_same_slug_is_idempotent_and_updated(db_session):
     user = _make_user(db_session, tier="cook")
-    cb = Cookbook(id=uuid4(), name="My", bundle_owner=user.id)
+    cb = Bundle(id=uuid4(), name="My", bundle_owner=user.id)
     db_session.add(cb)
     db_session.commit()
 
@@ -175,8 +175,8 @@ def test_rerun_with_same_slug_is_idempotent_and_updated(db_session):
     # Only one CookbookSkill row for the slug.
     skill = db_session.query(Skill).filter(Skill.slug == "scrape-bot").first()
     rows = (
-        db_session.query(CookbookSkill)
-        .filter(CookbookSkill.skill_id == skill.id)
+        db_session.query(BundleSkill)
+        .filter(BundleSkill.skill_id == skill.id)
         .all()
     )
     assert len(rows) == 1
@@ -198,7 +198,7 @@ def test_invalid_frontmatter_returns_422(db_session):
 
 def test_cook_with_subrecipe_target_blocked_403(db_session):
     user = _make_user(db_session, tier="cook")
-    cb = Cookbook(id=uuid4(), name="My", bundle_owner=user.id)
+    cb = Bundle(id=uuid4(), name="My", bundle_owner=user.id)
     db_session.add(cb)
     db_session.commit()
 
@@ -219,7 +219,7 @@ def test_cook_with_subrecipe_target_blocked_403(db_session):
 
 def test_operator_with_subrecipe_target_succeeds(db_session):
     user = _make_user(db_session, tier="operator")
-    cb = Cookbook(id=uuid4(), name="My", bundle_owner=user.id)
+    cb = Bundle(id=uuid4(), name="My", bundle_owner=user.id)
     db_session.add(cb)
     db_session.commit()
 

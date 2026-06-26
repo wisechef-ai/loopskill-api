@@ -25,7 +25,7 @@ def can_read_skill(ctx: AuthContext, skill: Any, db: "Session | None" = None) ->
     - Public skills: always readable
     - Master scope: always readable
     - User scope: readable if the user owns the skill
-    - Cookbook-scope (cbt_token) tokens: readable IF the skill belongs to the
+    - Bundle-scope (cbt_token) tokens: readable IF the skill belongs to the
       cookbook the token is scoped to. Requires ``db`` so we can look up the
       cookbook→skill association. When ``db`` is None for a cbt_token caller
       we fail closed (return False) — callers in private-skill paths MUST
@@ -55,15 +55,15 @@ def can_read_skill(ctx: AuthContext, skill: Any, db: "Session | None" = None) ->
     # recipes_cookbook_attach promotes it into a bundle (the dogfood loop).  # compat-alias
     # Fails closed without ``db`` — callers in private-skill paths thread it.
     if ctx.scope == "user" and ctx.user_id is not None and db is not None:
-        from app.models import Cookbook, CookbookSkill
+        from app.models import Bundle, BundleSkill
 
         owns_via_cookbook = (
-            db.query(CookbookSkill)
-            .join(Cookbook, Cookbook.id == CookbookSkill.bundle_id)  # compat-alias
+            db.query(BundleSkill)
+            .join(Bundle, Bundle.id == BundleSkill.bundle_id)  # compat-alias
             .filter(
-                CookbookSkill.skill_id == skill.id,
-                CookbookSkill.source != "disabled",
-                Cookbook.bundle_owner == ctx.user_id,  # compat-alias
+                BundleSkill.skill_id == skill.id,
+                BundleSkill.source != "disabled",
+                Bundle.bundle_owner == ctx.user_id,  # compat-alias
             )
             .first()
             is not None
@@ -74,14 +74,14 @@ def can_read_skill(ctx: AuthContext, skill: Any, db: "Session | None" = None) ->
     if ctx.scope == "cbt_token" and ctx.bundle_scope is not None and db is not None:
         # Local import: app.models imports authz indirectly via app.database in
         # some test fixtures; deferring keeps the import graph acyclic.
-        from app.models import CookbookSkill
+        from app.models import BundleSkill
 
         exists = (
-            db.query(CookbookSkill)
+            db.query(BundleSkill)
             .filter(
-                CookbookSkill.bundle_id == ctx.bundle_scope,  # compat-alias
-                CookbookSkill.skill_id == skill.id,
-                CookbookSkill.source != "disabled",
+                BundleSkill.bundle_id == ctx.bundle_scope,  # compat-alias
+                BundleSkill.skill_id == skill.id,
+                BundleSkill.source != "disabled",
             )
             .first()
             is not None
@@ -133,7 +133,7 @@ def can_write_cookbook(ctx: AuthContext, cookbook: Any) -> bool:
     Access rules:
     - Master scope: always allowed
     - User scope: allowed if ctx.user_id == cookbook.bundle_owner  # compat-alias
-    - Cookbook-scoped key: additionally restricted to the specific cookbook
+    - Bundle-scoped key: additionally restricted to the specific cookbook
       (ctx.bundle_scope must match cookbook.id)  # compat-alias
     - All other cases: False
     """

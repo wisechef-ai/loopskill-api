@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import get_db
-from app.models import Base, Cookbook, CookbookSkill, Skill, User
+from app.models import Base, Bundle, BundleSkill, Skill, User
 
 PAID_BODY = "SECRET PAID INSTRUCTIONS — must never leak over well-known"
 FREE_BODY = "# Free Skill\n\nReal public body, safe to serve."
@@ -71,7 +71,7 @@ def _app(db: Session) -> FastAPI:
     return app
 
 
-def _seed_public_cookbook(db: Session, *, visibility: str = "public") -> Cookbook:
+def _seed_public_cookbook(db: Session, *, visibility: str = "public") -> Bundle:
     owner = User(id=uuid4(), display_name="O", email=f"{uuid4()}@t.example")
     db.add(owner)
     db.flush()
@@ -97,7 +97,7 @@ def _seed_public_cookbook(db: Session, *, visibility: str = "public") -> Cookboo
     db.add_all([free, paid])
     db.flush()
 
-    cb = Cookbook(
+    cb = Bundle(
         id=uuid4(),
         name="Test Bundle",
         slug="test-bundle",
@@ -108,8 +108,8 @@ def _seed_public_cookbook(db: Session, *, visibility: str = "public") -> Cookboo
     db.flush()
     db.add_all(
         [
-            CookbookSkill(bundle_id=cb.id, skill_id=free.id, source="custom-added", install_order=0),
-            CookbookSkill(bundle_id=cb.id, skill_id=paid.id, source="custom-added", install_order=1),
+            BundleSkill(bundle_id=cb.id, skill_id=free.id, source="custom-added", install_order=0),
+            BundleSkill(bundle_id=cb.id, skill_id=paid.id, source="custom-added", install_order=1),
         ]
     )
     db.commit()

@@ -10,7 +10,7 @@ from uuid import uuid4
 import pytest
 
 from app.mcp.server import call_tool_sync, _tool_definitions
-from app.models import Cookbook, CookbookSkill, Skill, SkillVersion, User
+from app.models import Bundle, BundleSkill, Skill, SkillVersion, User
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -37,14 +37,14 @@ def _make_version(db, skill_id, semver):
 
 
 def _make_cookbook(db, owner_id, name="CB"):
-    cb = Cookbook(id=uuid4(), name=name, bundle_owner=owner_id)
+    cb = Bundle(id=uuid4(), name=name, bundle_owner=owner_id)
     db.add(cb)
     db.flush()
     return cb
 
 
 def _add_cookbook_skill(db, cb_id, skill_id, pinned=None):
-    cs = CookbookSkill(
+    cs = BundleSkill(
         bundle_id=cb_id,
         skill_id=skill_id,
         source="custom-added",
@@ -122,7 +122,7 @@ def test_sync_default_applies(db_session):
     assert result.get("applied") is True, "default dry_run=false must apply changes"
 
     # Verify DB state
-    cs = db_session.query(CookbookSkill).filter_by(bundle_id=cb.id).one()
+    cs = db_session.query(BundleSkill).filter_by(bundle_id=cb.id).one()
     assert cs.pinned_version == "1.1", (
         f"pinned_version should be 1.1, got {cs.pinned_version}"
     )
@@ -152,7 +152,7 @@ def test_sync_dry_run_returns_diff_no_pull(db_session):
     assert result.get("applied") is not True
 
     # DB NOT mutated
-    cs = db_session.query(CookbookSkill).filter_by(bundle_id=cb.id).one()
+    cs = db_session.query(BundleSkill).filter_by(bundle_id=cb.id).one()
     assert cs.pinned_version == "1.0", "dry_run must not update pinned_version"
 
 
