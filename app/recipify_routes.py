@@ -68,7 +68,7 @@ def _resolve_or_create_cookbook(db: Session, ctx: CookbookCtx, target_cookbook_i
     if cb is None:
         cb = Bundle(
             id=uuid4(),
-            name="My Cookbook",
+            name="My Bundle",
             bundle_owner=ctx.user_id,
             is_base=False,
         )

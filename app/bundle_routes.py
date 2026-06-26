@@ -1,4 +1,4 @@
-"""Cookbook CRUD endpoints — v7 Phase B.
+"""Bundle CRUD endpoints — v7 Phase B.
 
 Endpoints (all gated to subscription_tier in {'pro','pro_plus'} OR master key):
 Legacy slugs 'cook'/'operator' accepted via _is_paid_tier/_is_pro_plus_tier shims for 30 days.
@@ -58,11 +58,11 @@ COOK_SKILL_CAP = 25
 
 
 def _touch_bundle_generation(db: Session, cookbook_id: UUID) -> None:  # compat-alias
-    """Advance a cookbook's generation token (Cookbook.updated_at).
+    """Advance a cookbook's generation token (Bundle.updated_at).
 
     evergreen_0206 Phase A — the cheap-poll generation token.
 
-    SQLAlchemy's ``onupdate=func.now()`` on ``Cookbook.updated_at`` fires ONLY
+    SQLAlchemy's ``onupdate=func.now()`` on ``Bundle.updated_at`` fires ONLY
     when the parent ``cookbooks`` row is UPDATEd — never when a child
     ``CookbookSkill`` row is added, removed, or re-pinned. That made the
     generation token lie: a cookbook's declared skill set could change while
@@ -354,7 +354,7 @@ def _cookbook_signals(db: Session, cb: Bundle, skills: list[dict]) -> dict:
     null/0 for that field, never a 500 (the skill list is the load-bearing data).
 
       installs_total / installs_7d : attributed installs (R7 dedup, is_test-excluded)
-      last_synced                  : generation token (Cookbook.updated_at)
+      last_synced                  : generation token (Bundle.updated_at)
       fleet_usage                  : how many fleets subscribe this cookbook
       corrections_absorbed         : field-feedback items across member skills
       skill_count                  : active (non-disabled) skills

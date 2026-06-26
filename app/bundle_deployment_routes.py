@@ -1,9 +1,9 @@
-"""Cookbook deployment API — Pro+ white-label + ordered-apply surface.
+"""Bundle deployment API — Pro+ white-label + ordered-apply surface.
 
-spotify_0608 Ph A — re-homed from the retired ``buckets_routes`` (D1). Cookbook
+spotify_0608 Ph A — re-homed from the retired ``buckets_routes`` (D1). Bundle
 is the survivor primitive; this module is the *deployment* layer (ordered apply,
 forks, white-label custom domains, preflight, public manifest). It operates on
-``Cookbook`` rows and the new ``CookbookDeployment`` table — the lossless
+``Bundle`` rows and the new ``CookbookDeployment`` table — the lossless
 replacement for ``BucketSkill``. The membership layer (``CookbookSkill`` + the
 existing ``/api/cookbooks`` CRUD in ``bundle_routes``) is untouched.  # compat-alias
 

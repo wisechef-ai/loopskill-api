@@ -25,7 +25,7 @@ def can_read_skill(ctx: AuthContext, skill: Any, db: "Session | None" = None) ->
     - Public skills: always readable
     - Master scope: always readable
     - User scope: readable if the user owns the skill
-    - Cookbook-scope (cbt_token) tokens: readable IF the skill belongs to the
+    - Bundle-scope (cbt_token) tokens: readable IF the skill belongs to the
       cookbook the token is scoped to. Requires ``db`` so we can look up the
       cookbook→skill association. When ``db`` is None for a cbt_token caller
       we fail closed (return False) — callers in private-skill paths MUST
@@ -133,7 +133,7 @@ def can_write_cookbook(ctx: AuthContext, cookbook: Any) -> bool:
     Access rules:
     - Master scope: always allowed
     - User scope: allowed if ctx.user_id == cookbook.bundle_owner  # compat-alias
-    - Cookbook-scoped key: additionally restricted to the specific cookbook
+    - Bundle-scoped key: additionally restricted to the specific cookbook
       (ctx.bundle_scope must match cookbook.id)  # compat-alias
     - All other cases: False
     """

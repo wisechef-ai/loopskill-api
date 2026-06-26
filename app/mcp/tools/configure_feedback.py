@@ -85,7 +85,7 @@ def recipes_configure_feedback(
         cb = _resolve_user_cookbook(db, ctx)
 
     if cb is None:
-        return {"ok": False, "error": "Cookbook not found"}
+        return {"ok": False, "error": "Bundle not found"}
 
     # ── Ownership gate ────────────────────────────────────────────────────────
     if ctx.scope != "master":

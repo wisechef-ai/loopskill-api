@@ -342,7 +342,7 @@ def _resolve_caller_tier_for_install(db: Session, request) -> str | None:
 def _resolve_cookbook_owner_tier(db: Session, cookbook) -> str | None:
     """Resolve the effective install tier for a cookbook's OWNER.
 
-    portal_0610 R1 / §6.7-L10. Cookbook install paths gate tier-access on the
+    portal_0610 R1 / §6.7-L10. Bundle install paths gate tier-access on the
     COOKBOOK OWNER's subscription, not the calling agent's — because the owner
     (the paying customer) is who delivered the cookbook to a client agent via a
     cbt_ share-token. A free-owner cookbook can therefore never hand out a Pro

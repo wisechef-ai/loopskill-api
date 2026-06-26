@@ -31,7 +31,7 @@ from app.share_token_routes import (
 
 
 def _load_cookbook(db: Session, cookbook_id: str) -> Bundle | None:
-    """Load a Cookbook by UUID string; return None on bad ID or missing row."""
+    """Load a Bundle by UUID string; return None on bad ID or missing row."""
     try:
         cid = UUID(cookbook_id)
     except (ValueError, TypeError):

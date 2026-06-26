@@ -1,4 +1,4 @@
-"""Cookbook share-token endpoints — v7.1 Phase 3.
+"""Bundle share-token endpoints — v7.1 Phase 3.
 
 Routes (mounted under /api/cookbooks/{cookbook_id}/share-tokens):
   POST   ""            — create token (plaintext returned once)
@@ -108,7 +108,7 @@ def _get_cookbook_and_check_scope(
 ) -> Bundle:
     """Load cookbook and enforce cbt_ scope rules.
 
-    Returns the Cookbook if all checks pass.
+    Returns the Bundle if all checks pass.
     """
     scope = getattr(request.state, "cookbook_token_scope", None)
     token_cookbook_id = getattr(request.state, "cookbook_token_cookbook_id", None)
@@ -209,7 +209,7 @@ def _create_service(
 
     Args:
         db: Database session.
-        cookbook: The Cookbook ORM object (already ownership-checked).
+        cookbook: The Bundle ORM object (already ownership-checked).
         name: Optional human-readable label.
         scope: 'read', 'edit', or 'install' (default 'install' since
             cookbook_share_2105 Phase E — see plan-doc Open Question #1).
@@ -300,7 +300,7 @@ def _list_service(db: Session, *, cookbook: Bundle) -> list[dict]:
 
     Args:
         db: Database session.
-        cookbook: The Cookbook ORM object (already ownership-checked).
+        cookbook: The Bundle ORM object (already ownership-checked).
 
     Returns:
         List of token metadata dicts (no plaintext).
@@ -339,7 +339,7 @@ def _rotate_service(
 
     Args:
         db: Database session.
-        cookbook: The Cookbook ORM object (already ownership-checked).
+        cookbook: The Bundle ORM object (already ownership-checked).
         token_id: UUID string of the token to rotate.
         created_by: User ID for the new token row.
 
@@ -405,7 +405,7 @@ def _revoke_service(
 
     Args:
         db: Database session.
-        cookbook: The Cookbook ORM object (already ownership-checked).
+        cookbook: The Bundle ORM object (already ownership-checked).
         token_id: UUID string of the token to revoke.
 
     Raises:

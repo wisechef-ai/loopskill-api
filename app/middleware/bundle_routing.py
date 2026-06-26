@@ -1,6 +1,6 @@
 """CookbookHostMiddleware — white-label custom-domain routing for Pro+ cookbooks.
 
-spotify_0608 Ph A — re-homed from the retired ``BucketHostMiddleware``. Cookbook
+spotify_0608 Ph A — re-homed from the retired ``BucketHostMiddleware``. Bundle
 is the survivor primitive (D1); white-label "host your cookbook on your own
 domain" survives as a Pro+ capability keyed on ``cookbooks.custom_domain``.
 """

@@ -7,7 +7,7 @@ The thin client polls this with If-None-Match: <generation>. The endpoint:
      non-owner gets 404, never 304/200, so cookbook existence never leaks.
   2. Enforces the per-agent abuse ceiling (Phase A — 60/5min per api_key_id).
   3. CHEAP 304: if the caller's If-None-Match == the cookbook's current
-     generation (Cookbook.updated_at), returns 304 after ONE indexed lookup —
+     generation (Bundle.updated_at), returns 304 after ONE indexed lookup —
      the reconcile engine is never invoked. ~99% of polls collapse to this.
   4. On 200: runs the reconcile engine (Phase B) against the caller's reported
      local lockfile state and returns the {add,update,remove,drift} diff plus
@@ -48,7 +48,7 @@ class ReconcileIn(BaseModel):
 
 
 def _generation_token(cb: Bundle) -> str:
-    """Stable string form of Cookbook.updated_at for ETag / If-None-Match."""
+    """Stable string form of Bundle.updated_at for ETag / If-None-Match."""
     return cb.updated_at.isoformat() if cb.updated_at else ""
 
 

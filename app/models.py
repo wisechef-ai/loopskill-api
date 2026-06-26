@@ -1027,7 +1027,7 @@ class Fleet(Base):
 
 
 class FleetSubscription(Base):
-    """Fleet subscription to a Cookbook on a given channel.
+    """Fleet subscription to a Bundle on a given channel.
 
     channel: 'canary' | 'stable' | 'frozen'
     """

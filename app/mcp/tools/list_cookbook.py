@@ -1,6 +1,6 @@
 """recipes_list_cookbook — list a caller's cookbook + skill provenance.
 
-Phase A only ships a read path against the existing ``Cookbook`` /
+Phase A only ships a read path against the existing ``Bundle`` /
 ``CookbookSkill`` tables (added in PR #19). The full CRUD endpoints are
 Phase B's responsibility.
 """
