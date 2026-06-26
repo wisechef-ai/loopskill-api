@@ -352,6 +352,19 @@ def download_tarball(
     slug = data["slug"]
     version_id = data["version_id"]
 
+    # The signed token round-trips version_id as a STRING (json). SkillVersion.id
+    # is UUID(as_uuid=True); on SQLite (the self-host path) the type adapter calls
+    # .hex on the bound value and raises 'str object has no attribute hex' for a
+    # raw string — Postgres happens to coerce it, so this only bites self-hosters.
+    # Coerce defensively (accept already-UUID too) before the query.
+    from uuid import UUID as _UUID
+
+    if isinstance(version_id, str):
+        try:
+            version_id = _UUID(version_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Malformed version id in token") from exc
+
     version = db.query(SkillVersion).filter(SkillVersion.id == version_id).first()
     if not version:
         raise HTTPException(status_code=404, detail="Version not found")
