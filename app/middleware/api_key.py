@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
+from app.middleware._public_paths import PUBLIC_PREFIXES as _PUBLIC_PREFIXES
 
 logger = logging.getLogger("wiserecipes.middleware")
 
@@ -247,42 +248,9 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     # per LarryBrain spec §4.1; skill detail is public so agents can read SKILL.md
     # before deciding whether to subscribe — matches LarryBrain catalog browsing UX;
     # _download uses HMAC-signed token in the URL, no API key needed)
-    PUBLIC_PREFIXES = (
-        "/api/carousel/",
-        "/api/bootcamp",  # bootcamp_0607 — curated install curricula, public discovery surface (list + detail)
-        "/api/skills/search",
-        "/api/skills/trending",
-        "/api/skills/access",
-        "/api/skills/_download",
-        "/api/skills/external",  # evergreen_0206 F2 — external-only funnel: public discovery + fetch-origin install
-        "/api/stats",
-        "/api/forks/_download",
-        "/api/graph",  # B.5: graph extension — public read; master-only write enforced inline
-        # Phase D — anonymous heartbeat write endpoint (no API key required;
-        # mathematically anonymous schema, see app/heartbeat_routes.py). The
-        # READ endpoint /api/v1/fleet/weekly is gated separately (NOT public).
-        "/api/v1/heartbeat",
-        # Phase A v2 — MCP healthz/discovery is unauthenticated so MCP clients
-        # can probe server availability before sending credentials. Actual SSE
-        # transport (/api/mcp/sse) and message endpoint (/api/mcp/messages/)
-        # remain auth-required and re-validate the key per request.
-        "/api/mcp/healthz",
-        # top1pct_1105 Phase A — marketing counts is the SSOT for every public
-        # surface (hero, /skills, /pricing, /docs); reachable without auth so the
-        # static-build pipeline can pull it; no PII.
-        "/api/marketing/",
-        # spotify_0608 Ph B — public bundle discovery (CRUD stays auth-gated).
-        "/api/cookbooks/discover",
-        "/api/cookbooks/public/",
-        # spotify_0608 Ph G — public reputation leaderboards (verify stays auth-gated).
-        "/api/cookbooks/leaderboard",
-        # marketing_1205 — UTM redirectors for social platforms. Public, set cookie + 302.
-        "/x/",
-        "/li/",
-        "/ig/",
-        "/yt/",
-        "/fb/",
-    )
+    # Public (no-auth) read surfaces — see app/middleware/_public_paths.py
+    # (extracted to keep this module under the 600-line god-object cap).
+    PUBLIC_PREFIXES = _PUBLIC_PREFIXES
 
     # Phase A — POST /api/intent-survey is anonymous; GET /api/intent-survey/results
     # is admin-gated at the route level via x-api-key. Method-aware allowlist.
