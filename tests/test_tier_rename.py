@@ -329,13 +329,13 @@ class TestMarketingCountsCookbooksTotal:
         )
 
     def test_marketing_counts_queries_cookbook_visibility(self):
-        """marketing_counts queries Cookbook.visibility == 'public' for cookbooks_total."""
+        """marketing_counts queries Bundle.visibility == 'public' for cookbooks_total."""
         import inspect
         import app.marketing_routes as mr
 
         src = inspect.getsource(mr.marketing_counts)
-        assert "Cookbook" in src, (
-            "marketing_counts should query the Cookbook model"
+        assert "Bundle" in src, (
+            "marketing_counts should query the Bundle model"
         )
         assert 'visibility' in src, (
             "marketing_counts should filter by Cookbook.visibility"

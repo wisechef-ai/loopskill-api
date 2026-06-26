@@ -27,8 +27,8 @@ from app.mcp.tools import (
 )
 from app.models import (
     CarouselEntry,
-    Cookbook,
-    CookbookSkill,
+    Bundle,
+    BundleSkill,
     Skill,
     SkillVersion,
 )
@@ -99,11 +99,11 @@ def test_list_cookbook_returns_null_for_unknown_user(db_session):
 
 def test_list_cookbook_returns_skills_for_owner(db_session):
     owner_id = uuid4()
-    cb = Cookbook(id=uuid4(), name="My Book", bundle_owner=owner_id)
+    cb = Bundle(id=uuid4(), name="My Book", bundle_owner=owner_id)
     db_session.add(cb)
     skill = make_skill(db_session, slug="cb-skill", title="Cookbook Skill",
                        description="…", category="ops")
-    db_session.add(CookbookSkill(
+    db_session.add(BundleSkill(
         bundle_id=cb.id, skill_id=skill.id, source="forked"
     ))
     db_session.commit()

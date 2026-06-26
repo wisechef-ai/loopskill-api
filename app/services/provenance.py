@@ -37,7 +37,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from app.models import (
-    Cookbook,
+    Bundle,
     InstallEvent,
     ProvenanceRecord,
     Skill,
@@ -205,7 +205,7 @@ def _curator_target(db: "Session", cookbook_id: UUID | None) -> FeedbackTarget |
     """The cookbook curator's configured feedback repo, if any."""
     if cookbook_id is None:
         return None
-    cb = db.query(Cookbook).filter(Cookbook.id == cookbook_id).first()
+    cb = db.query(Bundle).filter(Bundle.id == cookbook_id).first()
     if cb is None or not cb.feedback_repo:
         return None
     return FeedbackTarget(

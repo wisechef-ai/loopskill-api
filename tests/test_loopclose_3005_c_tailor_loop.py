@@ -36,7 +36,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.auth_ctx import AuthContext
-from app.models import Base, Cookbook, Skill, SkillFork, User
+from app.models import Base, Bundle, Skill, SkillFork, User
 
 
 # ── DB fixtures (self-contained, mirrors test_integrator_w1_tailor.py) ────────
@@ -118,8 +118,8 @@ def _make_public_skill(db: Session, slug: str) -> Skill:
     return s
 
 
-def _make_cookbook(db: Session, owner: User) -> Cookbook:
-    cb = Cookbook(id=uuid4(), name="Test Cookbook", bundle_owner=owner.id, is_base=False)
+def _make_cookbook(db: Session, owner: User) -> Bundle:
+    cb = Bundle(id=uuid4(), name="Test Cookbook", bundle_owner=owner.id, is_base=False)
     db.add(cb)
     db.flush()
     return cb

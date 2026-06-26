@@ -15,7 +15,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.auth_ctx import AuthContext
 from app.database import get_db
-from app.models import Base, Cookbook, CookbookSkill, Skill, SkillVersion, User
+from app.models import Base, Bundle, BundleSkill, Skill, SkillVersion, User
 from app.reconcile_routes import router as reconcile_router
 
 
@@ -64,8 +64,8 @@ def _user(db: Session) -> User:
     return u
 
 
-def _cookbook(db: Session, owner: User) -> Cookbook:
-    cb = Cookbook(id=uuid4(), name="CB", is_base=False, bundle_owner=owner.id)
+def _cookbook(db: Session, owner: User) -> Bundle:
+    cb = Bundle(id=uuid4(), name="CB", is_base=False, bundle_owner=owner.id)
     db.add(cb)
     db.flush()
     return cb
@@ -112,7 +112,7 @@ def _app(db: Session, *, acting_user_id, api_key_id="key-1") -> FastAPI:
 
 def _generation(db: Session, cb_id) -> str:
     db.expire_all()
-    cb = db.query(Cookbook).filter(Cookbook.id == cb_id).first()
+    cb = db.query(Bundle).filter(Bundle.id == cb_id).first()
     return cb.updated_at.isoformat() if cb.updated_at else ""
 
 
@@ -122,7 +122,7 @@ class TestReconcileEndpoint:
         cb = _cookbook(db, owner)
         skill = _skill(db, "ep-add")
         db.add(
-            CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="overridden", pinned_version="1.0.0")
+            BundleSkill(bundle_id=cb.id, skill_id=skill.id, source="overridden", pinned_version="1.0.0")
         )
         db.commit()
 

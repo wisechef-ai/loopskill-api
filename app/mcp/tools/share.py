@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app import authz
 from app.auth_ctx import AuthContext
 from app._config_block_formatter import build_config_blocks
-from app.models import Cookbook
+from app.models import Bundle
 from app.share_token_routes import (
     _create_service,
     _list_service,
@@ -30,13 +30,13 @@ from app.share_token_routes import (
 )
 
 
-def _load_cookbook(db: Session, cookbook_id: str) -> Cookbook | None:
+def _load_cookbook(db: Session, cookbook_id: str) -> Bundle | None:
     """Load a Cookbook by UUID string; return None on bad ID or missing row."""
     try:
         cid = UUID(cookbook_id)
     except (ValueError, TypeError):
         return None
-    return db.query(Cookbook).filter(Cookbook.id == cid).first()
+    return db.query(Bundle).filter(Bundle.id == cid).first()
 
 
 def recipes_share_create(

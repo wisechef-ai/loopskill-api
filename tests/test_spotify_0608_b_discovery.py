@@ -22,8 +22,8 @@ from app.database import get_db
 from app.models import (
     APIKey,
     Base,
-    Cookbook,
-    CookbookSkill,
+    Bundle,
+    BundleSkill,
     InstallEvent,
     Skill,
     User,
@@ -90,7 +90,7 @@ def _mk_user(db, tier="pro"):
 
 
 def _mk_cookbook(db, owner, slug, visibility="public", name="CB"):
-    cb = Cookbook(
+    cb = Bundle(
         id=uuid.uuid4(),
         name=name,
         bundle_owner=owner.id,
@@ -110,7 +110,7 @@ def _mk_skill(db, slug):
 
 
 def _attach(db, cb, skill, source="custom-added"):
-    db.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source=source))
+    db.add(BundleSkill(bundle_id=cb.id, skill_id=skill.id, source=source))
     db.commit()
 
 

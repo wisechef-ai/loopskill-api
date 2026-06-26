@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.auth_routes import get_current_user_optional
 from app.database import get_db
-from app.models import APIKey, Cookbook, InstallEvent, User
+from app.models import APIKey, Bundle, InstallEvent, User
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["api-keys"])
@@ -180,8 +180,8 @@ async def create_api_key(
             raise HTTPException(status_code=400, detail="invalid_cookbook_id")
 
         cb = (
-            db.query(Cookbook)  # compat-alias
-            .filter(Cookbook.id == cookbook_id, Cookbook.bundle_owner == user.id)  # compat-alias
+            db.query(Bundle)  # compat-alias
+            .filter(Bundle.id == cookbook_id, Bundle.bundle_owner == user.id)  # compat-alias
             .first()
         )
         if not cb:

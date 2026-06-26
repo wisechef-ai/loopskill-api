@@ -282,7 +282,7 @@ class TestDogfoodIsolationProbe:
         from sqlalchemy.orm import sessionmaker
         from sqlalchemy.pool import StaticPool
 
-        from app.models import Base, Cookbook, User
+        from app.models import Base, Bundle, User
         from app.services.reconcile import recipes_reconcile
         from app.auth_ctx import AuthContext
 
@@ -308,7 +308,7 @@ class TestDogfoodIsolationProbe:
         )
         db.add_all([owner, intruder])
         db.flush()
-        cb = Cookbook(id=uuid4(), name="Chef Internal Cookbook", is_base=False, bundle_owner=owner.id)
+        cb = Bundle(id=uuid4(), name="Chef Internal Cookbook", is_base=False, bundle_owner=owner.id)
         db.add(cb)
         db.commit()
 

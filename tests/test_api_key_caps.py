@@ -23,7 +23,7 @@ from sqlalchemy.pool import StaticPool
 from app.api_key_routes import router as api_key_router
 from app.auth_routes import get_current_user_optional
 from app.database import get_db
-from app.models import APIKey, Base, Cookbook, User
+from app.models import APIKey, Base, Bundle, User
 
 
 # ── In-memory DB fixture ───────────────────────────────────────────────────
@@ -67,8 +67,8 @@ def _make_user(db: Session, tier: str = "free", status: str = "active") -> User:
     return u
 
 
-def _make_cookbook(db: Session, owner: User) -> Cookbook:
-    cb = Cookbook(
+def _make_cookbook(db: Session, owner: User) -> Bundle:
+    cb = Bundle(
         id=uuid4(),
         name="Test Cookbook",
         is_base=False,

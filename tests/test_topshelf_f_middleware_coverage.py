@@ -461,13 +461,13 @@ class TestCbtTokenValidation:
     def _make_cbt_token_and_row(self, db_session, *, allow_public_catalog: bool = False):
         """Create a CookbookShareToken row and return (plaintext_key, cookbook_id)."""
         import secrets
-        from app.models import CookbookShareToken, User, Cookbook
+        from app.models import BundleShareToken, User, Bundle
 
         user = User(id=uuid4(), display_name="T", email=f"{uuid4()}@t.com")
         db_session.add(user)
         db_session.flush()
 
-        cb = Cookbook(
+        cb = Bundle(
             id=uuid4(),
             name="TestCB",
             description="x",
@@ -482,7 +482,7 @@ class TestCbtTokenValidation:
         plaintext = f"cbt_{prefix}_{rand}"
         key_hash = hashlib.sha256(plaintext.encode()).hexdigest()
 
-        row = CookbookShareToken(
+        row = BundleShareToken(
             id=uuid4(),
             bundle_id=cb.id,
             token_prefix=prefix,
@@ -586,7 +586,7 @@ class TestCookbookHostMiddleware:
 
     def test_matching_custom_domain_stamps_cookbook_id(self):
         """Known custom domain → stamps cookbook_id on request.state."""
-        from app.models import Cookbook as CookbookModel
+        from app.models import Bundle as CookbookModel
 
         mock_cb = MagicMock(spec=CookbookModel)
         mock_cb.id = uuid4()

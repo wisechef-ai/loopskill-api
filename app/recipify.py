@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from app._creator_helpers import _resolve_or_create_creator
 from app.auth_ctx import AuthContext
 from app.embeddings import cosine, embed_skill, embed_text
-from app.models import Cookbook, CookbookSkill, Skill
+from app.models import Bundle, BundleSkill, Skill
 
 CANONICAL_CATEGORIES = [
     "research",
@@ -287,10 +287,10 @@ def infer_related_skills(
     """
     target = embed_text(text or "")
     rows = (
-        db.query(CookbookSkill, Skill)
-        .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(CookbookSkill.bundle_id == cookbook_id)  # compat-alias
-        .filter(CookbookSkill.source != "disabled")
+        db.query(BundleSkill, Skill)
+        .join(Skill, Skill.id == BundleSkill.skill_id)
+        .filter(BundleSkill.bundle_id == cookbook_id)  # compat-alias
+        .filter(BundleSkill.source != "disabled")
         .all()
     )
     scored: list[tuple[float, str]] = []
@@ -321,7 +321,7 @@ def write_cookbook_skill(
     tier: str = "pro",
     is_public: bool | None = None,
     ctx: AuthContext | None = None,
-) -> tuple[CookbookSkill, str]:
+) -> tuple[BundleSkill, str]:
     """Upsert Skill + CookbookSkill rows. Returns (row, status).
 
     status is "created" the first time the slug appears in this cookbook;
@@ -373,20 +373,20 @@ def write_cookbook_skill(
         skill.tier = tier
         skill.is_public = resolved_is_public
 
-    cb = db.query(Cookbook).filter(Cookbook.id == target_cookbook_id).first()
+    cb = db.query(Bundle).filter(Bundle.id == target_cookbook_id).first()
     if cb is None:
         raise ValidationError(f"cookbook not found: {target_cookbook_id}")
 
     cs = (
-        db.query(CookbookSkill)
+        db.query(BundleSkill)
         .filter(
-            CookbookSkill.bundle_id == cb.id,  # compat-alias
-            CookbookSkill.skill_id == skill.id,
+            BundleSkill.bundle_id == cb.id,  # compat-alias
+            BundleSkill.skill_id == skill.id,
         )
         .first()
     )
     if cs is None:
-        cs = CookbookSkill(
+        cs = BundleSkill(
             bundle_id=cb.id,
             skill_id=skill.id,
             source="custom-added",

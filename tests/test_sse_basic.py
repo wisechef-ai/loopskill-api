@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import get_db
-from app.models import Base, Cookbook, User
+from app.models import Base, Bundle, User
 from app.sync_fanout import publish_event, reset_fanout
 
 
@@ -54,7 +54,7 @@ def db_session(engine_fixture) -> Generator[Session, None, None]:
         s.close()
 
 
-def _make_user_and_cookbook(db: Session, *, tier: str = "cook") -> tuple[User, Cookbook]:
+def _make_user_and_cookbook(db: Session, *, tier: str = "cook") -> tuple[User, Bundle]:
     user = User(
         id=uuid4(),
         display_name="SSE Tester",
@@ -64,7 +64,7 @@ def _make_user_and_cookbook(db: Session, *, tier: str = "cook") -> tuple[User, C
     )
     db.add(user)
     db.flush()
-    cb = Cookbook(id=uuid4(), name="SSE Cookbook", bundle_owner=user.id)
+    cb = Bundle(id=uuid4(), name="SSE Cookbook", bundle_owner=user.id)
     db.add(cb)
     db.commit()
     return user, cb

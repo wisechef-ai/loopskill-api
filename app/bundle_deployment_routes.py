@@ -42,7 +42,7 @@ from sqlalchemy.orm import Session
 from app.auth_routes import get_current_user_optional
 from app.bundle_preflight import run_preflight
 from app.database import get_db
-from app.models import Cookbook, CookbookDeployment, InstallEvent, Skill, User
+from app.models import Bundle, BundleDeployment, InstallEvent, Skill, User
 
 logger = logging.getLogger(__name__)
 _h = APIRouter(tags=["bundle-deploy"])  # Phase 3+4: handlers prefix-free; combined router below
@@ -97,7 +97,7 @@ def _slugify(name: str) -> str:
     return s
 
 
-def _cookbook_dict(cb: Cookbook) -> dict:
+def _cookbook_dict(cb: Bundle) -> dict:
     return {
         "id": str(cb.id),
         "owner_id": str(cb.bundle_owner) if cb.bundle_owner else None,
@@ -113,12 +113,12 @@ def _cookbook_dict(cb: Cookbook) -> dict:
     }
 
 
-def _resolve_cookbook_or_404(db: Session, cookbook_id: str, user: User) -> Cookbook:
+def _resolve_cookbook_or_404(db: Session, cookbook_id: str, user: User) -> Bundle:
     try:
         cb_uuid = UUID(cookbook_id)
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="invalid_cookbook_id")
-    cb = db.query(Cookbook).filter(Cookbook.id == cb_uuid).first()
+    cb = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
     if not cb:
         raise HTTPException(status_code=404, detail="cookbook_not_found")
     if cb.bundle_owner != user.id:
@@ -145,11 +145,11 @@ async def create_deploy_cookbook(
     base_slug = _slugify(req.name)
     slug = base_slug
     suffix = 0
-    while db.query(Cookbook).filter(Cookbook.slug == slug).first() is not None:
+    while db.query(Bundle).filter(Bundle.slug == slug).first() is not None:
         suffix += 1
         slug = f"{base_slug}-{suffix}"
 
-    cb = Cookbook(
+    cb = Bundle(
         id=uuid.uuid4(),
         bundle_owner=user.id,
         name=req.name,
@@ -173,9 +173,9 @@ async def list_deploy_cookbooks(
     """List all deployment cookbooks owned by the authenticated Pro user."""
     user = _require_deploy_tier(user)
     rows = (
-        db.query(Cookbook)
-        .filter(Cookbook.bundle_owner == user.id, Cookbook.slug.isnot(None))  # compat-alias
-        .order_by(Cookbook.created_at.desc())
+        db.query(Bundle)
+        .filter(Bundle.bundle_owner == user.id, Bundle.slug.isnot(None))  # compat-alias
+        .order_by(Bundle.created_at.desc())
         .all()
     )
     return {"cookbooks": [_cookbook_dict(c) for c in rows]}
@@ -215,7 +215,7 @@ async def add_deployment(
         # FK-checking it here. The DB-level FK (when both branches merge)
         # provides ultimate integrity.
 
-    row = CookbookDeployment(
+    row = BundleDeployment(
         id=uuid.uuid4(),
         bundle_id=cb.id,
         skill_id=skill_uuid,
@@ -253,10 +253,10 @@ async def remove_deployment(
         raise HTTPException(status_code=400, detail="invalid_skill_id")
 
     rows = (
-        db.query(CookbookDeployment)
+        db.query(BundleDeployment)
         .filter(
-            CookbookDeployment.bundle_id == cb.id,  # compat-alias
-            (CookbookDeployment.skill_id == skill_uuid) | (CookbookDeployment.fork_id == skill_uuid),
+            BundleDeployment.bundle_id == cb.id,  # compat-alias
+            (BundleDeployment.skill_id == skill_uuid) | (BundleDeployment.fork_id == skill_uuid),
         )
         .all()
     )
@@ -284,9 +284,9 @@ async def apply_cookbook(
     user = _require_deploy_tier(user)
     cb = _resolve_cookbook_or_404(db, cookbook_id, user)
     rows = (
-        db.query(CookbookDeployment)
-        .filter(CookbookDeployment.bundle_id == cb.id)  # compat-alias
-        .order_by(CookbookDeployment.install_order.asc())
+        db.query(BundleDeployment)
+        .filter(BundleDeployment.bundle_id == cb.id)  # compat-alias
+        .order_by(BundleDeployment.install_order.asc())
         .all()
     )
 
@@ -377,16 +377,16 @@ async def cookbook_deploy_manifest(
     emitted by id only since the source tarballs require an authenticated
     install against `/api/forks/{id}/install`.
     """
-    cb = db.query(Cookbook).filter(Cookbook.slug == slug).first()
+    cb = db.query(Bundle).filter(Bundle.slug == slug).first()
     if not cb:
         raise HTTPException(status_code=404, detail="cookbook_not_found")
     if cb.visibility == "private":
         raise HTTPException(status_code=404, detail="cookbook_not_found")
 
     rows = (
-        db.query(CookbookDeployment)
-        .filter(CookbookDeployment.bundle_id == cb.id)  # compat-alias
-        .order_by(CookbookDeployment.install_order.asc())
+        db.query(BundleDeployment)
+        .filter(BundleDeployment.bundle_id == cb.id)  # compat-alias
+        .order_by(BundleDeployment.install_order.asc())
         .all()
     )
     skills = []

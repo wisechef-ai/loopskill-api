@@ -28,7 +28,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Cookbook, CookbookShareToken
+from app.models import Bundle, BundleShareToken
 
 if TYPE_CHECKING:
     from app.auth_ctx import AuthContext
@@ -105,7 +105,7 @@ def _get_cookbook_and_check_scope(
     request: Request,
     db: Session,
     cookbook_id: str,
-) -> Cookbook:
+) -> Bundle:
     """Load cookbook and enforce cbt_ scope rules.
 
     Returns the Cookbook if all checks pass.
@@ -132,7 +132,7 @@ def _get_cookbook_and_check_scope(
     except (ValueError, TypeError):
         raise HTTPException(status_code=404, detail="cookbook_not_found")
 
-    cb = db.query(Cookbook).filter(Cookbook.id == cid).first()
+    cb = db.query(Bundle).filter(Bundle.id == cid).first()
     if cb is None:
         raise HTTPException(status_code=404, detail="cookbook_not_found")
 
@@ -145,7 +145,7 @@ def _get_cookbook_and_check_scope(
 # ── Auth helpers ─────────────────────────────────────────────────────────
 
 
-def _require_owner(request: Request, db: Session, cookbook_id: str) -> Cookbook:
+def _require_owner(request: Request, db: Session, cookbook_id: str) -> Bundle:
     """Require that the caller owns the cookbook (rec_ key user) or is master.
 
     cbt_ tokens CANNOT create/manage share tokens (only rec_ keys can).
@@ -169,7 +169,7 @@ def _require_owner(request: Request, db: Session, cookbook_id: str) -> Cookbook:
     except (ValueError, TypeError):
         raise HTTPException(status_code=404, detail="cookbook_not_found")
 
-    cb = db.query(Cookbook).filter(Cookbook.id == cid).first()
+    cb = db.query(Bundle).filter(Bundle.id == cid).first()
     if cb is None:
         raise HTTPException(status_code=404, detail="cookbook_not_found")
 
@@ -200,7 +200,7 @@ def _generate_token(cookbook_id: UUID) -> tuple[str, str, str]:
 def _create_service(
     db: Session,
     *,
-    cookbook: Cookbook,
+    cookbook: Bundle,
     name: str | None = None,
     scope: str = "install",
     created_by=None,
@@ -223,7 +223,7 @@ def _create_service(
 
     full_token, token_hash, token_prefix = _generate_token(cookbook.id)
 
-    row = CookbookShareToken(
+    row = BundleShareToken(
         id=uuid4(),
         bundle_id=cookbook.id,  # compat-alias
         token_hash=token_hash,
@@ -275,7 +275,7 @@ def _create_share_token_service(
     except (ValueError, TypeError):
         raise HTTPException(status_code=404, detail="cookbook_not_found")
 
-    cb = db.query(Cookbook).filter(Cookbook.id == cid).first()
+    cb = db.query(Bundle).filter(Bundle.id == cid).first()
     if cb is None:
         raise HTTPException(status_code=404, detail="cookbook_not_found")
 
@@ -295,7 +295,7 @@ def _create_share_token_service(
     )
 
 
-def _list_service(db: Session, *, cookbook: Cookbook) -> list[dict]:
+def _list_service(db: Session, *, cookbook: Bundle) -> list[dict]:
     """Core logic for listing share tokens for a cookbook.
 
     Args:
@@ -306,9 +306,9 @@ def _list_service(db: Session, *, cookbook: Cookbook) -> list[dict]:
         List of token metadata dicts (no plaintext).
     """
     rows = (
-        db.query(CookbookShareToken)
-        .filter(CookbookShareToken.bundle_id == cookbook.id)  # compat-alias
-        .order_by(CookbookShareToken.created_at.desc())
+        db.query(BundleShareToken)
+        .filter(BundleShareToken.bundle_id == cookbook.id)  # compat-alias
+        .order_by(BundleShareToken.created_at.desc())
         .all()
     )
 
@@ -329,7 +329,7 @@ def _list_service(db: Session, *, cookbook: Cookbook) -> list[dict]:
 def _rotate_service(
     db: Session,
     *,
-    cookbook: Cookbook,
+    cookbook: Bundle,
     token_id: str,
     created_by=None,
 ) -> dict:
@@ -352,10 +352,10 @@ def _rotate_service(
         raise HTTPException(status_code=404, detail="token_not_found")
 
     old = (
-        db.query(CookbookShareToken)
+        db.query(BundleShareToken)
         .filter(
-            CookbookShareToken.id == tid,
-            CookbookShareToken.bundle_id == cookbook.id,  # compat-alias
+            BundleShareToken.id == tid,
+            BundleShareToken.bundle_id == cookbook.id,  # compat-alias
         )
         .with_for_update()  # SECURITY: serialize concurrent rotates so two
         # parallel calls cannot both produce a new active
@@ -371,7 +371,7 @@ def _rotate_service(
     # Create new with same name + scope
     full_token, token_hash, token_prefix = _generate_token(cookbook.id)
 
-    new_row = CookbookShareToken(
+    new_row = BundleShareToken(
         id=uuid4(),
         bundle_id=cookbook.id,  # compat-alias
         token_hash=token_hash,
@@ -398,7 +398,7 @@ def _rotate_service(
 def _revoke_service(
     db: Session,
     *,
-    cookbook: Cookbook,
+    cookbook: Bundle,
     token_id: str,
 ) -> None:
     """Core logic for revoking (soft-deleting) a share token.
@@ -417,10 +417,10 @@ def _revoke_service(
         raise HTTPException(status_code=404, detail="token_not_found")
 
     row = (
-        db.query(CookbookShareToken)
+        db.query(BundleShareToken)
         .filter(
-            CookbookShareToken.id == tid,
-            CookbookShareToken.bundle_id == cookbook.id,  # compat-alias
+            BundleShareToken.id == tid,
+            BundleShareToken.bundle_id == cookbook.id,  # compat-alias
         )
         .first()
     )

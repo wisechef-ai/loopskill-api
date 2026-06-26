@@ -18,7 +18,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Skill, WiseChefDemoRequest, Cookbook
+from app.models import Skill, WiseChefDemoRequest, Bundle
 from app.schemas import DemoCTAOut, DemoRequestIn, DemoRequestOut
 from app.tier_labels import display_label
 
@@ -108,8 +108,8 @@ def marketing_counts(db: Session = Depends(get_db)) -> dict:
 
     # Public bundle count — surfaces the discoverable catalog size
     cookbooks_total = (
-        db.query(func.count(Cookbook.id))
-        .filter(Cookbook.visibility == "public")  # noqa: E712
+        db.query(func.count(Bundle.id))
+        .filter(Bundle.visibility == "public")  # noqa: E712
         .scalar()
         or 0
     )

@@ -22,7 +22,7 @@ from fastapi.testclient import TestClient
 from app.database import get_db
 from app.demand_routes import build_demand_brief, router as demand_router
 from app.models import (
-    Cookbook,
+    Bundle,
     InstallEvent,
     MissingSkillQuery,
     SkillDerivedEdge,
@@ -160,7 +160,7 @@ def test_activation_theme_suppressed_when_cookbooks_and_fleets_active(db_session
         )
     )
     # adopted (non-base) cookbook + a fleet → funnel is activated
-    db_session.add(Cookbook(id=uuid4(), name="agency-bundle", is_base=False))
+    db_session.add(Bundle(id=uuid4(), name="agency-bundle", is_base=False))
     from app.models import Fleet
 
     db_session.add(Fleet(id=uuid4(), owner_user_id=uuid4(), name="my-fleet", fleet_api_key_hash="x" * 64))

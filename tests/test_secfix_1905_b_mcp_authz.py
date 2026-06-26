@@ -30,8 +30,8 @@ from app.mcp.tools.recipify import recipes_recipify
 from app.mcp.tools.recipes_sync import recipes_sync
 from app.models import (
     APIKey,
-    Cookbook,
-    CookbookSkill,
+    Bundle,
+    BundleSkill,
     Skill,
     SkillVersion,
     User,
@@ -290,7 +290,7 @@ class TestIssue7RecipifyCrossTenantRed:
             subscription_tier="cook",
             subscription_status="active",
         )
-        user_a_cookbook = Cookbook(
+        user_a_cookbook = Bundle(
             id=uuid4(),
             name="Alice's Private Cookbook",
             bundle_owner=user_a.id,
@@ -314,7 +314,7 @@ class TestIssue7RecipifyCrossTenantRed:
 
     def test_red_anonymous_cannot_write_cookbook(self, db_session):
         """RED: anonymous caller cannot write to any cookbook."""
-        cb = Cookbook(id=uuid4(), name="Anon Target", bundle_owner=uuid4())
+        cb = Bundle(id=uuid4(), name="Anon Target", bundle_owner=uuid4())
         db_session.add(cb)
         db_session.flush()
 
@@ -333,7 +333,7 @@ class TestIssue7RecipifyCrossTenantRed:
     def test_red_owner_can_write_own_cookbook(self, db_session):
         """GREEN (sanity): the legitimate owner CAN write their cookbook."""
         owner_id = uuid4()
-        cb = Cookbook(id=uuid4(), name="Owner CB", bundle_owner=owner_id)
+        cb = Bundle(id=uuid4(), name="Owner CB", bundle_owner=owner_id)
         db_session.add(cb)
         db_session.flush()
 
@@ -351,7 +351,7 @@ class TestIssue7RecipifyCrossTenantRed:
 
     def test_red_master_can_write_any_cookbook(self, db_session):
         """GREEN (sanity): master scope can write ANY cookbook."""
-        cb = Cookbook(id=uuid4(), name="Master Target CB", bundle_owner=uuid4())
+        cb = Bundle(id=uuid4(), name="Master Target CB", bundle_owner=uuid4())
         db_session.add(cb)
         db_session.flush()
 
@@ -383,10 +383,10 @@ class TestIssue15SyncRed:
 
     def _setup_cookbook_with_outdated_skill(
         self, db, semver_old="1.0.0", semver_new="1.1.0"
-    ) -> tuple[Cookbook, Skill, SkillVersion, CookbookSkill]:
+    ) -> tuple[Bundle, Skill, SkillVersion, BundleSkill]:
         """Create a cookbook with one outdated pinned skill version."""
         owner_id = uuid4()
-        cookbook = Cookbook(
+        cookbook = Bundle(
             id=uuid4(), name="SyncTestCB", bundle_owner=owner_id
         )
         db.add(cookbook)
@@ -404,7 +404,7 @@ class TestIssue15SyncRed:
         )
         db.add_all([old_ver, new_ver])
         db.flush()  # flush skill and versions before CookbookSkill FK
-        cs = CookbookSkill(
+        cs = BundleSkill(
             bundle_id=cookbook.id,
             skill_id=skill.id,
             source="forked",
@@ -457,9 +457,9 @@ class TestIssue15SyncRed:
 
         # Force reload from DB
         db_session.expire_all()
-        updated_cs = db_session.query(CookbookSkill).filter(
-            CookbookSkill.bundle_id == cookbook.id,
-            CookbookSkill.skill_id == skill.id,
+        updated_cs = db_session.query(BundleSkill).filter(
+            BundleSkill.bundle_id == cookbook.id,
+            BundleSkill.skill_id == skill.id,
         ).one()
         assert updated_cs.pinned_version == "2.0.0", (
             f"BUG: pinned_version not updated, got {updated_cs.pinned_version!r}"
@@ -583,7 +583,7 @@ class TestIssue13CookbookScopedKey:
         db_session.flush()  # flush User first for FK
 
         cb_id = uuid4()
-        cb = Cookbook(id=cb_id, name="ScopedCB", bundle_owner=owner_id)
+        cb = Bundle(id=cb_id, name="ScopedCB", bundle_owner=owner_id)
         db_session.add(cb)
         db_session.flush()
 
@@ -638,10 +638,10 @@ class TestIssue13CookbookScopedKey:
     def test_end_to_end_scoped_key_blocks_other_cookbook(self, db_session):
         """End-to-end: cookbook-scoped key + wrong cookbook → cookbook_forbidden."""
         owner_id = uuid4()
-        cb_allowed = Cookbook(
+        cb_allowed = Bundle(
             id=uuid4(), name="Allowed CB", bundle_owner=owner_id
         )
-        cb_other = Cookbook(
+        cb_other = Bundle(
             id=uuid4(), name="Other CB", bundle_owner=owner_id
         )
         db_session.add_all([cb_allowed, cb_other])

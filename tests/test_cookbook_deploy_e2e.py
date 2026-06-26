@@ -37,7 +37,7 @@ from app.middleware import APIKeyMiddleware
 from app.models import (
     APIKey,
     Base,
-    Cookbook,
+    Bundle,
     InstallEvent,
     Skill,
     SkillVersion,
@@ -98,7 +98,7 @@ class TestCookbookClientDeployE2E:
         db.refresh(user)
 
         # ── Step 2: Create cookbook ────────────────────────────────────────
-        cookbook = Cookbook(
+        cookbook = Bundle(
             id=uuid4(),
             name="Client Cookbook",
             is_base=False,

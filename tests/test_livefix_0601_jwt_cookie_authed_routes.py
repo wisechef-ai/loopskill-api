@@ -30,7 +30,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.models import Base, Cookbook, User
+from app.models import Base, Bundle, User
 
 
 @pytest.fixture()
@@ -63,7 +63,7 @@ def app_and_data(db_engine, monkeypatch):
     )
     session.add(user)
 
-    cb = Cookbook(
+    cb = Bundle(
         id=uuid.uuid4(),
         bundle_owner=uid,
         name="My Cookbook",

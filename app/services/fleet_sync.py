@@ -21,7 +21,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth_ctx import AuthContext
-from app.models import Cookbook, CookbookSkill, FleetSubscription, Skill
+from app.models import Bundle, BundleSkill, FleetSubscription, Skill
 from app.services.channel_select import FROZEN, latest_version_for_channel
 
 
@@ -34,14 +34,14 @@ def _channel_outdated(db: Session, cookbook_id: UUID, channel: str) -> list[dict
     """
     rows = (
         db.query(
-            CookbookSkill.skill_id,
+            BundleSkill.skill_id,
             Skill.slug,
-            CookbookSkill.pinned_version,
+            BundleSkill.pinned_version,
         )
-        .join(Skill, Skill.id == CookbookSkill.skill_id)
+        .join(Skill, Skill.id == BundleSkill.skill_id)
         .filter(
-            CookbookSkill.bundle_id == cookbook_id,  # compat-alias
-            CookbookSkill.source != "disabled",
+            BundleSkill.bundle_id == cookbook_id,  # compat-alias
+            BundleSkill.source != "disabled",
         )
         .all()
     )
@@ -112,12 +112,12 @@ def sync_fleet(
         applied = False
         if not dry_run and outdated:
             for o in outdated:
-                db.query(CookbookSkill).filter(
-                    CookbookSkill.bundle_id == sub.bundle_id,  # compat-alias
-                    CookbookSkill.skill_id == o["skill_id"],
+                db.query(BundleSkill).filter(
+                    BundleSkill.bundle_id == sub.bundle_id,  # compat-alias
+                    BundleSkill.skill_id == o["skill_id"],
                 ).update({"pinned_version": o["to"]})
             # evergreen_0206 Phase A: advance the generation token on mutation.
-            db.query(Cookbook).filter(Cookbook.id == sub.bundle_id).update(  # compat-alias
+            db.query(Bundle).filter(Bundle.id == sub.bundle_id).update(  # compat-alias
                 {"updated_at": func.now()}, synchronize_session=False
             )
             db.commit()

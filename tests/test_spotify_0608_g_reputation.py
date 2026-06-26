@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import get_db
-from app.models import Base, Cookbook, CookbookSkill, InstallEvent, Skill, User
+from app.models import Base, Bundle, BundleSkill, InstallEvent, Skill, User
 
 
 @pytest.fixture(scope="module")
@@ -99,7 +99,7 @@ def _mk_user(db):
 
 
 def _mk_cb(db, owner, slug, *, visibility="public", verified=False, created=None):
-    cb = Cookbook(
+    cb = Bundle(
         id=uuid.uuid4(),
         name=slug,
         bundle_owner=owner.id,
@@ -122,7 +122,7 @@ def _mk_skill(db, slug):
 
 
 def _attach(db, cb, skill):
-    db.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
+    db.add(BundleSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
     db.commit()
 
 

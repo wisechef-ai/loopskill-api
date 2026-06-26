@@ -35,8 +35,8 @@ from app.mcp.tools.bundle_stream import (
 )
 from app.models import (
     Base,
-    Cookbook,
-    CookbookSkill,
+    Bundle,
+    BundleSkill,
     InstallEvent,
     Skill,
     SkillVersion,
@@ -93,7 +93,7 @@ def _mk_user(db, tier="pro"):
 
 
 def _mk_cookbook(db, owner, slug, visibility="public", name="CB"):
-    cb = Cookbook(
+    cb = Bundle(
         id=uuid.uuid4(),
         name=name,
         bundle_owner=owner.id if owner else None,
@@ -131,7 +131,7 @@ def _mk_version(db, skill, semver="1.0.0"):
 
 
 def _attach(db, cb, skill, source="custom-added"):
-    db.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source=source))
+    db.add(BundleSkill(bundle_id=cb.id, skill_id=skill.id, source=source))
     db.commit()
 
 
@@ -373,7 +373,7 @@ def test_compose_unions_skills_from_multiple_links(db):
     assert {s["slug"] for s in out["skills"]} == {"summarize-cli", "super-memory", "chef"}
     assert out["name"] == "My Awakened Agent"
     # new cookbook persisted + owned by caller
-    cb = db.query(Cookbook).filter(Cookbook.id == uuid.UUID(out["cookbook"])).first()
+    cb = db.query(Bundle).filter(Bundle.id == uuid.UUID(out["cookbook"])).first()
     assert cb is not None and cb.bundle_owner == owner.id
     assert cb.visibility == "private"
 

@@ -173,7 +173,7 @@ def _get_or_create_system_user(db, User):
 
 def seed(dry_run: bool = False) -> int:
     from app.database import SessionLocal
-    from app.models import Cookbook, CookbookSkill, Skill, User
+    from app.models import Bundle, BundleSkill, Skill, User
 
     db = SessionLocal()
     created, updated, missing_slugs = 0, 0, []
@@ -188,13 +188,13 @@ def seed(dry_run: bool = False) -> int:
 
         for spec in EDITORIAL_COOKBOOKS:
             slug = spec["slug"]
-            cb = db.query(Cookbook).filter(Cookbook.slug == slug).first()
+            cb = db.query(Bundle).filter(Bundle.slug == slug).first()
             is_new = cb is None
             if is_new:
                 # Owner MUST be set at construction — the DB CHECK
                 # ck_cookbooks_owner_required (is_base OR owner NOT NULL) fires
                 # on flush, so a post-flush assignment is too late.
-                cb = Cookbook(
+                cb = Bundle(
                     id=uuid4(),
                     name=spec["name"],
                     slug=slug,
@@ -229,15 +229,15 @@ def seed(dry_run: bool = False) -> int:
                     missing_slugs.append(f"{slug}:{sk_slug}")
                     continue
                 exists = (
-                    db.query(CookbookSkill)
+                    db.query(BundleSkill)
                     .filter(
-                        CookbookSkill.bundle_id == cb.id,
-                        CookbookSkill.skill_id == skill.id,
+                        BundleSkill.bundle_id == cb.id,
+                        BundleSkill.skill_id == skill.id,
                     )
                     .first()
                 )
                 if exists is None:
-                    db.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
+                    db.add(BundleSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
 
         if dry_run:
             print(f"[dry-run] would create={created} update={updated}")
@@ -252,8 +252,8 @@ def seed(dry_run: bool = False) -> int:
             print(f"WARNING — missing catalog slugs (skipped, not fabricated): {missing_slugs}")
         # Verification read-back.
         n_public = (
-            db.query(Cookbook)
-            .filter(Cookbook.bundle_owner == system.id, Cookbook.visibility == "public")
+            db.query(Bundle)
+            .filter(Bundle.bundle_owner == system.id, Bundle.visibility == "public")
             .count()
         )
         print(f"verify: {n_public} public editorial cookbooks owned by {system.email}")

@@ -34,11 +34,11 @@ class CookbookHostMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         from app.database import SessionLocal
-        from app.models import Cookbook
+        from app.models import Bundle
 
         db = SessionLocal()
         try:
-            cookbook = db.query(Cookbook).filter(Cookbook.custom_domain == host).first()
+            cookbook = db.query(Bundle).filter(Bundle.custom_domain == host).first()
             if cookbook:
                 request.state.cookbook_id = str(cookbook.id)
                 request.state.cookbook_slug = cookbook.slug

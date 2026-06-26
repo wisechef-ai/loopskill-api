@@ -57,16 +57,16 @@ def _mk_key(db, user):
 
 
 def _mk_cookbook(db, owner, *, visibility="private"):
-    from app.models import Cookbook
+    from app.models import Bundle
 
-    cb = Cookbook(id=uuid.uuid4(), name="deck", bundle_owner=owner.id, visibility=visibility)
+    cb = Bundle(id=uuid.uuid4(), name="deck", bundle_owner=owner.id, visibility=visibility)
     db.add(cb)
     db.flush()
     return cb
 
 
 def _add_skill(db, cb, slug):
-    from app.models import Skill, CookbookSkill
+    from app.models import Skill, BundleSkill
 
     sk = Skill(
         id=uuid.uuid4(),
@@ -79,7 +79,7 @@ def _add_skill(db, cb, slug):
     )
     db.add(sk)
     db.flush()
-    db.add(CookbookSkill(bundle_id=cb.id, skill_id=sk.id, source="custom-added"))
+    db.add(BundleSkill(bundle_id=cb.id, skill_id=sk.id, source="custom-added"))
     db.flush()
     return sk
 

@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.embeddings import embed_text, is_model_loaded
-from app.models import Cookbook, CookbookSkill, Skill, User
+from app.models import Bundle, BundleSkill, Skill, User
 from app.ranking import TIER_RANK, combine, score_bm25, score_vector
 
 logger = logging.getLogger(__name__)
@@ -145,10 +145,10 @@ def recall_skills(
     if user_id is not None:
         try:
             rows = (
-                db.query(CookbookSkill.skill_id)
-                .join(Cookbook, Cookbook.id == CookbookSkill.bundle_id)  # compat-alias
-                .filter(Cookbook.bundle_owner == user_id)  # compat-alias
-                .filter(CookbookSkill.source != "disabled")
+                db.query(BundleSkill.skill_id)
+                .join(Bundle, Bundle.id == BundleSkill.bundle_id)  # compat-alias
+                .filter(Bundle.bundle_owner == user_id)  # compat-alias
+                .filter(BundleSkill.source != "disabled")
                 .all()
             )
             in_cookbook_skill_ids = {r[0] for r in rows}

@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.database as appdb
-from app.models import Base, Cookbook, CookbookSkill, Skill, User
+from app.models import Base, Bundle, BundleSkill, Skill, User
 
 # Load the seed script as a module (scripts/ isn't a package).
 _SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "seed_editorial_cookbooks.py"
@@ -79,7 +79,7 @@ def test_seed_creates_system_user_and_public_cookbooks(db):
 
     system = db.query(User).filter(User.email == seed_mod.SYSTEM_EMAIL).first()
     assert system is not None
-    cbs = db.query(Cookbook).filter(Cookbook.bundle_owner == system.id).all()
+    cbs = db.query(Bundle).filter(Bundle.bundle_owner == system.id).all()
     assert len(cbs) == len(seed_mod.EDITORIAL_COOKBOOKS) == 10
     for cb in cbs:
         assert cb.visibility == "public"
@@ -90,13 +90,13 @@ def test_seed_creates_system_user_and_public_cookbooks(db):
 def test_hero_cookbook_composition(db):
     _seed_real_catalog(db)
     seed_mod.seed(dry_run=False)
-    hero = db.query(Cookbook).filter(Cookbook.slug == "the-awakened-agent").first()
+    hero = db.query(Bundle).filter(Bundle.slug == "the-awakened-agent").first()
     assert hero is not None
     assert hero.is_verified is True
     skills = (
         db.query(Skill.slug)
-        .join(CookbookSkill, CookbookSkill.skill_id == Skill.id)
-        .filter(CookbookSkill.bundle_id == hero.id)
+        .join(BundleSkill, BundleSkill.skill_id == Skill.id)
+        .filter(BundleSkill.bundle_id == hero.id)
         .all()
     )
     slugs = {s[0] for s in skills}
@@ -106,12 +106,12 @@ def test_hero_cookbook_composition(db):
 def test_seed_is_idempotent(db):
     _seed_real_catalog(db)
     seed_mod.seed(dry_run=False)
-    n_cb_1 = db.query(Cookbook).count()
-    n_link_1 = db.query(CookbookSkill).count()
+    n_cb_1 = db.query(Bundle).count()
+    n_link_1 = db.query(BundleSkill).count()
     # Re-run — must not duplicate.
     seed_mod.seed(dry_run=False)
-    assert db.query(Cookbook).count() == n_cb_1
-    assert db.query(CookbookSkill).count() == n_link_1
+    assert db.query(Bundle).count() == n_cb_1
+    assert db.query(BundleSkill).count() == n_link_1
 
 
 def test_missing_slug_is_skipped_not_fabricated(db):
@@ -127,13 +127,13 @@ def test_missing_slug_is_skipped_not_fabricated(db):
     seed_mod.seed(dry_run=False)
     # chef was never created → no Skill row, no membership referencing it.
     assert db.query(Skill).filter(Skill.slug == "chef").first() is None
-    hero = db.query(Cookbook).filter(Cookbook.slug == "the-awakened-agent").first()
+    hero = db.query(Bundle).filter(Bundle.slug == "the-awakened-agent").first()
     assert hero is not None  # cookbook still seeded
     hero_slugs = {
         s[0]
         for s in db.query(Skill.slug)
-        .join(CookbookSkill, CookbookSkill.skill_id == Skill.id)
-        .filter(CookbookSkill.bundle_id == hero.id)
+        .join(BundleSkill, BundleSkill.skill_id == Skill.id)
+        .filter(BundleSkill.bundle_id == hero.id)
         .all()
     }
     assert "chef" not in hero_slugs
@@ -143,14 +143,14 @@ def test_missing_slug_is_skipped_not_fabricated(db):
 def test_never_mutates_is_base_cookbook(db):
     _seed_real_catalog(db)
     # A pre-existing is_base catalog cookbook must be untouched by the seed.
-    base = Cookbook(id=uuid.uuid4(), name="WiseChef Recipes Catalog", is_base=True, visibility="private")
+    base = Bundle(id=uuid.uuid4(), name="WiseChef Recipes Catalog", is_base=True, visibility="private")
     db.add(base)
     db.commit()
     base_id = base.id
 
     seed_mod.seed(dry_run=False)
 
-    base_after = db.query(Cookbook).filter(Cookbook.id == base_id).first()
+    base_after = db.query(Bundle).filter(Bundle.id == base_id).first()
     assert base_after.is_base is True
     assert base_after.visibility == "private"  # not flipped to public
     assert base_after.name == "WiseChef Recipes Catalog"
@@ -158,6 +158,6 @@ def test_never_mutates_is_base_cookbook(db):
 
 def test_dry_run_writes_nothing(db):
     _seed_real_catalog(db)
-    before = db.query(Cookbook).count()
+    before = db.query(Bundle).count()
     seed_mod.seed(dry_run=True)
-    assert db.query(Cookbook).count() == before  # rolled back
+    assert db.query(Bundle).count() == before  # rolled back

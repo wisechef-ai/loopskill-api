@@ -27,9 +27,9 @@ from app.authz import can_install, can_read_skill
 from app.database import get_db
 from app.models import (
     Base,
-    Cookbook,
-    CookbookShareToken,
-    CookbookSkill,
+    Bundle,
+    BundleShareToken,
+    BundleSkill,
     InstallEvent,
     Skill,
     SkillVersion,
@@ -88,8 +88,8 @@ def _make_user(db: Session, tier: str = "pro", status: str = "active") -> User:
     return user
 
 
-def _make_cookbook(db: Session, owner_id: UUID, name: str = "Cookbook") -> Cookbook:
-    cb = Cookbook(
+def _make_cookbook(db: Session, owner_id: UUID, name: str = "Cookbook") -> Bundle:
+    cb = Bundle(
         id=uuid4(),
         name=name,
         description="test",
@@ -120,8 +120,8 @@ def _make_skill(
     return s
 
 
-def _add_skill_to_cookbook(db: Session, cookbook: Cookbook, skill: Skill, source: str = "custom-added") -> CookbookSkill:
-    cs = CookbookSkill(bundle_id=cookbook.id, skill_id=skill.id, source=source)
+def _add_skill_to_cookbook(db: Session, cookbook: Bundle, skill: Skill, source: str = "custom-added") -> BundleSkill:
+    cs = BundleSkill(bundle_id=cookbook.id, skill_id=skill.id, source=source)
     db.add(cs)
     db.flush()
     return cs
@@ -142,12 +142,12 @@ def _make_skill_version(db: Session, skill: Skill, semver: str = "1.0.0") -> Ski
 
 def _make_token_row(
     db: Session, cookbook_id: UUID, scope: str = "edit"
-) -> tuple[CookbookShareToken, str]:
+) -> tuple[BundleShareToken, str]:
     cb_prefix = str(cookbook_id).replace("-", "")[:8]
     random_hex = secrets.token_hex(16)
     full_token = f"cbt_{cb_prefix}_{random_hex}"
     token_hash = hashlib.sha256(full_token.encode()).hexdigest()
-    row = CookbookShareToken(
+    row = BundleShareToken(
         id=uuid4(),
         bundle_id=cookbook_id,
         token_hash=token_hash,

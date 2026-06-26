@@ -162,14 +162,14 @@ class TestAdminPulseEndpoint:
         assert b["fleet_subscriptions_total"] == 0
 
     def test_fleet_deploy_counters(self, db_session):
-        from app.models import Cookbook
+        from app.models import Bundle
 
         owner = _user(db_session, tier="free")
         db_session.commit()
         fleet = Fleet(id=uuid4(), owner_user_id=owner.id, name="F", fleet_api_key_hash=uuid4().hex)
         db_session.add(fleet)
         db_session.flush()
-        cb = Cookbook(id=uuid4(), name="cb", bundle_owner=owner.id)
+        cb = Bundle(id=uuid4(), name="cb", bundle_owner=owner.id)
         db_session.add(cb)
         db_session.flush()
         sub = FleetSubscription(fleet_id=fleet.id, bundle_id=cb.id, channel="stable")

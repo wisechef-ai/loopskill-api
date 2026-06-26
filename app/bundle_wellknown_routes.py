@@ -45,7 +45,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Cookbook
+from app.models import Bundle
 
 router = APIRouter(prefix="/api/cookbooks", tags=["cookbooks", "well-known"])
 
@@ -63,8 +63,8 @@ def _is_free(skill) -> bool:
     return bool(getattr(skill, "is_free", False))
 
 
-def _resolve_public_cookbook(db: Session, slug: str) -> Cookbook:
-    cb = db.query(Cookbook).filter(Cookbook.slug == slug).first()
+def _resolve_public_cookbook(db: Session, slug: str) -> Bundle:
+    cb = db.query(Bundle).filter(Bundle.slug == slug).first()
     if not cb or cb.visibility != "public":
         raise HTTPException(status_code=404, detail="cookbook_not_found")
     return cb

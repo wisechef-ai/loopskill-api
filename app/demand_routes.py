@@ -56,7 +56,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import (
-    Cookbook,
+    Bundle,
     Fleet,
     InstallEvent,
     MissingSkillQuery,
@@ -225,8 +225,8 @@ def _activation_gap_theme(db: Session, days: int) -> dict | None:
 
     # Personal/forked bundles = real adoption (base bundle is ours).
     cookbooks_adopted = (
-        db.query(func.count(Cookbook.id))
-        .filter(Cookbook.is_base == False)  # noqa: E712
+        db.query(func.count(Bundle.id))
+        .filter(Bundle.is_base == False)  # noqa: E712
         .scalar()
         or 0
     )

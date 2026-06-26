@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app import authz
 from app.auth_ctx import AuthContext
-from app.models import Cookbook
+from app.models import Bundle
 from app.recipify import (
     ValidationError,
     classify_skill,
@@ -77,9 +77,9 @@ def recipes_recipify(
     # user_id kwarg first (legacy callers), then fall back to ctx.user_id.
     owner_id = _coerce_uuid(user_id) or _coerce_uuid(ctx.user_id)
 
-    cb: Cookbook | None = None
+    cb: Bundle | None = None
     if cb_id is not None:
-        cb = db.query(Cookbook).filter(Cookbook.id == cb_id).first()
+        cb = db.query(Bundle).filter(Bundle.id == cb_id).first()
         if cb is None:
             return {"error": f"cookbook_not_found: {cb_id}", "code": "cookbook_not_found"}
         # Phase B (Issue #7): bundle ownership check
@@ -88,9 +88,9 @@ def recipes_recipify(
     else:
         if owner_id is not None:
             cb = (
-                db.query(Cookbook)
-                .filter(Cookbook.bundle_owner == owner_id)  # compat-alias
-                .order_by(Cookbook.created_at.asc())
+                db.query(Bundle)
+                .filter(Bundle.bundle_owner == owner_id)  # compat-alias
+                .order_by(Bundle.created_at.asc())
                 .first()
             )
         if cb is None:
@@ -105,7 +105,7 @@ def recipes_recipify(
                     "authenticate with a user-scoped key",
                     "code": "owner_required",
                 }
-            cb = Cookbook(id=uuid4(), name="MCP Bundle", bundle_owner=owner_id, is_base=False)  # compat-alias
+            cb = Bundle(id=uuid4(), name="MCP Bundle", bundle_owner=owner_id, is_base=False)  # compat-alias
             db.add(cb)
             db.commit()
             db.refresh(cb)

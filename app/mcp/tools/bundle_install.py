@@ -32,7 +32,7 @@ from app import authz
 from app.auth_ctx import AuthContext
 from app.config import settings
 from app import config
-from app.models import Cookbook, CookbookSkill, Skill, SkillVersion
+from app.models import Bundle, BundleSkill, Skill, SkillVersion
 
 
 def _make_install_url(skill_slug: str, version_id: UUID, version_semver: str) -> str:
@@ -76,7 +76,7 @@ def _resolve_cookbook(
     db: Session,
     ctx: AuthContext,
     cookbook_id: str | None,
-) -> Cookbook:
+) -> Bundle:
     """Pick the right cookbook for this caller.
 
     cbt_token  : cookbook_id optional; defaults to ctx.bundle_scope.  # compat-alias
@@ -109,7 +109,7 @@ def _resolve_cookbook(
                     "cookbook_id does not match the token's bundle_scope.",  # compat-alias
                     status=403,
                 )
-        cb = db.query(Cookbook).filter(Cookbook.id == target_id).first()
+        cb = db.query(Bundle).filter(Bundle.id == target_id).first()
         if cb is None:
             raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404)
         return cb
@@ -126,7 +126,7 @@ def _resolve_cookbook(
     except (ValueError, TypeError) as exc:
         raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404) from exc
 
-    cb = db.query(Cookbook).filter(Cookbook.id == target_id).first()
+    cb = db.query(Bundle).filter(Bundle.id == target_id).first()
     if cb is None:
         raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404)
 
@@ -213,11 +213,11 @@ def recipes_cookbook_install(
             raise CookbookInstallError("skill_not_in_cookbook", "skill_not_in_cookbook", status=404)
 
         cs = (
-            db.query(CookbookSkill)
+            db.query(BundleSkill)
             .filter(
-                CookbookSkill.bundle_id == cb.id,  # compat-alias
-                CookbookSkill.skill_id == skill.id,
-                CookbookSkill.source != "disabled",
+                BundleSkill.bundle_id == cb.id,  # compat-alias
+                BundleSkill.skill_id == skill.id,
+                BundleSkill.source != "disabled",
             )
             .first()
         )
@@ -285,9 +285,9 @@ def recipes_cookbook_install(
 
     # Bulk path
     rows = (
-        db.query(CookbookSkill, Skill)
-        .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(CookbookSkill.bundle_id == cb.id, CookbookSkill.source != "disabled")  # compat-alias
+        db.query(BundleSkill, Skill)
+        .join(Skill, Skill.id == BundleSkill.skill_id)
+        .filter(BundleSkill.bundle_id == cb.id, BundleSkill.source != "disabled")  # compat-alias
         .all()
     )
 

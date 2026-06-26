@@ -453,15 +453,15 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             cookbook_prefix_8 = parts[1]
             from datetime import datetime
             from app.database import SessionLocal
-            from app.models import CookbookShareToken
+            from app.models import BundleShareToken
 
             db = SessionLocal()
             try:
                 candidates = (
-                    db.query(CookbookShareToken)
+                    db.query(BundleShareToken)
                     .filter(
-                        CookbookShareToken.token_prefix == cookbook_prefix_8,
-                        CookbookShareToken.is_active == True,
+                        BundleShareToken.token_prefix == cookbook_prefix_8,
+                        BundleShareToken.is_active == True,
                     )
                     .all()
                 )

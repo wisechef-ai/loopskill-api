@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.auth_ctx import AuthContext
 from app.database import get_db
-from app.models import Cookbook
+from app.models import Bundle
 from app.reconcile_abuse_ceiling import check_reconcile_abuse_ceiling
 from app.services.reconcile import recipes_reconcile
 
@@ -47,7 +47,7 @@ class ReconcileIn(BaseModel):
     dry_run: bool = True  # the poll path defaults to plan (read-only)
 
 
-def _generation_token(cb: Cookbook) -> str:
+def _generation_token(cb: Bundle) -> str:
     """Stable string form of Cookbook.updated_at for ETag / If-None-Match."""
     return cb.updated_at.isoformat() if cb.updated_at else ""
 
@@ -79,7 +79,7 @@ def reconcile_cookbook(
         response.status_code = 404
         return {"error": "cookbook_not_found"}
 
-    cb = db.query(Cookbook).filter(Cookbook.id == cb_uuid).first()
+    cb = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
     if cb is None:
         response.status_code = 404
         return {"error": "cookbook_not_found"}

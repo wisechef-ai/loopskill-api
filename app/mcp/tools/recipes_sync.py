@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app import authz
 from app.auth_ctx import AuthContext
-from app.models import Cookbook, CookbookSkill, Skill
+from app.models import Bundle, BundleSkill, Skill
 
 
 def _find_outdated_skills(db: Session, cookbook_id: UUID) -> list[dict[str, Any]]:
@@ -35,12 +35,12 @@ def _find_outdated_skills(db: Session, cookbook_id: UUID) -> list[dict[str, Any]
 
     declared = (
         db.query(
-            CookbookSkill.skill_id,
+            BundleSkill.skill_id,
             Skill.slug,
-            CookbookSkill.pinned_version,
+            BundleSkill.pinned_version,
         )
-        .join(Skill, Skill.id == CookbookSkill.skill_id)
-        .filter(CookbookSkill.bundle_id == cookbook_id)  # compat-alias
+        .join(Skill, Skill.id == BundleSkill.skill_id)
+        .filter(BundleSkill.bundle_id == cookbook_id)  # compat-alias
         .all()
     )
 
@@ -87,7 +87,7 @@ def recipes_sync(
         return {"error": "invalid_cookbook_id", "cookbook_id": cookbook_id}
 
     # Verify bundle exists
-    cb = db.query(Cookbook).filter(Cookbook.id == cb_uuid).first()
+    cb = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
     if not cb:
         return {"error": "not_found", "cookbook_id": cookbook_id}
 
@@ -125,9 +125,9 @@ def recipes_sync(
 
     # ── APPLY path (default) ─────────────────────────────────────────────
     for o in outdated:
-        db.query(CookbookSkill).filter(
-            CookbookSkill.bundle_id == cb_uuid,  # compat-alias
-            CookbookSkill.skill_id == o["skill_id"],
+        db.query(BundleSkill).filter(
+            BundleSkill.bundle_id == cb_uuid,  # compat-alias
+            BundleSkill.skill_id == o["skill_id"],
         ).update({"pinned_version": o["to"]})
 
     # evergreen_0206 Phase A: a pin-write changes the bundle's declared state,
@@ -136,7 +136,7 @@ def recipes_sync(
     # the cheap-poll 304-fast-path (Phase D) stays truthful. Only on the apply
     # path with real outdated rows; a no-op sync returns early above and never
     # reaches here, so the token never falsely advances.
-    db.query(Cookbook).filter(Cookbook.id == cb_uuid).update(
+    db.query(Bundle).filter(Bundle.id == cb_uuid).update(
         {"updated_at": func.now()}, synchronize_session=False
     )
 

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.auth_ctx import AuthContext
-from app.models import Base, Cookbook, Creator, Skill, User
+from app.models import Base, Bundle, Creator, Skill, User
 from app.recipify import write_cookbook_skill
 
 _GOOD = """---
@@ -47,9 +47,9 @@ def db_session() -> Generator[Session, None, None]:
         Base.metadata.drop_all(bind=engine)
 
 
-def _make_cookbook(db: Session) -> Cookbook:
+def _make_cookbook(db: Session) -> Bundle:
     """Create and persist a minimal cookbook."""
-    cb = Cookbook(id=uuid4(), name="Test CB", bundle_owner=None)
+    cb = Bundle(id=uuid4(), name="Test CB", bundle_owner=None)
     db.add(cb)
     db.commit()
     return cb

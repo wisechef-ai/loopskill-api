@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.auth_ctx import AuthContext
-from app.models import Base, Cookbook, CookbookSkill, Skill, SkillVersion, User
+from app.models import Base, Bundle, BundleSkill, Skill, SkillVersion, User
 from app.services.reconcile import (
     LocalSkillState,
     compute_reconcile_plan,
@@ -72,8 +72,8 @@ def _user(db: Session) -> User:
     return u
 
 
-def _cookbook(db: Session, owner: User) -> Cookbook:
-    cb = Cookbook(id=uuid4(), name="CB", is_base=False, bundle_owner=owner.id)
+def _cookbook(db: Session, owner: User) -> Bundle:
+    cb = Bundle(id=uuid4(), name="CB", is_base=False, bundle_owner=owner.id)
     db.add(cb)
     db.flush()
     return cb
@@ -99,8 +99,8 @@ def _skill(db: Session, slug: str, versions: list[tuple[str, str]]) -> Skill:
     return s
 
 
-def _declare(db: Session, cb: Cookbook, skill: Skill, *, source="custom-added", pin=None):
-    db.add(CookbookSkill(bundle_id=cb.id, skill_id=skill.id, source=source, pinned_version=pin))
+def _declare(db: Session, cb: Bundle, skill: Skill, *, source="custom-added", pin=None):
+    db.add(BundleSkill(bundle_id=cb.id, skill_id=skill.id, source=source, pinned_version=pin))
     db.flush()
 
 
@@ -238,7 +238,7 @@ class TestRecipesReconcileTool:
         assert "applied" not in res
         # No write: pin still 1.0.0 absent (cookbook declared 2.0.0 but local at 1.0.0;
         # dry run must not have mutated the CookbookSkill pin which was 2.0.0 already)
-        cs = db.query(CookbookSkill).filter(CookbookSkill.bundle_id == cb.id).first()
+        cs = db.query(BundleSkill).filter(BundleSkill.bundle_id == cb.id).first()
         assert cs.pinned_version == "2.0.0"
 
     def test_apply_advances_generation(self, db):
@@ -249,18 +249,18 @@ class TestRecipesReconcileTool:
         # Backdate generation so any bump is detectable on whole-second SQLite clocks.
         from datetime import datetime, timezone
 
-        db.query(Cookbook).filter(Cookbook.id == cb.id).update(
+        db.query(Bundle).filter(Bundle.id == cb.id).update(
             {"updated_at": datetime(2020, 1, 1, tzinfo=timezone.utc)}, synchronize_session=False
         )
         db.commit()
-        before = db.query(Cookbook).filter(Cookbook.id == cb.id).first().updated_at
+        before = db.query(Bundle).filter(Bundle.id == cb.id).first().updated_at
 
         ctx = AuthContext(scope="user", user_id=owner.id, tier="pro")
         local = [{"slug": "ap-skill", "pinned_version": "1.0.0", "sha256": "a" * 64}]
         res = recipes_reconcile(db, cookbook_id=str(cb.id), local=local, dry_run=False, ctx=ctx)
         assert res["applied"] is True
         db.expire_all()
-        after = db.query(Cookbook).filter(Cookbook.id == cb.id).first().updated_at
+        after = db.query(Bundle).filter(Bundle.id == cb.id).first().updated_at
         assert after > before, "apply with an UPDATE row must advance the generation token"
 
     def test_apply_noop_does_not_bump(self, db):
@@ -270,18 +270,18 @@ class TestRecipesReconcileTool:
         _declare(db, cb, s, pin="1.0.0")
         from datetime import datetime, timezone
 
-        db.query(Cookbook).filter(Cookbook.id == cb.id).update(
+        db.query(Bundle).filter(Bundle.id == cb.id).update(
             {"updated_at": datetime(2020, 1, 1, tzinfo=timezone.utc)}, synchronize_session=False
         )
         db.commit()
-        before = db.query(Cookbook).filter(Cookbook.id == cb.id).first().updated_at
+        before = db.query(Bundle).filter(Bundle.id == cb.id).first().updated_at
 
         ctx = AuthContext(scope="user", user_id=owner.id, tier="pro")
         local = [{"slug": "apn-skill", "pinned_version": "1.0.0", "sha256": "a" * 64}]
         res = recipes_reconcile(db, cookbook_id=str(cb.id), local=local, dry_run=False, ctx=ctx)
         assert res["no_op"] is True
         db.expire_all()
-        after = db.query(Cookbook).filter(Cookbook.id == cb.id).first().updated_at
+        after = db.query(Bundle).filter(Bundle.id == cb.id).first().updated_at
         assert after == before, "a no-op reconcile must not advance the generation token"
 
 

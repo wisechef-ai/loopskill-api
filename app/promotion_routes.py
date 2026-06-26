@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.auth_ctx import AuthContext
 from app.database import get_db
-from app.models import Cookbook, CookbookSkill, Skill
+from app.models import Bundle, BundleSkill, Skill
 from app.services.promotion import OUTCOME_FAILED, OUTCOME_ROLLED_BACK, OUTCOME_SUCCESS, promote_if_eligible
 from app.services.promotion_sweep import run_promotion_sweep
 
@@ -79,7 +79,7 @@ def reconcile_report(
         response.status_code = 404
         return {"error": "cookbook_not_found"}
 
-    cb = db.query(Cookbook).filter(Cookbook.id == cb_uuid).first()
+    cb = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
     if cb is None:
         response.status_code = 404
         return {"error": "cookbook_not_found"}
@@ -98,11 +98,11 @@ def reconcile_report(
         response.status_code = 404
         return {"error": "skill_not_found"}
     cs = (
-        db.query(CookbookSkill)
+        db.query(BundleSkill)
         .filter(
-            CookbookSkill.bundle_id == cb.id,  # compat-alias
-            CookbookSkill.skill_id == skill.id,
-            CookbookSkill.source != "disabled",
+            BundleSkill.bundle_id == cb.id,  # compat-alias
+            BundleSkill.skill_id == skill.id,
+            BundleSkill.source != "disabled",
         )
         .first()
     )

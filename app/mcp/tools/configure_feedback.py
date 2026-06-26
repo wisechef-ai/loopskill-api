@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.auth_ctx import AuthContext
 from app.feedback_github import _validate_repo, verify_repo_access
-from app.models import Cookbook
+from app.models import Bundle
 
 logger = logging.getLogger(__name__)
 
@@ -32,17 +32,17 @@ def _coerce_uuid(v: Any) -> UUID | None:
         return None
 
 
-def _resolve_user_cookbook(db: Session, ctx: AuthContext) -> Cookbook | None:
+def _resolve_user_cookbook(db: Session, ctx: AuthContext) -> Bundle | None:
     """Return the caller's personal cookbook, or None if not found."""
     if ctx.user_id is None:
         return None
     return (
-        db.query(Cookbook)
+        db.query(Bundle)
         .filter(
-            Cookbook.bundle_owner == ctx.user_id,  # compat-alias
-            Cookbook.is_base.is_(False),
+            Bundle.bundle_owner == ctx.user_id,  # compat-alias
+            Bundle.is_base.is_(False),
         )
-        .order_by(Cookbook.created_at.asc())
+        .order_by(Bundle.created_at.asc())
         .first()
     )
 
@@ -75,12 +75,12 @@ def recipes_configure_feedback(
         }
 
     # ── Resolve bundle ──────────────────────────────────────────────────────
-    cb: Cookbook | None = None
+    cb: Bundle | None = None
     if cookbook_id:
         cb_uuid = _coerce_uuid(cookbook_id)
         if cb_uuid is None:
             return {"ok": False, "error": f"Invalid cookbook_id: {cookbook_id!r}"}
-        cb = db.query(Cookbook).filter(Cookbook.id == cb_uuid).first()
+        cb = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
     else:
         cb = _resolve_user_cookbook(db, ctx)
 

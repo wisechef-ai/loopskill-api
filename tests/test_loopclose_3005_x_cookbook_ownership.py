@@ -29,7 +29,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.auth_ctx import AuthContext
 from app.mcp.tools import recipes_recipify
-from app.models import Base, Cookbook, User
+from app.models import Base, Bundle, User
 
 _GOOD = """---
 name: scrape-bot
@@ -92,7 +92,7 @@ def test_recipify_via_ctx_creates_owned_cookbook(db_session):
     )
     assert "error" not in out, out
     from uuid import UUID as _UUID
-    cb = db_session.query(Cookbook).filter(Cookbook.id == _UUID(out["cookbook_id"])).first()
+    cb = db_session.query(Bundle).filter(Bundle.id == _UUID(out["cookbook_id"])).first()
     assert cb is not None
     assert cb.bundle_owner == user.id, (
         f"cookbook must be owned by ctx.user_id, got owner={cb.bundle_owner!r} "
@@ -100,8 +100,8 @@ def test_recipify_via_ctx_creates_owned_cookbook(db_session):
     )
     # And it must be visible when filtering by that user's id (list_cookbooks semantics).
     visible = (
-        db_session.query(Cookbook)
-        .filter(Cookbook.bundle_owner == user.id)
+        db_session.query(Bundle)
+        .filter(Bundle.bundle_owner == user.id)
         .all()
     )
     assert cb.id in [c.id for c in visible]
@@ -122,8 +122,8 @@ def test_recipify_via_ctx_reuses_existing_owned_cookbook(db_session):
     )
     assert out1["cookbook_id"] == out2["cookbook_id"]
     owned = (
-        db_session.query(Cookbook)
-        .filter(Cookbook.bundle_owner == user.id)
+        db_session.query(Bundle)
+        .filter(Bundle.bundle_owner == user.id)
         .count()
     )
     assert owned == 1
@@ -135,7 +135,7 @@ def test_recipify_via_ctx_reuses_existing_owned_cookbook(db_session):
 def test_recipify_fails_closed_when_no_owner_resolves(db_session):
     """No user_id kwarg, ctx with user_id=None (or no ctx), no
     target_cookbook_id → owner_required, and ZERO cookbooks written."""
-    before = db_session.query(Cookbook).count()
+    before = db_session.query(Bundle).count()
 
     out = recipes_recipify(
         db_session,
@@ -144,12 +144,12 @@ def test_recipify_fails_closed_when_no_owner_resolves(db_session):
         ctx=AuthContext(scope="user", user_id=None),
     )
     assert out.get("code") == "owner_required", out
-    after = db_session.query(Cookbook).count()
+    after = db_session.query(Bundle).count()
     assert after == before, "fail-closed must write no rows (no orphan cookbook)"
     # And specifically: no owner-less non-base cookbook exists.
     orphans = (
-        db_session.query(Cookbook)
-        .filter(Cookbook.is_base == False, Cookbook.bundle_owner.is_(None))  # noqa: E712
+        db_session.query(Bundle)
+        .filter(Bundle.is_base == False, Bundle.bundle_owner.is_(None))  # noqa: E712
         .count()
     )
     assert orphans == 0
@@ -166,5 +166,5 @@ def test_recipify_with_explicit_user_id_kwarg_still_works(db_session):
     )
     assert "error" not in out, out
     from uuid import UUID as _UUID
-    cb = db_session.query(Cookbook).filter(Cookbook.id == _UUID(out["cookbook_id"])).first()
+    cb = db_session.query(Bundle).filter(Bundle.id == _UUID(out["cookbook_id"])).first()
     assert cb.bundle_owner == user.id

@@ -1007,13 +1007,7 @@ class BundleDeployment(Base):
     )
 
 
-# ── Compat aliases (loopskill_0622/p34) — keep old class names importable ──
-# Code that imported Cookbook/CookbookSkill/etc. directly still works.  # compat-alias
-# These aliases will be removed after the parallel-run period ends.
-Cookbook = Bundle  # compat-alias
-CookbookSkill = BundleSkill  # compat-alias
-CookbookShareToken = BundleShareToken  # compat-alias
-CookbookDeployment = BundleDeployment  # compat-alias
+
 
 
 class Fleet(Base):
