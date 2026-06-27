@@ -10,6 +10,7 @@ route, an MCP tool, or a future runner.
 from __future__ import annotations
 
 import os
+import re
 import signal
 import subprocess  # noqa: S404 - controlled bounded execution of an author-provided verification script
 import time
@@ -59,17 +60,55 @@ def safe_workspace_path(rel_path: str) -> str | None:
         return None
     if os.pardir in norm.split(os.sep):
         return None
+    if norm in (".", ""):
+        # Normalises to the workspace dir itself — open(workdir,"w") would raise
+        # IsADirectoryError (not a WorkspaceError) and 500 + leak the tempdir.
+        return None
     if os.path.basename(norm) == VERIFY_SCRIPT_NAME:
         return None
     return norm
+
+
+# Env vars that turn "run this shell script" into "load this attacker library /
+# source this attacker file" — blocked even when a caller supplies them, because
+# they let a structurally-innocent script carry a dangerous payload (review F2).
+DANGEROUS_ENV_KEYS = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "LD_PRELOAD",
+        "LD_LIBRARY_PATH",
+        "LD_AUDIT",
+        "GCONV_PATH",
+        "NLSPATH",
+        "HOSTALIASES",
+        "BASH_ENV",
+        "ENV",
+        "SHELLOPTS",
+        "BASHOPTS",
+        "PYTHONPATH",
+        "PYTHONSTARTUP",
+        "PERL5LIB",
+        "RUBYLIB",
+        "NODE_OPTIONS",
+        "IFS",
+        "CDPATH",
+        "PS4",
+    }
+)
+# Caller env keys must look like ordinary env identifiers; anything else is dropped.
+_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def scrub_env(env: dict[str, str] | None, workdir: str) -> dict[str, str]:
     """Build the MINIMAL env for the script: a clean base + caller-supplied vars.
 
     The server's own environment (DB URL, Stripe keys, master key, …) is NEVER
-    inherited — that is the core safety property of verify-mode regardless of the
-    kernel sandbox. Only an explicit, string-typed ``env`` from the caller passes.
+    inherited — that is a core safety property of verify-mode regardless of the
+    kernel sandbox. Only an explicit, string-typed ``env`` from the caller passes,
+    and only when the key is a plain identifier NOT in DANGEROUS_ENV_KEYS (an
+    allowlist-shaped filter so a caller can't smuggle a loader-hijack var like
+    LD_AUDIT / BASH_ENV / GCONV_PATH past us — review F2).
     """
     base = {
         "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -82,31 +121,46 @@ def scrub_env(env: dict[str, str] | None, workdir: str) -> dict[str, str]:
     for key, val in (env or {}).items():
         if not isinstance(key, str) or not isinstance(val, str):
             continue
-        # Never let the caller override PATH/HOME to point at host resources.
-        if key in ("PATH", "HOME", "LD_PRELOAD", "LD_LIBRARY_PATH"):
+        if not _ENV_KEY_RE.match(key):
+            continue
+        if key in DANGEROUS_ENV_KEYS:
             continue
         base[key] = val
     return base
 
 
 def make_rlimit_preexec(timeout: int, memory_mb: int):
-    """Return a preexec_fn that applies POSIX rlimits + a new session in the child.
+    """Return a preexec_fn that hardens the forked child before exec.
 
-    Each limit is best-effort: a platform that lacks one must not abort the run.
-    RLIMIT_NPROC is intentionally NOT set — it is per-UID, so a low value would
-    throttle the shared server process. Fork-bomb containment is a property of the
-    ``sandboxed`` backend; ``bounded`` mode declares its weaker envelope honestly.
+    Applies POSIX rlimits and marks the child non-dumpable (so its own
+    ``/proc/<pid>/environ`` flips to root-only — defense in depth against a peer
+    same-UID reader; review F1).
+
+    Each step is best-effort: a platform that lacks one must not abort the run.
+    Note: ``os.setsid()`` is NOT called here — the caller passes
+    ``start_new_session=True`` to Popen, which already does it; calling it twice
+    is redundant and Python 3.11+ documents the two as mutually exclusive (review
+    F13). RLIMIT_NPROC is deliberately NOT set: it is per-UID, so on a shared
+    server UID a fixed cap makes the child fail with "Cannot fork" the moment the
+    UID already runs that many processes. Real fork-bomb containment needs the
+    ``sandboxed`` backend or a dedicated UID/cgroup — which is exactly why
+    WR_LOOP_RUN_REQUIRE_SANDBOX exists for multi-tenant deployers (review F6).
     """
 
     def _preexec() -> None:  # pragma: no cover - runs in the forked child
+        import ctypes
         import resource
 
+        # Mark the child non-dumpable: kernel reassigns its /proc/<pid>/* to
+        # root:root 0400, so a same-UID peer cannot read this child's environ.
         try:
-            os.setsid()
-        except OSError:
+            libc = ctypes.CDLL("libc.so.6", use_errno=True)
+            libc.prctl(4, 0, 0, 0, 0)  # PR_SET_DUMPABLE = 4
+        except Exception:  # noqa: BLE001 - best-effort hardening; never abort the run
             pass
-        # Wall-clock is enforced by the caller's poll loop; RLIMIT_CPU caps CPU
-        # time as a second backstop against a busy-loop that ignores SIGTERM.
+
+        # RLIMIT_CPU caps CPU time as a backstop to the wall-clock poll; RLIMIT_AS
+        # caps memory; RLIMIT_FSIZE caps single-file size.
         for res_name, soft, hard in (
             ("RLIMIT_CPU", timeout, timeout + 2),
             ("RLIMIT_AS", memory_mb * 1024 * 1024, memory_mb * 1024 * 1024),

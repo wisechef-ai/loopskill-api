@@ -49,6 +49,7 @@ import os
 import shutil
 import subprocess  # noqa: S404 - controlled execution of an author-provided, bounded verification script
 import tempfile
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -85,6 +86,21 @@ MAX_WORKSPACE_FILE_BYTES = 256 * 1024  # 256 KB per file
 
 # Where bounded-mode workspaces are staged. Overridable for tests / ops.
 RUN_WORKSPACE_BASE = os.environ.get("WR_LOOP_RUN_WORKSPACE", tempfile.gettempdir())
+
+
+def _require_sandbox() -> bool:
+    """Whether a working kernel sandbox is REQUIRED to run a loop (review F1/F6).
+
+    Bounded mode runs the verification script as the server's own UID. On a
+    single-tenant self-host that is fine — you are running your own loops. On a
+    MULTI-TENANT public deployment (strangers publish loops, shared infra) it is
+    NOT safe: a same-UID child can read the server's own /proc environ, has the
+    host network, and shares the UID's process table. Such deployers set
+    WR_LOOP_RUN_REQUIRE_SANDBOX=true to make /run refuse bounded-mode execution
+    (503) and only run when a real firejail/bwrap backend is present. Default
+    false keeps the zero-config self-host cold-clone wow frictionless.
+    """
+    return os.environ.get("WR_LOOP_RUN_REQUIRE_SANDBOX", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 @dataclass
@@ -167,6 +183,31 @@ class LoopRunner:
             )
             detected = "none"
         self._backend = detected
+
+        # Review F1 (CRITICAL): in bounded mode the verification child runs as the
+        # server's own UID and could read the server's secrets via
+        # /proc/<server_pid>/environ — the "scrubbed env" guarantee is about
+        # *inheritance*, not procfs. Mark THIS (server) process non-dumpable so the
+        # kernel reassigns its /proc/<pid>/* to root:root 0400, closing that read
+        # for every same-UID child. Only needed when bounded mode is reachable
+        # (no functional kernel sandbox). Costs core dumps + ptrace-attach for the
+        # server process — an acceptable trade for closing a secret-exfil channel;
+        # deployers who need those set WR_LOOP_RUN_KEEP_DUMPABLE=true.
+        if self._backend not in ("firejail", "bwrap"):
+            self._harden_parent_non_dumpable()
+
+    @staticmethod
+    def _harden_parent_non_dumpable() -> None:
+        """Set PR_SET_DUMPABLE=0 on the current process (idempotent, best-effort)."""
+        if os.environ.get("WR_LOOP_RUN_KEEP_DUMPABLE", "").strip().lower() in ("1", "true", "yes", "on"):
+            return
+        try:
+            import ctypes
+
+            libc = ctypes.CDLL("libc.so.6", use_errno=True)
+            libc.prctl(4, 0, 0, 0, 0)  # PR_SET_DUMPABLE = 4
+        except Exception:  # noqa: BLE001 - best-effort; never crash runner init over hardening
+            logger.warning("could not set server process non-dumpable; /proc environ read may be possible")
 
     def _backend_functional(self, backend: str) -> bool:
         """Return True iff ``backend`` can actually run a no-op under confinement.
@@ -258,6 +299,27 @@ class LoopRunner:
                 error="loop has no verification_script (cannot verify)",
             )
 
+        # Multi-tenant safety gate (review F1/F6): if the deployer requires a
+        # kernel sandbox and none is functional, refuse rather than run as the
+        # server UID. Surfaced as 503 by the route.
+        if self._backend not in ("firejail", "bwrap") and _require_sandbox():
+            return LoopRunResult(
+                run_id=run_id,
+                mode="verify",
+                confinement="refused",
+                passed=False,
+                exit_code=-1,
+                stdout="",
+                stderr="",
+                timed_out=False,
+                duration_seconds=time.monotonic() - start,
+                bounds=bounds,
+                error=(
+                    "bounded-mode execution disabled by WR_LOOP_RUN_REQUIRE_SANDBOX: "
+                    "no functional firejail/bwrap backend is available to confine the run"
+                ),
+            )
+
         # Stage an isolated workspace containing the verify script + caller files.
         try:
             workdir = self._stage_workspace(run_id, verification_script, workspace_files)
@@ -290,6 +352,13 @@ class LoopRunner:
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
 
+        # Report the network state HONESTLY (review F3). Only the sandboxed
+        # backend can actually enforce network isolation; bounded mode runs as the
+        # server UID with the host's network, so allow_network is a no-op there.
+        if result.confinement == "sandboxed":
+            bounds["network"] = "filtered" if allow_network else "isolated"
+        else:
+            bounds["network"] = "unrestricted (bounded mode cannot isolate network)"
         result.bounds = bounds
         return result
 
@@ -301,25 +370,32 @@ class LoopRunner:
         os.makedirs(self._workspace_base, exist_ok=True)
         workdir = tempfile.mkdtemp(prefix=f"loop-run-{run_id}-", dir=self._workspace_base)
 
-        # The verification script itself.
-        script_path = os.path.join(workdir, VERIFY_SCRIPT_NAME)
-        with open(script_path, "w", encoding="utf-8") as fh:
-            fh.write(verification_script)
+        # Any failure AFTER mkdtemp must remove the dir we just created, else a
+        # caller spamming invalid workspace_files leaks one tempdir per request
+        # (review F4). The success path's caller owns cleanup via its finally.
+        try:
+            # The verification script itself.
+            script_path = os.path.join(workdir, VERIFY_SCRIPT_NAME)
+            with open(script_path, "w", encoding="utf-8") as fh:
+                fh.write(verification_script)
 
-        files = workspace_files or {}
-        if len(files) > MAX_WORKSPACE_FILES:
-            raise WorkspaceError(f"too many workspace_files (max {MAX_WORKSPACE_FILES})")
+            files = workspace_files or {}
+            if len(files) > MAX_WORKSPACE_FILES:
+                raise WorkspaceError(f"too many workspace_files (max {MAX_WORKSPACE_FILES})")
 
-        for rel_path, content in files.items():
-            safe_rel = safe_workspace_path(rel_path)
-            if safe_rel is None:
-                raise WorkspaceError(f"unsafe workspace file path: {rel_path!r}")
-            if not isinstance(content, str) or len(content.encode("utf-8")) > MAX_WORKSPACE_FILE_BYTES:
-                raise WorkspaceError(f"workspace file too large or non-string: {rel_path!r}")
-            dest = os.path.join(workdir, safe_rel)
-            os.makedirs(os.path.dirname(dest), exist_ok=True)
-            with open(dest, "w", encoding="utf-8") as fh:
-                fh.write(content)
+            for rel_path, content in files.items():
+                safe_rel = safe_workspace_path(rel_path)
+                if safe_rel is None:
+                    raise WorkspaceError(f"unsafe workspace file path: {rel_path!r}")
+                if not isinstance(content, str) or len(content.encode("utf-8")) > MAX_WORKSPACE_FILE_BYTES:
+                    raise WorkspaceError(f"workspace file too large or non-string: {rel_path!r}")
+                dest = os.path.join(workdir, safe_rel)
+                os.makedirs(os.path.dirname(dest) or workdir, exist_ok=True)
+                with open(dest, "w", encoding="utf-8") as fh:
+                    fh.write(content)
+        except BaseException:
+            shutil.rmtree(workdir, ignore_errors=True)
+            raise
 
         return workdir
 
@@ -443,11 +519,19 @@ class LoopRunner:
 
 # Singleton, mirroring app.sandbox.routes.get_runner().
 _runner: LoopRunner | None = None
+_runner_lock = threading.Lock()
 
 
 def get_loop_runner() -> LoopRunner:
-    """Return the process-wide LoopRunner singleton."""
+    """Return the process-wide LoopRunner singleton (thread-safe init — review F12).
+
+    Without the lock, two concurrent first requests both pass the None check and
+    each run LoopRunner.__init__ (incl. the backend-functional probe subprocess),
+    leaking a probe tempdir. Double-checked locking keeps the hot path lock-free.
+    """
     global _runner
     if _runner is None:
-        _runner = LoopRunner()
+        with _runner_lock:
+            if _runner is None:
+                _runner = LoopRunner()
     return _runner

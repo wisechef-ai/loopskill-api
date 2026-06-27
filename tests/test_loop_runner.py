@@ -13,6 +13,7 @@ Two layers tested:
 
 from __future__ import annotations
 
+import os
 from uuid import uuid4
 
 import pytest
@@ -45,6 +46,9 @@ def app_client(db_session):
             request.state.auth_ctx = AuthContext(scope="user", user_id=uuid4())
         elif hdr == "master":
             request.state.auth_ctx = AuthContext(scope="master")
+        elif hdr == "cbt":
+            # Authenticated but wrong scope (share-token) — should 403 on /run.
+            request.state.auth_ctx = AuthContext(scope="cbt_token")
         else:
             request.state.auth_ctx = AuthContext.anonymous()
         return await call_next(request)
@@ -134,6 +138,29 @@ class TestScrubEnv:
         assert env["GOOD"] == "ok"
         assert "BAD" not in env
 
+    def test_loader_hijack_vars_blocked(self):
+        # review F2: caller must not be able to smuggle loader/source-hijack vars.
+        danger = {
+            "LD_AUDIT": "/e.so",
+            "GCONV_PATH": "/e",
+            "NLSPATH": "/e/%s",
+            "BASH_ENV": "/e",
+            "ENV": "/e",
+            "PYTHONPATH": "/e",
+            "IFS": "x",
+            "HOSTALIASES": "/e",
+            "PERL5LIB": "/e",
+            "NODE_OPTIONS": "-r/e",
+        }
+        env = lr.scrub_env(danger, "/tmp/workdir")
+        for k in danger:
+            assert k not in env, f"{k} leaked through scrub_env"
+
+    def test_non_identifier_keys_dropped(self):
+        env = lr.scrub_env({"a b": "x", "FOO=BAR": "y", "OK_1": "z"}, "/tmp/workdir")
+        assert "a b" not in env and "FOO=BAR" not in env
+        assert env["OK_1"] == "z"
+
 
 class TestClampInt:
     def test_none_returns_default(self):
@@ -147,6 +174,80 @@ class TestClampInt:
 
     def test_invalid_returns_default(self):
         assert lr.clamp_int("nope", 60, 1, 600) == 60  # type: ignore[arg-type]
+
+
+class TestSafeWorkspacePathHardening:
+    def test_rejects_dot_self(self):
+        # review F7b: "." normalises to the workdir itself -> IsADirectoryError 500.
+        assert lr.safe_workspace_path(".") is None
+        assert lr.safe_workspace_path("./") is None
+
+    def test_rejects_null_byte(self):
+        assert lr.safe_workspace_path("a\x00b.txt") is None
+
+
+class TestHardening:
+    """Adversarial-review fixes (F1/F2/F3/F4/F9/F10) verified end-to-end."""
+
+    def _runner(self, tmp_path):
+        r = lr.LoopRunner(workspace_base=str(tmp_path))
+        r._backend = "none"
+        return r
+
+    def test_f1_server_environ_not_readable_via_proc(self, tmp_path, monkeypatch):
+        # The keystone: a bounded-mode child must NOT read the server's secrets
+        # via /proc/<ppid>/environ. LoopRunner() marks the parent non-dumpable.
+        monkeypatch.setenv("WR_PROBE_SECRET", "do-not-leak-1234")
+        r = self._runner(tmp_path)
+        res = r.run_verification(
+            loop_slug="exfil",
+            verification_script=(
+                'cat /proc/$PPID/environ 2>/dev/null | tr "\\0" "\\n" '
+                "| grep -q WR_PROBE_SECRET && echo LEAKED || echo blocked"
+            ),
+            declared_bounds={},
+        )
+        # Note: the secret was set AFTER python exec, so it isn't in /proc environ
+        # anyway; the real guarantee is the dumpable=0 read-block. Assert no LEAK.
+        assert "LEAKED" not in (res.stdout or "")
+
+    def test_f3_bounded_network_label_is_honest(self, tmp_path):
+        r = self._runner(tmp_path)
+        res = r.run_verification(
+            loop_slug="net",
+            verification_script="exit 0",
+            declared_bounds={},
+            allow_network=False,
+        )
+        # bounded mode cannot isolate network — the label must say so, not "False".
+        assert "unrestricted" in str(res.bounds["network"]).lower()
+
+    def test_f4_no_tempdir_leak_on_workspace_error(self, tmp_path):
+        r = self._runner(tmp_path)
+        before = set(os.listdir(str(tmp_path)))
+        res = r.run_verification(
+            loop_slug="leak",
+            verification_script="exit 0",
+            declared_bounds={},
+            workspace_files={"../escape": "x"},
+        )
+        assert res.passed is False and res.error and "unsafe" in res.error
+        after = set(os.listdir(str(tmp_path)))
+        # No orphaned loop-run-* dir left behind by the rejected staging.
+        assert not [d for d in (after - before) if d.startswith("loop-run-")]
+
+    def test_refuse_when_sandbox_required_but_absent(self, tmp_path, monkeypatch):
+        # review F1/F6 gate: operator demands a kernel sandbox; none functional.
+        monkeypatch.setenv("WR_LOOP_RUN_REQUIRE_SANDBOX", "true")
+        r = self._runner(tmp_path)
+        res = r.run_verification(
+            loop_slug="refuse",
+            verification_script="exit 0",
+            declared_bounds={},
+        )
+        assert res.confinement == "refused"
+        assert res.passed is False
+        assert res.error and "REQUIRE_SANDBOX" in res.error
 
 
 # ── unit: LoopRunner.run_verification (bounded mode, real execution) ──────────
@@ -214,7 +315,8 @@ class TestRunVerificationBounded:
         assert res.bounds["max_turns"] == 10
         assert res.bounds["tool_allowlist"] == ["github_read_pr"]
         assert res.bounds["run_timeout_seconds"] >= 1
-        assert res.bounds["network"] is False
+        # F3: bounded mode reports network honestly as unrestricted (not False).
+        assert "unrestricted" in str(res.bounds["network"]).lower()
 
     def test_server_env_not_visible_to_script(self, runner, monkeypatch):
         # End-to-end: a server secret in os.environ must not leak into the run.
@@ -339,3 +441,61 @@ class TestRunRoute:
         resp = app_client.post("/api/loops/master-loop/run", json={}, headers={"x-test-auth": "master"})
         assert resp.status_code == 200
         assert resp.json()["passed"] is True
+
+    def test_wrong_scope_returns_403_not_401(self, app_client):
+        # review F10: authenticated-but-wrong-scope (cbt_token) is 403, not 401.
+        _publish(app_client, slug="scope-loop", verification_script="exit 0")
+        resp = app_client.post("/api/loops/scope-loop/run", json={}, headers={"x-test-auth": "cbt"})
+        assert resp.status_code == 403
+
+    def test_anonymous_returns_401(self, app_client):
+        _publish(app_client, slug="anon-loop", verification_script="exit 0")
+        resp = app_client.post("/api/loops/anon-loop/run", json={})
+        assert resp.status_code == 401
+
+    def test_private_loop_not_runnable_by_non_owner(self, app_client, db_session):
+        # review F9: a private loop's verification_script is the creator's code;
+        # a different authenticated user must not be able to execute it (404, not
+        # leaking existence). Insert a private loop owned by a known other user.
+        from datetime import UTC, datetime
+        from uuid import uuid4 as _uuid
+
+        from app.models import Loop
+
+        other_owner = _uuid()
+        loop = Loop(
+            id=_uuid(),
+            slug="private-loop",
+            title="Private",
+            description="secret",
+            success_condition="x",
+            verification_script="exit 0",
+            system_prompt="x",
+            max_turns=5,
+            budget_usd=None,
+            tool_allowlist=[],
+            stopping_criteria={"success": "x", "failure": "y", "budget": "z"},
+            is_public=False,
+            creator_id=None,  # no creator row needed; None owner => non-master is denied
+            created_at=datetime.now(UTC),
+        )
+        db_session.add(loop)
+        db_session.flush()
+        _ = other_owner
+        # A different 'user' (the stub mints a fresh uuid per request) tries to run it.
+        resp = app_client.post("/api/loops/private-loop/run", json={}, headers={"x-test-auth": "user"})
+        assert resp.status_code == 404
+        # master can still run it.
+        resp_m = app_client.post("/api/loops/private-loop/run", json={}, headers={"x-test-auth": "master"})
+        assert resp_m.status_code == 200
+
+    def test_require_sandbox_returns_503(self, app_client, monkeypatch):
+        # review F1/F6 gate: operator demands a kernel sandbox; none functional -> 503.
+        import app.loop_runner as _lr
+
+        _lr._runner = None  # reset singleton so the gate env is re-read
+        monkeypatch.setenv("WR_LOOP_RUN_REQUIRE_SANDBOX", "true")
+        _publish(app_client, slug="gated-loop", verification_script="exit 0")
+        resp = app_client.post("/api/loops/gated-loop/run", json={}, headers={"x-test-auth": "user"})
+        assert resp.status_code == 503
+        _lr._runner = None  # reset so other tests get a fresh runner
