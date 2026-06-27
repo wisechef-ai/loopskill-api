@@ -90,6 +90,9 @@ class TestSafeWorkspacePath:
     def test_rejects_home_expansion(self):
         assert lr._safe_workspace_path("~/secrets") is None
 
+    def test_rejects_null_byte(self):
+        assert lr._safe_workspace_path("a\x00b.txt") is None
+
     def test_rejects_reserved_verify_script_name(self):
         assert lr._safe_workspace_path(lr.VERIFY_SCRIPT_NAME) is None
         assert lr._safe_workspace_path("sub/" + lr.VERIFY_SCRIPT_NAME) is None

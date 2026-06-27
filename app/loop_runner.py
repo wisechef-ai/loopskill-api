@@ -461,6 +461,9 @@ def _safe_workspace_path(rel_path: str) -> str | None:
     """
     if not isinstance(rel_path, str) or not rel_path.strip():
         return None
+    if "\x00" in rel_path:
+        # Null bytes can truncate paths at the OS layer; reject outright.
+        return None
     if rel_path.startswith("/") or rel_path.startswith("~"):
         return None
     norm = os.path.normpath(rel_path)
