@@ -253,6 +253,20 @@ class TestRunVerificationBounded:
         assert res.passed is False
         assert res.error is not None
 
+    def test_output_flood_is_capped_not_oom(self, runner):
+        # A flooding script must NOT buffer unbounded output into server memory.
+        # The runner caps capture at MAX_CAPTURE_BYTES, kills the group, fails.
+        res = runner.run_verification(
+            loop_slug="flood-loop",
+            verification_script="yes AAAA | head -c 200000000",
+            declared_bounds={},
+            timeout_seconds=10,
+        )
+        # Captured output is bounded well below the 200MB the script tried to emit.
+        assert len(res.stdout.encode("utf-8")) <= lr.MAX_CAPTURE_BYTES + 1024
+        assert res.passed is False
+        assert res.error == "output limit exceeded"
+
 
 # ── route: POST /api/loops/{slug}/run ────────────────────────────────────────
 

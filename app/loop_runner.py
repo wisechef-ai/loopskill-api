@@ -66,6 +66,13 @@ DEFAULT_TIMEOUT_SECONDS = 60
 MAX_TIMEOUT_SECONDS = 600  # mirrors SandboxProfile.validate ceiling
 DEFAULT_MEMORY_MB = 512
 MAX_OUTPUT_CHARS = 8000  # stdout/stderr truncation in the response
+# Hard byte ceiling read from the child's pipes. A malicious verification_script
+# can flood stdout (e.g. `yes | head -c 1G`); RLIMIT_AS caps the CHILD's memory
+# but NOT the parent's, so an unbounded communicate() would buffer the flood into
+# the SERVER's memory and OOM it. We stop reading (and kill the process group)
+# once a stream exceeds this many bytes. Generous vs. MAX_OUTPUT_CHARS so genuine
+# diagnostic output is never lost, tiny vs. an OOM.
+MAX_CAPTURE_BYTES = 1_000_000  # 1 MB per stream
 MAX_WORKSPACE_FILES = 64
 MAX_WORKSPACE_FILE_BYTES = 256 * 1024  # 256 KB per file
 VERIFY_SCRIPT_NAME = "__loop_verify.sh"
@@ -378,7 +385,6 @@ class LoopRunner:
                 stderr=subprocess.PIPE,
                 preexec_fn=preexec,  # noqa: PLW1509 - rlimits must be set in the child pre-exec
                 start_new_session=True,
-                text=True,
             )
         # Rationale: spawn failure (no sh, OSError) -> fail-closed error result, never raise into the request.
         except Exception as exc:  # noqa: BLE001
@@ -396,31 +402,36 @@ class LoopRunner:
             )
 
         timed_out = False
-        try:
-            stdout, stderr = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
+        # Bounded read: cap each stream at MAX_CAPTURE_BYTES so a flooding script
+        # can never buffer unbounded output into the SERVER's memory. Overflow or
+        # timeout kills the whole process group.
+        stdout_b, stderr_b, overflowed, timed_out = _read_bounded(proc, timeout)
+        if timed_out or overflowed:
             _kill_process_group(proc)
             try:
-                stdout, stderr = proc.communicate(timeout=5)
-            # Rationale: post-kill drain can still hang on a wedged FD; degrade to empty output.
+                proc.wait(timeout=5)
+            # Rationale: child may already be reaped or wedged; never block the request on wait.
             except Exception:  # noqa: BLE001
-                stdout, stderr = "", ""
+                pass
 
         duration = time.monotonic() - start
         exit_code = proc.returncode if proc.returncode is not None else -1
-        passed = exit_code == 0 and not timed_out
+        passed = exit_code == 0 and not timed_out and not overflowed
+        stdout = stdout_b.decode("utf-8", errors="replace")
+        stderr = stderr_b.decode("utf-8", errors="replace")
+        if overflowed:
+            stderr = (stderr + "\n[loopskill] output exceeded capture limit; run aborted.").strip()
         return LoopRunResult(
             run_id=run_id,
             mode="verify",
             confinement="bounded",
             passed=passed,
             exit_code=exit_code,
-            stdout=stdout or "",
-            stderr=stderr or "",
+            stdout=stdout,
+            stderr=stderr,
             timed_out=timed_out,
             duration_seconds=duration,
-            error="timed out" if timed_out else None,
+            error=("timed out" if timed_out else ("output limit exceeded" if overflowed else None)),
         )
 
 
@@ -519,6 +530,64 @@ def _make_rlimit_preexec(timeout: int, memory_mb: int):
                 continue
 
     return _preexec
+
+
+def _read_bounded(proc: subprocess.Popen, timeout: int) -> tuple[bytes, bytes, bool, bool]:
+    """Read proc's stdout+stderr with a per-stream byte cap and a wall timeout.
+
+    Returns (stdout_bytes, stderr_bytes, overflowed, timed_out). Reads each pipe
+    in its own thread, stopping at MAX_CAPTURE_BYTES so a flooding child can never
+    buffer unbounded data into the parent (server) memory. The caller kills the
+    process group when overflowed or timed_out is True.
+    """
+    import threading
+
+    chunks: dict[str, list[bytes]] = {"out": [], "err": []}
+    totals: dict[str, int] = {"out": 0, "err": 0}
+    overflow = threading.Event()
+
+    def _pump(stream, key: str) -> None:
+        if stream is None:
+            return
+        try:
+            while True:
+                buf = stream.read(65536)
+                if not buf:
+                    break
+                room = MAX_CAPTURE_BYTES - totals[key]
+                if room > 0:
+                    chunks[key].append(buf[:room])
+                    totals[key] += min(len(buf), room)
+                if totals[key] >= MAX_CAPTURE_BYTES:
+                    overflow.set()
+                    break
+        # Rationale: pipe read can fail if the child is killed mid-read; stop pumping.
+        except Exception:  # noqa: BLE001
+            pass
+
+    t_out = threading.Thread(target=_pump, args=(proc.stdout, "out"), daemon=True)
+    t_err = threading.Thread(target=_pump, args=(proc.stderr, "err"), daemon=True)
+    t_out.start()
+    t_err.start()
+
+    # Poll for exit OR overflow so a flooding child is killed promptly (not only
+    # at the wall timeout). proc.wait() alone wouldn't observe the overflow event.
+    timed_out = False
+    deadline = time.monotonic() + timeout
+    while True:
+        if proc.poll() is not None:
+            break  # child exited on its own
+        if overflow.is_set():
+            break  # cap hit — caller kills the group
+        if time.monotonic() >= deadline:
+            timed_out = True
+            break
+        time.sleep(0.02)
+
+    # Give the pump threads a brief window to drain buffered output post-exit.
+    t_out.join(timeout=2)
+    t_err.join(timeout=2)
+    return b"".join(chunks["out"]), b"".join(chunks["err"]), overflow.is_set(), timed_out
 
 
 def _kill_process_group(proc: subprocess.Popen) -> None:
