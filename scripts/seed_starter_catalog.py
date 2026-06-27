@@ -230,7 +230,21 @@ STARTER_LOOPS = [
         ),
         "verification_script": (
             "if command -v pytest >/dev/null 2>&1; then pytest -q; "
-            'else python3 -m pytest -q 2>/dev/null || { echo "no pytest"; exit 1; }; fi'
+            "elif python3 -m pytest -q 2>/dev/null; then :; "
+            "else "
+            # No pytest available: fall back to importing each staged test_*.py and
+            # invoking its test_* callables, so the contract still proves the tests
+            # pass (not merely import). A failing assert -> non-zero exit.
+            "found=0; "
+            'for f in test_*.py; do [ -e "$f" ] || continue; found=1; '
+            'python3 -c "'
+            "import runpy,sys; "
+            "ns=runpy.run_path(sys.argv[1]); "
+            'fns=[v for k,v in ns.items() if k.startswith(\\"test_\\") and callable(v)]; '
+            "[f() for f in fns]"
+            '" "$f" || exit 1; done; '
+            '[ "$found" = 1 ] || { echo "no tests found and no pytest"; exit 1; }; '
+            "exit 0; fi"
         ),
         "max_turns": 25,
         "budget_usd": "2.00",
