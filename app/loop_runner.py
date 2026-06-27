@@ -47,7 +47,6 @@ from __future__ import annotations
 import logging
 import os
 import shutil
-import signal
 import subprocess  # noqa: S404 - controlled execution of an author-provided, bounded verification script
 import tempfile
 import time
@@ -55,6 +54,17 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from app.loop_runner_support import (
+    MAX_CAPTURE_BYTES,
+    VERIFY_SCRIPT_NAME,
+    WorkspaceError,
+    clamp_int,
+    kill_process_group,
+    make_rlimit_preexec,
+    read_bounded,
+    safe_workspace_path,
+    scrub_env,
+)
 from app.sandbox.profile import SandboxProfile
 from app.sandbox.runner import SandboxRunner
 
@@ -66,16 +76,12 @@ DEFAULT_TIMEOUT_SECONDS = 60
 MAX_TIMEOUT_SECONDS = 600  # mirrors SandboxProfile.validate ceiling
 DEFAULT_MEMORY_MB = 512
 MAX_OUTPUT_CHARS = 8000  # stdout/stderr truncation in the response
-# Hard byte ceiling read from the child's pipes. A malicious verification_script
-# can flood stdout (e.g. `yes | head -c 1G`); RLIMIT_AS caps the CHILD's memory
-# but NOT the parent's, so an unbounded communicate() would buffer the flood into
-# the SERVER's memory and OOM it. We stop reading (and kill the process group)
-# once a stream exceeds this many bytes. Generous vs. MAX_OUTPUT_CHARS so genuine
-# diagnostic output is never lost, tiny vs. an OOM.
-MAX_CAPTURE_BYTES = 1_000_000  # 1 MB per stream
+# MAX_CAPTURE_BYTES + VERIFY_SCRIPT_NAME live in loop_runner_support (shared with
+# the pure helpers); re-exported here so callers/tests can read them off this
+# module too.
+_RE_EXPORTED = (MAX_CAPTURE_BYTES, VERIFY_SCRIPT_NAME)
 MAX_WORKSPACE_FILES = 64
 MAX_WORKSPACE_FILE_BYTES = 256 * 1024  # 256 KB per file
-VERIFY_SCRIPT_NAME = "__loop_verify.sh"
 
 # Where bounded-mode workspaces are staged. Overridable for tests / ops.
 RUN_WORKSPACE_BASE = os.environ.get("WR_LOOP_RUN_WORKSPACE", tempfile.gettempdir())
@@ -226,8 +232,8 @@ class LoopRunner:
         run_id = uuid.uuid4().hex[:12]
         start = time.monotonic()
 
-        timeout = _clamp_int(timeout_seconds, DEFAULT_TIMEOUT_SECONDS, 1, MAX_TIMEOUT_SECONDS)
-        memory = _clamp_int(memory_mb, DEFAULT_MEMORY_MB, 64, 4096)
+        timeout = clamp_int(timeout_seconds, DEFAULT_TIMEOUT_SECONDS, 1, MAX_TIMEOUT_SECONDS)
+        memory = clamp_int(memory_mb, DEFAULT_MEMORY_MB, 64, 4096)
 
         bounds = dict(declared_bounds)
         bounds.update(
@@ -255,7 +261,7 @@ class LoopRunner:
         # Stage an isolated workspace containing the verify script + caller files.
         try:
             workdir = self._stage_workspace(run_id, verification_script, workspace_files)
-        except _WorkspaceError as exc:
+        except WorkspaceError as exc:
             return LoopRunResult(
                 run_id=run_id,
                 mode="verify",
@@ -270,7 +276,7 @@ class LoopRunner:
                 error=str(exc),
             )
 
-        clean_env = _scrub_env(env, workdir)
+        clean_env = scrub_env(env, workdir)
 
         try:
             if self._backend in ("firejail", "bwrap"):
@@ -302,14 +308,14 @@ class LoopRunner:
 
         files = workspace_files or {}
         if len(files) > MAX_WORKSPACE_FILES:
-            raise _WorkspaceError(f"too many workspace_files (max {MAX_WORKSPACE_FILES})")
+            raise WorkspaceError(f"too many workspace_files (max {MAX_WORKSPACE_FILES})")
 
         for rel_path, content in files.items():
-            safe_rel = _safe_workspace_path(rel_path)
+            safe_rel = safe_workspace_path(rel_path)
             if safe_rel is None:
-                raise _WorkspaceError(f"unsafe workspace file path: {rel_path!r}")
+                raise WorkspaceError(f"unsafe workspace file path: {rel_path!r}")
             if not isinstance(content, str) or len(content.encode("utf-8")) > MAX_WORKSPACE_FILE_BYTES:
-                raise _WorkspaceError(f"workspace file too large or non-string: {rel_path!r}")
+                raise WorkspaceError(f"workspace file too large or non-string: {rel_path!r}")
             dest = os.path.join(workdir, safe_rel)
             os.makedirs(os.path.dirname(dest), exist_ok=True)
             with open(dest, "w", encoding="utf-8") as fh:
@@ -374,7 +380,7 @@ class LoopRunner:
         start: float,
     ) -> LoopRunResult:
         script_path = os.path.join(workdir, VERIFY_SCRIPT_NAME)
-        preexec = _make_rlimit_preexec(timeout, memory)
+        preexec = make_rlimit_preexec(timeout, memory)
 
         try:
             proc = subprocess.Popen(  # noqa: S603 - fixed argv, author script, bounded + scrubbed env
@@ -405,9 +411,9 @@ class LoopRunner:
         # Bounded read: cap each stream at MAX_CAPTURE_BYTES so a flooding script
         # can never buffer unbounded output into the SERVER's memory. Overflow or
         # timeout kills the whole process group.
-        stdout_b, stderr_b, overflowed, timed_out = _read_bounded(proc, timeout)
+        stdout_b, stderr_b, overflowed, timed_out = read_bounded(proc, timeout)
         if timed_out or overflowed:
-            _kill_process_group(proc)
+            kill_process_group(proc)
             try:
                 proc.wait(timeout=5)
             # Rationale: child may already be reaped or wedged; never block the request on wait.
@@ -433,175 +439,6 @@ class LoopRunner:
             duration_seconds=duration,
             error=("timed out" if timed_out else ("output limit exceeded" if overflowed else None)),
         )
-
-
-# ── module-level helpers (pure, unit-testable) ────────────────────────────────
-
-
-class _WorkspaceError(ValueError):
-    """Raised when caller-supplied workspace input violates a safety bound."""
-
-
-def _clamp_int(value: int | None, default: int, lo: int, hi: int) -> int:
-    """Clamp ``value`` into [lo, hi], falling back to ``default`` when None/invalid."""
-    if value is None:
-        return default
-    try:
-        v = int(value)
-    except (TypeError, ValueError):
-        return default
-    return max(lo, min(hi, v))
-
-
-def _safe_workspace_path(rel_path: str) -> str | None:
-    """Return a normalised relative path, or None if it escapes the workspace.
-
-    Rejects absolute paths, ``..`` traversal, the reserved verify-script name, and
-    anything that normalises outside the workspace root.
-    """
-    if not isinstance(rel_path, str) or not rel_path.strip():
-        return None
-    if "\x00" in rel_path:
-        # Null bytes can truncate paths at the OS layer; reject outright.
-        return None
-    if rel_path.startswith("/") or rel_path.startswith("~"):
-        return None
-    norm = os.path.normpath(rel_path)
-    if norm.startswith("..") or norm.startswith("/") or os.path.isabs(norm):
-        return None
-    if os.pardir in norm.split(os.sep):
-        return None
-    if os.path.basename(norm) == VERIFY_SCRIPT_NAME:
-        return None
-    return norm
-
-
-def _scrub_env(env: dict[str, str] | None, workdir: str) -> dict[str, str]:
-    """Build the MINIMAL env for the script: a clean base + caller-supplied vars.
-
-    The server's own environment (DB URL, Stripe keys, master key, …) is NEVER
-    inherited — that is the core safety property of verify-mode regardless of the
-    kernel sandbox. Only an explicit, string-typed ``env`` from the caller passes.
-    """
-    base = {
-        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-        "HOME": workdir,
-        "LANG": "C.UTF-8",
-        "LC_ALL": "C.UTF-8",
-        "SANDBOX": "1",
-        "LOOPSKILL_VERIFY": "1",
-    }
-    for key, val in (env or {}).items():
-        if not isinstance(key, str) or not isinstance(val, str):
-            continue
-        # Never let the caller override PATH/HOME to point at host resources.
-        if key in ("PATH", "HOME", "LD_PRELOAD", "LD_LIBRARY_PATH"):
-            continue
-        base[key] = val
-    return base
-
-
-def _make_rlimit_preexec(timeout: int, memory_mb: int):
-    """Return a preexec_fn that applies POSIX rlimits + a new session in the child.
-
-    Each limit is best-effort: a platform that lacks one must not abort the run.
-    RLIMIT_NPROC is intentionally NOT set — it is per-UID, so a low value would
-    throttle the shared server process. Fork-bomb containment is a property of the
-    ``sandboxed`` backend; ``bounded`` mode declares its weaker envelope honestly.
-    """
-
-    def _preexec() -> None:  # pragma: no cover - runs in the forked child
-        import resource
-
-        try:
-            os.setsid()
-        except OSError:
-            pass
-        # Wall-clock is enforced by communicate(timeout); RLIMIT_CPU caps CPU time
-        # as a second backstop against a busy-loop that ignores SIGTERM.
-        for res_name, soft, hard in (
-            ("RLIMIT_CPU", timeout, timeout + 2),
-            ("RLIMIT_AS", memory_mb * 1024 * 1024, memory_mb * 1024 * 1024),
-            ("RLIMIT_FSIZE", 50 * 1024 * 1024, 50 * 1024 * 1024),
-        ):
-            res = getattr(resource, res_name, None)
-            if res is None:
-                continue
-            try:
-                resource.setrlimit(res, (soft, hard))
-            except (ValueError, OSError):
-                continue
-
-    return _preexec
-
-
-def _read_bounded(proc: subprocess.Popen, timeout: int) -> tuple[bytes, bytes, bool, bool]:
-    """Read proc's stdout+stderr with a per-stream byte cap and a wall timeout.
-
-    Returns (stdout_bytes, stderr_bytes, overflowed, timed_out). Reads each pipe
-    in its own thread, stopping at MAX_CAPTURE_BYTES so a flooding child can never
-    buffer unbounded data into the parent (server) memory. The caller kills the
-    process group when overflowed or timed_out is True.
-    """
-    import threading
-
-    chunks: dict[str, list[bytes]] = {"out": [], "err": []}
-    totals: dict[str, int] = {"out": 0, "err": 0}
-    overflow = threading.Event()
-
-    def _pump(stream, key: str) -> None:
-        if stream is None:
-            return
-        try:
-            while True:
-                buf = stream.read(65536)
-                if not buf:
-                    break
-                room = MAX_CAPTURE_BYTES - totals[key]
-                if room > 0:
-                    chunks[key].append(buf[:room])
-                    totals[key] += min(len(buf), room)
-                if totals[key] >= MAX_CAPTURE_BYTES:
-                    overflow.set()
-                    break
-        # Rationale: pipe read can fail if the child is killed mid-read; stop pumping.
-        except Exception:  # noqa: BLE001
-            pass
-
-    t_out = threading.Thread(target=_pump, args=(proc.stdout, "out"), daemon=True)
-    t_err = threading.Thread(target=_pump, args=(proc.stderr, "err"), daemon=True)
-    t_out.start()
-    t_err.start()
-
-    # Poll for exit OR overflow so a flooding child is killed promptly (not only
-    # at the wall timeout). proc.wait() alone wouldn't observe the overflow event.
-    timed_out = False
-    deadline = time.monotonic() + timeout
-    while True:
-        if proc.poll() is not None:
-            break  # child exited on its own
-        if overflow.is_set():
-            break  # cap hit — caller kills the group
-        if time.monotonic() >= deadline:
-            timed_out = True
-            break
-        time.sleep(0.02)
-
-    # Give the pump threads a brief window to drain buffered output post-exit.
-    t_out.join(timeout=2)
-    t_err.join(timeout=2)
-    return b"".join(chunks["out"]), b"".join(chunks["err"]), overflow.is_set(), timed_out
-
-
-def _kill_process_group(proc: subprocess.Popen) -> None:
-    """SIGKILL the child's whole process group (it was started in a new session)."""
-    try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, OSError):
-        try:
-            proc.kill()
-        except OSError:
-            pass
 
 
 # Singleton, mirroring app.sandbox.routes.get_runner().

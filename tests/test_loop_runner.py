@@ -81,29 +81,29 @@ def _publish(client: TestClient, *, slug: str, verification_script: str) -> None
 
 class TestSafeWorkspacePath:
     def test_rejects_absolute(self):
-        assert lr._safe_workspace_path("/etc/passwd") is None
+        assert lr.safe_workspace_path("/etc/passwd") is None
 
     def test_rejects_parent_traversal(self):
-        assert lr._safe_workspace_path("../escape.txt") is None
-        assert lr._safe_workspace_path("a/../../escape.txt") is None
+        assert lr.safe_workspace_path("../escape.txt") is None
+        assert lr.safe_workspace_path("a/../../escape.txt") is None
 
     def test_rejects_home_expansion(self):
-        assert lr._safe_workspace_path("~/secrets") is None
+        assert lr.safe_workspace_path("~/secrets") is None
 
     def test_rejects_null_byte(self):
-        assert lr._safe_workspace_path("a\x00b.txt") is None
+        assert lr.safe_workspace_path("a\x00b.txt") is None
 
     def test_rejects_reserved_verify_script_name(self):
-        assert lr._safe_workspace_path(lr.VERIFY_SCRIPT_NAME) is None
-        assert lr._safe_workspace_path("sub/" + lr.VERIFY_SCRIPT_NAME) is None
+        assert lr.safe_workspace_path(lr.VERIFY_SCRIPT_NAME) is None
+        assert lr.safe_workspace_path("sub/" + lr.VERIFY_SCRIPT_NAME) is None
 
     def test_rejects_empty(self):
-        assert lr._safe_workspace_path("") is None
-        assert lr._safe_workspace_path("   ") is None
+        assert lr.safe_workspace_path("") is None
+        assert lr.safe_workspace_path("   ") is None
 
     def test_allows_simple_relative(self):
-        assert lr._safe_workspace_path("artifact.txt") == "artifact.txt"
-        assert lr._safe_workspace_path("sub/dir/file.json") == "sub/dir/file.json"
+        assert lr.safe_workspace_path("artifact.txt") == "artifact.txt"
+        assert lr.safe_workspace_path("sub/dir/file.json") == "sub/dir/file.json"
 
 
 class TestScrubEnv:
@@ -111,17 +111,17 @@ class TestScrubEnv:
         # A server secret in os.environ must NOT appear in the scrubbed env.
         monkeypatch.setenv("WR_MASTER_KEY", "super-secret")
         monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_live_x")
-        env = lr._scrub_env(None, "/tmp/workdir")
+        env = lr.scrub_env(None, "/tmp/workdir")
         assert "WR_MASTER_KEY" not in env
         assert "STRIPE_SECRET_KEY" not in env
 
     def test_caller_vars_pass_through(self):
-        env = lr._scrub_env({"PR_NUMBER": "42", "FOO": "bar"}, "/tmp/workdir")
+        env = lr.scrub_env({"PR_NUMBER": "42", "FOO": "bar"}, "/tmp/workdir")
         assert env["PR_NUMBER"] == "42"
         assert env["FOO"] == "bar"
 
     def test_caller_cannot_override_path_or_home(self):
-        env = lr._scrub_env(
+        env = lr.scrub_env(
             {"PATH": "/evil/bin", "HOME": "/root", "LD_PRELOAD": "/evil.so"},
             "/tmp/workdir",
         )
@@ -130,23 +130,23 @@ class TestScrubEnv:
         assert "LD_PRELOAD" not in env
 
     def test_non_string_values_dropped(self):
-        env = lr._scrub_env({"GOOD": "ok", "BAD": 123}, "/tmp/workdir")  # type: ignore[dict-item]
+        env = lr.scrub_env({"GOOD": "ok", "BAD": 123}, "/tmp/workdir")  # type: ignore[dict-item]
         assert env["GOOD"] == "ok"
         assert "BAD" not in env
 
 
 class TestClampInt:
     def test_none_returns_default(self):
-        assert lr._clamp_int(None, 60, 1, 600) == 60
+        assert lr.clamp_int(None, 60, 1, 600) == 60
 
     def test_clamps_high(self):
-        assert lr._clamp_int(99999, 60, 1, 600) == 600
+        assert lr.clamp_int(99999, 60, 1, 600) == 600
 
     def test_clamps_low(self):
-        assert lr._clamp_int(0, 60, 1, 600) == 1
+        assert lr.clamp_int(0, 60, 1, 600) == 1
 
     def test_invalid_returns_default(self):
-        assert lr._clamp_int("nope", 60, 1, 600) == 60  # type: ignore[arg-type]
+        assert lr.clamp_int("nope", 60, 1, 600) == 60  # type: ignore[arg-type]
 
 
 # ── unit: LoopRunner.run_verification (bounded mode, real execution) ──────────
