@@ -21,9 +21,10 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
+from app.loop_runner import get_loop_runner
 from app.loop_validation import LoopValidationError, validate_loop_manifest
 from app.models import Loop
-from app.schemas import LoopDetailOut, LoopOut, LoopPublishIn
+from app.schemas import LoopDetailOut, LoopOut, LoopPublishIn, LoopRunIn, LoopRunOut
 
 logger = logging.getLogger(__name__)
 
@@ -170,3 +171,78 @@ def publish_loop(
     db.refresh(loop)
     logger.info("loop published: %s", loop.slug)
     return get_loop(loop.slug, db)
+
+
+@router.post("/{slug}/run", response_model=LoopRunOut)
+def run_loop(
+    slug: str,
+    payload: LoopRunIn,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> LoopRunOut:
+    """Execute a loop's verification under its enforced bounds; return pass/fail.
+
+    This is the runnable wedge: a *vetted* loop registry that doesn't just list
+    a safety contract but RUNS the loop's objective success check. v1 is
+    verify-mode — the published ``verification_script`` runs in an isolated,
+    bounded, secret-free environment and the exit code is the verdict. The
+    response declares the ``confinement`` level it achieved (``sandboxed`` when a
+    kernel sandbox backend is installed, else ``bounded`` POSIX rlimits) so the
+    caller knows exactly how the run was contained.
+
+    ``mode="agent"`` (drive the loop's system_prompt with an LLM under the
+    allow-list / turn / budget bounds) is a roadmap item — the open-core repo
+    ships no LLM client by design — and currently returns 501.
+    """
+    ctx = getattr(request.state, "auth_ctx", None)
+    if ctx is None or getattr(ctx, "scope", None) not in ("user", "master"):
+        raise HTTPException(status_code=401, detail="authentication required to run a loop")
+
+    mode = (payload.mode or "verify").strip().lower()
+    if mode == "agent":
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                "agent-mode (LLM-driven execution) is not enabled in this build. "
+                "verify-mode runs the loop's verification_script under enforced "
+                "bounds; agent-mode is on the roadmap (bring-your-own LLM driver)."
+            ),
+        )
+    if mode != "verify":
+        raise HTTPException(
+            status_code=422, detail=f"unknown run mode {mode!r}; expected 'verify' or 'agent'"
+        )
+
+    loop = db.query(Loop).filter(Loop.slug == slug).first()
+    if loop is None or loop.is_archived:
+        raise HTTPException(status_code=404, detail="loop not found")
+
+    declared_bounds = {
+        "max_turns": loop.max_turns,
+        "budget_usd": float(loop.budget_usd) if loop.budget_usd is not None else None,
+        "tool_allowlist": loop.tool_allowlist or [],
+        "stopping_criteria": loop.stopping_criteria or {},
+    }
+
+    runner = get_loop_runner()
+    result = runner.run_verification(
+        loop_slug=loop.slug,
+        verification_script=loop.verification_script,
+        declared_bounds=declared_bounds,
+        workspace_files=payload.workspace_files,
+        env=payload.env,
+        timeout_seconds=payload.timeout_seconds,
+        memory_mb=payload.memory_mb,
+        allow_network=payload.allow_network,
+    )
+    logger.info(
+        "loop run: slug=%s run_id=%s confinement=%s passed=%s exit=%s",
+        loop.slug,
+        result.run_id,
+        result.confinement,
+        result.passed,
+        result.exit_code,
+    )
+    data = result.to_dict()
+    data["loop_slug"] = loop.slug
+    return LoopRunOut(**data)

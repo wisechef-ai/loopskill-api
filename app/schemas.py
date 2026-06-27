@@ -379,6 +379,47 @@ class LoopPublishIn(BaseModel):
     stopping_criteria: dict
 
 
+class LoopRunIn(BaseModel):
+    """Request body for POST /api/loops/{slug}/run.
+
+    v1 is verify-mode: execute the loop's published verification_script under the
+    loop's enforced bounds and return an objective pass/fail. ``mode="agent"`` is
+    reserved for the future BYO-LLM driving layer and currently returns 501.
+    """
+
+    mode: str = Field("verify", description="'verify' (v1) or 'agent' (roadmap, 501)")
+    # Optional files staged into the run workspace before the verification script
+    # executes (e.g. an artifact the script checks). Path -> file content.
+    workspace_files: dict[str, str] | None = Field(
+        default=None, description="relative_path -> UTF-8 content; staged into the run workspace"
+    )
+    # Extra env vars exposed ONLY to the verification script. The server's own
+    # environment is never inherited (verify-mode safety property).
+    env: dict[str, str] | None = Field(default=None, description="extra env vars for the script")
+    # Per-run overrides, each clamped server-side to the hard run ceilings.
+    timeout_seconds: int | None = Field(default=None, ge=1, le=600)
+    memory_mb: int | None = Field(default=None, ge=64, le=4096)
+    # Network is OFF by default; opt-in is honoured only by the sandboxed backend.
+    allow_network: bool = False
+
+
+class LoopRunOut(BaseModel):
+    """Result of a loop verification run."""
+
+    run_id: str
+    loop_slug: str
+    mode: str
+    confinement: str  # "sandboxed" | "bounded"
+    passed: bool
+    exit_code: int
+    stdout: str
+    stderr: str
+    timed_out: bool
+    duration_seconds: float
+    bounds: dict = {}
+    error: str | None = None
+
+
 class PersonalityOut(BaseModel):
     id: UUID
     slug: str
