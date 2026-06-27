@@ -96,3 +96,51 @@ def test_seed_starter_catalog_runs_on_migrated_db(migrated_sqlite_url):
     finally:
         _db.SessionLocal = original
         engine.dispose()
+
+
+def test_loop_rating_insert_on_migrated_db(migrated_sqlite_url):
+    """A LoopRating insert must succeed on a MIGRATED DB (not just create_all).
+
+    Regression: the migration originally gave loop_ratings.created_at a
+    Postgres-only NOW() default, leaving SQLite with NOT NULL + no default, so an
+    ORM insert on the migrated cold-clone raised IntegrityError -> the /rate route
+    500'd in the real container while create_all-based unit tests stayed green.
+    """
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from app.models import Loop, LoopRating
+
+    engine = create_engine(migrated_sqlite_url)
+    TestSession = sessionmaker(bind=engine)
+    db = TestSession()
+    try:
+        loop = Loop(
+            id=uuid4(),
+            slug=f"rate-mig-{uuid4().hex[:8]}",
+            title="Rate Migration",
+            success_condition="x",
+            verification_script="exit 0",
+            system_prompt="x",
+            max_turns=5,
+            budget_usd=None,
+            tool_allowlist=[],
+            stopping_criteria={"success": "x", "failure": "y", "budget": "z"},
+            created_at=datetime.now(UTC),
+        )
+        db.add(loop)
+        db.flush()
+        # The insert that 500'd on the migrated container — must NOT raise here,
+        # and created_at must be populated by the column default.
+        db.add(LoopRating(loop_id=loop.id, rater_user_id=None, rating=5, comment="ships"))
+        db.commit()
+
+        row = db.query(LoopRating).filter(LoopRating.loop_id == loop.id).one()
+        assert row.rating == 5
+        assert row.created_at is not None  # default fired on SQLite too
+    finally:
+        db.close()
+        engine.dispose()

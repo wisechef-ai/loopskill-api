@@ -78,7 +78,11 @@ def upgrade() -> None:
             "created_at",
             sa.DateTime(timezone=True),
             nullable=False,
-            server_default=sa.text("NOW()") if is_postgres else None,
+            # CURRENT_TIMESTAMP is portable: Postgres maps it to now(), SQLite
+            # fills it at INSERT. A Postgres-only NOW() leaves SQLite with no
+            # default -> NOT NULL violation on the migrated cold-clone (caught by
+            # the docker E2E, not by create_all-based unit tests).
+            server_default=sa.text("CURRENT_TIMESTAMP"),
         ),
         sa.CheckConstraint("rating >= 1 AND rating <= 5", name="ck_loop_rating_range"),
     )
