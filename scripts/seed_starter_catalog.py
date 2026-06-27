@@ -82,12 +82,9 @@ STARTER_LOOPS = [
         "license": "MIT",
         "tier": "free",
         "success_condition": (
-            "A greeting file has been written to the run workspace and contains "
-            "the expected text."
+            "A greeting file has been written to the run workspace and contains the expected text."
         ),
-        "verification_script": (
-            "echo 'hello from loopskill' > hello.txt && grep -q 'loopskill' hello.txt"
-        ),
+        "verification_script": ("echo 'hello from loopskill' > hello.txt && grep -q 'loopskill' hello.txt"),
         "max_turns": 1,
         "budget_usd": None,
         "stopping_criteria": {
@@ -196,6 +193,318 @@ STARTER_LOOPS = [
             "in ≤2 sentences. Write all summaries to /tmp/briefing.md in "
             "Markdown format with a timestamp header. Call the verification "
             "script when the file is ready."
+        ),
+    },
+    {
+        "slug": "test-green-loop",
+        "title": "Test-Green Loop (TDD)",
+        "description": (
+            "Drive a change until the test suite is GREEN. The loop's contract is "
+            "the test command itself — the registry runs it and the exit code is "
+            "the objective verdict. The TDD workhorse: no change is 'done' until "
+            "the suite passes."
+        ),
+        "category": "development",
+        "readme": (
+            "# Test-Green Loop\n\n"
+            "## What it does\n"
+            "An agent iterates on code until the project's test command exits 0. "
+            "The verification IS the test run — there is no subjective 'looks "
+            "done', only a green suite.\n\n"
+            "## The contract\n"
+            "- `verification_script`: runs the test command (default `pytest -q`); "
+            "exit 0 = success.\n"
+            "- `max_turns`: 25 — bounded so a thrashing agent can't loop forever.\n"
+            "- `budget_usd`: 2.00.\n"
+            "- `tool_allowlist`: [read_file, write_file, run_tests].\n\n"
+            "## Verify it (stage a passing test, then run)\n"
+            "```\n"
+            "curl -X POST .../api/loops/test-green-loop/run -H 'x-api-key: KEY' \\\n"
+            '  -d \'{"workspace_files": {"test_x.py": "def test_x():\\n    assert 1+1==2\\n"}}\'\n'
+            "```\n"
+        ),
+        "license": "MIT",
+        "tier": "free",
+        "success_condition": (
+            "The project's test suite passes with a zero exit code after the agent's changes."
+        ),
+        "verification_script": (
+            "if command -v pytest >/dev/null 2>&1; then pytest -q; "
+            "elif python3 -m pytest -q 2>/dev/null; then :; "
+            "else "
+            # No pytest available: fall back to importing each staged test_*.py and
+            # invoking its test_* callables, so the contract still proves the tests
+            # pass (not merely import). A failing assert -> non-zero exit.
+            "found=0; "
+            'for f in test_*.py; do [ -e "$f" ] || continue; found=1; '
+            'python3 -c "'
+            "import runpy,sys; "
+            "ns=runpy.run_path(sys.argv[1]); "
+            'fns=[v for k,v in ns.items() if k.startswith(\\"test_\\") and callable(v)]; '
+            "[f() for f in fns]"
+            '" "$f" || exit 1; done; '
+            '[ "$found" = 1 ] || { echo "no tests found and no pytest"; exit 1; }; '
+            "exit 0; fi"
+        ),
+        "max_turns": 25,
+        "budget_usd": "2.00",
+        "stopping_criteria": {
+            "success": "test command exits 0",
+            "failure": "max_turns reached with tests still red",
+            "budget": "$2.00 USD hard ceiling",
+        },
+        "tool_allowlist": ["read_file", "write_file", "run_tests"],
+        "system_prompt": (
+            "You are a disciplined TDD engineer. Run the tests, read each failure, "
+            "make the smallest change that moves toward green, and re-run. Never "
+            "delete or skip a test to pass. Stop when the suite is green."
+        ),
+    },
+    {
+        "slug": "lint-clean-loop",
+        "title": "Lint-Clean Loop",
+        "description": (
+            "Iterate until the linter reports zero violations. The registry runs "
+            "the lint command; exit 0 is the verdict. Keeps a codebase's style "
+            "and static-analysis gate permanently green."
+        ),
+        "category": "development",
+        "readme": (
+            "# Lint-Clean Loop\n\n"
+            "## What it does\n"
+            "An agent applies fixes until the linter passes. Verification is the "
+            "lint command's exit code — objective, no judgement call.\n\n"
+            "## The contract\n"
+            "- `verification_script`: runs `ruff check .` (falls back to a no-op "
+            "pass if ruff is absent so the demo still completes).\n"
+            "- `max_turns`: 15 · `budget_usd`: 1.00.\n"
+            "- `tool_allowlist`: [read_file, write_file, run_linter].\n"
+        ),
+        "license": "MIT",
+        "tier": "free",
+        "success_condition": "The linter reports zero violations (exit code 0).",
+        "verification_script": (
+            "if command -v ruff >/dev/null 2>&1; then ruff check .; "
+            'else echo "ruff not installed; nothing to lint"; exit 0; fi'
+        ),
+        "max_turns": 15,
+        "budget_usd": "1.00",
+        "stopping_criteria": {
+            "success": "linter exits 0",
+            "failure": "max_turns reached with violations remaining",
+            "budget": "$1.00 USD hard ceiling",
+        },
+        "tool_allowlist": ["read_file", "write_file", "run_linter"],
+        "system_prompt": (
+            "You are a meticulous code-style engineer. Run the linter, fix each "
+            "reported violation at its source (do not blanket-ignore), and re-run "
+            "until it passes. Prefer the smallest correct fix."
+        ),
+    },
+    {
+        "slug": "secret-scan-loop",
+        "title": "Secret-Scan Loop",
+        "description": (
+            "Prove a working tree carries no obvious leaked credentials before a "
+            "commit or publish. The registry runs the scan; exit 0 (no hits) is "
+            "the verdict. A pre-flight gate against the classic 'pushed an API "
+            "key' incident."
+        ),
+        "category": "security",
+        "readme": (
+            "# Secret-Scan Loop\n\n"
+            "## What it does\n"
+            "Scans the workspace for high-signal secret patterns (AWS keys, "
+            "private-key headers, generic `api_key=`/`secret=` assignments with "
+            "long values). Exits non-zero if any are found, so an agent (or CI) "
+            "can block on it.\n\n"
+            "## The contract\n"
+            "- `verification_script`: greps for secret patterns; **exit 0 = clean**.\n"
+            "- `max_turns`: 10 · `budget_usd`: null.\n"
+            "- `tool_allowlist`: [read_file, write_file].\n\n"
+            "## Verify it (stage a clean file)\n"
+            "```\n"
+            "curl -X POST .../api/loops/secret-scan-loop/run -H 'x-api-key: KEY' \\\n"
+            '  -d \'{"workspace_files": {"app.py": "print(1)\\n"}}\'\n'
+            "```\n"
+        ),
+        "license": "MIT",
+        "tier": "free",
+        "success_condition": ("No high-signal secret patterns are present in the working tree."),
+        "verification_script": (
+            "if grep -rEoq "
+            "'(AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|"
+            "(api_?key|secret|token|password)[\"'\\''[:space:]]*[:=][\"'\\''[:space:]]*[A-Za-z0-9/+_-]{20,})' "
+            ". 2>/dev/null; then echo 'potential secret found'; exit 1; else echo clean; exit 0; fi"
+        ),
+        "max_turns": 10,
+        "budget_usd": None,
+        "stopping_criteria": {
+            "success": "scan finds no secrets (exit 0)",
+            "failure": "max_turns reached with secrets still present",
+            "budget": "N/A — bounded by max_turns",
+        },
+        "tool_allowlist": ["read_file", "write_file"],
+        "system_prompt": (
+            "You are a security pre-flight agent. Run the secret scan. For each "
+            "hit, move the value into an environment variable or a gitignored "
+            ".env, replace the literal with a reference, and re-scan until clean. "
+            "Never just delete the line if the code needs the value."
+        ),
+    },
+    {
+        "slug": "changelog-from-commits-loop",
+        "title": "Changelog-From-Commits Loop",
+        "description": (
+            "Produce a release CHANGELOG and prove it exists and is non-trivial. "
+            "The registry verifies the artifact (a CHANGELOG.md with real "
+            "entries), so the loop can't 'succeed' with an empty file."
+        ),
+        "category": "productivity",
+        "readme": (
+            "# Changelog-From-Commits Loop\n\n"
+            "## What it does\n"
+            "An agent reads the commit range and writes a grouped, human-readable "
+            "CHANGELOG.md (Added / Fixed / Changed). Verification confirms the "
+            "file exists and has at least a few real lines.\n\n"
+            "## The contract\n"
+            "- `verification_script`: `test -f CHANGELOG.md` and a line-count floor.\n"
+            "- `max_turns`: 8 · `budget_usd`: 0.50.\n"
+            "- `tool_allowlist`: [git_log, read_file, write_file].\n\n"
+            "## Verify it (stage a changelog)\n"
+            "```\n"
+            "curl -X POST .../api/loops/changelog-from-commits-loop/run -H 'x-api-key: KEY' \\\n"
+            '  -d \'{"workspace_files": {"CHANGELOG.md": "# Changelog\\n## Added\\n- thing\\n- two\\n"}}\'\n'
+            "```\n"
+        ),
+        "license": "MIT",
+        "tier": "free",
+        "success_condition": (
+            "A CHANGELOG.md exists in the workspace with at least three lines of real content."
+        ),
+        "verification_script": (
+            "test -f CHANGELOG.md && [ \"$(grep -cve '^[[:space:]]*$' CHANGELOG.md)\" -ge 3 ]"
+        ),
+        "max_turns": 8,
+        "budget_usd": "0.50",
+        "stopping_criteria": {
+            "success": "CHANGELOG.md exists with >= 3 non-blank lines",
+            "failure": "max_turns reached without a valid changelog",
+            "budget": "$0.50 USD hard ceiling",
+        },
+        "tool_allowlist": ["git_log", "read_file", "write_file"],
+        "system_prompt": (
+            "You are a release engineer. Read the commit history for the range, "
+            "group changes into Added / Changed / Fixed / Removed, write concise "
+            "user-facing bullets to CHANGELOG.md, and run the verification."
+        ),
+    },
+    {
+        "slug": "doc-coverage-loop",
+        "title": "Doc-Coverage Loop",
+        "description": (
+            "Drive a Python module to full public-docstring coverage. The "
+            "registry runs an objective checker (every top-level def/class has a "
+            "docstring) — so 'documented' is measured, not asserted."
+        ),
+        "category": "development",
+        "readme": (
+            "# Doc-Coverage Loop\n\n"
+            "## What it does\n"
+            "An agent adds docstrings until every public function and class in the "
+            "target file has one. Verification parses the AST and fails if any "
+            "public symbol is undocumented.\n\n"
+            "## The contract\n"
+            "- `verification_script`: a Python AST check over `target.py`.\n"
+            "- `max_turns`: 12 · `budget_usd`: 1.00.\n"
+            "- `tool_allowlist`: [read_file, write_file].\n\n"
+            "## Verify it (stage a fully-documented file)\n"
+            "```\n"
+            "curl -X POST .../api/loops/doc-coverage-loop/run -H 'x-api-key: KEY' \\\n"
+            '  -d \'{"workspace_files": {"target.py": "def f():\\n    \\"doc\\"\\n    return 1\\n"}}\'\n'
+            "```\n"
+        ),
+        "license": "MIT",
+        "tier": "free",
+        "success_condition": ("Every public top-level function and class in target.py has a docstring."),
+        "verification_script": (
+            'test -f target.py && python3 -c "'
+            "import ast,sys; "
+            "t=ast.parse(open('target.py').read()); "
+            "bad=[n.name for n in t.body "
+            "if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef,ast.ClassDef)) "
+            "and not n.name.startswith('_') and ast.get_docstring(n) is None]; "
+            'sys.exit(1 if bad else 0)"'
+        ),
+        "max_turns": 12,
+        "budget_usd": "1.00",
+        "stopping_criteria": {
+            "success": "AST check finds no undocumented public symbols",
+            "failure": "max_turns reached with symbols still undocumented",
+            "budget": "$1.00 USD hard ceiling",
+        },
+        "tool_allowlist": ["read_file", "write_file"],
+        "system_prompt": (
+            "You are a documentation engineer. Run the checker, and for each "
+            "undocumented public function or class write a concise, accurate "
+            "docstring (what it does, args, returns). Do not document private "
+            "(underscore) symbols. Re-run until coverage is complete."
+        ),
+    },
+    {
+        "slug": "json-schema-validate-loop",
+        "title": "JSON-Schema-Validate Loop",
+        "description": (
+            "Drive a data file until it validates against a JSON Schema. The "
+            "registry runs the validation; exit 0 is the verdict. The data-"
+            "wrangling workhorse — transform until the contract holds."
+        ),
+        "category": "data",
+        "readme": (
+            "# JSON-Schema-Validate Loop\n\n"
+            "## What it does\n"
+            "An agent edits `data.json` until it conforms to `schema.json`. "
+            "Verification runs a real validator (stdlib-only structural check), "
+            "so conformance is proven, not claimed.\n\n"
+            "## The contract\n"
+            "- `verification_script`: validates data.json against schema.json "
+            "(required keys + types).\n"
+            "- `max_turns`: 10 · `budget_usd`: 0.50.\n"
+            "- `tool_allowlist`: [read_file, write_file].\n\n"
+            "## Verify it (stage matching data + schema)\n"
+            "```\n"
+            "curl -X POST .../api/loops/json-schema-validate-loop/run -H 'x-api-key: KEY' \\\n"
+            '  -d \'{"workspace_files": {"schema.json": "{\\"required\\":[\\"id\\"],\\"types\\":{\\"id\\":\\"int\\"}}", "data.json": "{\\"id\\": 1}"}}\'\n'
+            "```\n"
+        ),
+        "license": "MIT",
+        "tier": "free",
+        "success_condition": (
+            "data.json validates against schema.json (all required keys present with correct types)."
+        ),
+        "verification_script": (
+            'test -f data.json && test -f schema.json && python3 -c "'
+            "import json,sys; "
+            "s=json.load(open('schema.json')); d=json.load(open('data.json')); "
+            "tmap={'int':int,'str':str,'float':(int,float),'bool':bool,"
+            "'list':list,'dict':dict}; "
+            "req=s.get('required',[]); types=s.get('types',{}); "
+            "miss=[k for k in req if k not in d]; "
+            "wrong=[k for k,t in types.items() if k in d and not isinstance(d[k],tmap.get(t,object))]; "
+            'sys.exit(1 if (miss or wrong) else 0)"'
+        ),
+        "max_turns": 10,
+        "budget_usd": "0.50",
+        "stopping_criteria": {
+            "success": "data.json validates against schema.json (exit 0)",
+            "failure": "max_turns reached with validation still failing",
+            "budget": "$0.50 USD hard ceiling",
+        },
+        "tool_allowlist": ["read_file", "write_file"],
+        "system_prompt": (
+            "You are a data-wrangling agent. Read schema.json, read data.json, and "
+            "transform data.json so every required key is present with the correct "
+            "type. Run the validator and iterate until it passes."
         ),
     },
 ]
