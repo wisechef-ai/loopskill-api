@@ -25,13 +25,16 @@ tiers:
   pro:
     db_slug: pro
     display_name: Pro
-    price_usd: 20
+    # Open-core hosted-convenience price (loopskill_run_0627). The whole registry
+    # is free to self-host (MPL-2.0); Pro is "don't run it yourself", never a
+    # feature gate. $9.95/mo is the LoopSkill hosted price — not a feature paywall.
+    price_usd: 9.95
     # Canonical env var (RCP-INCIDENT-2026-05-11 Phase 6). The resolver
     # in app/subscription_service.py also accepts the legacy
     # WR_STRIPE_PRICE_COOK as a fallback until 2026-06-10.
     price_id_env: WR_STRIPE_PRICE_PRO
     price_id_env_legacy: WR_STRIPE_PRICE_COOK
-    stripe_nickname: "Pro $20/mo"
+    stripe_nickname: "Pro $9.95/mo"
     accent_color: "#3B82F6"
     badge: Pro
     cookbook_limit: 10
