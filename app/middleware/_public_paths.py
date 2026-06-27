@@ -18,6 +18,13 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     "/api/skills/access",
     "/api/skills/_download",
     "/api/skills/external",  # evergreen_0206 F2 — external-only funnel: public discovery + fetch-origin install
+    # loopskill_portal_0627 — the runnable loop REGISTRY is the #1 stars-conversion
+    # surface; its browse (GET /api/loops) + detail (GET /api/loops/{slug}) MUST be
+    # publicly readable so the portal hero can render without baking a key into
+    # client JS. WRITES stay protected: run_loop / rate_loop / publish_loop each
+    # self-enforce auth via request.state.auth_ctx scope (401 anonymous), so this
+    # method-agnostic prefix does NOT expose them.
+    "/api/loops",
     "/api/stats",
     "/api/forks/_download",
     "/api/graph",  # B.5: graph extension — public read; master-only write enforced inline
