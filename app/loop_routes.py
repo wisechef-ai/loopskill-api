@@ -195,8 +195,15 @@ def run_loop(
     ships no LLM client by design — and currently returns 501.
     """
     ctx = getattr(request.state, "auth_ctx", None)
-    if ctx is None or getattr(ctx, "scope", None) not in ("user", "master"):
+    scope = getattr(ctx, "scope", None)
+    # 401 = no/anonymous credentials; 403 = authenticated but wrong scope (review F10).
+    if ctx is None or scope in (None, "anonymous"):
         raise HTTPException(status_code=401, detail="authentication required to run a loop")
+    if scope not in ("user", "master"):
+        raise HTTPException(
+            status_code=403,
+            detail=f"scope {scope!r} may not run loops (requires a user or master key)",
+        )
 
     mode = (payload.mode or "verify").strip().lower()
     if mode == "agent":
@@ -217,6 +224,15 @@ def run_loop(
     if loop is None or loop.is_archived:
         raise HTTPException(status_code=404, detail="loop not found")
 
+    # A private loop's verification_script is the creator's code — only the creator
+    # or a master key may execute it (review F9). Public loops are runnable by any
+    # authenticated user. 404 (not 403) for non-owners of private loops so their
+    # existence isn't leaked.
+    if not loop.is_public and scope != "master":
+        owner_id = getattr(loop, "creator_id", None)
+        if owner_id is None or owner_id != getattr(ctx, "user_id", None):
+            raise HTTPException(status_code=404, detail="loop not found")
+
     declared_bounds = {
         "max_turns": loop.max_turns,
         "budget_usd": float(loop.budget_usd) if loop.budget_usd is not None else None,
@@ -235,6 +251,9 @@ def run_loop(
         memory_mb=payload.memory_mb,
         allow_network=payload.allow_network,
     )
+    # Deployer required a kernel sandbox but none is functional -> refuse (review F1/F6).
+    if result.confinement == "refused":
+        raise HTTPException(status_code=503, detail=result.error or "loop execution unavailable")
     logger.info(
         "loop run: slug=%s run_id=%s confinement=%s passed=%s exit=%s",
         loop.slug,
