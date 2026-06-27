@@ -36,7 +36,7 @@ tracks:
         why: "Keep the agent EVERGREEN. Install once and its skills auto-update instead of rotting. The second free seed — together with super-memory these two prove the loop before you pay a cent."
       - slug: cognee
         tier: pro
-        why: "The conversion boundary. Free memory works until you need self-hosted graph retrieval at scale (Postgres 17 + pgvector + graph store). This is where 'free works' stops — and the first Pro skill earns its $20."
+        why: "The conversion boundary. Free memory works until you need self-hosted graph retrieval at scale (Postgres 17 + pgvector + graph store). This is where 'free works' stops — and the first Pro skill earns its $9.95."
       - slug: maestro
         tier: pro
         why: "The operating loop. A solo-founder agent that runs the business while you sleep: morning brief, marketing, code delegation. Turns 'I have an agent' into 'my agent runs my day.'"

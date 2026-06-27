@@ -50,7 +50,7 @@ counts:
 tiers:
   pro:
     display_name: Pro
-    price_usd: 20
+    price_usd: 9.95
     bullets:
       - Every paid skill in the catalog ({pro_skills} today, growing weekly)
       - "Up to {pro_cookbooks} cookbooks + fleet sync"
