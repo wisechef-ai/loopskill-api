@@ -1318,7 +1318,13 @@ class Loop(Base):
     system_prompt = Column(Text, nullable=False)
 
     install_count = Column(Integer, default=0, nullable=False, server_default="0")
+    # Number of verify runs the registry has executed for this loop (social proof
+    # + the "this registry is alive" signal). Incremented by the runner route.
+    run_count = Column(Integer, default=0, nullable=False, server_default="0")
     rating_avg = Column(Float, nullable=True)
+    # Number of ratings backing rating_avg (so a 5.0 from 1 vote reads differently
+    # from a 4.8 from 200). Maintained alongside rating_avg on each rating.
+    rating_count = Column(Integer, default=0, nullable=False, server_default="0")
     is_archived = Column(Boolean, default=False, server_default="false", nullable=False)
 
     created_at = Column(DateTime, server_default=func.now())
@@ -1332,6 +1338,34 @@ class Loop(Base):
         order_by="LoopVersion.created_at.desc()",
         cascade="all, delete-orphan",
     )
+    ratings = relationship(
+        "LoopRating",
+        back_populates="loop",
+        cascade="all, delete-orphan",
+    )
+
+
+class LoopRating(Base):
+    """A 1–5 star rating (optional comment) for a loop — the feedback signal.
+
+    A known user (rater_user_id set) may rate a loop at most once; re-rating
+    UPDATEs the row (enforced by a partial unique index on Postgres, in code for
+    SQLite). Anonymous / self-host ratings (rater_user_id NULL) are append-only.
+    The loop's denormalised rating_avg + rating_count are recomputed on write.
+    """
+
+    __tablename__ = "loop_ratings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    loop_id = Column(
+        UUID(as_uuid=True), ForeignKey("loops.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    rater_user_id = Column(UUID(as_uuid=True), nullable=True)
+    rating = Column(Integer, nullable=False)
+    comment = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    loop = relationship("Loop", back_populates="ratings")
 
 
 class LoopVersion(Base):

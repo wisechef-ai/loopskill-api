@@ -338,6 +338,10 @@ class LoopOut(BaseModel):
     creator_handle: str | None = None
     latest_version: str | None = None
     install_count: int = 0
+    # The registry is ALIVE: how many verify runs it has executed for this loop,
+    # and the ratings backing rating_avg (social proof — the stars/rating axes).
+    run_count: int = 0
+    rating_count: int = 0
     # Safety-bounded contract surfaced on every payload so a puller sees the
     # bounds BEFORE running it (the trust signal of a vetted loop registry).
     max_turns: int = 25
@@ -348,6 +352,22 @@ class LoopOut(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class LoopRateIn(BaseModel):
+    """Request body for POST /api/loops/{slug}/rate."""
+
+    rating: int = Field(..., ge=1, le=5, description="1–5 star rating")
+    comment: str | None = Field(default=None, max_length=2000)
+
+
+class LoopRatingOut(BaseModel):
+    """Aggregated rating state for a loop after a rating is recorded."""
+
+    loop_slug: str
+    rating_avg: float | None = None
+    rating_count: int = 0
+    your_rating: int
 
 
 class LoopDetailOut(LoopOut):

@@ -17,14 +17,22 @@ from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.loop_runner import get_loop_runner
 from app.loop_validation import LoopValidationError, validate_loop_manifest
-from app.models import Loop
-from app.schemas import LoopDetailOut, LoopOut, LoopPublishIn, LoopRunIn, LoopRunOut
+from app.models import Loop, LoopRating
+from app.schemas import (
+    LoopDetailOut,
+    LoopOut,
+    LoopPublishIn,
+    LoopRateIn,
+    LoopRatingOut,
+    LoopRunIn,
+    LoopRunOut,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +55,8 @@ def _loop_to_out(loop: Loop) -> LoopOut:
         creator_handle=creator_handle,
         latest_version=latest,
         install_count=loop.install_count or 0,
+        run_count=loop.run_count or 0,
+        rating_count=loop.rating_count or 0,
         max_turns=loop.max_turns or 25,
         budget_usd=float(loop.budget_usd) if loop.budget_usd is not None else None,
         tool_allowlist=loop.tool_allowlist or [],
@@ -254,6 +264,15 @@ def run_loop(
     # Deployer required a kernel sandbox but none is functional -> refuse (review F1/F6).
     if result.confinement == "refused":
         raise HTTPException(status_code=503, detail=result.error or "loop execution unavailable")
+
+    # The registry is ALIVE: count every executed verify run (not 'refused'). Best-
+    # effort — a counter failure must never fail the run the caller already got.
+    try:
+        loop.run_count = (loop.run_count or 0) + 1
+        db.commit()
+    except Exception:  # noqa: BLE001 - Rationale: run already executed; counter is non-critical telemetry
+        db.rollback()
+
     logger.info(
         "loop run: slug=%s run_id=%s confinement=%s passed=%s exit=%s",
         loop.slug,
@@ -265,3 +284,78 @@ def run_loop(
     data = result.to_dict()
     data["loop_slug"] = loop.slug
     return LoopRunOut(**data)
+
+
+@router.post("/{slug}/rate", response_model=LoopRatingOut)
+def rate_loop(
+    slug: str,
+    payload: LoopRateIn,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> LoopRatingOut:
+    """Record a 1–5 star rating for a loop and return the updated aggregate.
+
+    The feedback loop: ratings are the social-proof + trust signal of a vetted
+    registry. A known user may rate a loop at most once — re-rating UPDATEs their
+    row (no double-counting). Anonymous callers are rejected; rating requires at
+    least a user/master scope so a drive-by can't stuff the ballot.
+    """
+    ctx = getattr(request.state, "auth_ctx", None)
+    scope = getattr(ctx, "scope", None)
+    if ctx is None or scope in (None, "anonymous"):
+        raise HTTPException(status_code=401, detail="authentication required to rate a loop")
+    if scope not in ("user", "master"):
+        raise HTTPException(
+            status_code=403, detail=f"scope {scope!r} may not rate loops (requires a user or master key)"
+        )
+
+    loop = db.query(Loop).filter(Loop.slug == slug).first()
+    if loop is None or loop.is_archived:
+        raise HTTPException(status_code=404, detail="loop not found")
+
+    user_id = getattr(ctx, "user_id", None)
+
+    # Upsert-by-user: a known user's existing rating is updated, not duplicated.
+    existing = None
+    if user_id is not None:
+        existing = (
+            db.query(LoopRating)
+            .filter(LoopRating.loop_id == loop.id, LoopRating.rater_user_id == user_id)
+            .first()
+        )
+    if existing is not None:
+        existing.rating = payload.rating
+        existing.comment = payload.comment
+    else:
+        db.add(
+            LoopRating(
+                loop_id=loop.id,
+                rater_user_id=user_id,
+                rating=payload.rating,
+                comment=payload.comment,
+            )
+        )
+    db.flush()
+
+    # Recompute the denormalised aggregate from the source rows (always correct,
+    # never drifts). AVG + COUNT over this loop's ratings.
+    agg = (
+        db.query(func.avg(LoopRating.rating), func.count(LoopRating.id))
+        .filter(LoopRating.loop_id == loop.id)
+        .one()
+    )
+    avg_val = float(agg[0]) if agg[0] is not None else None
+    count_val = int(agg[1] or 0)
+    loop.rating_avg = avg_val
+    loop.rating_count = count_val
+    db.commit()
+
+    logger.info(
+        "loop rated: slug=%s rating=%s avg=%s count=%s", loop.slug, payload.rating, avg_val, count_val
+    )
+    return LoopRatingOut(
+        loop_slug=loop.slug,
+        rating_avg=round(avg_val, 3) if avg_val is not None else None,
+        rating_count=count_val,
+        your_rating=payload.rating,
+    )
