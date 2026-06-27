@@ -14,7 +14,7 @@ Two layers tested:
 from __future__ import annotations
 
 import os
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi import FastAPI, Request
@@ -49,6 +49,10 @@ def app_client(db_session):
         elif hdr == "cbt":
             # Authenticated but wrong scope (share-token) — should 403 on /run.
             request.state.auth_ctx = AuthContext(scope="cbt_token")
+        elif hdr and hdr.startswith("user:"):
+            # Stable per-test user id: "user:<hex>" -> same identity across requests
+            # (needed to exercise rating upsert-by-user).
+            request.state.auth_ctx = AuthContext(scope="user", user_id=UUID(hdr.split(":", 1)[1]))
         else:
             request.state.auth_ctx = AuthContext.anonymous()
         return await call_next(request)
@@ -499,3 +503,67 @@ class TestRunRoute:
         resp = app_client.post("/api/loops/gated-loop/run", json={}, headers={"x-test-auth": "user"})
         assert resp.status_code == 503
         _lr._runner = None  # reset so other tests get a fresh runner
+
+
+class TestLoopFeedback:
+    """run_count increment + the /rate feedback loop (social-proof signals)."""
+
+    def test_run_increments_run_count(self, app_client):
+        _publish(app_client, slug="rc-loop", verification_script="exit 0")
+        # GET detail starts at 0.
+        d0 = app_client.get("/api/loops/rc-loop").json()
+        assert d0["run_count"] == 0
+        for _ in range(3):
+            r = app_client.post("/api/loops/rc-loop/run", json={}, headers={"x-test-auth": "user"})
+            assert r.status_code == 200
+        d1 = app_client.get("/api/loops/rc-loop").json()
+        assert d1["run_count"] == 3
+
+    def test_rate_requires_auth(self, app_client):
+        _publish(app_client, slug="rate-auth", verification_script="exit 0")
+        resp = app_client.post("/api/loops/rate-auth/rate", json={"rating": 5})
+        assert resp.status_code == 401
+
+    def test_rate_wrong_scope_403(self, app_client):
+        _publish(app_client, slug="rate-scope", verification_script="exit 0")
+        resp = app_client.post(
+            "/api/loops/rate-scope/rate", json={"rating": 5}, headers={"x-test-auth": "cbt"}
+        )
+        assert resp.status_code == 403
+
+    def test_rate_out_of_range_422(self, app_client):
+        _publish(app_client, slug="rate-range", verification_script="exit 0")
+        for bad in (0, 6, -1):
+            resp = app_client.post(
+                "/api/loops/rate-range/rate", json={"rating": bad}, headers={"x-test-auth": "user"}
+            )
+            assert resp.status_code == 422
+
+    def test_rate_404_unknown_loop(self, app_client):
+        resp = app_client.post("/api/loops/nope/rate", json={"rating": 5}, headers={"x-test-auth": "user"})
+        assert resp.status_code == 404
+
+    def test_rate_aggregates_across_users(self, app_client):
+        _publish(app_client, slug="rate-agg", verification_script="exit 0")
+        u1 = f"user:{uuid4().hex}"
+        u2 = f"user:{uuid4().hex}"
+        r1 = app_client.post("/api/loops/rate-agg/rate", json={"rating": 5}, headers={"x-test-auth": u1})
+        assert r1.status_code == 200
+        body1 = r1.json()
+        assert body1["rating_count"] == 1 and body1["rating_avg"] == 5.0
+        r2 = app_client.post("/api/loops/rate-agg/rate", json={"rating": 3}, headers={"x-test-auth": u2})
+        body2 = r2.json()
+        assert body2["rating_count"] == 2 and body2["rating_avg"] == 4.0
+        # surfaced on the loop detail
+        detail = app_client.get("/api/loops/rate-agg").json()
+        assert detail["rating_count"] == 2 and detail["rating_avg"] == 4.0
+
+    def test_rate_upsert_same_user_no_double_count(self, app_client):
+        _publish(app_client, slug="rate-upsert", verification_script="exit 0")
+        u1 = f"user:{uuid4().hex}"
+        a = app_client.post("/api/loops/rate-upsert/rate", json={"rating": 2}, headers={"x-test-auth": u1})
+        assert a.json()["rating_count"] == 1 and a.json()["rating_avg"] == 2.0
+        # same user re-rates -> count stays 1, avg updates to the new value
+        b = app_client.post("/api/loops/rate-upsert/rate", json={"rating": 4}, headers={"x-test-auth": u1})
+        assert b.json()["rating_count"] == 1
+        assert b.json()["rating_avg"] == 4.0
