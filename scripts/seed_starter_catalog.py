@@ -49,6 +49,59 @@ STARTER_BUNDLES = [
 # ── Starter loops (safety-bounded autonomous loops) ───────────────────────────
 STARTER_LOOPS = [
     {
+        "slug": "hello-world-loop",
+        "title": "Hello World Loop",
+        "description": (
+            "The 30-second proof that a LoopSkill loop actually RUNS. Its "
+            "verification script is fully self-contained — no external tools, no "
+            "network, no credentials — so `POST /api/loops/hello-world-loop/run` "
+            "returns passed=true on a fresh self-host instance. Start here."
+        ),
+        "category": "examples",
+        "readme": (
+            "# Hello World Loop\n\n"
+            "## What it does\n"
+            "The smallest possible *runnable* loop. Its verification script writes "
+            "a greeting and checks it back — proving the runner enforces bounds and "
+            "returns an objective pass/fail, with zero setup.\n\n"
+            "## Try it (self-host)\n"
+            "```\n"
+            "curl -X POST http://localhost:8200/api/loops/hello-world-loop/run \\\n"
+            "  -H 'x-api-key: rec_dev_wiserecipes_local_testing_key' \\\n"
+            "  -H 'content-type: application/json' -d '{}'\n"
+            "```\n"
+            "You get back `passed: true`, the `confinement` level the runner "
+            "achieved (`bounded` on the zero-config image, `sandboxed` when a "
+            "firejail/bwrap backend is installed), and the loop's bounds.\n\n"
+            "## Safety contract\n"
+            "- `max_turns`: 1\n"
+            "- `budget_usd`: null (bounded by max_turns)\n"
+            "- `tool_allowlist`: [] (needs no tools)\n"
+            "- Verification: writes `hello.txt`, then `grep`s it.\n"
+        ),
+        "license": "MIT",
+        "tier": "free",
+        "success_condition": (
+            "A greeting file has been written to the run workspace and contains "
+            "the expected text."
+        ),
+        "verification_script": (
+            "echo 'hello from loopskill' > hello.txt && grep -q 'loopskill' hello.txt"
+        ),
+        "max_turns": 1,
+        "budget_usd": None,
+        "stopping_criteria": {
+            "success": "verification_script exits 0",
+            "failure": "max_turns reached",
+            "budget": "N/A — bounded by max_turns only",
+        },
+        "tool_allowlist": [],
+        "system_prompt": (
+            "You are a minimal demonstration loop. Write 'hello from loopskill' to "
+            "hello.txt, then run the verification script to confirm it landed."
+        ),
+    },
+    {
         "slug": "pr-review-loop",
         "title": "PR Review Loop",
         "description": (
