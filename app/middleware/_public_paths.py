@@ -25,6 +25,11 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     # self-enforce auth via request.state.auth_ctx scope (401 anonymous), so this
     # method-agnostic prefix does NOT expose them.
     "/api/loops",
+    # loopskill_portal_0627 — personalities registry: same shape as loops. GET
+    # browse/detail are public so the portal /personalities page renders without
+    # a key; publish_personality self-enforces auth (401 anon), so the
+    # method-agnostic prefix does NOT expose writes.
+    "/api/personalities",
     "/api/stats",
     "/api/forks/_download",
     "/api/graph",  # B.5: graph extension — public read; master-only write enforced inline
