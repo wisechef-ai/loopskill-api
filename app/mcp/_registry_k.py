@@ -99,7 +99,7 @@ def _fleet_tools() -> list[types.Tool]:
         types.Tool(
             name="loopskill_fleet_subscribe",
             description=(
-                "Subscribe a cookbook to a fleet on a given channel " "(stable, canary, frozen). Idempotent."
+                "Subscribe a cookbook to a fleet on a given channel (stable, canary, frozen). Idempotent."
             ),
             inputSchema={
                 "type": "object",
@@ -164,8 +164,9 @@ def _publish_tools() -> list[types.Tool]:
                     "tier": {
                         "type": "string",
                         "default": "pro",
+                        # Canonical: free|pro|pro_plus. Legacy aliases cook|operator accepted until 2026-06-10.
                         "enum": ["free", "pro", "pro_plus", "cook", "operator"],
-                    },
+                    },  # cook|operator = legacy aliases
                     "is_public": {"type": "boolean", "default": True},
                     "references": {
                         "type": "array",
