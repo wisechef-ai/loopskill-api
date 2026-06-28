@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 from app.auth_ctx import AuthContext
 from app.database import SessionLocal, get_db
 from app.mcp.auth import validate_key
+from app.mcp._alias_map import normalize_tool_name  # loopskill→recipes normalizer
 
 # Submodule re-exports — backward compat for all existing imports
 from app.mcp.registry import _tool_definitions  # noqa: F401
@@ -115,6 +116,11 @@ def _ctx_from_caller(caller: dict[str, Any]) -> AuthContext:
 
 def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, Any]) -> Any:
     """Route a tool name to its implementation. Pure sync — no I/O outside the DB."""
+    # loopskill rename: normalise canonical loopskill_* names to the legacy
+    # recipes_* dispatch names so the existing if-chain works unchanged.
+    # Back-compat recipes_* names pass through unmodified (NOOP alias).
+    name = normalize_tool_name(name)
+
     # Phase B (Issue #5/#6/#7/#15): resolve AuthContext from caller.
     ctx = _ctx_from_caller(caller)
 
@@ -411,16 +417,18 @@ def call_tool_sync(
     caller = caller or {"scope": "operator", "user_id": None}  # legacy alias (pre-Phase-5 stdio default)
     own_db = db is None
     session = db or SessionLocal()
+    # Normalise the name here too so the post-dispatch checks below match correctly.
+    normalized_name = normalize_tool_name(name)
     try:
         payload = _dispatch(name, session, args or {}, caller)
 
         # After a successful recipes_sync apply, invalidate cached status
-        if name == "recipes_sync" and isinstance(payload, dict) and payload.get("applied"):
+        if normalized_name == "recipes_sync" and isinstance(payload, dict) and payload.get("applied"):
             invalidate_bundle_status(caller.get("user_id"))
 
         # Inject bundle_status for authenticated users (skip for recipes_sync  # compat-alias
         # itself to avoid noisy double-reporting — sync already returns the diff).
-        if isinstance(payload, dict) and name != "recipes_sync":
+        if isinstance(payload, dict) and normalized_name != "recipes_sync":
             user_id = caller.get("user_id")
             status = get_bundle_status(session, user_id)
             if status:
