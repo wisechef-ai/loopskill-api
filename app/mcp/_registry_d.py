@@ -2,6 +2,10 @@
 
 Split out to keep registry.py under the 600-line god-object gate (same pattern
 as _registry_j.py).
+
+Post loopskill rename: primary names are ``loopskill_*``; ``recipes_*`` compat
+aliases are generated automatically via ``_alias_map.LOOPSKILL_TO_RECIPES`` in
+``registry._tool_definitions()`` — do NOT add them manually here.
 """
 
 from __future__ import annotations
@@ -13,7 +17,7 @@ def _phase_d_tools() -> list[types.Tool]:
     """Return the spotify_0608 Ph D (streaming composition) tool definitions."""
     return [
         types.Tool(
-            name="recipes_install_from_cookbook",
+            name="loopskill_install_from_bundle",
             description=(
                 "Install every skill in a PUBLIC cookbook from one link. The "
                 "'streaming' install verb — pass a cookbook link "
@@ -39,7 +43,7 @@ def _phase_d_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="recipes_pick_best_from_cookbook",
+            name="loopskill_pick_best_from_bundle",
             description=(
                 "Pick the single best skill from a PUBLIC cookbook for a stated "
                 "need. The 'streaming' choose verb — pass a cookbook link and an "
@@ -64,7 +68,7 @@ def _phase_d_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="recipes_compose_cookbook_from_links",
+            name="loopskill_compose_bundle_from_links",
             description=(
                 "Compose a NEW cookbook (owned by you) from N links in one call. "
                 "The 'streaming' compose verb — each link can be a public "
@@ -100,10 +104,13 @@ def _phase_e_tools() -> list[types.Tool]:
     Moved here (same pattern as _phase_d_tools / _phase_j_tools) so registry.py
     stays under the 600-line god-object gate after the Ph E provenance_id field
     additions expanded the inline schemas.
+
+    Post loopskill rename: primary names are ``loopskill_*``; compat aliases are
+    generated in ``registry._tool_definitions()`` — do NOT add them manually here.
     """
     return [
         types.Tool(
-            name="recipes_report_skill_error",
+            name="loopskill_report_skill_error",
             description=(
                 "Report that an installed recipe is broken, has wrong "
                 "instructions, or fails on this host. Use when the user says "

@@ -1,4 +1,9 @@
-"""Phase J tool definitions — split out to keep registry.py under 600 lines."""
+"""Phase J tool definitions — split out to keep registry.py under 600 lines.
+
+Post loopskill rename: primary names are ``loopskill_*``; ``recipes_*`` compat
+aliases are generated automatically via ``_alias_map.LOOPSKILL_TO_RECIPES`` in
+``registry._tool_definitions()`` — do NOT add them manually here.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +14,7 @@ def _phase_j_tools() -> list[types.Tool]:
     """Return the Phase J (loopclose_3005) tool definitions."""
     return [
         types.Tool(
-            name="recipes_configure_feedback",
+            name="loopskill_configure_feedback",
             description=(
                 "Configure per-cookbook feedback routing to the user's own GitHub repo. "
                 "Pro/Pro+ only. Pass repo='owner/name', mode='pat', and a fine-grained "
