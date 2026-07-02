@@ -93,3 +93,10 @@ config/anonymizer_tokens.json
 # Stray internal sprint contracts/reports — never ship public
 SPRINT*.md
 frontend-patches/
+
+# graphify artifacts (local analysis only)
+graphify-out/
+app/graphify-out/
+.graphify_ast.json
+_build_graph.py
+_run_ast.py
