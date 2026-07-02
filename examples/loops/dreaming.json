@@ -1,0 +1,30 @@
+{
+  "slug": "dreaming",
+  "title": "Dreaming — nightly memory consolidation",
+  "description": "A composite loop that runs during low-activity hours to consolidate daily memories, extract learnings, and prune stale ones. The agent's 'sleep' cycle.",
+  "tier": "free",
+  "is_public": true,
+  "schedule": "0 3 * * *",
+  "skills": [
+    {"slug": "memory-dreaming"}
+  ],
+  "connectors": [],
+  "subagents_config": {
+    "maker": {
+      "model_tier": "haiku",
+      "toolsets": ["terminal", "read_file", "search_files"]
+    },
+    "checker": {
+      "model_tier": "haiku",
+      "toolsets": ["read_file"]
+    }
+  },
+  "verifier_slug": "skill-passthrough-verifier",
+  "state_seed": {
+    "last_dream_at": null,
+    "learnings_extracted": 0,
+    "memories_pruned": 0
+  },
+  "budget_usd": 1.00,
+  "prompt": "Consolidate the last 24 hours of conversation history. Extract new learnings and store them. Apply decay scoring to older memories. Flag any that fall below the removal threshold. Produce a summary of what was consolidated."
+}

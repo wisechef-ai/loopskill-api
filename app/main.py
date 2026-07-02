@@ -212,6 +212,12 @@ def create_app() -> FastAPI:
     app.include_router(loop_router)
     app.include_router(personality_router, tags=["personalities"])
 
+    # loopskill_activate_0701 Phase A2 — composite loop registry (NEW surface).
+    # Separate routes (/api/composite-loops); NEVER touches /api/loops.
+    from app.composite_loop_routes import router as composite_loop_router
+
+    app.include_router(composite_loop_router, tags=["composite-loops"])
+
     # Phase 1 (v7.1): Mount StreamableHTTP ASGI sub-app at /api/mcp/http.
     # Must happen after include_router(mcp_router) so the session manager's
     # MCP server is built from the same build_mcp_server() factory.

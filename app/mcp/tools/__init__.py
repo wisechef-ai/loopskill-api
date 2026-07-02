@@ -52,6 +52,13 @@ from app.mcp.tools.loopskill_catalog import (
 )
 from app.mcp.tools.connector_publish import loopskill_connector_publish
 
+# activate_0701 Phase A2 — composite loop catalog (NEW MCP names, council §6).
+from app.mcp.tools.composite_loop_catalog import (
+    loopskill_get_composite_loop,
+    loopskill_publish_composite_loop,
+    loopskill_search_composite_loops,
+)
+
 __all__ = [
     "recipes_search",
     "recipes_install",
@@ -101,6 +108,10 @@ __all__ = [
     "loopskill_get_loop",
     "loopskill_search_personalities",
     "loopskill_get_personality",
+    # activate_0701 Phase A2: composite loop catalog (NEW MCP names)
+    "loopskill_publish_composite_loop",
+    "loopskill_get_composite_loop",
+    "loopskill_search_composite_loops",
     # activate_0701 Phase B: connector publish tool
     "loopskill_connector_publish",
 ]

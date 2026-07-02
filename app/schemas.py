@@ -495,3 +495,64 @@ class PersonalityPublishIn(BaseModel):
     is_public: bool = True
     system_prompt: str
     config: dict | None = None
+
+
+# ── activate_0701 Phase A2 — Composite Loop schemas ─────────────────────────
+
+
+class CompositeLoopOut(BaseModel):
+    id: UUID
+    slug: str
+    title: str
+    description: str | None = None
+    tier: str | None = None
+    is_public: bool = True
+    schedule: str
+    verifier_slug: str
+    residency: str | None = None
+    install_count: int = 0
+    latest_version: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CompositeLoopDetailOut(CompositeLoopOut):
+    skills: list[dict] = []
+    connectors: list[dict] = []
+    subagents_config: dict = {}
+    state_seed: dict = {}
+    budget_usd: float | None = None
+    prompt: str = ""
+    versions: list[dict] = []
+
+
+class CompositeLoopPublishIn(BaseModel):
+    slug: Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")]
+    title: str
+    description: str | None = None
+    tier: str | None = "free"
+    is_public: bool = True
+    schedule: str
+    skills: list[dict] = []
+    connectors: list[dict] = []
+    subagents_config: dict = {}
+    verifier_slug: str
+    state_seed: dict = {}
+    budget_usd: float | None = None
+    prompt: str
+
+
+class CompositeLoopVersionIn(BaseModel):
+    semver: Annotated[str, StringConstraints(pattern=r"^\d+\.\d+\.\d+$")]
+    changelog: str | None = None
+
+
+class CompositeLoopVersionOut(BaseModel):
+    id: UUID
+    semver: str
+    changelog: str | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

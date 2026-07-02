@@ -51,6 +51,13 @@ from app.mcp.tools import (  # noqa: F401  loopskill_0622 Phase 8 tools
     loopskill_search_loops,
     loopskill_search_personalities,
 )
+
+# activate_0701 Phase A2 — composite loop catalog (NEW MCP names, council §6).
+# Individual tool fns live in composite_loop_catalog; dispatch delegates whole-hog.
+from app.mcp.tools.composite_loop_catalog import (
+    _NOT_HANDLED,  # noqa: F401 — sentinel for dispatch delegation
+    dispatch_composite_loop as _dispatch_composite_loop,
+)
 from app.mcp.tools import (
     recipes_carousel_today,
     recipes_configure_feedback,
@@ -140,26 +147,22 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             limit=int(args.get("limit", 20)),
         )
     # ── loopskill_0622 Phase 8 / activate_0701 Phase A1: runnable catalog types ──
-    # Canonical verifier names (loopskill_search_verifiers / loopskill_get_verifier)
-    # are the dispatch targets after normalize_tool_name maps legacy loop names.
+    # Canonical verifier names dispatch after normalize_tool_name maps legacy names.
     if name in ("loopskill_search_verifiers", "loopskill_search_loops"):
         return loopskill_search_loops(
-            db,
-            query=args.get("query"),
-            category=args.get("category"),
-            limit=int(args.get("limit", 50)),
+            db, query=args.get("query"), category=args.get("category"), limit=int(args.get("limit", 50))
         )
     if name in ("loopskill_get_verifier", "loopskill_get_loop"):
         return loopskill_get_loop(db, slug=args["slug"])
     if name == "loopskill_search_personalities":
         return loopskill_search_personalities(
-            db,
-            query=args.get("query"),
-            category=args.get("category"),
-            limit=int(args.get("limit", 50)),
+            db, query=args.get("query"), category=args.get("category"), limit=int(args.get("limit", 50))
         )
     if name == "loopskill_get_personality":
         return loopskill_get_personality(db, slug=args["slug"])
+    _cl_result = _dispatch_composite_loop(name, db, args)
+    if _cl_result is not _NOT_HANDLED:  # type: ignore[comparison-overlap]
+        return _cl_result
     # ── activate_0701 Phase B: connector publish ──────────────────────────
     if name == "loopskill_connector_publish":
         fn = _tool_ns.get("loopskill_connector_publish", loopskill_connector_publish)

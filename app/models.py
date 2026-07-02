@@ -1689,3 +1689,132 @@ class BundleConnector(Base):
     )
     pinned_semver = Column(String(32), nullable=True)
     added_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# ── activate_0701 Phase A2 — Composite Loop + Personality deploy ─────────────
+
+
+class CompositeLoop(Base):
+    """A deployable autonomous work unit (Kopadze 5-block model + state).
+
+    Composite of: automation(heartbeat/cron) + skills + sub-agents
+    (maker≠checker) + connectors + verifier(gate) + state_seed.
+
+    NEW surface (council §6): separate table, separate routes, never reuses
+    /api/loops or the old loop models. The verifier gate is required and
+    validated by slug at publish time.
+    """
+
+    __tablename__ = "composite_loops"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    slug = Column(String(255), unique=True, nullable=False, index=True)
+    title = Column(String(512), nullable=False)
+    description = Column(Text, nullable=True)
+    is_public = Column(Boolean, default=True, nullable=False)
+    is_archived = Column(Boolean, default=False, server_default="false", nullable=False)
+
+    creator_id = Column(UUID(as_uuid=True), ForeignKey("creators.id"), nullable=True)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id"), nullable=True)
+
+    tier = Column(String(32), nullable=True)
+
+    # ── composition (the 5 blocks + state) ──
+    schedule = Column(Text, nullable=False)  # cron expr or "30m" shorthand
+    skills = Column(JSON, nullable=False, default=list)  # [{slug, pinned_version?}]
+    connectors = Column(JSON, nullable=False, default=list)  # [{slug, pinned_semver?, residency_tag?}]
+    subagents_config = Column(JSON, nullable=False, default=dict)  # {maker: {…}, checker: {…}}
+    verifier_slug = Column(String(255), nullable=False)  # FK-by-slug to Verifier registry
+    state_seed = Column(JSON, nullable=False, default=dict)  # initial state document
+    budget_usd = Column(Numeric(10, 2), nullable=True)  # loop-level budget
+    prompt = Column(Text, nullable=False)  # the loop's driving instruction
+
+    # DERIVED server-side at publish: most-restrictive of member artifacts.
+    residency = Column(String(32), nullable=True)
+
+    install_count = Column(Integer, default=0, nullable=False, server_default="0")
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    creator = relationship("Creator")
+    org = relationship("Org")
+    versions = relationship(
+        "CompositeLoopVersion",
+        back_populates="composite_loop",
+        order_by="CompositeLoopVersion.created_at.desc()",
+        cascade="all, delete-orphan",
+    )
+
+
+class CompositeLoopVersion(Base):
+    """Frozen version of a composite loop's full composition manifest."""
+
+    __tablename__ = "composite_loop_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    composite_loop_id = Column(
+        UUID(as_uuid=True), ForeignKey("composite_loops.id"), nullable=False, index=True
+    )
+    semver = Column(String(32), nullable=False)
+    manifest = Column(JSON, nullable=False)  # frozen full composition
+    changelog = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    composite_loop = relationship("CompositeLoop", back_populates="versions")
+
+    __table_args__ = (UniqueConstraint("composite_loop_id", "semver", name="uq_composite_loop_version"),)
+
+
+class BundleCompositeLoop(Base):
+    """Provenance row linking a composite loop to a Bundle.
+
+    Pattern mirrors BundleSkill — a bundle declares composite loops as part of
+    its desired state; reconcile diffs them; version publish bumps generation.
+    """
+
+    __tablename__ = "bundle_composite_loops"
+
+    bundle_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("bundles.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    composite_loop_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("composite_loops.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    pinned_version = Column(String(50), nullable=True)
+    added_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (Index("ix_bundle_cl_bundle", "bundle_id"),)
+
+
+class BundlePersonality(Base):
+    """Provenance row linking a personality to a Bundle.
+
+    Verified-absent path (contract §Personality): bundles could NOT declare
+    personalities before A2. This join enables desired-state personality
+    deploy via reconcile (file-drop, no restart).
+    """
+
+    __tablename__ = "bundle_personalities"
+
+    bundle_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("bundles.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    personality_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("personalities.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    pinned_version = Column(String(50), nullable=True)
+    added_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (Index("ix_bundle_pers_bundle", "bundle_id"),)
