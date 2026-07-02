@@ -17,7 +17,6 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import authz
-from app.auth_ctx import AuthContext
 from app.database import get_db
 from app.fleet_routes import resolve_fleet_ctx
 from app.models import (
