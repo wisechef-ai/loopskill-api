@@ -9,4 +9,4 @@ so the healthz probe can prove the cutover landed.
 """
 
 __version__ = "0.9.2"
-__version__ = "0.9.1"
+__version__ = "0.9.3"
