@@ -85,6 +85,7 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.marketing_routes", "router", ""),
     ("app.share_token_routes", "router", ""),
     ("app.fleet_routes", "router", ""),  # portal_0610 J3
+    ("app.fleet_member_routes", "router", ""),  # activate_0701 Phase 1
 ]
 
 

@@ -8,4 +8,4 @@ made "is the live box running the code we shipped?" unverifiable from
 so the healthz probe can prove the cutover landed.
 """
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"

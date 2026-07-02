@@ -112,7 +112,11 @@ def reconcile_report(
         return {"error": "skill_not_in_cookbook"}
 
     # Persist the canary outcome (the promotion engine reads these events).
+    from app.services.fleet_members import resolve_member_for_key
     from app.services.promotion import record_reconcile_event
+
+    key_id = api_key_id if isinstance(api_key_id, UUID) else None
+    member = resolve_member_for_key(db, key_id)
 
     record_reconcile_event(
         db,
@@ -121,8 +125,9 @@ def reconcile_report(
         outcome=body.outcome,
         channel=body.channel,
         cookbook_id=cb.id,
-        api_key_id=api_key_id if isinstance(api_key_id, UUID) else None,
+        api_key_id=key_id,
         failure_reason=body.failure_reason,
+        member_id=member.id if member else None,
     )
 
     # Fast-path promotion: if this report completed the gate, advance to stable now.

@@ -769,6 +769,10 @@ class ReconcileEvent(Base):
     outcome = Column(String(20), nullable=False)
     failure_reason = Column(Text, nullable=True)
     api_key_id = Column(UUID(as_uuid=True), nullable=True)
+    # activate_0701 Phase 1: per-agent identity (lock #13). No FK — events
+    # must survive member deletion for telemetry history; nullable for
+    # pre-Phase-1 rows and anonymous self-test.
+    member_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
     __table_args__ = (Index("ix_reconcile_events_skill_semver", "skill_id", "semver"),)
@@ -1021,6 +1025,35 @@ class Fleet(Base):
     name = Column(String(255), nullable=False)
     fleet_api_key_hash = Column(String(64), unique=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class FleetMember(Base):
+    """One enrolled agent in a fleet — identified by its dedicated API key.
+
+    lock #13 (activate_0701): the agent API key is the billable + identity
+    primitive. api_key_id is UNIQUE — a key can identify at most one member.
+    (fleet_id, host, profile) is UNIQUE — one member per agent profile per host.
+    """
+
+    __tablename__ = "fleet_members"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    fleet_id = Column(
+        UUID(as_uuid=True), ForeignKey("fleets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    host = Column(String(255), nullable=False)  # e.g. "adam-xps"
+    profile = Column(String(100), nullable=False, default="default", server_default="default")
+    skills_dir = Column(Text, nullable=False)  # e.g. "~/.hermes/loopskill"
+    api_key_id = Column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=False, unique=True)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("fleet_id", "host", "profile", name="uq_fleet_members_fleet_host_profile"),
+    )
 
 
 class FleetSubscription(Base):
