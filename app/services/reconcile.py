@@ -338,3 +338,71 @@ def recipes_reconcile(
     db.commit()
     result["applied"] = True
     return result
+
+
+# ── activate_0701 Phase A2: personality reconcile plan ──────────────────────
+
+
+@dataclass(frozen=True)
+class LocalPersonalityState:
+    """One personality as reported by the agent's local lockfile."""
+
+    slug: str
+    pinned_version: str | None = None
+
+
+@dataclass
+class PersonalityReconcilePlan:
+    """The personality diff. Lists hold plain dicts (JSON-serialisable)."""
+
+    add: list[dict[str, Any]] = field(default_factory=list)
+    remove: list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def no_op(self) -> bool:
+        return not (self.add or self.remove)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"add": self.add, "remove": self.remove}
+
+
+def _declared_personalities(db: Session, cookbook_id: UUID) -> dict[str, dict[str, Any]]:
+    """Return {slug: {personality_id, pinned_version}} for declared personalities."""
+    from app.models import BundlePersonality, Personality
+
+    rows = (
+        db.query(
+            BundlePersonality.personality_id,
+            Personality.slug,
+            BundlePersonality.pinned_version,
+        )
+        .join(Personality, Personality.id == BundlePersonality.personality_id)
+        .filter(BundlePersonality.bundle_id == cookbook_id)
+        .all()
+    )
+    return {
+        r.slug: {"personality_id": r.personality_id, "slug": r.slug, "pinned_version": r.pinned_version}
+        for r in rows
+    }
+
+
+def compute_personality_plan(
+    db: Session,
+    cookbook_id: UUID,
+    local: list[LocalPersonalityState],
+) -> PersonalityReconcilePlan:
+    """Compute the personality reconcile diff.
+
+    Personalities are file-drop deploys (no restart). A declared personality
+    absent locally is an ADD; a local personality no longer declared is a
+    REMOVE (gated by prune, same as skills).
+    """
+    declared = _declared_personalities(db, cookbook_id)
+    local_slugs = {ls.slug for ls in local}
+    plan = PersonalityReconcilePlan()
+
+    for slug, d in declared.items():
+        if slug not in local_slugs:
+            plan.add.append({"slug": slug, "pinned_version": d.get("pinned_version")})
+
+    return plan

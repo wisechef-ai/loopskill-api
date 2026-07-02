@@ -258,3 +258,31 @@ def write_lockfile(path: Path, data: dict[str, Any]) -> None:
     tmp = p.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, indent=2, sort_keys=True))
     os.replace(tmp, p)
+
+
+# ── activate_0701 Phase A2: personality deploy + instance_key ───────────────
+
+
+def apply_personality_file(personalities_dir: Path, *, slug: str, content: str) -> Path:
+    """Atomically drop a personality file into the profiles's personalities dir.
+
+    Personality apply is a FILE-DROP (no restart needed, unlike connectors).
+    The file lands at ``personalities_dir / <slug>.md`` via temp + os.replace.
+    Returns the final path.
+    """
+    personalities_dir = Path(personalities_dir)
+    personalities_dir.mkdir(parents=True, exist_ok=True)
+    target = personalities_dir / f"{slug}.md"
+    tmp = target.with_suffix(".md.tmp")
+    tmp.write_text(content)
+    os.replace(tmp, target)
+    return target
+
+
+def mint_instance_key(*, member_id: str, loop_slug: str) -> str:
+    """Mint an instance_key for a composite loop deployment.
+
+    instance_key = member-side instance identity = member_id + loop slug.
+    Minted at deploy time, stored in the lockfile alongside the loop manifest.
+    """
+    return f"{member_id}::{loop_slug}"
