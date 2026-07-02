@@ -1,6 +1,6 @@
 """GitHub repository_dispatch + issue-creation helper.
 
-Default path: POST repository_dispatch to wisechef-ai/recipes-api (unchanged).
+Default path: POST repository_dispatch to wisechef-ai/loopskill-api.
 User-routable path: create a GitHub issue in the user's own repo via their
 encrypted PAT (loopclose_3005 Phase J — THE MOAT).
 
@@ -21,17 +21,18 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_REPO = "wisechef-ai/recipes-api"
+# activate_0701/D: repo renamed wisechef-ai/recipes-api -> wisechef-ai/loopskill-api.
+_REPO = "wisechef-ai/loopskill-api"
 _DISPATCH_URL = f"https://api.github.com/repos/{_REPO}/dispatches"
 
 
 def dispatch_event(event_type: str, payload: dict[str, Any]) -> bool | None:
-    """POST repository_dispatch to wisechef-ai/recipes-api.
+    """POST repository_dispatch to wisechef-ai/loopskill-api.
 
     Returns True on success, None on failure. Never raises — failure logs and
     returns None so the API write is durable even if GitHub is down.
 
-    This is the **default path** — unchanged from pre-Phase-J.
+    This is the **default path** — unchanged from pre-Phase-J except the repo rename.
     """
     pat = os.environ.get("GITHUB_DISPATCH_PAT", "")
     if not pat:
