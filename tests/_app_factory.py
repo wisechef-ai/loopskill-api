@@ -91,6 +91,7 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.reconcile_routes", "router", ""),  # evergreen_0206 Phase D
     ("app.org_routes", "router", ""),  # activate_0701 Phase TEN
     ("app.voice_routes", "router", ""),  # activate_0701 Phase FB
+    ("app.dashboard_routes", "router", ""),  # activate_0701 Phase C
 ]
 
 
