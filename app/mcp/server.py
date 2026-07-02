@@ -51,6 +51,15 @@ from app.mcp.tools import (  # noqa: F401  loopskill_0622 Phase 8 tools
     loopskill_search_loops,
     loopskill_search_personalities,
 )
+
+# activate_0701 Phase A2 — composite loop catalog (NEW MCP names, council §6).
+from app.mcp.tools.composite_loop_catalog import (
+    _NOT_HANDLED,  # noqa: F401 — sentinel for dispatch delegation
+    dispatch_composite_loop as _dispatch_composite_loop,
+    loopskill_get_composite_loop,
+    loopskill_publish_composite_loop,
+    loopskill_search_composite_loops,
+)
 from app.mcp.tools import (
     recipes_carousel_today,
     recipes_configure_feedback,
@@ -159,6 +168,9 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
         )
     if name == "loopskill_get_personality":
         return loopskill_get_personality(db, slug=args["slug"])
+    _cl_result = _dispatch_composite_loop(name, db, args)
+    if _cl_result is not _NOT_HANDLED:  # type: ignore[comparison-overlap]
+        return _cl_result
     if name == "recipes_install":
         return _tool_ns.get("recipes_install", recipes_install)(
             db,

@@ -85,4 +85,52 @@ def _loopskill_catalog_tools() -> list[types.Tool]:
                 "properties": {"slug": {"type": "string"}},
             },
         ),
+        # ── Composite loop catalog (activate_0701 Phase A2 — NEW surface) ──
+        types.Tool(
+            name="loopskill_publish_composite_loop",
+            description=(
+                "Publish a composite loop — a deployable autonomous work unit "
+                "(automation + skills + sub-agents + connectors + verifier gate + "
+                "state seed). Validates the full manifest server-side."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["slug", "title", "schedule", "verifier_slug", "prompt"],
+                "properties": {
+                    "slug": {"type": "string"},
+                    "title": {"type": "string"},
+                    "description": {"type": "string"},
+                    "schedule": {"type": "string", "description": "cron expr or '30m' shorthand"},
+                    "verifier_slug": {"type": "string"},
+                    "prompt": {"type": "string"},
+                    "skills": {"type": "array", "items": {"type": "object"}},
+                    "connectors": {"type": "array", "items": {"type": "object"}},
+                    "subagents_config": {"type": "object"},
+                    "state_seed": {"type": "object"},
+                    "budget_usd": {"type": "number"},
+                    "tier": {"type": "string"},
+                    "is_public": {"type": "boolean", "default": True},
+                },
+            },
+        ),
+        types.Tool(
+            name="loopskill_get_composite_loop",
+            description="Pull a composite loop's full composition by slug.",
+            inputSchema={
+                "type": "object",
+                "required": ["slug"],
+                "properties": {"slug": {"type": "string"}},
+            },
+        ),
+        types.Tool(
+            name="loopskill_search_composite_loops",
+            description="Search the public registry of composite loops.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+                },
+            },
+        ),
     ]
