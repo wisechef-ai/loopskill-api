@@ -1,4 +1,4 @@
-# Phase FB+VOICE — AGENT VOICE WIRING + OPERATOR INBOX — design contract (loopskill_activate_0701)
+# Phase FB+VOICE — AGENT VOICE WIRING + FLEET OWNER INBOX — design contract (loopskill_activate_0701)
 
 Author: Tori. Implementer: subagent (needs Phase 1 FleetMember + Phase T LoopRun/SkillErrorReport
 for the routing targets). Reviewer: glm-5.2 council (per plan — if Z.AI capped, codex covers).
@@ -42,7 +42,7 @@ skills improve from real usage — never blindly after release.
   failing LoopRuns auto-file GitHub issues. When False, they aggregate in the fleet owner inbox
   (below) but don't auto-file. Own fleet (Tori/Chef/Varys) = True.
 
-### FB3 — Operator inbox API (aggregated voice stream)
+### FB3 — Fleet owner inbox API (aggregated voice stream)
 NEW route module app/voice_routes.py:
 - GET /api/fleets/{fleet_id}/voice-inbox (auth: fleet owner or master) -> paginated aggregated stream:
   ```json

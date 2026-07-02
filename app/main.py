@@ -195,6 +195,9 @@ def create_app() -> FastAPI:
     from app.voice_routes import router as voice_router  # activate_0701 Phase FB
 
     app.include_router(voice_router)  # activate_0701 Phase FB
+    from app.dashboard_routes import router as dashboard_router  # activate_0701 Phase C
+
+    app.include_router(dashboard_router)  # activate_0701 Phase C
     from app.org_routes import router as org_router  # activate_0701 Phase TEN
 
     app.include_router(org_router, tags=["orgs"])  # activate_0701 Phase TEN
