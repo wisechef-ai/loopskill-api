@@ -1,7 +1,7 @@
 """activate_0701 Phase 1 — HTTP routes for fleet-member enrollment.
 
 Product lock #13: the per-agent API key IS the member identity. One key =
-one agent = one FleetMember. Enrollment/removal are OPERATOR actions →
+one agent = one FleetMember. Enrollment/removal are FLEET-OWNER actions →
 caller scope must be 'user' (fleet owner) or 'master'. A 'fleet'-scope ctx
 (rec_fleet_ key) may NOT mint member keys.
 
@@ -39,7 +39,7 @@ def _resolve_owned_fleet(db: Session, ctx: Any, fleet_id: str) -> Fleet:
 
     Non-owner and non-existent both resolve to 404 (no existence leak).
     A fleet-scope (rec_fleet_) ctx is explicitly rejected with 403 — it may
-    read/sync its own fleet elsewhere, but member enrollment is an operator
+    read/sync its own fleet elsewhere, but member enrollment is a fleet-owner
     action reserved for the human owner (or master).
     """
     try:

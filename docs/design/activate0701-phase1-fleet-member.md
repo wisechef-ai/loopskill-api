@@ -50,7 +50,7 @@ Helper `resolve_member_for_key(db, api_key_id) -> FleetMember | None` lives in a
 
 ## 3. Routes: NEW module app/fleet_member_routes.py (mounted in main.py next to fleet_routes)
 
-Auth: reuse `resolve_fleet_ctx` from fleet_routes; enrollment/removal are OPERATOR actions →
+Auth: reuse `resolve_fleet_ctx` from fleet_routes; enrollment/removal are FLEET-OWNER actions →
 scope must be `user` (fleet owner) or `master`. A `fleet`-scope ctx (rec_fleet_ key) may NOT mint member keys.
 Non-owner → 404 (existence never leaks — parity with reconcile-contract §7).
 
