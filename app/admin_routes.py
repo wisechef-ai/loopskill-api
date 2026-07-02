@@ -13,8 +13,8 @@ GET  /api/admin/pulse — the north-star "one number" demand scoreboard:
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
-from typing import Literal
+from datetime import UTC, date, datetime, timedelta
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -431,3 +431,57 @@ def admin_pulse(
         fleet_subscriptions_7d=int(fleet_subscriptions_7d),
         generated_at=now.isoformat(),
     )
+
+
+# ── activate_0701 Phase T — sync-report admin endpoints ──────────────────────
+
+
+class RollupIn(BaseModel):
+    day: date | None = None  # type: ignore[assignment]
+
+
+class PruneIn(BaseModel):
+    days: int = 30
+
+
+@router.post("/loop-run-rollup")
+def admin_loop_run_rollup(
+    body: RollupIn,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Trigger idempotent daily rollup of LoopRun rows into LoopRunDailyRollup.
+
+    Master-only (cron-callable). If ``day`` is omitted, defaults to today.
+    """
+    api_key_user_id = getattr(request.state, "api_key_user_id", "MISSING")
+    if api_key_user_id is not None:
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    from app.services.sync_report import rollup_loop_runs
+
+    target_day = body.day if body.day is not None else date.today()
+    count = rollup_loop_runs(db, day=target_day)
+    logger.info("admin loop-run-rollup: %d rollup rows for %s", count, target_day)
+    return {"rolled_up": count, "day": target_day.isoformat()}
+
+
+@router.post("/sync-report-prune")
+def admin_sync_report_prune(
+    body: PruneIn,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Prune raw sync-report telemetry past retention (30d default).
+
+    Master-only (cron-callable). NEVER touches rollups.
+    """
+    api_key_user_id = getattr(request.state, "api_key_user_id", "MISSING")
+    if api_key_user_id is not None:
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    from app.services.sync_report import prune_raw
+
+    counts = prune_raw(db, older_than_days=body.days)
+    logger.info("admin sync-report-prune: %s", counts)
+    return {"pruned": counts}
