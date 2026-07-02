@@ -68,10 +68,12 @@ def test_main_module_surfaces_use_the_constant() -> None:
 
 
 def test_health_and_core_routes_import_the_constant() -> None:
-    for mod in ("health_routes.py", "core_routes.py"):
-        src = (APP_DIR / mod).read_text()
-        assert "from app.version import __version__ as VERSION" in src, mod
-        assert 'VERSION = "0.5.0"' not in src, mod
+    src = (APP_DIR / "health_routes.py").read_text()
+    assert "from app.version import __version__ as VERSION" in src
+    assert 'VERSION = "0.5.0"' not in src
+    # core_routes.py's VERSION was dead code — removed outright.
+    core_src = (APP_DIR / "core_routes.py").read_text()
+    assert "VERSION" not in core_src
 
 
 def test_no_hardcoded_app_version_literals_outside_version_py() -> None:
