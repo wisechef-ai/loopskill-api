@@ -43,6 +43,7 @@ class LocalSkillIn(BaseModel):
 
 class ReconcileIn(BaseModel):
     local: list[LocalSkillIn] = []
+    local_connectors: list[dict[str, Any]] | None = None  # Phase B — additive, backward-compatible
     prune: bool = False
     dry_run: bool = True  # the poll path defaults to plan (read-only)
 
@@ -108,6 +109,7 @@ def reconcile_cookbook(
         db,
         cookbook_id=cookbook_id,
         local=local,
+        local_connectors=body.local_connectors,
         prune=body.prune,
         dry_run=body.dry_run,
         ctx=auth_ctx,

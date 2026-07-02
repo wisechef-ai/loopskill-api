@@ -50,6 +50,7 @@ from app.mcp.tools.loopskill_catalog import (
     loopskill_search_loops,
     loopskill_search_personalities,
 )
+from app.mcp.tools.connector_publish import loopskill_connector_publish
 
 __all__ = [
     "recipes_search",
@@ -100,4 +101,6 @@ __all__ = [
     "loopskill_get_loop",
     "loopskill_search_personalities",
     "loopskill_get_personality",
+    # activate_0701 Phase B: connector publish tool
+    "loopskill_connector_publish",
 ]
