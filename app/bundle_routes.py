@@ -1389,7 +1389,7 @@ def get_feedback_config(
         "feedback_repo": cb.feedback_repo,
         "feedback_mode": cb.feedback_mode,
         "has_credential": bool(cb.feedback_pat_enc),
-        "default_repo": "wisechef-ai/recipes-api",
+        "default_repo": "wisechef-ai/loopskill-api",
     }
 
 

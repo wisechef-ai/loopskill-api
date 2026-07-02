@@ -1,4 +1,4 @@
-"""WiseRecipes API — FastAPI application factory."""
+"""LoopSkill API — FastAPI application factory."""
 
 import logging
 from contextlib import asynccontextmanager
@@ -105,7 +105,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application instance."""
     app = FastAPI(
-        title="WiseRecipes API",
+        title="LoopSkill API",
         version=__version__,
         description="Skill marketplace & recipe sharing API for WiseChef ecosystem.",
         docs_url="/docs",
@@ -215,7 +215,7 @@ def create_app() -> FastAPI:
 
     @app.get("/", tags=["meta"])
     def root():
-        return {"name": "WiseRecipes API", "version": __version__, "docs": "/docs"}
+        return {"name": "LoopSkill API", "version": __version__, "docs": "/docs"}
 
     return app
 
