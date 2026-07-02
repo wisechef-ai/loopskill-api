@@ -182,8 +182,10 @@ def create_app() -> FastAPI:
     app.include_router(recall_router, tags=["recall"])
     app.include_router(recipify_router, tags=["recipify"])
     from app.fleet_routes import router as fleet_router  # portal_0610 J3
+    from app.fleet_member_routes import router as fleet_member_router  # activate_0701 Phase 1
 
     app.include_router(fleet_router, tags=["fleets"])  # portal_0610 J3 — HTTP fleet ops for the portal
+    app.include_router(fleet_member_router, tags=["fleet-members"])  # activate_0701 Phase 1
     app.include_router(referral_router, tags=["referral"])
     app.include_router(marketing_router, tags=["marketing"])
     app.include_router(sse_router, tags=["sse"])

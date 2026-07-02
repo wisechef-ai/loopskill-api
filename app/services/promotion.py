@@ -185,8 +185,14 @@ def record_reconcile_event(
     cookbook_id: UUID | None = None,
     api_key_id: UUID | None = None,
     failure_reason: str | None = None,
+    member_id: UUID | None = None,
 ) -> ReconcileEvent:
-    """Persist one canary reconcile outcome (called by the Phase D client path)."""
+    """Persist one canary reconcile outcome (called by the Phase D client path).
+
+    member_id (activate_0701 Phase 1): the FleetMember identity resolved from
+    the reporting key, if any. None for pre-Phase-1 rows, non-member keys, and
+    anonymous self-test.
+    """
     ev = ReconcileEvent(
         bundle_id=cookbook_id,  # compat-alias
         skill_id=skill_id,
@@ -195,6 +201,7 @@ def record_reconcile_event(
         outcome=outcome,
         failure_reason=failure_reason,
         api_key_id=api_key_id,
+        member_id=member_id,
     )
     db.add(ev)
     db.commit()
