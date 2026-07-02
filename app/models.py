@@ -1591,3 +1591,101 @@ class LoopRunDailyRollup(Base):
     duration_seconds_total = Column(BigInteger, nullable=True)
 
     __table_args__ = (UniqueConstraint("fleet_id", "member_id", "loop_slug", "day", name="uq_loop_rollup"),)
+
+
+# ── v6 Phase B (loopskill_activate_0701) — Connectors ──────────────────────
+# A Connector is a deployable MCP-server config fragment (stdio/http/sse)
+# published as a versioned artifact and applied to a fleet member's config.yaml
+# via reconcile. The server stores the TEMPLATE with ${VAR} env refs; the
+# agent-side apply resolves vars from the AGENT's environment. Literal secrets
+# never transit the server (§0.5 secret discipline).
+
+
+class Connector(Base):
+    """A named MCP-server config fragment — the deployable artifact class.
+
+    lock #15 (activate_0701): Connector is a first-class deployable artifact
+    alongside skills/loops/personalities. The server stores the TEMPLATE with
+    ${VAR} env refs only; literal secrets never transit the server.
+    """
+
+    __tablename__ = "connectors"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    slug = Column(String(255), unique=True, nullable=False, index=True)
+    title = Column(String(512), nullable=False)
+    description = Column(Text, nullable=True)
+    connector_type = Column(String(32), nullable=False)  # "stdio" | "http" | "sse"
+    is_public = Column(Boolean, default=True, nullable=False, server_default="1")
+    is_archived = Column(Boolean, default=False, nullable=False, server_default="0")
+    # Optional creator/org attribution (parallel to Loop/Personality).
+    creator_id = Column(UUID(as_uuid=True), ForeignKey("creators.id"), nullable=True)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id"), nullable=True)
+    # Phase E will consume residency for EU/data-sovereignty routing; TAG NOW
+    # so existing rows carry the value forward without a backfill migration.
+    residency_tag = Column(String(32), nullable=True)  # "eu" | "non-eu" | null
+    install_count = Column(Integer, default=0, nullable=False, server_default="0")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    versions = relationship(
+        "ConnectorVersion",
+        back_populates="connector",
+        order_by="ConnectorVersion.created_at.desc()",
+        cascade="all, delete-orphan",
+    )
+
+
+class ConnectorVersion(Base):
+    """A versioned config_template for a Connector.
+
+    config_template is the mcp-server block (command/args/env for stdio,
+    url/headers for http/sse) with ${VAR} env-var refs where sensitive values
+    go. required_env lists vars the agent MUST have set for the apply to
+    proceed. The UniqueConstraint (connector_id, semver) makes a re-publish of
+    the same semver a 409, matching the SkillVersion contract.
+    """
+
+    __tablename__ = "connector_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    connector_id = Column(
+        UUID(as_uuid=True), ForeignKey("connectors.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    semver = Column(String(32), nullable=False)
+    config_template = Column(JSON, nullable=False)  # mcp-server block, ${VAR} refs
+    required_env = Column(JSON, nullable=False, default=list)  # ["ZAI_API_KEY"]
+    changelog = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    connector = relationship("Connector", back_populates="versions")
+
+    __table_args__ = (UniqueConstraint("connector_id", "semver", name="uq_connector_version"),)
+
+
+class BundleConnector(Base):
+    """Provenance row linking a Connector to a Bundle (mirrors BundleSkill).
+
+    pinned_semver: null = track the connector's channel latest; set = pin.
+    added_at: ordering/audit. ON DELETE CASCADE on bundle_id so deleting a
+    bundle cleans up its connector declarations.
+    """
+
+    __tablename__ = "bundle_connectors"
+
+    bundle_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("bundles.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    connector_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("connectors.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    pinned_semver = Column(String(32), nullable=True)
+    added_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

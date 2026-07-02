@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 
 from app import authz
 from app.auth_ctx import AuthContext
-from app.models import Bundle, BundleSkill, Skill, SkillVersion
+from app.models import Bundle, BundleConnector, BundleSkill, Connector, ConnectorVersion, Skill, SkillVersion
 
 # Sources that mean "this skill is NOT part of the declared desired state".
 # A removed skill is soft-deleted via source='disabled' (no removed_at column —
@@ -205,6 +205,32 @@ def bump_declaring_bundles(db: Session, skill_id: Any) -> int:
     )
 
 
+def bump_declaring_bundles_for_connector(db: Session, connector_id: Any) -> int:
+    """Advance the generation (updated_at) of every bundle declaring connector_id.
+
+    Phase B (activate_0701): mirrors ``bump_declaring_bundles`` but for the
+    Connector artifact class. The reconcile 304 fast-path keys on
+    ``Bundle.updated_at``; without this bump a published ConnectorVersion is
+    invisible to every polling agent whose lockfile generation already matches.
+    Returns the number of bundles bumped. Caller commits. Called from the
+    publish path (connector_routes) — publish IS a desired-state change for
+    those bundles.
+    """
+    bundle_ids = [
+        row[0]
+        for row in db.query(BundleConnector.bundle_id)
+        .filter(BundleConnector.connector_id == connector_id)
+        .all()
+    ]
+    if not bundle_ids:
+        return 0
+    return (
+        db.query(Bundle)
+        .filter(Bundle.id.in_(bundle_ids))
+        .update({"updated_at": func.now()}, synchronize_session=False)
+    )
+
+
 def _attach_tarball_urls(db: Session, plan: ReconcilePlan) -> None:
     """Attach a signed one-shot ``tarball_url`` to every add/update/drift row.
 
@@ -255,11 +281,96 @@ def _attach_tarball_urls(db: Session, plan: ReconcilePlan) -> None:
             row["tarball_url"] = f"{public_origin.rstrip('/')}/api/skills/_download?token={token}"
 
 
+def _latest_semver_for_connector(db: Session, connector_id: UUID) -> str | None:
+    """Return the latest semver for a connector (semantic max, not lexicographic)."""
+    from app.services.semver import semver_key
+
+    versions = db.query(ConnectorVersion.semver).filter(ConnectorVersion.connector_id == connector_id).all()
+    if not versions:
+        return None
+    return max((v[0] for v in versions), key=semver_key)
+
+
+def compute_connector_diff(
+    db: Session,
+    bundle_id: UUID,
+    local_connectors: list[dict[str, Any]] | None = None,
+    *,
+    prune: bool = False,
+) -> dict[str, Any]:
+    """Compute the connector reconcile diff for a bundle.
+
+    Mirrors ``compute_reconcile_plan`` but for the Connector artifact class.
+    Returns ``{add: [...], update: [...], remove: [...]}``.
+
+    Each add/update row carries: slug, semver, config_template, required_env.
+    ``local_connectors`` is the agent's reported local connector set — a list
+    of ``{slug, pinned_semver}``. Absent/empty → everything declared is an ADD.
+    Backward compatible: if the field is absent the diff is still computed
+    (just all-adds).
+    """
+    declared_rows = (
+        db.query(BundleConnector, Connector)
+        .join(Connector, Connector.id == BundleConnector.connector_id)
+        .filter(BundleConnector.bundle_id == bundle_id)
+        .all()
+    )
+    local_by_slug: dict[str, str | None] = {}
+    for item in local_connectors or []:
+        local_by_slug[item["slug"]] = item.get("pinned_semver")
+
+    diff: dict[str, list[dict[str, Any]]] = {"add": [], "update": [], "remove": []}
+    declared_slugs: set[str] = set()
+
+    for bc, conn in declared_rows:
+        declared_slugs.add(conn.slug)
+        # Resolve target semver: pin if set, else track latest.
+        target = bc.pinned_semver
+        if target is None:
+            target = _latest_semver_for_connector(db, conn.id)
+
+        # Fetch the version row to get config_template + required_env.
+        version = None
+        if target:
+            version = (
+                db.query(ConnectorVersion)
+                .filter(
+                    ConnectorVersion.connector_id == conn.id,
+                    ConnectorVersion.semver == target,
+                )
+                .first()
+            )
+        if version is None:
+            # No published version yet — skip; can't deploy without a template.
+            continue
+
+        entry = {
+            "slug": conn.slug,
+            "semver": version.semver,
+            "config_template": version.config_template,
+            "required_env": version.required_env or [],
+        }
+        local_semver = local_by_slug.get(conn.slug)
+        if local_semver is None:
+            diff["add"].append(entry)
+        elif local_semver != target:
+            diff["update"].append(entry)
+        # else: matches — no-op
+
+    if prune:
+        for slug, local_semver in local_by_slug.items():
+            if slug not in declared_slugs:
+                diff["remove"].append({"slug": slug})
+
+    return diff
+
+
 def recipes_reconcile(
     db: Session,
     *,
     cookbook_id: str,
     local: list[dict[str, Any]] | None = None,
+    local_connectors: list[dict[str, Any]] | None = None,
     prune: bool = False,
     dry_run: bool = False,
     ctx: AuthContext | None = None,
@@ -274,6 +385,10 @@ def recipes_reconcile(
     `local` is the caller's reported lockfile state: a list of
     {slug, pinned_version, sha256}. Omitted → treated as empty (everything in
     the cookbook is an ADD).
+
+    ``local_connectors`` is the caller's reported connector set: a list of
+    {slug, pinned_semver}. Omitted → treated as empty (Phase B additive;
+    backward compatible — absent field = no connector reconciliation issues).
     """
     if ctx is None:
         ctx = AuthContext(scope="master")
@@ -303,11 +418,16 @@ def recipes_reconcile(
     plan = compute_reconcile_plan(db, cb_uuid, local_states, prune=prune)
     _attach_tarball_urls(db, plan)
 
+    # Phase B: connector diff (additive — always present in the result so the
+    # client knows the connector section exists, even if empty).
+    connector_diff = compute_connector_diff(db, cb_uuid, local_connectors, prune=prune)
+
     result: dict[str, Any] = {
         "cookbook_id": cookbook_id,
         "generation": cb.updated_at.isoformat() if cb.updated_at else None,
-        "diff": plan.to_dict(),
-        "no_op": plan.no_op,
+        "diff": {**plan.to_dict(), "connectors": connector_diff},
+        "no_op": plan.no_op
+        and not (connector_diff["add"] or connector_diff["update"] or connector_diff["remove"]),
     }
 
     if dry_run:

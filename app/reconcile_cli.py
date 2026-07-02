@@ -83,6 +83,9 @@ def reconcile_once(
     api_key: str,
     prune: bool = False,
     opener: Any = None,
+    connector_config: Path | None = None,
+    gateway_restart_cmd: list[str] | None = None,
+    stage_only: bool = False,
 ) -> dict[str, Any]:
     """Run one reconcile cycle. Returns a structured result dict.
 
@@ -146,12 +149,43 @@ def reconcile_once(
     lock["skills"] = list(installed.values())
     write_lockfile(lockfile, lock)
 
-    return {
+    out: dict[str, Any] = {
         "status": "applied",
         "generation": new_generation,
         "applied": result.applied,
         "removed": result.removed,
     }
+
+    # ── activate_0701 Phase B: connector apply (guarded, D8) ────────────────
+    # The diff may carry a `connectors` section. When present AND the caller
+    # passed --connector-config, apply via ConnectorApplier (snapshot → env
+    # check → managed block → restart → probe → auto-rollback). Absent config
+    # path = skills-only mode (backward compatible — connectors reported as
+    # skipped so the fleet owner knows the agent isn't wired for them yet).
+    conn_diff = body.get("connectors") or diff.get("connectors")
+    if conn_diff and any(conn_diff.get(k) for k in ("add", "update", "remove")):
+        if connector_config is None:
+            out["connectors"] = {"status": "skipped", "reason": "no --connector-config passed"}
+        else:
+            from app.connector_apply import ConnectorApplier
+
+            applier = ConnectorApplier(
+                config_yaml_path=connector_config,
+                gateway_restart_cmd=gateway_restart_cmd
+                or ["systemctl", "--user", "restart", "hermes-gateway"],
+                stage_only=stage_only,
+            )
+            conn_result = applier.apply(conn_diff)
+            out["connectors"] = {
+                "status": conn_result.outcome,
+                "applied": conn_result.applied,
+                "removed": conn_result.removed,
+                "failure_reason": conn_result.failure_reason,
+                "rolled_back": conn_result.rolled_back,
+                "rollback_failed": conn_result.rollback_failed,
+            }
+
+    return out
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -162,6 +196,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lockfile", required=True, type=Path, help="recipes-lock.json path.")
     parser.add_argument("--prune", action="store_true", help="Allow REMOVE (uninstall dropped skills).")
     parser.add_argument("--api-key", default=None, help="x-api-key (else env RECIPES_API_KEY).")
+    parser.add_argument(
+        "--connector-config",
+        default=None,
+        type=Path,
+        help="Agent config.yaml for connector apply (Phase B). Absent = skills-only mode.",
+    )
+    parser.add_argument(
+        "--gateway-restart-cmd",
+        default=None,
+        help="Gateway restart command (space-separated). Default: systemctl --user restart hermes-gateway",
+    )
+    parser.add_argument(
+        "--stage-connectors",
+        action="store_true",
+        help="Stage connector changes to config.yaml.lsk-staged instead of applying (no restart).",
+    )
     args = parser.parse_args(argv)
 
     api_key = args.api_key or os.environ.get("RECIPES_API_KEY", "")
@@ -177,6 +227,9 @@ def main(argv: list[str] | None = None) -> int:
             lockfile=args.lockfile,
             api_key=api_key,
             prune=args.prune,
+            connector_config=args.connector_config,
+            gateway_restart_cmd=(args.gateway_restart_cmd or "").split() or None,
+            stage_only=args.stage_connectors,
         )
     except urllib.error.HTTPError as exc:  # type: ignore[attr-defined]
         # Rationale: surface server-side auth/availability errors cleanly to the
