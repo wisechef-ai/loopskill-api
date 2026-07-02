@@ -1,0 +1,30 @@
+{
+  "slug": "atomic-habits",
+  "title": "Atomic Habits — 1% daily improvement loop",
+  "description": "A composite loop that observes the agent's recent work, identifies one 1% improvement, ships it, and verifies it landed. Runs nightly.",
+  "tier": "free",
+  "is_public": true,
+  "schedule": "0 22 * * *",
+  "skills": [
+    {"slug": "skill-creator"},
+    {"slug": "writing-skills"}
+  ],
+  "connectors": [],
+  "subagents_config": {
+    "maker": {
+      "model_tier": "sonnet",
+      "toolsets": ["terminal", "read_file", "write_file", "patch", "search_files"]
+    },
+    "checker": {
+      "model_tier": "haiku",
+      "toolsets": ["read_file", "search_files"]
+    }
+  },
+  "verifier_slug": "skill-passthrough-verifier",
+  "state_seed": {
+    "last_improvement": null,
+    "streak_count": 0
+  },
+  "budget_usd": 2.00,
+  "prompt": "Review the agent's recent work from today. Identify exactly ONE small (1%) improvement: a missing skill step, a documentation gap, a stale fixture, or a minor code quality issue. Ship the fix. Verify it landed."
+}
