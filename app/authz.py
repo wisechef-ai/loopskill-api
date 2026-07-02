@@ -182,11 +182,18 @@ def can_use_fleet(ctx: AuthContext, fleet: Any) -> bool:
     - Master scope: always allowed
     - User scope: allowed if ctx.user_id == fleet.owner_user_id
     - Fleet scope: allowed if ctx.fleet_id == fleet.id (key matches this fleet)
+    - activate_0701/TEN: org-scoped access — same-org members can access
+      org fleets even if not the direct owner.
     - All other cases: False
     """
     if ctx.scope == "master":
         return True
     if ctx.scope == "user" and ctx.user_id is not None and ctx.user_id == fleet.owner_user_id:
+        return True
+    # activate_0701/TEN: org-scoped fleet access — a member of the same org
+    # as the fleet can operate on it.
+    fleet_org = getattr(fleet, "org_id", None)
+    if ctx.scope == "user" and ctx.org_id is not None and fleet_org is not None and ctx.org_id == fleet_org:
         return True
     if ctx.scope == "fleet" and ctx.fleet_id is not None and ctx.fleet_id == fleet.id:
         return True
@@ -200,3 +207,50 @@ def can_publish_connector(ctx: AuthContext) -> bool:
     cbt_token, bdl_token, and fleet scopes may NOT publish.
     """
     return ctx.scope in ("user", "master")
+
+
+def can_write_fleet(ctx: AuthContext, fleet: Any) -> bool:
+    """Return True if ctx may write (create/modify/delete) the given fleet.
+
+    activate_0701/TEN: org-scoped fleet write authorization.
+
+    Access rules:
+    - Master scope: always allowed
+    - User scope + fleet owner: allowed if ctx.user_id == fleet.owner_user_id
+    - User scope + same org: allowed if fleet.org_id == ctx.org_id (both non-NULL)
+    - NULL org_id = personal scope (backward compat): only the direct owner
+    - All other cases: False
+    """
+    if ctx.scope == "master":
+        return True
+    if ctx.scope == "user" and ctx.user_id is not None and ctx.user_id == fleet.owner_user_id:
+        return True
+    fleet_org = getattr(fleet, "org_id", None)
+    # Org boundary: same org → allowed. NULL=personal scope, org check skipped.
+    if ctx.scope == "user" and ctx.org_id is not None and fleet_org is not None and ctx.org_id == fleet_org:
+        return True
+    return False
+
+
+def can_access_bundle(ctx: AuthContext, bundle: Any) -> bool:
+    """Return True if ctx may access (subscribe/read) the given bundle.
+
+    activate_0701/TEN: org-scoped bundle access authorization.
+
+    Access rules:
+    - Master scope: always allowed
+    - User scope + bundle owner: allowed if ctx.user_id == bundle.bundle_owner
+    - User scope + same org: allowed if bundle.org_id == ctx.org_id (both non-NULL)
+    - NULL org_id = personal scope (backward compat): only the direct owner
+    - All other cases: False
+    """
+    if ctx.scope == "master":
+        return True
+    bundle_owner = getattr(bundle, "bundle_owner", None)
+    if ctx.scope == "user" and ctx.user_id is not None and ctx.user_id == bundle_owner:
+        return True
+    bundle_org = getattr(bundle, "org_id", None)
+    # Org boundary: same org → allowed. NULL=personal scope, org check skipped.
+    if ctx.scope == "user" and ctx.org_id is not None and bundle_org is not None and ctx.org_id == bundle_org:
+        return True
+    return False

@@ -62,10 +62,17 @@ def resolve_fleet_ctx(request: Request, db: Session = Depends(get_db)) -> AuthCo
     if user is None:
         raise HTTPException(status_code=401, detail="auth_required")
 
+    # activate_0701/TEN: resolve org membership for tenant scope.
+    from app.middleware.api_key import _resolve_org_membership
+
+    org_id, is_org_owner = _resolve_org_membership(db, user.id)
+
     return AuthContext(
         scope="user",
         user_id=user.id,
         tier=user.subscription_tier or "free",
+        org_id=org_id,
+        is_org_owner=is_org_owner,
     )
 
 
