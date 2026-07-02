@@ -22,7 +22,7 @@ from uuid import UUID
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models import Bundle, BundleCompositeLoop, Verifier
+from app.models import Bundle, BundleCompositeLoop, CompositeLoop, Verifier
 
 # Valid model tiers for subagent config.
 _VALID_MODEL_TIERS = frozenset({"opus", "sonnet", "haiku", "local", "any"})

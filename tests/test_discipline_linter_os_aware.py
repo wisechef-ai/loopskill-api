@@ -17,6 +17,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
 
 # Ensure scripts/ is importable.
 REPO_ROOT = Path(__file__).resolve().parent.parent

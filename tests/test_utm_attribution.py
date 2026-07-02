@@ -8,8 +8,9 @@ Covers:
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -18,7 +19,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Skill, User
+from app.models import Base, Skill, SkillVersion, User
+from tests.conftest import make_skill
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
@@ -241,6 +243,7 @@ class TestWebhookUTMRef:
     @patch("app.subscription_service.stripe")
     def test_webhook_sets_utm_ref_on_user(self, mock_stripe, utm_client, db_session):
         """Webhook with utm_ref in sub metadata → user.utm_ref persisted."""
+        from app.models import StripeEventId
 
         user = _make_user_for_utm(db_session)
         user.stripe_customer_id = "cus_test_utm_001"

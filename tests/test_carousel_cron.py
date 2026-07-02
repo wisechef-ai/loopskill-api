@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from uuid import uuid4
 
+import pytest
 
 from app.carousel.cron import daily_carousel_job
 from app.models import CarouselEntry, Skill

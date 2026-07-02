@@ -1,8 +1,10 @@
 """Tests for VAT MOSS calculation."""
 
+import pytest
 
 from app.vat import (
     EU_VAT_RATES,
+    VATResult,
     _validate_vat_number,
     calculate_vat,
     generate_vat_moss_report,

@@ -25,8 +25,10 @@ Root cause (Phase C finding):
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import uuid4
 
+import pytest
 from sqlalchemy.orm import Session
 
 from app.models import Skill, SkillVersion

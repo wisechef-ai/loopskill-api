@@ -9,6 +9,7 @@ S1: /api/skills/search?tier=free computed the tier filter but never applied it,
 """
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 

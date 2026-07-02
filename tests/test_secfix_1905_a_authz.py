@@ -8,6 +8,7 @@ Tests cover:
   - can_call_admin_mcp_tool
   - can_run_sandbox
 """
+import pytest
 from uuid import uuid4
 from unittest.mock import MagicMock
 

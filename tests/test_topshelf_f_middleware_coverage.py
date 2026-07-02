@@ -17,15 +17,18 @@ from __future__ import annotations
 
 import hashlib
 import time
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
 from app.auth_ctx import AuthContext
 from app.middleware import (
+    APIKeyMiddleware,
     CookbookHostMiddleware,
     RateLimitMiddleware,
     _auth_ctx_from_api_key,

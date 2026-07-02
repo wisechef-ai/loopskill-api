@@ -13,8 +13,10 @@ Security invariants pinned:
 from __future__ import annotations
 
 import uuid
+from contextlib import contextmanager
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 

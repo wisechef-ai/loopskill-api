@@ -12,6 +12,7 @@ Covers:
 from __future__ import annotations
 
 import uuid
+import warnings
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
 

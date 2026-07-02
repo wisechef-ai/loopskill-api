@@ -23,7 +23,7 @@ import json
 import pytest
 
 from app.recall_routes import recall_skills, _decode_embedding
-from app.embeddings import embed_skill, embed_text
+from app.embeddings import embed_skill, embed_text, cosine
 from app.ranking import combine, score_bm25, score_vector
 
 

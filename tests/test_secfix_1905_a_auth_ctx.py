@@ -9,6 +9,7 @@ Tests:
 """
 import pytest
 from uuid import uuid4
+from unittest.mock import MagicMock, patch
 
 
 # ── AuthContext unit tests ────────────────────────────────────────────────────
@@ -87,6 +88,7 @@ def test_middleware_sets_auth_ctx_for_master_key(client):
     as the x-api-key header which is the master key.
     """
     # A simple endpoint that reads auth_ctx from state
+    from app.auth_ctx import AuthContext
     from app.middleware import APIKeyMiddleware
     from fastapi import FastAPI, Request
     from fastapi.responses import JSONResponse

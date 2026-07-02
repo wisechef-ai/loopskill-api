@@ -8,7 +8,7 @@ reveals nothing because there's no rainbow-table-able column.
 from __future__ import annotations
 
 import time
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from fastapi import FastAPI
@@ -197,7 +197,7 @@ def test_weekly_aggregate_returns_distinct_counts(hb_client, db_session):
 def test_pruner_drops_old_rows(db_session):
     from datetime import date, timedelta
 
-    from app.crons.fleet_ping_pruner import TTL_DAYS
+    from app.crons.fleet_ping_pruner import TTL_DAYS, prune
     from app.heartbeat_routes import _hash_salt
 
     today = date(2026, 5, 3)

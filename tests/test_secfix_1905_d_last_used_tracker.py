@@ -9,8 +9,9 @@ Tests:
   - Redis path: record() → drain() using a fake Redis hash
 """
 
-from datetime import datetime, timezone
-from unittest.mock import MagicMock
+import pytest
+from datetime import datetime, timezone, timedelta
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 from app.last_used_tracker import LastUsedTracker

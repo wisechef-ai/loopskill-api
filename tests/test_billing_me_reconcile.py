@@ -12,10 +12,11 @@ Test cases:
 """
 from __future__ import annotations
 
+import time
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Generator
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import FastAPI

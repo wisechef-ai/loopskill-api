@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from unittest.mock import MagicMock
+import os
+from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 
 from app.discord_bot import bot as bot_module
 from app.discord_bot.role_sync import role_for_user, sync_role_for_user

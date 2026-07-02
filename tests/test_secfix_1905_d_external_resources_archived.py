@@ -35,6 +35,7 @@ def engine():
 
 @pytest.fixture(scope="module")
 def session(engine):
+    from sqlalchemy.orm import Session
     SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
     sess = SessionLocal()
     yield sess

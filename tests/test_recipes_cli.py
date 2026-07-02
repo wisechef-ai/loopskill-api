@@ -2,13 +2,15 @@
 
 import json
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
+from io import StringIO
 
+import pytest
 
 # Make the tools directory importable
 sys.path.insert(0, ".")
 
-from tools.recipes_cli import cmd_share, _print_config_blocks
+from tools.recipes_cli import cmd_share, _print_config_blocks, _get_api_key
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────

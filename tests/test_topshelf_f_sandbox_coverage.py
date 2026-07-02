@@ -18,7 +18,7 @@ import os
 import shutil
 import subprocess
 import tempfile
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -29,10 +29,10 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.auth_ctx import AuthContext
-from app.models import Base
+from app.models import Base, Skill, SkillVersion
 from app.sandbox.domain_proxy import DomainProxy, _domain_matches, run_domain_proxy
 from app.sandbox.profile import SandboxProfile
-from app.sandbox.runner import SandboxRunner, SandboxError
+from app.sandbox.runner import SandboxResult, SandboxRunner, SandboxError
 
 pytestmark = [pytest.mark.sandbox_linux_only]
 
@@ -458,6 +458,7 @@ class TestSandboxRunnerExtended:
             with patch("subprocess.Popen", return_value=mock_proc):
                 # select never returns stdout as readable (timeout path)
                 with patch("select.select", return_value=([], [], [])):
+                    import time
                     with patch("time.monotonic", side_effect=[0.0, 6.0, 6.1]):  # immediate timeout
                         with pytest.raises(SandboxError, match="proxy did not emit port"):
                             SandboxRunner._start_domain_proxy_sync(["test.com"])
@@ -533,7 +534,9 @@ class TestSandboxRunnerExtended:
 def _make_sandbox_app(auth_ctx: AuthContext):
     """Build a minimal app with sandbox routes and a fixed auth_ctx."""
     from fastapi import FastAPI, Request
+    from starlette.middleware.base import BaseHTTPMiddleware
     from app.sandbox.routes import router
+    from app.database import get_db
 
     app = FastAPI()
 

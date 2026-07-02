@@ -11,14 +11,19 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from datetime import datetime, timezone
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.database import get_db
 from app.models import Base, APIKey, Skill, User
+from app.routes import router as api_router
+from app.skill_routes import router as skill_router  # Phase E: /skills/{slug} moved
 
 
 SKILL_README = "# Test Skill\n\n" + ("This is the body content. " * 100)

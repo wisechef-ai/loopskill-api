@@ -11,8 +11,10 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
+import pytest
 
 from app.crons.incident_clustering import (
+    CLUSTER_THRESHOLD,
     Cluster,
     find_clusters,
     run_once,

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
 
 from app.mcp.server import call_tool_sync, _tool_definitions
 from app.models import Bundle, BundleSkill, Skill, SkillVersion, User

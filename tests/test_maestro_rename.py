@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 
 from app.database import get_db
 from app.main import create_app
-from app.models import Skill, SkillAlias
+from app.models import Base, Skill, SkillAlias
 
 
 @pytest.fixture

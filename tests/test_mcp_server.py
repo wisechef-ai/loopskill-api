@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import asyncio
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.config import settings
 from app.database import get_db
 from app.mcp.server import _tool_definitions, router as mcp_router
 

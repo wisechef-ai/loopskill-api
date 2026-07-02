@@ -13,6 +13,7 @@ import tempfile
 from datetime import datetime, timezone
 from uuid import uuid4
 
+import pytest
 
 from app.mcp.tools import (
     recipes_carousel_today,
@@ -28,6 +29,7 @@ from app.models import (
     CarouselEntry,
     Bundle,
     BundleSkill,
+    Skill,
     SkillVersion,
 )
 from tests.conftest import make_skill

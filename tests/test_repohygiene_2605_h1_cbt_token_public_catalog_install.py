@@ -20,6 +20,7 @@ import hashlib
 import secrets
 import tarfile
 import tempfile
+from pathlib import Path
 from typing import Generator
 from uuid import UUID, uuid4
 
@@ -36,6 +37,7 @@ from app.models import (
     Base,
     Bundle,
     BundleShareToken,
+    BundleSkill,
     Skill,
     SkillVersion,
     User,

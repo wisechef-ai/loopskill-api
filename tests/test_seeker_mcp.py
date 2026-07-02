@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
 
 from app.mcp.server import call_tool_sync
 from app.mcp.tools import recipes_seeker

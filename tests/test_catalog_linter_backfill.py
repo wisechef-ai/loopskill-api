@@ -11,11 +11,15 @@ Verifies the audit script:
 from __future__ import annotations
 
 import io
+import json
+import subprocess
+import sys
 import tarfile
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
 
 from app.models import Skill, SkillVersion
 from scripts.catalog_linter_backfill import audit_catalog, render_markdown

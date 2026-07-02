@@ -4,9 +4,10 @@ Tests for scripts/mirror_pantry.py — validates the 3 upstream repo cloning
 logic with mocked GitHub API responses. No actual network calls.
 """
 import json
+import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
 
 import pytest
 

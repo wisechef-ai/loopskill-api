@@ -415,6 +415,7 @@ def test_json_output_is_valid(tmp_path: Path) -> None:
 def test_tarball_scan(tmp_path: Path) -> None:
     """Build a tarball with leaky content; gate should catch."""
     import tarfile
+    import io
 
     src = tmp_path / "src"
     write_skill(src, {

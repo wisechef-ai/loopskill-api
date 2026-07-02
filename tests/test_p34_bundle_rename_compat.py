@@ -9,6 +9,7 @@ All compat-specific assertions are tagged # compat-test.
 
 from __future__ import annotations
 
+import pytest
 from itsdangerous import URLSafeTimedSerializer
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import time
 from importlib.metadata import version as _pkg_version
 

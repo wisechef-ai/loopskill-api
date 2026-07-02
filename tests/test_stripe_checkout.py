@@ -13,12 +13,16 @@ Covers:
 10. Billing /api/billing/me returns subscription state
 """
 
-from unittest.mock import patch
+import json
+from datetime import datetime, timezone
+from unittest.mock import patch, MagicMock
 from uuid import uuid4
 
+import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models import User
+from app.models import User, StripeEventId
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────

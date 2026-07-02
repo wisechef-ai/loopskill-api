@@ -13,9 +13,13 @@ snapshot → gateway survives → outcome rolled_back) is
 
 from __future__ import annotations
 
+import os
+import sys
+import textwrap
 from pathlib import Path
 from typing import Any, Callable
 
+import pytest
 
 from app.connector_apply import (
     ConnectorApplier,

@@ -9,18 +9,22 @@ Targets uncovered lines:
 """
 from __future__ import annotations
 
+import hashlib
+import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.auth_ctx import AuthContext
-from app.models import Base, Skill, SkillVersion
+from app.database import get_db
+from app.models import Base, Skill, SkillVersion, User
 
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -168,6 +172,7 @@ class TestInstallSkillCoverage:
         """When today's install count >= limit → 429 (lines 147-179)."""
         from app.config import settings
         from tests._app_factory import build_test_app
+        from app import install_routes
 
         sk = _make_skill(db_session, "ratelimited-skill", tier="free")
         _make_version(db_session, sk.id, "1.0.0")
@@ -183,6 +188,7 @@ class TestInstallSkillCoverage:
     def test_cbt_token_without_allow_public_catalog_forbidden(self, db_session, monkeypatch):
         """cbt_token with allow_public_catalog=False on install → 403 (lines 116-121)."""
         from tests._app_factory import build_test_app
+        from fastapi import FastAPI, Request
         from starlette.middleware.base import BaseHTTPMiddleware
 
         sk = _make_skill(db_session, "cbt-blocked-skill", tier="pro", is_public=True)

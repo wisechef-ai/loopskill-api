@@ -19,8 +19,9 @@ from sqlalchemy import create_engine, event as sa_event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.auth_ctx import AuthContext
 from app.database import get_db
-from app.models import Base, InstallEvent, Skill
+from app.models import Base, InstallEvent, Skill, SkillVersion
 
 
 # ── Fixtures ───────────────────────────────────────────────────────────────────

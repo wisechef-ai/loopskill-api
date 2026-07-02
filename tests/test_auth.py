@@ -7,6 +7,7 @@ Covers:
 - Auth router endpoints: /github/login, /github/callback, /google/login, /google/callback, /me
 """
 
+import time
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
@@ -24,6 +25,7 @@ from app.auth import (
     exchange_google_code,
     find_or_create_user_by_github,
     find_or_create_user_by_google,
+    get_user_from_jwt,
 )
 from app.config import settings
 from app.models import User

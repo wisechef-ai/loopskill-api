@@ -16,6 +16,7 @@ in CI before merging.
 """
 from __future__ import annotations
 
+import os
 import sys
 import uuid
 from datetime import datetime, timezone

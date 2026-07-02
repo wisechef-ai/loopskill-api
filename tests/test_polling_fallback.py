@@ -7,7 +7,7 @@ by a 503 sse_pool_exhausted response actually works.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Generator
 from uuid import uuid4
 

@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import importlib
 import sys
-from unittest.mock import MagicMock
+from datetime import date, timedelta
+from unittest.mock import patch, MagicMock
 
+import pytest
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

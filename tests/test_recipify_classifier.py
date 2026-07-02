@@ -1,6 +1,7 @@
 """Recipify keyword classifier — v7 Phase G."""
 from __future__ import annotations
 
+import pytest
 
 from app.recipify import CANONICAL_CATEGORIES, classify_skill
 

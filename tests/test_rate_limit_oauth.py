@@ -9,6 +9,8 @@ Locks the OAuth-429 fix from 2026-05-08:
 """
 from __future__ import annotations
 
+import time
+from collections import defaultdict
 from unittest.mock import patch
 
 import pytest

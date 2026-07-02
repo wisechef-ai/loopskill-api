@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 
 # Add alembic/versions to path so we can import the migration directly
 _VERSIONS_DIR = Path(__file__).parents[2] / "alembic" / "versions"
