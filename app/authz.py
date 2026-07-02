@@ -191,3 +191,12 @@ def can_use_fleet(ctx: AuthContext, fleet: Any) -> bool:
     if ctx.scope == "fleet" and ctx.fleet_id is not None and ctx.fleet_id == fleet.id:
         return True
     return False
+
+
+def can_publish_connector(ctx: AuthContext) -> bool:
+    """Return True if ctx may publish a connector (activate_0701 Phase B).
+
+    Publishing is a creator action tied to a user identity — anonymous,
+    cbt_token, bdl_token, and fleet scopes may NOT publish.
+    """
+    return ctx.scope in ("user", "master")

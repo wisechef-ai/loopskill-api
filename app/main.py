@@ -189,6 +189,9 @@ def create_app() -> FastAPI:
     from app.sync_report_routes import router as sync_report_router  # activate_0701 Phase T
 
     app.include_router(sync_report_router, tags=["sync-report"])  # activate_0701 Phase T
+    from app.connector_routes import router as connector_router  # activate_0701 Phase B
+
+    app.include_router(connector_router, tags=["connectors"])  # activate_0701 Phase B
     app.include_router(referral_router, tags=["referral"])
     app.include_router(marketing_router, tags=["marketing"])
     app.include_router(sse_router, tags=["sse"])

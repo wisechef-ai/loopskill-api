@@ -30,6 +30,10 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     # payloads (no redirect). Public-read mirrors /api/loops; writes self-enforce
     # auth (401 anonymous) so the method-agnostic prefix does NOT expose them.  # compat-alias
     "/api/verifiers",
+    # activate_0701 Phase B — connector registry: same shape as loops. GET
+    # browse/detail are public; publish/versions/bundle-declare self-enforce
+    # auth (401 anon), so the method-agnostic prefix does NOT expose writes.
+    "/api/connectors",
     # loopskill_portal_0627 — personalities registry: same shape as loops. GET
     # browse/detail are public so the portal /personalities page renders without
     # a key; publish_personality self-enforces auth (401 anon), so the

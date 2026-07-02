@@ -130,6 +130,27 @@ def _loopskill_catalog_tools() -> list[types.Tool]:
                 "properties": {
                     "query": {"type": "string"},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+        types.Tool(
+            name="loopskill_connector_publish",
+            description=(
+                "Publish a Connector (MCP-server config fragment) — create the "
+                "connector if it doesn't exist, then mint a version with the "
+                "config_template. The template uses ${VAR} env refs only; "
+                "literal secrets are rejected at publish time. One call."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["slug", "title", "connector_type", "semver", "config_template"],
+                "properties": {
+                    "slug": {"type": "string"},
+                    "title": {"type": "string"},
+                    "connector_type": {"type": "string", "enum": ["stdio", "http", "sse"]},
+                    "semver": {"type": "string"},
+                    "config_template": {"type": "object"},
+                    "required_env": {"type": "array", "items": {"type": "string"}},
+                    "description": {"type": "string"},
+                    "residency_tag": {"type": "string"},
+                    "changelog": {"type": "string"},
                 },
             },
         ),

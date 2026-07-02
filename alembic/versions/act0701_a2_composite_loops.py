@@ -17,7 +17,7 @@ Tables:
 
 # revision identifiers used by Alembic.
 revision = "act0701_a2_cl"
-down_revision = "act0701_pt_syncrep"
+down_revision = "act0701_b_connectors"
 branch_labels = None
 depends_on = None
 

@@ -95,6 +95,7 @@ from app.mcp.tools import (
     recipes_tailor_version,
     recipes_cookbook_attach,
     recipes_cookbook_handoff,
+    loopskill_connector_publish,
 )
 
 ToolDispatch = Callable[[Session, dict[str, Any], dict[str, Any]], Awaitable[Any] | Any]
@@ -171,6 +172,10 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
     _cl_result = _dispatch_composite_loop(name, db, args)
     if _cl_result is not _NOT_HANDLED:  # type: ignore[comparison-overlap]
         return _cl_result
+    # ── activate_0701 Phase B: connector publish ──────────────────────────
+    if name == "loopskill_connector_publish":
+        fn = _tool_ns.get("loopskill_connector_publish", loopskill_connector_publish)
+        return fn(db, ctx=ctx, **{k: v for k, v in args.items() if k != "ctx"})
     if name == "recipes_install":
         return _tool_ns.get("recipes_install", recipes_install)(
             db,
