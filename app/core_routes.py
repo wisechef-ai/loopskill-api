@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
+# Backward-compat re-export: app/routes.py (and tests) import VERSION from
+# here. Single source of truth is app/version.py.
+from app.version import __version__ as VERSION  # noqa: F401, E402
+
 
 # ── Telemetry ───────────────────────────────────────────────────────────────
 

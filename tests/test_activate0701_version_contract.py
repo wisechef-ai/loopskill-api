@@ -71,9 +71,11 @@ def test_health_and_core_routes_import_the_constant() -> None:
     src = (APP_DIR / "health_routes.py").read_text()
     assert "from app.version import __version__ as VERSION" in src
     assert 'VERSION = "0.5.0"' not in src
-    # core_routes.py's VERSION was dead code — removed outright.
+    # core_routes.py keeps VERSION as a backward-compat re-export of the
+    # constant (app/routes.py + several test modules import it from there).
     core_src = (APP_DIR / "core_routes.py").read_text()
-    assert "VERSION" not in core_src
+    assert "from app.version import __version__ as VERSION" in core_src
+    assert 'VERSION = "0.5.0"' not in core_src
 
 
 def test_no_hardcoded_app_version_literals_outside_version_py() -> None:
