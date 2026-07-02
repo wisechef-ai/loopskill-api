@@ -48,13 +48,18 @@ def _post_reconcile(
     *,
     opener: Any = None,
 ) -> tuple[int, dict[str, Any]]:
-    """Call POST /api/reconcile with conditional If-None-Match.
+    """Call POST /api/bundles/{cookbook_id}/reconcile with conditional If-None-Match.
 
     Returns (status_code, body). 304 → (304, {}) means up-to-date (cheap path).
+
+    URL contract (activate_0701 Phase 0 live-prod fix): the server mounts the
+    handler as ``/{cookbook_id}/reconcile`` under ``/api/bundles`` (see
+    app/reconcile_routes.py dual-mount) — the old flat ``/api/reconcile`` URL
+    404s against every deployed instance.
     """
     open_url = opener or urllib.request.urlopen
-    url = api_base.rstrip("/") + "/api/reconcile"
-    payload = json.dumps({"cookbook_id": cookbook_id, "local": local}).encode()
+    url = f"{api_base.rstrip('/')}/api/bundles/{cookbook_id}/reconcile"
+    payload = json.dumps({"local": local}).encode()
     req = urllib.request.Request(url, data=payload, method="POST")  # noqa: S310  # Rationale: our own API.
     req.add_header("Content-Type", "application/json")
     req.add_header("x-api-key", api_key)

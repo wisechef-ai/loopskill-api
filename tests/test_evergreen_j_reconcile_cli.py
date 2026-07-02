@@ -58,7 +58,7 @@ def _make_opener(tarballs: dict[str, bytes], reconcile_body: dict, status: int =
 
     def _opener(req_or_url):
         url = req_or_url.full_url if hasattr(req_or_url, "full_url") else req_or_url
-        if url.endswith("/api/reconcile"):
+        if url.endswith("/reconcile"):
             if status == 304:
                 from urllib.error import HTTPError
 

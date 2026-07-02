@@ -180,6 +180,56 @@ def compute_reconcile_plan(
     return plan
 
 
+def _attach_tarball_urls(db: Session, plan: ReconcilePlan) -> None:
+    """Attach a signed one-shot ``tarball_url`` to every add/update/drift row.
+
+    Phase 0 (activate_0701) live-prod fix: the client fetcher
+    (``reconcile_fetch.make_fetcher``) requires ``tarball_url`` per diff entry
+    and rolls back the whole apply without it — but the engine never emitted
+    one, so the first real reconcile ever run failed. Salt parity: the token
+    MUST verify against ``install_routes._download``'s salt chain (primary
+    ``loopskill-install``; see recipes_sync._one_shot_urls and the
+    test_secfix_1905_d salt-parity suite).
+    """
+    from itsdangerous import URLSafeTimedSerializer
+
+    from app import config
+    from app.config import settings
+
+    try:
+        serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="loopskill-install")
+    # Rationale: empty/absent SIGNING_SECRET (bare dev boots) — leave rows
+    # url-less rather than 500 the reconcile poll; the client reports the
+    # missing url per-slug and rolls back safely.
+    except Exception:  # noqa: BLE001
+        return
+
+    public_origin = config.public_origin()
+
+    for section in (plan.add, plan.update, plan.drift):
+        for row in section:
+            slug = row.get("slug")
+            if not slug:
+                continue
+            skill = db.query(Skill).filter(Skill.slug == slug).first()
+            if skill is None:
+                continue
+            target_semver = row.get("version") or row.get("to")
+            version = None
+            if target_semver:
+                version = (
+                    db.query(SkillVersion)
+                    .filter(SkillVersion.skill_id == skill.id, SkillVersion.semver == target_semver)
+                    .first()
+                )
+            if version is None and skill.versions:
+                version = skill.versions[0]
+            if version is None:
+                continue
+            token = serializer.dumps({"slug": slug, "version_id": str(version.id), "mode": "files"})
+            row["tarball_url"] = f"{public_origin.rstrip('/')}/api/skills/_download?token={token}"
+
+
 def recipes_reconcile(
     db: Session,
     *,
@@ -226,6 +276,7 @@ def recipes_reconcile(
     ]
 
     plan = compute_reconcile_plan(db, cb_uuid, local_states, prune=prune)
+    _attach_tarball_urls(db, plan)
 
     result: dict[str, Any] = {
         "cookbook_id": cookbook_id,
