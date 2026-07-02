@@ -89,6 +89,7 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.sync_report_routes", "router", ""),  # activate_0701 Phase T
     ("app.connector_routes", "router", ""),  # activate_0701 Phase B
     ("app.reconcile_routes", "router", ""),  # evergreen_0206 Phase D
+    ("app.org_routes", "router", ""),  # activate_0701 Phase TEN
 ]
 
 

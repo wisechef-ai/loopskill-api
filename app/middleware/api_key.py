@@ -12,6 +12,8 @@ import hmac
 import logging
 import time
 from datetime import UTC
+from typing import Any
+from uuid import UUID
 
 import redis
 from fastapi import Request
@@ -32,6 +34,19 @@ FLEET_KEY_PREFIX = "rec_fleet_"  # Phase E: fleet API keys (distinct from rec_li
 _redis_client = None
 _redis_available = None
 _redis_next_retry_at: float = 0.0  # F-API-05: backoff timestamp
+
+
+def _resolve_org_membership(db: Any, user_id: UUID) -> tuple[UUID | None, bool]:
+    """Resolve user org_id + owner flag (activate_0701/TEN)."""
+    from app.models import OrgMembership
+
+    m = (
+        db.query(OrgMembership)
+        .filter(OrgMembership.user_id == user_id)
+        .order_by(OrgMembership.created_at.asc())
+        .first()
+    )
+    return (m.org_id, m.role == "owner") if m else (None, False)
 
 
 def _auth_ctx_from_jwt_cookie(request) -> "AuthContext":
@@ -84,10 +99,13 @@ def _auth_ctx_from_jwt_cookie(request) -> "AuthContext":
     try:
         user = db.query(User).filter(User.id == user_id).first()
         if user and user.subscription_status in ("active", "trialing"):
+            org_id, is_org_owner = _resolve_org_membership(db, user_id)
             return AuthContext(
                 scope="user",
                 user_id=user_id,
                 tier=user.subscription_tier,
+                org_id=org_id,
+                is_org_owner=is_org_owner,
             )
     finally:
         db.close()
@@ -162,6 +180,7 @@ def _auth_ctx_from_api_key(request) -> "AuthContext | None":
         tier: str | None = None
         if user_obj and user_obj.subscription_status in ("active", "trialing"):
             tier = user_obj.subscription_tier
+        org_id, is_org_owner = _resolve_org_membership(db, api_key_obj.user_id)
         return AuthContext(
             scope="user",
             user_id=api_key_obj.user_id,
@@ -169,6 +188,8 @@ def _auth_ctx_from_api_key(request) -> "AuthContext | None":
             bundle_scope=api_key_obj.bundle_id,  # compat-alias
             is_sandbox_operator=bool(getattr(api_key_obj, "is_sandbox_operator", False)),
             tier=tier,
+            org_id=org_id,
+            is_org_owner=is_org_owner,
         )
     # Rationale: opportunistic auth on a public route must never crash the
     # request — any lookup failure degrades to anonymous (return None).
@@ -546,6 +567,9 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 if _user_obj and _user_obj.subscription_status in ("active", "trialing"):
                     _tier = _user_obj.subscription_tier
 
+                # activate_0701/TEN: resolve org membership for tenant scope.
+                _org_id, _is_org_owner = _resolve_org_membership(db, api_key_obj.user_id)
+
                 from app.auth_ctx import AuthContext
 
                 request.state.auth_ctx = AuthContext(
@@ -558,6 +582,9 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                     is_sandbox_operator=bool(getattr(api_key_obj, "is_sandbox_operator", False)),
                     # secfix_1905/H: subscription tier for paywall checks (#25)
                     tier=_tier,
+                    # activate_0701/TEN: tenant scope + org owner flag
+                    org_id=_org_id,
+                    is_org_owner=_is_org_owner,
                 )
                 return await call_next(request)
         finally:

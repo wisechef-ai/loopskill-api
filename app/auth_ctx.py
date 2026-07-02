@@ -32,6 +32,8 @@ class AuthContext:
         fleet_id: If scope='fleet', the fleet UUID this key belongs to.
         tier: User subscription tier (e.g. "free", "pro", "pro_plus").
         is_sandbox_operator: True if the key has sandbox execution privileges.
+        org_id: Tenant scope UUID (activate_0701 Phase TEN). None = personal scope.
+        is_org_owner: True if this user is the org payer (can create client fleets).
     """
 
     scope: Scope
@@ -46,6 +48,9 @@ class AuthContext:
     # (i.e. skill.tier <= bundle-owner's tier).  Default False → opt-in only;
     # set to True by middleware when CookbookShareToken.allow_public_catalog is True.
     allow_public_catalog: bool = False
+    # activate_0701/TEN: tenant scope (org boundary). None = personal scope.
+    org_id: UUID | None = None
+    is_org_owner: bool = False
 
     @classmethod
     def anonymous(cls) -> AuthContext:

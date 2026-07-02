@@ -876,6 +876,11 @@ class Bundle(Base):
     # spotify_0608 Ph G — verified-maintainer badge.
     is_verified = Column(Boolean, nullable=False, default=False, server_default="0")
 
+    # activate_0701/TEN: tenant boundary for bundles. NULL = personal scope
+    # (backward compat). Set when created by an org member or inherited at
+    # fleet subscribe time. Gates cross-org bundle access in fleet subscriptions.
+    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
+
     share_tokens = relationship("BundleShareToken", back_populates="bundle", cascade="all, delete-orphan")
     deployments = relationship(
         "BundleDeployment",
@@ -1016,6 +1021,9 @@ class Fleet(Base):
 
     fleet_api_key_hash is a SHA-256 hash of the fleet's API key (UNIQUE).
     Used to authenticate fleet sync requests via x-fleet-key header.
+
+    org_id: tenant scope (activate_0701 Phase TEN). NULL = personal scope
+    (backward compat for pre-existing fleets).
     """
 
     __tablename__ = "fleets"
@@ -1024,7 +1032,30 @@ class Fleet(Base):
     owner_user_id = Column(UUID(as_uuid=True), nullable=False)
     name = Column(String(255), nullable=False)
     fleet_api_key_hash = Column(String(64), unique=True, nullable=False)
+    # activate_0701/TEN: tenant boundary. NULL = personal scope (backward compat).
+    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class OrgMembership(Base):
+    """activate_0701/TEN — user↔org membership link.
+
+    A user's org membership is resolved by middleware to stamp org_id on
+    AuthContext. role='owner' = the org payer who can create client fleets;
+    role='member' = a team member who can access org-scoped fleets/bundles.
+    """
+
+    __tablename__ = "org_memberships"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role = Column(String(32), nullable=False, default="member", server_default="member")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (UniqueConstraint("org_id", "user_id", name="uq_org_memberships_org_user"),)
 
 
 class FleetMember(Base):

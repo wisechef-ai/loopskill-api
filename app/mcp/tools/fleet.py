@@ -69,6 +69,8 @@ def recipes_fleet_create(
         owner_user_id=owner_id,
         name=name,
         fleet_api_key_hash=key_hash,
+        # activate_0701/TEN: inherit org_id from the caller's tenant scope.
+        org_id=ctx.org_id,
     )
     db.add(fleet)
     db.commit()
@@ -124,6 +126,16 @@ def recipes_fleet_subscribe(
         cb_uuid = UUID(cookbook_id)
     except (ValueError, AttributeError):
         return {"error": "invalid_cookbook_id", "cookbook_id": cookbook_id}
+
+    # activate_0701/TEN: org-scoped bundle access — a fleet in org A cannot
+    # subscribe to org B's private bundle. Cross-org = forbidden.
+    from app.models import Bundle
+
+    bundle = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
+    if bundle is None:
+        return {"error": "invalid_cookbook_id", "cookbook_id": cookbook_id}
+    if not authz.can_access_bundle(ctx, bundle):
+        return {"error": "forbidden", "cookbook_id": cookbook_id}
 
     # Idempotency: return existing row if present
     existing = (
@@ -202,7 +214,15 @@ def recipes_fleet_list(
     if ctx.scope == "master":
         fleets = db.query(Fleet).all()
     elif ctx.scope == "user" and ctx.user_id is not None:
-        fleets = db.query(Fleet).filter(Fleet.owner_user_id == ctx.user_id).all()
+        # activate_0701/TEN: org members see all org fleets + their personal fleets.
+        if ctx.org_id is not None:
+            fleets = (
+                db.query(Fleet)
+                .filter((Fleet.owner_user_id == ctx.user_id) | (Fleet.org_id == ctx.org_id))
+                .all()
+            )
+        else:
+            fleets = db.query(Fleet).filter(Fleet.owner_user_id == ctx.user_id).all()
     elif ctx.scope == "fleet" and ctx.fleet_id is not None:
         # Fleet-scoped key: return only the one fleet
         fleet = db.query(Fleet).filter(Fleet.id == ctx.fleet_id).first()

@@ -33,14 +33,27 @@ router = APIRouter(prefix="/api/fleets", tags=["fleet-members"])
 _MAX_LIMIT = 200
 _DEFAULT_LIMIT = 50
 
+# activate_0701/TEN: tier-based key caps. Member keys (FleetMember) are the
+# metered unit — NOT plain user API keys. The cap counts ACTIVE FleetMember
+# rows across the caller's org (or personal scope if org_id is NULL).
+TIER_KEY_CAPS: dict[str, int] = {
+    "free": 1,
+    "pro": 200,
+    "pro_plus": 200,  # alias for now
+}
+
 
 def _resolve_owned_fleet(db: Session, ctx: Any, fleet_id: str) -> Fleet:
-    """Return the Fleet if it exists AND ctx is owner-or-master.
+    """Return the Fleet if it exists AND ctx is owner-or-master or same-org.
 
-    Non-owner and non-existent both resolve to 404 (no existence leak).
-    A fleet-scope (rec_fleet_) ctx is explicitly rejected with 403 — it may
-    read/sync its own fleet elsewhere, but member enrollment is a fleet-owner
-    action reserved for the human owner (or master).
+    Non-owner, non-org-member, and non-existent all resolve to 404
+    (no existence leak). A fleet-scope (rec_fleet_) ctx is explicitly
+    rejected with 403 — it may read/sync its own fleet elsewhere, but
+    member enrollment is a fleet-owner action reserved for the human
+    org owner (or master).
+
+    activate_0701/TEN: org-scoped access — a member of the same org as
+    the fleet can manage members (the org boundary is the tenant scope).
     """
     try:
         fleet_uuid = UUID(fleet_id)
@@ -57,6 +70,9 @@ def _resolve_owned_fleet(db: Session, ctx: Any, fleet_id: str) -> Fleet:
     is_owner = ctx.scope == "master" or (
         ctx.scope == "user" and ctx.user_id is not None and ctx.user_id == fleet.owner_user_id
     )
+    # activate_0701/TEN: same-org members can access org fleets.
+    if not is_owner and ctx.org_id is not None and fleet.org_id is not None and ctx.org_id == fleet.org_id:
+        is_owner = True
     if not is_owner:
         raise HTTPException(status_code=404, detail="fleet_not_found")
 
@@ -78,9 +94,10 @@ def enroll_member(
 ) -> dict[str, Any]:
     """Enroll one agent as a FleetMember, minting a dedicated API key.
 
-    The plaintext key is returned ONCE. member-key mint deliberately BYPASSES
-    api_key_routes.KEY_CAP — tier key caps arrive in Phase TEN as the unified
-    meter.  # activate_0701/TEN
+    The plaintext key is returned ONCE. Member-key mint is governed by the
+    TIER_KEY_CAPS meter (activate_0701/TEN): free=1, pro/pro_plus=200 member
+    keys. The cap counts ACTIVE FleetMember rows across the caller's org
+    (or personal scope).
     """
     ctx = resolve_fleet_ctx(request, db)
     fleet = _resolve_owned_fleet(db, ctx, fleet_id)
@@ -106,7 +123,35 @@ def enroll_member(
     if existing is not None:
         raise HTTPException(status_code=409, detail="member_exists")
 
-    # activate_0701/TEN: member-key mint bypasses KEY_CAP by design this phase.
+    # activate_0701/TEN: tier key cap enforcement (D3 / lock #13).
+    # Count ACTIVE FleetMember rows across the caller's org scope (or
+    # personal scope if org_id is NULL). Member keys are the metered unit.
+    tier = (ctx.tier or "free").lower()
+    cap = TIER_KEY_CAPS.get(tier, TIER_KEY_CAPS["free"])
+
+    member_count_q = (
+        db.query(func.count(FleetMember.id))
+        .join(Fleet, Fleet.id == FleetMember.fleet_id)
+        .filter(FleetMember.is_active == True)  # noqa: E712
+    )
+    if ctx.org_id is not None:
+        member_count_q = member_count_q.filter(Fleet.org_id == ctx.org_id)
+    else:
+        member_count_q = member_count_q.filter(Fleet.owner_user_id == ctx.user_id)
+
+    current_count = member_count_q.scalar() or 0
+    if current_count >= cap:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "error": "tier_key_cap_exceeded",
+                "tier": tier,
+                "cap": cap,
+                "current": current_count,
+                "upgrade_url": "/pricing",
+            },
+        )
+
     plaintext_key, prefix12, key_hash = _generate_key()
     label = f"member:{host}/{profile}"[:100]
     key_row = APIKey(
