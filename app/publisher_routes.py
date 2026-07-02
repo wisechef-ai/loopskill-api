@@ -39,6 +39,34 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/skills", tags=["publisher"])
 
+
+def _bump_declaring_bundles(db, skill_id) -> int:
+    """Advance the generation (updated_at) of every bundle declaring skill_id.
+
+    Phase 0 (activate_0701): the reconcile 304 fast-path keys on
+    ``Bundle.updated_at``; without this bump a published version is invisible
+    to every polling agent whose lockfile generation already matches. Rows with
+    source='disabled' are not desired-state and are excluded. Returns the
+    number of bundles bumped. Caller commits.
+    """
+    from sqlalchemy import func as _func
+
+    from app.models import Bundle
+
+    bundle_ids = [
+        row[0]
+        for row in db.query(BundleSkill.bundle_id)
+        .filter(BundleSkill.skill_id == skill_id, BundleSkill.source != "disabled")
+        .all()
+    ]
+    if not bundle_ids:
+        return 0
+    return (
+        db.query(Bundle)
+        .filter(Bundle.id.in_(bundle_ids))
+        .update({"updated_at": _func.now()}, synchronize_session=False)
+    )
+
 # 10 MB hard limit on tarball
 MAX_TARBALL_BYTES = 10 * 1024 * 1024
 
@@ -491,6 +519,13 @@ async def publish_skill(
 
     db.refresh(skill_obj)
     db.refresh(version_row)
+
+    # Phase 0 (activate_0701) live-prod fix: advance the generation token of
+    # every bundle that DECLARES this skill, or the reconcile 304 fast-path
+    # (keyed on Bundle.updated_at) hides the new version from polling agents
+    # forever. Publish IS a desired-state change for those bundles.
+    _bump_declaring_bundles(db, skill_obj.id)
+    db.commit()
 
     # ── 10a. BM25 reindex (Phase 4) ──────────────────────────────────────
     # Embeddings deferred to v7.2; BM25-only per Adam directive 2026-05-07.
