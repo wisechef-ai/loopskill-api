@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
-VERSION = "0.5.0"
+from app.version import __version__ as VERSION
 
 
 # ── Telemetry ───────────────────────────────────────────────────────────────
