@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.access_routes import router as access_router  # Phase E: access split
 from app.admin_routes import router as admin_router
+from app.version import __version__
 from app.demand_routes import router as demand_router
 from app.api_key_routes import router as api_key_router
 from app.auth_routes import router as auth_router
@@ -105,7 +106,7 @@ def create_app() -> FastAPI:
     """Create and configure the FastAPI application instance."""
     app = FastAPI(
         title="WiseRecipes API",
-        version="0.5.0",
+        version=__version__,
         description="Skill marketplace & recipe sharing API for WiseChef ecosystem.",
         docs_url="/docs",
         redoc_url="/redoc",
@@ -209,7 +210,7 @@ def create_app() -> FastAPI:
 
     @app.get("/", tags=["meta"])
     def root():
-        return {"name": "WiseRecipes API", "version": "0.5.0", "docs": "/docs"}
+        return {"name": "WiseRecipes API", "version": __version__, "docs": "/docs"}
 
     return app
 

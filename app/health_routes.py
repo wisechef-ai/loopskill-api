@@ -30,7 +30,7 @@ _PAID_TRAFFIC_WINDOW_S = float(os.environ.get("STRIPE_PAID_TRAFFIC_WINDOW_SECOND
 
 router = APIRouter(tags=["meta"])
 
-VERSION = "0.5.0"
+from app.version import __version__ as VERSION
 
 
 @router.get("/healthz", tags=["meta"])
