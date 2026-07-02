@@ -6,7 +6,7 @@ Branch: loopskill_activate_0701/phaseFB.
 
 ## Product (D6)
 Agents DEPLOYED via LoopSkill "have a voice": feedback, skill-error reports, upgrade proposals,
-feature requests flow from deployed agents to the operator + skill maintainer. The platform and
+feature requests flow from deployed agents to the fleet owner + skill maintainer. The platform and
 skills improve from real usage — never blindly after release.
 
 ## What's ALREADY built (verified — §1 ground truth)
@@ -39,7 +39,7 @@ skills improve from real usage — never blindly after release.
   this is about DISCOVERY + DEFAULT-AVAILABILITY, not new code.
 - Per-fleet auto-issue toggle (N4 default: OFF for clients, ON for own fleet):
   Fleet.auto_issue_feedback Boolean default=False. When True, pending SkillErrorReports +
-  failing LoopRuns auto-file GitHub issues. When False, they aggregate in the operator inbox
+  failing LoopRuns auto-file GitHub issues. When False, they aggregate in the fleet owner inbox
   (below) but don't auto-file. Own fleet (Tori/Chef/Varys) = True.
 
 ### FB3 — Operator inbox API (aggregated voice stream)
@@ -57,14 +57,14 @@ NEW route module app/voice_routes.py:
   Reads from: SkillErrorReport (Phase T), LoopRun where outcome='failure' (Phase T),
   RecipifyRequest, FeedbackSubmission — UNION'd by created_at, keyset-paginated.
   Filters: status (default: pending+filed), type (optional filter), since (timestamp).
-- POST /api/fleets/{fleet_id}/voice-inbox/{id}/resolve -> mark item resolved (operator action).
-- MCP tool loopskill_voice_inbox_read -> same data, agent-callable (the operator's agent reads
+- POST /api/fleets/{fleet_id}/voice-inbox/{id}/resolve -> mark item resolved (fleet owner action).
+- MCP tool loopskill_voice_inbox_read -> same data, agent-callable (the fleet owner agent reads
   its own inbox).
 
 ## Gates (plan §2 Phase FB+VOICE)
 1. Killed verifier on Tori -> routed issue w/ loop identity + run evidence (inject a failing
    LoopRun, verify a GitHub issue is filed in the maintainer repo with the loop_slug + run detail).
-2. An agent-filed recipify_request lands in the operator inbox (POST via MCP -> appears in
+2. An agent-filed recipify_request lands in the fleet owner inbox (POST via MCP -> appears in
    GET /api/fleets/{id}/voice-inbox).
 3. Per-fleet auto-issue toggle works: toggle OFF -> no auto-file (items stay pending in inbox);
    toggle ON -> auto-file.
