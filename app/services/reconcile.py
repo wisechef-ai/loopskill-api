@@ -180,6 +180,31 @@ def compute_reconcile_plan(
     return plan
 
 
+def bump_declaring_bundles(db: Session, skill_id: Any) -> int:
+    """Advance the generation (updated_at) of every bundle declaring skill_id.
+
+    Phase 0 (activate_0701): the reconcile 304 fast-path keys on
+    ``Bundle.updated_at``; without this bump a published version is invisible
+    to every polling agent whose lockfile generation already matches. Rows with
+    source='disabled' are not desired-state and are excluded. Returns the
+    number of bundles bumped. Caller commits. Called from the publish path
+    (publisher_routes) — publish IS a desired-state change for those bundles.
+    """
+    bundle_ids = [
+        row[0]
+        for row in db.query(BundleSkill.bundle_id)
+        .filter(BundleSkill.skill_id == skill_id, BundleSkill.source != "disabled")
+        .all()
+    ]
+    if not bundle_ids:
+        return 0
+    return (
+        db.query(Bundle)
+        .filter(Bundle.id.in_(bundle_ids))
+        .update({"updated_at": func.now()}, synchronize_session=False)
+    )
+
+
 def _attach_tarball_urls(db: Session, plan: ReconcilePlan) -> None:
     """Attach a signed one-shot ``tarball_url`` to every add/update/drift row.
 
