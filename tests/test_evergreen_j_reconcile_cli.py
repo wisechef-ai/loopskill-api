@@ -15,12 +15,11 @@ from __future__ import annotations
 import io
 import json
 import tarfile
-from pathlib import Path
 
 import pytest
 
 from app.reconcile_cli import reconcile_once
-from app.reconcile_client import read_lockfile, sha256_of_dir, write_lockfile
+from app.reconcile_client import read_lockfile, write_lockfile
 from app.reconcile_fetch import FetchError, fetch_skill_from_url, make_fetcher
 
 
@@ -141,13 +140,11 @@ class TestReconcileOnceApply:
         write_lockfile(lf, {"cookbook_id": "cb", "generation": "g1", "skills": []})
 
         tb = _make_tarball_bytes("beta", "---\nname: beta\n---\n# beta v1")
-        # The diff's checksum must match the EXTRACTED dir hash the client computes.
-        # Compute it by extracting once the same way fetch does.
-        import tempfile as _tf
+        # activate_0701 Phase 0: the diff's checksum is the sha256 of the
+        # TARBALL BYTES (publish-time domain), verified at the fetch layer.
+        import hashlib as _hl
 
-        probe = Path(_tf.mkdtemp())
-        staged = fetch_skill_from_url("https://r/beta", probe, "beta", opener=_make_opener({"beta": tb}, {}))
-        sha = sha256_of_dir(staged)
+        sha = _hl.sha256(tb).hexdigest()
 
         body = {
             "generation": "g2",
@@ -200,13 +197,11 @@ class TestReconcileOnceBrokenRollback:
 
         # Broken v2: empty SKILL.md → fails the health check after swap.
         broken_tb = _make_tarball_bytes("gamma", "")
-        import tempfile as _tf
+        # Correct tarball-bytes hash so the FETCH succeeds — this test must
+        # exercise the post-swap HEALTH-CHECK rollback, not the sha gate.
+        import hashlib as _hl2
 
-        probe = Path(_tf.mkdtemp())
-        staged = fetch_skill_from_url(
-            "https://r/gamma", probe, "gamma", opener=_make_opener({"gamma": broken_tb}, {})
-        )
-        sha = sha256_of_dir(staged)
+        sha = _hl2.sha256(broken_tb).hexdigest()
 
         body = {
             "generation": "g2",

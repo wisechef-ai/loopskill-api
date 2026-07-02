@@ -182,17 +182,18 @@ class ReconcileClient:
                 to_install.append((entry["slug"], entry.get("version", ""), entry.get("expected_sha256")))
 
             try:
-                for slug, version, expected_sha in to_install:
+                for slug, version, _declared_sha in to_install:
                     staged = self.fetch_skill(slug, version)
                     staged = Path(staged)
-                    # Verify content address BEFORE swapping into the live dir.
-                    if expected_sha:
-                        actual = sha256_of_dir(staged)
-                        if actual != expected_sha:
-                            raise ValueError(
-                                f"sha256 mismatch for {slug}@{version}: "
-                                f"expected {expected_sha[:12]}…, got {actual[:12]}…"
-                            )
+                    # Content verification happens at the FETCH layer against the
+                    # tarball BYTES (reconcile_fetch.fetch_skill_from_url,
+                    # expected_sha256) — the same domain the server's
+                    # checksum_sha256 is computed in at publish time. The old
+                    # dir-hash comparison here compared sha256_of_dir(staged)
+                    # against the TARBALL hash — two different domains that can
+                    # never match; the first real reconcile (activate_0701
+                    # Phase 0, 2026-07-02) failed on it. A custom fetch_skill
+                    # that wants extra verification does it inside the fetcher.
                     # Atomic swap: stage into a temp sibling, then os.replace.
                     live = self.skills_dir / slug
                     tmp = self.skills_dir / f".{slug}.incoming"
