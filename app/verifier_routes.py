@@ -51,7 +51,10 @@ logger = logging.getLogger(__name__)
 
 def _verifier_to_out(verifier: Verifier) -> VerifierOut:
     latest = verifier.versions[0].semver if verifier.versions else None
-    creator_name = getattr(verifier.creator, "display_name", None) if verifier.creator else None
+    # Creator's canonical display field is `name` (see models.Creator); every other
+    # route uses `.creator.name`. The old `display_name` getattr always returned None,
+    # so browse cards rendered authorless even when a creator was attached.
+    creator_name = getattr(verifier.creator, "name", None) if verifier.creator else None
     creator_handle = getattr(verifier.creator, "handle", None) if verifier.creator else None
     return VerifierOut(
         id=verifier.id,

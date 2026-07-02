@@ -651,34 +651,120 @@ def _seed_bundles(db, system_user) -> int:
     return created
 
 
+def _get_or_create_house_creator(db):
+    """Return the LoopSkill house Creator, creating it if absent.
+
+    Seed loops have no external author; attributing them to a stable house
+    identity turns every browse card from authorless -> "by LoopSkill Team
+    @loopskill". Idempotent (slug-keyed).
+    """
+    from app.models import Creator
+
+    row = db.query(Creator).filter(Creator.slug == "loopskill-team").first()
+    if row is None:
+        row = Creator(
+            id=uuid4(),
+            name=SYSTEM_NAME,
+            slug="loopskill-team",
+            handle="loopskill",
+            url="https://app.loopskill.io",
+            bio="First-party starter loops maintained by the LoopSkill team.",
+            is_founder=True,
+        )
+        db.add(row)
+        db.flush()
+    else:
+        # Backfill identity fields on an existing house row (idempotent).
+        row.name = row.name or SYSTEM_NAME
+        row.handle = row.handle or "loopskill"
+        row.url = row.url or "https://app.loopskill.io"
+    return row
+
+
+def _loop_manifest_toml(spec: dict) -> str:
+    """Build a minimal verifier.toml manifest string from a starter spec.
+
+    A LoopVersion needs a manifest so the runner/install hero has something to
+    surface. This mirrors the structured contract already stored on the Loop row.
+    """
+    import json
+
+    budget = spec.get("budget_usd")
+    lines = [
+        "[loop]",
+        f'slug = "{spec["slug"]}"',
+        f'title = "{spec["title"]}"',
+        f'license = "{spec.get("license", "MIT")}"',
+        f'tier = "{spec.get("tier", "free")}"',
+        "",
+        "[contract]",
+        f'max_turns = {spec.get("max_turns", 25)}',
+        f'budget_usd = {budget if budget is not None else "false"}',
+        f"success_condition = {json.dumps(spec['success_condition'])}",
+        f"verification_script = {json.dumps(spec['verification_script'])}",
+        f"tool_allowlist = {json.dumps(spec['tool_allowlist'])}",
+        f"stopping_criteria = {json.dumps(spec['stopping_criteria'])}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def _seed_loops(db) -> int:
-    from app.models import Loop
+    from app.models import Loop, LoopVersion
+
+    house = _get_or_create_house_creator(db)
 
     created = 0
     for spec in STARTER_LOOPS:
         slug = spec["slug"]
-        if db.query(Loop).filter(Loop.slug == slug).first() is not None:
-            continue
-        loop = Loop(
-            id=uuid4(),
-            slug=slug,
-            title=spec["title"],
-            description=spec.get("description"),
-            category=spec.get("category"),
-            readme=spec.get("readme"),
-            license=spec.get("license", "MIT"),
-            tier=spec.get("tier", "free"),
-            is_public=True,
-            success_condition=spec["success_condition"],
-            verification_script=spec["verification_script"],
-            max_turns=spec.get("max_turns", 25),
-            budget_usd=spec.get("budget_usd"),
-            stopping_criteria=spec["stopping_criteria"],
-            tool_allowlist=spec["tool_allowlist"],
-            system_prompt=spec["system_prompt"],
+        loop = db.query(Loop).filter(Loop.slug == slug).first()
+        if loop is None:
+            loop = Loop(
+                id=uuid4(),
+                slug=slug,
+                title=spec["title"],
+                description=spec.get("description"),
+                category=spec.get("category"),
+                readme=spec.get("readme"),
+                license=spec.get("license", "MIT"),
+                tier=spec.get("tier", "free"),
+                is_public=True,
+                creator_id=house.id,
+                success_condition=spec["success_condition"],
+                verification_script=spec["verification_script"],
+                max_turns=spec.get("max_turns", 25),
+                budget_usd=spec.get("budget_usd"),
+                stopping_criteria=spec["stopping_criteria"],
+                tool_allowlist=spec["tool_allowlist"],
+                system_prompt=spec["system_prompt"],
+            )
+            db.add(loop)
+            db.flush()
+            created += 1
+        else:
+            # Backfill attribution on an already-seeded loop (idempotent).
+            if loop.creator_id is None:
+                loop.creator_id = house.id
+
+        # Seed a v1.0.0 LoopVersion if the loop has none. Without a version the
+        # /api/loops browse hero returns latest_version=null and the runner/install
+        # CTA has nothing to surface — the dead cold-start conversion path.
+        has_version = (
+            db.query(LoopVersion)
+            .filter(LoopVersion.loop_id == loop.id, LoopVersion.semver == "1.0.0")
+            .first()
+            is not None
         )
-        db.add(loop)
-        created += 1
+        if not has_version:
+            db.add(
+                LoopVersion(
+                    id=uuid4(),
+                    loop_id=loop.id,
+                    semver="1.0.0",
+                    manifest=_loop_manifest_toml(spec),
+                    changelog="Initial starter release.",
+                )
+            )
+
     return created
 
 
