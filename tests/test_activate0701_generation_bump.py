@@ -23,7 +23,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 from app.models import Bundle, BundleSkill, Skill, SkillVersion, User
-from app.publisher_routes import _bump_declaring_bundles
+from app.services.reconcile import bump_declaring_bundles as _bump_declaring_bundles
 
 
 @pytest.fixture()
