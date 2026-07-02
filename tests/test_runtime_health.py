@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import subprocess
 
-import pytest
 
 from runtime import health
 from runtime.cron.base import CronHandle

@@ -5,10 +5,7 @@ Cloudflare edge IP (in TRUSTED_PROXY_CIDRS) with a CF-Connecting-IP header,
 the InstallEvent row records the visitor IP (not the CF edge IP).
 """
 
-import pytest
-from datetime import datetime, timezone
-from unittest.mock import patch, MagicMock
-from uuid import uuid4
+from unittest.mock import MagicMock
 
 from app.utils.client_ip import _real_client_ip
 

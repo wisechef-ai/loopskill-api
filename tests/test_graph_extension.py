@@ -28,14 +28,12 @@ from uuid import uuid4
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, text
-from sqlalchemy.orm import Session, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
 from app.models import (
-    Base,
     InstallEvent,
     ReplacementCandidate,
     Skill,

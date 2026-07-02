@@ -8,9 +8,7 @@ TDD structure:
 from __future__ import annotations
 
 import io
-import os
 import tarfile
-from typing import Optional
 
 import pytest
 

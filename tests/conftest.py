@@ -16,7 +16,6 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.database import get_db
 from app.models import Base, Skill
 
 

@@ -30,7 +30,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.config import settings
 from app.database import get_db
-from app.models import Base, StripeEventId, User
+from app.models import Base, User
 
 
 # ── DB fixtures ──────────────────────────────────────────────────────────

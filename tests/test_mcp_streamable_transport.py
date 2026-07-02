@@ -8,7 +8,6 @@ These tests verify the new StreamableHTTP transport mounted at /api/mcp/http:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 

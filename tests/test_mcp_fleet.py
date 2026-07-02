@@ -20,8 +20,6 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -29,7 +27,6 @@ from uuid import UUID, uuid4
 
 from app.auth_ctx import AuthContext
 from app.authz import can_use_fleet
-from app.database import get_db
 from app.mcp.tools.fleet import (
     recipes_fleet_create,
     recipes_fleet_list,
@@ -288,7 +285,6 @@ def test_x_fleet_key_header_grants_install_access(fleet_db):
     """x-fleet-key header with valid rec_fleet_ key must resolve to fleet AuthContext."""
     import hashlib
 
-    from app.middleware import APIKeyMiddleware
 
     owner = uuid4()
     ctx_user = AuthContext(scope="user", user_id=owner)

@@ -7,18 +7,15 @@
 4. Rate-lock enforcement — first 50 referrers get 50%, subsequent get 30%
 """
 
-import pytest
-from datetime import datetime, timezone
 from decimal import Decimal
-from uuid import uuid4, UUID
-from unittest.mock import patch, MagicMock
+from uuid import uuid4
+from unittest.mock import patch
 
-from app.models import Base, User, Referral, CreatorPayout
+from app.models import User, Referral, CreatorPayout
 from app.referral import (
     generate_referral_code,
     ensure_referral_code,
     process_referral_cookie,
-    REFERRAL_COOKIE_NAME,
 )
 
 
@@ -88,7 +85,6 @@ def test_referral_persists_across_signin(db_session):
     assert referral is not None
 
     # Verify persistence by querying fresh
-    from sqlalchemy.orm import Session
     db_referral = db_session.query(Referral).filter(Referral.id == referral.id).first()
     assert db_referral is not None
     assert db_referral.referrer_user_id == referrer.id

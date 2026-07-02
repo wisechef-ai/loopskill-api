@@ -27,7 +27,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.models import CompositeLoop, CompositeLoopVersion, Verifier
+from app.models import CompositeLoop, CompositeLoopVersion
 from app.schemas import (
     CompositeLoopDetailOut,
     CompositeLoopOut,

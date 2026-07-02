@@ -5,10 +5,8 @@ is "off", `send_heartbeat` MUST NOT call `.request(...)` at all.
 """
 from __future__ import annotations
 
-import os
 from unittest.mock import MagicMock
 
-import pytest
 
 from app.heartbeat_client import send_heartbeat
 

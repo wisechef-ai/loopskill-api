@@ -1,7 +1,5 @@
 """Tests for app/tier_labels.py — SSOT display label helper (Phase 5 parity update)."""
-import importlib
 import sys
-import pytest
 
 
 def _reload_tier_labels():

@@ -18,7 +18,6 @@ import io
 import os
 import tempfile
 import time
-from pathlib import Path
 from typing import Generator
 from unittest.mock import patch
 from uuid import uuid4
@@ -34,7 +33,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
 
 from app.database import get_db
-from app.models import Base, Creator, Skill, SkillVersion, User
+from app.models import Base, Creator, User
 
 
 # ── DB Fixtures ──────────────────────────────────────────────────────────

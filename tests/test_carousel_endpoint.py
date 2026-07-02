@@ -7,10 +7,9 @@ Covers:
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone
 from uuid import uuid4
 
-import pytest
 
 from app.models import CarouselEntry, Skill
 
@@ -187,7 +186,6 @@ class TestCarouselPublicAccess:
 
     def test_carousel_today_no_api_key_not_401(self, db_session):
         """GET /api/carousel/today without API key must NOT return 401 (F4)."""
-        from app.config import settings
         from app.carousel.routes import router as carousel_router
         from app.database import get_db
         from app.middleware import APIKeyMiddleware

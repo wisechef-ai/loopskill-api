@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Generator
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI
@@ -154,7 +154,6 @@ def test_legacy_studio_shim_still_accepted_in_checkout(configured_prices, db, pr
     # RCP-INCIDENT-2026-05-11 backwards-compat shim test, remove after 2026-06-10
     """
     from app.subscription_service import create_checkout_session
-    import stripe
 
     fake_customer = {"id": "cus_shim_legacy"}
     fake_session = {"id": "cs_shim_test", "url": "https://checkout.stripe.com/cs_shim"}

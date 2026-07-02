@@ -9,7 +9,6 @@ the dispatch is fire-and-forget on a daemon thread.
 
 from __future__ import annotations
 
-import os
 import threading
 from unittest.mock import MagicMock, patch
 

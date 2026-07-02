@@ -83,7 +83,6 @@ def _mk_fleet(db, owner):
 
 def _mk_fleet_key(db, fleet):
     """Mint a genuine rec_fleet_ key hashed to match fleet.fleet_api_key_hash."""
-    from app.models import Fleet
 
     raw = f"rec_fleet_{uuid.uuid4().hex[:8]}_{uuid.uuid4().hex}"
     fleet.fleet_api_key_hash = hashlib.sha256(raw.encode()).hexdigest()

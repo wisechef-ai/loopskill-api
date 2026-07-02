@@ -15,7 +15,6 @@ from uuid import uuid4
 import pytest
 
 from app.crons.patch_drafter import (
-    DraftResult,
     draft_patch,
     parse_draft,
     run_once,

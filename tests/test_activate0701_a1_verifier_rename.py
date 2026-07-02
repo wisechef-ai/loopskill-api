@@ -237,7 +237,6 @@ class TestVerifierRoutesPayloadParity:
     def test_list_payloads_match_across_prefixes(self, app_client):
         # Two-app setup so the same fixture DB is shared between two prefixes.
         from app.loop_routes import router as loop_router
-        from app.verifier_routes import router as verifier_router
 
         app_loops = FastAPI()
 
@@ -279,7 +278,6 @@ class TestVerifierRoutesPayloadParity:
 
     def test_detail_payloads_match_across_prefixes(self, app_client):
         from app.loop_routes import router as loop_router
-        from app.verifier_routes import router as verifier_router
 
         app_loops = FastAPI()
 
@@ -524,7 +522,6 @@ class TestDbTablesUntouched:
 
     def test_reconcile_event_still_works(self, db_session):
         """Existing reconcile_events history must remain queryable (regression)."""
-        from datetime import UTC, datetime
 
         from app.models import ReconcileEvent
 

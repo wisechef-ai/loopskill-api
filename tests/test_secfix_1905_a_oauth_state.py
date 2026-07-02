@@ -17,7 +17,6 @@ from fastapi.testclient import TestClient
 def make_auth_app():
     """Create a minimal test app with just the auth_routes router."""
     from app.auth_routes import router as auth_router
-    from app.database import get_db
 
     app = FastAPI()
     app.include_router(auth_router)

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Generator
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 import yaml

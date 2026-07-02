@@ -7,7 +7,6 @@ instead of == for both:
 
 PoV tests FAIL on main (== is used). Pass after fix.
 """
-import ast
 import re
 from pathlib import Path
 

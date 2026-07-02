@@ -16,10 +16,8 @@ the network bits (tarball fetching, GitHub dispatch).
 from __future__ import annotations
 
 import hashlib
-import json
 import secrets
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -31,16 +29,13 @@ from sqlalchemy.pool import StaticPool
 
 from app.api_key_routes import router as api_key_router
 from app.auth_routes import get_current_user_optional
-from app.bundle_routes import router as cookbook_router
 from app.database import get_db
-from app.middleware import APIKeyMiddleware
 from app.models import (
     APIKey,
     Base,
     Bundle,
     InstallEvent,
     Skill,
-    SkillVersion,
     User,
 )
 

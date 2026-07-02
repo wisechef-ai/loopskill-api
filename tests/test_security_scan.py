@@ -10,9 +10,8 @@ from __future__ import annotations
 import io
 import tarfile
 
-import pytest
 
-from app.security_scan import Finding, scan_tarball
+from app.security_scan import scan_tarball
 
 
 # ---------------------------------------------------------------------------

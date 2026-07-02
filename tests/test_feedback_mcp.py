@@ -16,8 +16,7 @@ from __future__ import annotations
 import os
 import time as _time
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 from fastapi import FastAPI

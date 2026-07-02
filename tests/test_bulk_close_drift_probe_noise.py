@@ -13,7 +13,6 @@ import sys
 import textwrap
 from pathlib import Path
 
-import pytest
 
 SCRIPT = Path(__file__).parent.parent / "scripts" / "bulk_close_drift_probe_noise.py"
 

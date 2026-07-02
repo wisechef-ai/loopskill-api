@@ -1,11 +1,9 @@
 """Tests for payout engine."""
 
-import pytest
-from datetime import datetime, timezone
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from uuid import uuid4
 
-from app.payout_engine import get_creator_payout_rate, TIER_RATES
+from app.payout_engine import get_creator_payout_rate
 from app.config import settings
 from app.models import Creator, Skill
 

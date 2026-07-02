@@ -7,10 +7,8 @@ Covers:
 4. Rate-lock enforcement: first 50 referrers get 50%, 51st gets 30%
 """
 
-import pytest
-from unittest.mock import patch, MagicMock
-from uuid import uuid4, UUID
-from datetime import datetime, timezone
+from unittest.mock import patch
+from uuid import uuid4
 from decimal import Decimal
 
 from app.models import User, Referral, CreatorPayout
@@ -18,7 +16,6 @@ from app.referral import (
     generate_referral_code,
     ensure_referral_code,
     process_referral_cookie,
-    REFERRAL_COOKIE_NAME,
 )
 
 

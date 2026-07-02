@@ -6,14 +6,10 @@ D2: _REPO constant matches the actual GitHub remote origin (dispatch liveness).
 
 from __future__ import annotations
 
-import re
 import subprocess
 from pathlib import Path
 
-import pytest
-from fastapi.testclient import TestClient
 
-from tests._app_factory import build_test_app
 
 
 def test_main_py_says_loopskill_not_wiserecipes():

@@ -13,7 +13,6 @@ Tests:
   - IPv6 trusted peer in CIDR → honoured
 """
 
-import pytest
 from unittest.mock import MagicMock
 
 from app.utils.client_ip import _real_client_ip, _is_trusted

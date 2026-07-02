@@ -5,9 +5,8 @@ Tests:
   - Normal path: /healthz returns 200 with db="ok"
   - Verify text("SELECT 1") is used (source-grep regression)
 """
-import re
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
