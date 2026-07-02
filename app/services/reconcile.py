@@ -33,7 +33,16 @@ from sqlalchemy.orm import Session
 
 from app import authz
 from app.auth_ctx import AuthContext
-from app.models import Bundle, BundleConnector, BundleSkill, Connector, ConnectorVersion, Skill, SkillVersion
+from app.models import (
+    Bundle,
+    BundleConnector,
+    BundleSkill,
+    Connector,
+    ConnectorVersion,
+    Fleet,
+    Skill,
+    SkillVersion,
+)
 
 # Sources that mean "this skill is NOT part of the declared desired state".
 # A removed skill is soft-deleted via source='disabled' (no removed_at column —
@@ -457,6 +466,16 @@ def recipes_reconcile(
 
     db.commit()
     result["applied"] = True
+
+    # ── activate_0701 Phase E: residency gate ──────────────────────────────
+    from app.services.residency_gate import filter_diff_by_residency
+
+    fleet = db.query(Fleet).filter(Fleet.id == cb_uuid).first()
+    fleet_residency = getattr(fleet, "residency", None) if fleet else None
+    result, blocked = filter_diff_by_residency(result, fleet_residency)
+    if blocked:
+        result["residency_blocked"] = blocked
+
     return result
 
 

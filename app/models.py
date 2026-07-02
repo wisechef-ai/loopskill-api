@@ -1034,6 +1034,8 @@ class Fleet(Base):
     fleet_api_key_hash = Column(String(64), unique=True, nullable=False)
     # activate_0701/TEN: tenant boundary. NULL = personal scope (backward compat).
     org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
+    # activate_0701/E: EU data residency. NULL = unrestricted (own fleet default).
+    residency = Column(String(32), nullable=True)  # "eu" | "row" | null
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
