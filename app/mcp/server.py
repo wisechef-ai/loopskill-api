@@ -409,6 +409,12 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             cookbook_id=args.get("cookbook_id"),
             ctx=ctx,
         )
+    # activate_0701 Phase F1: fleet write-surface (delegated dispatch)
+    from app.mcp.tools.fleet_write import _NOT_HANDLED as _SKIP, dispatch_f1
+
+    _r = dispatch_f1(name, db, args, ctx)
+    if _r is not _SKIP:
+        return _r
     raise ValueError(f"unknown tool: {name}")
 
 
@@ -532,14 +538,7 @@ def _authenticate(request: Request, db: Session = Depends(get_db)) -> dict[str, 
     """
     key = request.headers.get("x-api-key")
     result = validate_key(key, db)
-    # Reject both an unrecognised key ("unauthorized") AND a missing key
-    # ("anonymous"). The SSE / messages transports require an authenticated
-    # caller — anonymous is not a valid scope here. Previously only
-    # "unauthorized" was rejected, so a MISSING x-api-key fell through this
-    # gate into the long-lived server.run() loop instead of returning 401.
-    # In production the global APIKeyMiddleware masks this, but the router's
-    # own defense-in-depth gate must stand on its own. (Caught by the hung
-    # tests/test_mcp_server.py::test_sse_rejects_missing_api_key.)
+    # Reject unrecognised AND missing key (defense-in-depth; caught by test_sse_rejects_missing_api_key).
     if result["scope"] in ("unauthorized", "anonymous"):
         raise HTTPException(status_code=401, detail="Invalid or missing x-api-key header")
     request.state.mcp_caller = result
