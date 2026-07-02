@@ -65,21 +65,6 @@ def get_voice_inbox(
 
     items: list[dict[str, Any]] = []
 
-    # SkillErrorReport
-    sq = (
-        db.query(SkillErrorReport)
-        .filter(
-            SkillErrorReport.member_id.in_(text("SELECT id FROM fleet_members WHERE fleet_id = :fid")).params(
-                fid=str(fleet.id)
-            )
-            if False
-            else SkillErrorReport.member_id.isnot(None)
-        )
-        .filter(SkillErrorReport.feedback_status.in_(statuses))
-        .order_by(SkillErrorReport.created_at.desc())
-        .limit(limit + 1)
-        .all()
-    )
     # Simplify: fetch all member ids for this fleet, then filter
     from app.models import FleetMember
 
