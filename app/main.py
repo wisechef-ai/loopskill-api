@@ -198,12 +198,15 @@ def create_app() -> FastAPI:
     app.include_router(feedback_status_router)
     app.include_router(credits_router, tags=["credits"])
 
-    # loopskill_0622 Phase 8 — runnable catalog types (loops + personalities).
-    # New, clean-vocab routers; independent of the bundle->bundle rename.
+    # loopskill_0622 Phase 8 — runnable catalog types (verifiers + personalities).
+    # loopskill_activate_0701 Phase A1: the verifier artifact (was "loop") is now
+    # canonically named ``Verifier``. The router carries routes under BOTH
+    # ``/api/verifiers`` (canonical) and ``/api/loops`` (compat) with the SAME
+    # handler callables — byte-identical payloads, NO 301 redirect (council §3).  # compat-alias
     from app.loop_routes import router as loop_router
     from app.personality_routes import router as personality_router
 
-    app.include_router(loop_router, tags=["loops"])
+    app.include_router(loop_router)
     app.include_router(personality_router, tags=["personalities"])
 
     # Phase 1 (v7.1): Mount StreamableHTTP ASGI sub-app at /api/mcp/http.

@@ -138,15 +138,17 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             tier=args.get("tier"),
             limit=int(args.get("limit", 20)),
         )
-    # ── loopskill_0622 Phase 8: runnable catalog types ──────────────────────
-    if name == "loopskill_search_loops":
+    # ── loopskill_0622 Phase 8 / activate_0701 Phase A1: runnable catalog types ──
+    # Canonical verifier names (loopskill_search_verifiers / loopskill_get_verifier)
+    # are the dispatch targets after normalize_tool_name maps legacy loop names.
+    if name in ("loopskill_search_verifiers", "loopskill_search_loops"):
         return loopskill_search_loops(
             db,
             query=args.get("query"),
             category=args.get("category"),
             limit=int(args.get("limit", 50)),
         )
-    if name == "loopskill_get_loop":
+    if name in ("loopskill_get_verifier", "loopskill_get_loop"):
         return loopskill_get_loop(db, slug=args["slug"])
     if name == "loopskill_search_personalities":
         return loopskill_search_personalities(
