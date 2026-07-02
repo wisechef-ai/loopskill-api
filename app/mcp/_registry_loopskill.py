@@ -130,6 +130,9 @@ def _loopskill_catalog_tools() -> list[types.Tool]:
                 "properties": {
                     "query": {"type": "string"},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 200, "default": 50},
+                },
+            },
+        ),
         types.Tool(
             name="loopskill_connector_publish",
             description=(
