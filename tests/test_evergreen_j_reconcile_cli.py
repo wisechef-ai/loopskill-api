@@ -141,13 +141,11 @@ class TestReconcileOnceApply:
         write_lockfile(lf, {"cookbook_id": "cb", "generation": "g1", "skills": []})
 
         tb = _make_tarball_bytes("beta", "---\nname: beta\n---\n# beta v1")
-        # The diff's checksum must match the EXTRACTED dir hash the client computes.
-        # Compute it by extracting once the same way fetch does.
-        import tempfile as _tf
+        # activate_0701 Phase 0: the diff's checksum is the sha256 of the
+        # TARBALL BYTES (publish-time domain), verified at the fetch layer.
+        import hashlib as _hl
 
-        probe = Path(_tf.mkdtemp())
-        staged = fetch_skill_from_url("https://r/beta", probe, "beta", opener=_make_opener({"beta": tb}, {}))
-        sha = sha256_of_dir(staged)
+        sha = _hl.sha256(tb).hexdigest()
 
         body = {
             "generation": "g2",

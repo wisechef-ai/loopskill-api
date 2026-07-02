@@ -21,6 +21,7 @@ atomic client. Separation keeps the trust primitive (rollback) in one place.
 
 from __future__ import annotations
 
+import hashlib
 import tarfile
 import tempfile
 import urllib.request
@@ -60,6 +61,7 @@ def fetch_skill_from_url(
     dest_root: Path,
     slug: str,
     *,
+    expected_sha256: str | None = None,
     opener: Any = None,
 ) -> Path:
     """Download + extract one skill tarball; return the staged skill dir.
@@ -68,6 +70,15 @@ def fetch_skill_from_url(
         tarball_url: signed ``/api/skills/_download`` URL from the reconcile diff.
         dest_root: staging root (the client passes a per-run temp dir).
         slug: the skill slug (the extracted top-level dir is expected to be it).
+        expected_sha256: the publish-time sha256 of the TARBALL BYTES
+            (``SkillVersion.checksum_sha256``). When given, the downloaded
+            bytes are verified BEFORE extraction; mismatch → FetchError →
+            rollback. Phase 0 (activate_0701) live-prod fix: the client used
+            to hash the EXTRACTED DIR and compare it against this tarball-
+            bytes hash — two different domains that can never match, so every
+            real apply failed. Verification now happens here, in the same
+            domain the server signs (extraction is deterministic, so verified
+            bytes ⇒ verified content).
         opener: injectable URL opener (urllib by default) for testability.
 
     Returns the path to the staged, unpacked skill directory ready for the
@@ -85,6 +96,13 @@ def fetch_skill_from_url(
             data = resp.read(MAX_TARBALL_BYTES + 1)
         if len(data) > MAX_TARBALL_BYTES:
             raise FetchError(f"tarball for {slug} exceeds {MAX_TARBALL_BYTES} bytes")
+        if expected_sha256:
+            actual = hashlib.sha256(data).hexdigest()
+            if actual != expected_sha256:
+                raise FetchError(
+                    f"sha256 mismatch for {slug}: tarball bytes hash "
+                    f"{actual[:12]}… != declared {expected_sha256[:12]}…"
+                )
         tmp_tar.write_bytes(data)
 
         with tarfile.open(tmp_tar, "r:gz") as tar:
@@ -111,16 +129,22 @@ def make_fetcher(diff: dict[str, list[dict[str, Any]]], dest_root: Path, *, open
     entries lacking a url) raise FetchError → rollback.
     """
     url_by_slug: dict[str, str] = {}
+    sha_by_slug: dict[str, str] = {}
     for section in ("add", "update", "drift"):
         for entry in diff.get(section, []):
             url = entry.get("tarball_url")
             if url:
                 url_by_slug[entry["slug"]] = url
+            sha = entry.get("checksum_sha256") or entry.get("expected_sha256")
+            if sha:
+                sha_by_slug[entry["slug"]] = sha
 
     def _fetch(slug: str, _version: str) -> Path:
         url = url_by_slug.get(slug)
         if not url:
             raise FetchError(f"no tarball_url in reconcile diff for {slug}")
-        return fetch_skill_from_url(url, dest_root, slug, opener=opener)
+        return fetch_skill_from_url(
+            url, dest_root, slug, expected_sha256=sha_by_slug.get(slug), opener=opener
+        )
 
     return _fetch

@@ -107,12 +107,23 @@ class TestAutoRollback:
         assert restored.strip() != "", "the broken empty SKILL.md must NOT survive"
 
     def test_sha_mismatch_auto_reverts(self, skills_dir, staging):
-        """A pulled skill whose sha256 != declared checksum → reject + rollback."""
-        _write_skill(skills_dir, "tampered", body="---\nname: orig\n---\n# orig")
-        staged = _write_skill(staging, "tampered", body="---\nname: new\n---\n# new")
+        """A fetch-layer sha256 failure (FetchError) → reject + rollback.
 
-        client = ReconcileClient(skills_dir, fetch_skill=lambda s, v: staged)
-        # Declare a checksum that does NOT match the staged content.
+        activate_0701 Phase 0: checksum verification moved INTO the fetch layer
+        (tarball-bytes domain — see reconcile_fetch.fetch_skill_from_url). The
+        apply loop treats a raising fetch_skill exactly like tampering: full
+        auto-rollback, agent untouched.
+        """
+        from app.reconcile_fetch import FetchError
+
+        _write_skill(skills_dir, "tampered", body="---\nname: orig\n---\n# orig")
+
+        def fetch_raises(slug, version):
+            raise FetchError(
+                f"sha256 mismatch for {slug}: tarball bytes hash aaaaaaaaaaaa… != declared ffffffffffff…"
+            )
+
+        client = ReconcileClient(skills_dir, fetch_skill=fetch_raises)
         diff = {"update": [{"slug": "tampered", "to": "2.0.0", "checksum_sha256": "f" * 64}]}
         res = client.apply(diff)
 
