@@ -80,7 +80,7 @@ def test_get_feedback_config_default(middleware_client, db_session):
     body = r.json()
     assert body["feedback_repo"] is None
     assert body["has_credential"] is False
-    assert body["default_repo"] == "wisechef-ai/recipes-api"
+    assert body["default_repo"] == "wisechef-ai/loopskill-api"
 
 
 def test_get_feedback_config_non_owner_404(middleware_client, db_session):

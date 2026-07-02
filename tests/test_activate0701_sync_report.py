@@ -486,10 +486,12 @@ def test_cron_health_failed_capped_at_50(middleware_client, db_session):
 # ── 10. version bump contract ────────────────────────────────────────────────
 
 
-def test_version_bumped_to_0_8_0():
+def test_version_bumped_to_0_8_x():
+    """Version must be >= 0.8.0 after Phase T (sync-report). Phase D bumped to 0.8.1."""
     from app.version import __version__
 
-    assert __version__ == "0.8.0", f"Expected version 0.8.0, got {__version__}"
+    major, minor = int(__version__[0]), int(__version__.split(".")[1])
+    assert (major, minor) >= (0, 8), f"Expected >=0.8.0, got {__version__}"
 
 
 # ── 11. admin endpoints: rollup + prune (master-only) ────────────────────────
