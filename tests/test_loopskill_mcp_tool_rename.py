@@ -139,7 +139,10 @@ class TestNormalizeToolName:
         assert normalize_tool_name("loopskill_list_bundle") == "recipes_list_cookbook"
 
     def test_loopskill_compose_bundle_from_links_maps(self) -> None:
-        assert normalize_tool_name("loopskill_compose_bundle_from_links") == "recipes_compose_cookbook_from_links"
+        assert (
+            normalize_tool_name("loopskill_compose_bundle_from_links")
+            == "recipes_compose_cookbook_from_links"
+        )
 
     def test_loopskill_pick_best_from_bundle_maps(self) -> None:
         assert normalize_tool_name("loopskill_pick_best_from_bundle") == "recipes_pick_best_from_cookbook"
@@ -167,9 +170,15 @@ class TestNormalizeToolName:
         assert normalize_tool_name("totally_unknown_tool") == "totally_unknown_tool"
 
     def test_loopskill_non_aliased_passes_through(self) -> None:
-        """loopskill_search_loops / loopskill_get_loop are NOT aliased — they
-        have their own dispatch branches and must pass through unchanged."""
-        assert normalize_tool_name("loopskill_search_loops") == "loopskill_search_loops"
+        """activate_0701 Phase A1: loopskill_search_loops / loopskill_get_loop
+        are now ALIASED to the canonical verifier names. Personality tools
+        remain un-aliased and pass through unchanged."""
+        # Legacy loop names normalise to canonical verifier names.
+        assert normalize_tool_name("loopskill_search_loops") == "loopskill_search_verifiers"
+        assert normalize_tool_name("loopskill_get_loop") == "loopskill_get_verifier"
+        # Canonical verifier names pass through.
+        assert normalize_tool_name("loopskill_search_verifiers") == "loopskill_search_verifiers"
+        # Personality tools are NOT aliased — pass through unchanged.
         assert normalize_tool_name("loopskill_get_personality") == "loopskill_get_personality"
 
 

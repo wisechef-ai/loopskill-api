@@ -323,10 +323,13 @@ class DemoRequestOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ── Loops + Personalities (loopskill_0622 Phase 8 — runnable catalog types) ──
+# ── Verifiers + Personalities (loopskill_0622 Phase 8 — runnable catalog types) ──
+# loopskill_activate_0701 Phase A1: the canonical schema names are ``Verifier*``
+# (the safety-bounded contract object). ``Loop*`` aliases are kept so existing
+# imports keep resolving. The wire payload is byte-identical under both names.  # compat-alias
 
 
-class LoopOut(BaseModel):
+class VerifierOut(BaseModel):
     id: UUID
     slug: str
     title: str
@@ -338,12 +341,12 @@ class LoopOut(BaseModel):
     creator_handle: str | None = None
     latest_version: str | None = None
     install_count: int = 0
-    # The registry is ALIVE: how many verify runs it has executed for this loop,
+    # The registry is ALIVE: how many verify runs it has executed for this verifier,
     # and the ratings backing rating_avg (social proof — the stars/rating axes).
     run_count: int = 0
     rating_count: int = 0
     # Safety-bounded contract surfaced on every payload so a puller sees the
-    # bounds BEFORE running it (the trust signal of a vetted loop registry).
+    # bounds BEFORE running it (the trust signal of a vetted verifier registry).
     max_turns: int = 25
     budget_usd: float | None = None
     tool_allowlist: list[str] = []
@@ -354,15 +357,15 @@ class LoopOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class LoopRateIn(BaseModel):
-    """Request body for POST /api/loops/{slug}/rate."""
+class VerifierRateIn(BaseModel):
+    """Request body for POST /api/verifiers/{slug}/rate (compat: /api/loops/{slug}/rate)."""
 
     rating: int = Field(..., ge=1, le=5, description="1–5 star rating")
     comment: str | None = Field(default=None, max_length=2000)
 
 
-class LoopRatingOut(BaseModel):
-    """Aggregated rating state for a loop after a rating is recorded."""
+class VerifierRatingOut(BaseModel):
+    """Aggregated rating state for a verifier after a rating is recorded."""
 
     loop_slug: str
     rating_avg: float | None = None
@@ -370,7 +373,7 @@ class LoopRatingOut(BaseModel):
     your_rating: int
 
 
-class LoopDetailOut(LoopOut):
+class VerifierDetailOut(VerifierOut):
     readme: str | None = None
     license: str | None = None
     success_condition: str
@@ -380,7 +383,7 @@ class LoopDetailOut(LoopOut):
     versions: list["VersionOut"] = []
 
 
-class LoopPublishIn(BaseModel):
+class VerifierPublishIn(BaseModel):
     slug: Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9_-]{0,63}$")]
     title: str
     description: str | None = None
@@ -399,12 +402,13 @@ class LoopPublishIn(BaseModel):
     stopping_criteria: dict
 
 
-class LoopRunIn(BaseModel):
-    """Request body for POST /api/loops/{slug}/run.
+class VerifierRunIn(BaseModel):
+    """Request body for POST /api/verifiers/{slug}/run (compat: /api/loops/{slug}/run).
 
-    v1 is verify-mode: execute the loop's published verification_script under the
-    loop's enforced bounds and return an objective pass/fail. ``mode="agent"`` is
-    reserved for the future BYO-LLM driving layer and currently returns 501.
+    v1 is verify-mode: execute the verifier's published verification_script under
+    the verifier's enforced bounds and return an objective pass/fail.
+    ``mode="agent"`` is reserved for the future BYO-LLM driving layer and
+    currently returns 501.
     """
 
     mode: str = Field("verify", description="'verify' (v1) or 'agent' (roadmap, 501)")
@@ -423,8 +427,8 @@ class LoopRunIn(BaseModel):
     allow_network: bool = False
 
 
-class LoopRunOut(BaseModel):
-    """Result of a loop verification run."""
+class VerifierRunOut(BaseModel):
+    """Result of a verifier run."""
 
     run_id: str
     loop_slug: str
@@ -438,6 +442,19 @@ class LoopRunOut(BaseModel):
     duration_seconds: float
     bounds: dict = {}
     error: str | None = None
+
+
+# loopskill_activate_0701 Phase A1 — backward-compat schema aliases.  # compat-alias
+# Old ``Loop*`` names resolve to the renamed canonical ``Verifier*`` schemas.
+# The JSON wire shape is identical (Pydantic serialisation keys unchanged), so
+# clients reading ``/api/loops`` payloads continue to parse cleanly.
+LoopOut = VerifierOut  # compat-alias
+LoopRateIn = VerifierRateIn  # compat-alias
+LoopRatingOut = VerifierRatingOut  # compat-alias
+LoopDetailOut = VerifierDetailOut  # compat-alias
+LoopPublishIn = VerifierPublishIn  # compat-alias
+LoopRunIn = VerifierRunIn  # compat-alias
+LoopRunOut = VerifierRunOut  # compat-alias
 
 
 class PersonalityOut(BaseModel):

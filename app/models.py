@@ -1300,22 +1300,28 @@ class FederationIndexCache(Base):
 
 # ── Runnable catalog types: loops + personalities (loopskill_0622 Phase 8) ──
 #
-# LoopSkill's star engine. Unlike skills/bundles (config artifacts), a loop and a
-# personality are RUNNABLE artifacts. These tables are NEW and born with clean
-# LoopSkill vocabulary (no bundle/recipe lineage), so they do not depend on the  # compat-alias
-# P3/P4 schema rename and ship in v1.
+# LoopSkill's star engine. Unlike skills/bundles (config artifacts), a verifier
+# and a personality are RUNNABLE artifacts. These tables are NEW and born with
+# clean LoopSkill vocabulary (no bundle/recipe lineage), so they do not depend
+# on the P3/P4 schema rename and ship in v1.
+#
+# loopskill_activate_0701 Phase A1: the ORM class is canonically named
+# ``Verifier`` (the safety-bounded autonomous contract object). The physical
+# storage tables remain ``loops`` / ``loop_versions`` / ``loop_ratings`` (no
+# migration); the old ``Loop`` / ``LoopVersion`` / ``LoopRating`` names are kept
+# as aliases so existing imports/tests/seeds continue to resolve.  # compat-alias
 
 
-class Loop(Base):
-    """A shareable, safety-bounded autonomous agentic loop.
+class Verifier(Base):
+    """A shareable, safety-bounded autonomous agent verifier (was "loop").
 
-    A loop packages the autonomous Plan->Act->Observe cycle as a pullable
+    A verifier packages the autonomous Plan->Act->Observe cycle as a pullable
     artifact. The SAFETY-BOUNDED execution contract is first-class and stored as
     structured columns (not free text) so the registry can validate it on publish
     and the runner can enforce it: stopping criteria (success / failure / budget),
     a max-turns ceiling, an explicit tool allow-list, and a verification command
-    that proves the success condition objectively. No vetted loop registry exists
-    in the wild — this is the white space the 100k-star goal leans on.
+    that proves the success condition objectively. No vetted verifier registry
+    exists in the wild — this is the white space the 100k-star goal leans on.
     """
 
     __tablename__ = "loops"
@@ -1366,25 +1372,25 @@ class Loop(Base):
     creator = relationship("Creator")
     org = relationship("Org")
     versions = relationship(
-        "LoopVersion",
+        "VerifierVersion",
         back_populates="loop",
-        order_by="LoopVersion.created_at.desc()",
+        order_by="VerifierVersion.created_at.desc()",
         cascade="all, delete-orphan",
     )
     ratings = relationship(
-        "LoopRating",
+        "VerifierRating",
         back_populates="loop",
         cascade="all, delete-orphan",
     )
 
 
-class LoopRating(Base):
-    """A 1–5 star rating (optional comment) for a loop — the feedback signal.
+class VerifierRating(Base):
+    """A 1–5 star rating (optional comment) for a verifier — the feedback signal.
 
-    A known user (rater_user_id set) may rate a loop at most once; re-rating
-    UPDATEs the row (enforced by a partial unique index on Postgres, in code for
+    A known user (rater_user_id set) may rate a verifier at most once; re-rating
+    UPDATE s the row (enforced by a partial unique index on Postgres, in code for
     SQLite). Anonymous / self-host ratings (rater_user_id NULL) are append-only.
-    The loop's denormalised rating_avg + rating_count are recomputed on write.
+    The verifier's denormalised rating_avg + rating_count are recomputed on write.
     """
 
     __tablename__ = "loop_ratings"
@@ -1398,10 +1404,10 @@ class LoopRating(Base):
     comment = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
-    loop = relationship("Loop", back_populates="ratings")
+    loop = relationship("Verifier", back_populates="ratings")
 
 
-class LoopVersion(Base):
+class VerifierVersion(Base):
     __tablename__ = "loop_versions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -1411,12 +1417,20 @@ class LoopVersion(Base):
     tarball_size_bytes = Column(Integer, nullable=True)
     checksum_sha256 = Column(String(64), nullable=True)
     changelog = Column(Text, nullable=True)
-    manifest = Column(Text, nullable=True)  # stored loop.toml
+    manifest = Column(Text, nullable=True)  # stored verifier.toml
     created_at = Column(DateTime, server_default=func.now())
 
-    loop = relationship("Loop", back_populates="versions")
+    loop = relationship("Verifier", back_populates="versions")
 
     __table_args__ = (UniqueConstraint("loop_id", "semver", name="uq_loop_version"),)
+
+
+# loopskill_activate_0701 Phase A1 — compatibility aliases.  # compat-alias
+# Old import paths (`from app.models import Loop`) keep resolving to the renamed
+# canonical class. Storage tables are unchanged.
+Loop = Verifier  # compat-alias
+LoopRating = VerifierRating  # compat-alias
+LoopVersion = VerifierVersion  # compat-alias
 
 
 class Personality(Base):

@@ -53,17 +53,34 @@ LOOPSKILL_TO_RECIPES: dict[str, str] = {
     "loopskill_bundle_handoff": "recipes_cookbook_handoff",
 }
 
+# activate_0701 Phase A1: old loop_* tool names → new canonical verifier names.
+# Legacy ``loopskill_search_loops`` / ``loopskill_get_loop`` resolve to the new
+# canonical verifier names at dispatch time.  # compat-alias
+LOOP_TO_VERIFIER: dict[str, str] = {
+    "loopskill_search_loops": "loopskill_search_verifiers",
+    "loopskill_get_loop": "loopskill_get_verifier",
+}
+
 # Inverse: recipes_* → loopskill_*  (informational; not used in dispatch)
 RECIPES_TO_LOOPSKILL: dict[str, str] = {v: k for k, v in LOOPSKILL_TO_RECIPES.items()}
 
 
 def normalize_tool_name(name: str) -> str:
-    """Map a loopskill_* canonical name to its recipes_* dispatch name.
+    """Map a tool name to its canonical dispatch name.
 
-    Back-compat aliases (``recipes_*``) pass through unchanged so the existing
-    ``if name == "recipes_..."`` chain in ``_dispatch`` continues to work for
-    old agents that call the legacy names directly.
+    Two layers of normalisation:
+
+    1. **Phase A1 loop→verifier** — old ``loopskill_search_loops`` /
+       ``loopskill_get_loop`` resolve to the new canonical verifier names.
+       The new canonical names pass through unchanged.
+
+    2. **loopskill→recipes** — canonical ``loopskill_*`` names map to their
+       ``recipes_*`` dispatch names so the existing ``if name == "recipes_..."``
+       chain keeps working.  Back-compat ``recipes_*`` aliases pass through.
     """
+    # Phase A1: normalise legacy loop tool names to canonical verifier names.
+    name = LOOP_TO_VERIFIER.get(name, name)
+    # Then map loopskill_* → recipes_* for the dispatch chain.
     return LOOPSKILL_TO_RECIPES.get(name, name)
 
 

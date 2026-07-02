@@ -25,6 +25,11 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     # self-enforce auth via request.state.auth_ctx scope (401 anonymous), so this
     # method-agnostic prefix does NOT expose them.
     "/api/loops",
+    # loopskill_activate_0701 Phase A1 — canonical verifier surface. Dual-mount:
+    # /api/verifiers serves the SAME handlers as /api/loops with byte-identical
+    # payloads (no redirect). Public-read mirrors /api/loops; writes self-enforce
+    # auth (401 anonymous) so the method-agnostic prefix does NOT expose them.  # compat-alias
+    "/api/verifiers",
     # loopskill_portal_0627 — personalities registry: same shape as loops. GET
     # browse/detail are public so the portal /personalities page renders without
     # a key; publish_personality self-enforces auth (401 anon), so the
