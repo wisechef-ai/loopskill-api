@@ -23,7 +23,6 @@ from sqlalchemy.orm import Session
 from app import authz
 from app.auth_ctx import AuthContext
 from app.models import (
-    APIKey,
     Bundle,
     BundleCompositeLoop,
     BundleConnector,
@@ -31,13 +30,10 @@ from app.models import (
     BundleSkill,
     CompositeLoop,
     Connector,
-    ConnectorVersion,
     Fleet,
     FleetMember,
-    FleetSubscription,
     Skill,
 )
-from app.services.fleet_members import resolve_member_for_key
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +209,6 @@ def loopskill_reconcile_status(
     )
 
     from app.models import ReconcileEvent
-    from sqlalchemy import func
 
     result = []
     for m in members:
@@ -259,7 +254,7 @@ def loopskill_voice_inbox_read(
     if not authz.can_use_fleet(ctx, fleet):
         return {"error": "forbidden", "code": 403}
 
-    from app.models import FeedbackSubmission, RecipifyRequest, SkillErrorReport
+    from app.models import RecipifyRequest, SkillErrorReport
 
     member_ids = [
         m.id
