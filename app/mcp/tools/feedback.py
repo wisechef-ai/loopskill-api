@@ -1,11 +1,11 @@
 """MCP tool: recipes_feedback.
 
-Send user feedback about recipes.wisechef.ai. Reuses the same
+Send user feedback about LoopSkill (app.loopskill.io). Reuses the same
 signature/ratelimit/dispatch helpers as POST /api/v1/feedback.
 
 Phase J (loopclose_3005): if the caller's cookbook has a configured
 ``feedback_repo``, the feedback is dispatched as a GitHub issue to THEIR
-repo instead of wisechef-ai/recipes-api.  The default path (no custom
+repo instead of wisechef-ai/loopskill-api.  The default path (no custom
 routing) is unchanged.
 """
 
@@ -37,7 +37,7 @@ def _resolve_feedback_target(
     """Resolve the feedback routing target for the caller.
 
     Returns (repo, mode, encrypted_pat):
-      - repo=None  → use the default dispatch_event path (wisechef-ai/recipes-api)
+      - repo=None  → use the default dispatch_event path (wisechef-ai/loopskill-api)
       - repo set   → route to user's repo via dispatch_issue with decrypted PAT
 
     spotify_0608 Ph E — DETERMINISTIC provenance routing REPLACES the old
@@ -73,7 +73,7 @@ def recipes_feedback(
     ctx: AuthContext | None = None,
     provenance_id: str | None = None,
 ) -> dict:
-    """Send feedback about recipes.wisechef.ai.
+    """Send feedback about LoopSkill (app.loopskill.io).
 
     Use when the user says 'write feedback that...', 'give feedback...',
     'report that...', or expresses frustration with the platform UX,

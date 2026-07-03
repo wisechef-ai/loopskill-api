@@ -70,7 +70,7 @@ def recipes_configure_feedback(
             "ok": False,
             "error": (
                 "Custom feedback routing requires a Pro or Pro+ subscription. "
-                "Upgrade at https://recipes.wisechef.ai/pricing"
+                "Upgrade at https://app.loopskill.io/pricing"
             ),
         }
 

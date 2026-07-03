@@ -19,7 +19,7 @@ def _phase_j_tools() -> list[types.Tool]:
                 "Configure per-cookbook feedback routing to the user's own GitHub repo. "
                 "Pro/Pro+ only. Pass repo='owner/name', mode='pat', and a fine-grained "
                 "GitHub PAT with issues:write to route feedback issues to your repo. "
-                "Pass repo=None to clear and revert to default (wisechef-ai/recipes-api)."
+                "Pass repo=None to clear and revert to default (wisechef-ai/loopskill-api)."
             ),
             inputSchema={
                 "type": "object",
