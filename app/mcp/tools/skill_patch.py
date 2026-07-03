@@ -1,7 +1,7 @@
 """MCP tool: recipes_propose_skill_patch.
 
-Submit a working patch to a recipes-marketplace skill, creating a draft PR
-on wisechef-ai/recipes-api. Mirrors app/mcp/tools/feedback.py in structure.
+Submit a working patch to a LoopSkill catalog skill, creating a draft PR
+on wisechef-ai/loopskill-api. Mirrors app/mcp/tools/feedback.py in structure.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ def recipes_propose_skill_patch(
     agent_id_anon: str | None = None,
     api_key_id: str | None = None,
 ) -> dict[str, Any]:
-    """Submit a working patch (draft PR) to a recipes-marketplace skill on wisechef-ai/recipes-api.
+    """Submit a working patch (draft PR) to a LoopSkill catalog skill on wisechef-ai/loopskill-api.
 
     Use when you have ALREADY fixed a skill locally during install or use and
     want to ship the fix back so other agents do not hit the same bug.

@@ -514,7 +514,7 @@ def build_mcp_server(db_factory: Callable[[], Session] = SessionLocal) -> Server
 # Public surface: /api/mcp/{healthz,sse,messages/}
 #
 # Why /api/mcp instead of plain /mcp:
-# The Cloudflare zone fronting recipes.wisechef.ai intercepts literal /mcp/*
+# The Cloudflare zone fronting app.loopskill.io intercepts literal /mcp/*
 # paths at the edge (likely CF's managed AI Gateway / Workers MCP product)
 # and returns 404 before the request ever reaches our cloudflared tunnel.
 # /api/mcp/* passes through cleanly via the existing /api/* tunnel rule.

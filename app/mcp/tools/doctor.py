@@ -49,7 +49,7 @@ def _scan_file_for_paths(path: str) -> list[str]:
 def _looks_like_remote_path(install_dir: str) -> bool:
     """Return True if the path shape suggests it lives on a different host.
 
-    The server-side filesystem on recipes-api lives under ``/srv/...`` or
+    The server-side filesystem on loopskill-api lives under ``/srv/...`` or
     ``/var/...``. Anything under ``/home/<user>/`` or ``/Users/<user>/`` that
     the server cannot stat is almost always an agent's local install path that
     the server has no way to inspect.
@@ -83,7 +83,7 @@ def recipes_doctor(db: Session, install_dir: str) -> dict[str, Any]:  # noqa: AR
             "hint": (
                 "Pass an absolute path to a server-visible install directory. "
                 "recipes_doctor cannot audit paths on the agent's own host — it "
-                "runs in the recipes-api server process."
+                "runs in the loopskill-api server process."
             ),
         }
 

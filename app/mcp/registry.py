@@ -196,7 +196,7 @@ def _core_tools() -> list[types.Tool]:
         types.Tool(
             name="loopskill_feedback",
             description=(
-                "Send feedback about recipes.wisechef.ai. Use when the "
+                "Send feedback about LoopSkill (app.loopskill.io). Use when the "
                 "user says 'write feedback that...', 'give feedback...', "
                 "'report that...', or expresses frustration with the platform "
                 "UX, search, billing, or docs. Auto-creates a labelled GitHub "
@@ -243,8 +243,8 @@ def _core_tools() -> list[types.Tool]:
         types.Tool(
             name="loopskill_propose_skill_patch",
             description=(
-                "Submit a working patch (draft PR) to a recipes-marketplace skill "
-                "on wisechef-ai/recipes-api. Use when you have ALREADY fixed a skill "
+                "Submit a working patch (draft PR) to a LoopSkill catalog skill "
+                "on wisechef-ai/loopskill-api. Use when you have ALREADY fixed a skill "
                 "locally during install or use and want to ship the fix back so other "
                 "agents do not hit the same bug. Allowed file paths: SKILL.md, "
                 "references/*.md, templates/*.{yml,yaml,sh,env,md}. Script changes "
