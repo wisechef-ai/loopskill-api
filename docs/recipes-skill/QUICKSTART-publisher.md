@@ -1,19 +1,19 @@
 # Quickstart: Publish Your First Skill in 5 Minutes
 
-This guide walks you through creating and publishing a skill to the Recipes marketplace using the MCP tools.
+This guide walks you through creating and publishing a skill to the LoopSkill marketplace using the MCP tools.
 
 ## Prerequisites
 
-- An API key from [recipes.wisechef.ai](https://recipes.wisechef.ai) (free tier works)
+- An API key from [app.loopskill.io](https://app.loopskill.io) (free tier works)
 - A GitHub account (for repo hosting)
 - An MCP-connected agent (Hermes, Claude Desktop, Codex CLI, etc.)
 
 ## Step 1: Validate Your Skill
 
-Use `recipes_recipify` to classify and validate your skill before submitting:
+Use `loopskill_recipify` to classify and validate your skill before submitting:
 
 ```
-> recipes_recipify({"name": "my-awesome-skill", "description": "Does X for Y audience"})
+> loopskill_recipify({"name": "my-awesome-skill", "description": "Does X for Y audience"})
 ```
 
 This returns a quality score and flags any issues.
@@ -42,10 +42,10 @@ Below the frontmatter, write instructions for the agent on when and how to use t
 
 ## Step 3: Install Locally (Dry Run)
 
-Use `recipes_install` to test the skill in your workspace:
+Use `loopskill_install` to test the skill in your workspace:
 
 ```
-> recipes_install({"skill_slug": "my-awesome-skill", "dry_run": true})
+> loopskill_install({"skill_slug": "my-awesome-skill", "dry_run": true})
 ```
 
 Verify the output looks correct.
@@ -55,9 +55,9 @@ Verify the output looks correct.
 Use `curl` to submit your skill:
 
 ```bash
-curl -X POST https://recipes.wisechef.ai/api/skills/_publish \
+curl -X POST https://app.loopskill.io/api/skills/_publish \
   -H "Content-Type: application/json" \
-  -H "x-api-key: YOUR_API_KEY" \
+  -H "x-api-key: <key>" \
   -d '{
     "repo_url": "https://github.com/your-username/my-awesome-skill",
     "tier": "free"
@@ -69,15 +69,15 @@ Tiers: `free` (public catalog), `pro` (€20/mo paywalled), `pro_plus` (€100/m
 ## Step 5: Verify It's Live
 
 ```bash
-curl https://recipes.wisechef.ai/api/skills/my-awesome-skill \
-  -H "x-api-key: YOUR_API_KEY"
+curl https://app.loopskill.io/api/skills/my-awesome-skill \
+  -H "x-api-key: <key>"
 ```
 
 You should see your skill metadata returned. The editorial review typically completes within 24 hours.
 
 ## Step 6: Earn
 
-Once approved, every attributed use of your skill generates revenue. Track earnings at [recipes.wisechef.ai/dashboard](https://recipes.wisechef.ai/dashboard).
+Once approved, every attributed use of your skill generates revenue. Track earnings at [app.loopskill.io/dashboard](https://app.loopskill.io/dashboard).
 
 ---
 

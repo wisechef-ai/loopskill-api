@@ -161,7 +161,7 @@ class TestWellKnownSkillMd:
         # The stub is a valid skill the agent can register + a clear pointer.
         assert "name: paid-skill" in r.text
         assert "locked: true" in r.text
-        assert "recipes_cookbook_install" in r.text
+        assert "loopskill_bundle_install" in r.text
 
     def test_skill_not_in_cookbook_404(self, db_session):
         _seed_public_cookbook(db_session)

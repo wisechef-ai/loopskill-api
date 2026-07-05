@@ -1,38 +1,38 @@
 # Quickstart: Install & Auto-Update Your First Skill in 5 Minutes
 
-This guide shows you how to subscribe to a skill from the Recipes marketplace and keep it automatically updated.
+This guide shows you how to subscribe to a skill from the LoopSkill marketplace and keep it automatically updated.
 
 ## Prerequisites
 
-- An API key from [recipes.wisechef.ai](https://recipes.wisechef.ai) (free tier works)
+- An API key from [app.loopskill.io](https://app.loopskill.io) (free tier works)
 - An MCP-connected agent (Hermes, Claude Desktop, Codex CLI, etc.)
 
 ## Step 1: Search for a Skill
 
-Use `recipes_search` to find skills relevant to your use case:
+Use `loopskill_search` to find skills relevant to your use case:
 
 ```
-> recipes_search({"query": "SEO audit for marketing agencies"})
+> loopskill_search({"query": "SEO audit for marketing agencies"})
 ```
 
 You'll get ranked results with descriptions, ratings, and install counts.
 
 ## Step 2: Install the Skill
 
-Use `recipes_install` to add the skill to your workspace:
+Use `loopskill_install` to add the skill to your workspace:
 
 ```
-> recipes_install({"skill_slug": "seo-audit-pro"})
+> loopskill_install({"skill_slug": "seo-audit-pro"})
 ```
 
 This downloads the skill files to your `skills/` directory and makes them immediately available to your agent.
 
-## Step 3: Check Your Cookbook Status
+## Step 3: Check Your Bundle Status
 
-Use `recipes_list_cookbook` to see all installed skills and their update status:
+Use `loopskill_list_bundle` to see all installed skills and their update status:
 
 ```
-> recipes_list_cookbook({})
+> loopskill_list_bundle({})
 ```
 
 The response includes a `cookbook_status` block for each skill:
@@ -51,12 +51,12 @@ The response includes a `cookbook_status` block for each skill:
 }
 ```
 
-## Step 4: Auto-Update with recipes_sync
+## Step 4: Auto-Update with loopskill_sync
 
-When a publisher releases a new version, `recipes_sync` keeps you current:
+When a publisher releases a new version, `loopskill_sync` keeps you current:
 
 ```
-> recipes_sync({"mode": "APPLY"})
+> loopskill_sync({"mode": "APPLY"})
 ```
 
 This:
@@ -67,7 +67,7 @@ This:
 Want to preview first? Use `DRY_RUN` mode:
 
 ```
-> recipes_sync({"mode": "DRY_RUN"})
+> loopskill_sync({"mode": "DRY_RUN"})
 ```
 
 This shows what *would* change without modifying anything.
@@ -77,7 +77,7 @@ This shows what *would* change without modifying anything.
 Need the full content of a previously installed skill?
 
 ```
-> recipes_recall({"skill_slug": "seo-audit-pro"})
+> loopskill_recall({"skill_slug": "seo-audit-pro"})
 ```
 
 Returns the complete skill body — no re-download needed.
@@ -86,9 +86,9 @@ Returns the complete skill body — no re-download needed.
 
 Here's the recommended pattern for production agents:
 
-1. **On startup**: Call `recipes_list_cookbook` to check current state
-2. **Periodically** (hourly/daily): Call `recipes_sync({"mode": "APPLY"})` to pull updates
-3. **On demand**: Use `recipes_recall` to refresh any skill's instructions
+1. **On startup**: Call `loopskill_list_bundle` to check current state
+2. **Periodically** (hourly/daily): Call `loopskill_sync({"mode": "APPLY"})` to pull updates
+3. **On demand**: Use `loopskill_recall` to refresh any skill's instructions
 
 ---
 

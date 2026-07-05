@@ -1,17 +1,17 @@
-# Quickstart: Share a Cookbook with Another Agent in 3 Minutes
+# Quickstart: Share a Bundle with Another Agent in 3 Minutes
 
-Cookbook share tokens let you grant another agent access to your private cookbook — without sharing API keys or creating accounts. Perfect for team workflows, client handoffs, and multi-agent setups.
+Bundle share tokens let you grant another agent access to your private bundle — without sharing API keys or creating accounts. Perfect for team workflows, client handoffs, and multi-agent setups.
 
 ## Prerequisites
 
-- The Recipes CLI: `tools/recipes_cli.py` from the [recipes-skill repo](https://github.com/wisechef-ai/recipes-skill)
-- An API key (set via `RECIPES_API_KEY` env var or stored in `~/.hermes/secrets/`)
-- A cookbook you want to share
+- The LoopSkill CLI: `tools/recipes_cli.py` from the [loopskill-skill repo](https://github.com/wisechef-ai/loopskill-skill)
+- An API key (set via `LOOPSKILL_API_KEY` env var or stored in `~/.hermes/secrets/`)
+- A bundle you want to share
 
 ## Step 1: Create a Share Token
 
 ```bash
-python3 tools/recipes_cli.py share YOUR_COOKBOOK_ID --name "Shared with teammate"
+python3 tools/recipes_cli.py share YOUR_BUNDLE_ID --name "Shared with teammate"
 ```
 
 Output:
@@ -22,7 +22,7 @@ Output:
   Prefix:  cbt_a1b2c3d4
   Scope:   edit
   Name:    Shared with teammate
-  Expires: never (revoke with DELETE /api/cookbooks/YOUR_COOKBOOK_ID/share-tokens/TOKEN_ID)
+  Expires: never (revoke with DELETE /api/bundles/YOUR_BUNDLE_ID/share-tokens/TOKEN_ID)
 
 ============================================================
 Copy-paste the block that matches your client:
@@ -30,18 +30,18 @@ Copy-paste the block that matches your client:
 
 # ── Hermes config.yaml ──
 mcpServers:
-  recipes-shared:
+  loopskill-shared:
     transport: streamable-http
-    url: https://recipes.wisechef.ai/api/mcp/http
+    url: https://app.loopskill.io/api/mcp/http
     headers:
-      x-api-key: cbt_a1b2c3d4_e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0
+      x-api-key: cbt_a1...a9b0
 
 // ── Claude Desktop  (claude_desktop_config.json) ──
 {
   "mcpServers": {
-    "recipes-shared": {
+    "loopskill-shared": {
       "type": "streamable-http",
-      "url": "https://recipes.wisechef.ai/api/mcp/http",
+      "url": "https://app.loopskill.io/api/mcp/http",
       "headers": {
         "x-api-key": "cbt_a1b2c3d4_e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
       }
@@ -54,14 +54,14 @@ mcpServers:
 
 Copy the relevant config block and send it to your teammate. They paste it into their agent's config file and restart.
 
-That's it — their agent now has full MCP access to your cookbook.
+That's it — their agent now has full MCP access to your bundle.
 
 ## Read-Only Access
 
 Want to share without giving install/edit permissions?
 
 ```bash
-python3 tools/recipes_cli.py share YOUR_COOKBOOK_ID --read-only --name "View-only access"
+python3 tools/recipes_cli.py share YOUR_BUNDLE_ID --read-only --name "View-only access"
 ```
 
 This sets `scope=read` — the other agent can search and view manifest but **cannot install**. Use this for audit / review handoffs.
@@ -80,27 +80,27 @@ Three values, from least to most authority:
 
 ## Recipient install path (the point of all this)
 
-Once you've sent the token, the recipient calls `recipes_cookbook_install` via MCP:
+Once you've sent the token, the recipient calls `loopskill_bundle_install` via MCP:
 
 ```jsonc
-// Bulk: install every active skill in the cookbook
-{ "tool": "recipes_cookbook_install", "args": {} }
+// Bulk: install every active skill in the bundle
+{ "tool": "loopskill_bundle_install", "args": {} }
 
-// Single skill (slug from the cookbook)
-{ "tool": "recipes_cookbook_install", "args": { "slug": "atomic-habits-self-improvement-engine" } }
+// Single skill (slug from the bundle)
+{ "tool": "loopskill_bundle_install", "args": { "slug": "atomic-habits-self-improvement-engine" } }
 ```
 
-The token's `cookbook_scope` is auto-derived — recipients never need to know the cookbook UUID.
+The token's `cookbook_scope` is auto-derived — recipients never need to know the bundle UUID.
 
-REST equivalents: `POST /api/cookbooks/{id}/install` (bulk) or
-`GET /api/cookbooks/{id}/skills/{slug}/install` (single). Full reference: [docs/share-tokens.md](../share-tokens.md).
+REST equivalents: `POST /api/bundles/{id}/install` (bulk) or
+`GET /api/bundles/{id}/skills/{slug}/install` (single). Full reference: [docs/share-tokens.md](../share-tokens.md).
 
 ## Revoke Access
 
 When you're done sharing, revoke the token:
 
 ```bash
-python3 tools/recipes_cli.py revoke YOUR_COOKBOOK_ID TOKEN_ID
+python3 tools/recipes_cli.py revoke YOUR_BUNDLE_ID TOKEN_ID
 ```
 
 Access is revoked instantly.
@@ -114,4 +114,4 @@ Access is revoked instantly.
 
 ---
 
-**Three minutes, zero friction.** Share cookbooks like you share links. 🔗
+**Three minutes, zero friction.** Share bundles like you share links. 🔗

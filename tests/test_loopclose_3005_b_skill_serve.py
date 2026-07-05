@@ -39,7 +39,7 @@ class TestSkillServeRoute:
             body = client.get("/skill").text
         # Served body equals the cleaned in-repo canonical source.
         assert body == _canonical_skill_md()
-        assert body.startswith("---\nname: recipes")
+        assert body.startswith("---\nname: loopskill")
 
     def test_no_leak_headers_in_served_body(self):
         with _client() as client:
@@ -59,10 +59,10 @@ class TestSkillServeRoute:
         # loopclose_3005 Phase C: the canonical doc lists 28 tools, incl. the
         # full tailor loop (tailor -> tailor_version -> cookbook_attach).
         assert "28 MCP tools available" in body
-        assert "`recipes_tailor`" in body
-        assert "`recipes_fork_list`" in body
-        assert "`recipes_tailor_version`" in body
-        assert "`recipes_cookbook_attach`" in body
+        assert "`loopskill_tailor`" in body
+        assert "`loopskill_fork_list`" in body
+        assert "`loopskill_tailor_version`" in body
+        assert "`loopskill_bundle_attach`" in body
 
     def test_aliases_serve_same_body(self):
         """/skill/ and /SKILL.md serve the same canonical body as /skill."""
