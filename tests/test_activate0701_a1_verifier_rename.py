@@ -414,6 +414,58 @@ class TestVerifierSandboxGate:
         _lr._runner = None
 
 
+# ── (7b) Empty request body on /run (fix: verifier-run-empty-body) ──────────
+#
+# Bug: POST /api/verifiers/{slug}/run with NO body (or {}) 422'd because
+# `payload: VerifierRunIn` was a required body param, even though every field
+# of VerifierRunIn already defaults (mode='verify', workspace_files=None,
+# allow_network=False). Live evidence: `curl -X POST
+# https://app.loopskill.io/api/loops/hello-world-loop/run` with no body
+# returned 422 on the marketing hero ("it-RUNS") flow. Fix makes `payload`
+# optional (Body(default=None)) and falls back to a fresh VerifierRunIn().
+
+
+class TestVerifierRunEmptyBody:
+    def test_run_with_no_body_is_not_422(self, app_client):
+        """No Content-Type/body at all must reach auth+verifier logic, never 422."""
+        _publish(app_client, slug="empty-body-v", verification_script="exit 0")
+        resp = app_client.post(
+            "/api/verifiers/empty-body-v/run",
+            headers={"x-test-auth": "user"},
+        )
+        assert resp.status_code != 422
+        assert resp.status_code == 200, resp.text
+
+    def test_run_with_empty_json_object_is_not_422(self, app_client):
+        """An explicit {} body (the existing convention in this file) still works."""
+        _publish(app_client, slug="empty-json-v", verification_script="exit 0")
+        resp = app_client.post(
+            "/api/verifiers/empty-json-v/run",
+            json={},
+            headers={"x-test-auth": "user"},
+        )
+        assert resp.status_code != 422
+        assert resp.status_code == 200, resp.text
+
+    def test_run_with_no_body_still_401_when_anonymous(self, app_client):
+        """No-body fix must not weaken the auth gate — anonymous still 401s."""
+        _publish(app_client, slug="empty-body-anon-v", verification_script="exit 0")
+        resp = app_client.post("/api/verifiers/empty-body-anon-v/run")
+        assert resp.status_code == 401
+
+    def test_run_with_explicit_body_still_honours_fields(self, app_client):
+        """Zero-behaviour-change: callers who DO send a body keep their values."""
+        _publish(app_client, slug="explicit-body-v", verification_script="exit 0")
+        resp = app_client.post(
+            "/api/verifiers/explicit-body-v/run",
+            json={"mode": "agent"},
+            headers={"x-test-auth": "user"},
+        )
+        # agent-mode is a deliberate 501 (roadmap) — proves the body was parsed
+        # and its `mode` field actually reached the handler, not defaulted away.
+        assert resp.status_code == 501
+
+
 # ── (8) MCP: dual tool names + dispatch parity ───────────────────────────────
 
 
