@@ -72,4 +72,11 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     "/ig/",
     "/yt/",
     "/fb/",
+    # feat/unified-search — GET /api/search: anonymous cross-type search (skills,
+    # loops, bundles, personalities). Each group already filters to the SAME
+    # public-visibility rows as its dedicated public route (see
+    # app/services/unified_search.py for the copied filter provenance), so this
+    # method-agnostic prefix does not expose anything the per-type public
+    # routes don't already expose. There is no write verb on this path.
+    "/api/search",
 )

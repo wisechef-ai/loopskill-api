@@ -1,0 +1,149 @@
+"""Unified cross-type search helpers — powers GET /api/search.
+
+feat/unified-search: a single anonymous call that searches skills, loops
+(verifiers), bundles, and personalities and returns them grouped by type
+("Spotify-style" search). Each per-type query below deliberately COPIES the
+public-visibility filter expression from that type's existing public route so
+the two surfaces (the dedicated per-type browse/search endpoint and this
+unified endpoint) can never disagree about what's publicly visible:
+
+  * skills        -> app/skill_routes.py:search_skills          (Skill.is_public == True, Skill.is_archived == False)
+  * loops         -> app/verifier_routes.py:list_verifiers      (Verifier.is_public.is_(True), Verifier.is_archived.is_(False))
+  * bundles       -> app/bundle_routes.py:discover_cookbooks    (Bundle.visibility == "public", Bundle.slug.isnot(None))
+  * personalities -> app/personality_routes.py:list_personalities (Personality.is_public.is_(True), Personality.is_archived.is_(False))
+
+SEARCH SEMANTICS: mirrors the existing per-type search — case-insensitive
+substring (ILIKE) on name/title + description, no new search infra (no
+tsvector, no embeddings) in this module. Deterministic ordering: exact-prefix
+title/name matches first, then a per-type "popularity" signal where cheaply
+available (install_count / run_count), then alphabetical as the final
+tiebreaker so results are stable across runs.
+
+PERF: one SELECT per type with LIMIT applied in SQL (no Python-side slicing
+of an unbounded result set), no per-row lazy loads — only the columns each
+card needs are read off the ORM objects returned by the single query. Bundles
+carries one small additional aggregate query (grouped skill counts for the
+already-limited result rows) to expose ``skill_count`` without N+1 (i.e. not
+one count query per bundle row).
+"""
+
+from __future__ import annotations
+
+from sqlalchemy import case, func
+from sqlalchemy.orm import Session
+
+from app.models import Bundle, BundleSkill, Personality, Skill, Verifier
+
+_DESC_TRUNCATE = 200
+
+
+def _truncate(text: str | None) -> str | None:
+    """Truncate a description to ~200 chars, matching the compact-card contract."""
+    if not text:
+        return text
+    text = text.strip()
+    if len(text) <= _DESC_TRUNCATE:
+        return text
+    return text[:_DESC_TRUNCATE].rstrip() + "…"
+
+
+def search_skills_group(db: Session, q: str, limit: int) -> list[dict]:
+    """Public skills matching ``q``, newest surface: /api/skills/search twin."""
+    like = f"%{q}%"
+    prefix_like = f"{q}%"
+    # Visibility filter copied verbatim from app/skill_routes.py:search_skills.
+    query = db.query(Skill).filter(Skill.is_public == True, Skill.is_archived == False)  # noqa: E712
+    query = query.filter(Skill.title.ilike(like) | Skill.description.ilike(like) | Skill.category.ilike(like))
+    exact_prefix = case((Skill.title.ilike(prefix_like), 0), else_=1)
+    query = query.order_by(exact_prefix, Skill.install_count.desc(), Skill.title.asc())
+    rows = query.limit(limit).all()
+    return [
+        {
+            "slug": s.slug,
+            "title": s.title,
+            "description": _truncate(s.description),
+            "category": s.category,
+            "tier": s.tier,
+        }
+        for s in rows
+    ]
+
+
+def search_loops_group(db: Session, q: str, limit: int) -> list[dict]:
+    """Public loops (verifiers) matching ``q``: /api/loops (/api/verifiers) twin."""
+    like = f"%{q}%"
+    prefix_like = f"{q}%"
+    # Visibility filter copied verbatim from app/verifier_routes.py:list_verifiers.
+    query = db.query(Verifier).filter(Verifier.is_public.is_(True), Verifier.is_archived.is_(False))
+    query = query.filter(Verifier.title.ilike(like) | Verifier.description.ilike(like))
+    exact_prefix = case((Verifier.title.ilike(prefix_like), 0), else_=1)
+    query = query.order_by(exact_prefix, Verifier.run_count.desc(), Verifier.title.asc())
+    rows = query.limit(limit).all()
+    return [
+        {
+            "slug": v.slug,
+            "title": v.title,
+            "description": _truncate(v.description),
+            "max_turns": v.max_turns,
+            "tool_count": len(v.tool_allowlist or []),
+            "run_count": v.run_count or 0,
+        }
+        for v in rows
+    ]
+
+
+def search_bundles_group(db: Session, q: str, limit: int) -> list[dict]:
+    """Public bundles matching ``q``: /api/bundles/public (discover) twin."""
+    like = f"%{q}%"
+    prefix_like = f"{q}%"
+    # Visibility filter copied verbatim from app/bundle_routes.py:discover_cookbooks.
+    query = db.query(Bundle).filter(Bundle.visibility == "public", Bundle.slug.isnot(None))
+    query = query.filter(Bundle.name.ilike(like) | Bundle.description.ilike(like))
+    exact_prefix = case((Bundle.name.ilike(prefix_like), 0), else_=1)
+    query = query.order_by(exact_prefix, Bundle.name.asc())
+    rows = query.limit(limit).all()
+    if not rows:
+        return []
+
+    # One grouped aggregate query for skill_count across all limited rows —
+    # avoids a per-bundle COUNT (N+1) while still surfacing the extra.
+    bundle_ids = [b.id for b in rows]
+    count_rows = (
+        db.query(BundleSkill.bundle_id, func.count(BundleSkill.skill_id))
+        .filter(BundleSkill.bundle_id.in_(bundle_ids), BundleSkill.source != "disabled")
+        .group_by(BundleSkill.bundle_id)
+        .all()
+    )
+    counts = {bid: cnt for bid, cnt in count_rows}
+
+    return [
+        {
+            "slug": b.slug,
+            "name": b.name,
+            "description": _truncate(b.description),
+            "skill_count": counts.get(b.id, 0),
+        }
+        for b in rows
+    ]
+
+
+def search_personalities_group(db: Session, q: str, limit: int) -> list[dict]:
+    """Public personalities matching ``q``: /api/personalities twin."""
+    like = f"%{q}%"
+    prefix_like = f"{q}%"
+    # Visibility filter copied verbatim from app/personality_routes.py:list_personalities.
+    query = db.query(Personality).filter(Personality.is_public.is_(True), Personality.is_archived.is_(False))
+    query = query.filter(Personality.title.ilike(like) | Personality.description.ilike(like))
+    exact_prefix = case((Personality.title.ilike(prefix_like), 0), else_=1)
+    query = query.order_by(exact_prefix, Personality.install_count.desc(), Personality.title.asc())
+    rows = query.limit(limit).all()
+    return [
+        {
+            "slug": p.slug,
+            "title": p.title,
+            "description": _truncate(p.description),
+            "category": p.category,
+            "tier": p.tier,
+        }
+        for p in rows
+    ]
