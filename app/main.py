@@ -227,6 +227,12 @@ def create_app() -> FastAPI:
 
     app.include_router(composite_loop_router, tags=["composite-loops"])
 
+    # feat/unified-search — GET /api/search: anonymous Spotify-style search
+    # across skills, loops, bundles, personalities in one call.
+    from app.search_routes import router as search_router
+
+    app.include_router(search_router, prefix="/api", tags=["search"])
+
     # Phase 1 (v7.1): Mount StreamableHTTP ASGI sub-app at /api/mcp/http.
     # Must happen after include_router(mcp_router) so the session manager's
     # MCP server is built from the same build_mcp_server() factory.
