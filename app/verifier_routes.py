@@ -28,7 +28,7 @@ import logging
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
@@ -195,11 +195,13 @@ def publish_verifier(
 
 def run_verifier(
     slug: str,
-    payload: VerifierRunIn,
     request: Request,
+    payload: VerifierRunIn | None = Body(default=None),
     db: Session = Depends(get_db),
 ) -> VerifierRunOut:
     """Execute a verifier's verification under its enforced bounds; return pass/fail."""
+    if payload is None:
+        payload = VerifierRunIn()
     ctx = getattr(request.state, "auth_ctx", None)
     scope = getattr(ctx, "scope", None)
     if ctx is None or scope in (None, "anonymous"):
