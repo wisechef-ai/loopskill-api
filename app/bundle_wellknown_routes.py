@@ -12,7 +12,7 @@ This module closes the missing half: Recipes already CONSUMES external
 ``.well-known/skills`` endpoints (``app/services/federation_adapters.py``); here
 it SERVES its own public cookbooks the same way. A fleet owner can then run::
 
-    hermes skills install well-known:https://recipes.wisechef.ai/api/cookbooks/public/<slug>
+    hermes skills install well-known:https://app.loopskill.io/api/cookbooks/public/<slug>
 
 …and the whole cookbook lands as native skills in any agentskills.io-compatible
 agent. No proprietary manifest, no Hermes-specific code.
@@ -98,9 +98,9 @@ def _stub_skill_md(skill, cookbook_slug: str) -> str:
         "Install this cookbook with an authenticated Recipes key and the real "
         "body is delivered:\n\n"
         "```\n"
-        f'recipes_cookbook_install from "cookbook://{cookbook_slug}"\n'
+        f'loopskill_bundle_install from "cookbook://{cookbook_slug}"\n'
         "```\n\n"
-        f"Or subscribe at https://recipes.wisechef.ai/pricing and install "
+        f"Or subscribe at https://app.loopskill.io/pricing and install "
         f"`{skill.slug}` directly.\n"
     )
 

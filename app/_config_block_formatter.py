@@ -15,7 +15,7 @@ def build_config_blocks(
     *,
     token: str,
     cookbook_id: str,
-    server_url: str = "https://recipes.wisechef.ai/api/mcp/http",
+    server_url: str = "https://app.loopskill.io/api/mcp/http",
 ) -> dict[str, str]:
     """Return Hermes YAML + Claude Desktop JSON snippets for a share token.
 
@@ -47,7 +47,7 @@ def _build_hermes_yaml(
     return (
         "# Add to your Hermes config (hermes.yaml)\n"
         "mcp_servers:\n"
-        "  recipes:\n"
+        "  loopskill:\n"
         f"    url: {server_url}\n"
         "    headers:\n"
         f"      x-api-key: {token}\n"
@@ -63,7 +63,7 @@ def _build_claude_desktop_json(
     """Build a Claude Desktop JSON mcpServers snippet for the given share token."""
     config = {
         "mcpServers": {
-            "recipes": {
+            "loopskill": {
                 "url": server_url,
                 "headers": {
                     "x-api-key": token,
