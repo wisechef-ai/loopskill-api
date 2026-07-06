@@ -31,6 +31,9 @@ class SkillOut(BaseModel):
     last_verified: datetime | None = None
     # quality_1705 Phase C — weighted catalog quality score (0-10 float).
     quality_score: float | None = None
+    # feat/artifact-kind-phase1 — discriminator for artifact-model unification.
+    kind: str = "skill"
+    loop_spec: dict | None = None
 
     model_config = {"from_attributes": True}
 

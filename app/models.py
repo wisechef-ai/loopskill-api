@@ -162,6 +162,9 @@ class Org(Base):
 # ── Skills & Versions ───────────────────────────────────────────────────
 
 
+VALID_SKILL_KINDS = ("skill", "loop", "verifier")
+
+
 class Skill(Base):
     __tablename__ = "skills"
 
@@ -238,6 +241,12 @@ class Skill(Base):
     pinned_sha = Column(String(64), nullable=True)
     upstream_status = Column(String(20), nullable=False, server_default="active")
     external_resources = Column(JSON, nullable=True)
+
+    # feat/artifact-kind-phase1 — kind discriminator for future artifact unification.
+    # All existing rows carry kind='skill' via server_default.
+    kind = Column(String(32), nullable=False, default="skill", server_default="skill", index=True)
+    # Populated only when kind='loop'; stores schedule/subagents_config/verifier_slug etc.
+    loop_spec = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

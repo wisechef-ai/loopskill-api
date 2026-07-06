@@ -59,6 +59,22 @@ def db():
     from app.database import engine
     from app.models import Base
 
+    # create_all only creates MISSING tables — it will NOT add new columns to a
+    # `skills` table that already exists in a stale gitignored test_dev.db from
+    # an older schema. When the on-disk `skills` table is behind the ORM (e.g. a
+    # freshly-added column like `kind`), rebuild the ENTIRE disposable schema.
+    # We drop_all (not just skills) because 14 tables carry FKs into skills.id —
+    # dropping skills alone would hit FK RESTRICT or orphan child rows. This path
+    # only fires against a stale local test_dev.db; on a fresh CI checkout there
+    # is no drift and nothing is dropped.
+    from sqlalchemy import inspect as _sa_inspect
+
+    insp = _sa_inspect(engine)
+    if "skills" in insp.get_table_names():
+        live_cols = {c["name"] for c in insp.get_columns("skills")}
+        orm_cols = {c.name for c in Skill.__table__.columns}
+        if orm_cols - live_cols:  # on-disk schema is behind the ORM → full rebuild
+            Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 
     s = SessionLocal()

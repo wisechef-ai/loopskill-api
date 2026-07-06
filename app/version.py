@@ -34,6 +34,11 @@ fix/lockfile-snap-uuid-types: bumped past live prod (0.9.9) and current main
 (0.9.9) — fc0706b_snap_uuid corrects member_lockfile_snapshots id columns
 VARCHAR(36)→UUID (Postgres 500'd on the first snapshot upsert; SQLite tests
 could not catch the dialect mismatch).
+
+feat/artifact-kind-phase1: bumped past live prod (0.9.10) and current main
+(0.9.10) — adds `kind` discriminator + `loop_spec` JSON to skills table
+(am0706_skill_kind migration). Foundation for merging CompositeLoop into Skill.
+All existing rows default to kind='skill'; loop_spec is NULL.
 """
 
-__version__ = "0.9.10"
+__version__ = "0.9.11"

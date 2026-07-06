@@ -81,6 +81,8 @@ def _skill_to_out(
         updated_at=skill.updated_at,
         last_verified=getattr(skill, "last_verified", None),
         quality_score=getattr(skill, "quality_score", None),
+        kind=getattr(skill, "kind", "skill") or "skill",
+        loop_spec=getattr(skill, "loop_spec", None),
     )
 
 
