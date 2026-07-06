@@ -652,3 +652,108 @@ class TestSync:
         with TestClient(app) as client:
             r = client.get(f"/api/cookbooks/{cb.id}/sync", params={"since": "not-a-date"})
         assert r.status_code == 422
+
+
+# ──────────────── Org-scoped bundle reads (feat/org-scoped-bundle-reads) ─────
+
+
+def _mk_org(db, name="acme"):
+    from app.models import Org
+
+    org = Org(id=uuid4(), name=name, slug=f"{name}-{uuid4().hex[:6]}", api_key_hash="")
+    db.add(org)
+    db.flush()
+    return org
+
+
+def _mk_org_membership(db, org, user, *, role="member"):
+    from app.models import OrgMembership
+
+    m = OrgMembership(id=uuid4(), org_id=org.id, user_id=user.id, role=role)
+    db.add(m)
+    db.flush()
+    return m
+
+
+class TestOrgScopedBundleReads:
+    """feat/org-scoped-bundle-reads: an org member can READ org-scoped bundles
+    (list + detail) but not write them. Mirrors the TEN org rule on fleets —
+    without this, an org member sees the fleet but an empty Library/Fleet Map."""
+
+    def _org_bundle_setup(self, db):
+        owner = _make_user(db, tier="pro_plus")
+        member = _make_user(db, tier="pro")
+        org = _mk_org(db)
+        _mk_org_membership(db, org, owner, role="owner")
+        _mk_org_membership(db, org, member, role="member")
+        cb = Bundle(id=uuid4(), name="Org CB", bundle_owner=owner.id, org_id=org.id)
+        skill = _make_skill(db, slug="org-skill")
+        db.add(cb)
+        db.flush()
+        db.add(BundleSkill(bundle_id=cb.id, skill_id=skill.id, source="custom-added"))
+        db.commit()
+        return owner, member, org, cb
+
+    def test_org_member_sees_org_bundle_in_list(self, db_session):
+        _owner, member, _org, cb = self._org_bundle_setup(db_session)
+        app = _make_app(db_session, api_key_user_id=member.id)
+        with TestClient(app) as client:
+            r = client.get("/api/cookbooks")
+        assert r.status_code == 200
+        ids = {c["id"] for c in r.json()["cookbooks"]}
+        assert str(cb.id) in ids
+
+    def test_org_member_reads_org_bundle_detail(self, db_session):
+        _owner, member, _org, cb = self._org_bundle_setup(db_session)
+        app = _make_app(db_session, api_key_user_id=member.id)
+        with TestClient(app) as client:
+            r = client.get(f"/api/cookbooks/{cb.id}")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["name"] == "Org CB"
+        assert [s["slug"] for s in body["skills"]] == ["org-skill"]
+
+    def test_non_member_still_404s_on_org_bundle(self, db_session):
+        _owner, _member, _org, cb = self._org_bundle_setup(db_session)
+        outsider = _make_user(db_session, tier="pro_plus")
+        db_session.commit()
+        app = _make_app(db_session, api_key_user_id=outsider.id)
+        with TestClient(app) as client:
+            r = client.get(f"/api/cookbooks/{cb.id}")
+        assert r.status_code == 404
+
+    def test_org_member_of_other_org_404s(self, db_session):
+        _owner, _member, _org, cb = self._org_bundle_setup(db_session)
+        other = _make_user(db_session, tier="pro_plus")
+        org_b = _mk_org(db_session, name="rival")
+        _mk_org_membership(db_session, org_b, other, role="owner")
+        db_session.commit()
+        app = _make_app(db_session, api_key_user_id=other.id)
+        with TestClient(app) as client:
+            r = client.get(f"/api/cookbooks/{cb.id}")
+        assert r.status_code == 404
+
+    def test_org_member_cannot_write_org_bundle(self, db_session):
+        """READ-only: org membership must NOT grant skill add/remove."""
+        _owner, member, _org, cb = self._org_bundle_setup(db_session)
+        _make_skill(db_session, slug="sneaky")
+        db_session.commit()
+        app = _make_app(db_session, api_key_user_id=member.id)
+        with TestClient(app) as client:
+            r = client.post(f"/api/cookbooks/{cb.id}/skills", json={"slug": "sneaky"})
+            r2 = client.delete(f"/api/cookbooks/{cb.id}/skills/org-skill")
+        assert r.status_code == 404
+        assert r2.status_code == 404
+
+    def test_personal_bundle_not_leaked_to_org_member(self, db_session):
+        """Owner's PERSONAL (org_id=NULL) bundle stays invisible to org peers."""
+        owner, member, _org, _cb = self._org_bundle_setup(db_session)
+        personal = Bundle(id=uuid4(), name="Personal CB", bundle_owner=owner.id)
+        db_session.add(personal)
+        db_session.commit()
+        app = _make_app(db_session, api_key_user_id=member.id)
+        with TestClient(app) as client:
+            rl = client.get("/api/cookbooks")
+            rd = client.get(f"/api/cookbooks/{personal.id}")
+        assert str(personal.id) not in {c["id"] for c in rl.json()["cookbooks"]}
+        assert rd.status_code == 404
