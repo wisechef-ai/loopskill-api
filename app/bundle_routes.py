@@ -162,6 +162,12 @@ class CookbookCtx(BaseModel):
     # scoped to this single bundle. Route-level checks must enforce that any
     # cb the request acts on equals this value, and must block writes if scope='read'.
     cbt_cookbook_id: UUID | None = None
+    # feat/org-scoped-bundle-reads: the caller's org (activate_0701/TEN
+    # OrgMembership). Grants READ access to org-scoped bundles — the fleet
+    # routes were org-aware since TEN, but bundle reads were owner-only, so an
+    # org member (e.g. the human account beside the bot fleet-owner account) saw
+    # an empty Library/Fleet Map. Writes stay owner/master-only.
+    org_id: UUID | None = None
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -202,7 +208,12 @@ def require_cookbook_tier(request: Request, db: Session = Depends(get_db)) -> Co
     # evergreen_0206 Phase G: free tier is allowed through (the on-ramp). The
     # tier travels in the ctx so downstream caps/gates enforce per-tier limits.
     tier = user.subscription_tier or "free"
-    return CookbookCtx(user_id=user.id, is_master=False, tier=tier)
+    # feat/org-scoped-bundle-reads: resolve org membership (same resolver the
+    # fleet routes use) so org-scoped bundles are readable by org members.
+    from app.middleware.api_key import _resolve_org_membership
+
+    org_id, _is_org_owner = _resolve_org_membership(db, user.id)
+    return CookbookCtx(user_id=user.id, is_master=False, tier=tier, org_id=org_id)
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────
@@ -268,7 +279,20 @@ class CookbookOut(BaseModel):
 # ── Helpers ──────────────────────────────────────────────────────────────
 
 
-def _resolve_owned_cookbook(db: Session, ctx: CookbookCtx, cookbook_id: str) -> Bundle:
+def _resolve_owned_cookbook(
+    db: Session, ctx: CookbookCtx, cookbook_id: str, *, allow_org_read: bool = False
+) -> Bundle:
+    """Resolve a bundle the caller may act on, or 404 (no existence leak).
+
+    Ownership rules:
+    - master: always
+    - cbt_ share token: the one bundle it is scoped to
+    - direct owner (bundle_owner == user_id): always
+    - feat/org-scoped-bundle-reads: same-org member — READ routes only
+      (``allow_org_read=True``). Mirrors the TEN org rule on fleets; without
+      it an org member sees the fleet but a 404 on every bundle it subscribes,
+      i.e. an empty Library/Fleet Map. Writes stay owner/master-only.
+    """
     try:
         cid = UUID(cookbook_id)
     except (ValueError, TypeError):
@@ -285,9 +309,18 @@ def _resolve_owned_cookbook(db: Session, ctx: CookbookCtx, cookbook_id: str) -> 
     if ctx.cbt_cookbook_id is not None and ctx.cbt_cookbook_id == cb.id:
         return cb
 
-    if not ctx.is_master and cb.bundle_owner != ctx.user_id:
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
-    return cb
+    if ctx.is_master or cb.bundle_owner == ctx.user_id:
+        return cb
+
+    if (
+        allow_org_read
+        and ctx.org_id is not None
+        and getattr(cb, "org_id", None) is not None
+        and cb.org_id == ctx.org_id
+    ):
+        return cb
+
+    raise HTTPException(status_code=404, detail="cookbook_not_found")
 
 
 def _skills_for(
@@ -677,16 +710,14 @@ def list_cookbooks(
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
-    """List all cookbooks for the authenticated user."""
+    """List the caller's cookbooks: owned + (org-scoped-bundle-reads) org bundles."""
     if ctx.is_master:
         return {"cookbooks": []}
 
-    rows = (
-        db.query(Bundle)
-        .filter(Bundle.bundle_owner == ctx.user_id)  # compat-alias
-        .order_by(Bundle.created_at.desc())
-        .all()
-    )
+    owned_or_org = Bundle.bundle_owner == ctx.user_id  # compat-alias
+    if ctx.org_id is not None:
+        owned_or_org = owned_or_org | (Bundle.org_id == ctx.org_id)
+    rows = db.query(Bundle).filter(owned_or_org).order_by(Bundle.created_at.desc()).all()
     return {"cookbooks": [_to_cb_out(r) for r in rows]}
 
 
@@ -699,7 +730,7 @@ def get_cookbook(
 ):
     """Return a single cookbook by ID, including its skill list."""
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
-    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id, allow_org_read=True)
     rows = _skills_for(db, cb.id, include_disabled=True)
     out = _to_cb_out(cb)
     out["skills"] = [
@@ -1131,7 +1162,7 @@ def cookbook_manifest(
 ):
     """Return the install manifest for all skills in a cookbook."""
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
-    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id, allow_org_read=True)
     rows = _skills_for(db, cb.id, include_disabled=True)
 
     manifest = {
@@ -1160,7 +1191,7 @@ def cookbook_sync(
 ):
     """Return skills updated since the given timestamp for sync."""
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
-    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id, allow_org_read=True)
 
     since_dt: datetime | None = None
     if since:
@@ -1449,7 +1480,7 @@ def get_feedback_config(
     Never returns the PAT — only repo + mode + whether a credential is bound.
     """
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
-    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id, allow_org_read=True)
     return {
         "cookbook_id": str(cb.id),
         "feedback_repo": cb.feedback_repo,

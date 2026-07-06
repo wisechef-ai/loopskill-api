@@ -18,6 +18,11 @@ GET /api/search endpoint, no schema change.
 feat/bundle-detail-artifact-parity: bumped past live prod (0.9.6, verified via
 GET /api/healthz) and current main (0.9.6) — bundle detail now returns declared
 personalities + composite_loops sections, no schema change.
+
+feat/org-scoped-bundle-reads: bumped past live prod (0.9.7, verified via
+GET /api/healthz) and current main (0.9.7) — org members get READ access to
+org-scoped bundles (list/detail/manifest/sync/feedback-config), mirroring the
+TEN org rule that fleets already had. Writes stay owner-only. No schema change.
 """
 
-__version__ = "0.9.7"
+__version__ = "0.9.8"
