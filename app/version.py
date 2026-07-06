@@ -29,6 +29,11 @@ GET /api/healthz) and current main (0.9.8) — sync-report lockfile_state is now
 PERSISTED (member_lockfile_snapshots, one upserted row per member) and served
 via GET /fleets/{id}/members/{mid}/state + GET /fleets/{id}/inventory
 (installed / drift / extras). Schema change: fc0706_lockfile_snap migration.
+
+fix/lockfile-snap-uuid-types: bumped past live prod (0.9.9) and current main
+(0.9.9) — fc0706b_snap_uuid corrects member_lockfile_snapshots id columns
+VARCHAR(36)→UUID (Postgres 500'd on the first snapshot upsert; SQLite tests
+could not catch the dialect mismatch).
 """
 
-__version__ = "0.9.9"
+__version__ = "0.9.10"
