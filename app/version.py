@@ -39,6 +39,13 @@ feat/artifact-kind-phase1: bumped past live prod (0.9.10) and current main
 (0.9.10) — adds `kind` discriminator + `loop_spec` JSON to skills table
 (am0706_skill_kind migration). Foundation for merging CompositeLoop into Skill.
 All existing rows default to kind='skill'; loop_spec is NULL.
+
+fix/keyset-cursor-compound: bumped past current main (0.9.11) — fixes flaky
+test_list_members_keyset_pagination. The keyset cursor predicate was `id >
+cursor_id` alone, which breaks when created_at differs between rows (a member
+with a later created_at but lex-smaller id gets skipped on page 2). Now uses
+the standard compound row-value predicate (created_at, id) > (cursor_ca,
+cursor_id). No schema change.
 """
 
-__version__ = "0.9.11"
+__version__ = "0.9.12"
