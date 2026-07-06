@@ -14,6 +14,10 @@ install artifact, no schema change.
 feat/unified-search: bumped past live prod (0.9.5, verified via GET
 /api/healthz) and current main (0.9.5) — this PR adds the new anonymous
 GET /api/search endpoint, no schema change.
+
+feat/bundle-detail-artifact-parity: bumped past live prod (0.9.6, verified via
+GET /api/healthz) and current main (0.9.6) — bundle detail now returns declared
+personalities + composite_loops sections, no schema change.
 """
 
-__version__ = "0.9.6"
+__version__ = "0.9.7"
