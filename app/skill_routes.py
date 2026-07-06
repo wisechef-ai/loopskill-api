@@ -1186,6 +1186,8 @@ def get_skill_detail(slug: str, request: Request, db: Session = Depends(get_db))
         upstream_status=getattr(skill, "upstream_status", "active") or "active",
         external_resources=external_payload,
         unhappy_paths_count=unhappy_count,
+        kind=getattr(skill, "kind", "skill") or "skill",
+        loop_spec=getattr(skill, "loop_spec", None),
         versions=[
             {
                 "id": v.id,
