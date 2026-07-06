@@ -198,6 +198,9 @@ def create_app() -> FastAPI:
     from app.dashboard_routes import router as dashboard_router  # activate_0701 Phase C
 
     app.include_router(dashboard_router)  # activate_0701 Phase C
+    from app.fleet_console_routes import router as fleet_console_router  # feat/fleet-console-state
+
+    app.include_router(fleet_console_router)  # feat/fleet-console-state
     from app.org_routes import router as org_router  # activate_0701 Phase TEN
 
     app.include_router(org_router, tags=["orgs"])  # activate_0701 Phase TEN
