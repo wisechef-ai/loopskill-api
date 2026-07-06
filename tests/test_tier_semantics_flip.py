@@ -7,6 +7,7 @@ Integration tests:
 4. Operator tier unlimited installs (no rate-limit headers)
 5. Rate limit resets daily
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -36,6 +37,7 @@ from app.models import (
 
 # ── DB fixtures ────────────────────────────────────────────────────────────
 
+
 @pytest.fixture(scope="module")
 def engine_fixture():
     engine = create_engine(
@@ -43,9 +45,11 @@ def engine_fixture():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
     @event.listens_for(engine, "connect")
     def _pragma(conn, _record):
         conn.execute("PRAGMA foreign_keys=ON")
+
     Base.metadata.create_all(bind=engine)
     yield engine
     Base.metadata.drop_all(bind=engine)
@@ -55,7 +59,22 @@ def engine_fixture():
 def db(engine_fixture) -> Generator[Session, None, None]:
     connection = engine_fixture.connect()
     transaction = connection.begin()
-    SessionLocal = sessionmaker(bind=connection, autocommit=False, autoflush=False)
+    # expire_on_commit=False: issue #52 — with the default (True), every
+    # ``db.commit()`` expires all loaded instances, so a later attribute
+    # access like ``skills[i].id`` triggers a ``_load_expired`` SELECT on the
+    # shared in-memory SQLite connection. That reload can race with the
+    # TestClient request thread (StaticPool shares ONE connection across
+    # threads), intermittently misaligning row values — a float landed in the
+    # UUID column processor (`'float' object has no attribute 'replace'`).
+    # Keeping attributes live after commit removes the mid-test lazy reload
+    # entirely; these tests assert on HTTP responses, not on DB-refreshed ORM
+    # state, so the semantics change is safe.
+    SessionLocal = sessionmaker(
+        bind=connection,
+        autocommit=False,
+        autoflush=False,
+        expire_on_commit=False,
+    )
     session = SessionLocal()
     try:
         yield session
@@ -79,7 +98,9 @@ def patched_client(db, engine_fixture) -> TestClient:
     # Wire the test engine into both the dependency injection AND the
     # middleware's direct SessionLocal() calls.
     test_session_factory = sessionmaker(
-        bind=engine_fixture, autocommit=False, autoflush=False,
+        bind=engine_fixture,
+        autocommit=False,
+        autoflush=False,
     )
 
     def _override_get_db():
@@ -99,8 +120,8 @@ def patched_client(db, engine_fixture) -> TestClient:
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
-def _make_skill(db, slug="test-skill", title="Test Skill", tier="pro_plus",
-                is_public=True):
+
+def _make_skill(db, slug="test-skill", title="Test Skill", tier="pro_plus", is_public=True):
     s = Skill(
         id=uuid.uuid4(),
         slug=slug,
