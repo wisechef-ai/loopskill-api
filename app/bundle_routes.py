@@ -345,6 +345,69 @@ def _to_cb_out(cb: Bundle) -> dict:
     ).model_dump(mode="json")
 
 
+def _artifacts_for(db: Session, bundle_id: UUID) -> dict:
+    """Declared non-skill artifacts for a bundle detail response.
+
+    feat/bundle-detail-artifact-parity: reconcile already SERVES declared
+    personalities and composite loops (activate_0701 Phase A2), and
+    ``loopskill_bundle_deploy`` (MCP, Phase F1) WRITES them — but the bundle
+    detail read path only ever returned skills, so the portal (and any owner
+    reading over HTTP) could not see what the fleet was actually converging
+    on. This closes the read gap. Best-effort per section: a query hiccup
+    yields an empty list for that section, never a 500 (skills remain the
+    load-bearing data).
+    """
+    from app.models import (
+        BundleCompositeLoop,
+        BundlePersonality,
+        CompositeLoop,
+        Personality,
+    )
+
+    out: dict = {"personalities": [], "composite_loops": []}
+    try:
+        rows = (
+            db.query(BundlePersonality, Personality)
+            .join(Personality, Personality.id == BundlePersonality.personality_id)
+            .filter(BundlePersonality.bundle_id == bundle_id)
+            .all()
+        )
+        out["personalities"] = [
+            {
+                "slug": p.slug,
+                "title": p.title,
+                "description": p.description,
+                "pinned_version": bp.pinned_version,
+                "is_public": bool(p.is_public),
+            }
+            for bp, p in rows
+        ]
+    except Exception:  # noqa: BLE001  # Rationale: section is best-effort; skills are load-bearing.
+        logger.exception("bundle %s: personalities section failed", bundle_id)
+    try:
+        rows = (
+            db.query(BundleCompositeLoop, CompositeLoop)
+            .join(CompositeLoop, CompositeLoop.id == BundleCompositeLoop.composite_loop_id)
+            .filter(BundleCompositeLoop.bundle_id == bundle_id)
+            .all()
+        )
+        out["composite_loops"] = [
+            {
+                "slug": cl.slug,
+                "title": cl.title,
+                "description": cl.description,
+                "schedule": cl.schedule,
+                "verifier_slug": cl.verifier_slug,
+                "skills": [s.get("slug") for s in (cl.skills or []) if isinstance(s, dict) and s.get("slug")],
+                "is_public": bool(cl.is_public),
+            }
+            for _bcl, cl in rows
+        ]
+    except Exception:  # noqa: BLE001  # Rationale: section is best-effort; skills are load-bearing.
+        logger.exception("bundle %s: composite_loops section failed", bundle_id)
+    return out
+
+
 def _cookbook_signals(db: Session, cb: Bundle, skills: list[dict]) -> dict:
     """portal_0610 J6 — living-object signals for a cookbook detail page.
 
@@ -658,6 +721,9 @@ def get_cookbook(
     # portal_0610 J6 — living-object signals (the bundle is alive, not a static
     # list). All honest, organic-only counts; the frontend renders what's present.
     out["signals"] = _cookbook_signals(db, cb, out["skills"])
+    # feat/bundle-detail-artifact-parity — declared personalities + composite
+    # loops (the Kopadze artifact classes reconcile already serves).
+    out.update(_artifacts_for(db, cb.id))
     return out
 
 

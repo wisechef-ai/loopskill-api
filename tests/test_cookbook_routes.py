@@ -300,9 +300,7 @@ class TestListDetail:
         db_session.flush()
         db_session.add(BundleSkill(bundle_id=cb.id, skill_id=catalog.id, source="forked"))
         db_session.add(
-            BundleSkill(
-                bundle_id=cb.id, skill_id=tailored.id, source="custom-added", pinned_version="1.2.3"
-            )
+            BundleSkill(bundle_id=cb.id, skill_id=tailored.id, source="custom-added", pinned_version="1.2.3")
         )
         db_session.commit()
 
@@ -330,6 +328,86 @@ class TestListDetail:
         assert tai["pinned_version"] == "1.2.3"
         # corrections_absorbed is best-effort; present and an int (0 when no data)
         assert isinstance(tai["corrections_absorbed"], int)
+
+    def test_get_detail_artifact_parity_empty(self, db_session):
+        """feat/bundle-detail-artifact-parity: bundle detail always carries
+        personalities + composite_loops sections (empty lists when nothing is
+        declared) so the portal can render/self-hide deterministically."""
+        user = _make_user(db_session, tier="pro_plus")
+        cb = Bundle(id=uuid4(), name="Bare", bundle_owner=user.id)
+        db_session.add(cb)
+        db_session.commit()
+
+        app = _make_app(db_session, api_key_user_id=user.id)
+        with TestClient(app) as client:
+            r = client.get(f"/api/cookbooks/{cb.id}")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["personalities"] == []
+        assert body["composite_loops"] == []
+
+    def test_get_detail_includes_declared_personalities_and_loops(self, db_session):
+        """feat/bundle-detail-artifact-parity: what loopskill_bundle_deploy
+        WRITES (BundlePersonality / BundleCompositeLoop) the detail read must
+        RETURN — read parity with the reconcile serve path (Phase A2)."""
+        from app.models import (
+            BundleCompositeLoop,
+            BundlePersonality,
+            CompositeLoop,
+            Personality,
+        )
+
+        user = _make_user(db_session, tier="pro_plus")
+        cb = Bundle(id=uuid4(), name="Fleet CB", bundle_owner=user.id)
+        db_session.add(cb)
+        db_session.flush()
+
+        pers = Personality(
+            id=uuid4(),
+            slug="research-analyst",
+            title="Research Analyst",
+            description="Methodical research persona.",
+            system_prompt="You are a methodical research analyst.",
+            is_public=True,
+        )
+        loop = CompositeLoop(
+            id=uuid4(),
+            slug="atomic-habits",
+            title="Atomic Habits",
+            description="1% daily improvement loop.",
+            schedule="24h",
+            skills=[{"slug": "skill-creator"}, {"slug": "writing-skills"}],
+            subagents_config={"maker": {"model_tier": "sonnet", "toolsets": []}},
+            verifier_slug="test-green-loop",
+            prompt="Ship one 1% improvement.",
+            is_public=True,
+        )
+        db_session.add_all([pers, loop])
+        db_session.flush()
+        db_session.add(BundlePersonality(bundle_id=cb.id, personality_id=pers.id, pinned_version="1.0.0"))
+        db_session.add(BundleCompositeLoop(bundle_id=cb.id, composite_loop_id=loop.id))
+        db_session.commit()
+
+        app = _make_app(db_session, api_key_user_id=user.id)
+        with TestClient(app) as client:
+            r = client.get(f"/api/cookbooks/{cb.id}")
+        assert r.status_code == 200, r.text
+        body = r.json()
+
+        assert len(body["personalities"]) == 1
+        p = body["personalities"][0]
+        assert p["slug"] == "research-analyst"
+        assert p["title"] == "Research Analyst"
+        assert p["pinned_version"] == "1.0.0"
+        assert p["is_public"] is True
+
+        assert len(body["composite_loops"]) == 1
+        cl = body["composite_loops"][0]
+        assert cl["slug"] == "atomic-habits"
+        assert cl["schedule"] == "24h"
+        assert cl["verifier_slug"] == "test-green-loop"
+        assert cl["skills"] == ["skill-creator", "writing-skills"]
+        assert cl["is_public"] is True
 
 
 # ─────────────────────────── Skill add/remove ───────────────────────────
