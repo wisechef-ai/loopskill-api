@@ -25,6 +25,7 @@ from app.models import (
     FleetMember,
     LoopRun,
     LoopRunDailyRollup,
+    MemberLockfileSnapshot,
     SkillErrorReport,
 )
 
@@ -36,6 +37,7 @@ MAX_LOOP_RUNS = 200
 MAX_SKILL_ERRORS = 100
 MAX_CRON_FAILED = 50
 MAX_FIELD_LEN = 2000
+MAX_LOCKFILE_SKILLS = 500  # feat/fleet-console-state — cap per snapshot
 
 # Server-side body cap (checked in the route handler before JSON parse).
 MAX_BODY_BYTES = 256 * 1024  # 256 KB
@@ -167,8 +169,46 @@ def ingest_sync_report(
         )
         cron_stored = True
 
-    # Bump FleetMember.updated_at as the liveness marker (D9: lockfile_state
-    # is NOT stored as rows — drift computation stays in the reconcile endpoint).
+    # ── lockfile_state (feat/fleet-console-state) ────────────────────────────
+    # ONE latest-state row per member, upserted — O(fleet size) not O(time),
+    # so this stays within the D9 data-efficiency posture. Answers "what is
+    # actually installed on this agent right now" for the fleet console.
+    lockfile_state = payload.get("lockfile_state")
+    lockfile_stored = False
+    if isinstance(lockfile_state, list):
+        capped = lockfile_state[:MAX_LOCKFILE_SKILLS]
+        if len(lockfile_state) > MAX_LOCKFILE_SKILLS:
+            truncated["lockfile_state"] = len(lockfile_state) - MAX_LOCKFILE_SKILLS
+        clean = [
+            {
+                "slug": (s.get("slug") or "")[:255],
+                "pinned_version": (s.get("pinned_version") or None),
+                # Agents' collector scripts ship the checksum as "sha256";
+                # the raw lockfile field is "checksum_sha256". Accept both.
+                "checksum_sha256": (s.get("checksum_sha256") or s.get("sha256") or None),
+            }
+            for s in capped
+            if isinstance(s, dict) and s.get("slug")
+        ]
+        snap = db.query(MemberLockfileSnapshot).filter(MemberLockfileSnapshot.member_id == member.id).first()
+        if snap is None:
+            db.add(
+                MemberLockfileSnapshot(
+                    member_id=member.id,
+                    fleet_id=member.fleet_id,
+                    skills=clean,
+                    cycle_ts=(payload.get("cycle_ts") or None),
+                )
+            )
+        else:
+            snap.skills = clean
+            snap.cycle_ts = payload.get("cycle_ts") or None
+            snap.reported_at = now
+        lockfile_stored = True
+
+    # Bump FleetMember.updated_at as the liveness marker (drift computation
+    # stays in the reconcile endpoint; the snapshot above is the console's
+    # actual-state read surface).
     member.updated_at = now
 
     db.commit()
@@ -177,6 +217,7 @@ def ingest_sync_report(
         "loop_runs": len(loop_runs),
         "skill_errors": len(skill_errors),
         "cron_health": cron_stored,
+        "lockfile_state": lockfile_stored,
     }
     return recorded, truncated
 

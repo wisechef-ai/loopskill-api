@@ -1579,6 +1579,37 @@ class CronHealthSnapshot(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
 
+class MemberLockfileSnapshot(Base):
+    """feat/fleet-console-state — the agent's ACTUAL installed state, latest only.
+
+    The sync-report has carried ``lockfile_state`` since Phase T, but the
+    server discarded it (D9 kept only a liveness bump). That made the one
+    question a fleet console must answer — "what is REALLY on this agent
+    right now?" — unanswerable. This table stores exactly ONE row per member
+    (upsert on every sync-report), so cost is O(fleet size), not O(time):
+    100 agents = 100 rows, D9-compatible.
+
+    ``skills`` is the raw lockfile list: [{slug, pinned_version,
+    checksum_sha256}]. Drift/extras are computed at READ time against the
+    declared bundle — never stored (single source of truth stays the bundle).
+    """
+
+    __tablename__ = "member_lockfile_snapshots"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    member_id = Column(UUID(as_uuid=True), nullable=False, unique=True, index=True)
+    fleet_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    skills = Column(JSON, nullable=False, default=list)
+    cycle_ts = Column(String(64), nullable=True)
+    reported_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+        index=True,
+    )
+
+
 class SkillErrorReport(Base):
     """Agent-reported skill error from the sync cycle.
 

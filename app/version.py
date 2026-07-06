@@ -23,6 +23,12 @@ feat/org-scoped-bundle-reads: bumped past live prod (0.9.7, verified via
 GET /api/healthz) and current main (0.9.7) — org members get READ access to
 org-scoped bundles (list/detail/manifest/sync/feedback-config), mirroring the
 TEN org rule that fleets already had. Writes stay owner-only. No schema change.
+
+feat/fleet-console-state: bumped past live prod (0.9.8, verified via
+GET /api/healthz) and current main (0.9.8) — sync-report lockfile_state is now
+PERSISTED (member_lockfile_snapshots, one upserted row per member) and served
+via GET /fleets/{id}/members/{mid}/state + GET /fleets/{id}/inventory
+(installed / drift / extras). Schema change: fc0706_lockfile_snap migration.
 """
 
-__version__ = "0.9.8"
+__version__ = "0.9.9"

@@ -92,6 +92,7 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.org_routes", "router", ""),  # activate_0701 Phase TEN
     ("app.voice_routes", "router", ""),  # activate_0701 Phase FB
     ("app.dashboard_routes", "router", ""),  # activate_0701 Phase C
+    ("app.fleet_console_routes", "router", ""),  # feat/fleet-console-state
     ("app.loop_routes", "router", ""),  # dual-mount /api/loops + /api/verifiers
     ("app.personality_routes", "router", "/api"),
     ("app.search_routes", "router", "/api"),  # feat/unified-search
