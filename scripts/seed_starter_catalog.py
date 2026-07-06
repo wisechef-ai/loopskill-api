@@ -681,21 +681,47 @@ def _get_or_create_house_creator(db):
     return row
 
 
+# ── Discovery tags (browse-filter metadata) ──────────────────────────────────
+# Slug-keyed tag lists surfaced on each LoopVersion manifest (F-API-14:
+# manifest carries category, tags, tier). Loops already carry a `category`
+# (the current browse filter axis); tags widen discovery to multi-facet search
+# so a zero-run loop becomes findable by any of its facets, not just its single
+# category. Data-only: no schema change, no tier/pricing/Stripe touched. The
+# Verifier.tags column + list_verifiers tag-filter query is the next-cycle wiring
+# (see atomic-habits next_cycle_deferred 2026-07-05).
+LOOP_TAGS_BY_SLUG: dict[str, list[str]] = {
+    "hello-world-loop": ["example", "getting-started", "self-contained", "no-network"],
+    "pr-review-loop": ["code-review", "github", "ci", "pull-request"],
+    "daily-briefing-loop": ["scheduling", "reporting", "digest", "productivity"],
+    "test-green-loop": ["testing", "ci", "pytest", "quality-gate"],
+    "lint-clean-loop": ["linting", "ci", "code-quality", "formatting"],
+    "secret-scan-loop": ["security", "secrets", "scanning", "ci"],
+    "changelog-from-commits-loop": ["changelog", "git", "release", "documentation"],
+    "doc-coverage-loop": ["documentation", "coverage", "quality", "ci"],
+    "json-schema-validate-loop": ["json", "schema", "validation", "data"],
+}
+
+
 def _loop_manifest_toml(spec: dict) -> str:
     """Build a minimal verifier.toml manifest string from a starter spec.
 
     A LoopVersion needs a manifest so the runner/install hero has something to
     surface. This mirrors the structured contract already stored on the Loop row.
+    The [loop] section also carries category + discovery tags (F-API-14) so the
+    browse surface can facet on them.
     """
     import json
 
     budget = spec.get("budget_usd")
+    tags = LOOP_TAGS_BY_SLUG.get(spec["slug"], spec.get("tags", []))
     lines = [
         "[loop]",
         f'slug = "{spec["slug"]}"',
         f'title = "{spec["title"]}"',
         f'license = "{spec.get("license", "MIT")}"',
         f'tier = "{spec.get("tier", "free")}"',
+        f'category = "{spec.get("category", "")}"',
+        f"tags = {json.dumps(tags)}",
         "",
         "[contract]",
         f'max_turns = {spec.get("max_turns", 25)}',
@@ -748,22 +774,30 @@ def _seed_loops(db) -> int:
         # Seed a v1.0.0 LoopVersion if the loop has none. Without a version the
         # /api/loops browse hero returns latest_version=null and the runner/install
         # CTA has nothing to surface — the dead cold-start conversion path.
-        has_version = (
+        existing_version = (
             db.query(LoopVersion)
             .filter(LoopVersion.loop_id == loop.id, LoopVersion.semver == "1.0.0")
             .first()
-            is not None
         )
-        if not has_version:
+        fresh_manifest = _loop_manifest_toml(spec)
+        if existing_version is None:
             db.add(
                 LoopVersion(
                     id=uuid4(),
                     loop_id=loop.id,
                     semver="1.0.0",
-                    manifest=_loop_manifest_toml(spec),
+                    manifest=fresh_manifest,
                     changelog="Initial starter release.",
                 )
             )
+        elif existing_version.manifest != fresh_manifest:
+            # Idempotent manifest refresh: an already-seeded loop keeps its
+            # v1.0.0 version, but if the starter spec's derived manifest changed
+            # (e.g. discovery tags were added), push the fresh manifest so the
+            # live browse surface reflects it on the next deploy. Without this,
+            # metadata edits only reach fresh clones — the "code shipped but data
+            # not migrated" trap. Content-diff guarded so re-runs are no-ops.
+            existing_version.manifest = fresh_manifest
 
     return created
 
