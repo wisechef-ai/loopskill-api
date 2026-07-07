@@ -1,4 +1,5 @@
 """Phase 5 tests — Stripe SDK pin + webhook signature regression."""
+
 from __future__ import annotations
 
 import hashlib
@@ -11,16 +12,16 @@ from importlib.metadata import version as _pkg_version
 import pytest
 
 
-def test_stripe_pinned_to_15_1_0():
-    """requirements.txt pins stripe==15.1.0 exact, NOT >=15.
+def test_stripe_pinned_to_15_3_0():
+    """requirements.txt pins stripe==15.3.0 exact, NOT >=15.
 
     Per F5 mitigation in the v7.1 plan: don't allow Stripe to silently
     upgrade us into the SDK 16.x territory (which has more dict-vs-object
     serialization surprises). Pin exact, bump deliberately.
     """
     installed = _pkg_version("stripe")
-    assert installed == "15.1.0", (
-        f"Expected stripe==15.1.0 (per requirements.txt pin), got {installed}. "
+    assert installed == "15.3.0", (
+        f"Expected stripe==15.3.0 (per requirements.txt pin), got {installed}. "
         f"This means requirements.txt was loosened or the venv is stale."
     )
 
@@ -30,13 +31,15 @@ def test_stripe_version_accessible_via_metadata_not_dunder():
     or importlib.metadata.version('stripe'). This test documents the quirk.
     """
     import stripe
+
     # The dunder attribute was removed in 15.x; legacy code that did
     # `stripe.__version__` will crash. Verify our codebase doesn't rely on it.
     with pytest.raises(AttributeError):
         _ = stripe.__version__  # noqa: B015 — intentionally trip the error
     # The correct path:
     from stripe._version import VERSION
-    assert VERSION == "15.1.0"
+
+    assert VERSION == "15.3.0"
 
 
 def test_webhook_construct_event_with_signed_payload(monkeypatch):
@@ -111,9 +114,7 @@ def test_synthetic_probe_script_imports():
     import importlib.util
     import pathlib
 
-    script = (
-        pathlib.Path(__file__).parent.parent / "scripts" / "stripe_synthetic_probe.py"
-    )
+    script = pathlib.Path(__file__).parent.parent / "scripts" / "stripe_synthetic_probe.py"
     assert script.exists(), f"missing: {script}"
     spec = importlib.util.spec_from_file_location("stripe_synthetic_probe", script)
     module = importlib.util.module_from_spec(spec)
@@ -133,9 +134,7 @@ def test_synthetic_probe_fails_without_credentials(monkeypatch, capsys):
     monkeypatch.delenv("STRIPE_SECRET_KEY", raising=False)
     monkeypatch.delenv("STRIPE_WEBHOOK_SECRET", raising=False)
 
-    script = (
-        pathlib.Path(__file__).parent.parent / "scripts" / "stripe_synthetic_probe.py"
-    )
+    script = pathlib.Path(__file__).parent.parent / "scripts" / "stripe_synthetic_probe.py"
     spec = importlib.util.spec_from_file_location("stripe_synthetic_probe", script)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
