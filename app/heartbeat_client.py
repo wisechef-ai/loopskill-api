@@ -22,7 +22,9 @@ _DISABLED_VALUES = frozenset({"off", "0", "false", "no", "disable", "disabled"})
 
 def telemetry_disabled() -> bool:
     """Return True if the RECIPES_TELEMETRY env var is set to a disabled value."""
-    raw = os.environ.get("RECIPES_TELEMETRY")
+    raw = os.environ.get(
+        "RECIPES_TELEMETRY"
+    )  # TODO(rename): env var still uses legacy name for prod compatibility
     if raw is None:
         return False
     return raw.strip().lower() in _DISABLED_VALUES

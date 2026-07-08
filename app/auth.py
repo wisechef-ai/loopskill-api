@@ -1,4 +1,4 @@
-"""GitHub & Google OAuth authentication for WiseRecipes creators.
+"""GitHub & Google OAuth authentication for LoopSkill creators.
 
 Flow:
 1. Creator clicks "Sign in with GitHub/Google" -> redirects to OAuth provider

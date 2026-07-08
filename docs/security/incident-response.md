@@ -3,7 +3,7 @@
 > **Classification:** Internal security procedure  
 > **Owner:** wisechef-ai/platform-security  
 > **Last updated:** 2026-05-28  
-> **Applies to:** wisechef-ai/recipes-api and all repos under the `wisechef-ai` GitHub org
+> **Applies to:** wisechef-ai/loopskill-api (repo renamed from `wisechef-ai/recipes-api`) and all repos under the `wisechef-ai` GitHub org
 
 ---
 

@@ -79,9 +79,13 @@ def post_revenue_event(
 
     Never raises. If both transports are unconfigured, returns silently.
     """
-    webhook_url = os.environ.get("RECIPES_REVENUE_WEBHOOK_URL", "").strip()
+    webhook_url = os.environ.get(
+        "RECIPES_REVENUE_WEBHOOK_URL", ""
+    ).strip()  # TODO(rename): env var still uses legacy name for prod compatibility
     bot_token = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
-    channel_id = os.environ.get("RECIPES_REVENUE_CHANNEL_ID", "").strip()
+    channel_id = os.environ.get(
+        "RECIPES_REVENUE_CHANNEL_ID", ""
+    ).strip()  # TODO(rename): env var still uses legacy name for prod compatibility
 
     has_webhook = bool(webhook_url)
     has_bot = bool(bot_token and channel_id)

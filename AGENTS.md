@@ -1,7 +1,8 @@
-# AGENTS.md — Recipes API contributor guide for AI agents
+# AGENTS.md — LoopSkill API contributor guide for AI agents
 
 This file describes the repo layout, auth flow, and toolchain conventions for
-AI coding agents (Codex, Claude Code, etc.) working on `wisechef-ai/recipes-api`.
+AI coding agents (Codex, Claude Code, etc.) working on `wisechef-ai/loopskill-api`
+(repo renamed from `wisechef-ai/recipes-api`; GitHub auto-redirects the old name).
 
 ---
 

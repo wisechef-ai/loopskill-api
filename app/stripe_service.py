@@ -1,4 +1,4 @@
-"""Stripe Connect Express service for WiseRecipes creator payouts.
+"""Stripe Connect Express service for LoopSkill creator payouts.
 
 Handles:
 - Creating Stripe Connect Express accounts for EU creators

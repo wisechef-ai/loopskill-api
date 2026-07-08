@@ -1,4 +1,4 @@
-"""Boot-time startup checks for WiseRecipes API.
+"""Boot-time startup checks for LoopSkill API.
 
 These checks run during the FastAPI lifespan startup phase and are intentionally
 fail-soft — any exception is caught so the service always starts.

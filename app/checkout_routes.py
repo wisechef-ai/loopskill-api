@@ -1,4 +1,4 @@
-"""Stripe Checkout subscription routes for Recipes by WiseChef.
+"""Stripe Checkout subscription routes for LoopSkill.
 
 POST /api/checkout/{tier}     — create a Stripe Checkout Session for a tier
 GET  /api/billing/me          — current user's subscription state (cookie auth)

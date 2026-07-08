@@ -1,4 +1,4 @@
-"""Sandbox runner for WiseRecipes skill execution.
+"""Sandbox runner for LoopSkill skill execution.
 
 Uses bubblewrap (bwrap) or firejail to isolate skill setup/execution with:
   - Network egress filtering per manifest allowlist (via domain proxy)

@@ -214,9 +214,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    api_key = args.api_key or os.environ.get("RECIPES_API_KEY", "")
+    api_key = args.api_key or os.environ.get(
+        "RECIPES_API_KEY", ""
+    )  # TODO(rename): env var still uses legacy name for prod compatibility
     if not api_key:
-        print("recipes-reconcile: no API key (pass --api-key or set RECIPES_API_KEY)", file=sys.stderr)
+        print("loopskill-reconcile: no API key (pass --api-key or set RECIPES_API_KEY)", file=sys.stderr)
         return 2
 
     try:

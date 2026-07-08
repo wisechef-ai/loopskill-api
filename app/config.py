@@ -1,4 +1,4 @@
-"""WiseRecipes API — configuration via env vars."""
+"""LoopSkill API — configuration via env vars."""
 
 import os
 
@@ -84,6 +84,9 @@ def _assert_production_secrets(settings: "Settings") -> None:
 
 
 class Settings(BaseSettings):
+    # TODO(rename): env var still uses legacy name for prod compatibility.
+    #   WR_* prefix (env_prefix below) and RECIPES_API_KEY are LIVE in production.
+    #   Renaming requires a coordinated cutover (see issue #63 proposal).
     DATABASE_URL: str = "postgresql://wisechef@localhost/wiserecipes"
     API_KEY: str = "rec_dev_wiserecipes_local_testing_key"  # must start with rec_
     SIGNING_SECRET: str = "wr-tarball-signing-secret-change-me"
@@ -160,6 +163,7 @@ class Settings(BaseSettings):
     FOUNDER_PUBLISHER_LIMIT: int = 50
 
     # Skill publisher — tarball storage root
+    # TODO(rename): env var still uses legacy name for prod compatibility.
     RECIPES_SKILLS_DIR: str = "/var/lib/recipes-skills"
 
     # Phase D — heartbeat anonymity pepper (rotate cautiously: rotation

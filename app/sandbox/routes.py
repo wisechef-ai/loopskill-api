@@ -1,4 +1,4 @@
-"""Sandbox API routes for WiseRecipes.
+"""Sandbox API routes for LoopSkill.
 
 Endpoints:
   POST /api/skills/{slug}/sandbox/run   — execute a skill's sandbox entrypoint
