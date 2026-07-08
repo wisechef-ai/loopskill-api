@@ -217,16 +217,25 @@ def list_members(
             after_uuid = UUID(after)
         except (ValueError, AttributeError):
             raise HTTPException(status_code=422, detail="invalid_after")
-        cursor_member = db.query(FleetMember).filter(FleetMember.id == after_uuid).first()
+        cursor_member = (
+            db.query(FleetMember)
+            .filter(FleetMember.id == after_uuid, FleetMember.fleet_id == fleet.id)
+            .first()
+        )
         if cursor_member is not None:
-            # Keyset cursor: skip everything up to and including the cursor member.
-            # We use a raw text() predicate because SQLAlchemy's UUID type binding
-            # and SQLite's datetime format (no microsecond suffix) make the ORM-level
-            # (created_at, id) compound comparison unreliable across SQLite/Postgres.
-            # Ordering by (created_at, id) remains in the ORDER BY for stable display;
-            # the filter uses id > cursor_id_hex since ids are globally unique.
+            # Compound keyset cursor matching the ORDER BY (created_at, id).
+            # The previous predicate was `id > cursor_id` alone — which breaks
+            # when created_at differs between rows (a member with a later
+            # created_at but lex-smaller id gets skipped). We now use the
+            # standard row-value predicate: (created_at, id) > (cursor_ca, cursor_id).
+            # The id comparison is on the hex form SQLAlchemy stores on SQLite
+            # (32 chars, no dashes) — we pass the stripped hex so the param type
+            # matches the stored representation on both SQLite and Postgres.
+            cursor_ca = cursor_member.created_at
             cursor_id_hex = str(cursor_member.id).replace("-", "")
-            q = q.filter(text("id > :cursor_id_hex")).params(cursor_id_hex=cursor_id_hex)
+            q = q.filter(text("(created_at > :c_ca) OR (created_at = :c_ca AND id > :c_id)")).params(
+                c_ca=cursor_ca, c_id=cursor_id_hex
+            )
 
     # Fetch limit+1 to know whether there's a next page.
     rows = q.limit(limit + 1).all()
