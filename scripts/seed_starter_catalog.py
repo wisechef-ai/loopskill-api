@@ -52,10 +52,8 @@ STARTER_LOOPS = [
         "slug": "hello-world-loop",
         "title": "Hello World Loop",
         "description": (
-            "The 30-second proof that a LoopSkill loop actually RUNS. Its "
-            "verification script is fully self-contained — no external tools, no "
-            "network, no credentials — so `POST /api/loops/hello-world-loop/run` "
-            "returns passed=true on a fresh self-host instance. Start here."
+            "Writes a file and verifies it back in a single turn, no tools or "
+            "network required — proves your loop actually runs before you build anything real."
         ),
         "category": "examples",
         "readme": (
@@ -102,10 +100,8 @@ STARTER_LOOPS = [
         "slug": "pr-review-loop",
         "title": "PR Review Loop",
         "description": (
-            "Autonomous pull-request reviewer. Runs on every new PR, posts "
-            "a structured review comment, and exits cleanly. Safety-bounded "
-            "with a 10-turn ceiling and a verification script that checks the "
-            "comment was posted."
+            "Reviews a pull request's diff on every open PR and posts a structured "
+            "bugs/performance/style comment — verifies the comment landed before it exits."
         ),
         "category": "development",
         "readme": (
@@ -150,9 +146,8 @@ STARTER_LOOPS = [
         "slug": "daily-briefing-loop",
         "title": "Daily Briefing Loop",
         "description": (
-            "Autonomous daily digest generator. Scrapes configured sources, "
-            "summarises the top items, and sends a briefing. Runs in under "
-            "5 turns — safe, fast, and ready to schedule."
+            "Scrapes your configured sources each morning and writes a summarised "
+            "briefing file — five turns, ten cents, ready to schedule as a 30-min cron."
         ),
         "category": "productivity",
         "readme": (
@@ -199,10 +194,8 @@ STARTER_LOOPS = [
         "slug": "test-green-loop",
         "title": "Test-Green Loop (TDD)",
         "description": (
-            "Drive a change until the test suite is GREEN. The loop's contract is "
-            "the test command itself — the registry runs it and the exit code is "
-            "the objective verdict. The TDD workhorse: no change is 'done' until "
-            "the suite passes."
+            "Iterates on your code until the test suite exits green — the test run "
+            "itself is the verdict, no subjective 'looks done' calls allowed."
         ),
         "category": "development",
         "readme": (
@@ -264,9 +257,8 @@ STARTER_LOOPS = [
         "slug": "lint-clean-loop",
         "title": "Lint-Clean Loop",
         "description": (
-            "Iterate until the linter reports zero violations. The registry runs "
-            "the lint command; exit 0 is the verdict. Keeps a codebase's style "
-            "and static-analysis gate permanently green."
+            "Applies fixes until your linter reports zero violations — keeps a "
+            "codebase's style and static-analysis gate green on every run."
         ),
         "category": "development",
         "readme": (
@@ -305,10 +297,9 @@ STARTER_LOOPS = [
         "slug": "secret-scan-loop",
         "title": "Secret-Scan Loop",
         "description": (
-            "Prove a working tree carries no obvious leaked credentials before a "
-            "commit or publish. The registry runs the scan; exit 0 (no hits) is "
-            "the verdict. A pre-flight gate against the classic 'pushed an API "
-            "key' incident."
+            "Scans a working tree for leaked API keys, tokens, and credentials "
+            "before a commit — moves any hits to environment variables and "
+            "re-scans until clean."
         ),
         "category": "security",
         "readme": (
@@ -356,9 +347,9 @@ STARTER_LOOPS = [
         "slug": "changelog-from-commits-loop",
         "title": "Changelog-From-Commits Loop",
         "description": (
-            "Produce a release CHANGELOG and prove it exists and is non-trivial. "
-            "The registry verifies the artifact (a CHANGELOG.md with real "
-            "entries), so the loop can't 'succeed' with an empty file."
+            "Reads your commit history and writes a grouped CHANGELOG.md "
+            "(Added/Fixed/Changed) — verifies real entries exist so it can't pass "
+            "with an empty file."
         ),
         "category": "productivity",
         "readme": (
@@ -403,9 +394,8 @@ STARTER_LOOPS = [
         "slug": "doc-coverage-loop",
         "title": "Doc-Coverage Loop",
         "description": (
-            "Drive a Python module to full public-docstring coverage. The "
-            "registry runs an objective checker (every top-level def/class has a "
-            "docstring) — so 'documented' is measured, not asserted."
+            "Adds docstrings until every public function and class in a module "
+            "is documented — an AST check proves coverage, not a subjective guess."
         ),
         "category": "development",
         "readme": (
@@ -455,9 +445,8 @@ STARTER_LOOPS = [
         "slug": "json-schema-validate-loop",
         "title": "JSON-Schema-Validate Loop",
         "description": (
-            "Drive a data file until it validates against a JSON Schema. The "
-            "registry runs the validation; exit 0 is the verdict. The data-"
-            "wrangling workhorse — transform until the contract holds."
+            "Edits a data file until it validates against its JSON Schema — a "
+            "real structural check proves conformance instead of a claimed pass."
         ),
         "category": "data",
         "readme": (
