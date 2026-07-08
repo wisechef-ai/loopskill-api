@@ -359,15 +359,7 @@ async def get_me(
             # Read via tier_labels.cookbook_limit() so this never drifts from the
             # number bundle_routes.py enforces. Handles legacy slugs.
             "cookbook_limit": cookbook_limit(user.subscription_tier),
-            "cookbook_skill_cap": {
-                "free": 0,
-                "pro": 25,
-                "pro_plus": None,
-                # Legacy aliases for 30-day shim window (RCP-INCIDENT-2026-05-11)
-                "cook": 25,  # legacy alias → pro
-                "operator": None,  # legacy alias → pro_plus
-                "studio": None,  # legacy alias → pro_plus
-            }.get(user.subscription_tier, 0),
+            "cookbook_skill_cap": None,  # Removed — all tiers have unlimited skills per bundle
             "fleet_sync": _is_pro_plus_tier(user.subscription_tier),
             "fleet_seeker": _is_pro_plus_tier(user.subscription_tier),
             "subrecipe_priority_resolve": _is_pro_plus_tier(user.subscription_tier),

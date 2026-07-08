@@ -53,8 +53,9 @@ UNLIMITED_TIERS = {"pro_plus"}  # canonical; legacy slugs handled via shim
 ACTIVE_SUB_STATUSES = {"active", "trialing"}
 ALLOWED_SOURCES = {"forked", "custom-added", "overridden", "disabled"}
 
-# WIS-902: Pro tier skill cap per bundle
-COOK_SKILL_CAP = 25
+# Skill cap removed — all tiers have unlimited skills per bundle.
+# The tier gate is bundle COUNT, not skill count. Skills inside a bundle
+# are the value; capping them caps value.
 
 
 def _touch_bundle_generation(db: Session, cookbook_id: UUID) -> None:  # compat-alias
@@ -862,27 +863,6 @@ def add_skill_to_cookbook(
             "reactivated": True,
             "external": bool(body.external_source),
         }
-
-    # WIS-902: Pro tier skill cap
-    if ctx.tier == "pro" or ctx.tier == "cook":  # cook=legacy alias, remove after 2026-06-10
-        active_count = (
-            db.query(BundleSkill)
-            .filter(
-                BundleSkill.bundle_id == cb.id,  # compat-alias
-                BundleSkill.source != "disabled",
-            )
-            .count()
-        )
-        if active_count >= COOK_SKILL_CAP:
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "reason": "pro_skill_cap",
-                    "max_skills": COOK_SKILL_CAP,
-                    "current_count": active_count,
-                    "upgrade_to": "pro_plus",
-                },
-            )
 
     cs = BundleSkill(
         bundle_id=cb.id,

@@ -37,7 +37,9 @@ tiers:
     stripe_nickname: "Pro $9.95/mo"
     accent_color: "#3B82F6"
     badge: Pro
-    cookbook_limit: 10
+    # Raised from 10 to 200 — an integrator/agency managing client bundles
+    # needs 10+ just for clients. The tier gate is bundle COUNT, not skill count.
+    cookbook_limit: 200
 
   pro_plus:
     db_slug: pro_plus
