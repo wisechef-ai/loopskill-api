@@ -1,0 +1,116 @@
+name: Feedback Dispatcher
+
+# Receives repository_dispatch events from the LoopSkill API when users submit
+# feedback via the MCP tool (loopskill_feedback / recipes_feedback) or the
+# REST endpoint (POST /api/v1/feedback).
+#
+# Creates a labelled GitHub issue, then PATCHes the real issue URL back to the
+# API via the internal endpoint so callers can poll GET /api/feedback/{id}.
+#
+# This workflow is the missing receiver in the async feedback pipeline:
+#   API (store row + dispatch event) → THIS WORKFLOW (create issue + patch URL)
+
+on:
+  repository_dispatch:
+    types: [feedback, skill-error, publish-request, skill-patch]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  create-issue:
+    name: Create issue from ${{ github.event.action }}
+    runs-on: ubuntu-latest
+    # Only process events with the expected payload shape
+    if: github.event.client_payload.id
+
+    steps:
+      - name: Create GitHub issue
+        id: create_issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const payload = context.payload.client_payload;
+            const eventType = context.payload.action;
+
+            // Build title and body from the dispatch payload
+            const category = payload.category || 'general';
+            const message = payload.message || 'No message provided';
+            const agentId = payload.agent_id || 'unknown';
+            const signature = payload.signature || '';
+
+            // Map event types to labels
+            const labelMap = {
+              'feedback': ['feedback', category],
+              'skill-error': ['bug', 'skill-error'],
+              'publish-request': ['enhancement', 'publish-request'],
+              'skill-patch': ['enhancement', 'skill-patch'],
+            };
+            const labels = labelMap[eventType] || ['feedback'];
+
+            // Build issue body
+            let body = `**Category:** ${category}\n\n**Message:**\n${message}\n`;
+            if (signature) {
+              body += `\n**Signature:** \`${signature.substring(0, 16)}…\`\n`;
+            }
+            body += `\n**Submission ID:** ${payload.id}\n`;
+            body += `**Source:** MCP tool (agent: ${agentId})\n`;
+            body += `\n---\n_Auto-created by Feedback Dispatcher workflow from repository_dispatch event._`;
+
+            // Truncate title to fit GitHub limits
+            const titlePrefix = `[${category}]`;
+            const maxTitleLen = 256 - titlePrefix.length;
+            const titleSuffix = message.substring(0, maxTitleLen);
+            const title = `${titlePrefix} ${titleSuffix}${message.length > maxTitleLen ? '…' : ''}`;
+
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: labels.filter(l => l),
+            });
+
+            core.setOutput('issue_url', issue.data.html_url);
+            core.setOutput('issue_number', issue.data.number);
+            core.info(`Created issue #${issue.data.number}: ${issue.data.html_url}`);
+
+      - name: PATCH issue URL back to API
+        env:
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          INTERNAL_PATCH_TOKEN: ${{ secrets.INTERNAL_PATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          ISSUE_URL="${{ steps.create_issue.outputs.issue_url }}"
+          ROW_ID="${{ github.event.client_payload.id }}"
+
+          echo "Patching issue URL for row ${ROW_ID}: ${ISSUE_URL}"
+
+          # Determine table type from event action
+          case "${{ github.event.action }}" in
+            publish-request) TABLE="recipify" ;;
+            *) TABLE="feedback" ;;
+          esac
+
+          RESPONSE_CODE=$(
+            curl -s -o /tmp/patch_response.json -w "%{http_code}" \
+              -X PATCH \
+              -H "Content-Type: application/json" \
+              -H "X-Internal-Token: ${INTERNAL_PATCH_TOKEN}" \
+              -d "{\"issue_url\": \"${ISSUE_URL}\", \"table\": \"${TABLE}\"}" \
+              "${API_BASE_URL}/api/internal/feedback/${ROW_ID}/issue-url"
+          )
+
+          echo "PATCH response: ${RESPONSE_CODE}"
+          cat /tmp/patch_response.json
+          echo ""
+
+          if [ "${RESPONSE_CODE}" != "200" ]; then
+            echo "::warning::PATCH failed with status ${RESPONSE_CODE} — issue was created (${ISSUE_URL}) but URL not synced back to API"
+            # Don't fail the job — the issue exists, just the API sync failed
+            # The issue_url can be manually linked later
+          else
+            echo "Issue URL successfully synced to API"
+          fi
