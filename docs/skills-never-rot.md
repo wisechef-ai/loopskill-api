@@ -1,30 +1,30 @@
-# Your skills never rot — Recipes as your agent's control plane
+# Your skills never rot — LoopSkill as your agent's control plane
 
 > **Status:** shipped. The reconcile client is live in the catalog as
-> `recipes-cookbook-reconcile`, and the cold-path in this guide is verified
-> end-to-end (a fresh agent reproduces install → cookbook → sync with only the
-> public surfaces linked here).
+> `recipes-cookbook-reconcile` (legacy name, still works), and the cold-path in
+> this guide is verified end-to-end (a fresh agent reproduces install → cookbook
+> → sync with only the public surfaces linked here).
 
 Skills install once and then **rot**. You add a skill to your agent, the upstream
 author improves it next week, and your agent never finds out — it's running a
-stale copy, silently drifting toward outdated conventions. Recipes fixes this:
-hand your agent a **cookbook**, and its skills stay evergreen automatically, with
+stale copy, silently drifting toward outdated conventions. LoopSkill fixes this:
+hand your agent a **bundle**, and its skills stay evergreen automatically, with
 a safety guarantee no other skill platform offers — **a reconcile can never leave
 your agent broken.**
 
 ## The 60-second version
 
 ```bash
-# 1. Get your API key at recipes.wisechef.ai → settings → API keys
-export RECIPES_API_KEY=rec_li...n
+# 1. Get your API key at loopskill.io → settings → API keys
+export RECIPES_API_KEY=rec_li...n  # TODO(rename): env var still uses legacy name for prod compatibility
 
 # 2. Install the reconcile client (it's a free skill in the catalog)
 #    Your agent can do this itself via the MCP tool, or:
 #    fetch the recipes-cookbook-reconcile bundle and run its installer:
-bash scripts/install.sh --cookbook <YOUR_COOKBOOK_UUID>
+bash scripts/install.sh --cookbook <YOUR_BUNDLE_UUID>
 
 # 3. That's it. The installer auto-detected your host (Hermes/Codex/Claude),
-#    wired a 30-minute reconcile cron, and wrote a recipes-lock.json.
+#    wired a 30-minute reconcile cron, and wrote a lockfile.
 #    Your skills are now evergreen.
 ```
 
@@ -33,10 +33,10 @@ includes one):
 
 ```bash
 scripts/recipes-reconcile \
-  --cookbook <YOUR_COOKBOOK_UUID> \
-  --api https://recipes.wisechef.ai \
+  --cookbook <YOUR_BUNDLE_UUID> \
+  --api https://loopskill.io \
   --skills-dir ~/.hermes/skills \
-  --lockfile ~/.hermes/recipes-lock.json
+  --lockfile ~/.loopskill/state/lock.json
 ```
 
 You'll see a skill update **and auto-recover** in front of you. That's the taste.
@@ -58,7 +58,7 @@ the failure. Your agent never runs the broken version. This is *why GitOps beat
 manual deploys*, ported to agent skills.
 
 It's also **fast and cheap at scale**: the client polls with a conditional
-request, so when your cookbook hasn't changed the server answers in a single
+request, so when your bundle hasn't changed the server answers in a single
 indexed lookup (HTTP 304) and the client does nothing. When it *has* changed,
 only the skills whose content hash moved are pulled — and those come from
 Cloudflare's edge, not the origin. Thousands of agents reconcile on one modest
@@ -66,12 +66,12 @@ server.
 
 ## What you pay for: maintenance, not access
 
-The catalog is free. What Recipes charges for is **keeping your deployed agents
+The catalog is free. What LoopSkill charges for is **keeping your deployed agents
 correct over time**:
 
 | Tier | What you get |
 |---|---|
-| **Free** | Install any skill + one cookbook + **one manual sync** (the taste) |
+| **Free** | Install any skill + one bundle + **one manual sync** (the taste) |
 | **Pro** | **Scheduled auto-reconcile** — skills never rot, fully hands-off |
 | **Pro+** | **Fleet reconcile** across many agents + canary / stable / frozen channels |
 
@@ -83,7 +83,7 @@ reaching your production fleet. "Agents that execute without errors" isn't a hop
 
 ## How it stays current (including itself)
 
-The reconcile client ships **as a skill inside the cookbook it manages**, so it
+The reconcile client ships **as a skill inside the bundle it manages**, so it
 updates itself through the same loop. There is no fat daemon to maintain, no
 separate version to drift. The intelligence lives server-side (the reconcile
 engine); the host-side piece is a thin, self-contained trigger that rides your
@@ -95,6 +95,6 @@ connections.
 Everything in this guide was validated as a **cold agent** — a fresh install
 using only the public surfaces linked here, no insider shortcuts. The
 `recipes-cookbook-reconcile` bundle is self-contained (standard library only):
-install it, point it at your cookbook, and your skills are evergreen.
+install it, point it at your bundle, and your skills are evergreen.
 
-Start at [recipes.wisechef.ai](https://recipes.wisechef.ai).
+Start at [loopskill.io](https://loopskill.io).

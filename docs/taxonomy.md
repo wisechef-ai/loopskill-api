@@ -1,7 +1,8 @@
-# Recipes taxonomy (v7 — locked 2026-05-06)
+# LoopSkill taxonomy (v7 — locked 2026-05-06)
 
 This document is the **single source of truth** for tier and category vocabularies
-across the Recipes API, the WiseChef portal, the `recipes` MCP/CLI, and meta-skill
+across the LoopSkill API, the WiseChef portal, the `loopskill` MCP/CLI (legacy
+`recipes` tools still work via alias map), and meta-skill
 SKILL.md files. Anything that disagrees with this file is a bug.
 
 ## Tiers

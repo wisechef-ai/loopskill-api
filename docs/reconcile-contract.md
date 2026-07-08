@@ -2,10 +2,14 @@
 
 > **Status:** Phase A foundation. B/C/D/E/G all implement against this doc.
 > **Source of truth:** this file. If code and this doc disagree, fix one in the same PR.
-> **Mirrors:** Hermes `HubLockFile` (`hermes_cli/skills_hub.py`) — the proven host-side
+> **Mirrors:** Hermes `HubLockfile` (`hermes_cli/skills_hub.py`) — the proven host-side
 > lockfile→reconcile pattern. We deliberately copy its shape so the mental model transfers.
+>
+> **Terminology note:** "cookbook" is the legacy DB/code term for what is now called a
+> "bundle." MCP tool names (`recipes_cookbook_install`, etc.) still use the legacy prefix
+> for back-compat — see issue #63. Read "cookbook" = "bundle" throughout this doc.
 
-A cookbook is a **desired-state declaration**, not an append-only list. Reconcile is the
+A cookbook (bundle) is a **desired-state declaration**, not an append-only list. Reconcile is the
 act of converging an agent's local skills directory to its cookbook's declared state. The
 server computes the diff; the agent applies it (atomically, Phase D). Convergence is always
 a **pull** (Q2) — triggered three ways (SSE nudge / cron poll / manual `sync_requested_at` poke), never an
