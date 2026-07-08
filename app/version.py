@@ -51,6 +51,9 @@ fix/issue-52: bumped past current main (0.9.12) — deflakes
 test_cook_rate_limit_429 (UUID-decoded-as-float race in the shared in-memory
 SQLite test session, via expire_on_commit=False in test db fixture). Test-only
 change; bump keeps the healthz cutover-proof invariant intact.
+fix/issue-65-bounded-warning: bumped past main (0.9.13) — adds one-time
+security warning when bounded-mode loop execution runs permissively (same UID,
+no kernel sandbox). Closes #65.
 """
 
-__version__ = "0.9.13"
+__version__ = "0.9.17"
