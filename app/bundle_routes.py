@@ -721,6 +721,54 @@ def list_cookbooks(
     return {"cookbooks": [_to_cb_out(r) for r in rows]}
 
 
+class CookbookPatchIn(BaseModel):
+    """PATCH body for renaming/updating a cookbook."""
+
+    name: str | None = None
+    description: str | None = None
+
+
+@_h.patch("/{cookbook_id}")  # compat-alias
+def update_cookbook(
+    cookbook_id: str,
+    body: CookbookPatchIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """Rename or update description on a cookbook the caller owns.
+
+    Only the owner (or master) may rename; cbt_ share-tokens are scope-gated
+    out by the route guard. Returns the updated cookbook object.
+    """
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+
+    changed = False
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="invalid_name")
+        if len(name) > 200:
+            raise HTTPException(status_code=422, detail="name_too_long")
+        cb.name = name
+        changed = True
+
+    if body.description is not None:
+        desc = body.description.strip()
+        if len(desc) > 2000:
+            raise HTTPException(status_code=422, detail="description_too_long")
+        cb.description = desc or None
+        changed = True
+
+    if changed:
+        _touch_bundle_generation(db, cb.id)
+        db.commit()
+        db.refresh(cb)
+
+    return _to_cb_out(cb)
+
+
 @_h.get("/{cookbook_id}")  # compat-alias
 def get_cookbook(
     cookbook_id: str,
