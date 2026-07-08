@@ -37,20 +37,21 @@ tiers:
     stripe_nickname: "Pro $9.95/mo"
     accent_color: "#3B82F6"
     badge: Pro
-    # Raised from 10 to 200 — an integrator/agency managing client bundles
-    # needs 10+ just for clients. The tier gate is bundle COUNT, not skill count.
+    # Raised from 10 to 200 — Pro now includes all former Pro+ features.
+    # There is no Pro+ tier anymore (pricing page only shows Free + Pro).
+    # Existing pro_plus DB slugs are grandfathered with identical limits.
     cookbook_limit: 200
 
+  # pro_plus is retained for backward compat — existing subscribers with
+  # this DB slug keep working. No new pro_plus subscriptions can be created.
+  # The pricing page only offers Free and Pro. Functionally, Pro == old Pro+.
   pro_plus:
     db_slug: pro_plus
-    display_name: Pro+
+    display_name: Pro
     price_usd: 100
-    # Canonical env var (RCP-INCIDENT-2026-05-11 Phase 6). The resolver
-    # in app/subscription_service.py also accepts the legacy
-    # WR_STRIPE_PRICE_STUDIO as a fallback until 2026-06-10.
     price_id_env: WR_STRIPE_PRICE_PRO_PLUS
     price_id_env_legacy: WR_STRIPE_PRICE_STUDIO
-    stripe_nickname: "Pro+ $100/mo"
-    accent_color: "#D4A017"
-    badge: Pro+
+    stripe_nickname: "Pro+ $100/mo (grandfathered)"
+    accent_color: "#3B82F6"
+    badge: Pro
     cookbook_limit: 200

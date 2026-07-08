@@ -91,13 +91,18 @@ def _is_pro_tier(tier: str | None) -> bool:
 
 
 def _is_pro_plus_tier(tier: str | None) -> bool:
-    """Return True if tier is the pro_plus tier (or legacy 'operator'/'studio' slugs).
+    """Return True if tier has access to Pro+ features (fleet, subrecipe, etc).
 
-    # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
+    Post-tier-simplification (2026-07-08): Pro IS Pro+. The website only
+    advertises Free and Pro. Pro includes all former Pro+ features (fleet,
+    unlimited bundles, subrecipe priority). Existing pro_plus DB slugs and
+    legacy aliases (operator/studio) are still accepted for backward compat.
+
+    This now returns True for ANY paid tier — there is no tier above Pro.
     """
     if not tier:
         return False
-    return _canonical(tier) == "pro_plus"
+    return _is_paid_tier(tier)
 
 
 def _is_operator_tier(tier: str | None) -> bool:
