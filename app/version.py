@@ -56,4 +56,4 @@ separates quickstart (zero config) from production self-host (requires Postgres
 and secrets). Docs-only change. Closes #64.
 """
 
-__version__ = "0.9.14"
+__version__ = "0.9.15"
