@@ -723,6 +723,7 @@ def list_cookbooks(
 
 class CookbookPatchIn(BaseModel):
     """PATCH body for renaming/updating a cookbook."""
+
     name: str | None = None
     description: str | None = None
 
