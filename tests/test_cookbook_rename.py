@@ -1,8 +1,8 @@
 """tests/test_cookbook_rename.py — PATCH /api/cookbooks/{id} rename endpoint.
 
 Uses the same db_session fixture pattern as test_feedback_mcp.py.
-The bundle router is mounted at /api/cookbooks and require_cookbook_tier
-is overridden with a master ctx so all routes are callable.
+Creates a real User + Bundle row in the test DB, then overrides
+require_cookbook_tier with that user's ctx.
 
 Tests:
   1. Happy path: rename a cookbook (name update)
@@ -22,21 +22,35 @@ from sqlalchemy.orm import Session
 
 @pytest.fixture()
 def rename_client(db_session: Session):
-    """TestClient with bundle routes + db override + master auth ctx."""
+    """TestClient with bundle routes + db override + real user auth ctx."""
     from app.database import get_db
     from app.bundle_routes import router as bundle_router
     from app.bundle_routes import require_cookbook_tier, CookbookCtx
     from app.config import settings
+    from app.models import User
 
     test_app = FastAPI()
     test_app.include_router(bundle_router)
+
+    # Create a real user in the test DB so ownership checks pass
+    test_user = User(
+        id=uuid.uuid4(),
+        display_name="Test User",
+        email="test-rename@example.com",
+        subscription_tier="pro",
+    )
+    db_session.add(test_user)
+    db_session.flush()
 
     def override_get_db():
         yield db_session
 
     def override_tier():
-        # Master ctx — can create + modify any cookbook
-        return CookbookCtx(user_id=None, is_master=True, tier="pro_plus")
+        return CookbookCtx(
+            user_id=test_user.id,
+            is_master=False,
+            tier="pro",
+        )
 
     test_app.dependency_overrides[get_db] = override_get_db
     test_app.dependency_overrides[require_cookbook_tier] = override_tier
