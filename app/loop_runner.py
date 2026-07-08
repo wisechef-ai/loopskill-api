@@ -71,6 +71,37 @@ from app.sandbox.runner import SandboxRunner
 
 logger = logging.getLogger(__name__)
 
+# Issue #65 — one-time warning guard. Bounded mode runs author-provided
+# verification scripts as the server's own UID without kernel sandbox
+# confinement. The warning below is emitted the first time a bounded-mode run
+# executes (not on every run) so logs stay readable.
+_bounded_warning_emitted: bool = False
+
+
+def _emit_bounded_mode_warning() -> None:
+    """Log a prominent WARNING the first time bounded mode is used (issue #65).
+
+    Bounded mode executes the verification script as the server's own UID with
+    only POSIX rlimits (no firejail/bwrap kernel confinement). A same-UID child
+    retains host network access, shared-UID process-table visibility, and
+    filesystem access within the UID's permissions. On a single-tenant self-host
+    this is acceptable; on a **multi-tenant** deployment where untrusted callers
+    publish loops it is unsafe. Fleet owners of such deployments should set
+    ``WR_LOOP_RUN_REQUIRE_SANDBOX=true`` so runs refuse execution unless a
+    functional kernel sandbox backend is present.
+    """
+    global _bounded_warning_emitted
+    if _bounded_warning_emitted:
+        return
+    _bounded_warning_emitted = True
+    logger.warning(
+        "loop verification running in bounded mode (same UID, no kernel sandbox); "
+        "a same-UID child retains host network, shared-UID process-table visibility, "
+        "and filesystem access within the UID's permissions — for multi-tenant safety "
+        "set WR_LOOP_RUN_REQUIRE_SANDBOX=true"
+    )
+
+
 # ── Run-level caps (independent of any single loop's declared bounds) ─────────
 # A verification run is a short objective check, not the loop's full execution.
 DEFAULT_TIMEOUT_SECONDS = 60
@@ -347,6 +378,7 @@ class LoopRunner:
                 )
                 result.confinement = "sandboxed"
             else:
+                _emit_bounded_mode_warning()
                 result = self._run_bounded(run_id, workdir, clean_env, timeout, memory, start)
                 result.confinement = "bounded"
         finally:
