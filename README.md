@@ -18,35 +18,49 @@ Browse, install, and deploy **skills · bundles · loops · personalities**. Zer
 
 ---
 
-## Run it locally in 60 seconds
+## Quickstart (Docker Compose) — zero config
 
-**One-liner (Docker):**
-```sh
-curl -fsSL loopskill.io/install | sh
-```
+The Docker Compose stack ships with pre-configured defaults: SQLite, auto-generated
+dev secrets, and a seeded catalog. **No `.env` file needed** for local testing.
 
-**Or clone + compose:**
 ```sh
 git clone https://github.com/wisechef-ai/loopskill-api
 cd loopskill-api && docker compose up
 ```
 
-No `.env`, no secrets, no Postgres required. The default stack uses SQLite, replays the real
-alembic migrations, and seeds a starter catalog (skills + 9 loops + personalities) automatically.
-Your dev API key is printed on first boot.
+Your dev API key is printed on first boot. The default stack uses SQLite, replays
+the real alembic migrations, and seeds a starter catalog (skills + 9 loops +
+personalities) automatically.
 
 **Then RUN a loop** — the runner is live (no LLM needed for verify-mode):
 ```sh
 # use the dev API key printed in the boot banner
 curl -X POST localhost:8200/api/loops/hello-world-loop/run \
-  -H "x-api-key: ${LOOPSKILL_KEY}" \
+  -H "x-api-key: *** \
 # → {"passed": true, "confinement": "bounded", "duration_seconds": 0.03, ...}
 ```
 
 That's the whole wow: a fresh registry that doesn't just *list* a loop — it *executes* the loop's
 success check under enforced bounds and hands you a verdict.
 
-Browse the hosted registry: **[loopskill.io](https://loopskill.io)** · full guide: [docs/SELF_HOST.md](docs/SELF_HOST.md)
+Browse the hosted registry: **[loopskill.io](https://loopskill.io)**
+
+---
+
+## Production self-host
+
+For production deployments (multiple users, persistent data, GitHub OAuth), you need:
+
+- **A Postgres database** — SQLite is for local testing only.
+- **Secrets** (`.env` or exported env vars):
+  - `WR_API_KEY` — master API key
+  - `WR_JWT_SECRET` — JWT signing secret
+  - `WR_SIGNING_SECRET` — HMAC signing secret for download tokens
+  - `WR_HEARTBEAT_PEPPER` — heartbeat anonymization pepper
+  - `WR_OAUTH_REDIRECT_BASE` — your public URL (for OAuth callbacks)
+- **Run alembic migrations** before first boot on Postgres.
+
+Full guide: **[docs/SELF_HOST.md](docs/SELF_HOST.md)**
 
 ---
 
