@@ -120,7 +120,7 @@ class SandboxRunner:
         if platform.system().lower() == "darwin":
             raise SandboxBackendUnavailable(
                 "Sandbox backend unavailable on macOS: neither firejail nor bwrap "
-                "is installed.  The WiseRecipes sandbox is Linux-only (firejail / "
+                "is installed.  The LoopSkill sandbox is Linux-only (firejail / "
                 "bubblewrap).  macOS does not support these backends — running "
                 "without confinement would silently expose the host to untrusted "
                 "skill scripts.  Use a Linux host to run the sandbox."

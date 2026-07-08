@@ -1,4 +1,4 @@
-"""Referral utility functions for WiseRecipes.
+"""Referral utility functions for LoopSkill.
 
 Handles referral code generation, cookie extraction, and referral linking.
 """

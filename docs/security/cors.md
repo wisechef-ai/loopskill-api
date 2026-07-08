@@ -1,4 +1,4 @@
-# CORS Policy — WiseRecipes API
+# CORS Policy — LoopSkill API
 
 ## Summary
 

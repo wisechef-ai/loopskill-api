@@ -1,4 +1,4 @@
-"""Auth router — GitHub & Google OAuth endpoints for WiseRecipes.
+"""Auth router — GitHub & Google OAuth endpoints for LoopSkill.
 
 Endpoints:
   GET  /api/auth/github/login    — redirect to GitHub OAuth

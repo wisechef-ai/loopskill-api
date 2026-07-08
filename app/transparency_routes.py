@@ -1,4 +1,4 @@
-"""Public transparency endpoint — recipes platform health scorecard.
+"""Public transparency endpoint — LoopSkill platform health scorecard.
 
 Exposes aggregate, no-PII metrics that show whether the feedback loop is
 actually working: install-count drift, skill-error rate, feedback volume,

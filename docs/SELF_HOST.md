@@ -14,7 +14,8 @@ cd loopskill-api
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Set required env vars (see wiserecipes-api.env.example for the full list — the filename is legacy)
+# Set required env vars (see wiserecipes-api.env.example for the full list — the filename is legacy, env var names still use WR_*/RECIPES_* prefix for prod compatibility)
+# TODO(rename): env var still uses legacy name for prod compatibility — see issue #63
 export WR_API_KEY="your-master-key"
 export WR_JWT_SECRET="your-jwt-secret"
 export WR_SIGNING_SECRET="your-signing-secret"
@@ -66,7 +67,7 @@ On the agent host, install the sync script:
 pip install -e /path/to/loopskill-api
 
 # Set the member API key
-export RECIPES_API_KEY="rec_live_MEMBER_KEY"
+export RECIPES_API_KEY="rec_live_MEMBER_KEY"  # TODO(rename): env var still uses legacy name for prod compatibility
 
 # Run one reconcile cycle:
 python -m app.reconcile_cli \
@@ -89,6 +90,7 @@ python -m app.reconcile_cli \
 
 ```bash
 # crontab -e
+# TODO(rename): RECIPES_API_KEY env var still uses legacy name for prod compatibility
 */30 * * * * RECIPES_API_KEY=rec_live_MEMBER_KEY /path/to/venv/bin/python -m app.reconcile_cli \
   --cookbook <bundle-uuid> \
   --api https://your-host \

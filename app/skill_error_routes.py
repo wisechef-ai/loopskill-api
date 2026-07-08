@@ -43,7 +43,9 @@ router = APIRouter(prefix="/api/v1", tags=["skill-errors"])
 
 def _is_opted_in() -> bool:
     """Check if error reporting is enabled via env var. Default OFF."""
-    return os.environ.get("RECIPES_REPORT_ERRORS", "").lower() == "true"
+    return (
+        os.environ.get("RECIPES_REPORT_ERRORS", "").lower() == "true"
+    )  # TODO(rename): env var still uses legacy name for prod compatibility
 
 
 # ── Presidio anonymization ──────────────────────────────────────────────

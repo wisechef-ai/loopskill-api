@@ -1,4 +1,4 @@
-"""SQLAlchemy models for WiseRecipes / LoopSkill.
+"""SQLAlchemy models for LoopSkill.
 
 Schema: users, api_keys, skills, skill_versions, install_events, telemetry_events,
 carousel_entries, referrals, creator_payouts, wisechef_demo_requests.

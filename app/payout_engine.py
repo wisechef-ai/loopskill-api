@@ -206,7 +206,7 @@ def compute_monthly_payouts(
                         account_id=data["stripe_connect_id"],
                         amount_cents=data["total_creator_share_cents"],
                         currency="eur",
-                        description=f"WiseRecipes payout: {period_start.strftime('%b %Y')} ({data['total_installs']} installs)",
+                        description=f"LoopSkill payout: {period_start.strftime('%b %Y')} ({data['total_installs']} installs)",
                         metadata={
                             "creator_id": str(data["creator_id"]),
                             "user_id": str(data["user_id"]),

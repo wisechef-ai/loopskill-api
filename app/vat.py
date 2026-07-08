@@ -5,7 +5,7 @@ country rate when selling digital services to EU consumers.
 
 Reference: https://ec.europa.eu/taxation_customs/business/vat/telecommunications-broadcasting-electronic-services_en
 
-Strategy for WiseRecipes:
+Strategy for LoopSkill:
 - B2B: Reverse charge (no VAT) if valid EU VAT number provided
 - B2C: Charge VAT at buyer's country rate
 - Non-EU: No VAT (outside scope)

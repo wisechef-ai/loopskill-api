@@ -1,4 +1,4 @@
-"""Referral routes for WiseRecipes.
+"""Referral routes for LoopSkill.
 
 Endpoints:
   GET /api/me/referral-code  — return current user's referral code
