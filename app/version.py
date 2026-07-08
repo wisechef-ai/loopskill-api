@@ -51,9 +51,6 @@ fix/issue-52: bumped past current main (0.9.12) — deflakes
 test_cook_rate_limit_429 (UUID-decoded-as-float race in the shared in-memory
 SQLite test session, via expire_on_commit=False in test db fixture). Test-only
 change; bump keeps the healthz cutover-proof invariant intact.
-
-fix/stripe-pin-15-3-0: bumped past current main (0.9.13) — advances the Stripe
-SDK pin from 15.1.0 to 15.3.0 and updates pin-guard tests accordingly.
 """
 
-__version__ = "0.9.14"
+__version__ = "0.9.13"
