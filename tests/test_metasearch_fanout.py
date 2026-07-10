@@ -127,3 +127,33 @@ def test_fan_out_end_to_end_into_merge_unified(monkeypatch):
     # skills.sh (9999 installs) outranks browse-sh (no signal → 0.5 prior, but
     # single-item sources both get 0.5; skills.sh ties on score, wins on priority)
     assert d["skills"][0]["source"] in ("skills-sh", "browse-sh")
+
+
+def test_hung_source_degrades_at_deadline_not_escapes(monkeypatch):
+    """Council finding 1: a source that hangs past the deadline must be marked
+    degraded and the healthy source still returns — NO TimeoutError escapes, and
+    the request does not block on the hung thread."""
+    import time
+    import app.services.federation_live as fl
+
+    fl.LIVE_FETCH["skills-sh"] = lambda q: [{"id": "a/b/c", "name": "X", "installs": 1, "source": "a/b"}]
+    fl.LIVE_FETCH["browse-sh"] = lambda q: (time.sleep(2), [{"slug": "s", "name": "S", "title": "S"}])[1]
+    t = time.monotonic()
+    out = fo.fan_out("q", sources=("skills-sh", "browse-sh"), per_source_deadline_s=0.3)
+    elapsed = time.monotonic() - t
+    assert elapsed < 1.9, f"must not block on the 2s hung source, took {elapsed:.2f}s"
+    assert "skills-sh" in out.sources_ok
+    assert "browse-sh" in out.sources_degraded
+
+
+def test_effective_limits_divide_by_worker_count(monkeypatch):
+    """Council finding 2: per-worker limits divide the source ceiling by worker
+    count so N workers don't collectively exceed the upstream ceiling."""
+    from app.services import metasearch_ratelimit as rl
+
+    monkeypatch.setenv("WEB_CONCURRENCY", "4")
+    cap1, refill1 = rl.effective_limits("clawhub")  # raw is (30, 8)
+    monkeypatch.delenv("WEB_CONCURRENCY", raising=False)
+    cap4, _ = rl.effective_limits("clawhub")
+    assert cap1 < cap4, "4 workers must each get a smaller bucket than 1 worker"
+    assert abs(cap1 - 30 / 4) < 0.01

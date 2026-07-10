@@ -163,35 +163,52 @@ def fan_out(
     ok: list[str] = []
     degraded: list[str] = []
 
-    # Empty query: only sources with a meaningful empty-query catalog respond
-    # (skills.sh / clawhub / github return [] on empty by design). We still fan
-    # out — the adapters handle empty gracefully — but skip the network-only
-    # per-query sources to avoid pointless calls.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=_MAX_WORKERS) as pool:
+    # Concurrent gather with a HARD wall-clock budget. Council finding 1: the
+    # prior `as_completed(timeout=deadline*len)` was a whole-gather timeout and
+    # `fut.result()` on an already-completed future could never fire, so a hung
+    # source escaped as an unhandled TimeoutError AND the `with` block blocked on
+    # shutdown(wait=True). Fix: one overall deadline, catch the iterator timeout,
+    # mark every not-yet-done source degraded, and cancel (don't wait on) the
+    # stragglers. The real upstream HTTP timeout (_HTTP_TIMEOUT_S) is the backstop
+    # if a worker thread can't be cancelled mid-flight; the request still returns.
+    overall_deadline_s = per_source_deadline_s + 1.0  # sources run in parallel, not serial
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=_MAX_WORKERS)
+    try:
         futures = {pool.submit(_query_one_source, src, query, limit=per_source_top_n): src for src in sources}
-        for fut in concurrent.futures.as_completed(futures, timeout=per_source_deadline_s * len(sources)):
-            src = futures[fut]
-            try:
-                result = fut.result(timeout=per_source_deadline_s)
-            except concurrent.futures.TimeoutError:
-                logger.warning("metasearch source '%s' exceeded deadline %.1fs", src, per_source_deadline_s)
+        pending = set(futures)
+        try:
+            for fut in concurrent.futures.as_completed(futures, timeout=overall_deadline_s):
+                pending.discard(fut)
+                src = futures[fut]
+                try:
+                    result = fut.result()
+                # Rationale: a worker raising must not abort the fan-out gather.
+                except Exception:  # noqa: BLE001
+                    logger.warning("metasearch source '%s' worker error", src, exc_info=True)
+                    degraded.append(src)
+                    continue
+                if not result.ok:
+                    degraded.append(src)
+                    continue
+                ok.append(src)
+                rows = result.raw_rows
+                for i, skill in enumerate(result.skills):
+                    raw = rows[i] if i < len(rows) else {}
+                    pairs.append((skill, raw))
+        except concurrent.futures.TimeoutError:
+            # Deadline hit: every still-pending source is degraded, not fatal.
+            for fut in pending:
+                src = futures[fut]
+                logger.warning(
+                    "metasearch source '%s' exceeded overall deadline %.1fs", src, overall_deadline_s
+                )
                 rl.record_failure(src)
-                degraded.append(src)
-                continue
-            # Rationale: a worker raising must not abort the fan-out gather.
-            except Exception:  # noqa: BLE001
-                logger.warning("metasearch source '%s' worker error", src, exc_info=True)
-                degraded.append(src)
-                continue
-            if not result.ok:
-                degraded.append(src)
-                continue
-            ok.append(src)
-            # Pair each mapped skill with its raw row by index alignment where
-            # possible; adapters map 1:1 over the (truncated) fetched rows.
-            rows = result.raw_rows
-            for i, skill in enumerate(result.skills):
-                raw = rows[i] if i < len(rows) else {}
-                pairs.append((skill, raw))
+                if src not in degraded:
+                    degraded.append(src)
+                fut.cancel()
+    finally:
+        # Do NOT block on hung upstream threads (cancel_futures drops queued work;
+        # already-running fetches are bounded by _HTTP_TIMEOUT_S). Python 3.9+.
+        pool.shutdown(wait=False, cancel_futures=True)
 
     return FanoutOutput(pairs=pairs, sources_ok=ok, sources_degraded=degraded)

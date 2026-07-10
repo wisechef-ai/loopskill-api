@@ -142,7 +142,9 @@ class UnifiedSkill:
 # ── Canonical identity derivation ────────────────────────────────────────────
 
 
-def _canonical_id_for_external(skill: ExternalSkill, *, popularity_repo: str | None = None) -> str:
+def _canonical_id_for_external(
+    skill: ExternalSkill, *, popularity_repo: str | None = None, raw_id: str | None = None
+) -> str:
     """Derive a stable cross-source identity for an external skill.
 
     The goal (council C5): a github skill that appears BOTH on skills.sh and as a
@@ -150,21 +152,26 @@ def _canonical_id_for_external(skill: ExternalSkill, *, popularity_repo: str | N
     underlying github ``owner/repo`` when we can recover it, else fall back to a
     source-scoped slug (which never false-merges across sources).
 
-    ``popularity_repo`` is the skills.sh ``source`` field ("owner/repo") when
-    available — the one place skills.sh leaks the real github origin.
+    ``raw_id`` is the source row's UNESCAPED id (skills.sh ``id``/``skillId``) —
+    preferred over the slug because the adapter escapes every ``/`` to ``--``,
+    which is lossy when a github owner/repo/path legitimately contains ``--``
+    (council finding 4: reversing the escaped slug both false-merges and
+    mis-splits). ``popularity_repo`` is skills.sh's ``source`` ("owner/repo").
     """
     src = skill.source
     slug = skill.slug
-    # skills.sh: slug is the id "owner--repo--skill"; the repo is owner/repo.
+    # skills.sh: prefer the raw, unescaped id ("owner/repo/skill") over the
+    # lossy escaped slug. Only fall back to the slug when no raw id is present.
     if src == "skills-sh":
-        ident = slug.replace("--", "/")
-        # id shape is owner/repo/skill → the github repo is the first two parts.
-        parts = ident.split("/")
+        ident = (raw_id or "").strip() or slug.replace("--", "/")
+        parts = [p for p in ident.split("/") if p]
         if len(parts) >= 3:
             return f"gh:{parts[0]}/{parts[1]}/{'/'.join(parts[2:])}"
         if popularity_repo and "/" in popularity_repo:
-            return f"gh:{popularity_repo}/{parts[-1]}"
-        return f"skills-sh:{slug}"
+            return f"gh:{popularity_repo}/{parts[-1] if parts else slug}"
+        # No recoverable github identity → source-scoped on the RAW id (not the
+        # escaped slug) so two distinct ids don't collapse.
+        return f"skills-sh:{ident or slug}"
     # github taps / oss: origin_url is a github tree/repo URL.
     if src.startswith("github"):
         url = skill.origin_url
@@ -229,9 +236,13 @@ def unify_external(skill: ExternalSkill, *, raw_row: dict | None = None) -> Unif
     into a UnifiedSkill. ``raw_row`` is the pre-map source dict so we can recover
     the popularity signal the adapter dropped (council C5)."""
     popularity_repo = None
+    raw_id = None
     if isinstance(raw_row, dict):
-        popularity_repo = raw_row.get("source") if skill.source == "skills-sh" else None
-    canonical = _canonical_id_for_external(skill, popularity_repo=popularity_repo)
+        if skill.source == "skills-sh":
+            popularity_repo = raw_row.get("source")
+            # Prefer the UNESCAPED id/skillId over the --escaped slug (finding 4).
+            raw_id = str(raw_row.get("id") or raw_row.get("skillId") or "") or None
+    canonical = _canonical_id_for_external(skill, popularity_repo=popularity_repo, raw_id=raw_id)
     # deployable = the source is on the v1 fleet allow-list AND the install router
     # permits a real (non-deep-link) install. ClawHub fails BOTH gates.
     installable = route_install(skill).allowed
@@ -306,6 +317,14 @@ def _percentiles_within_source(skills: list[UnifiedSkill]) -> dict[int, float]:
         rated = [s for s in group if s.popularity is not None]
         if len(rated) < 2:
             # Not enough signal to rank within source → neutral for all.
+            for s in group:
+                out[id(s)] = 0.5
+            continue
+        # All-equal cohort → no real spread; every member is neutral (council
+        # finding 3: guarding only len<2 wrongly gave 3 equal values 0/0.5/1,
+        # letting a source mint arbitrary within-source winners via duplicate
+        # signals). Distinct-value check is the correct guard.
+        if len({s.popularity for s in rated}) == 1:
             for s in group:
                 out[id(s)] = 0.5
             continue

@@ -36,9 +36,19 @@ import time
 from dataclasses import dataclass, field
 
 # Multi-worker global ceiling requires a shared store. Tracked for P5.
+#
+# COUNCIL FINDING 2 (2026-07-10) — HONEST P0 SCOPE: these buckets/breakers are
+# module-local, so they enforce a per-WORKER ceiling, not a fleet-wide one. With
+# N gunicorn/uvicorn workers the aggregate upstream rate is N× the configured
+# steady rate, and a circuit opened in one worker does not open in the others.
+# For P0 the ENFORCED operational contract is: run the metasearch surface with a
+# SINGLE worker (or set the per-worker limits to smallest_ceiling / worker_count).
+# ``assert_single_worker_or_documented()`` below makes that contract explicit at
+# boot so it can't silently regress. The Redis-backed global limiter (P5) is the
+# multi-worker generalisation.
 REDIS_TODO = (
     "P5: back TokenBucket with Redis (INCRBY + EXPIRE) to enforce a GLOBAL "
-    "per-source ceiling across gunicorn workers. P0 uses a per-worker bucket."
+    "per-source ceiling across gunicorn workers. P0 = single-worker contract."
 )
 
 
@@ -164,7 +174,9 @@ def _bucket_for(source: str) -> TokenBucket:
     with _registry_lock:
         b = _buckets.get(source)
         if b is None:
-            cap, refill = _SOURCE_LIMITS.get(source, (_DEFAULT_CAPACITY, _DEFAULT_REFILL_PER_SEC))
+            # Per-worker-adjusted limits (council finding 2): divide the source
+            # ceiling by worker_count so N workers don't collectively exceed it.
+            cap, refill = effective_limits(source)
             b = TokenBucket(cap, refill)
             _buckets[source] = b
         return b
@@ -208,3 +220,34 @@ def reset_all() -> None:
     with _registry_lock:
         _buckets.clear()
         _breakers.clear()
+
+
+def worker_count() -> int:
+    """Best-effort worker count from the environment (WEB_CONCURRENCY / gunicorn
+    WORKERS), defaulting to 1. Used to divide per-source ceilings across workers
+    so the AGGREGATE stays under the upstream limit even without a shared store
+    (council finding 2 — the P0 mitigation until the P5 Redis limiter lands)."""
+    import os
+
+    for var in ("WEB_CONCURRENCY", "GUNICORN_WORKERS", "UVICORN_WORKERS"):
+        val = os.environ.get(var)
+        if val:
+            try:
+                n = int(val)
+                if n > 0:
+                    return n
+            except ValueError:
+                continue
+    return 1
+
+
+def effective_limits(source: str) -> tuple[float, float]:
+    """The per-worker (capacity, refill) after dividing the source ceiling by the
+    worker count. Multi-worker deployments thus keep their AGGREGATE upstream rate
+    at (roughly) the single-source ceiling instead of N× it. When workers=1 this
+    is the raw configured limit."""
+    cap, refill = _SOURCE_LIMITS.get(source, (_DEFAULT_CAPACITY, _DEFAULT_REFILL_PER_SEC))
+    workers = max(1, worker_count())
+    # Keep at least 1 token of capacity and a positive refill so a high worker
+    # count never zeroes a source out entirely.
+    return (max(1.0, cap / workers), max(0.1, refill / workers))

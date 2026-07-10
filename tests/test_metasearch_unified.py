@@ -259,3 +259,30 @@ def test_allow_list_gates_installable_but_unlisted_source():
     skill = _ext("some-future-source", "x", install_path=InstallPath.FETCH_ORIGIN, redistributable=True)
     u = unify_external(skill, raw_row={})
     assert u.deployable is False, "installable-but-unlisted source must NOT be deployable"
+
+
+# ── council PR #74 review regressions ────────────────────────────────────────
+
+
+def test_all_equal_popularity_is_neutral_not_spread():
+    """Council finding 3: 3 rows with identical popularity must each get 0.5,
+    not 0.0/0.5/1.0 (which let a source mint arbitrary winners via dup signals)."""
+    skills = [unify_external(_ext("skills-sh", f"a--r--{n}"), raw_row={"installs": 10}) for n in "xyz"]
+    out = rank(skills)
+    assert {round(s.rank_score, 4) for s in out} == {0.5}, "all-equal cohort must be uniformly neutral"
+
+
+def test_canonical_id_uses_raw_id_not_escaped_slug():
+    """Council finding 4: a skills.sh id whose github path contains '-' must key
+    off the raw unescaped id, not the --escaped slug (which is lossy)."""
+    sk = _ext("skills-sh", "my--org--repo--skill")
+    u = unify_external(sk, raw_row={"id": "my-org/repo/skill", "installs": 1, "source": "my-org/repo"})
+    assert u.canonical_id == "gh:my-org/repo/skill"
+
+
+def test_canonical_id_distinct_ids_do_not_false_merge():
+    """Two DIFFERENT skills.sh ids must not collapse to one canonical id."""
+    a = unify_external(_ext("skills-sh", "o--r--alpha"), raw_row={"id": "o/r/alpha", "installs": 1, "source": "o/r"})
+    b = unify_external(_ext("skills-sh", "o--r--beta"), raw_row={"id": "o/r/beta", "installs": 1, "source": "o/r"})
+    assert a.canonical_id != b.canonical_id
+    assert len(dedupe([a, b])) == 2

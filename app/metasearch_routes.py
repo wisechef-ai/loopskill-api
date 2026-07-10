@@ -99,7 +99,13 @@ def _record_funnel_event(db: Session, request: Request, *, q: str | None, result
     # Rationale: telemetry is fire-and-forget; never 500 the search on a log write.
     except Exception:  # noqa: BLE001
         logger.warning("metasearch funnel event write failed", exc_info=True)
-        db.rollback()
+        # Council finding 5: rollback itself can raise on a broken/disconnected
+        # session — guard it independently so a telemetry failure never surfaces
+        # as a search failure.
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            logger.warning("metasearch funnel rollback also failed", exc_info=True)
 
 
 @router.get("/metasearch", tags=["skills", "metasearch"])
