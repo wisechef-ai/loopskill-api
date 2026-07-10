@@ -106,6 +106,13 @@ def _query_one_source(source: str, query: str, *, limit: int) -> SourceResult:
 
     Raw rows are captured by wrapping the fetch callable so the adapter's
     ``.search()`` still maps them AND we keep the originals for popularity.
+
+    Council R2 (new MUST): this worker does NOT record breaker health itself. If
+    it times out, the request-owning gather loop already classified the source as
+    degraded; a late success/failure recorded from THIS still-running thread would
+    corrupt that shared state after the response. Health recording is owned solely
+    by ``fan_out`` (the request thread), keyed off the SourceResult it actually
+    consumes. A straggler's result is simply discarded.
     """
     if not rl.acquire(source):
         return SourceResult(source, [], [], ok=False, reason="rate_limited_or_open_circuit")
@@ -127,13 +134,11 @@ def _query_one_source(source: str, query: str, *, limit: int) -> SourceResult:
 
     try:
         skills = adapter.search(query, limit=limit)
-        rl.record_success(source)
         return SourceResult(source, list(skills), list(captured), ok=True)
     # Rationale: a single source's failure must never break the fan-out — it is
-    # dropped from this request and the breaker counts it toward opening.
+    # dropped from this request; the OWNING thread records the breaker failure.
     except Exception:  # noqa: BLE001
         logger.warning("metasearch source '%s' search failed", source, exc_info=True)
-        rl.record_failure(source)
         return SourceResult(source, [], [], ok=False, reason="fetch_error")
 
 
@@ -163,15 +168,19 @@ def fan_out(
     ok: list[str] = []
     degraded: list[str] = []
 
-    # Concurrent gather with a HARD wall-clock budget. Council finding 1: the
-    # prior `as_completed(timeout=deadline*len)` was a whole-gather timeout and
-    # `fut.result()` on an already-completed future could never fire, so a hung
+    # Concurrent gather with a HARD wall-clock budget. Council finding 1 + R2:
+    # the prior `as_completed(timeout=deadline*len)` was a whole-gather timeout
+    # and `fut.result()` on an already-complete future never fired, so a hung
     # source escaped as an unhandled TimeoutError AND the `with` block blocked on
-    # shutdown(wait=True). Fix: one overall deadline, catch the iterator timeout,
-    # mark every not-yet-done source degraded, and cancel (don't wait on) the
-    # stragglers. The real upstream HTTP timeout (_HTTP_TIMEOUT_S) is the backstop
-    # if a worker thread can't be cancelled mid-flight; the request still returns.
-    overall_deadline_s = per_source_deadline_s + 1.0  # sources run in parallel, not serial
+    # shutdown(wait=True). Because sources run in PARALLEL, the per-source deadline
+    # IS the whole-gather budget (+ a small scheduling slack) — a slow source
+    # cannot extend it. On timeout: mark still-pending sources degraded, record
+    # their breaker failure from THIS (owning) thread, and shutdown(wait=False,
+    # cancel_futures=True) so a hung upstream never holds the request. The worker
+    # thread does NOT record health (R2 race fix) — only this loop does. The real
+    # per-request bound is `overall_deadline_s`; a straggler thread keeps running
+    # up to _HTTP_TIMEOUT_S but its result is discarded and cannot mutate state.
+    overall_deadline_s = per_source_deadline_s + 0.25  # parallel; +slack for pool scheduling
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=_MAX_WORKERS)
     try:
         futures = {pool.submit(_query_one_source, src, query, limit=per_source_top_n): src for src in sources}
@@ -185,11 +194,18 @@ def fan_out(
                 # Rationale: a worker raising must not abort the fan-out gather.
                 except Exception:  # noqa: BLE001
                     logger.warning("metasearch source '%s' worker error", src, exc_info=True)
+                    rl.record_failure(src)  # owning thread records health (R2)
                     degraded.append(src)
                     continue
                 if not result.ok:
+                    # A gated source (open circuit / dry bucket) is already
+                    # reflected in breaker state — only record a failure for a
+                    # genuine fetch error, not for a rate-limit skip.
+                    if result.reason == "fetch_error":
+                        rl.record_failure(src)
                     degraded.append(src)
                     continue
+                rl.record_success(src)  # owning thread records health (R2)
                 ok.append(src)
                 rows = result.raw_rows
                 for i, skill in enumerate(result.skills):

@@ -330,10 +330,22 @@ def _percentiles_within_source(skills: list[UnifiedSkill]) -> dict[int, float]:
             continue
         ordered = sorted(rated, key=lambda s: s.popularity or 0)
         n = len(ordered)
+        # Tied-rank percentile: members with the SAME popularity share one
+        # percentile (council R2: plain enumeration gave [10,10,100] the values
+        # 0.0/0.5/1.0, so equal signals got different ranks — a source could
+        # still mint a within-tie winner). Assign each distinct value the mean of
+        # the index positions it occupies, normalised to [0,1].
         pct: dict[int, float] = {}
-        for i, s in enumerate(ordered):
-            # rank / (n-1) → [0,1]; ties share the lower rank's percentile.
-            pct[id(s)] = i / (n - 1)
+        i = 0
+        while i < n:
+            j = i
+            while j < n and ordered[j].popularity == ordered[i].popularity:
+                j += 1
+            # positions [i, j) all share this value → mean index, normalised.
+            shared = (sum(range(i, j)) / (j - i)) / (n - 1)
+            for k in range(i, j):
+                pct[id(ordered[k])] = shared
+            i = j
         for s in group:
             out[id(s)] = pct.get(id(s), 0.5)  # unrated members → neutral prior
     return out

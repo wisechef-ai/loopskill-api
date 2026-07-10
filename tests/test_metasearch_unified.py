@@ -45,7 +45,11 @@ def _ext(
 
 def test_unify_external_retains_skills_sh_installs():
     skill = _ext("skills-sh", "vercel-labs--agent-browser--agent-browser")
-    raw = {"id": "vercel-labs/agent-browser/agent-browser", "installs": 531415, "source": "vercel-labs/agent-browser"}
+    raw = {
+        "id": "vercel-labs/agent-browser/agent-browser",
+        "installs": 531415,
+        "source": "vercel-labs/agent-browser",
+    }
     u = unify_external(skill, raw_row=raw)
     assert u.popularity == 531415, "skills.sh installs must survive normalisation (C5)"
     assert u.source == "skills-sh"
@@ -111,15 +115,23 @@ def test_canonical_id_collapses_github_skill_across_sources():
     a canonical_id so dedupe collapses them (council C5 degenerate case)."""
     via_skills_sh = unify_external(
         _ext("skills-sh", "vercel-labs--agent-browser--agent-browser"),
-        raw_row={"id": "vercel-labs/agent-browser/agent-browser", "installs": 999, "source": "vercel-labs/agent-browser"},
+        raw_row={
+            "id": "vercel-labs/agent-browser/agent-browser",
+            "installs": 999,
+            "source": "vercel-labs/agent-browser",
+        },
     )
     via_github = unify_external(
-        _ext("github-oss", "agent-browser", origin_url="https://github.com/vercel-labs/agent-browser/tree/main/agent-browser"),
+        _ext(
+            "github-oss",
+            "agent-browser",
+            origin_url="https://github.com/vercel-labs/agent-browser/tree/main/agent-browser",
+        ),
         raw_row={"stars": 5},
     )
-    assert via_skills_sh.canonical_id == via_github.canonical_id, (
-        f"cross-source dedupe key must match: {via_skills_sh.canonical_id} != {via_github.canonical_id}"
-    )
+    assert (
+        via_skills_sh.canonical_id == via_github.canonical_id
+    ), f"cross-source dedupe key must match: {via_skills_sh.canonical_id} != {via_github.canonical_id}"
 
 
 def test_dedupe_keeps_higher_priority_source_and_max_popularity():
@@ -127,14 +139,30 @@ def test_dedupe_keeps_higher_priority_source_and_max_popularity():
     is FALSE — github=20 < skills-sh... wait) — assert curated-independent rule:
     lower priority number wins, and popularity carries forward as the max."""
     a = UnifiedSkill(
-        canonical_id="gh:owner/repo/skill", slug="s", title="S", description="", source="skills-sh",
-        origin_url="", install_ref="", quality="community", deployable=True,
-        install_path="fetch_origin", popularity=100,
+        canonical_id="gh:owner/repo/skill",
+        slug="s",
+        title="S",
+        description="",
+        source="skills-sh",
+        origin_url="",
+        install_ref="",
+        quality="community",
+        deployable=True,
+        install_path="fetch_origin",
+        popularity=100,
     )
     b = UnifiedSkill(
-        canonical_id="gh:owner/repo/skill", slug="s", title="S", description="", source="github-oss",
-        origin_url="", install_ref="", quality="community", deployable=True,
-        install_path="fetch_origin", popularity=None,
+        canonical_id="gh:owner/repo/skill",
+        slug="s",
+        title="S",
+        description="",
+        source="github-oss",
+        origin_url="",
+        install_ref="",
+        quality="community",
+        deployable=True,
+        install_path="fetch_origin",
+        popularity=None,
     )
     out = dedupe([a, b])
     assert len(out) == 1
@@ -147,14 +175,30 @@ def test_dedupe_carries_max_popularity_when_lower_priority_has_the_signal():
     """github wins priority but skills.sh had the install signal → keep github row
     but inherit the max popularity so the signal isn't lost."""
     github = UnifiedSkill(
-        canonical_id="gh:o/r/s", slug="s", title="S", description="", source="recipes",
-        origin_url="", install_ref="", quality="curated", deployable=True,
-        install_path="fetch_origin", popularity=5,
+        canonical_id="gh:o/r/s",
+        slug="s",
+        title="S",
+        description="",
+        source="recipes",
+        origin_url="",
+        install_ref="",
+        quality="curated",
+        deployable=True,
+        install_path="fetch_origin",
+        popularity=5,
     )
     skills_sh = UnifiedSkill(
-        canonical_id="gh:o/r/s", slug="s", title="S", description="", source="skills-sh",
-        origin_url="", install_ref="", quality="community", deployable=True,
-        install_path="fetch_origin", popularity=5000,
+        canonical_id="gh:o/r/s",
+        slug="s",
+        title="S",
+        description="",
+        source="skills-sh",
+        origin_url="",
+        install_ref="",
+        quality="community",
+        deployable=True,
+        install_path="fetch_origin",
+        popularity=5000,
     )
     out = dedupe([github, skills_sh])
     assert len(out) == 1
@@ -176,7 +220,9 @@ def test_curated_wins_tie_over_equal_popularity_external():
     """Plan §5.4: curated always sorts above an external row of equal normalised
     popularity. Both single-item sources → 0.5 prior; curated boost breaks it."""
     curated = unify_curated({"slug": "cur", "title": "AAA Curated", "install_count": 1})
-    external = unify_external(_ext("skills-sh", "ext--repo--x", title="ZZZ External"), raw_row={"installs": 1})
+    external = unify_external(
+        _ext("skills-sh", "ext--repo--x", title="ZZZ External"), raw_row={"installs": 1}
+    )
     out = rank([external, curated])
     assert out[0].source == "recipes", "curated must outrank equal-popularity external"
 
@@ -213,7 +259,10 @@ def test_merge_unified_returns_one_ranked_list_no_namespace_split():
     curated = [unify_curated({"slug": "cur", "title": "Curated", "install_count": 10})]
     external = [
         unify_external(_ext("skills-sh", "e--r--pop", title="Popular"), raw_row={"installs": 9999}),
-        unify_external(_ext("clawhub", "cl", title="Claw", install_path=InstallPath.DEEP_LINK, redistributable=False), raw_row={"stats": {"downloads": 3}}),
+        unify_external(
+            _ext("clawhub", "cl", title="Claw", install_path=InstallPath.DEEP_LINK, redistributable=False),
+            raw_row={"stats": {"downloads": 3}},
+        ),
     ]
     result = merge_unified(curated, external, sources_ok=["recipes", "skills-sh", "clawhub"])
     assert isinstance(result, MetasearchResult)
@@ -234,8 +283,14 @@ def test_merge_unified_returns_one_ranked_list_no_namespace_split():
 def test_merge_unified_dedupes_before_ranking():
     """A github skill on skills.sh + as a github tap must render ONCE."""
     external = [
-        unify_external(_ext("skills-sh", "owner--repo--skill"), raw_row={"id": "owner/repo/skill", "installs": 50, "source": "owner/repo"}),
-        unify_external(_ext("github-oss", "skill", origin_url="https://github.com/owner/repo/tree/main/skill"), raw_row={}),
+        unify_external(
+            _ext("skills-sh", "owner--repo--skill"),
+            raw_row={"id": "owner/repo/skill", "installs": 50, "source": "owner/repo"},
+        ),
+        unify_external(
+            _ext("github-oss", "skill", origin_url="https://github.com/owner/repo/tree/main/skill"),
+            raw_row={},
+        ),
     ]
     result = merge_unified([], external)
     assert result.to_dict()["result_count"] == 1
@@ -282,7 +337,23 @@ def test_canonical_id_uses_raw_id_not_escaped_slug():
 
 def test_canonical_id_distinct_ids_do_not_false_merge():
     """Two DIFFERENT skills.sh ids must not collapse to one canonical id."""
-    a = unify_external(_ext("skills-sh", "o--r--alpha"), raw_row={"id": "o/r/alpha", "installs": 1, "source": "o/r"})
-    b = unify_external(_ext("skills-sh", "o--r--beta"), raw_row={"id": "o/r/beta", "installs": 1, "source": "o/r"})
+    a = unify_external(
+        _ext("skills-sh", "o--r--alpha"), raw_row={"id": "o/r/alpha", "installs": 1, "source": "o/r"}
+    )
+    b = unify_external(
+        _ext("skills-sh", "o--r--beta"), raw_row={"id": "o/r/beta", "installs": 1, "source": "o/r"}
+    )
     assert a.canonical_id != b.canonical_id
     assert len(dedupe([a, b])) == 2
+
+
+def test_tied_non_all_equal_popularities_share_percentile():
+    """Council R2: [10, 10, 100] — the two equal 10s must share one percentile,
+    not get 0.0/0.5 from plain enumeration (which lets a source mint a within-tie
+    winner via duplicate signals)."""
+    a = unify_external(_ext("skills-sh", "a--r--1"), raw_row={"installs": 10})
+    b = unify_external(_ext("skills-sh", "b--r--2"), raw_row={"installs": 10})
+    c = unify_external(_ext("skills-sh", "c--r--3"), raw_row={"installs": 100})
+    scored = {s.slug: round(s.rank_score, 4) for s in rank([a, b, c])}
+    assert scored["a--r--1"] == scored["b--r--2"], "tied popularities must share a percentile"
+    assert scored["c--r--3"] > scored["a--r--1"], "the higher popularity must still rank above the tie"

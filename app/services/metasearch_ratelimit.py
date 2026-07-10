@@ -37,18 +37,24 @@ from dataclasses import dataclass, field
 
 # Multi-worker global ceiling requires a shared store. Tracked for P5.
 #
-# COUNCIL FINDING 2 (2026-07-10) — HONEST P0 SCOPE: these buckets/breakers are
-# module-local, so they enforce a per-WORKER ceiling, not a fleet-wide one. With
-# N gunicorn/uvicorn workers the aggregate upstream rate is N× the configured
-# steady rate, and a circuit opened in one worker does not open in the others.
-# For P0 the ENFORCED operational contract is: run the metasearch surface with a
-# SINGLE worker (or set the per-worker limits to smallest_ceiling / worker_count).
-# ``assert_single_worker_or_documented()`` below makes that contract explicit at
-# boot so it can't silently regress. The Redis-backed global limiter (P5) is the
-# multi-worker generalisation.
+# COUNCIL FINDING 2 + R2 (2026-07-10) — HONEST P0 SCOPE, NO OVERCLAIM: these
+# buckets/breakers are module-local, so they enforce a per-WORKER ceiling, NOT a
+# fleet-wide one. A per-worker token bucket CANNOT share an open circuit across
+# workers or atomically enforce a global token budget — that is fundamentally the
+# P5 Redis job, not something a process-local dict can do. What P0 DOES provide:
+#   1. Each worker independently rate-limits + circuit-breaks its OWN upstream
+#      calls (real protection against one worker hammering a source).
+#   2. ``effective_limits`` divides each source's configured ceiling by the worker
+#      count (best-effort: at the real 2-worker deploy, aggregate ≈ the single
+#      ceiling; it is NOT a guarantee at very high worker counts — see the floor
+#      note on effective_limits).
+# The real deploy (recipes-api.service / wiserecipes-api.service) runs uvicorn
+# --workers 2. At 2 workers, ClawHub's per-worker cap is 15 burst / 4/s → ~30
+# burst / 8/s aggregate, ~2 orders of magnitude under its published 3000/window.
+# So P0 is SAFE at the real deploy; the global-ceiling GUARANTEE is the P5 gate.
 REDIS_TODO = (
     "P5: back TokenBucket with Redis (INCRBY + EXPIRE) to enforce a GLOBAL "
-    "per-source ceiling across gunicorn workers. P0 = single-worker contract."
+    "per-source ceiling + shared circuit state across workers. P0 = per-worker."
 )
 
 
@@ -223,11 +229,17 @@ def reset_all() -> None:
 
 
 def worker_count() -> int:
-    """Best-effort worker count from the environment (WEB_CONCURRENCY / gunicorn
-    WORKERS), defaulting to 1. Used to divide per-source ceilings across workers
-    so the AGGREGATE stays under the upstream limit even without a shared store
-    (council finding 2 — the P0 mitigation until the P5 Redis limiter lands)."""
+    """Best-effort worker count, defaulting to 1. Reads (in order): the
+    WEB_CONCURRENCY / GUNICORN_WORKERS / UVICORN_WORKERS env vars, then the actual
+    ``--workers N`` argument on the process command line (council R2: the real
+    services launch ``uvicorn --workers 2`` WITHOUT setting an env var, so an
+    env-only reader silently defaults to 1 and the division no-ops in prod).
+
+    Used to divide per-source ceilings across workers so the AGGREGATE stays near
+    the upstream ceiling without a shared store (the P0 best-effort; the P5 Redis
+    limiter is the real global guarantee)."""
     import os
+    import sys
 
     for var in ("WEB_CONCURRENCY", "GUNICORN_WORKERS", "UVICORN_WORKERS"):
         val = os.environ.get(var)
@@ -238,16 +250,37 @@ def worker_count() -> int:
                     return n
             except ValueError:
                 continue
+    # Fall back to the actual --workers CLI arg (uvicorn/gunicorn).
+    argv = sys.argv
+    for i, tok in enumerate(argv):
+        if tok in ("--workers", "-w") and i + 1 < len(argv):
+            try:
+                n = int(argv[i + 1])
+                if n > 0:
+                    return n
+            except ValueError:
+                continue
+        if tok.startswith("--workers="):
+            try:
+                n = int(tok.split("=", 1)[1])
+                if n > 0:
+                    return n
+            except ValueError:
+                continue
     return 1
 
 
 def effective_limits(source: str) -> tuple[float, float]:
     """The per-worker (capacity, refill) after dividing the source ceiling by the
     worker count. Multi-worker deployments thus keep their AGGREGATE upstream rate
-    at (roughly) the single-source ceiling instead of N× it. When workers=1 this
-    is the raw configured limit."""
+    near the single-source ceiling instead of N× it. When workers=1 this is the
+    raw configured limit.
+
+    NOTE (council R2): the floor at (1.0, 0.1) means the division does NOT hold
+    the aggregate at very high worker counts (e.g. 100 workers × floor-1.0 = 100
+    burst). That is an accepted P0 limitation — the real deploy is 2 workers, and
+    the true global guarantee is the P5 Redis limiter. The floor exists so a
+    high worker count never zeroes a source out entirely."""
     cap, refill = _SOURCE_LIMITS.get(source, (_DEFAULT_CAPACITY, _DEFAULT_REFILL_PER_SEC))
     workers = max(1, worker_count())
-    # Keep at least 1 token of capacity and a positive refill so a high worker
-    # count never zeroes a source out entirely.
     return (max(1.0, cap / workers), max(0.1, refill / workers))

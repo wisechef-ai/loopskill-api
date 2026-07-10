@@ -27,7 +27,9 @@ def test_fan_out_returns_pairs_with_raw_rows_for_popularity(monkeypatch):
     _fake_live_fetch(
         monkeypatch,
         {
-            "skills-sh": [{"id": "owner/repo/skill", "name": "Skill", "installs": 777, "source": "owner/repo"}],
+            "skills-sh": [
+                {"id": "owner/repo/skill", "name": "Skill", "installs": 777, "source": "owner/repo"}
+            ],
         },
     )
     out = fo.fan_out("skill", sources=("skills-sh",))
@@ -70,7 +72,9 @@ def test_fan_out_degrades_gracefully_on_source_error(monkeypatch):
 
 
 def test_fan_out_respects_rate_limit_gate(monkeypatch):
-    _fake_live_fetch(monkeypatch, {"skills-sh": [{"id": "a/b/c", "name": "A", "installs": 1, "source": "a/b"}]})
+    _fake_live_fetch(
+        monkeypatch, {"skills-sh": [{"id": "a/b/c", "name": "A", "installs": 1, "source": "a/b"}]}
+    )
     # Open the circuit for skills-sh so acquire() returns False.
     for _ in range(5):
         rl.record_failure("skills-sh")
@@ -112,8 +116,11 @@ def test_fan_out_end_to_end_into_merge_unified(monkeypatch):
     import app.services.federation_live as fl
 
     monkeypatch.setattr(
-        fl, "_safe_json_get",
-        lambda url, *, params=None, headers=None: {"items": [{"slug": "claw", "displayName": "Claw", "stats": {"downloads": 5}}]},
+        fl,
+        "_safe_json_get",
+        lambda url, *, params=None, headers=None: {
+            "items": [{"slug": "claw", "displayName": "Claw", "stats": {"downloads": 5}}]
+        },
     )
     fl._cache.clear()
     out = fo.fan_out("q", sources=("skills-sh", "browse-sh", "clawhub"))
@@ -141,7 +148,7 @@ def test_hung_source_degrades_at_deadline_not_escapes(monkeypatch):
     t = time.monotonic()
     out = fo.fan_out("q", sources=("skills-sh", "browse-sh"), per_source_deadline_s=0.3)
     elapsed = time.monotonic() - t
-    assert elapsed < 1.9, f"must not block on the 2s hung source, took {elapsed:.2f}s"
+    assert elapsed < 0.9, f"deadline must be tight (~0.55s for 0.3s deadline), took {elapsed:.2f}s"
     assert "skills-sh" in out.sources_ok
     assert "browse-sh" in out.sources_degraded
 
@@ -157,3 +164,39 @@ def test_effective_limits_divide_by_worker_count(monkeypatch):
     cap4, _ = rl.effective_limits("clawhub")
     assert cap1 < cap4, "4 workers must each get a smaller bucket than 1 worker"
     assert abs(cap1 - 30 / 4) < 0.01
+
+
+def test_straggler_thread_cannot_flip_breaker_after_response(monkeypatch):
+    """Council R2 (new MUST): a timed-out worker that finishes AFTER the response
+    must NOT record health (which would corrupt the request-owned breaker state).
+    Pre-open to 4 failures; a request timeout records the 5th (→ open); the
+    straggler's late success must NOT reopen/close it."""
+    import time
+    import app.services.federation_live as fl
+
+    rl.reset_all()
+    for _ in range(4):
+        rl.record_failure("browse-sh")
+
+    def slow_ok(q):
+        time.sleep(0.5)
+        return [{"slug": "s", "name": "S", "title": "S"}]
+
+    fl.LIVE_FETCH["browse-sh"] = slow_ok
+    fo.fan_out("q", sources=("browse-sh",), per_source_deadline_s=0.1)
+    assert rl.breaker_state("browse-sh") == "open", "request-owned 5th failure must open the breaker"
+    time.sleep(0.7)  # straggler finishes its slow_ok
+    assert rl.breaker_state("browse-sh") == "open", "straggler success must NOT clear the breaker"
+    rl.reset_all()
+
+
+def test_worker_count_reads_workers_cli_arg(monkeypatch):
+    """Council R2: the real services launch `uvicorn --workers 2` with no env var,
+    so worker_count must read the CLI arg, not silently default to 1."""
+    from app.services import metasearch_ratelimit as rl
+
+    monkeypatch.delenv("WEB_CONCURRENCY", raising=False)
+    monkeypatch.setattr("sys.argv", ["uvicorn", "app.main:app", "--workers", "2"])
+    assert rl.worker_count() == 2
+    monkeypatch.setattr("sys.argv", ["uvicorn", "app.main:app", "--workers=3"])
+    assert rl.worker_count() == 3
