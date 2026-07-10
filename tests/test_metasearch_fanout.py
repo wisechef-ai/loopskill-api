@@ -61,10 +61,10 @@ def test_fan_out_degrades_gracefully_on_source_error(monkeypatch):
 
     good = {"browse-sh": [{"slug": "ok", "name": "OK", "title": "OK"}]}
     _fake_live_fetch(monkeypatch, good)
-    # inject a broken source on top
+    # inject a broken source on top (setitem → restored on teardown)
     import app.services.federation_live as fl
 
-    fl.LIVE_FETCH["skills-sh"] = _boom
+    monkeypatch.setitem(fl.LIVE_FETCH, "skills-sh", _boom)
     out = fo.fan_out("q", sources=("skills-sh", "browse-sh"))
     assert "browse-sh" in out.sources_ok
     assert "skills-sh" in out.sources_degraded
@@ -143,8 +143,12 @@ def test_hung_source_degrades_at_deadline_not_escapes(monkeypatch):
     import time
     import app.services.federation_live as fl
 
-    fl.LIVE_FETCH["skills-sh"] = lambda q: [{"id": "a/b/c", "name": "X", "installs": 1, "source": "a/b"}]
-    fl.LIVE_FETCH["browse-sh"] = lambda q: (time.sleep(2), [{"slug": "s", "name": "S", "title": "S"}])[1]
+    monkeypatch.setitem(
+        fl.LIVE_FETCH, "skills-sh", lambda q: [{"id": "a/b/c", "name": "X", "installs": 1, "source": "a/b"}]
+    )
+    monkeypatch.setitem(
+        fl.LIVE_FETCH, "browse-sh", lambda q: (time.sleep(2), [{"slug": "s", "name": "S", "title": "S"}])[1]
+    )
     t = time.monotonic()
     out = fo.fan_out("q", sources=("skills-sh", "browse-sh"), per_source_deadline_s=0.3)
     elapsed = time.monotonic() - t
@@ -182,7 +186,7 @@ def test_straggler_thread_cannot_flip_breaker_after_response(monkeypatch):
         time.sleep(0.5)
         return [{"slug": "s", "name": "S", "title": "S"}]
 
-    fl.LIVE_FETCH["browse-sh"] = slow_ok
+    monkeypatch.setitem(fl.LIVE_FETCH, "browse-sh", slow_ok)
     fo.fan_out("q", sources=("browse-sh",), per_source_deadline_s=0.1)
     assert rl.breaker_state("browse-sh") == "open", "request-owned 5th failure must open the breaker"
     time.sleep(0.7)  # straggler finishes its slow_ok
