@@ -139,6 +139,8 @@ def client(db_session: Session):
         from app.access_routes import router as access_router
         from app.recipe_routes import router as recipe_router
         from app.health_routes import router as health_router
+        from app.metasearch_routes import router as metasearch_router
+        test_app.include_router(metasearch_router)  # metasearch_0710 P0 — BEFORE skill_router so /metasearch beats /{slug}
         test_app.include_router(skill_router, prefix="/api")
         test_app.include_router(install_router, prefix="/api")
         test_app.include_router(access_router, prefix="/api")
