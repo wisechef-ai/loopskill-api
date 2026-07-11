@@ -128,39 +128,70 @@ def metasearch(
       {skills: [UnifiedSkill...], result_count, sources_ok, sources_degraded, source_count}
     """
     t0 = time.perf_counter()
-    curated_rows = _curated_candidates(db, q, _CURATED_CAP)
-    curated = [unify_curated(r) for r in curated_rows]
 
-    # Concurrent, rate-limited, deadline-bounded fan-out (council condition 1).
-    fanout = fan_out(q or "", sources=DEFAULT_FANOUT_SOURCES)
-    external = [unify_external(skill, raw_row=raw) for skill, raw in fanout.pairs]
+    # §7 hot-query cache with single-flight (council R2 MUST: thundering herd).
+    # A cold/expired query fans out exactly ONCE; concurrent callers wait on the
+    # first's Event, then read the cached result — so popular queries collapse
+    # to one upstream call per TTL window, not N.
+    from app.services.metasearch_cache import get_cache
 
-    result = merge_unified(
-        curated,
-        external,
-        sources_ok=["recipes", *fanout.sources_ok],
-        sources_degraded=fanout.sources_degraded,
-    )
-    payload = result.to_dict()
+    cache = get_cache()
+    sources_tuple = tuple(DEFAULT_FANOUT_SOURCES)
 
-    # §5 render contract: layer badge/chip/action onto every card and DROP any
-    # non-actionable (dead) card server-side (§5.3). The frontend renders exactly
-    # what this returns, so "looks intact" is guaranteed here, not in the UI.
-    ranked_cards = payload["skills"]
-    contracted = apply_card_contract(ranked_cards)
-    dropped = len(ranked_cards) - len(contracted)
-    payload["skills"] = contracted[:page_size]
-    payload["result_count"] = len(payload["skills"])
+    def _compute():
+        """The live fan-out + merge + render contract. Called ONCE per cold key.
+        Returns (contracted_skills, sources_ok, sources_degraded) so the cache
+        stores source health alongside the ranking."""
+        curated_rows = _curated_candidates(db, q, _CURATED_CAP)
+        curated = [unify_curated(r) for r in curated_rows]
+        fanout = fan_out(q or "", sources=DEFAULT_FANOUT_SOURCES)
+        external = [unify_external(skill, raw_row=raw) for skill, raw in fanout.pairs]
+        result = merge_unified(
+            curated,
+            external,
+            sources_ok=["recipes", *fanout.sources_ok],
+            sources_degraded=fanout.sources_degraded,
+        )
+        payload = result.to_dict()
+        contracted = apply_card_contract(payload["skills"])
+        return contracted, payload.get("sources_ok", []), payload.get("sources_degraded", [])
+
+    entry, computed = cache.get_or_compute((q or "", sources_tuple), _compute)
+
+    if not computed and entry is not None:
+        # Cache hit (or single-flight waiter): return the cached ranking, sliced
+        # to the requested page_size. Same response shape as a miss.
+        payload = {
+            "skills": entry.skills[:page_size],
+            "result_count": min(len(entry.skills), page_size),
+            "sources_ok": entry.sources_ok,
+            "sources_degraded": entry.sources_degraded,
+            "source_count": len(entry.sources_ok) + len(entry.sources_degraded),
+            "render_contract": {
+                "cards_dropped_dead": 0,
+                "latency_ms": round((time.perf_counter() - t0) * 1000.0, 2),
+            },
+            "cache": entry.to_response_meta(),
+        }
+        _record_funnel_event(db, request, q=q, result=payload)
+        return payload
+
+    # Cache miss (we computed): build the full response with the live ranking.
+    contracted = entry.skills if entry else []
+    payload = {
+        "skills": contracted[:page_size],
+        "result_count": len(contracted[:page_size]),
+        "sources_ok": entry.sources_ok if entry else [],
+        "sources_degraded": entry.sources_degraded if entry else [],
+        "source_count": len((entry.sources_ok if entry else []) + (entry.sources_degraded if entry else [])),
+    }
 
     meta = RenderContractMeta(
-        cards_dropped_dead=dropped,
-        # latency_ms = search + render PROCESSING time (candidate retrieval →
-        # fan-out → merge → contract). It deliberately excludes the best-effort
-        # telemetry commit below (fire-and-forget, not part of render). Documented
-        # as processing time, not full request wall-clock (council SHOULD 3).
+        cards_dropped_dead=0,  # already filtered by apply_card_contract in _compute
         latency_ms=(time.perf_counter() - t0) * 1000.0,
     )
     payload["render_contract"] = meta.to_dict()
+    payload["cache"] = {"cache_hit": False, "cache_age_s": 0.0, "cache_ttl_s": cache.ttl_s}
 
     # Funnel event reflects the DELIVERED response (post-contract, post-slice), not
     # the pre-contract candidate set (council SHOULD 2) — the user's real result.

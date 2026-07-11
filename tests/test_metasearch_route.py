@@ -11,6 +11,17 @@ from __future__ import annotations
 import json
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _clear_metasearch_cache():
+    """Isolation: clear the module-level hot-query cache before each test."""
+    from app.services.metasearch_cache import get_cache
+
+    get_cache().invalidate()
+    get_cache().reset_stats()
+
+
 from fastapi.testclient import TestClient
 
 import app.services.federation_live as fl
@@ -225,3 +236,68 @@ def test_metasearch_no_stored_count_field(client, db_session, monkeypatch):
     # no total/catalog/available count implying a stored inventory size.
     for banned in ("total_count", "catalog_count", "total_skills", "available_count"):
         assert banned not in body, f"{banned} leaks a stored count (Q2 violation)"
+
+
+# ── §7 hot-query cache (P5) ───────────────────────────────────────────────────
+
+
+def test_metasearch_response_carries_cache_metadata(client, db_session, monkeypatch):
+    """Every metasearch response carries a `cache` block (hit or miss)."""
+    _fake_fanout(monkeypatch, {"browse-sh": [{"slug": "s", "name": "S", "title": "S"}]})
+    from app.services.metasearch_cache import get_cache
+
+    get_cache().invalidate()
+    get_cache().reset_stats()  # clean slate
+    resp = client.get("/api/skills/metasearch?q=browser")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "cache" in body
+    assert body["cache"]["cache_hit"] is False  # first call = miss
+
+
+def test_second_search_for_same_query_is_cache_hit(client, db_session, monkeypatch):
+    """§7: the second search for "browser" within TTL is a cache hit — no fan-out."""
+    _fake_fanout(monkeypatch, {"browse-sh": [{"slug": "s", "name": "S", "title": "S"}]})
+    from app.services.metasearch_cache import get_cache
+
+    get_cache().invalidate()
+    get_cache().reset_stats()
+    client.get("/api/skills/metasearch?q=browser")  # miss → fan-out → cache
+    resp2 = client.get("/api/skills/metasearch?q=browser")  # hit
+    assert resp2.status_code == 200
+    assert resp2.json()["cache"]["cache_hit"] is True
+    assert resp2.json()["cache"]["cache_age_s"] >= 0
+
+
+def test_cache_hit_returns_same_skills_as_first_call(client, db_session, monkeypatch):
+    """A cache hit returns the same ranked skills as the live fan-out did."""
+    _fake_fanout(monkeypatch, {"browse-sh": [{"slug": "s", "name": "S", "title": "S"}]})
+    from app.services.metasearch_cache import get_cache
+
+    get_cache().invalidate()
+    get_cache().reset_stats()
+    r1 = client.get("/api/skills/metasearch?q=scraper").json()
+    r2 = client.get("/api/skills/metasearch?q=scraper").json()
+    assert [s["slug"] for s in r1["skills"]] == [s["slug"] for s in r2["skills"]]
+
+
+def test_cache_hit_serves_correct_page_size(client, db_session, monkeypatch):
+    """Council MUST 1: a cache hit must serve the requested page_size, not a
+    truncated list from a prior smaller-page_size request."""
+    _fake_fanout(
+        monkeypatch, {"browse-sh": [{"slug": f"s{i}", "name": f"S{i}", "title": f"S{i}"} for i in range(50)]}
+    )
+    from app.services.metasearch_cache import get_cache
+
+    get_cache().invalidate()
+    # user A: page_size=5 → caches the FULL contracted ranking
+    r1 = client.get("/api/skills/metasearch?q=browser&page_size=5")
+    assert r1.status_code == 200
+    assert len(r1.json()["skills"]) == 5
+    # user B: page_size=30 → cache hit, should get up to 30 (or all contracted if <30)
+    r2 = client.get("/api/skills/metasearch?q=browser&page_size=30")
+    assert r2.status_code == 200
+    assert r2.json()["cache"]["cache_hit"] is True
+    served = len(r2.json()["skills"])
+    assert served > 5, f"cache hit must serve more than the prior page_size=5, got {served}"
+    assert served <= 30, f"cache hit must not exceed requested page_size=30, got {served}"
