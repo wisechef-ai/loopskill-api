@@ -49,7 +49,15 @@ DEFAULT_FANOUT_SOURCES: tuple[str, ...] = (
     "github-oss",
 )
 
-_PER_SOURCE_DEADLINE_S = 2.5
+# §7.5 latency (2026-07-11): tightened 2.5s → 1.2s. With SWR serving the
+# expiry-boundary tail, the only requests that pay a live fan-out are TRUE cold
+# misses (first-ever query, or a hard-expired key past the grace window). Those
+# must fit the §5.5 render budget (1500ms). A slow source now degrades out at
+# 1.2s (parallel, so 1.2s IS the whole-gather wall-clock) instead of dragging
+# the unified latency to ~2s. Healthy sources return in 100–400ms and are
+# unaffected; the circuit breaker demotes a persistently-slow source so it stops
+# being tried at all. The `sources_degraded` list stays honest about who missed.
+_PER_SOURCE_DEADLINE_S = 1.2
 _PER_SOURCE_TOP_N = 25
 _MAX_WORKERS = 8
 
