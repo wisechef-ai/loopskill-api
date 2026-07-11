@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import shlex
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session, joinedload
@@ -35,6 +36,7 @@ from app._skill_helpers import _install_counts_for, _skill_to_out
 from app.database import get_db
 from app.models import Skill, TelemetryEvent
 from app.services.metasearch import merge_unified, unify_curated, unify_external
+from app.services.metasearch_card_contract import RenderContractMeta, apply_card_contract
 from app.services.metasearch_fanout import DEFAULT_FANOUT_SOURCES, fan_out
 from app.services.metasearch_install import resolve_install
 from app.tier_labels import _is_paid_tier
@@ -125,6 +127,7 @@ def metasearch(
     Response shape (the intact seam — NO internal/external split, NO stored count):
       {skills: [UnifiedSkill...], result_count, sources_ok, sources_degraded, source_count}
     """
+    t0 = time.perf_counter()
     curated_rows = _curated_candidates(db, q, _CURATED_CAP)
     curated = [unify_curated(r) for r in curated_rows]
 
@@ -139,8 +142,21 @@ def metasearch(
         sources_degraded=fanout.sources_degraded,
     )
     payload = result.to_dict()
-    payload["skills"] = payload["skills"][:page_size]
+
+    # §5 render contract: layer badge/chip/action onto every card and DROP any
+    # non-actionable (dead) card server-side (§5.3). The frontend renders exactly
+    # what this returns, so "looks intact" is guaranteed here, not in the UI.
+    ranked_cards = payload["skills"]
+    contracted = apply_card_contract(ranked_cards)
+    dropped = len(ranked_cards) - len(contracted)
+    payload["skills"] = contracted[:page_size]
     payload["result_count"] = len(payload["skills"])
+
+    meta = RenderContractMeta(
+        cards_dropped_dead=dropped,
+        latency_ms=(time.perf_counter() - t0) * 1000.0,
+    )
+    payload["render_contract"] = meta.to_dict()
 
     _record_funnel_event(db, request, q=q, result=result.to_dict())
     return payload
