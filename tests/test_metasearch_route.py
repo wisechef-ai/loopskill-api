@@ -19,6 +19,7 @@ def _clear_metasearch_cache():
     from app.services.metasearch_cache import get_cache
 
     get_cache().invalidate()
+    get_cache().reset_stats()
 
 
 from fastapi.testclient import TestClient
@@ -245,7 +246,8 @@ def test_metasearch_response_carries_cache_metadata(client, db_session, monkeypa
     _fake_fanout(monkeypatch, {"browse-sh": [{"slug": "s", "name": "S", "title": "S"}]})
     from app.services.metasearch_cache import get_cache
 
-    get_cache().invalidate()  # clean slate
+    get_cache().invalidate()
+    get_cache().reset_stats()  # clean slate
     resp = client.get("/api/skills/metasearch?q=browser")
     assert resp.status_code == 200
     body = resp.json()
@@ -259,6 +261,7 @@ def test_second_search_for_same_query_is_cache_hit(client, db_session, monkeypat
     from app.services.metasearch_cache import get_cache
 
     get_cache().invalidate()
+    get_cache().reset_stats()
     client.get("/api/skills/metasearch?q=browser")  # miss → fan-out → cache
     resp2 = client.get("/api/skills/metasearch?q=browser")  # hit
     assert resp2.status_code == 200
@@ -272,6 +275,30 @@ def test_cache_hit_returns_same_skills_as_first_call(client, db_session, monkeyp
     from app.services.metasearch_cache import get_cache
 
     get_cache().invalidate()
+    get_cache().reset_stats()
     r1 = client.get("/api/skills/metasearch?q=scraper").json()
     r2 = client.get("/api/skills/metasearch?q=scraper").json()
     assert [s["slug"] for s in r1["skills"]] == [s["slug"] for s in r2["skills"]]
+
+
+def test_cache_hit_serves_correct_page_size(client, db_session, monkeypatch):
+    """Council MUST 1: a cache hit must serve the requested page_size, not a
+    truncated list from a prior smaller-page_size request."""
+    _fake_fanout(
+        monkeypatch, {"browse-sh": [{"slug": f"s{i}", "name": f"S{i}", "title": f"S{i}"} for i in range(50)]}
+    )
+    from app.services.metasearch_cache import get_cache
+
+    get_cache().invalidate()
+    # user A: page_size=5 → caches the FULL contracted ranking
+    r1 = client.get("/api/skills/metasearch?q=browser&page_size=5")
+    assert r1.status_code == 200
+    assert len(r1.json()["skills"]) == 5
+    cached_total = r1.json()["result_count"]
+    # user B: page_size=30 → cache hit, should get up to 30 (or all contracted if <30)
+    r2 = client.get("/api/skills/metasearch?q=browser&page_size=30")
+    assert r2.status_code == 200
+    assert r2.json()["cache"]["cache_hit"] is True
+    served = len(r2.json()["skills"])
+    assert served > 5, f"cache hit must serve more than the prior page_size=5, got {served}"
+    assert served <= 30, f"cache hit must not exceed requested page_size=30, got {served}"

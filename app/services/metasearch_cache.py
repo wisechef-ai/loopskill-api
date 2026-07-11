@@ -74,8 +74,7 @@ class CacheEntry:
 class HotQueryCache:
     """In-process LRU + TTL cache for metasearch fan-out results.
 
-    Thread-safe via a coarse lock (the metasearch route is read-heavy; fan-out
-    is the expensive part, not lock contention). Designed for a Redis backend to
+    Thread-safe via a single instance-level lock. Designed for a Redis backend to
     drop behind the same ``get``/``put`` interface without changing callers.
     """
 
@@ -84,6 +83,12 @@ class HotQueryCache:
     _store: "OrderedDict[str, CacheEntry]" = field(default_factory=OrderedDict)
     _hits: int = 0
     _misses: int = 0
+    _lock: Any = None  # lazily initialized (threading.Lock isn't a dataclass field)
+
+    def __post_init__(self):
+        import threading
+
+        object.__setattr__(self, "_lock", threading.Lock())
 
     def _key(self, query: str, sources: tuple[str, ...]) -> str:
         # Normalize: lowercase, collapse whitespace, strip. This is what makes
@@ -94,9 +99,7 @@ class HotQueryCache:
 
     def get(self, query: str, sources: tuple[str, ...]) -> CacheEntry | None:
         """Return a non-expired cached entry, or None. LRU-promotes on hit."""
-        import threading
-
-        with threading.Lock():
+        with self._lock:
             key = self._key(query, sources)
             entry = self._store.get(key)
             if entry is None:
@@ -123,9 +126,7 @@ class HotQueryCache:
         sources_failed: list[str] | None = None,
     ) -> None:
         """Store a fan-out result. Evicts the LRU entry if at capacity."""
-        import threading
-
-        with threading.Lock():
+        with self._lock:
             key = self._key(query, sources)
             self._store[key] = CacheEntry(
                 skills=skills,
@@ -154,9 +155,7 @@ class HotQueryCache:
 
     def invalidate(self, query: str | None = None) -> int:
         """Invalidate entries. No query → clear all (admin/test). Returns count."""
-        import threading
-
-        with threading.Lock():
+        with self._lock:
             if query is None:
                 n = len(self._store)
                 self._store.clear()
@@ -167,6 +166,13 @@ class HotQueryCache:
             for k in keys_to_drop:
                 self._store.pop(k, None)
             return len(keys_to_drop)
+
+    def reset_stats(self) -> None:
+        """Reset hit/miss counters (admin/test). Entries are NOT cleared — use
+        invalidate(None) for that. Council SHOULD 5: test isolation."""
+        with self._lock:
+            self._hits = 0
+            self._misses = 0
 
 
 # Module-level singleton (per-worker). The metasearch route uses this instance.

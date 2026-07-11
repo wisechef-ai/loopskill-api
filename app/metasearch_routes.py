@@ -139,6 +139,9 @@ def metasearch(
     sources_tuple = tuple(DEFAULT_FANOUT_SOURCES)
     cached = cache.get(q or "", sources_tuple)
     if cached is not None:
+        # Cache hit: return the same response shape as a miss, slicing the FULL
+        # cached ranking to the requested page_size (council MUST 1 + 3: no
+        # truncation poisoning, no shape mismatch).
         payload = {
             "skills": cached.skills[:page_size],
             "result_count": min(len(cached.skills), page_size),
@@ -175,6 +178,18 @@ def metasearch(
     ranked_cards = payload["skills"]
     contracted = apply_card_contract(ranked_cards)
     dropped = len(ranked_cards) - len(contracted)
+
+    # §7: store the FULL contracted ranking (pre-slice) so a cache hit can serve
+    # any page_size without truncation (council MUST 1: page-size poisoning).
+    cache.put(
+        q or "",
+        sources_tuple,
+        contracted,  # FULL list, not sliced
+        sources_ok=payload.get("sources_ok", []),
+        sources_degraded=payload.get("sources_degraded", []),
+        sources_failed=[],
+    )
+
     payload["skills"] = contracted[:page_size]
     payload["result_count"] = len(payload["skills"])
 
@@ -187,17 +202,6 @@ def metasearch(
         latency_ms=(time.perf_counter() - t0) * 1000.0,
     )
     payload["render_contract"] = meta.to_dict()
-
-    # §7: store the contracted result in the hot-query cache so the next search
-    # for this query (within TTL) is a cache hit — collapsing burst traffic.
-    cache.put(
-        q or "",
-        sources_tuple,
-        payload["skills"],
-        sources_ok=payload.get("sources_ok", []),
-        sources_degraded=payload.get("sources_degraded", []),
-        sources_failed=[],
-    )
     payload["cache"] = {"cache_hit": False, "cache_age_s": 0.0, "cache_ttl_s": cache.ttl_s}
 
     # Funnel event reflects the DELIVERED response (post-contract, post-slice), not
