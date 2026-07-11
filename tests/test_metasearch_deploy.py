@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import app.services.metasearch_deploy as md
 from app.services.metasearch_deploy import PinResult, content_sha, get_pin, pin_external_for_deploy
 
 
-def test_content_sha_is_stable_and_prefixed():
+def test_content_sha_is_stable():
     a = content_sha("# skill body")
-    b = content_sha("# skill body")
-    assert a == b
-    assert a.startswith("sha256:")
+    assert a == content_sha("# skill body")
     assert content_sha("different") != a
 
 
 def test_pin_fails_closed_when_no_content(db_session, monkeypatch):
     """ClawHub / deep-link / non-redistributable / origin outage → resolve returns
     None or no content → NOT fleet-deployable (fail closed)."""
-    monkeypatch.setattr(md, "pin_external_for_deploy", md.pin_external_for_deploy)  # keep real
     import app.services.bundle_external as be
 
     monkeypatch.setattr(be, "resolve_external_install", lambda s, sl: None)
@@ -38,21 +37,27 @@ def test_pin_fails_closed_on_resolve_error(db_session, monkeypatch):
     assert r.reason == "resolve_error"
 
 
-def _mock_resolve(monkeypatch, body):
-    """Mock BOTH resolve paths: resolve_external_install (pin's content fetch) and
-    _resolve_external (materialize_external_skill's row creation)."""
+def _mock_resolve(monkeypatch, body, tmp_path=None, count=None):
+    """Mock BOTH resolve paths + point artifact storage at a tmp dir. When ``count``
+    (a dict) is given, increments count['resolve'] on each upstream resolve so a
+    test can assert exactly-once (council MUST 2)."""
     import app.services.bundle_external as be
+    from app.config import settings
 
-    monkeypatch.setattr(
-        be,
-        "resolve_external_install",
-        lambda s, sl: {
+    if tmp_path is not None:
+        monkeypatch.setattr(settings, "RECIPES_SKILLS_DIR", str(tmp_path))
+
+    def _resolve_install(s, sl):
+        if count is not None:
+            count["resolve"] = count.get("resolve", 0) + 1
+        return {
             "content": body,
             "raw_url": "https://raw.githubusercontent.com/o/r/main/s/SKILL.md",
             "scan_status": "clean",
             "origin_url": "https://github.com/o/r",
-        },
-    )
+        }
+
+    monkeypatch.setattr(be, "resolve_external_install", _resolve_install)
 
     class _Ext:
         title = "Agent Browser"
@@ -62,63 +67,78 @@ def _mock_resolve(monkeypatch, body):
         install_path = type("IP", (), {"value": "fetch_origin"})()
         redistributable = True
 
-    monkeypatch.setattr(be, "_resolve_external", lambda s, sl: _Ext())
-    # scan_on_add is called inside materialize — stub it to a clean verdict
+    def _resolve_ext(s, sl):
+        if count is not None:
+            count["resolve"] = count.get("resolve", 0) + 1
+        return _Ext()
+
+    monkeypatch.setattr(be, "_resolve_external", _resolve_ext)
     monkeypatch.setattr(
         be,
         "scan_on_add",
-        lambda ext, fetcher, slug: type(
+        lambda ext, f, slug: type(
             "V", (), {"badge": "clean", "scannable": True, "findings": [], "warnings": []}
         )(),
     )
 
 
-def test_pin_success_computes_sha_and_writes_descriptor(db_session, monkeypatch):
-    """A resolvable skills.sh skill pins its content SHA onto the materialized row."""
+def test_pin_success_computes_sha_and_writes_descriptor(db_session, monkeypatch, tmp_path):
     body = "---\nname: agent-browser\n---\n# Agent Browser body"
-    _mock_resolve(monkeypatch, body)
+    _mock_resolve(monkeypatch, body, tmp_path=tmp_path)
     r = pin_external_for_deploy(db_session, "skills-sh", "o--r--s")
     assert r.pinned is True
     assert r.pinned_sha == content_sha(body)
-    assert r.skill_id is not None
+    assert r.pinned_semver == f"sha256:{content_sha(body)}"
     from app.models import Skill
 
     skill = db_session.query(Skill).filter(Skill.slug == "ext:skills-sh:o--r--s").first()
     assert skill is not None
-    assert get_pin(skill) == content_sha(body)
+    assert get_pin(skill) == f"sha256:{content_sha(body)}"
 
 
-def test_pin_is_idempotent_and_advances_on_content_change(db_session, monkeypatch):
+def test_pin_creates_servable_skillversion_artifact(db_session, monkeypatch, tmp_path):
+    """Council MUST 1: the pin creates a SkillVersion + on-disk tarball so reconcile
+    can serve OUR bytes (agents never re-resolve upstream)."""
+    import tarfile
+
+    from app.models import Skill, SkillVersion
+
+    body = "---\nname: x\n---\n# real body bytes"
+    _mock_resolve(monkeypatch, body, tmp_path=tmp_path)
+    r = pin_external_for_deploy(db_session, "skills-sh", "o--r--s")
+    skill = db_session.query(Skill).filter(Skill.slug == "ext:skills-sh:o--r--s").first()
+    ver = (
+        db_session.query(SkillVersion)
+        .filter(SkillVersion.skill_id == skill.id, SkillVersion.semver == r.pinned_semver)
+        .first()
+    )
+    assert ver is not None, "a content-addressed SkillVersion must exist for reconcile"
+    assert ver.checksum_sha256 == content_sha(body)
+    assert ver.tarball_path and Path(ver.tarball_path).is_file(), "the tarball must be packed on disk"
+    with tarfile.open(ver.tarball_path, "r:gz") as tf:
+        member = tf.extractfile("SKILL.md")
+        assert member.read().decode() == body
+
+
+def test_pin_resolves_upstream_exactly_once_on_first_deploy(db_session, monkeypatch, tmp_path):
+    """Council MUST 2: a first deploy makes EXACTLY ONE upstream resolve."""
+    count: dict = {"resolve": 0}
+    _mock_resolve(monkeypatch, "---\nname: x\n---\n# b", tmp_path=tmp_path, count=count)
+    pin_external_for_deploy(db_session, "skills-sh", "o--r--s")
+    assert count["resolve"] == 1, f"exactly one upstream resolve, got {count['resolve']}"
+
+
+def test_pin_idempotent_and_advances_on_content_change(db_session, monkeypatch, tmp_path):
     v1 = "---\nname: x\n---\n# v1"
-    _mock_resolve(monkeypatch, v1)
+    _mock_resolve(monkeypatch, v1, tmp_path=tmp_path)
     r1 = pin_external_for_deploy(db_session, "skills-sh", "o--r--s")
     v2 = "---\nname: x\n---\n# v2 changed upstream"
-    _mock_resolve(monkeypatch, v2)
+    _mock_resolve(monkeypatch, v2, tmp_path=tmp_path)
     r2 = pin_external_for_deploy(db_session, "skills-sh", "o--r--s")
     assert r1.skill_id == r2.skill_id, "same (source,slug) → one row (idempotent)"
     assert r2.pinned_sha == content_sha(v2)
     assert r2.pinned_sha != r1.pinned_sha, "re-deploy advances the pin to new content"
 
 
-def test_get_pin_none_when_never_deployed(db_session, monkeypatch):
-    import app.services.bundle_external as be
-    from app.services.bundle_external import materialize_external_skill
-
-    monkeypatch.setattr(
-        be,
-        "_resolve_external",
-        lambda s, sl: type(
-            "E",
-            (),
-            {
-                "title": "T",
-                "description": "d",
-                "license": "MIT",
-                "origin_url": "https://github.com/o/r",
-                "install_path": type("IP", (), {"value": "fetch_origin"})(),
-            },
-        )(),
-    )
-    # a materialized-but-never-deployed skill has no pin
-    # (use the pin result's PinResult shape to assert get_pin returns None on no descriptor)
+def test_pin_result_to_dict():
     assert PinResult(False).to_dict()["pinned"] is False

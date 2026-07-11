@@ -124,15 +124,35 @@ def metasearch_fleet_deploy(
             },
         )
 
-    # Add/reactivate the desired-state row, pinned to the resolved content SHA.
+    # Cap check (Pro tier) — computed BEFORE mutation so a disabled-row
+    # reactivation is also gated (council SHOULD 3: reactivating a disabled row
+    # into an at-cap bundle would otherwise be the 26th active skill).
+    def _at_cap_for_reactivation() -> bool:
+        if ctx.tier not in ("pro", "cook"):  # cook=legacy alias, remove after 2026-06-10
+            return False
+        active = (
+            db.query(BundleSkill)
+            .filter(BundleSkill.bundle_id == cb.id, BundleSkill.source != "disabled")
+            .count()
+        )
+        return active >= COOK_SKILL_CAP
+
+    # Add/reactivate the desired-state row, pinned to the content-addressed semver
+    # (reconcile selects the SkillVersion by this semver → serves OUR tarball).
     existing = (
         db.query(BundleSkill)
         .filter(BundleSkill.bundle_id == cb.id, BundleSkill.skill_id == pin.skill_uuid)
         .first()
     )
     if existing is not None:
+        # A disabled row being reactivated counts as a NEW active skill → cap it.
+        if existing.source == "disabled" and _at_cap_for_reactivation():
+            raise HTTPException(
+                status_code=403,
+                detail={"deployed": False, "reason": "skill_cap_reached", "cap": COOK_SKILL_CAP},
+            )
         existing.source = "overridden"  # provenance: explicitly deploy-pinned
-        existing.pinned_version = pin.pinned_sha
+        existing.pinned_version = pin.pinned_semver
         _touch_bundle_generation(db, cb.id)
         db.commit()
         _record_deploy_event(
@@ -143,10 +163,11 @@ def metasearch_fleet_deploy(
             "fleet_id": str(cb.id),
             "slug": pin.slug,
             "pinned_sha": pin.pinned_sha,
+            "pinned_semver": pin.pinned_semver,
             "redeployed": True,
         }
 
-    # Cap check (Pro tier), mirroring the bundle add route.
+    # New row: cap check (Pro tier), mirroring the bundle add route.
     if ctx.tier in ("pro", "cook"):  # cook=legacy alias, remove after 2026-06-10
         active = (
             db.query(BundleSkill)
@@ -163,7 +184,7 @@ def metasearch_fleet_deploy(
         bundle_id=cb.id,
         skill_id=pin.skill_uuid,
         source="overridden",  # deploy-pinned provenance
-        pinned_version=pin.pinned_sha,
+        pinned_version=pin.pinned_semver,
     )
     db.add(row)
     _touch_bundle_generation(db, cb.id)
@@ -174,5 +195,6 @@ def metasearch_fleet_deploy(
         "fleet_id": str(cb.id),
         "slug": pin.slug,
         "pinned_sha": pin.pinned_sha,
+        "pinned_semver": pin.pinned_semver,
         "redeployed": False,
     }
