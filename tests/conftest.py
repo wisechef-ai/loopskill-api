@@ -6,6 +6,7 @@ Provides:
                    (F11: prevents commit() inside tests from leaking state)
   client         — FastAPI TestClient wired to the in-memory DB
 """
+
 from __future__ import annotations
 
 from typing import Generator
@@ -22,11 +23,19 @@ from app.models import Base, Skill
 
 # ── Reusable helper (importable by other test modules) ─────────────────────
 
-def make_skill(db, slug: str = "test-skill", title: str = "Test Skill",
-               category: str = "devops", is_public: bool = True, **kwargs) -> "Skill":
+
+def make_skill(
+    db,
+    slug: str = "test-skill",
+    title: str = "Test Skill",
+    category: str = "devops",
+    is_public: bool = True,
+    **kwargs,
+) -> "Skill":
     """Create and flush a Skill row.  Returns the Skill instance."""
     from uuid import uuid4
     from datetime import datetime, timezone
+
     s = Skill(
         id=uuid4(),
         slug=slug,
@@ -71,7 +80,7 @@ def db_session(engine_fixture) -> Generator[Session, None, None]:
     Reference: SQLAlchemy docs — "Joining a Session into an External Transaction"
     """
     connection = engine_fixture.connect()
-    transaction = connection.begin()          # outer transaction (always rolls back)
+    transaction = connection.begin()  # outer transaction (always rolls back)
     _SessionLocal = sessionmaker(bind=connection, autocommit=False, autoflush=False)
     session = _SessionLocal()
 
@@ -121,6 +130,7 @@ def client(db_session: Session):
     # bootcamp_0607: curated install curricula
     try:
         from app.bootcamp_routes import router as bootcamp_router
+
         test_app.include_router(bootcamp_router, prefix="/api")
     except Exception:
         pass
@@ -128,6 +138,7 @@ def client(db_session: Session):
     # Also include core routes (skills, telemetry, carousel legacy) if importable
     try:
         from app.routes import router as core_router
+
         test_app.include_router(core_router)
     except Exception:
         pass
@@ -140,7 +151,12 @@ def client(db_session: Session):
         from app.recipe_routes import router as recipe_router
         from app.health_routes import router as health_router
         from app.metasearch_routes import router as metasearch_router
-        test_app.include_router(metasearch_router)  # metasearch_0710 P0 — BEFORE skill_router so /metasearch beats /{slug}
+        from app.metasearch_deploy_routes import router as metasearch_deploy_router
+
+        test_app.include_router(
+            metasearch_router
+        )  # metasearch_0710 P0 — BEFORE skill_router so /metasearch beats /{slug}
+        test_app.include_router(metasearch_deploy_router)  # metasearch_0710 P3 fleet-deploy
         test_app.include_router(skill_router, prefix="/api")
         test_app.include_router(install_router, prefix="/api")
         test_app.include_router(access_router, prefix="/api")
@@ -153,6 +169,7 @@ def client(db_session: Session):
     try:
         from app.checkout_routes import router as checkout_router
         from app.creator_routes import router as creator_router
+
         test_app.include_router(checkout_router)
         test_app.include_router(creator_router)
     except Exception:
