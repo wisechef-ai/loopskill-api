@@ -161,9 +161,9 @@ class HotQueryCache:
                 n = len(self._store)
                 self._store.clear()
                 return n
-            key = self._key(query, ())
             # Invalidate all source-sets for this query (prefix match on the key).
-            keys_to_drop = [k for k in self._store if k.startswith(f"{query.lower().strip()}|")]
+            prefix = f"{' '.join(query.lower().split())}|"
+            keys_to_drop = [k for k in self._store if k.startswith(prefix)]
             for k in keys_to_drop:
                 self._store.pop(k, None)
             return len(keys_to_drop)
