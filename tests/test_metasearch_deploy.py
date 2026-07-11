@@ -182,3 +182,36 @@ def test_pin_semver_fits_column_limits(db_session, monkeypatch, tmp_path):
     r = pin_external_for_deploy(db_session, "skills-sh", "o--r--s")
     assert len(r.pinned_semver) <= 32, "semver must fit String(32)"
     assert len(r.pinned_semver) <= 50, "pinned_version must fit String(50)"
+
+
+def test_semver_collision_fails_closed(db_session, monkeypatch, tmp_path):
+    """Council R3: two different bodies sharing the 24-hex semver prefix must NOT
+    silently serve stale bytes — a full-content-sha mismatch fails closed."""
+    from app.models import Skill, SkillVersion
+
+    body = "---\nname: x\n---\n# original"
+    _mock_resolve(monkeypatch, body, tmp_path=tmp_path)
+    r1 = pin_external_for_deploy(db_session, "skills-sh", "o--r--s")
+    skill = db_session.query(Skill).filter(Skill.slug == "ext:skills-sh:o--r--s").first()
+    ver = (
+        db_session.query(SkillVersion)
+        .filter(SkillVersion.skill_id == skill.id, SkillVersion.semver == r1.pinned_semver)
+        .first()
+    )
+    # simulate a collision: corrupt the stored content_sha so a re-pin of the SAME
+    # semver but "different" content is detected
+    ver.changelog = "deploy-time pin content_sha=DIFFERENT_CONTENT_SHA"
+    db_session.flush()
+    r2 = pin_external_for_deploy(db_session, "skills-sh", "o--r--s")
+    assert r2.pinned is False
+    assert r2.reason == "pin_semver_collision"
+
+
+def test_idempotent_redeploy_same_content_reuses_version(db_session, monkeypatch, tmp_path):
+    """A genuine re-deploy of the SAME content reuses the version (no collision)."""
+    body = "---\nname: x\n---\n# same"
+    _mock_resolve(monkeypatch, body, tmp_path=tmp_path)
+    r1 = pin_external_for_deploy(db_session, "skills-sh", "o--r--s")
+    r2 = pin_external_for_deploy(db_session, "skills-sh", "o--r--s")
+    assert r1.pinned and r2.pinned
+    assert r1.pinned_semver == r2.pinned_semver

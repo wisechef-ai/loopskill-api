@@ -199,7 +199,18 @@ def pin_external_for_deploy(db: "Session", source: str, slug: str) -> PinResult:
         .filter(SkillVersion.skill_id == skill.id, SkillVersion.semver == semver)
         .first()
     )
-    if existing_ver is None:
+    if existing_ver is not None:
+        # Council R3: the 25-char semver is a TRUNCATED (96-bit) content selector.
+        # If an existing version with this semver has a DIFFERENT full-content sha
+        # (a prefix collision — accidental ~2^-96, or an adversarially-crafted
+        # ~2^48 pair), reusing it would silently serve stale/other bytes. The full
+        # content sha lives in the descriptor changelog; detect a mismatch and
+        # fail closed rather than serve the wrong artifact.
+        prior = existing_ver.changelog or ""
+        if f"content_sha={sha}" not in prior:
+            logger.error("pin semver collision for %s:%s (semver=%s) — failing closed", source, slug, semver)
+            return PinResult(False, slug=slug, reason="pin_semver_collision")
+    else:
         db.add(
             SkillVersion(
                 id=uuid4(),
@@ -210,7 +221,8 @@ def pin_external_for_deploy(db: "Session", source: str, slug: str) -> PinResult:
                 # Council R2 MUST1: reconcile_fetch verifies the SHA of the TARBALL
                 # BYTES, not the source file. Store the tarball digest here.
                 checksum_sha256=tarball_sha,
-                changelog=f"deploy-time pin from {source}:{slug}",
+                # Full content sha embedded for R3 collision detection on reuse.
+                changelog=f"deploy-time pin from {source}:{slug} content_sha={sha}",
             )
         )
 
