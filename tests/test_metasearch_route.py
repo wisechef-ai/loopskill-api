@@ -294,7 +294,6 @@ def test_cache_hit_serves_correct_page_size(client, db_session, monkeypatch):
     r1 = client.get("/api/skills/metasearch?q=browser&page_size=5")
     assert r1.status_code == 200
     assert len(r1.json()["skills"]) == 5
-    cached_total = r1.json()["result_count"]
     # user B: page_size=30 → cache hit, should get up to 30 (or all contracted if <30)
     r2 = client.get("/api/skills/metasearch?q=browser&page_size=30")
     assert r2.status_code == 200

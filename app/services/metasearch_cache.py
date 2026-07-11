@@ -84,6 +84,7 @@ class HotQueryCache:
     _hits: int = 0
     _misses: int = 0
     _lock: Any = None  # lazily initialized (threading.Lock isn't a dataclass field)
+    _inflight: dict[str, Any] = field(default_factory=dict)  # key → Event for single-flight
 
     def __post_init__(self):
         import threading
@@ -173,6 +174,72 @@ class HotQueryCache:
         with self._lock:
             self._hits = 0
             self._misses = 0
+
+    def get_or_compute(
+        self,
+        key_parts: tuple[str, tuple[str, ...]],
+        compute_fn: "Any",
+    ) -> tuple[CacheEntry | None, bool]:
+        """Single-flight: return a cached entry if fresh, else call ``compute_fn``
+        ONCE and cache its result. Concurrent callers for the same key wait on
+        the first caller's Event, then read the cached result — so a cold/expired
+        query fans out exactly ONCE, not N times (council MUST: thundering herd).
+
+        Returns (entry, computed). ``computed=True`` means the caller ran
+        ``compute_fn`` and should proceed with the live response; ``False`` means
+        the caller got a cache hit (or waited for another's compute) and should
+        return the cached entry.
+        """
+        import threading
+
+        query, sources = key_parts
+        key = self._key(query, sources)
+
+        # Fast path: cache hit (no lock contention on the hot path).
+        entry = self.get(query, sources)
+        if entry is not None:
+            return entry, False
+
+        # Cold/expired: acquire or create an in-flight slot for this key.
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is not None and not entry.expired:
+                return entry, False
+            event = self._inflight.get(key)
+            if event is None:
+                # First caller for this key — we compute.
+                event = threading.Event()
+                self._inflight[key] = event
+                is_computer = True
+            else:
+                is_computer = False
+
+        if is_computer:
+            try:
+                result = compute_fn()
+                # compute_fn returns (skills, sources_ok, sources_degraded) or just skills.
+                if isinstance(result, tuple) and len(result) == 3:
+                    skills, ok, degraded = result
+                    self.put(query, sources, skills, sources_ok=ok, sources_degraded=degraded)
+                else:
+                    self.put(query, sources, result)
+            except Exception:  # noqa: BLE001
+                # The compute failed (e.g. all sources down). Don't cache a
+                # failure; let concurrent waiters see no entry and compute
+                # themselves on retry. The route handles a None entry.
+                logger.warning("cache compute failed for %s", key, exc_info=True)
+                return None, True
+            finally:
+                with self._lock:
+                    self._inflight.pop(key, None)
+                event.set()
+            entry = self.get(query, sources)
+            return entry, True
+        else:
+            # Concurrent caller — wait for the computer, then read the cache.
+            event.wait(timeout=30.0)  # bounded wait; a dead computer's Event times out
+            entry = self.get(query, sources)
+            return entry, entry is not None
 
 
 # Module-level singleton (per-worker). The metasearch route uses this instance.
