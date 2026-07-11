@@ -74,7 +74,7 @@ def test_deployable_card_action_is_deploy():
 
 
 def test_non_deployable_card_action_is_preview():
-    c = card_from_unified(_card(deployable=False, source="clawhub"))
+    c = card_from_unified(_card(deployable=False, source="clawhub", install_ref="clawhub:x"))
     assert c.primary_action == ACTION_PREVIEW
 
 
@@ -87,7 +87,11 @@ def test_card_with_no_install_ref_is_not_actionable():
 
 
 def test_apply_contract_drops_dead_cards():
-    cards = [_card(install_ref="skills-sh:a--b--c"), _card(install_ref=""), _card(install_ref="clawhub:x")]
+    cards = [
+        _card(source="skills-sh", install_ref="skills-sh:a--b--c"),
+        _card(source="skills-sh", install_ref=""),
+        _card(source="clawhub", install_ref="clawhub:x"),
+    ]
     out = apply_card_contract(cards)
     assert len(out) == 2, "the card with no install_ref must be dropped (no dead cards)"
     assert all(c["actionable"] for c in out)
@@ -146,3 +150,27 @@ def test_none_string_ref_is_not_actionable():
     c = card_from_unified(_card(install_ref=None))
     assert c.actionable is False
     assert c.install_ref == "", "None ref must normalize to empty, not the string 'None'"
+
+
+# ── council P2 R2: source/install_ref mismatch must fail closed ───────────────
+
+
+def test_source_ref_mismatch_fails_closed():
+    """Council R2: _ref_is_resolvable routes off the source DECODED FROM install_ref
+    and requires it to match the display source, so a mismatch (display recipes,
+    ref github-oss) is a dead card and must be dropped — not rendered."""
+    from app.services.metasearch_card_contract import _ref_is_resolvable
+
+    # false-positive dead card: display recipes but ref points at unresolvable github-oss
+    assert _ref_is_resolvable("recipes", "github-oss:x") is False
+    # malformed clawhub ref (blank slug) fails closed
+    assert _ref_is_resolvable("clawhub", "clawhub:") is False
+    # display github-oss but ref recipes: decoded=recipes but != display source → fail closed (spoof)
+    assert _ref_is_resolvable("github-oss", "recipes:existing") is False
+    # matching pair resolves
+    assert _ref_is_resolvable("recipes", "recipes:existing") is True
+
+
+def test_mismatched_card_is_dropped():
+    card = _card(source="recipes", install_ref="github-oss:x", deployable=True)
+    assert apply_card_contract([card]) == [], "source/ref mismatch dead card must be dropped"

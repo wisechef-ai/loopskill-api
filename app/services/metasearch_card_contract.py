@@ -112,20 +112,32 @@ def _ref_is_resolvable(source: str, install_ref: str) -> bool:
     Council P2 MUST: ``bool(install_ref)`` was wrong — ``github-oss`` mints a
     deployable card with a non-empty ref whose origin fetcher is deliberately
     absent (needs a prod token), so it would render a deploy button that 404s.
-    This mirrors ``resolve_install``'s own source routing so the contract and the
-    install endpoint agree: curated (internal), clawhub (own-API preview), or a
-    source with a registered origin fetcher. Anything else fails closed (dropped).
+
+    Council P2 R2: route the decision off the source DECODED FROM ``install_ref``
+    (exactly as ``resolve_install`` does), not the card's display ``source`` — a
+    mismatch (display ``recipes`` but ref ``github-oss:x``) would otherwise be
+    called actionable here yet 404 at the route. We additionally require the
+    decoded source to EQUAL the display source, so a spoofed/mismatched card
+    fails closed. This makes the contract and the install endpoint provably agree.
     """
     if not install_ref or ":" not in install_ref:
         return False
-    if source == "recipes":  # curated — resolved from the internal catalog
+    decoded_source, _, slug = install_ref.partition(":")
+    decoded_source = decoded_source.strip()
+    slug = slug.strip()
+    if not decoded_source or not slug:
+        return False
+    # The ref's own source must match the card's display source (no spoofing).
+    if source and decoded_source != source:
+        return False
+    if decoded_source == "recipes":  # curated — resolved from the internal catalog
         return True
-    if source == "clawhub":  # preview from ClawHub's own API (decision #6)
+    if decoded_source == "clawhub":  # preview from ClawHub's own API (decision #6)
         return True
     # Fetch-origin sources: actionable iff a resolver is registered (P1 registry).
     from app.services.federation_install import get_origin_fetcher
 
-    return get_origin_fetcher(source) is not None
+    return get_origin_fetcher(decoded_source) is not None
 
 
 def card_from_unified(card: dict) -> CardContract:
