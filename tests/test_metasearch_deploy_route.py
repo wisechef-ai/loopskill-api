@@ -107,7 +107,7 @@ def test_external_skill_deploys_to_fleet_with_pin(db_session, monkeypatch, tmp_p
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["deployed"] is True
-    assert body["pinned_semver"].startswith("sha256:")
+    assert body["pinned_semver"].startswith("x") and len(body["pinned_semver"]) == 25
     assert len(body["pinned_sha"]) == 64  # bare sha256 hex
     assert body["redeployed"] is False
 

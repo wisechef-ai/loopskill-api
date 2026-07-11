@@ -88,12 +88,12 @@ def test_pin_success_computes_sha_and_writes_descriptor(db_session, monkeypatch,
     r = pin_external_for_deploy(db_session, "skills-sh", "o--r--s")
     assert r.pinned is True
     assert r.pinned_sha == content_sha(body)
-    assert r.pinned_semver == f"sha256:{content_sha(body)}"
+    assert r.pinned_semver == f"x{content_sha(body)[:24]}"
     from app.models import Skill
 
     skill = db_session.query(Skill).filter(Skill.slug == "ext:skills-sh:o--r--s").first()
     assert skill is not None
-    assert get_pin(skill) == f"sha256:{content_sha(body)}"
+    assert get_pin(skill) == f"x{content_sha(body)[:24]}"
 
 
 def test_pin_creates_servable_skillversion_artifact(db_session, monkeypatch, tmp_path):
@@ -113,7 +113,11 @@ def test_pin_creates_servable_skillversion_artifact(db_session, monkeypatch, tmp
         .first()
     )
     assert ver is not None, "a content-addressed SkillVersion must exist for reconcile"
-    assert ver.checksum_sha256 == content_sha(body)
+    import hashlib as _h
+
+    assert (
+        ver.checksum_sha256 == _h.sha256(Path(ver.tarball_path).read_bytes()).hexdigest()
+    ), "checksum must be the TARBALL bytes sha (what reconcile_fetch verifies)"
     assert ver.tarball_path and Path(ver.tarball_path).is_file(), "the tarball must be packed on disk"
     with tarfile.open(ver.tarball_path, "r:gz") as tf:
         member = tf.extractfile("SKILL.md")
@@ -142,3 +146,39 @@ def test_pin_idempotent_and_advances_on_content_change(db_session, monkeypatch, 
 
 def test_pin_result_to_dict():
     assert PinResult(False).to_dict()["pinned"] is False
+
+
+def test_pinned_checksum_matches_reconcile_fetch_verification(db_session, monkeypatch, tmp_path):
+    """Council R2 MUST1 (the killer): reconcile_fetch verifies sha256(TARBALL BYTES)
+    against SkillVersion.checksum_sha256. Prove the stored checksum equals the sha
+    of the actual tarball file bytes — so a real reconcile fetch would PASS, not
+    roll back. (The prior code stored the SKILL.md-body sha → guaranteed mismatch.)"""
+    import hashlib
+
+    from app.models import Skill, SkillVersion
+
+    body = "---\nname: x\n---\n# body that gets gzipped"
+    _mock_resolve(monkeypatch, body, tmp_path=tmp_path)
+    r = pin_external_for_deploy(db_session, "skills-sh", "o--r--s")
+    skill = db_session.query(Skill).filter(Skill.slug == "ext:skills-sh:o--r--s").first()
+    ver = (
+        db_session.query(SkillVersion)
+        .filter(SkillVersion.skill_id == skill.id, SkillVersion.semver == r.pinned_semver)
+        .first()
+    )
+    tarball_bytes = Path(ver.tarball_path).read_bytes()
+    # THIS is exactly what reconcile_fetch computes and compares (reconcile_fetch.py:100)
+    assert (
+        ver.checksum_sha256 == hashlib.sha256(tarball_bytes).hexdigest()
+    ), "checksum MUST be the tarball-bytes sha, or every reconcile fetch rolls back"
+    # and it must NOT be the body sha (the prior bug)
+    assert ver.checksum_sha256 != content_sha(body)
+
+
+def test_pin_semver_fits_column_limits(db_session, monkeypatch, tmp_path):
+    """Council R2 MUST1: SkillVersion.semver is String(32), BundleSkill.pinned_version
+    String(50). The pin must fit both on PostgreSQL (SQLite doesn't enforce)."""
+    _mock_resolve(monkeypatch, "---\nname: x\n---\n# b", tmp_path=tmp_path)
+    r = pin_external_for_deploy(db_session, "skills-sh", "o--r--s")
+    assert len(r.pinned_semver) <= 32, "semver must fit String(32)"
+    assert len(r.pinned_semver) <= 50, "pinned_version must fit String(50)"

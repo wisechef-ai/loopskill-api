@@ -78,25 +78,33 @@ def content_sha(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-def _pack_tarball(dest_dir: Path, sha: str, content: str) -> tuple[str, int]:
+def _pack_tarball(dest_dir: Path, sha: str, content: str) -> tuple[str, int, str]:
     """Pack SKILL.md content into an immutable content-addressed ``{sha}.tar.gz``
     (a single ``SKILL.md`` member), matching the curated tarball shape the
     reconcile fetcher + skill_file_cache already read. Idempotent: the same sha
-    always produces the same path; existing file is reused. Returns (path, size)."""
+    always produces the same path; existing file is reused.
+
+    Returns (path, size, tarball_sha256). Council R2: reconcile_fetch verifies the
+    SHA of the TARBALL BYTES, not the source file — so we compute and return the
+    tarball digest for SkillVersion.checksum_sha256. Deterministic packing (fixed
+    mtime/mode/name) makes the tarball bytes — and thus their sha — reproducible.
+    """
     dest_dir.mkdir(parents=True, exist_ok=True)
     tar_path = dest_dir / f"{sha}.tar.gz"
+    data = content.encode("utf-8")
+    buf = io.BytesIO()
+    # gzip mtime=0 (mtime arg) + tar mtime=0 → byte-reproducible archive.
+    with tarfile.open(fileobj=buf, mode="w:gz", format=tarfile.PAX_FORMAT) as tf:
+        info = tarfile.TarInfo(name="SKILL.md")
+        info.size = len(data)
+        info.mtime = 0
+        info.mode = 0o644
+        tf.addfile(info, io.BytesIO(data))
+    tar_bytes = buf.getvalue()
     if not tar_path.is_file():
-        data = content.encode("utf-8")
-        # Deterministic tar: fixed mtime + name so the same content → same bytes.
-        buf = io.BytesIO()
-        with tarfile.open(fileobj=buf, mode="w:gz", format=tarfile.PAX_FORMAT) as tf:
-            info = tarfile.TarInfo(name="SKILL.md")
-            info.size = len(data)
-            info.mtime = 0
-            info.mode = 0o644
-            tf.addfile(info, io.BytesIO(data))
-        tar_path.write_bytes(buf.getvalue())
-    return str(tar_path), tar_path.stat().st_size
+        tar_path.write_bytes(tar_bytes)
+    tar_sha = hashlib.sha256(tar_path.read_bytes()).hexdigest()
+    return str(tar_path), tar_path.stat().st_size, tar_sha
 
 
 def pin_external_for_deploy(db: "Session", source: str, slug: str) -> PinResult:
@@ -127,9 +135,19 @@ def pin_external_for_deploy(db: "Session", source: str, slug: str) -> PinResult:
 
     content = resolved["content"]
     sha = content_sha(content)
-    semver = f"sha256:{sha}"  # content-addressed "version" reconcile selects
+    # Council R2: SkillVersion.semver is String(32) and BundleSkill.pinned_version
+    # is String(50) — the full "sha256:"+64hex (71 chars) overflows both on
+    # PostgreSQL (SQLite doesn't enforce, which hid this). Use a compact
+    # content-addressed semver that fits String(32): "x" + first 24 hex of the
+    # content sha (25 chars). Collision-safe enough for pin identity (96 bits);
+    # the FULL content sha stays in the descriptor and the TARBALL sha is the
+    # integrity checksum reconcile verifies.
+    semver = f"x{sha[:24]}"  # 25 chars ≤ 32; content-addressed version reconcile selects
     raw_url = resolved.get("raw_url")
     scan_status = resolved.get("scan_status")
+    scannable = resolved.get("scannable")
+    scan_findings = resolved.get("scan_findings")
+    scan_warnings = resolved.get("scan_warnings")
 
     # 2) Get/create the FK-satisfying private Skill row WITHOUT a second upstream
     #    resolve (council MUST 2). If the pointer row doesn't exist we build it
@@ -155,7 +173,13 @@ def pin_external_for_deploy(db: "Session", source: str, slug: str) -> PinResult:
                 "install_path": resolved.get("install_path"),
                 "origin_url": resolved.get("origin_url") or raw_url,
                 "redistributable": True,
+                # Council R2 HIGH: preserve the FULL scan metadata materialize
+                # would have set (scannable/findings/warnings), not just status,
+                # so install_descriptor_for's trust card isn't degraded.
                 "scan_status": scan_status,
+                "scannable": scannable,
+                "scan_findings": scan_findings,
+                "scan_warnings": scan_warnings,
             },
         )
         db.add(skill)
@@ -165,7 +189,7 @@ def pin_external_for_deploy(db: "Session", source: str, slug: str) -> PinResult:
     #    existing _attach_tarball_urls serves it exactly like a curated skill.
     try:
         dest = Path(settings.RECIPES_SKILLS_DIR) / cat_slug.replace(":", "_")
-        tar_path, size = _pack_tarball(dest, sha, content)
+        tar_path, size, tarball_sha = _pack_tarball(dest, sha, content)
     except Exception:  # noqa: BLE001
         logger.warning("pin tarball pack failed for %s:%s", source, slug, exc_info=True)
         return PinResult(False, slug=slug, reason="artifact_pack_failed")
@@ -183,7 +207,9 @@ def pin_external_for_deploy(db: "Session", source: str, slug: str) -> PinResult:
                 semver=semver,
                 tarball_path=tar_path,
                 tarball_size_bytes=size,
-                checksum_sha256=sha,
+                # Council R2 MUST1: reconcile_fetch verifies the SHA of the TARBALL
+                # BYTES, not the source file. Store the tarball digest here.
+                checksum_sha256=tarball_sha,
                 changelog=f"deploy-time pin from {source}:{slug}",
             )
         )
@@ -225,4 +251,4 @@ def get_pin(skill: "Skill") -> str | None:
     BundleSkill.pinned_version.)"""
     descriptor = getattr(skill, "external_resources", None) or {}
     pin = descriptor.get("pinned_semver") if isinstance(descriptor, dict) else None
-    return pin if isinstance(pin, str) and pin.startswith("sha256:") else None
+    return pin if isinstance(pin, str) and pin.startswith("x") and len(pin) == 25 else None
