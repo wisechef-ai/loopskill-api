@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
+from concurrent.futures import ThreadPoolExecutor
+
 import time
 
 from app.services.metasearch_cache import CacheEntry, HotQueryCache, get_cache
@@ -85,3 +88,38 @@ def test_get_cache_singleton():
     a = get_cache()
     b = get_cache()
     assert a is b
+
+
+# ── single-flight concurrent regression (council P5 R3/R4) ────────────────────
+
+
+def test_concurrent_cold_miss_calls_compute_exactly_once():
+    """Council R3 MUST: N concurrent cold-miss callers → exactly ONE compute_fn
+    call; the rest are waiters that read the cached result."""
+    import threading
+
+    c = HotQueryCache(ttl_s=60)
+    call_count = {"n": 0}
+    barrier = threading.Barrier(8)
+
+    def _compute():
+        call_count["n"] += 1
+        time.sleep(0.05)  # simulate fan-out latency
+        return [{"slug": "a"}], ["skills-sh"], []
+
+    def _worker():
+        barrier.wait()  # release all threads simultaneously
+        return c.get_or_compute(("browser", ("skills-sh",)), _compute)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(_worker) for _ in range(8)]
+        results = [f.result() for f in futures]
+
+    assert call_count["n"] == 1, f"exactly one compute, got {call_count['n']}"
+    # all callers got a non-None entry
+    for entry, _ in results:
+        assert entry is not None
+        assert entry.skills == [{"slug": "a"}]
+    # exactly one caller has computed=True (the computer); the rest are False
+    computed_flags = [computed for _, computed in results]
+    assert sum(computed_flags) == 1, f"one computer, got {sum(computed_flags)}"
