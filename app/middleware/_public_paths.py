@@ -18,6 +18,7 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     "/api/skills/access",
     "/api/skills/_download",
     "/api/skills/external",  # evergreen_0206 F2 — external-only funnel: public discovery + fetch-origin install
+    "/api/skills/metasearch",  # metasearch_0710 P0 — unified query-time router (one ranked list, public discovery)
     # loopskill_portal_0627 — the runnable loop REGISTRY is the #1 stars-conversion
     # surface; its browse (GET /api/loops) + detail (GET /api/loops/{slug}) MUST be
     # publicly readable so the portal hero can render without baking a key into

@@ -56,6 +56,7 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.access_routes", "router", "/api"),
     ("app.recipe_routes", "router", "/api"),
     ("app.install_routes", "router", "/api"),
+    ("app.metasearch_routes", "router", ""),  # metasearch_0710 P0 — BEFORE skill_routes so /metasearch beats /{slug}
     ("app.skill_routes", "router", "/api"),
     ("app.skill_files_routes", "router", "/api"),
     ("app.admin_routes", "router", ""),
