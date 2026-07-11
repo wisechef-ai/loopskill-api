@@ -128,6 +128,32 @@ def metasearch(
       {skills: [UnifiedSkill...], result_count, sources_ok, sources_degraded, source_count}
     """
     t0 = time.perf_counter()
+
+    # §7 hot-query cache: popular queries collapse to one upstream call per TTL
+    # window (the scale workhorse — "the cache is doing the real work; the token
+    # bucket is the seatbelt"). Checked BEFORE any fan-out; stored AFTER the
+    # render contract so a hit returns the exact same response shape.
+    from app.services.metasearch_cache import get_cache
+
+    cache = get_cache()
+    sources_tuple = tuple(DEFAULT_FANOUT_SOURCES)
+    cached = cache.get(q or "", sources_tuple)
+    if cached is not None:
+        payload = {
+            "skills": cached.skills[:page_size],
+            "result_count": min(len(cached.skills), page_size),
+            "sources_ok": cached.sources_ok,
+            "sources_degraded": cached.sources_degraded,
+            "source_count": len(cached.sources_ok) + len(cached.sources_degraded),
+            "render_contract": {
+                "cards_dropped_dead": 0,  # already filtered when cached
+                "latency_ms": round((time.perf_counter() - t0) * 1000.0, 2),
+            },
+            "cache": cached.to_response_meta(),
+        }
+        _record_funnel_event(db, request, q=q, result=payload)
+        return payload
+
     curated_rows = _curated_candidates(db, q, _CURATED_CAP)
     curated = [unify_curated(r) for r in curated_rows]
 
@@ -161,6 +187,18 @@ def metasearch(
         latency_ms=(time.perf_counter() - t0) * 1000.0,
     )
     payload["render_contract"] = meta.to_dict()
+
+    # §7: store the contracted result in the hot-query cache so the next search
+    # for this query (within TTL) is a cache hit — collapsing burst traffic.
+    cache.put(
+        q or "",
+        sources_tuple,
+        payload["skills"],
+        sources_ok=payload.get("sources_ok", []),
+        sources_degraded=payload.get("sources_degraded", []),
+        sources_failed=[],
+    )
+    payload["cache"] = {"cache_hit": False, "cache_age_s": 0.0, "cache_ttl_s": cache.ttl_s}
 
     # Funnel event reflects the DELIVERED response (post-contract, post-slice), not
     # the pre-contract candidate set (council SHOULD 2) — the user's real result.

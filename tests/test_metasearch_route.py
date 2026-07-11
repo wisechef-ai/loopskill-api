@@ -11,6 +11,16 @@ from __future__ import annotations
 import json
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _clear_metasearch_cache():
+    """Isolation: clear the module-level hot-query cache before each test."""
+    from app.services.metasearch_cache import get_cache
+
+    get_cache().invalidate()
+
+
 from fastapi.testclient import TestClient
 
 import app.services.federation_live as fl
@@ -225,3 +235,43 @@ def test_metasearch_no_stored_count_field(client, db_session, monkeypatch):
     # no total/catalog/available count implying a stored inventory size.
     for banned in ("total_count", "catalog_count", "total_skills", "available_count"):
         assert banned not in body, f"{banned} leaks a stored count (Q2 violation)"
+
+
+# ── §7 hot-query cache (P5) ───────────────────────────────────────────────────
+
+
+def test_metasearch_response_carries_cache_metadata(client, db_session, monkeypatch):
+    """Every metasearch response carries a `cache` block (hit or miss)."""
+    _fake_fanout(monkeypatch, {"browse-sh": [{"slug": "s", "name": "S", "title": "S"}]})
+    from app.services.metasearch_cache import get_cache
+
+    get_cache().invalidate()  # clean slate
+    resp = client.get("/api/skills/metasearch?q=browser")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "cache" in body
+    assert body["cache"]["cache_hit"] is False  # first call = miss
+
+
+def test_second_search_for_same_query_is_cache_hit(client, db_session, monkeypatch):
+    """§7: the second search for "browser" within TTL is a cache hit — no fan-out."""
+    _fake_fanout(monkeypatch, {"browse-sh": [{"slug": "s", "name": "S", "title": "S"}]})
+    from app.services.metasearch_cache import get_cache
+
+    get_cache().invalidate()
+    client.get("/api/skills/metasearch?q=browser")  # miss → fan-out → cache
+    resp2 = client.get("/api/skills/metasearch?q=browser")  # hit
+    assert resp2.status_code == 200
+    assert resp2.json()["cache"]["cache_hit"] is True
+    assert resp2.json()["cache"]["cache_age_s"] >= 0
+
+
+def test_cache_hit_returns_same_skills_as_first_call(client, db_session, monkeypatch):
+    """A cache hit returns the same ranked skills as the live fan-out did."""
+    _fake_fanout(monkeypatch, {"browse-sh": [{"slug": "s", "name": "S", "title": "S"}]})
+    from app.services.metasearch_cache import get_cache
+
+    get_cache().invalidate()
+    r1 = client.get("/api/skills/metasearch?q=scraper").json()
+    r2 = client.get("/api/skills/metasearch?q=scraper").json()
+    assert [s["slug"] for s in r1["skills"]] == [s["slug"] for s in r2["skills"]]
