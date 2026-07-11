@@ -27,6 +27,7 @@ already fit the rate limits at the 1000-fleet-runner target. The interface
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -39,6 +40,13 @@ logger = logging.getLogger(__name__)
 # fresh enough for discovery, stale enough to collapse burst traffic.
 _DEFAULT_TTL_S = 300  # 5 min — the plan's §7 "5–15 min" range, floor
 _DEFAULT_MAX_ENTRIES = 500  # bounded LRU; at ~2KB/entry this is ~1MB
+# §7.5 latency: stale-while-revalidate grace. Past the TTL but within this
+# window, a hit is served STALE (fast) while a background thread refreshes the
+# entry. This collapses the expiry-boundary miss — the single request that used
+# to pay the full cold fan-out at each TTL rollover — into a fast stale-serve,
+# which is what drives the p95 tail below the 500ms acceptance gate. The refresh
+# runs on its OWN DB session (the request session is closed by then).
+_DEFAULT_STALE_GRACE_S = 600  # serve stale up to 10 min past TTL while refreshing
 
 
 @dataclass
@@ -52,18 +60,37 @@ class CacheEntry:
     sources_failed: list[str]
     cached_at: float
     ttl_s: float
+    stale_grace_s: float = 0.0
+
+    @property
+    def age_s(self) -> float:
+        return time.monotonic() - self.cached_at
+
+    @property
+    def fresh(self) -> bool:
+        """Within TTL — serve directly, no refresh needed."""
+        return self.age_s <= self.ttl_s
+
+    @property
+    def stale(self) -> bool:
+        """Past TTL but within the stale-while-revalidate grace window — serve
+        this entry immediately AND trigger a background refresh."""
+        age = self.age_s
+        return self.ttl_s < age <= (self.ttl_s + self.stale_grace_s)
 
     @property
     def expired(self) -> bool:
-        return (time.monotonic() - self.cached_at) > self.ttl_s
+        """Past TTL + grace — must not be served; treat as a hard miss."""
+        return self.age_s > (self.ttl_s + self.stale_grace_s)
 
     def to_response_meta(self) -> dict[str, Any]:
         """Metadata added to the metasearch response on a cache hit."""
-        age_s = time.monotonic() - self.cached_at
+        age_s = self.age_s
         return {
             "cache_hit": True,
             "cache_age_s": round(age_s, 1),
             "cache_ttl_s": self.ttl_s,
+            "cache_stale": self.stale,
             "sources_ok": self.sources_ok,
             "sources_degraded": self.sources_degraded,
             "sources_failed": self.sources_failed,
@@ -80,15 +107,16 @@ class HotQueryCache:
 
     ttl_s: float = _DEFAULT_TTL_S
     max_entries: int = _DEFAULT_MAX_ENTRIES
+    stale_grace_s: float = _DEFAULT_STALE_GRACE_S
     _store: "OrderedDict[str, CacheEntry]" = field(default_factory=OrderedDict)
     _hits: int = 0
     _misses: int = 0
+    _stale_serves: int = 0
     _lock: Any = None  # lazily initialized (threading.Lock isn't a dataclass field)
     _inflight: dict[str, Any] = field(default_factory=dict)  # key → Event for single-flight
+    _refreshing: set[str] = field(default_factory=set)  # keys with an in-progress SWR refresh
 
     def __post_init__(self):
-        import threading
-
         object.__setattr__(self, "_lock", threading.Lock())
 
     def _key(self, query: str, sources: tuple[str, ...]) -> str:
@@ -99,22 +127,47 @@ class HotQueryCache:
         return f"{normalized}|{','.join(sorted(sources))}"
 
     def get(self, query: str, sources: tuple[str, ...]) -> CacheEntry | None:
-        """Return a non-expired cached entry, or None. LRU-promotes on hit."""
+        """Return a FRESH (within-TTL) cached entry, or None. LRU-promotes on hit.
+
+        This is the strict freshness accessor: a stale (past-TTL, within-grace)
+        entry returns None here so direct callers get miss semantics. The SWR
+        serve-stale path lives in ``get_entry`` / ``get_or_compute``.
+        """
+        entry, state = self.get_entry(query, sources)
+        if entry is not None and state == "fresh":
+            return entry
+        return None
+
+    def get_entry(self, query: str, sources: tuple[str, ...]) -> tuple[CacheEntry | None, str]:
+        """Return (entry, state) where state ∈ {"fresh", "stale", "miss"}.
+
+        - fresh: within TTL — serve, no refresh.
+        - stale: past TTL, within grace — serve THIS entry (fast) and the caller
+          should trigger a background refresh (stale-while-revalidate).
+        - miss: no entry, or past TTL+grace (hard-expired, evicted here).
+
+        Hit/miss counters: a fresh OR stale serve counts as a hit (the user got a
+        fast cached response); only a true miss increments misses. This mirrors
+        what the §7.5 load test measures (``cache_hit`` in the response).
+        """
         with self._lock:
             key = self._key(query, sources)
             entry = self._store.get(key)
             if entry is None:
                 self._misses += 1
-                return None
+                return None, "miss"
             if entry.expired:
-                # Expired — evict, count as miss (the TTL is the freshness control).
+                # Hard-expired (past TTL + grace) — evict, count as miss.
                 self._store.pop(key, None)
                 self._misses += 1
-                return None
-            # LRU promote.
+                return None, "miss"
+            # Fresh or stale: LRU-promote and count as a hit.
             self._store.move_to_end(key)
             self._hits += 1
-            return entry
+            if entry.stale:
+                self._stale_serves += 1
+                return entry, "stale"
+            return entry, "fresh"
 
     def put(
         self,
@@ -136,6 +189,7 @@ class HotQueryCache:
                 sources_failed=sources_failed or [],
                 cached_at=time.monotonic(),
                 ttl_s=self.ttl_s,
+                stale_grace_s=self.stale_grace_s,
             )
             self._store.move_to_end(key)
             while len(self._store) > self.max_entries:
@@ -149,8 +203,10 @@ class HotQueryCache:
             "entries": len(self._store),
             "hits": self._hits,
             "misses": self._misses,
+            "stale_serves": self._stale_serves,
             "hit_rate": round(self._hits / total, 3) if total > 0 else 0.0,
             "ttl_s": self.ttl_s,
+            "stale_grace_s": self.stale_grace_s,
             "max_entries": self.max_entries,
         }
 
@@ -174,37 +230,56 @@ class HotQueryCache:
         with self._lock:
             self._hits = 0
             self._misses = 0
+            self._stale_serves = 0
 
     def get_or_compute(
         self,
         key_parts: tuple[str, tuple[str, ...]],
         compute_fn: "Any",
+        refresh_fn: "Any" = None,
     ) -> tuple[CacheEntry | None, bool]:
-        """Single-flight: return a cached entry if fresh, else call ``compute_fn``
-        ONCE and cache its result. Concurrent callers for the same key wait on
-        the first caller's Event, then read the cached result — so a cold/expired
-        query fans out exactly ONCE, not N times (council MUST: thundering herd).
+        """Single-flight + stale-while-revalidate.
 
-        Returns (entry, computed). ``computed=True`` means the caller ran
-        ``compute_fn`` and should proceed with the live response; ``False`` means
-        the caller got a cache hit (or waited for another's compute) and should
-        return the cached entry.
+        Fast paths:
+          - FRESH hit → return (entry, False) immediately.
+          - STALE hit (past TTL, within grace) → return the stale (entry, False)
+            immediately AND fire ONE background refresh for this key (guarded by
+            ``_refreshing`` so N concurrent stale-serves spawn exactly one
+            refresh). The user pays ZERO fan-out latency at the TTL boundary —
+            this is the §7.5 p95 fix.
+
+        Slow path (hard miss — no entry or past TTL+grace):
+          - Single-flight compute: the first caller runs ``compute_fn`` ONCE;
+            concurrent callers for the same key wait on its Event, then read the
+            cached result (council MUST: thundering herd).
+
+        ``refresh_fn`` (optional) is the callable used for the BACKGROUND stale
+        refresh; it MUST be self-contained w.r.t. resources (open its own DB
+        session) because it runs in a daemon thread after the originating
+        request's session is closed. When omitted, ``compute_fn`` is reused (safe
+        only if ``compute_fn`` is itself resource-self-contained).
+
+        Returns (entry, computed). ``computed=True`` iff THIS caller ran
+        ``compute_fn`` synchronously (a hard-miss compute); a fresh hit, a
+        stale-serve, and a single-flight waiter all return ``computed=False``.
         """
-        import threading
-
         query, sources = key_parts
         key = self._key(query, sources)
 
-        # Fast path: cache hit (no lock contention on the hot path).
-        entry = self.get(query, sources)
-        if entry is not None:
+        # Fast path: fresh or stale hit (no single-flight lock contention).
+        entry, state = self.get_entry(query, sources)
+        if state == "fresh":
+            return entry, False
+        if state == "stale":
+            self._maybe_refresh(key, query, sources, refresh_fn or compute_fn)
             return entry, False
 
-        # Cold/expired: acquire or create an in-flight slot for this key.
+        # Hard miss: acquire or create an in-flight slot for this key.
         with self._lock:
-            entry = self._store.get(key)
-            if entry is not None and not entry.expired:
-                return entry, False
+            existing = self._store.get(key)
+            if existing is not None and not existing.expired:
+                # Raced with another writer between get_entry and here.
+                return existing, False
             event = self._inflight.get(key)
             if event is None:
                 # First caller for this key — we compute.
@@ -216,13 +291,7 @@ class HotQueryCache:
 
         if is_computer:
             try:
-                result = compute_fn()
-                # compute_fn returns (skills, sources_ok, sources_degraded) or just skills.
-                if isinstance(result, tuple) and len(result) == 3:
-                    skills, ok, degraded = result
-                    self.put(query, sources, skills, sources_ok=ok, sources_degraded=degraded)
-                else:
-                    self.put(query, sources, result)
+                self._run_and_store(query, sources, compute_fn)
             except Exception:  # noqa: BLE001
                 # Rationale: a failed compute must not be cached; concurrent waiters
                 # see no entry and retry on their next request.
@@ -245,6 +314,46 @@ class HotQueryCache:
             event.wait(timeout=30.0)
             entry = self.get(query, sources)
             return entry, False
+
+    def _run_and_store(self, query: str, sources: tuple[str, ...], compute_fn: "Any") -> None:
+        """Call ``compute_fn`` and store its result. Shared by the synchronous
+        hard-miss path and the background SWR refresh."""
+        result = compute_fn()
+        # compute_fn returns (skills, sources_ok, sources_degraded) or just skills.
+        if isinstance(result, tuple) and len(result) == 3:
+            skills, ok, degraded = result
+            self.put(query, sources, skills, sources_ok=ok, sources_degraded=degraded)
+        else:
+            self.put(query, sources, result)
+
+    def _maybe_refresh(self, key: str, query: str, sources: tuple[str, ...], compute_fn: "Any") -> bool:
+        """Fire a SINGLE background refresh for a stale key. Returns True iff this
+        call started the refresh (i.e. won the ``_refreshing`` guard). Concurrent
+        stale-serves for the same key are no-ops — exactly one refresh runs.
+
+        The refresh thread is a daemon so it never blocks process shutdown; on
+        failure the stale entry simply remains until it hard-expires (grace
+        window) and the next request does a synchronous compute.
+        """
+        with self._lock:
+            if key in self._refreshing:
+                return False
+            self._refreshing.add(key)
+
+        def _refresh() -> None:
+            try:
+                self._run_and_store(query, sources, compute_fn)
+            except Exception:  # noqa: BLE001
+                # Rationale: a failed background refresh must not crash the worker
+                # and must not poison the cache — the stale entry stays until it
+                # hard-expires, then a request recomputes synchronously.
+                logger.warning("metasearch SWR refresh failed for %s", key, exc_info=True)
+            finally:
+                with self._lock:
+                    self._refreshing.discard(key)
+
+        threading.Thread(target=_refresh, name="metasearch-swr-refresh", daemon=True).start()
+        return True
 
 
 # Module-level singleton (per-worker). The metasearch route uses this instance.

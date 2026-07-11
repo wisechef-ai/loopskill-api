@@ -57,4 +57,4 @@ var names (WR_*, RECIPES_*) are unchanged for prod compatibility — marked with
 TODO(rename) comments. Closes #63.
 """
 
-__version__ = "0.9.16"
+__version__ = "0.9.17"

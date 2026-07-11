@@ -138,11 +138,11 @@ def metasearch(
     cache = get_cache()
     sources_tuple = tuple(DEFAULT_FANOUT_SOURCES)
 
-    def _compute():
-        """The live fan-out + merge + render contract. Called ONCE per cold key.
-        Returns (contracted_skills, sources_ok, sources_degraded) so the cache
-        stores source health alongside the ranking."""
-        curated_rows = _curated_candidates(db, q, _CURATED_CAP)
+    def _build(compute_db: Session):
+        """Build the unified ranked result against ``compute_db``. Shared by the
+        foreground compute (request session) and the background SWR refresh
+        (its own session)."""
+        curated_rows = _curated_candidates(compute_db, q, _CURATED_CAP)
         curated = [unify_curated(r) for r in curated_rows]
         fanout = fan_out(q or "", sources=DEFAULT_FANOUT_SOURCES)
         external = [unify_external(skill, raw_row=raw) for skill, raw in fanout.pairs]
@@ -156,7 +156,24 @@ def metasearch(
         contracted = apply_card_contract(payload["skills"])
         return contracted, payload.get("sources_ok", []), payload.get("sources_degraded", [])
 
-    entry, computed = cache.get_or_compute((q or "", sources_tuple), _compute)
+    def _compute():
+        """Foreground compute (hard cache miss). Runs synchronously in the request
+        thread, so the request-scoped ``db`` is alive and correct."""
+        return _build(db)
+
+    def _refresh():
+        """Background stale-while-revalidate refresh. Runs in a daemon thread AFTER
+        the request session is closed, so it MUST open its own session. The
+        fan-out is DB-free; only the curated pull needs the session."""
+        from app.database import SessionLocal
+
+        refresh_db = SessionLocal()
+        try:
+            return _build(refresh_db)
+        finally:
+            refresh_db.close()
+
+    entry, computed = cache.get_or_compute((q or "", sources_tuple), _compute, refresh_fn=_refresh)
 
     if not computed and entry is not None:
         # Cache hit (or single-flight waiter): return the cached ranking, sliced
