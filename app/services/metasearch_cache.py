@@ -131,19 +131,25 @@ class HotQueryCache:
     def get(self, query: str, sources: tuple[str, ...]) -> CacheEntry | None:
         """Return a FRESH (within-TTL) cached entry, or None. LRU-promotes on hit.
 
-        This is the strict freshness accessor: a stale (past-TTL, within-grace)
-        entry returns None here so direct callers get miss semantics. The SWR
-        serve-stale path lives in ``get_entry`` / ``get_or_compute``.
+        Strict freshness accessor: a stale (past-TTL, within-grace) entry returns
+        None here so direct callers get miss semantics. The SWR serve-stale path
+        lives in ``get_entry`` / ``get_or_compute``.
 
-        Does NOT touch hit/miss counters (``_count=False``): the request-path SWR
-        accounting is owned by ``get_or_compute`` via ``get_entry``. A strict
-        ``get()`` that returned None for a stale entry while ALSO recording a hit
-        would corrupt the §7.5 hit-rate telemetry (council SHOULD, 2026-07-11).
+        Accounting (council SHOULD, 2026-07-11): counts a FRESH serve as a hit and
+        a true miss as a miss — matching the long-standing P5 stats contract
+        (test_hit_rate_stats). But a STALE entry (returned as None here) is counted
+        as a MISS, not a hit, so the strict path's hit-rate telemetry stays honest.
+        It suppresses ``get_entry``'s own counting (``_count=False``) and records
+        the outcome itself to avoid double counting.
         """
         entry, state = self.get_entry(query, sources, _count=False)
-        if entry is not None and state == "fresh":
-            return entry
-        return None
+        with self._lock:
+            if state == "fresh" and entry is not None:
+                self._hits += 1
+                return entry
+            # stale (returned as None to strict callers) or miss → count a miss.
+            self._misses += 1
+            return None
 
     def get_entry(
         self, query: str, sources: tuple[str, ...], *, _count: bool = True
