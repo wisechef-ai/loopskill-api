@@ -199,3 +199,38 @@ def test_command_matrix_shlex_quotes_metacharacters():
     # fetch-origin path
     cmds2 = _install_command_matrix("skills-sh", "https://x/$(whoami)/SKILL.md", preview_only=False)
     assert "$(whoami)" not in cmds2["hermes"] or "'" in cmds2["hermes"]  # quoted
+
+
+def test_curated_paid_body_visible_to_master_caller(db_session, monkeypatch):
+    """Council R3 NIT: the POSITIVE paywall path — a master-scope (or paid) caller
+    MUST see the paid-tier body. Uses the real-middleware app so auth_ctx is
+    stamped from the x-api-key, guarding the key/cookie parity contract."""
+    from fastapi.testclient import TestClient
+
+    from app.config import settings
+    from app.models import Skill
+    from tests._app_factory import build_test_app
+
+    s = Skill(
+        slug="paid-visible",
+        title="Paid",
+        description="d",
+        readme="# PAID body for paid caller",
+        tier="pro",
+        is_public=True,
+        is_archived=False,
+        skill_variant="custom",
+        kind="skill",
+    )
+    db_session.add(s)
+    db_session.commit()
+
+    app = build_test_app(db_session=db_session, monkeypatch=monkeypatch)
+    mw = TestClient(app)
+    # master key → scope=master → paywall override → body visible
+    resp = mw.get(
+        "/api/skills/metasearch/install?install_ref=recipes:paid-visible",
+        headers={"x-api-key": settings.API_KEY},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["body"] == "# PAID body for paid caller", "master caller must see the paid body"
