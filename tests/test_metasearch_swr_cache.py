@@ -188,3 +188,102 @@ def test_hard_miss_computes_synchronously():
     entry, computed = c.get_or_compute(("novel-query", src), _compute)
     assert computed is True
     assert entry is not None and entry.skills == [{"slug": "fresh"}]
+
+
+# ── CAS: a slow SWR refresh must NOT clobber a newer hard-miss recompute ───────
+
+
+def test_slow_refresh_does_not_overwrite_newer_hard_miss(monkeypatch):
+    """Council MUST-FIX (2026-07-11), reproduced by the reviewer:
+
+    1. entry goes stale → background refresh starts computing 'bg' (held open)
+    2. entry ages past ttl+grace while bg still running → next caller hard-misses,
+       synchronously computes+stores 'sync' (newer, higher seq)
+    3. the slow bg refresh finishes → its compare-and-swap MUST fail (the entry it
+       started from was replaced) so it does NOT overwrite 'sync' with 'bg'.
+
+    Without the seq/CAS guard the final cache would be 'bg' (the reviewer's
+    reproduction). With it, the final cache must be 'sync'.
+    """
+    c = HotQueryCache(ttl_s=0.1, max_entries=10, stale_grace_s=0.1)
+    src = ("skills-sh",)
+    c.put("browser", src, [{"slug": "old"}], sources_ok=["skills-sh"])
+
+    bg_started = threading.Event()
+    bg_release = threading.Event()
+
+    def _bg_refresh():
+        bg_started.set()
+        bg_release.wait(timeout=3.0)  # hold the refresh open past the entry's hard-expiry
+        return [{"slug": "bg"}], ["skills-sh"], []
+
+    # Serve stale → fires the (held) background refresh.
+    time.sleep(0.12)  # past ttl(0.1), within grace(0.1)
+    entry, computed = c.get_or_compute(("browser", src), lambda: None, refresh_fn=_bg_refresh)
+    assert computed is False
+    assert entry is not None and entry.skills == [{"slug": "old"}]
+    assert bg_started.wait(timeout=1.0)
+
+    # Let the OLD entry age past ttl+grace while the bg refresh is still held.
+    time.sleep(0.15)  # now age > 0.1 + 0.1 → hard-expired
+
+    # A hard miss recomputes synchronously and stores the NEWER 'sync' value.
+    def _sync():
+        return [{"slug": "sync"}], ["skills-sh"], []
+
+    entry2, computed2 = c.get_or_compute(("browser", src), _sync, refresh_fn=_bg_refresh)
+    assert computed2 is True
+    assert entry2 is not None and entry2.skills == [{"slug": "sync"}]
+
+    # Release the slow bg refresh; its CAS must fail (entry moved on).
+    bg_release.set()
+    # Give the daemon a moment to attempt (and drop) its write.
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        e, _ = c.get_entry("browser", src, _count=False)
+        # If the bug were present, e.skills would flip to 'bg'. Poll a bit to
+        # give the racing thread every chance to clobber, then assert it didn't.
+        time.sleep(0.05)
+        if not c._refreshing:  # refresh finished
+            break
+
+    final, _ = c.get_entry("browser", src, _count=False)
+    assert final is not None
+    assert final.skills == [{"slug": "sync"}], (
+        f"stale refresh clobbered the newer hard-miss result: got {final.skills}"
+    )
+
+
+def test_put_if_current_cas_semantics():
+    """Unit-level CAS: put_if_current lands only when the expected seq matches."""
+    c = HotQueryCache(ttl_s=5.0, max_entries=10, stale_grace_s=5.0)
+    src = ("skills-sh",)
+    seq0 = c.put("browser", src, [{"slug": "v0"}])
+
+    # Matching seq → lands.
+    assert c.put_if_current("browser", src, [{"slug": "v1"}], expected_seq=seq0) is True
+    entry, _ = c.get_entry("browser", src, _count=False)
+    assert entry.skills == [{"slug": "v1"}]
+
+    # Stale seq (seq0 is now behind) → rejected, entry unchanged.
+    assert c.put_if_current("browser", src, [{"slug": "vX"}], expected_seq=seq0) is False
+    entry, _ = c.get_entry("browser", src, _count=False)
+    assert entry.skills == [{"slug": "v1"}]
+
+    # Missing entry → CAS fails (nothing to compare against).
+    c.invalidate()
+    assert c.put_if_current("novel", src, [{"slug": "y"}], expected_seq=1) is False
+
+
+def test_strict_get_does_not_inflate_hit_stats_on_stale():
+    """Council SHOULD (2026-07-11): strict get() returns None for a stale entry
+    and must NOT record a hit (it delegates with _count=False)."""
+    c = HotQueryCache(ttl_s=0.1, max_entries=10, stale_grace_s=5.0)
+    src = ("skills-sh",)
+    c.put("browser", src, [{"slug": "a"}])
+    c.reset_stats()
+    time.sleep(0.15)  # stale
+    assert c.get("browser", src) is None  # strict get → miss semantics
+    s = c.stats()
+    assert s["hits"] == 0, f"strict get() on stale must not count a hit, stats={s}"
+    assert s["stale_serves"] == 0

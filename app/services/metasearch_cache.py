@@ -61,6 +61,7 @@ class CacheEntry:
     cached_at: float
     ttl_s: float
     stale_grace_s: float = 0.0
+    seq: int = 0  # monotonic write-generation; the CAS token for SWR refreshes
 
     @property
     def age_s(self) -> float:
@@ -115,6 +116,7 @@ class HotQueryCache:
     _lock: Any = None  # lazily initialized (threading.Lock isn't a dataclass field)
     _inflight: dict[str, Any] = field(default_factory=dict)  # key → Event for single-flight
     _refreshing: set[str] = field(default_factory=set)  # keys with an in-progress SWR refresh
+    _seq_counter: int = 0  # monotonic write-generation source (CAS token for SWR)
 
     def __post_init__(self):
         object.__setattr__(self, "_lock", threading.Lock())
@@ -132,13 +134,20 @@ class HotQueryCache:
         This is the strict freshness accessor: a stale (past-TTL, within-grace)
         entry returns None here so direct callers get miss semantics. The SWR
         serve-stale path lives in ``get_entry`` / ``get_or_compute``.
+
+        Does NOT touch hit/miss counters (``_count=False``): the request-path SWR
+        accounting is owned by ``get_or_compute`` via ``get_entry``. A strict
+        ``get()`` that returned None for a stale entry while ALSO recording a hit
+        would corrupt the §7.5 hit-rate telemetry (council SHOULD, 2026-07-11).
         """
-        entry, state = self.get_entry(query, sources)
+        entry, state = self.get_entry(query, sources, _count=False)
         if entry is not None and state == "fresh":
             return entry
         return None
 
-    def get_entry(self, query: str, sources: tuple[str, ...]) -> tuple[CacheEntry | None, str]:
+    def get_entry(
+        self, query: str, sources: tuple[str, ...], *, _count: bool = True
+    ) -> tuple[CacheEntry | None, str]:
         """Return (entry, state) where state ∈ {"fresh", "stale", "miss"}.
 
         - fresh: within TTL — serve, no refresh.
@@ -146,27 +155,34 @@ class HotQueryCache:
           should trigger a background refresh (stale-while-revalidate).
         - miss: no entry, or past TTL+grace (hard-expired, evicted here).
 
-        Hit/miss counters: a fresh OR stale serve counts as a hit (the user got a
-        fast cached response); only a true miss increments misses. This mirrors
-        what the §7.5 load test measures (``cache_hit`` in the response).
+        Hit/miss counters (only when ``_count`` — the request path): a fresh OR
+        stale serve counts as a hit (the user got a fast cached response); only a
+        true miss increments misses. This mirrors what the §7.5 load test measures
+        (``cache_hit`` in the response). Strict ``get()`` passes ``_count=False``
+        so its stale→None discard does not inflate the hit counter.
         """
         with self._lock:
             key = self._key(query, sources)
             entry = self._store.get(key)
             if entry is None:
-                self._misses += 1
+                if _count:
+                    self._misses += 1
                 return None, "miss"
             if entry.expired:
                 # Hard-expired (past TTL + grace) — evict, count as miss.
                 self._store.pop(key, None)
-                self._misses += 1
+                if _count:
+                    self._misses += 1
                 return None, "miss"
-            # Fresh or stale: LRU-promote and count as a hit.
+            # Fresh or stale: LRU-promote and (on the request path) count a hit.
             self._store.move_to_end(key)
-            self._hits += 1
             if entry.stale:
-                self._stale_serves += 1
+                if _count:
+                    self._hits += 1
+                    self._stale_serves += 1
                 return entry, "stale"
+            if _count:
+                self._hits += 1
             return entry, "fresh"
 
     def put(
@@ -178,22 +194,86 @@ class HotQueryCache:
         sources_ok: list[str] | None = None,
         sources_degraded: list[str] | None = None,
         sources_failed: list[str] | None = None,
-    ) -> None:
-        """Store a fan-out result. Evicts the LRU entry if at capacity."""
+    ) -> int:
+        """Store a fan-out result unconditionally (foreground write — always wins;
+        a freshly-computed result is by definition the newest). Returns the seq
+        stamped on the new entry. Evicts the LRU entry if at capacity."""
+        with self._lock:
+            return self._store_locked(
+                query,
+                sources,
+                skills,
+                sources_ok=sources_ok,
+                sources_degraded=sources_degraded,
+                sources_failed=sources_failed,
+            )
+
+    def put_if_current(
+        self,
+        query: str,
+        sources: tuple[str, ...],
+        skills: list[dict[str, Any]],
+        *,
+        expected_seq: int,
+        sources_ok: list[str] | None = None,
+        sources_degraded: list[str] | None = None,
+        sources_failed: list[str] | None = None,
+    ) -> bool:
+        """Compare-and-swap store for the BACKGROUND SWR refresh. Only overwrites
+        if the entry currently in the store is STILL the one the refresh started
+        from (its seq == ``expected_seq``). Returns True iff the write landed.
+
+        This closes the overwrite race (council MUST-FIX, 2026-07-11): if the
+        stale entry aged past TTL+grace while this refresh was running, a hard-miss
+        recompute (or a newer refresh) already stored a fresher entry with a higher
+        seq — the CAS then fails and this stale refresh result is DISCARDED rather
+        than clobbering the newer value. A missing entry (evicted) also fails the
+        CAS: the refresh result is dropped, and the next request recomputes.
+        """
         with self._lock:
             key = self._key(query, sources)
-            self._store[key] = CacheEntry(
-                skills=skills,
-                sources_ok=sources_ok or [],
-                sources_degraded=sources_degraded or [],
-                sources_failed=sources_failed or [],
-                cached_at=time.monotonic(),
-                ttl_s=self.ttl_s,
-                stale_grace_s=self.stale_grace_s,
+            current = self._store.get(key)
+            if current is None or current.seq != expected_seq:
+                return False
+            self._store_locked(
+                query,
+                sources,
+                skills,
+                sources_ok=sources_ok,
+                sources_degraded=sources_degraded,
+                sources_failed=sources_failed,
             )
-            self._store.move_to_end(key)
-            while len(self._store) > self.max_entries:
-                self._store.popitem(last=False)  # FIFO eviction = LRU oldest
+            return True
+
+    def _store_locked(
+        self,
+        query: str,
+        sources: tuple[str, ...],
+        skills: list[dict[str, Any]],
+        *,
+        sources_ok: list[str] | None = None,
+        sources_degraded: list[str] | None = None,
+        sources_failed: list[str] | None = None,
+    ) -> int:
+        """Write an entry with a fresh monotonic seq. MUST be called under
+        ``self._lock``. Returns the assigned seq."""
+        key = self._key(query, sources)
+        self._seq_counter += 1
+        seq = self._seq_counter
+        self._store[key] = CacheEntry(
+            skills=skills,
+            sources_ok=sources_ok or [],
+            sources_degraded=sources_degraded or [],
+            sources_failed=sources_failed or [],
+            cached_at=time.monotonic(),
+            ttl_s=self.ttl_s,
+            stale_grace_s=self.stale_grace_s,
+            seq=seq,
+        )
+        self._store.move_to_end(key)
+        while len(self._store) > self.max_entries:
+            self._store.popitem(last=False)  # FIFO eviction = LRU oldest
+        return seq
 
     def stats(self) -> dict[str, Any]:
         """Hit-rate telemetry for the §7.5 acceptance test (80%+ target) and the
@@ -271,7 +351,17 @@ class HotQueryCache:
         if state == "fresh":
             return entry, False
         if state == "stale":
-            self._maybe_refresh(key, query, sources, refresh_fn or compute_fn)
+            # SWR: serve stale NOW, refresh in the background. Capture the served
+            # entry's seq so the refresh does a compare-and-swap store — it must
+            # NOT clobber a newer value written by a later hard-miss recompute if
+            # this refresh outlives the entry's hard-expiry (council MUST-FIX).
+            self._maybe_refresh(
+                key,
+                query,
+                sources,
+                refresh_fn or compute_fn,
+                expected_seq=entry.seq if entry is not None else None,
+            )
             return entry, False
 
         # Hard miss: acquire or create an in-flight slot for this key.
@@ -315,21 +405,60 @@ class HotQueryCache:
             entry = self.get(query, sources)
             return entry, False
 
-    def _run_and_store(self, query: str, sources: tuple[str, ...], compute_fn: "Any") -> None:
-        """Call ``compute_fn`` and store its result. Shared by the synchronous
-        hard-miss path and the background SWR refresh."""
+    def _run_and_store(
+        self, query: str, sources: tuple[str, ...], compute_fn: "Any", *, expected_seq: int | None = None
+    ) -> None:
+        """Call ``compute_fn`` and store its result.
+
+        - Foreground hard-miss (``expected_seq is None``): unconditional ``put`` —
+          a freshly-computed result is the newest, it always wins.
+        - Background SWR refresh (``expected_seq`` set): compare-and-swap via
+          ``put_if_current`` — the write lands ONLY if the entry we started from
+          is still current. If a newer hard-miss recompute replaced it while this
+          refresh ran, the CAS fails and this (now-stale) result is discarded
+          instead of clobbering the newer value (council MUST-FIX, 2026-07-11).
+        """
         result = compute_fn()
         # compute_fn returns (skills, sources_ok, sources_degraded) or just skills.
         if isinstance(result, tuple) and len(result) == 3:
             skills, ok, degraded = result
+        else:
+            skills, ok, degraded = result, None, None
+
+        if expected_seq is None:
             self.put(query, sources, skills, sources_ok=ok, sources_degraded=degraded)
         else:
-            self.put(query, sources, result)
+            landed = self.put_if_current(
+                query,
+                sources,
+                skills,
+                expected_seq=expected_seq,
+                sources_ok=ok,
+                sources_degraded=degraded,
+            )
+            if not landed:
+                logger.debug(
+                    "metasearch SWR refresh for %s|%s discarded (entry moved on; CAS miss)",
+                    query,
+                    sources,
+                )
 
-    def _maybe_refresh(self, key: str, query: str, sources: tuple[str, ...], compute_fn: "Any") -> bool:
+    def _maybe_refresh(
+        self,
+        key: str,
+        query: str,
+        sources: tuple[str, ...],
+        compute_fn: "Any",
+        *,
+        expected_seq: int | None = None,
+    ) -> bool:
         """Fire a SINGLE background refresh for a stale key. Returns True iff this
         call started the refresh (i.e. won the ``_refreshing`` guard). Concurrent
         stale-serves for the same key are no-ops — exactly one refresh runs.
+
+        ``expected_seq`` is the seq of the stale entry that was served; the refresh
+        stores via compare-and-swap so it cannot overwrite a newer entry written
+        by a hard-miss recompute if this refresh outlives the entry's hard-expiry.
 
         The refresh thread is a daemon so it never blocks process shutdown; on
         failure the stale entry simply remains until it hard-expires (grace
@@ -342,7 +471,7 @@ class HotQueryCache:
 
         def _refresh() -> None:
             try:
-                self._run_and_store(query, sources, compute_fn)
+                self._run_and_store(query, sources, compute_fn, expected_seq=expected_seq)
             except Exception:  # noqa: BLE001
                 # Rationale: a failed background refresh must not crash the worker
                 # and must not poison the cache — the stale entry stays until it
