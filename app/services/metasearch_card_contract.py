@@ -53,7 +53,7 @@ _SOURCE_BADGE = {
 }
 
 # Primary action vocabulary (§5.3). Exactly one per card.
-ACTION_DEPLOY = "deploy_to_fleet"  # deployable card, operator motion (the moat)
+ACTION_DEPLOY = "deploy_to_fleet"  # deployable card, fleet-deploy motion (the moat)
 ACTION_PREVIEW = "preview_install"  # non-deployable (e.g. ClawHub) — preview + ad-hoc install
 
 
