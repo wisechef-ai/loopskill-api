@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shlex
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session, joinedload
@@ -148,19 +149,40 @@ def _install_command_matrix(source: str, origin_url: str | None, preview_only: b
     """Per-agent templated install commands (§6 / P3b fallback path) for the
     ad-hoc / single-agent visitor. The LoopSkill fleet-deploy motion (P3) is the
     real action for operators; this is the copy-paste teaser for everyone else.
-    ClawHub (preview_only) shows an install-from-origin line, never a rehost."""
+    ClawHub (preview_only) shows an install-from-origin line, never a rehost.
+
+    Council finding 2: every interpolated value is shlex.quote'd so a slug with
+    shell metacharacters cannot become command injection when the line is pasted.
+    """
     origin = origin_url or ""
     if preview_only:
         # ClawHub: user installs from ClawHub's own origin (we never rehost).
+        leaf = origin.rsplit("/", 1)[-1]
         return {
-            "clawhub": f"clawhub install {origin.rsplit('/', 1)[-1]}" if origin else "",
+            "clawhub": f"clawhub install {shlex.quote(leaf)}" if leaf else "",
             "note": "Community source — install from origin; not fleet-deployable in v1.",
         }
     return {
-        "hermes": f"hermes skills add {origin}" if origin else "",
+        "hermes": f"hermes skills add {shlex.quote(origin)}" if origin else "",
         "claude_code": "/plugin marketplace add <repo> → /plugin install (when repo is a marketplace)",
         "generic": f"Fetch SKILL.md from {origin}" if origin else "",
     }
+
+
+def _resolve_curated_body(db: Session, slug: str) -> tuple[bool, str | None, str | None]:
+    """Resolve a curated (recipes) skill's real body from the catalog. Returns
+    (found, body, origin_url). Council finding 1: a curated ref must be checked
+    against the catalog — a nonexistent slug fails closed, never returns 200/null."""
+    skill = (
+        db.query(Skill)
+        .filter(Skill.slug == slug, Skill.is_public == True, Skill.is_archived == False)  # noqa: E712
+        .first()
+    )
+    if skill is None:
+        return False, None, None
+    # The curated SKILL.md body is the skill's readme (canonical served content).
+    body = getattr(skill, "readme", None) or getattr(skill, "description", None)
+    return True, (body if isinstance(body, str) and body.strip() else None), f"/skills/{slug}"
 
 
 @router.get("/metasearch/install", tags=["skills", "metasearch"])
@@ -180,6 +202,18 @@ def metasearch_install(
     real installable body.
     """
     resolved = resolve_install(install_ref)
+
+    # Council finding 1: curated refs must resolve against the REAL catalog here
+    # (the service can't touch the DB). A nonexistent curated slug fails closed.
+    if resolved.resolved and resolved.source == "recipes" and resolved.reason == "curated_internal":
+        found, body, origin_url = _resolve_curated_body(db, resolved.slug)
+        if not found:
+            resolved = type(resolved)(False, "recipes", resolved.slug, reason="curated_not_found")
+        else:
+            resolved = type(resolved)(
+                True, "recipes", resolved.slug, body=body, origin_url=origin_url, reason="curated_internal"
+            )
+
     _record_install_intent_event(db, request, resolved=resolved)
     if not resolved.resolved:
         raise HTTPException(status_code=404, detail={"resolved": False, "reason": resolved.reason})

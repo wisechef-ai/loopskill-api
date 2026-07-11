@@ -125,7 +125,7 @@ def test_clawhub_no_inline_body_fails_closed(monkeypatch):
     monkeypatch.setattr(fl, "_safe_json_get", lambda url, **kw: {"skill": {"slug": "x"}})
     r = resolve_install("clawhub:x")
     assert r.resolved is False
-    assert r.reason == "no_inline_body"
+    assert r.reason == "no_inline_skill_md"
 
 
 def test_resolved_install_to_dict():
@@ -140,3 +140,31 @@ def test_large_body_is_clipped(monkeypatch):
     r = resolve_install("skills-sh:o--r--s")
     assert r.resolved is True
     assert len(r.body.encode("utf-8")) <= 256 * 1024
+
+
+# ── SSRF / path-traversal hardening (council P1 attack surface) ──────────────
+
+
+def test_clawhub_slug_path_traversal_rejected(monkeypatch):
+    """A crafted install_ref must not let the clawhub slug traverse its API path.
+    Host is always clawhub.ai (no host injection), but '..' segments are rejected."""
+    import app.services.federation_live as fl
+
+    called = {"json": False}
+    monkeypatch.setattr(fl, "_safe_json_get", lambda url, **kw: called.__setitem__("json", True) or {})
+    for evil in ("..--..--etc--passwd", "x--..--..--admin"):
+        r = resolve_install(f"clawhub:{evil}")
+        assert r.resolved is False, f"{evil} must be rejected"
+        assert r.reason == "unsafe_or_empty_slug"
+    assert called["json"] is False, "must reject BEFORE any network call"
+
+
+def test_is_safe_slug_path_unit():
+    assert mi._is_safe_slug_path("humanizer") is True
+    assert mi._is_safe_slug_path("owner/repo/skill") is True
+    assert mi._is_safe_slug_path("a.b-c_d/e") is True
+    assert mi._is_safe_slug_path("../../etc/passwd") is False
+    assert mi._is_safe_slug_path("a//b") is False
+    assert mi._is_safe_slug_path("x/./y") is False
+    assert mi._is_safe_slug_path("has space") is False
+    assert mi._is_safe_slug_path("q?injection=1") is False

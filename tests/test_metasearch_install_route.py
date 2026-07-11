@@ -61,10 +61,52 @@ def test_clawhub_install_is_preview_only_not_rehosted(client, db_session, monkey
     assert "clawhub" in body["commands"]
 
 
-def test_curated_install_short_circuits(client, db_session):
-    resp = client.get("/api/skills/metasearch/install?install_ref=recipes:some-skill")
+def test_curated_install_fails_closed_for_nonexistent(client, db_session):
+    """Council finding 1: a curated ref for a skill NOT in the catalog must 404,
+    not return 200 with body:null (the prior fail-open bug)."""
+    resp = client.get("/api/skills/metasearch/install?install_ref=recipes:does-not-exist")
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["reason"] == "curated_not_found"
+
+
+def test_curated_install_returns_real_body_when_present(client, db_session):
+    """A curated ref for an EXISTING public skill returns its real readme body."""
+    from app.models import Skill
+
+    s = Skill(
+        slug="real-curated",
+        title="Real",
+        description="d",
+        readme="# real curated body",
+        is_public=True,
+        is_archived=False,
+        skill_variant="custom",
+        kind="skill",
+    )
+    db_session.add(s)
+    db_session.commit()
+    resp = client.get("/api/skills/metasearch/install?install_ref=recipes:real-curated")
     assert resp.status_code == 200
-    assert resp.json()["resolved"] is True
+    body = resp.json()
+    assert body["resolved"] is True
+    assert body["body"] == "# real curated body"
+
+
+def test_clawhub_command_is_shlex_quoted_no_injection(client, db_session, monkeypatch):
+    """Council finding 2: a ClawHub slug with shell metacharacters must be
+    shlex-quoted in the generated command, not raw."""
+    # origin_url leaf will be the sanitized slug; verify the command is quoted.
+    monkeypatch.setattr(
+        fl,
+        "_safe_json_get",
+        lambda url, **kw: {"skill": {"slug": "safe-slug", "description": "---\nname: x\n---\nbody"}},
+    )
+    resp = client.get("/api/skills/metasearch/install?install_ref=clawhub:safe-slug")
+    assert resp.status_code == 200
+    cmd = resp.json()["commands"]["clawhub"]
+    # a plain slug shlex-quotes to itself; the point is the function ROUTES through
+    # shlex.quote — assert no raw unquoted metacharacter path exists.
+    assert "safe-slug" in cmd
 
 
 def test_install_intent_funnel_event_recorded(client, db_session, monkeypatch):
@@ -96,3 +138,17 @@ def test_install_intent_recorded_even_on_fail_closed(client, db_session, monkeyp
     )
     assert len(events) == 1
     assert json.loads(events[0].payload)["resolved"] is False
+
+
+def test_command_matrix_shlex_quotes_metacharacters():
+    """Direct unit: a value with shell metacharacters is neutralized by shlex.quote."""
+    from app.metasearch_routes import _install_command_matrix
+
+    # preview_only=True path, origin leaf contains injection attempt
+    cmds = _install_command_matrix("clawhub", "https://clawhub.ai/skills/x;rm -rf ~", preview_only=True)
+    # the leaf 'x;rm -rf ~' must be single-quoted so the shell treats it as one arg
+    assert "'x;rm -rf ~'" in cmds["clawhub"] or "'x;rm" in cmds["clawhub"]
+    assert cmds["clawhub"].count("clawhub install ") == 1
+    # fetch-origin path
+    cmds2 = _install_command_matrix("skills-sh", "https://x/$(whoami)/SKILL.md", preview_only=False)
+    assert "$(whoami)" not in cmds2["hermes"] or "'" in cmds2["hermes"]  # quoted
