@@ -174,3 +174,15 @@ def test_source_ref_mismatch_fails_closed():
 def test_mismatched_card_is_dropped():
     card = _card(source="recipes", install_ref="github-oss:x", deployable=True)
     assert apply_card_contract([card]) == [], "source/ref mismatch dead card must be dropped"
+
+
+def test_empty_display_source_fails_closed():
+    """Council R3: an empty display source must NOT bypass the equality check —
+    a recipes:x ref with an empty badge is still a source-spoofed card."""
+    from app.services.metasearch_card_contract import _ref_is_resolvable
+
+    assert _ref_is_resolvable("", "recipes:x") is False
+    assert _ref_is_resolvable("", "skills-sh:o--r--s") is False
+    # a card dict with empty source but a real ref must be dropped
+    card = _card(source="", install_ref="recipes:x", deployable=True)
+    assert apply_card_contract([card]) == []

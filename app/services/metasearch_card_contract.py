@@ -128,7 +128,9 @@ def _ref_is_resolvable(source: str, install_ref: str) -> bool:
     if not decoded_source or not slug:
         return False
     # The ref's own source must match the card's display source (no spoofing).
-    if source and decoded_source != source:
+    # Council R3: strict — an EMPTY display source must also fail closed (an empty
+    # badge with a recipes:x ref is still a spoofed/mismatched card).
+    if decoded_source != source:
         return False
     if decoded_source == "recipes":  # curated — resolved from the internal catalog
         return True
