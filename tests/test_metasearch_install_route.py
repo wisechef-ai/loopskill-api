@@ -69,8 +69,8 @@ def test_curated_install_fails_closed_for_nonexistent(client, db_session):
     assert resp.json()["detail"]["reason"] == "curated_not_found"
 
 
-def test_curated_install_returns_real_body_when_present(client, db_session):
-    """A curated ref for an EXISTING public skill returns its real readme body."""
+def test_curated_install_returns_real_body_when_free_tier(client, db_session):
+    """A curated ref for an EXISTING FREE public skill returns its real readme."""
     from app.models import Skill
 
     s = Skill(
@@ -78,6 +78,7 @@ def test_curated_install_returns_real_body_when_present(client, db_session):
         title="Real",
         description="d",
         readme="# real curated body",
+        tier="free",
         is_public=True,
         is_archived=False,
         skill_variant="custom",
@@ -90,6 +91,52 @@ def test_curated_install_returns_real_body_when_present(client, db_session):
     body = resp.json()
     assert body["resolved"] is True
     assert body["body"] == "# real curated body"
+
+
+def test_curated_paid_body_hidden_from_anonymous_paywall(client, db_session):
+    """Council CRITICAL: a PAID-tier curated skill's SKILL.md body must NOT leak
+    to an anonymous/free caller through the public metasearch install route —
+    same paywall as skill_routes / skill_files_routes."""
+    from app.models import Skill
+
+    s = Skill(
+        slug="paid-skill",
+        title="Paid",
+        description="d",
+        readme="# SECRET paid body",
+        tier="pro",
+        is_public=True,
+        is_archived=False,
+        skill_variant="custom",
+        kind="skill",
+    )
+    db_session.add(s)
+    db_session.commit()
+    resp = client.get("/api/skills/metasearch/install?install_ref=recipes:paid-skill")
+    # the card resolves (200) but the paid body is withheld (None) behind the paywall
+    assert resp.status_code == 200
+    assert resp.json()["body"] is None, "paid-tier body must be paywalled, not leaked"
+
+
+def test_curated_no_readme_fails_closed(client, db_session):
+    """A curated row with no readme is not an installable body → fail closed."""
+    from app.models import Skill
+
+    s = Skill(
+        slug="no-readme",
+        title="No Readme",
+        description="only meta",
+        readme=None,
+        tier="free",
+        is_public=True,
+        is_archived=False,
+        skill_variant="custom",
+        kind="skill",
+    )
+    db_session.add(s)
+    db_session.commit()
+    resp = client.get("/api/skills/metasearch/install?install_ref=recipes:no-readme")
+    assert resp.status_code == 404, "no canonical readme → fail closed (not description-substituted)"
 
 
 def test_clawhub_command_is_shlex_quoted_no_injection(client, db_session, monkeypatch):

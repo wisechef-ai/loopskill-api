@@ -37,6 +37,7 @@ from app.models import Skill, TelemetryEvent
 from app.services.metasearch import merge_unified, unify_curated, unify_external
 from app.services.metasearch_fanout import DEFAULT_FANOUT_SOURCES, fan_out
 from app.services.metasearch_install import resolve_install
+from app.tier_labels import _is_paid_tier
 
 logger = logging.getLogger(__name__)
 
@@ -165,14 +166,26 @@ def _install_command_matrix(source: str, origin_url: str | None, preview_only: b
     return {
         "hermes": f"hermes skills add {shlex.quote(origin)}" if origin else "",
         "claude_code": "/plugin marketplace add <repo> → /plugin install (when repo is a marketplace)",
-        "generic": f"Fetch SKILL.md from {origin}" if origin else "",
+        # Council finding (MEDIUM): quote origin here too — a consumer that pastes
+        # this into a shell must not be injectable. Structured, not command-like.
+        "generic": f"Fetch SKILL.md from {shlex.quote(origin)}" if origin else "",
     }
 
 
-def _resolve_curated_body(db: Session, slug: str) -> tuple[bool, str | None, str | None]:
-    """Resolve a curated (recipes) skill's real body from the catalog. Returns
-    (found, body, origin_url). Council finding 1: a curated ref must be checked
-    against the catalog — a nonexistent slug fails closed, never returns 200/null."""
+def _resolve_curated_body(request: Request, db: Session, slug: str) -> tuple[bool, str | None, str | None]:
+    """Resolve a curated (recipes) skill's real body from the catalog, HONORING
+    THE PAYWALL. Returns (found, body, origin_url).
+
+    Council finding 1: a curated ref must be checked against the catalog — a
+    nonexistent slug OR a row with no usable canonical readme fails closed.
+
+    Council finding CRITICAL (paywall bypass): this is a PUBLIC route. A paid-tier
+    skill's SKILL.md body is a paywalled product (skill_files_routes returns 403
+    for non-paid callers; skill_routes paywalls the detail body). We MUST apply
+    the same gate here — free skills + paid/master callers get the body; a paid
+    skill to an anonymous/free caller returns found=True but body=None (the card
+    resolves, but the body stays behind the paywall, mirroring the detail route).
+    """
     skill = (
         db.query(Skill)
         .filter(Skill.slug == slug, Skill.is_public == True, Skill.is_archived == False)  # noqa: E712
@@ -180,9 +193,18 @@ def _resolve_curated_body(db: Session, slug: str) -> tuple[bool, str | None, str
     )
     if skill is None:
         return False, None, None
-    # The curated SKILL.md body is the skill's readme (canonical served content).
-    body = getattr(skill, "readme", None) or getattr(skill, "description", None)
-    return True, (body if isinstance(body, str) and body.strip() else None), f"/skills/{slug}"
+    # Only the canonical readme is a SKILL.md body; description is metadata and
+    # must NOT be substituted (council finding 1). No readme → fail closed.
+    readme = getattr(skill, "readme", None)
+    if not isinstance(readme, str) or not readme.strip():
+        return False, None, None
+    # Paywall parity with skill_routes body-visibility (council CRITICAL).
+    auth_ctx = getattr(request.state, "auth_ctx", None)
+    caller_is_master = getattr(auth_ctx, "scope", None) == "master"
+    caller_is_paid = caller_is_master or _is_paid_tier(getattr(auth_ctx, "tier", None))
+    body_visible = (getattr(skill, "tier", None) == "free") or caller_is_paid
+    body = readme if body_visible else None
+    return True, body, f"/skills/{slug}"
 
 
 @router.get("/metasearch/install", tags=["skills", "metasearch"])
@@ -206,7 +228,7 @@ def metasearch_install(
     # Council finding 1: curated refs must resolve against the REAL catalog here
     # (the service can't touch the DB). A nonexistent curated slug fails closed.
     if resolved.resolved and resolved.source == "recipes" and resolved.reason == "curated_internal":
-        found, body, origin_url = _resolve_curated_body(db, resolved.slug)
+        found, body, origin_url = _resolve_curated_body(request, db, resolved.slug)
         if not found:
             resolved = type(resolved)(False, "recipes", resolved.slug, reason="curated_not_found")
         else:
