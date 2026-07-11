@@ -224,22 +224,27 @@ class HotQueryCache:
                 else:
                     self.put(query, sources, result)
             except Exception:  # noqa: BLE001
-                # The compute failed (e.g. all sources down). Don't cache a
-                # failure; let concurrent waiters see no entry and compute
-                # themselves on retry. The route handles a None entry.
+                # Rationale: a failed compute must not be cached; concurrent waiters
+                # see no entry and retry on their next request.
                 logger.warning("cache compute failed for %s", key, exc_info=True)
-                return None, True
-            finally:
+                # Council R3: set the Event BEFORE popping _inflight so a new caller
+                # arriving in the gap doesn't become a second computer (pop-before-set race).
+                event.set()
                 with self._lock:
                     self._inflight.pop(key, None)
-                event.set()
+                return None, True
+            # Success: set Event first (release waiters), then clean up _inflight.
+            event.set()
+            with self._lock:
+                self._inflight.pop(key, None)
             entry = self.get(query, sources)
             return entry, True
         else:
-            # Concurrent caller — wait for the computer, then read the cache.
-            event.wait(timeout=30.0)  # bounded wait; a dead computer's Event times out
+            # Concurrent waiter — the computer populated the cache; read it.
+            # Council R3: return computed=False (we didn't compute — we waited).
+            event.wait(timeout=30.0)
             entry = self.get(query, sources)
-            return entry, entry is not None
+            return entry, False
 
 
 # Module-level singleton (per-worker). The metasearch route uses this instance.
