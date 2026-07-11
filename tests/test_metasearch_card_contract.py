@@ -115,3 +115,34 @@ def test_render_meta_no_catalog_count():
 def test_render_meta_within_budget():
     assert RenderContractMeta(latency_ms=200.0).to_dict()["within_budget"] is True
     assert RenderContractMeta(latency_ms=2000.0).to_dict()["within_budget"] is False
+
+
+# ── council P2 MUST: resolvability, not string-presence (github-oss dead card) ──
+
+
+def test_github_oss_deployable_but_unresolvable_is_dropped():
+    """Council MUST: github-oss can be deployable=True with a non-empty install_ref
+    but has NO origin fetcher (needs prod token) → resolve_install 404s. Such a
+    card must be non-actionable and DROPPED, not rendered as a dead deploy button."""
+    from app.services.metasearch_card_contract import _ref_is_resolvable
+
+    assert _ref_is_resolvable("github-oss", "github-oss:owner--repo") is False
+    card = _card(source="github-oss", install_ref="github-oss:owner--repo", deployable=True)
+    c = card_from_unified(card)
+    assert c.actionable is False, "github-oss with no fetcher must be non-actionable"
+    assert apply_card_contract([card]) == [], "dead github-oss deploy card must be dropped"
+
+
+def test_resolvable_sources_stay_actionable():
+    from app.services.metasearch_card_contract import _ref_is_resolvable
+
+    assert _ref_is_resolvable("skills-sh", "skills-sh:o--r--s") is True
+    assert _ref_is_resolvable("clawhub", "clawhub:x") is True
+    assert _ref_is_resolvable("recipes", "recipes:mine") is True
+
+
+def test_none_string_ref_is_not_actionable():
+    """install_ref=None coerced to 'None' must NOT survive (council MUST tail)."""
+    c = card_from_unified(_card(install_ref=None))
+    assert c.actionable is False
+    assert c.install_ref == "", "None ref must normalize to empty, not the string 'None'"

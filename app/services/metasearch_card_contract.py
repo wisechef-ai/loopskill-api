@@ -105,6 +105,29 @@ class CardContract:
         }
 
 
+def _ref_is_resolvable(source: str, install_ref: str) -> bool:
+    """§5.3 TRUE resolvability predicate — a card is actionable iff the P1 install
+    route can actually resolve it, NOT merely because it carries a ref string.
+
+    Council P2 MUST: ``bool(install_ref)`` was wrong — ``github-oss`` mints a
+    deployable card with a non-empty ref whose origin fetcher is deliberately
+    absent (needs a prod token), so it would render a deploy button that 404s.
+    This mirrors ``resolve_install``'s own source routing so the contract and the
+    install endpoint agree: curated (internal), clawhub (own-API preview), or a
+    source with a registered origin fetcher. Anything else fails closed (dropped).
+    """
+    if not install_ref or ":" not in install_ref:
+        return False
+    if source == "recipes":  # curated — resolved from the internal catalog
+        return True
+    if source == "clawhub":  # preview from ClawHub's own API (decision #6)
+        return True
+    # Fetch-origin sources: actionable iff a resolver is registered (P1 registry).
+    from app.services.federation_install import get_origin_fetcher
+
+    return get_origin_fetcher(source) is not None
+
+
 def card_from_unified(card: dict) -> CardContract:
     """Map a UnifiedSkill dict (from metasearch.UnifiedSkill.to_dict) into the
     §5 CardContract, deriving the badge, chip, and action from the card's own
@@ -112,18 +135,20 @@ def card_from_unified(card: dict) -> CardContract:
     quality = card.get("quality", "community")
     chip = _QUALITY_CHIP.get(quality, _QUALITY_CHIP["community"])
     deployable = bool(card.get("deployable", False))
-    install_ref = str(card.get("install_ref", ""))
-    # §5.3: a card is actionable iff it carries an install_ref the install route
-    # can resolve. The merge layer already drops unresolvable external cards; a
-    # card with an empty install_ref is NOT actionable and must not render.
-    actionable = bool(install_ref)
+    raw_ref = card.get("install_ref")
+    install_ref = str(raw_ref) if isinstance(raw_ref, str) else ""
+    source = str(card.get("source", ""))
+    # §5.3: actionable iff the P1 install route can genuinely RESOLVE this ref
+    # (not just because a string is present — that let github-oss render a dead
+    # deploy card). This is the true no-dead-cards gate.
+    actionable = _ref_is_resolvable(source, install_ref)
     primary_action = ACTION_DEPLOY if (deployable and actionable) else ACTION_PREVIEW
     return CardContract(
         canonical_id=str(card.get("canonical_id", "")),
         title=str(card.get("title", "")),
         description=str(card.get("description", "") or ""),
-        source=str(card.get("source", "")),
-        source_badge=_source_badge(str(card.get("source", ""))),
+        source=source,
+        source_badge=_source_badge(source),
         quality=quality,
         quality_chip_label=chip["label"],
         quality_chip_tone=chip["tone"],

@@ -154,11 +154,17 @@ def metasearch(
 
     meta = RenderContractMeta(
         cards_dropped_dead=dropped,
+        # latency_ms = search + render PROCESSING time (candidate retrieval →
+        # fan-out → merge → contract). It deliberately excludes the best-effort
+        # telemetry commit below (fire-and-forget, not part of render). Documented
+        # as processing time, not full request wall-clock (council SHOULD 3).
         latency_ms=(time.perf_counter() - t0) * 1000.0,
     )
     payload["render_contract"] = meta.to_dict()
 
-    _record_funnel_event(db, request, q=q, result=result.to_dict())
+    # Funnel event reflects the DELIVERED response (post-contract, post-slice), not
+    # the pre-contract candidate set (council SHOULD 2) — the user's real result.
+    _record_funnel_event(db, request, q=q, result=payload)
     return payload
 
 
