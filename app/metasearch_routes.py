@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 import logging
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session, joinedload
 
 from app._skill_helpers import _install_counts_for, _skill_to_out
@@ -35,6 +35,7 @@ from app.database import get_db
 from app.models import Skill, TelemetryEvent
 from app.services.metasearch import merge_unified, unify_curated, unify_external
 from app.services.metasearch_fanout import DEFAULT_FANOUT_SOURCES, fan_out
+from app.services.metasearch_install import resolve_install
 
 logger = logging.getLogger(__name__)
 
@@ -141,3 +142,75 @@ def metasearch(
 
     _record_funnel_event(db, request, q=q, result=result.to_dict())
     return payload
+
+
+def _install_command_matrix(source: str, origin_url: str | None, preview_only: bool) -> dict:
+    """Per-agent templated install commands (§6 / P3b fallback path) for the
+    ad-hoc / single-agent visitor. The LoopSkill fleet-deploy motion (P3) is the
+    real action for operators; this is the copy-paste teaser for everyone else.
+    ClawHub (preview_only) shows an install-from-origin line, never a rehost."""
+    origin = origin_url or ""
+    if preview_only:
+        # ClawHub: user installs from ClawHub's own origin (we never rehost).
+        return {
+            "clawhub": f"clawhub install {origin.rsplit('/', 1)[-1]}" if origin else "",
+            "note": "Community source — install from origin; not fleet-deployable in v1.",
+        }
+    return {
+        "hermes": f"hermes skills add {origin}" if origin else "",
+        "claude_code": "/plugin marketplace add <repo> → /plugin install (when repo is a marketplace)",
+        "generic": f"Fetch SKILL.md from {origin}" if origin else "",
+    }
+
+
+@router.get("/metasearch/install", tags=["skills", "metasearch"])
+def metasearch_install(
+    request: Request,
+    install_ref: str = Query(..., description="The install_ref from a metasearch card ('{source}:{slug}')."),
+    db: Session = Depends(get_db),
+):
+    """Resolve ONE metasearch card to an installable/previewable SKILL.md body.
+
+    Fail-closed (plan §5.3): an unresolvable ref returns 404 with a reason, so the
+    UI never shows a dead install button — the card should not have been actionable.
+
+    Response: {resolved, source, slug, body, origin_url, preview_only, commands}.
+    ``preview_only`` (ClawHub) means the body is from the source's own API and the
+    card is NOT fleet-deployable in v1 (decision #6). Fetch-origin sources return a
+    real installable body.
+    """
+    resolved = resolve_install(install_ref)
+    _record_install_intent_event(db, request, resolved=resolved)
+    if not resolved.resolved:
+        raise HTTPException(status_code=404, detail={"resolved": False, "reason": resolved.reason})
+    out = resolved.to_dict()
+    out["commands"] = _install_command_matrix(resolved.source, resolved.origin_url, resolved.preview_only)
+    return out
+
+
+def _record_install_intent_event(db: Session, request: Request, *, resolved) -> None:
+    """Funnel event: search → external result → INSTALL INTENT (§1.5.4). This is
+    the step between search and fleet-deploy the north-star funnel measures."""
+    try:
+        payload = {
+            "source": resolved.source,
+            "slug": resolved.slug,
+            "resolved": resolved.resolved,
+            "preview_only": resolved.preview_only,
+            "reason": resolved.reason,
+        }
+        ev = TelemetryEvent(
+            event_type="metasearch.install_intent",
+            skill_slug=resolved.slug or None,
+            payload=json.dumps(payload),
+            client_ip=(request.client.host if request.client else None),
+        )
+        db.add(ev)
+        db.commit()
+    # Rationale: telemetry is fire-and-forget; never break the install response.
+    except Exception:  # noqa: BLE001
+        logger.warning("metasearch install_intent event write failed", exc_info=True)
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            logger.warning("metasearch install_intent rollback also failed", exc_info=True)
