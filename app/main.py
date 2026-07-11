@@ -58,6 +58,7 @@ from app.skill_error_routes import router as skill_error_router
 from app.skill_patch_routes import router as skill_patch_router
 from app.skill_routes import router as skill_router  # Phase E: skill split
 from app.metasearch_routes import router as metasearch_router  # metasearch_0710 P0
+from app.metasearch_deploy_routes import router as metasearch_deploy_router  # metasearch_0710 P3
 from app.skill_files_routes import router as skill_files_router  # Phase Q: file surface
 from app.skill_serve_routes import skill_serve_router  # loopclose_3005 B: canonical /skill
 from app.sse_routes import router as sse_router
@@ -155,6 +156,9 @@ def create_app() -> FastAPI:
     app.include_router(
         metasearch_router, tags=["skills", "metasearch"]
     )  # metasearch_0710 P0 — BEFORE skill_router so /metasearch literal beats /{slug}
+    app.include_router(
+        metasearch_deploy_router, tags=["skills", "metasearch", "fleet-deploy"]
+    )  # metasearch_0710 P3 — fleet-deploy of external skills (member-auth)
     app.include_router(skill_router, prefix="/api", tags=["skills"])
     app.include_router(skill_files_router, prefix="/api", tags=["skills"])
     app.include_router(admin_router, tags=["admin"])
