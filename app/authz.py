@@ -152,6 +152,36 @@ def can_write_cookbook(ctx: AuthContext, cookbook: Any) -> bool:
     return False
 
 
+def can_reconcile_cookbook(ctx: AuthContext, cookbook: Any, db: "Session | None" = None) -> bool:
+    """Return whether a caller may read a bundle's desired state for deploy.
+
+    Following is deliberately narrower than ownership: a follower of a public
+    bundle may obtain its reconciliation plan, but may never use an apply path
+    that writes the bundle. Callers must still enforce read-only operation for
+    followers before invoking a mutating reconcile mode.
+    """
+    if can_write_cookbook(ctx, cookbook):
+        return True
+    if (
+        ctx.scope != "user"
+        or ctx.user_id is None
+        or db is None
+        or getattr(cookbook, "visibility", None) != "public"
+    ):
+        return False
+    from app.models import FollowedBundle
+
+    return (
+        db.query(FollowedBundle)
+        .filter(
+            FollowedBundle.user_id == ctx.user_id,
+            FollowedBundle.bundle_id == cookbook.id,
+        )
+        .first()
+        is not None
+    )
+
+
 def can_call_admin_mcp_tool(ctx: AuthContext) -> bool:
     """Return True if ctx may call an admin-level MCP tool.
 

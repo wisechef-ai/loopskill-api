@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.auth_ctx import AuthContext
 from app.database import get_db
+from app import authz
 from app.models import Bundle
 from app.reconcile_abuse_ceiling import check_reconcile_abuse_ceiling
 from app.services.reconcile import recipes_reconcile
@@ -85,14 +86,19 @@ def reconcile_cookbook(
         response.status_code = 404
         return {"error": "cookbook_not_found"}
 
-    # Ownership: master, or the owner. A non-owner gets 404 — existence + the
-    # 304/200 change-state must NEVER leak to a non-owner.
+    # Deployment read access: master, owner, or an active follower of a public
+    # bundle. Follows intentionally grant reconcile only; all bundle mutation
+    # paths remain owner-only through their existing write predicates.
     is_owner = auth_ctx.scope == "master" or (
         auth_ctx.user_id is not None and cb.bundle_owner == auth_ctx.user_id
     )
-    if not is_owner:
+    is_follower = not is_owner and authz.can_reconcile_cookbook(auth_ctx, cb, db=db)
+    if not is_owner and not is_follower:
         response.status_code = 404
         return {"error": "cookbook_not_found"}
+    if is_follower and not body.dry_run:
+        response.status_code = 403
+        return {"error": "read_only_follow"}
 
     generation = _generation_token(cb)
 

@@ -16,8 +16,10 @@ from app.models import (
     BundlePersonality,
     BundleSkill,
     CompositeLoop,
+    FollowedBundle,
     Personality,
     Skill,
+    User,
 )
 
 if TYPE_CHECKING:
@@ -108,7 +110,7 @@ def liked_library(db: Session, *, owner_id: UUID) -> dict:
             "personalities": _liked_shelf(db, BundlePersonality, Personality, "personality_id", bundle.id),
             "loops": _liked_shelf(db, BundleCompositeLoop, CompositeLoop, "composite_loop_id", bundle.id),
         },
-        "followed_bundles": [],
+        "followed_bundles": _followed_bundles(db, owner_id),
     }
 
 
@@ -135,4 +137,28 @@ def _liked_shelf(
             "liked_at": join.added_at,
         }
         for join, artifact in rows
+    ]
+
+
+def _followed_bundles(db: Session, owner_id: UUID) -> list[dict[str, str | datetime | None]]:
+    """Serialize public bundles the caller follows without exposing their members."""
+    from app.models import Bundle
+
+    rows = (
+        db.query(FollowedBundle, Bundle, User)
+        .join(Bundle, Bundle.id == FollowedBundle.bundle_id)
+        .outerjoin(User, User.id == Bundle.bundle_owner)
+        .filter(FollowedBundle.user_id == owner_id)
+        .order_by(FollowedBundle.followed_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": str(bundle.id),
+            "slug": bundle.slug,
+            "name": bundle.name,
+            "owner_handle": owner.display_name if owner is not None else None,
+            "followed_at": followed.followed_at,
+        }
+        for followed, bundle, owner in rows
     ]
