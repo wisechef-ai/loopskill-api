@@ -411,8 +411,10 @@ def recipes_reconcile(
     if not cb:
         return {"error": "not_found", "cookbook_id": cookbook_id}
 
-    # TENANT ISOLATION (reconcile-contract §7): ownership precedes any diff.
-    if not authz.can_write_cookbook(ctx, cb):
+    # A followed public bundle may be reconciled as a read-only deployment.
+    # The HTTP route rejects non-dry-run follower requests before this engine
+    # runs, keeping every bundle mutation owner-only.
+    if not authz.can_reconcile_cookbook(ctx, cb, db=db):
         return {"error": "cookbook_forbidden", "cookbook_id": cookbook_id}
 
     local_states = [

@@ -900,6 +900,23 @@ class Bundle(Base):
     )
 
 
+class FollowedBundle(Base):
+    """A user's read-only saved reference to a public bundle."""
+
+    __tablename__ = "followed_bundles"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    bundle_id = Column(
+        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    followed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (UniqueConstraint("user_id", "bundle_id", name="uq_followed_bundles_user_bundle"),)
+
+
 class BundleSkill(Base):
     """Provenance row linking a skill to a Bundle.
 
