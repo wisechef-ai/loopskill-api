@@ -714,11 +714,31 @@ def list_cookbooks(
     if ctx.is_master:
         return {"cookbooks": []}
 
+    from app.liked_service import ensure_liked_bundle
+
+    ensure_liked_bundle(db, ctx.user_id)
+
     owned_or_org = Bundle.bundle_owner == ctx.user_id  # compat-alias
     if ctx.org_id is not None:
         owned_or_org = owned_or_org | (Bundle.org_id == ctx.org_id)
     rows = db.query(Bundle).filter(owned_or_org).order_by(Bundle.created_at.desc()).all()
     return {"cookbooks": [_to_cb_out(r) for r in rows]}
+
+
+@_h.delete("/{cookbook_id}", status_code=204)  # compat-alias
+def delete_cookbook(
+    cookbook_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """Delete an owned cookbook unless it is a protected system primitive."""
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+    if cb.is_base or cb.is_liked:
+        raise HTTPException(status_code=403, detail="base and Liked bundles cannot be deleted")
+    db.delete(cb)
+    db.commit()
 
 
 class CookbookPatchIn(BaseModel):

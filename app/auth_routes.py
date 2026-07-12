@@ -29,6 +29,7 @@ from app.auth import (
 )
 from app.config import settings
 from app.database import get_db
+from app.liked_service import ensure_liked_bundle
 from app.referral import (
     REFERRAL_COOKIE_MAX_AGE,
     REFERRAL_COOKIE_NAME,
@@ -178,6 +179,7 @@ async def github_callback(
     try:
         github_data = await exchange_github_code(code)
         user = find_or_create_user_by_github(db, github_data)
+        ensure_liked_bundle(db, user.id)
         # WIS-660: capture referral attribution + give every user their own code.
         try:
             ref_code = request.cookies.get(REFERRAL_COOKIE_NAME)
@@ -261,6 +263,7 @@ async def google_callback(
     try:
         google_data = await exchange_google_code(code)
         user = find_or_create_user_by_google(db, google_data)
+        ensure_liked_bundle(db, user.id)
         # WIS-660: capture referral attribution + give every user their own code.
         try:
             ref_code = request.cookies.get(REFERRAL_COOKIE_NAME)

@@ -840,6 +840,7 @@ class Bundle(Base):
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     is_base = Column(Boolean, nullable=False, default=False, server_default="0")
+    is_liked = Column(Boolean, nullable=False, default=False, server_default="0")
     parent_bundle_id = Column(
         UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="SET NULL"), nullable=True, index=True
     )
