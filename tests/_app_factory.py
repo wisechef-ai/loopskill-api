@@ -56,6 +56,7 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.access_routes", "router", "/api"),
     ("app.recipe_routes", "router", "/api"),
     ("app.install_routes", "router", "/api"),
+    ("app.library_routes", "router", ""),
     (
         "app.metasearch_routes",
         "router",

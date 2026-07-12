@@ -69,6 +69,7 @@ from app.mcp.tools import (
     recipes_fleet_sync,
     recipes_fork_list,
     recipes_install,
+    recipes_like,
     recipes_cookbook_install,
     CookbookInstallError,
     recipes_install_from_cookbook,
@@ -172,6 +173,14 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             db,
             slug=args["slug"],
             api_key_id=caller.get("api_key_id"),
+            ctx=ctx,
+        )
+    if name == "recipes_like":
+        return _tool_ns.get("recipes_like", recipes_like)(
+            db,
+            action=args.get("action"),
+            type=args.get("type"),
+            id=args.get("id"),
             ctx=ctx,
         )
     if name == "recipes_cookbook_install":

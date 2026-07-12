@@ -22,6 +22,19 @@ def _core_tools() -> list[types.Tool]:
     """Core loopskill_* tools: search, install, bundle-install, list, recall, etc."""
     return [
         types.Tool(
+            name="recipes_like",
+            description="Like or unlike a skill, personality, or loop in the caller's Liked bundle.",
+            inputSchema={
+                "type": "object",
+                "required": ["action", "type", "id"],
+                "properties": {
+                    "action": {"type": "string", "enum": ["like", "unlike"]},
+                    "type": {"type": "string", "enum": ["skill", "personality", "loop"]},
+                    "id": {"type": "string", "description": "Artifact UUID."},
+                },
+            },
+        ),
+        types.Tool(
             name="loopskill_search",
             description="Full-text search across the public skill catalog.",
             inputSchema={

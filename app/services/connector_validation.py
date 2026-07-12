@@ -72,8 +72,7 @@ _HOME_PATH_RE = re.compile(r"/home/[a-z][a-z0-9_-]+(?:/|$|\b)")
 
 # Public-routable IPv4 (reuses the skill_quality_gate private/example filter).
 _IPV4_RE = re.compile(
-    r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}"
-    r"(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b"
+    r"\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}" r"(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b"
 )
 
 
