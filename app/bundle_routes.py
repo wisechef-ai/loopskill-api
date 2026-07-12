@@ -53,8 +53,11 @@ UNLIMITED_TIERS = {"pro_plus"}  # canonical; legacy slugs handled via shim
 ACTIVE_SUB_STATUSES = {"active", "trialing"}
 ALLOWED_SOURCES = {"forked", "custom-added", "overridden", "disabled"}
 
-# WIS-902: Pro tier skill cap per bundle
-COOK_SKILL_CAP = 25
+# WIS-902: Pro tier skill cap per bundle.
+# marketing_0712 — raised 25 → 1000 (Adam decision 2026-07-12) so curated packs
+# like the 47-skill "Marketing" bundle fit on the Pro tier. The cap remains as a
+# runaway-guard, not a product limiter.
+COOK_SKILL_CAP = 1000
 
 
 def _touch_bundle_generation(db: Session, cookbook_id: UUID) -> None:  # compat-alias

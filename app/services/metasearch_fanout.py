@@ -33,13 +33,14 @@ from dataclasses import dataclass
 from app.services import metasearch_ratelimit as rl
 from app.services.federation import ExternalSkill
 from app.services.federation_adapters import get_adapter
+from app.services.github_taps import METASEARCH_TAP_SOURCES
 
 logger = logging.getLogger(__name__)
 
 # The v1 fan-out source set. ClawHub is INCLUDED (searchable — Adam condition 2b
 # makes it non-*deployable*, not non-searchable). Ordering is irrelevant here;
 # the merge ranks. github-oss stays dark without a token (graceful empty).
-DEFAULT_FANOUT_SOURCES: tuple[str, ...] = (
+_BASE_FANOUT_SOURCES: tuple[str, ...] = (
     "skills-sh",
     "clawhub",
     "hermes-hub",
@@ -47,6 +48,15 @@ DEFAULT_FANOUT_SOURCES: tuple[str, ...] = (
     "browse-sh",
     "lobehub",
     "github-oss",
+)
+
+# marketing_0712 — first-class GitHub taps (in_metasearch=True) join the fan-out
+# so their skills rank ALONGSIDE owned skills, not in the legacy /external
+# ghetto. Derived from the tap-list, so a new trusted repo becomes first-class
+# by flipping ONE flag in github_taps.GITHUB_TAPS — no edit here. Deduped +
+# order-stable (base first, then taps) so the merge ranking stays deterministic.
+DEFAULT_FANOUT_SOURCES: tuple[str, ...] = _BASE_FANOUT_SOURCES + tuple(
+    s for s in METASEARCH_TAP_SOURCES if s not in _BASE_FANOUT_SOURCES
 )
 
 # §7.5 latency (2026-07-11): tightened 2.5s → 1.2s. With SWR serving the
