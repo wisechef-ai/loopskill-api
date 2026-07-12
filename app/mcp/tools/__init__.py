@@ -24,6 +24,7 @@ from app.mcp.tools.fleet import (
     recipes_fleet_sync,
 )
 from app.mcp.tools.install import recipes_install
+from app.mcp.tools.like import recipes_like
 from app.mcp.tools.list_cookbook import recipes_list_cookbook
 from app.mcp.tools.publish_request import recipes_publish_request
 from app.mcp.tools.recall import recipes_recall
@@ -62,6 +63,7 @@ from app.mcp.tools.composite_loop_catalog import (
 __all__ = [
     "recipes_search",
     "recipes_install",
+    "recipes_like",
     "recipes_list_cookbook",
     "recipes_recall",
     "recipes_recipify",

@@ -55,9 +55,10 @@ from app.mcp.tools import (  # noqa: F401  loopskill_0622 Phase 8 tools
 # activate_0701 Phase A2 — composite loop catalog (NEW MCP names, council §6).
 # Individual tool fns live in composite_loop_catalog; dispatch delegates whole-hog.
 from app.mcp.tools.composite_loop_catalog import (
-    _NOT_HANDLED,  # noqa: F401 — sentinel for dispatch delegation
+    _NOT_HANDLED,  # noqa: F401 — shared sentinel for dispatch delegation
     dispatch_composite_loop as _dispatch_composite_loop,
 )
+from app.mcp.tools.like import dispatch_library as _dispatch_library
 from app.mcp.tools import (
     recipes_carousel_today,
     recipes_configure_feedback,
@@ -174,6 +175,9 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             api_key_id=caller.get("api_key_id"),
             ctx=ctx,
         )
+    _lib_result = _dispatch_library(name, db, args, ctx)
+    if _lib_result is not _NOT_HANDLED:  # type: ignore[comparison-overlap]
+        return _lib_result
     if name == "recipes_cookbook_install":
         # cookbook_share_2105 Phase F. Map CookbookInstallError to the
         # standard {error, status, code} envelope MCP callers parse.
