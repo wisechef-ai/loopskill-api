@@ -39,6 +39,13 @@ class GitHubTap(NamedTuple):
     path: str  # "skills/" (the dir under which skill dirs live; "" = repo root)
     repo_license: str | None  # repo-root SPDX, or None for per-skill-license repos
     trust: str  # "trusted-source" | "curated-community"
+    # marketing_0712 — when True, this tap joins the FIRST-CLASS metasearch
+    # fan-out (metasearch_fanout.DEFAULT_FANOUT_SOURCES) so its skills rank
+    # alongside owned skills, not just in the legacy /external surface. This is
+    # the "no external ghetto" wiring for curated, trusted repos. Defaults False
+    # so existing facets keep their current (legacy-only) surface unless opted in.
+    # Adding a new first-class repo is now ONE tuple entry with in_metasearch=True.
+    in_metasearch: bool = False
 
 
 # The locked allowlist (decision #12, our own monorepo removed per Adam).
@@ -56,6 +63,19 @@ GITHUB_TAPS: tuple[GitHubTap, ...] = (
     GitHubTap("github-nvidia", "NVIDIA/skills", "skills/", "Apache-2.0 AND CC-BY-4.0", "trusted-source"),
     GitHubTap("github-gstack", "garrytan/gstack", "", "MIT", "curated-community"),
     GitHubTap("github-superpowers", "obra/superpowers", "skills/", "MIT", "curated-community"),
+    # marketing_0712 — Corey Haines' marketing skill pack (47 skills, MIT, named
+    # author). Layout verified 2026-07-12: root skills/ dir, 47 skills/<slug>/SKILL.md.
+    # trusted-source + in_metasearch=True → ranks FIRST-CLASS in unified search
+    # (no external ghetto). Live-fetch, no SHA pinning: upstream updates ~daily and
+    # we surface the freshest SKILL.md at query+install time (Adam decision 2026-07-12).
+    GitHubTap(
+        "github-marketing",
+        "coreyhaines31/marketingskills",
+        "skills/",
+        "MIT",
+        "trusted-source",
+        in_metasearch=True,
+    ),
 )
 
 # Fast lookup: source_id -> tap.
@@ -63,3 +83,9 @@ TAP_BY_SOURCE: dict[str, GitHubTap] = {t.source_id: t for t in GITHUB_TAPS}
 
 # The facet source ids, in display order (mirrors the Hub facet UI).
 GITHUB_FACET_SOURCES: tuple[str, ...] = tuple(t.source_id for t in GITHUB_TAPS)
+
+# marketing_0712 — the subset of taps that ride the FIRST-CLASS metasearch
+# fan-out (in_metasearch=True). metasearch_fanout imports this to extend its
+# DEFAULT_FANOUT_SOURCES, so a trusted repo becomes first-class the moment its
+# tuple entry flips the flag — no second edit site.
+METASEARCH_TAP_SOURCES: tuple[str, ...] = tuple(t.source_id for t in GITHUB_TAPS if t.in_metasearch)

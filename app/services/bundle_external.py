@@ -77,6 +77,26 @@ def external_slug(source: str, slug: str) -> str:
     return f"{EXTERNAL_SLUG_PREFIX}:{source}:{slug}"
 
 
+def build_attribution(ext: "ExternalSkill") -> str | None:
+    """marketing_0712 (Codex R1 finding 3) — an explicit attribution line that
+    travels with EVERY external skill install, not just the bundle description.
+
+    MIT (and most permissive licenses) require the copyright/source notice to
+    accompany redistributed copies. For a FETCH_ORIGIN install we stream the
+    upstream SKILL.md live, but it may not itself carry the notice — so we stamp
+    a deterministic ``<license> · source: <origin_url>`` line derived from the
+    resolved license + origin. Generic across all federation sources (no
+    per-tap special-casing). Returns None only when neither field is known.
+    """
+    lic = (ext.license or "").strip()
+    origin = (ext.origin_url or "").strip()
+    if not lic and not origin:
+        return None
+    if lic and origin:
+        return f"{lic} · source: {origin}"
+    return lic or f"source: {origin}"
+
+
 def is_external_skill(skill: "Skill | None") -> bool:
     """True iff this Skill row is a materialized federation pointer."""
     if skill is None:
@@ -151,6 +171,7 @@ def materialize_external_skill(db: "Session", source: str, slug: str) -> "Skill 
         "install_path": ext.install_path.value,
         "origin_url": ext.origin_url,
         "redistributable": ext.redistributable,
+        "attribution": build_attribution(ext),
         "scan_status": verdict.badge,
         "scannable": verdict.scannable,
         "scan_findings": verdict.findings,
@@ -254,6 +275,7 @@ def resolve_external_install(source: str, slug: str) -> dict[str, Any] | None:
         "source": ext.source,
         "install_path": ext.install_path.value,
         "license": ext.license,
+        "attribution": build_attribution(ext),
         "origin_url": ext.origin_url,
         "raw_url": raw_url,
         "content": content,

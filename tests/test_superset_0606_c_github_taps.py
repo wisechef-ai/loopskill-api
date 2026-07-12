@@ -41,11 +41,13 @@ def _clear_fed_cache():
 
 
 class TestTapList:
-    def test_six_facets_locked(self):
-        assert len(GITHUB_TAPS) == 6
+    def test_facets_locked(self):
+        # marketing_0712 — 7th facet (github-marketing) added.
+        assert len(GITHUB_TAPS) == 7
         assert set(GITHUB_FACET_SOURCES) == {
             "github-anthropic", "github-openai", "github-huggingface",
             "github-nvidia", "github-gstack", "github-superpowers",
+            "github-marketing",
         }
 
     def test_per_skill_license_repos_have_no_repo_license(self):
