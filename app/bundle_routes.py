@@ -39,7 +39,7 @@ from app.services.bundle_external import (
     is_external_skill,
     resolve_external_install,
 )
-from app.tier_labels import cookbook_limit
+from app.tier_labels import bundle_limit
 
 logger = logging.getLogger(__name__)
 _h = APIRouter(tags=["bundles"])  # Phase 3+4: handlers registered prefix-free; combined below
@@ -55,7 +55,7 @@ ALLOWED_SOURCES = {"forked", "custom-added", "overridden", "disabled"}
 
 # Pro tier skill cap per bundle — a runaway-guard, not a product limiter (large
 # curated packs run to ~50 skills).
-COOK_SKILL_CAP = 1000
+BUNDLE_SKILL_CAP = 1000
 
 
 def _touch_bundle_generation(db: Session, cookbook_id: UUID) -> None:  # compat-alias
@@ -681,10 +681,10 @@ def create_cookbook(
     if not name:
         raise HTTPException(status_code=422, detail="invalid_name")
 
-    # Cookbook cap — SSOT in config/tiers.yaml via tier_labels.cookbook_limit().
+    # Cookbook cap — SSOT in config/tiers.yaml via tier_labels.bundle_limit().
     # None = unlimited (reserved; no current tier). free=1 (evergreen_0206 Phase
     # G on-ramp), Pro=10, Pro+=200.
-    limit = cookbook_limit(ctx.tier)
+    limit = bundle_limit(ctx.tier)
     if limit is not None:
         existing = db.query(Bundle).filter(Bundle.bundle_owner == ctx.user_id).count()  # compat-alias
         if existing >= limit:
@@ -894,12 +894,12 @@ def add_skill_to_cookbook(
             )
             .count()
         )
-        if active_count >= COOK_SKILL_CAP:
+        if active_count >= BUNDLE_SKILL_CAP:
             raise HTTPException(
                 status_code=403,
                 detail={
                     "reason": "pro_skill_cap",
-                    "max_skills": COOK_SKILL_CAP,
+                    "max_skills": BUNDLE_SKILL_CAP,
                     "current_count": active_count,
                     "upgrade_to": "pro_plus",
                 },

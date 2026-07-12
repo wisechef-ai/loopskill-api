@@ -69,7 +69,7 @@ from app.services.bundle_external import (
     known_external_source,
     materialize_external_skill,
 )
-from app.tier_labels import cookbook_limit
+from app.tier_labels import bundle_limit
 
 logger = logging.getLogger(__name__)
 
@@ -417,7 +417,7 @@ def recipes_compose_cookbook_from_links(
         raise CookbookInstallError("too_many_links", "compose accepts at most 25 links per call.", status=422)
 
     # Tier bundle cap (free=1, pro=10, pro+=200; None=unlimited).
-    limit = cookbook_limit(ctx.tier)
+    limit = bundle_limit(ctx.tier)
     if limit is not None:
         existing = db.query(Bundle).filter(Bundle.bundle_owner == ctx.user_id).count()  # compat-alias
         if existing >= limit:

@@ -7,7 +7,7 @@ Covers the four surfaces the marketing-pack ingestion touches:
   2. metasearch_fanout  : DEFAULT_FANOUT_SOURCES includes the in_metasearch taps
                           (the "no external ghetto" wiring) + a real fan-out run
                           surfacing a github-marketing skill first-class.
-  3. bundle_routes      : COOK_SKILL_CAP raised so a 47-skill pack fits on Pro.
+  3. bundle_routes      : BUNDLE_SKILL_CAP raised so a 47-skill pack fits on Pro.
   4. seed_marketing_bundle : discovers tap skills live, materializes them as
                           federated pointers, composes the public "Marketing"
                           bundle with MIT attribution preserved.
@@ -121,10 +121,10 @@ class TestMetasearchInclusion:
 
 class TestBundleCap:
     def test_cap_fits_47_skill_pack(self):
-        from app.bundle_routes import COOK_SKILL_CAP
+        from app.bundle_routes import BUNDLE_SKILL_CAP
 
-        assert COOK_SKILL_CAP >= 47, "cap must fit the full marketing pack on Pro"
-        assert COOK_SKILL_CAP == 1000
+        assert BUNDLE_SKILL_CAP >= 47, "cap must fit the full marketing pack on Pro"
+        assert BUNDLE_SKILL_CAP == 1000
 
 
 # ─────────────────────── seed: compose the bundle ───────────────────────────

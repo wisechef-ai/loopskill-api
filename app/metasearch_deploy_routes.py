@@ -35,7 +35,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.bundle_routes import (
-    COOK_SKILL_CAP,
+    BUNDLE_SKILL_CAP,
     CookbookCtx,
     _resolve_owned_cookbook,
     _touch_bundle_generation,
@@ -135,7 +135,7 @@ def metasearch_fleet_deploy(
             .filter(BundleSkill.bundle_id == cb.id, BundleSkill.source != "disabled")
             .count()
         )
-        return active >= COOK_SKILL_CAP
+        return active >= BUNDLE_SKILL_CAP
 
     # Add/reactivate the desired-state row, pinned to the content-addressed semver
     # (reconcile selects the SkillVersion by this semver → serves OUR tarball).
@@ -149,7 +149,7 @@ def metasearch_fleet_deploy(
         if existing.source == "disabled" and _at_cap_for_reactivation():
             raise HTTPException(
                 status_code=403,
-                detail={"deployed": False, "reason": "skill_cap_reached", "cap": COOK_SKILL_CAP},
+                detail={"deployed": False, "reason": "skill_cap_reached", "cap": BUNDLE_SKILL_CAP},
             )
         existing.source = "overridden"  # provenance: explicitly deploy-pinned
         existing.pinned_version = pin.pinned_semver
@@ -174,10 +174,10 @@ def metasearch_fleet_deploy(
             .filter(BundleSkill.bundle_id == cb.id, BundleSkill.source != "disabled")
             .count()
         )
-        if active >= COOK_SKILL_CAP:
+        if active >= BUNDLE_SKILL_CAP:
             raise HTTPException(
                 status_code=403,
-                detail={"deployed": False, "reason": "skill_cap_reached", "cap": COOK_SKILL_CAP},
+                detail={"deployed": False, "reason": "skill_cap_reached", "cap": BUNDLE_SKILL_CAP},
             )
 
     row = BundleSkill(

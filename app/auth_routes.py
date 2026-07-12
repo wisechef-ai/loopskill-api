@@ -36,7 +36,7 @@ from app.referral import (
     ensure_referral_code,
     process_referral_cookie,
 )
-from app.tier_labels import _is_paid_tier, _is_pro_plus_tier, cookbook_limit
+from app.tier_labels import _is_paid_tier, _is_pro_plus_tier, bundle_limit
 
 logger = logging.getLogger(__name__)
 
@@ -359,9 +359,9 @@ async def get_me(
                 "studio": None,  # legacy alias → pro_plus
             }.get(user.subscription_tier, 5),
             # cookbook_limit — SSOT in config/tiers.yaml (loopclose_3005 Phase A).
-            # Read via tier_labels.cookbook_limit() so this never drifts from the
+            # Read via tier_labels.bundle_limit() so this never drifts from the
             # number bundle_routes.py enforces. Handles legacy slugs.
-            "cookbook_limit": cookbook_limit(user.subscription_tier),
+            "cookbook_limit": bundle_limit(user.subscription_tier),
             "cookbook_skill_cap": {
                 "free": 0,
                 "pro": 25,
