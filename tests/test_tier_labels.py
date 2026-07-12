@@ -186,38 +186,38 @@ class TestRateLimitUpgradeMessage:
 
 
 class TestCookbookLimitSSOT:
-    """loopclose_3005 Phase A — cookbook_limit() reads config/tiers.yaml SSOT."""
+    """loopclose_3005 Phase A — bundle_limit() reads config/tiers.yaml SSOT."""
 
     def test_free_is_two(self):
         # liked_0711 (Adam 2026-07-12): free 1→2 (auto Liked bundle + 1 real).
         tl = _reload_tier_labels()
-        assert tl.cookbook_limit("free") == 2
+        assert tl.bundle_limit("free") == 2
 
     def test_pro_is_ten(self):
         tl = _reload_tier_labels()
-        assert tl.cookbook_limit("pro") == 10
+        assert tl.bundle_limit("pro") == 10
 
     def test_pro_plus_is_two_hundred(self):
         tl = _reload_tier_labels()
-        assert tl.cookbook_limit("pro_plus") == 200
+        assert tl.bundle_limit("pro_plus") == 200
 
     def test_legacy_cook_resolves_to_pro_ten(self):
         tl = _reload_tier_labels()
-        assert tl.cookbook_limit("cook") == 10
+        assert tl.bundle_limit("cook") == 10
 
     def test_legacy_operator_resolves_to_pro_plus_two_hundred(self):
         tl = _reload_tier_labels()
-        assert tl.cookbook_limit("operator") == 200
+        assert tl.bundle_limit("operator") == 200
 
     def test_legacy_studio_resolves_to_pro_plus_two_hundred(self):
         tl = _reload_tier_labels()
-        assert tl.cookbook_limit("studio") == 200
+        assert tl.bundle_limit("studio") == 200
 
     def test_none_falls_back_to_free_two(self):
         # liked_0711 (Adam 2026-07-12): free on-ramp is now 2.
         tl = _reload_tier_labels()
-        assert tl.cookbook_limit(None) == 2
+        assert tl.bundle_limit(None) == 2
 
     def test_unknown_tier_falls_back_to_free_two(self):
         tl = _reload_tier_labels()
-        assert tl.cookbook_limit("enterprise_made_up") == 2
+        assert tl.bundle_limit("enterprise_made_up") == 2

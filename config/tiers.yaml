@@ -24,7 +24,7 @@ tiers:
     # "Liked" bundle (is_liked=true) which counts toward this owner-bundle cap,
     # so free=1 left zero room to create even one real bundle. free=2 = the
     # auto-Liked bundle + one real editable bundle.
-    cookbook_limit: 2
+    bundle_limit: 2
 
   pro:
     db_slug: pro
@@ -41,7 +41,7 @@ tiers:
     stripe_nickname: "Pro $9.95/mo"
     accent_color: "#3B82F6"
     badge: Pro
-    cookbook_limit: 10
+    bundle_limit: 10
 
   pro_plus:
     db_slug: pro_plus
@@ -55,4 +55,4 @@ tiers:
     stripe_nickname: "Pro+ $100/mo"
     accent_color: "#D4A017"
     badge: Pro+
-    cookbook_limit: 200
+    bundle_limit: 200

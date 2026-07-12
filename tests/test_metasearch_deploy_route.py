@@ -215,7 +215,7 @@ def test_deploy_to_unowned_fleet_rejected(db_session, monkeypatch, tmp_path):
 def test_reactivating_disabled_row_respects_cap(db_session, monkeypatch, tmp_path):
     """Council SHOULD 3: reactivating a disabled external row into an at-cap Pro
     bundle must be gated by the active-skill cap (not silently become the 26th)."""
-    from app.bundle_routes import COOK_SKILL_CAP
+    from app.bundle_routes import BUNDLE_SKILL_CAP
     from app.services.metasearch_deploy import pin_external_for_deploy
 
     _mock_resolvable(monkeypatch, tmp_path=tmp_path)
@@ -235,7 +235,7 @@ def test_reactivating_disabled_row_respects_cap(db_session, monkeypatch, tmp_pat
         )
     )
     # fill the bundle to the cap with dummy ACTIVE curated rows
-    for i in range(COOK_SKILL_CAP):
+    for i in range(BUNDLE_SKILL_CAP):
         s = Skill(
             slug=f"curated-{i}",
             title=f"C{i}",

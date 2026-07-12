@@ -47,26 +47,44 @@ def display_label(db_slug: str) -> str:
     return _tiers().get(canonical, {}).get("display_name", canonical.title())
 
 
-def cookbook_limit(tier: str | None) -> int | None:
-    """Return the max number of cookbooks a tier may own.
+def _tier_bundle_cap(cfg: dict) -> int | None:
+    """Read a tier's bundle cap from config, preferring the canonical key.
 
-    SSOT: config/tiers.yaml `cookbook_limit` per tier (loopclose_3005 Phase A).
-    This is the ONLY source of bundle caps — bundle_routes.py and
-    auth_routes.py both read it here. Accepts legacy slugs ('cook', 'studio',
-    'operator') transparently via _canonical().
+    Accepts the new ``bundle_limit`` key and falls back to the legacy
+    ``cookbook_limit`` key so config and code can roll independently during the
+    cookbook→bundle rename. The literal ``0`` default is a fail-closed guard for
+    a missing/corrupt key only.
+    """
+    if "bundle_limit" in cfg:
+        return cfg.get("bundle_limit", 0)
+    return cfg.get("cookbook_limit", 0)
+
+
+def bundle_limit(tier: str | None) -> int | None:
+    """Return the max number of bundles a tier may own.
+
+    SSOT: config/tiers.yaml `bundle_limit` per tier (legacy key `cookbook_limit`
+    still honored via _tier_bundle_cap). This is the ONLY source of bundle caps
+    — bundle_routes.py and auth_routes.py both read it here. Accepts legacy
+    slugs ('cook', 'studio', 'operator') transparently via _canonical().
 
     Returns an int cap, or None for unlimited (reserved; no current tier is
     unlimited). Unknown/None tier falls back to the free-tier limit from the
-    SSOT (config/tiers.yaml). The literal ``0`` defaults below are a
-    fail-closed guard for a missing/corrupt config file only — never the live
-    free value (which is read from YAML; evergreen_0206 Phase A set it to 1).
+    SSOT (config/tiers.yaml). The literal ``0`` defaults are a fail-closed guard
+    for a missing/corrupt config file only — never the live free value (which is
+    read from YAML; liked_0711 set it to 2).
     """
     canonical = _canonical(tier) if tier else "free"
     tier_cfg = _tiers().get(canonical)
     if tier_cfg is None:
         # Unknown tier → safest is the free-tier cap.
-        return _tiers().get("free", {}).get("cookbook_limit", 0)
-    return tier_cfg.get("cookbook_limit", 0)
+        return _tier_bundle_cap(_tiers().get("free", {}))
+    return _tier_bundle_cap(tier_cfg)
+
+
+# Back-compat alias for the cookbook→bundle rename. Callers should migrate to
+# bundle_limit(); this keeps older imports working during the rollout.
+cookbook_limit = bundle_limit
 
 
 def _is_paid_tier(tier: str | None) -> bool:
