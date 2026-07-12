@@ -23,10 +23,66 @@ from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app.models import Personality
 from app.schemas import PersonalityDetailOut, PersonalityOut, PersonalityPublishIn
+from app.services.agency_agents_source import SOURCE as AGENCY_AGENTS_SOURCE
+from app.services.agency_agents_source import source as agency_agents_source
+from app.services.federation_scan import BADGE_FLAGGED, scan_external_body
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/personalities", tags=["personalities"])
+
+
+@router.get("/external")
+def list_external_personalities(
+    q: str | None = Query(None),
+    sources: str | None = Query(
+        None,
+        description=(
+            "Comma-separated external personality sources to enable. OFF BY DEFAULT; "
+            "currently supports agency-agents."
+        ),
+    ),
+    limit: int = Query(100, ge=1, le=500),
+) -> dict[str, object]:
+    """Browse linked, second-class external personalities without prompt bodies."""
+    enabled = {value.strip().lower() for value in (sources or "").split(",") if value.strip()}
+    if AGENCY_AGENTS_SOURCE not in enabled:
+        return {"external": [], "sources": {AGENCY_AGENTS_SOURCE: {"enabled": False}}}
+    try:
+        rows = agency_agents_source.browse(q or "", limit)
+    # Rationale: an upstream outage must not turn the public catalog into an internal error leak.
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("agency-agents browse failed", exc_info=True)
+        raise HTTPException(status_code=502, detail="external personality source unavailable") from exc
+    return {
+        "external": [row.browse_dict() for row in rows],
+        "sources": {AGENCY_AGENTS_SOURCE: {"enabled": True, "returned": len(rows)}},
+    }
+
+
+@router.get("/external/{slug}/install")
+def install_external_personality(slug: str) -> dict[str, object]:
+    """FETCH_ORIGIN an external personality and leak-scan its prompt boundary."""
+    try:
+        personality = agency_agents_source.fetch_origin(slug)
+    # Rationale: origin failures are transient hard errors, never an unattributed install.
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("agency-agents install fetch failed for %s", slug, exc_info=True)
+        raise HTTPException(status_code=502, detail="external personality origin unavailable") from exc
+    if personality is None:
+        raise HTTPException(status_code=404, detail="external personality not found")
+    verdict = scan_external_body(personality.system_prompt)
+    if verdict.badge == BADGE_FLAGGED:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "external personality failed leak scan", **verdict.to_dict()},
+        )
+    return {
+        **personality.browse_dict(),
+        "system_prompt": personality.system_prompt,
+        "install_path": "fetch_origin",
+        **verdict.to_dict(),
+    }
 
 
 def _personality_to_out(p: Personality) -> PersonalityOut:
