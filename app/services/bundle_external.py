@@ -78,15 +78,14 @@ def external_slug(source: str, slug: str) -> str:
 
 
 def build_attribution(ext: "ExternalSkill") -> str | None:
-    """marketing_0712 (Codex R1 finding 3) — an explicit attribution line that
-    travels with EVERY external skill install, not just the bundle description.
+    """A ``<license> · source: <origin_url>`` line that travels with every
+    external skill install, not just the bundle description.
 
     MIT (and most permissive licenses) require the copyright/source notice to
-    accompany redistributed copies. For a FETCH_ORIGIN install we stream the
-    upstream SKILL.md live, but it may not itself carry the notice — so we stamp
-    a deterministic ``<license> · source: <origin_url>`` line derived from the
-    resolved license + origin. Generic across all federation sources (no
-    per-tap special-casing). Returns None only when neither field is known.
+    accompany redistributed copies. A FETCH_ORIGIN install streams the upstream
+    SKILL.md live, but it may not carry the notice itself — so we stamp a
+    deterministic line from the resolved license + origin. Returns None only
+    when neither field is known.
     """
     lic = (ext.license or "").strip()
     origin = (ext.origin_url or "").strip()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""marketing_0712 — seed the "Marketing" bundle from the github-marketing tap.
+"""Seed the "Corey's Marketing" bundle from the github-marketing tap.
 
 Composes ONE curated public bundle ("Marketing") owned by the WiseChef Editorial
 SYSTEM account, holding every skill from Corey Haines' MIT-licensed pack
@@ -45,8 +45,8 @@ import sys
 from uuid import uuid4
 
 TAP_SOURCE = "github-marketing"
-BUNDLE_SLUG = "marketing"
-BUNDLE_NAME = "Marketing"
+BUNDLE_SLUG = "coreys-marketing"
+BUNDLE_NAME = "Corey's Marketing"
 BUNDLE_DESC = (
     "The complete marketing operating system for your agent — 40+ conversion, "
     "SEO, copywriting, paid, growth, and RevOps skills that work together. "
@@ -136,7 +136,7 @@ def seed(dry_run: bool = False, allow_partial: bool = False) -> int:
         cb.bundle_owner = system.id
         cb.visibility = "public"
         # is_verified is set AFTER the attach loop — only a COMPLETE seed earns
-        # the verified badge (Codex R1 finding 2).
+        # the verified badge.
 
         current_slugs = set(tap_slugs)
         for ext_slug in tap_slugs:
@@ -170,9 +170,9 @@ def seed(dry_run: bool = False, allow_partial: bool = False) -> int:
             else:
                 skipped += 1
 
-        # Codex R1 finding 1 — removal reconciliation. A member whose external
-        # slug is no longer in the live tap walk points at content that may now
-        # 404. Disable it (soft, reversible) so the public bundle never advertises
+        # Removal reconciliation. A member whose external slug is no longer in
+        # the live tap walk points at content that may now 404. Disable it (soft,
+        # reversible) so the public bundle never advertises
         # a dead skill. We only reconcile OUR tap's members, and only when the
         # walk is trustworthy (non-empty — the empty case aborted earlier).
         reconciled_off = 0
@@ -191,10 +191,10 @@ def seed(dry_run: bool = False, allow_partial: bool = False) -> int:
                 m.source = "disabled"
                 reconciled_off += 1
 
-        # Codex R1 finding 2 — partial-failure honesty. Transient origin/scan
-        # failures leave skills unresolved; a "verified" public bundle must be
-        # COMPLETE, not silently missing members. Refuse to verify + fail nonzero
-        # unless the caller explicitly accepts a partial seed.
+        # Partial-failure honesty. Transient origin/scan failures leave skills
+        # unresolved; a "verified" public bundle must be COMPLETE, not silently
+        # missing members. Refuse to verify + fail nonzero unless the caller
+        # explicitly accepts a partial seed.
         complete = not unresolved
         cb.is_verified = complete
 

@@ -198,7 +198,7 @@ class TestSeedMarketingBundle:
         rc = seed.seed(dry_run=False)
         assert rc == 0
 
-        cb = db_session.query(Bundle).filter(Bundle.slug == "marketing").first()
+        cb = db_session.query(Bundle).filter(Bundle.slug == "coreys-marketing").first()
         assert cb is not None
         assert cb.visibility == "public"
         assert cb.is_verified is True
@@ -242,7 +242,7 @@ class TestSeedMarketingBundle:
         assert seed.seed(dry_run=False) == 0
         assert seed.seed(dry_run=False) == 0  # second run must not duplicate
 
-        cb = db_session.query(Bundle).filter(Bundle.slug == "marketing").first()
+        cb = db_session.query(Bundle).filter(Bundle.slug == "coreys-marketing").first()
         members = (
             db_session.query(BundleSkill)
             .filter(BundleSkill.bundle_id == cb.id, BundleSkill.source != "disabled")
@@ -283,7 +283,7 @@ class TestSeedMarketingBundle:
 
         assert seed.seed(dry_run=False) == 1, "partial failure must abort by default"
         # Nothing committed — no bundle written.
-        cb = db_session.query(Bundle).filter(Bundle.slug == "marketing").first()
+        cb = db_session.query(Bundle).filter(Bundle.slug == "coreys-marketing").first()
         assert cb is None, "a partial seed must not leave a bundle behind"
 
     def test_seed_allow_partial_seeds_subset_unverified(self, db_session, monkeypatch):
@@ -303,7 +303,7 @@ class TestSeedMarketingBundle:
         monkeypatch.setattr(db_session, "close", lambda: None)
 
         assert seed.seed(dry_run=False, allow_partial=True) == 0
-        cb = db_session.query(Bundle).filter(Bundle.slug == "marketing").first()
+        cb = db_session.query(Bundle).filter(Bundle.slug == "coreys-marketing").first()
         assert cb is not None
         assert cb.is_verified is False, "a partial bundle must NOT be marked verified"
         members = (
@@ -331,7 +331,7 @@ class TestSeedMarketingBundle:
             lambda: ["github-marketing--copywriting", "github-marketing--cro"],
         )
         assert seed.seed(dry_run=False) == 0
-        cb = db_session.query(Bundle).filter(Bundle.slug == "marketing").first()
+        cb = db_session.query(Bundle).filter(Bundle.slug == "coreys-marketing").first()
         assert cb.is_verified is True
 
         def _active_slugs():
@@ -415,3 +415,65 @@ class TestAttribution:
             description="",
         )
         assert build_attribution(neither) is None
+
+
+class TestPassiveAutoTrack:
+    """The daily federation_reindex run reconciles the bundle after refreshing
+    the tap — passive auto-track with no new cron and no second GitHub walk."""
+
+    def test_tap_ok_gate_only_fires_on_successful_marketing_walk(self):
+        from scripts.federation_reindex import _marketing_tap_ok
+
+        assert _marketing_tap_ok([{"source": "github-marketing", "status": "ok", "indexed": 47}]) is True
+        # A failed walk (indexed=None) must NOT trigger reconcile — a transient
+        # GitHub outage must never disable live bundle members.
+        assert (
+            _marketing_tap_ok([{"source": "github-marketing", "status": "error", "indexed": None}]) is False
+        )
+        # Marketing absent from this run's reports → skip.
+        assert _marketing_tap_ok([{"source": "skills-sh", "status": "ok", "indexed": 5}]) is False
+
+    def test_reconcile_is_non_fatal(self, monkeypatch):
+        # A reconcile failure must log but NOT raise — the index walk the
+        # /external page depends on must never fail because of the add-on.
+        import scripts.federation_reindex as fr
+
+        def _boom(*a, **k):
+            raise RuntimeError("seed blew up")
+
+        monkeypatch.setattr("scripts.seed_marketing_bundle.seed", _boom)
+        # Must not raise.
+        fr._reconcile_marketing_bundle(dry_run=True)
+
+    def test_reindex_main_triggers_reconcile_after_successful_walk(self, monkeypatch):
+        # End-to-end wiring: reindex main() calls the reconcile when the
+        # marketing walk succeeded, and passes its dry_run through.
+        import scripts.federation_reindex as fr
+
+        calls = {}
+        monkeypatch.setattr(
+            fr,
+            "reindex_source",
+            lambda db, src, dry_run=False: {
+                "source": src,
+                "status": "ok",
+                "indexed": 47,
+                "installable": 47,
+            },
+        )
+        monkeypatch.setattr("app.database.SessionLocal", lambda: _FakeSession())
+        monkeypatch.setattr(
+            fr, "_reconcile_marketing_bundle", lambda *, dry_run: calls.setdefault("dry_run", dry_run)
+        )
+        monkeypatch.setattr("app.services.federation.LIVE_SOURCES", ["github-marketing"], raising=False)
+        monkeypatch.setattr(
+            "sys.argv", ["federation_reindex.py", "--source", "github-marketing", "--dry-run"]
+        )
+        rc = fr.main()
+        assert rc == 0
+        assert calls.get("dry_run") is True, "reconcile must run after a successful marketing walk"
+
+
+class _FakeSession:
+    def close(self):
+        pass

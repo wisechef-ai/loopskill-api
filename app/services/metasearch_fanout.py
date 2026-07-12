@@ -50,11 +50,10 @@ _BASE_FANOUT_SOURCES: tuple[str, ...] = (
     "github-oss",
 )
 
-# marketing_0712 — first-class GitHub taps (in_metasearch=True) join the fan-out
-# so their skills rank ALONGSIDE owned skills, not in the legacy /external
-# ghetto. Derived from the tap-list, so a new trusted repo becomes first-class
-# by flipping ONE flag in github_taps.GITHUB_TAPS — no edit here. Deduped +
-# order-stable (base first, then taps) so the merge ranking stays deterministic.
+# First-class taps (in_metasearch=True) join the fan-out so their skills rank
+# alongside owned skills. Derived from the tap-list, so flipping the flag in
+# github_taps is the only edit needed. Deduped + order-stable (base first) to
+# keep merge ranking deterministic.
 DEFAULT_FANOUT_SOURCES: tuple[str, ...] = _BASE_FANOUT_SOURCES + tuple(
     s for s in METASEARCH_TAP_SOURCES if s not in _BASE_FANOUT_SOURCES
 )
