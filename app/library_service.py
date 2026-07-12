@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app import authz
 from app.bundle_routes import _touch_bundle_generation
 from app.liked_service import ensure_liked_bundle
 from app.models import (
@@ -19,11 +20,18 @@ from app.models import (
     Skill,
 )
 
+if TYPE_CHECKING:
+    from app.auth_ctx import AuthContext
+
 ArtifactType = Literal["skill", "personality", "loop"]
 
 
 class LikedArtifactNotFoundError(Exception):
     """Raised when a requested liked-library artifact does not exist."""
+
+
+class LikedArtifactForbiddenError(Exception):
+    """Raised when the caller may not read the artifact they tried to like."""
 
 
 def _artifact_spec(artifact_type: ArtifactType) -> tuple[type, type, str, dict[str, str]]:
@@ -42,13 +50,27 @@ def set_liked_artifact(
     artifact_type: ArtifactType,
     artifact_id: UUID,
     liked: bool,
+    ctx: AuthContext | None = None,
 ) -> dict[str, str | bool]:
-    """Idempotently add or remove one artifact from the owner's Liked bundle."""
+    """Idempotently add or remove one artifact from the owner's Liked bundle.
+
+    When ``ctx`` is supplied and the artifact is a skill, the caller must be
+    able to READ that skill (authz.can_read_skill) — you cannot like a private
+    skill you are not entitled to see. Personalities and loops are catalog-
+    public artifacts, so no per-artifact read gate applies to them today.
+    """
     bundle = ensure_liked_bundle(db, owner_id)
     artifact_model, join_model, artifact_id_field, join_defaults = _artifact_spec(artifact_type)
     artifact = db.query(artifact_model).filter(artifact_model.id == artifact_id).first()
     if artifact is None:
         raise LikedArtifactNotFoundError
+
+    # authz gate (secfix_1905-B: every mutation surface carries an authz.can_* call).
+    # Liking a skill requires read-access to it; unliking never needs a fresh read
+    # (you are only removing a reference from your own bundle).
+    if ctx is not None and liked and artifact_type == "skill":
+        if not authz.can_read_skill(ctx, artifact, db=db):
+            raise LikedArtifactForbiddenError
 
     existing = (
         db.query(join_model)

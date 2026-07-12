@@ -98,10 +98,19 @@ def test_library_heart_contract_mcp_to_http_and_free_scope(db_session):
     liked_bundle_id = UUID(body["liked_bundle_id"])
     assert db_session.query(BundleSkill).filter(BundleSkill.bundle_id == ordinary.id).count() == 0
     assert db_session.query(BundlePersonality).filter(BundlePersonality.bundle_id == ordinary.id).count() == 0
-    assert db_session.query(BundleCompositeLoop).filter(BundleCompositeLoop.bundle_id == ordinary.id).count() == 0
+    assert (
+        db_session.query(BundleCompositeLoop).filter(BundleCompositeLoop.bundle_id == ordinary.id).count()
+        == 0
+    )
     assert db_session.query(BundleSkill).filter(BundleSkill.bundle_id == liked_bundle_id).count() == 1
-    assert db_session.query(BundlePersonality).filter(BundlePersonality.bundle_id == liked_bundle_id).count() == 1
-    assert db_session.query(BundleCompositeLoop).filter(BundleCompositeLoop.bundle_id == liked_bundle_id).count() == 1
+    assert (
+        db_session.query(BundlePersonality).filter(BundlePersonality.bundle_id == liked_bundle_id).count()
+        == 1
+    )
+    assert (
+        db_session.query(BundleCompositeLoop).filter(BundleCompositeLoop.bundle_id == liked_bundle_id).count()
+        == 1
+    )
 
 
 def test_like_unlike_http_are_idempotent_and_validate(db_session):
@@ -124,8 +133,31 @@ def test_like_unlike_http_are_idempotent_and_validate(db_session):
             "id": str(skill.id),
         }
         assert client.request("DELETE", "/api/library/like", json=payload).status_code == 200
-        assert client.post("/api/library/like", json={"type": "unknown", "id": str(skill.id)}).status_code == 422
+        assert (
+            client.post("/api/library/like", json={"type": "unknown", "id": str(skill.id)}).status_code == 422
+        )
         assert client.post("/api/library/like", json={"type": "skill", "id": str(uuid4())}).status_code == 404
+
+    liked = db_session.query(Bundle).filter(Bundle.bundle_owner == owner.id, Bundle.is_liked.is_(True)).one()
+    assert db_session.query(BundleSkill).filter(BundleSkill.bundle_id == liked.id).count() == 0
+
+
+def test_like_private_skill_of_another_user_is_forbidden(db_session):
+    """secfix_1905-B: liking a private skill you cannot read returns 403 and adds nothing."""
+    owner = User(id=uuid4(), email=f"{uuid4()}@example.test", display_name="Liker")
+    db_session.add(owner)
+    db_session.commit()
+    private_skill = Skill(
+        slug=f"private-{uuid4()}",
+        title="Private skill",
+        is_public=False,
+    )
+    db_session.add(private_skill)
+    db_session.commit()
+
+    with TestClient(_library_app(db_session, owner.id)) as client:
+        resp = client.post("/api/library/like", json={"type": "skill", "id": str(private_skill.id)})
+    assert resp.status_code == 403
 
     liked = db_session.query(Bundle).filter(Bundle.bundle_owner == owner.id, Bundle.is_liked.is_(True)).one()
     assert db_session.query(BundleSkill).filter(BundleSkill.bundle_id == liked.id).count() == 0
