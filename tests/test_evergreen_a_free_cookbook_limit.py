@@ -21,14 +21,16 @@ from app.tier_labels import cookbook_limit
 class TestFreeCookbookLimitSSOT:
     """The SSOT number itself."""
 
-    def test_free_is_one(self):
-        assert cookbook_limit("free") == 1, (
-            "free on-ramp must allow exactly 1 cookbook (decision #10); " "0 keeps the funnel closed"
+    def test_free_is_two(self):
+        assert cookbook_limit("free") == 2, (
+            "free cap is 2 (liked_0711, Adam 2026-07-12): the auto-created "
+            "system Liked bundle counts toward the owner-bundle cap, so free "
+            "needs 2 to leave room for one real editable bundle"
         )
 
-    def test_none_tier_is_one(self):
-        """A user with no tier set is treated as free → 1 cookbook."""
-        assert cookbook_limit(None) == 1
+    def test_none_tier_is_two(self):
+        """A user with no tier set is treated as free → 2 cookbooks."""
+        assert cookbook_limit(None) == 2
 
     def test_pro_unchanged(self):
         assert cookbook_limit("pro") == 10
@@ -57,4 +59,4 @@ class TestNoResidualZero:
         assert tiers_path.exists(), f"tiers.yaml not found at {tiers_path}"
         data = yaml.safe_load(tiers_path.read_text())
         free_limit = data["tiers"]["free"]["cookbook_limit"]
-        assert free_limit == 1, f"config/tiers.yaml free.cookbook_limit must be 1, got {free_limit!r}"
+        assert free_limit == 2, f"config/tiers.yaml free.cookbook_limit must be 2, got {free_limit!r}"

@@ -125,30 +125,40 @@ def _make_app(db: Session, *, api_key_user_id, is_admin: bool = False) -> FastAP
 
 
 class TestTierGates:
-    def test_free_tier_can_create_one_then_capped(self, db_session):
-        """evergreen_0206 Phase G: free on-ramp OPENED. Free creates 1, 2nd → 403."""
+    def test_free_tier_can_create_two_then_capped(self, db_session):
+        """liked_0711 (Adam 2026-07-12): free cap 1→2. Free creates 2, 3rd → 403.
+
+        Note: this test's user has no auto-provisioned Liked bundle (raw
+        _make_user), so it exercises pure cap math: 2 raw creates allowed, 3rd
+        capped. In production a real free user's Liked bundle consumes one of
+        the 2 slots, leaving room for exactly one real editable bundle.
+        """
         user = _make_user(db_session, tier="free")
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
         with TestClient(app) as client:
             r1 = client.post("/api/cookbooks", json={"name": "My First"})
-            assert r1.status_code == 201, f"free must create its 1 cookbook: {r1.text}"
+            assert r1.status_code == 201, f"free must create its 1st cookbook: {r1.text}"
             r2 = client.post("/api/cookbooks", json={"name": "My Second"})
-        assert r2.status_code == 403, "free 2nd cookbook must be capped"
-        assert r2.json()["detail"]["max_cookbooks"] == 1
+            assert r2.status_code == 201, f"free must create its 2nd cookbook: {r2.text}"
+            r3 = client.post("/api/cookbooks", json={"name": "My Third"})
+        assert r3.status_code == 403, "free 3rd cookbook must be capped"
+        assert r3.json()["detail"]["max_cookbooks"] == 2
 
-    def test_no_tier_treated_as_free_one(self, db_session):
-        """A user with no tier set is treated as free → 1 cookbook allowed."""
+    def test_no_tier_treated_as_free_two(self, db_session):
+        """A user with no tier set is treated as free → 2 cookbooks allowed."""
         user = _make_user(db_session, tier=None, status=None)
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
         with TestClient(app) as client:
             r1 = client.post("/api/cookbooks", json={"name": "Mine"})
-            assert r1.status_code == 201, f"no-tier=free must create 1: {r1.text}"
+            assert r1.status_code == 201, f"no-tier=free must create 1st: {r1.text}"
             r2 = client.post("/api/cookbooks", json={"name": "Second"})
-        assert r2.status_code == 403
+            assert r2.status_code == 201, f"no-tier=free must create 2nd: {r2.text}"
+            r3 = client.post("/api/cookbooks", json={"name": "Third"})
+        assert r3.status_code == 403
 
     def test_pro_tier_can_create_first(self, db_session):
         user = _make_user(db_session, tier="pro")

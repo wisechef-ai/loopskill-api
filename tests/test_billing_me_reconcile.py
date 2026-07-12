@@ -10,6 +10,7 @@ Test cases:
 4. Hammering rate-limit: 2 calls within 5s → second call must NOT hit Stripe.
 5. User without stripe_customer_id → no Stripe call, plain DB read.
 """
+
 from __future__ import annotations
 
 import time
@@ -31,6 +32,7 @@ from app.models import Base, User
 
 
 # ── DB fixtures ───────────────────────────────────────────────────────────────
+
 
 @pytest.fixture(scope="module")
 def engine_fixture():
@@ -76,17 +78,23 @@ def db(engine_fixture) -> Generator[Session, None, None]:
 
 # ── Settings + app fixtures ───────────────────────────────────────────────────
 
+
 @pytest.fixture(autouse=True)
 def configured_prices(monkeypatch):
     """Ensure consistent price IDs and secret key across all tests."""
     from app import subscription_service as ss
+
     monkeypatch.setattr(settings, "STRIPE_PRICE_COOK", "price_test_cook")
     monkeypatch.setattr(settings, "STRIPE_PRICE_STUDIO", "price_test_studio")
     monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "sk_test_dummy")
-    monkeypatch.setattr(ss, "TIER_PRICE_IDS", {
-        "pro": "price_test_cook",
-        "pro_plus": "price_test_studio",
-    })
+    monkeypatch.setattr(
+        ss,
+        "TIER_PRICE_IDS",
+        {
+            "pro": "price_test_cook",
+            "pro_plus": "price_test_studio",
+        },
+    )
 
 
 def _build_app(db: Session, user: User) -> TestClient:
@@ -142,6 +150,7 @@ def _fake_stripe_sub(price_id: str = "price_test_studio", tier_meta: str = "pro_
 
 # ── Test 1: tier=NULL with active Stripe sub → reconcile triggers ─────────────
 
+
 def test_tier_null_active_sub_triggers_reconcile(db):
     """Gate 1: user has stripe_customer_id + active sub but tier=NULL → reconcile sets tier."""
     from app.checkout_routes import _reconcile_last_attempt
@@ -173,6 +182,7 @@ def test_tier_null_active_sub_triggers_reconcile(db):
 
 # ── Test 2: sub already in sync → no Stripe call ──────────────────────────────
 
+
 def test_already_synced_no_stripe_call(db):
     """Gate 2: user with active tier + active status → no Stripe call made."""
     from app.checkout_routes import _reconcile_last_attempt
@@ -199,6 +209,7 @@ def test_already_synced_no_stripe_call(db):
 
 # ── Test 3: Stripe raises → 200 with stale state, no 5xx ─────────────────────
 
+
 def test_stripe_api_error_returns_stale_state(db):
     """Gate 3: if Stripe raises, endpoint still returns 200 with stale DB data."""
     from app.checkout_routes import _reconcile_last_attempt
@@ -219,6 +230,7 @@ def test_stripe_api_error_returns_stale_state(db):
 
 
 # ── Test 4: hammering rate-limit — 2 calls within 5s → no second Stripe hit ──
+
 
 def test_hammering_rate_limit(db):
     """Gate 4: two rapid requests within 5s window → only one Stripe call."""
@@ -251,6 +263,7 @@ def test_hammering_rate_limit(db):
 
 # ── Test 5: no stripe_customer_id → plain DB read, no Stripe call ─────────────
 
+
 def test_no_stripe_customer_id_no_call(db):
     """Gate 5: user without stripe_customer_id → no Stripe call, returns DB data."""
     from app.checkout_routes import _reconcile_last_attempt
@@ -274,12 +287,13 @@ def test_no_stripe_customer_id_no_call(db):
 
 @pytest.mark.parametrize(
     "tier,expected_limit",
-    [("pro", 10), ("pro_plus", 200), (None, 1)],
+    [("pro", 10), ("pro_plus", 200), (None, 2)],
 )
 def test_billing_me_returns_cookbook_limit_from_ssot(db, tier, expected_limit):
     """Phase X: /api/billing/me must expose cookbook_limit read from the
     config/tiers.yaml SSOT so the portal library copy never drifts. Free
-    (tier=None) → 1 (evergreen_0206 Phase A on-ramp), Pro → 10, Pro+ → 200."""
+    (tier=None) → 2 (liked_0711: auto Liked bundle + 1 real), Pro → 10,
+    Pro+ → 200."""
     from app.checkout_routes import _reconcile_last_attempt
 
     kwargs = {}

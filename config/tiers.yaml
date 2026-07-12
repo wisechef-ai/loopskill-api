@@ -20,7 +20,11 @@ tiers:
     # number — cookbook_routes.py, auth_routes.py, checkout_routes.py read it
     # via tier_labels.cookbook_limit(). null = unlimited (reserved for a future
     # contact-us tier; no current tier is unlimited).
-    cookbook_limit: 1
+    # liked_0711 (Adam 2026-07-12): 1→2. Every user now auto-gets a system
+    # "Liked" bundle (is_liked=true) which counts toward this owner-bundle cap,
+    # so free=1 left zero room to create even one real bundle. free=2 = the
+    # auto-Liked bundle + one real editable bundle.
+    cookbook_limit: 2
 
   pro:
     db_slug: pro
