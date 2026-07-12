@@ -15,11 +15,7 @@ def ensure_liked_bundle(db: Session, owner_id: UUID) -> Bundle:
     sessions race and the database's per-owner partial unique index rejects
     the losing insert.
     """
-    existing = (
-        db.query(Bundle)
-        .filter(Bundle.bundle_owner == owner_id, Bundle.is_liked.is_(True))
-        .first()
-    )
+    existing = db.query(Bundle).filter(Bundle.bundle_owner == owner_id, Bundle.is_liked.is_(True)).first()
     if existing is not None:
         return existing
 
@@ -36,11 +32,7 @@ def ensure_liked_bundle(db: Session, owner_id: UUID) -> Bundle:
             db.add(liked)
             db.flush()
     except IntegrityError:
-        existing = (
-            db.query(Bundle)
-            .filter(Bundle.bundle_owner == owner_id, Bundle.is_liked.is_(True))
-            .first()
-        )
+        existing = db.query(Bundle).filter(Bundle.bundle_owner == owner_id, Bundle.is_liked.is_(True)).first()
         if existing is None:
             raise
         return existing
