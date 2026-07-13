@@ -1,0 +1,183 @@
+name: Deploy to app.loopskill.io (production)
+
+# Architecture: the production host runs its own self-hosted GitHub Actions
+# runner (labels: self-hosted, loopskill-prod), so deploy steps execute
+# locally on the box as the deploy user — no SSH hop from a cloud runner,
+# no exposing prod, no DEPLOY_* secrets required.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - "alembic/**"
+      - "scripts/**"
+      - "tools/**"
+      - "requirements.txt"
+      - "pyproject.toml"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+    inputs:
+      skip_verify:
+        description: "Skip post-deploy public route verification"
+        required: false
+        default: "false"
+      skip_alembic:
+        description: "Skip alembic upgrade head (for code-only emergency rollbacks)"
+        required: false
+        default: "false"
+
+concurrency:
+  # Single deploy slot — never let two deploys race against the same host.
+  group: loopskill-api-prod-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Pull, install, migrate, restart, verify
+    runs-on: [self-hosted, loopskill-prod]
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      # ---- DB safety net: pre-deploy backup ----
+      - name: Pre-deploy DB snapshot (rolling, last 5 kept)
+        id: snapshot
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/backups/auto-deploy"
+          STAMP=$(date -u +%Y%m%d-%H%M%S)
+          cd /home/wisechef/loopskill-api
+          set -a; source .env; set +a
+          pg_dump "$WR_DATABASE_URL" -Fc -f "$HOME/backups/auto-deploy/loopskill.predeploy-${STAMP}.dump"
+          ls -1dt "$HOME"/backups/auto-deploy/loopskill.predeploy-*.dump | tail -n +6 | xargs -r rm -f
+          ls -lh "$HOME/backups/auto-deploy/" | tail -6
+
+      # ---- The actual deploy: pull, install, migrate, restart ----
+      - name: Pull + install + migrate + restart
+        id: deploy
+        run: |
+          set -euo pipefail
+          cd /home/wisechef/loopskill-api
+
+          # 1. Capture rollback point
+          BEFORE_SHA=$(git rev-parse HEAD)
+          echo "::notice::Rolling forward from $BEFORE_SHA"
+
+          # 2. Fetch + fast-forward main
+          git fetch origin main
+          git checkout main
+          git reset --hard origin/main
+          AFTER_SHA=$(git rev-parse HEAD)
+          echo "::notice::To $AFTER_SHA"
+
+          if [ "$BEFORE_SHA" = "$AFTER_SHA" ]; then
+            echo "Already at HEAD — nothing to deploy."
+            exit 0
+          fi
+
+          # 3. Pip install ALWAYS (git pull does not run pip)
+          source venv/bin/activate
+          pip install -q --upgrade pip wheel
+          pip install -q -r requirements.txt
+
+          # 4. Source .env so DATABASE_URL/WR_DATABASE_URL etc are available to alembic
+          set -a; source .env; set +a
+
+          # 5. Alembic single-head invariant
+          HEADS=$(alembic heads --resolve-dependencies 2>/dev/null | wc -l)
+          if [ "$HEADS" -ne 1 ]; then
+            echo "::error::ABORT: $HEADS alembic heads after pull (expected 1). Multi-head means uncoordinated migrations merged."
+            alembic heads --resolve-dependencies
+            # Roll back the git pull so we don't run with broken state
+            git reset --hard "$BEFORE_SHA"
+            exit 1
+          fi
+
+          # 6. Run migrations (skip_alembic input honored by the wrapper below)
+          if [ "${SKIP_ALEMBIC:-false}" != "true" ]; then
+            alembic upgrade head 2>&1 | tail -20
+          else
+            echo "::warning::skip_alembic=true — alembic upgrade head was skipped"
+          fi
+
+          # 7. Restart the single loopskill-api unit
+          sudo systemctl restart loopskill-api
+          sleep 3
+
+          # 8. Local readiness gate (5x2s)
+          for i in 1 2 3 4 5; do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3370/api/healthz || echo "000")
+            echo "  readiness attempt $i: local=$CODE"
+            if [ "$CODE" = "200" ]; then
+              echo "OK: local 200"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "::error::Local readiness gate failed — service did not become healthy"
+          sudo systemctl status loopskill-api --no-pager | tail -30 || true
+          sudo journalctl -u loopskill-api --no-pager -n 80 || true
+
+          # Auto-rollback to BEFORE_SHA
+          echo "::warning::Rolling back to $BEFORE_SHA"
+          git reset --hard "$BEFORE_SHA"
+          pip install -q -r requirements.txt
+          sudo systemctl restart loopskill-api
+          exit 1
+        env:
+          SKIP_ALEMBIC: ${{ inputs.skip_alembic }}
+
+      # ---- Public verification ----
+      - name: Public verification
+        if: ${{ inputs.skip_verify != 'true' }}
+        run: |
+          set -e
+          sleep 20  # CF edge propagation + service restart settle
+          # Each route gets up to 4 attempts with backoff so a transient 5xx
+          # mid-restart or a slow CF edge does not red a healthy deploy.
+          FAIL=0
+          for path in /api/healthz /api/skills/external?limit=1 /api/cookbooks; do
+            CODE="000"
+            for attempt in 1 2 3 4; do
+              CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://app.loopskill.io${path}" --max-time 15 || echo "000")
+              # 200 OK; 401/403 OK (auth-gated route, but service is up); 405 OK on POST endpoints probed via GET
+              case "$CODE" in
+                2*|401|403|405) break ;;
+              esac
+              [ "$attempt" -lt 4 ] && sleep $((attempt * 8))
+            done
+            printf "  %-32s %s\n" "$path" "$CODE"
+            case "$CODE" in
+              2*|401|403|405) ;;
+              *) FAIL=$((FAIL + 1)) ;;
+            esac
+          done
+          if [ "$FAIL" -gt 0 ]; then
+            echo "::error::$FAIL routes returned unexpected status after retries"
+            exit 1
+          fi
+          echo "All routes returned acceptable status."
+
+      # ---- Discord notify on success/failure (only if webhook secret exists) ----
+      - name: Notify Discord
+        if: always() && env.DISCORD_AGENT_SYNC_WEBHOOK != ''
+        env:
+          DISCORD_AGENT_SYNC_WEBHOOK: ${{ secrets.DISCORD_AGENT_SYNC_WEBHOOK }}
+        run: |
+          STATUS="${{ job.status }}"
+          ICON="✅"
+          [ "$STATUS" != "success" ] && ICON="❌"
+          SHA_SHORT=$(echo "${{ github.sha }}" | cut -c1-7)
+          MSG="${ICON} **loopskill-api auto-deploy ${STATUS}** — \`${SHA_SHORT}\` to app.loopskill.io by ${{ github.actor }}"
+          curl -sS -H "Content-Type: application/json" \
+            -d "{\"content\": \"$MSG\"}" \
+            "$DISCORD_AGENT_SYNC_WEBHOOK" > /dev/null || true
