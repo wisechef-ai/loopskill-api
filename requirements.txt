@@ -25,7 +25,7 @@ tomli>=2.4.1; python_version < "3.11"
 #   starlette 1.0.0 → PYSEC-2026-161 (fixed 1.0.1)
 #   idna      3.13  → CVE-2026-45409 (fixed 3.15)
 #   urllib3   2.6.3 → PYSEC-2026-141/142 (fixed 2.7.0)
-starlette>=1.0.1,<1.3.0
+starlette>=1.3.1,<1.4.0
 idna>=3.15
 urllib3>=2.7.0
 
