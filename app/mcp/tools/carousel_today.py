@@ -1,4 +1,4 @@
-"""recipes_carousel_today — proxy for today's curated carousel."""
+"""loopskill_carousel_today — proxy for today's curated carousel."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.carousel.routes import _build_response, _entries_for_date
 
 
-def recipes_carousel_today(db: Session) -> dict[str, Any]:
+def loopskill_carousel_today(db: Session) -> dict[str, Any]:
     """Return today's curated carousel of skills."""
     # Public-scope MCP tool: carousel data is always public; no user-specific data returned.
     today = datetime.now(UTC).date()

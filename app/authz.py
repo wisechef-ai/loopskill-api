@@ -52,7 +52,7 @@ def can_read_skill(ctx: AuthContext, skill: Any, db: "Session | None" = None) ->
     # to a bundle's skills) and matches the canonical REST bundle-install
     # path, which authorizes via bundle ownership rather than skill ownership.
     # Required so an agent can install its OWN tailored fork after
-    # recipes_cookbook_attach promotes it into a bundle (the dogfood loop).  # compat-alias
+    # loopskill_bundle_attach promotes it into a bundle (the dogfood loop).  # compat-alias
     # Fails closed without ``db`` — callers in private-skill paths thread it.
     if ctx.scope == "user" and ctx.user_id is not None and db is not None:
         from app.models import Bundle, BundleSkill
@@ -109,7 +109,7 @@ def tier_rank_allows_install(caller_tier: str | None, skill_tier: str | None) ->
     NOT stop a FREE authenticated key from pulling a PRO skill's tarball. This
     pure rank comparison is the missing tier gate, applied on EVERY install
     surface (direct /api/skills/install, both cookbook install routes, and the
-    MCP recipes_cookbook_install tool).
+    MCP loopskill_bundle_install tool).
 
     Rank source is the single canonical ``ranking.TIER_RANK`` (free=1, pro=2,
     pro_plus=3, plus the 30-day legacy aliases). A ``None`` or unknown tier on

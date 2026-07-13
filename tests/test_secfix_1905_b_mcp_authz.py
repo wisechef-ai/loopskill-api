@@ -10,7 +10,7 @@ TDD discipline per §0.5:
   - HIGH issue (#13): single combined commit.
   - Cross-tenant attack (#7): user B's key + user A's cookbook → forbidden.
   - Private-skill exfiltration (#6): private skill + wrong user → not_found.
-  - recipes_sync post-commit assertion (#15): data persisted, not just flushed.
+  - loopskill_sync post-commit assertion (#15): data persisted, not just flushed.
 """
 
 from __future__ import annotations
@@ -25,9 +25,9 @@ from uuid import uuid4
 import pytest
 
 from app.auth_ctx import AuthContext
-from app.mcp.tools.install import recipes_install
-from app.mcp.tools.recipify import recipes_recipify
-from app.mcp.tools.recipes_sync import recipes_sync
+from app.mcp.tools.install import loopskill_install
+from app.mcp.tools.recipify import loopskill_skillify
+from app.mcp.tools.loopskill_sync import loopskill_sync
 from app.models import (
     APIKey,
     Bundle,
@@ -194,15 +194,15 @@ class TestIssue5ScopeRed:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Issue #6 — recipes_install respects is_public
+# Issue #6 — loopskill_install respects is_public
 # RED: private skill exfiltration — any user gets signed tarball URL
 # ════════════════════════════════════════════════════════════════════════════
 
 
 class TestIssue6InstallRed:
-    """RED tests: demonstrate that recipes_install leaks private skills.
+    """RED tests: demonstrate that loopskill_install leaks private skills.
 
-    On unfixed code, calling recipes_install with a user-scope ctx on a
+    On unfixed code, calling loopskill_install with a user-scope ctx on a
     private skill EITHER raises TypeError (no ctx param) OR returns the
     signed URL without checking is_public. Either way these tests FAIL before
     the fix and PASS after.
@@ -219,7 +219,7 @@ class TestIssue6InstallRed:
 
         # Before fix: TypeError (no ctx param) or returns tarball_url
         # After fix: returns {"error": "not_found"}
-        out = recipes_install(
+        out = loopskill_install(
             db_session, slug="private-exfil-test", ctx=wrong_user_ctx
         )
         assert out.get("error") == "not_found", (
@@ -234,7 +234,7 @@ class TestIssue6InstallRed:
         db_session.flush()
 
         anon_ctx = AuthContext.anonymous()
-        out = recipes_install(
+        out = loopskill_install(
             db_session, slug="private-anon-test", ctx=anon_ctx
         )
         assert out.get("error") == "not_found", (
@@ -249,7 +249,7 @@ class TestIssue6InstallRed:
         db_session.flush()
 
         master_ctx = AuthContext(scope="master")
-        out = recipes_install(db_session, slug="private-master-ok", ctx=master_ctx)
+        out = loopskill_install(db_session, slug="private-master-ok", ctx=master_ctx)
         assert "tarball_url" in out, (
             f"Master should be able to install private skills, got {out!r}"
         )
@@ -262,14 +262,14 @@ class TestIssue6InstallRed:
         db_session.flush()
 
         user_ctx = AuthContext(scope="user", user_id=uuid4())
-        out = recipes_install(db_session, slug="public-install-ok", ctx=user_ctx)
+        out = loopskill_install(db_session, slug="public-install-ok", ctx=user_ctx)
         assert "tarball_url" in out, (
             f"User should be able to install public skills, got {out!r}"
         )
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Issue #7 — recipes_recipify cookbook ownership
+# Issue #7 — loopskill_skillify cookbook ownership
 # RED: cross-tenant attack — user B writes to user A's cookbook
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -277,7 +277,7 @@ class TestIssue6InstallRed:
 class TestIssue7RecipifyCrossTenantRed:
     """RED tests: demonstrate cross-tenant cookbook write.
 
-    On unfixed code, recipes_recipify ignores ctx (consumed by **_) and
+    On unfixed code, loopskill_skillify ignores ctx (consumed by **_) and
     writes to any cookbook by UUID. These tests FAIL before fix.
     """
 
@@ -301,7 +301,7 @@ class TestIssue7RecipifyCrossTenantRed:
         # User B is the attacker — different user, different cookbook
         user_b_ctx = AuthContext(scope="user", user_id=uuid4())
 
-        out = recipes_recipify(
+        out = loopskill_skillify(
             db_session,
             slug="attack-skill",
             content=_VALID_SKILL_MD,
@@ -319,7 +319,7 @@ class TestIssue7RecipifyCrossTenantRed:
         db_session.flush()
 
         anon_ctx = AuthContext.anonymous()
-        out = recipes_recipify(
+        out = loopskill_skillify(
             db_session,
             slug="anon-attack",
             content=_VALID_SKILL_MD,
@@ -338,7 +338,7 @@ class TestIssue7RecipifyCrossTenantRed:
         db_session.flush()
 
         owner_ctx = AuthContext(scope="user", user_id=owner_id)
-        out = recipes_recipify(
+        out = loopskill_skillify(
             db_session,
             slug="my-skill",
             content=_VALID_SKILL_MD,
@@ -356,7 +356,7 @@ class TestIssue7RecipifyCrossTenantRed:
         db_session.flush()
 
         master_ctx = AuthContext(scope="master")
-        out = recipes_recipify(
+        out = loopskill_skillify(
             db_session,
             slug="master-skill",
             content=_VALID_SKILL_MD,
@@ -369,7 +369,7 @@ class TestIssue7RecipifyCrossTenantRed:
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Issue #15 — recipes_sync flush→commit + cookbook ownership
+# Issue #15 — loopskill_sync flush→commit + cookbook ownership
 # RED: flush not committed + any-cookbook sync allowed
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -415,7 +415,7 @@ class TestIssue15SyncRed:
         return cookbook, skill, new_ver, cs
 
     def test_red_sync_must_call_commit_not_flush(self, db_session):
-        """RED: recipes_sync apply must call db.commit(), not db.flush().
+        """RED: loopskill_sync apply must call db.commit(), not db.flush().
 
         With db.flush(), data is written to the current transaction but not
         committed — closing the session without an explicit commit rolls it
@@ -435,12 +435,12 @@ class TestIssue15SyncRed:
 
         with patch.object(db_session, "commit", side_effect=track_commit):
             ctx = AuthContext(scope="master")
-            out = recipes_sync(db_session, cookbook_id=str(cookbook.id), ctx=ctx)
+            out = loopskill_sync(db_session, cookbook_id=str(cookbook.id), ctx=ctx)
 
         assert out.get("applied") is True
         # BUG: db.flush() used → commit never called → data lost on session close
         assert len(commit_calls) > 0, (
-            "BUG: recipes_sync did not call db.commit() — data will be lost on "
+            "BUG: loopskill_sync did not call db.commit() — data will be lost on "
             "session close. Change db.flush() to db.commit()."
         )
 
@@ -452,7 +452,7 @@ class TestIssue15SyncRed:
         db_session.flush()
 
         ctx = AuthContext(scope="master")
-        out = recipes_sync(db_session, cookbook_id=str(cookbook.id), ctx=ctx)
+        out = loopskill_sync(db_session, cookbook_id=str(cookbook.id), ctx=ctx)
         assert out.get("applied") is True
 
         # Force reload from DB
@@ -477,7 +477,7 @@ class TestIssue15SyncRed:
 
         # Before fix: sync allowed for any cookbook_id
         # After fix: returns cookbook_forbidden
-        out = recipes_sync(
+        out = loopskill_sync(
             db_session,
             cookbook_id=str(cookbook.id),
             ctx=attacker_ctx,
@@ -494,7 +494,7 @@ class TestIssue15SyncRed:
         db_session.flush()
 
         owner_ctx = AuthContext(scope="user", user_id=cookbook.bundle_owner)
-        out = recipes_sync(
+        out = loopskill_sync(
             db_session,
             cookbook_id=str(cookbook.id),
             ctx=owner_ctx,
@@ -656,7 +656,7 @@ class TestIssue13CookbookScopedKey:
         )
 
         # Try to write to cb_other (even though user owns it)
-        out = recipes_recipify(
+        out = loopskill_skillify(
             db_session,
             slug="scoped-attack",
             content=_VALID_SKILL_MD,

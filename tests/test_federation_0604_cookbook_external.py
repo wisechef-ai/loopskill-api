@@ -398,7 +398,7 @@ class TestResolveExternalInstallSSOT:
 # ───────────────── MCP/REST parity (AGENTS.md contract) ─────────────────
 
 class TestMcpExternalParity:
-    """recipes_cookbook_install MUST mirror the REST external shapes exactly so
+    """loopskill_bundle_install MUST mirror the REST external shapes exactly so
     agents can switch transports without re-parsing (AGENTS.md contract)."""
 
     def _setup_cb_with_external(self, db_session, monkeypatch):
@@ -416,7 +416,7 @@ class TestMcpExternalParity:
 
     def test_mcp_bulk_external_returns_descriptor(self, db_session, monkeypatch):
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.bundle_install import recipes_cookbook_install
+        from app.mcp.tools.bundle_install import loopskill_bundle_install
         from app.services import bundle_external as ce
 
         user, cb = self._setup_cb_with_external(db_session, monkeypatch)
@@ -426,7 +426,7 @@ class TestMcpExternalParity:
             lambda *a, **k: (_ for _ in ()).throw(AssertionError("bulk must not fetch origin")),
         )
         ctx = AuthContext(scope="user", user_id=user.id)
-        result = recipes_cookbook_install(db=db_session, ctx=ctx, cookbook_id=str(cb.id))
+        result = loopskill_bundle_install(db=db_session, ctx=ctx, cookbook_id=str(cb.id))
         entry = next(s for s in result["skills"] if s["slug"] == "ext:lobehub:seo-writer")
         assert entry["external"] is True
         assert entry["tarball_url"] is None
@@ -436,7 +436,7 @@ class TestMcpExternalParity:
 
     def test_mcp_single_external_streams_origin(self, db_session, monkeypatch):
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.bundle_install import recipes_cookbook_install
+        from app.mcp.tools.bundle_install import loopskill_bundle_install
         from app.services import bundle_external as ce
 
         user, cb = self._setup_cb_with_external(db_session, monkeypatch)
@@ -445,7 +445,7 @@ class TestMcpExternalParity:
             lambda source: (lambda sl: ("https://raw.example/SKILL.md", "BODY")),
         )
         ctx = AuthContext(scope="user", user_id=user.id)
-        result = recipes_cookbook_install(
+        result = loopskill_bundle_install(
             db=db_session, ctx=ctx, cookbook_id=str(cb.id), slug="ext:lobehub:seo-writer"
         )
         assert result["external"] is True

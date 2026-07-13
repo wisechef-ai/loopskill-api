@@ -1,11 +1,10 @@
-"""spotify_0608 Ph D tool definitions — streaming cookbook-composition verbs.
+"""spotify_0608 Ph D tool definitions — streaming bundle-composition verbs.
 
 Split out to keep registry.py under the 600-line god-object gate (same pattern
 as _registry_j.py).
 
-Post loopskill rename: primary names are ``loopskill_*``; ``recipes_*`` compat
-aliases are generated automatically via ``_alias_map.LOOPSKILL_TO_RECIPES`` in
-``registry._tool_definitions()`` — do NOT add them manually here.
+lsrename_0713: primary names are ``loopskill_*``; there is no back-compat
+alias layer — do NOT add ``recipes_*`` entries here.
 """
 
 from __future__ import annotations
@@ -21,7 +20,7 @@ def _phase_d_tools() -> list[types.Tool]:
             description=(
                 "Install every skill in a PUBLIC cookbook from one link. The "
                 "'streaming' install verb — pass a cookbook link "
-                "(cookbook://<slug>, cookbook:<slug>, or a bare slug) and get "
+                "(bundle://<slug>, bundle:<slug>, or a bare slug) and get "
                 "every skill's install line in one call. Anonymous-reachable: a "
                 "public cookbook's skills stream to anyone, like a public "
                 "playlist's tracks. This is the one-line clone the public "
@@ -34,8 +33,8 @@ def _phase_d_tools() -> list[types.Tool]:
                     "link": {
                         "type": "string",
                         "description": (
-                            "Public cookbook link: cookbook://<slug>, "
-                            "cookbook:<slug>, or a bare slug. A trailing "
+                            "Public cookbook link: bundle://<slug>, "
+                            "bundle:<slug>, or a bare slug. A trailing "
                             "?ref=<creator> is tolerated and stripped."
                         ),
                     },
@@ -58,7 +57,7 @@ def _phase_d_tools() -> list[types.Tool]:
                 "properties": {
                     "link": {
                         "type": "string",
-                        "description": "Public cookbook link (cookbook://<slug> / cookbook:<slug> / bare slug).",
+                        "description": "Public cookbook link (bundle://<slug> / bundle:<slug> / bare slug).",
                     },
                     "need": {
                         "type": "string",
@@ -72,11 +71,11 @@ def _phase_d_tools() -> list[types.Tool]:
             description=(
                 "Compose a NEW cookbook (owned by you) from N links in one call. "
                 "The 'streaming' compose verb — each link can be a public "
-                "cookbook (cookbook://<slug> → all its skills), an internal "
+                "cookbook (bundle://<slug> → all its skills), an internal "
                 "catalogue skill (skill://<slug>), or an external federated "
                 "skill (<source>:<slug>, e.g. clawhub:web-scraper). The "
                 "de-duplicated union becomes a new private cookbook you own; "
-                "publish it to get a shareable cookbook:// link. Requires an "
+                "publish it to get a shareable bundle:// link. Requires an "
                 "authenticated user; honors your tier's cookbook cap."
             ),
             inputSchema={
@@ -105,8 +104,8 @@ def _phase_e_tools() -> list[types.Tool]:
     stays under the 600-line god-object gate after the Ph E provenance_id field
     additions expanded the inline schemas.
 
-    Post loopskill rename: primary names are ``loopskill_*``; compat aliases are
-    generated in ``registry._tool_definitions()`` — do NOT add them manually here.
+    lsrename_0713: primary names are ``loopskill_*``; there is no back-compat
+    alias layer — do NOT add ``recipes_*`` entries here.
     """
     return [
         types.Tool(

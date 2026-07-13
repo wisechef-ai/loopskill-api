@@ -1,4 +1,4 @@
-"""MCP tool: recipes_feedback.
+"""MCP tool: loopskill_feedback.
 
 Send user feedback about LoopSkill (app.loopskill.io). Reuses the same
 signature/ratelimit/dispatch helpers as POST /api/v1/feedback.
@@ -60,7 +60,7 @@ def _resolve_feedback_target(
     return t.repo, t.mode, t.pat_enc
 
 
-def recipes_feedback(
+def loopskill_feedback(
     db: Session,
     *,
     category: str,

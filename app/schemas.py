@@ -27,7 +27,7 @@ class SkillOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     # quality_1705 Phase A — exposed on every public skill payload so MCP
-    # callers (recipes_search) can sort/filter on freshness.
+    # callers (loopskill_search) can sort/filter on freshness.
     last_verified: datetime | None = None
     # quality_1705 Phase C — weighted catalog quality score (0-10 float).
     quality_score: float | None = None
@@ -260,7 +260,7 @@ class InstallResponse(BaseModel):
     manifest: dict | None = None  # F-API-14: category, tags, tier from skill.toml
     # spotify_0608 Ph E — install-provenance carrier. RANDOM opaque token mapping
     # server-side → this install event → (skill, version, bundle). Pass it back
-    # in recipes_feedback / recipes_report_skill_error so the report routes to the
+    # in loopskill_feedback / loopskill_report_skill_error so the report routes to the
     # correct creator repo. Carries NO client-readable metadata.
     provenance_id: str | None = None
 

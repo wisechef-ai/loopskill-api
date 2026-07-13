@@ -1,10 +1,10 @@
-"""recipes_doctor — local install audit.
+"""loopskill_doctor — local install audit.
 
 Walks an install_dir and flags missing files (``SKILL.md``, ``_meta.json``)
 plus hardcoded user paths (``/home/<user>/...``, ``/Users/<user>/...``) — the
 most common breakages when an agent shares a skill across machines.
 
-⚠️ Server-side scope: ``recipes_doctor`` runs in the *server* process, so it can
+⚠️ Server-side scope: ``loopskill_doctor`` runs in the *server* process, so it can
 only inspect filesystem paths that exist on the server. When an agent passes a
 path that only exists on its own host (``/home/adam/.hermes/skills/foo``,
 ``/Users/alice/.claude/skills/foo``), this tool cannot reach it — that is not
@@ -59,7 +59,7 @@ def _looks_like_remote_path(install_dir: str) -> bool:
     return install_dir.startswith(_LIKELY_REMOTE_PREFIXES)
 
 
-def recipes_doctor(db: Session, install_dir: str) -> dict[str, Any]:  # noqa: ARG001
+def loopskill_doctor(db: Session, install_dir: str) -> dict[str, Any]:  # noqa: ARG001
     """Audit a server-visible skill install directory.
 
     Returns the standard audit blob on success. On failure the ``error`` field
@@ -70,7 +70,7 @@ def recipes_doctor(db: Session, install_dir: str) -> dict[str, Any]:  # noqa: AR
       (``/home/<u>/...``, ``/Users/<u>/...``, ``~/...``, Windows drive). The
       server cannot reach it — this is **not** a "path doesn't exist" finding.
       Resolution for callers: run doctor on the server, not the agent host, or
-      pass a slug-based audit via ``recipes_install`` instead.
+      pass a slug-based audit via ``loopskill_install`` instead.
     - ``install_dir_not_found`` — path shape is server-local but the directory
       does not exist on the server. This is a real "missing" finding.
     """
@@ -82,7 +82,7 @@ def recipes_doctor(db: Session, install_dir: str) -> dict[str, Any]:  # noqa: AR
             "install_dir": install_dir,
             "hint": (
                 "Pass an absolute path to a server-visible install directory. "
-                "recipes_doctor cannot audit paths on the agent's own host — it "
+                "loopskill_doctor cannot audit paths on the agent's own host — it "
                 "runs in the loopskill-api server process."
             ),
         }
@@ -96,7 +96,7 @@ def recipes_doctor(db: Session, install_dir: str) -> dict[str, Any]:  # noqa: AR
                 "hint": (
                     "This path shape (/home/<u>/, /Users/<u>/, ~/, or a Windows "
                     "drive) suggests an agent-local install directory. "
-                    "recipes_doctor runs server-side and cannot inspect agent "
+                    "loopskill_doctor runs server-side and cannot inspect agent "
                     "filesystems. To audit your local install, run the doctor "
                     "logic in your own agent runtime, or audit by skill slug "
                     "via the catalog instead of by filesystem path."

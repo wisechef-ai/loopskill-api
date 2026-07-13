@@ -1,7 +1,7 @@
 """MCP tools for the runnable catalog types — loops + personalities.
 
 loopskill_0622 Phase 8. Lets an agent discover and pull loops/personalities over
-MCP, the same way recipes_search/recipes_install work for skills. Reuses the
+MCP, the same way loopskill_search/loopskill_install work for skills. Reuses the
 SQLAlchemy primitives directly (no HTTP loopback).
 """
 

@@ -1,8 +1,8 @@
-"""recipes_tailor_version + recipes_cookbook_attach — close the MCP tailor loop.
+"""loopskill_tailor_version + loopskill_bundle_attach — close the MCP tailor loop.
 
 loopclose_3005 Phase C.
 
-Before this module the MCP fork flow stopped at fork-create (`recipes_tailor`):
+Before this module the MCP fork flow stopped at fork-create (`loopskill_tailor`):
 agents could fork a public skill but had no MCP-native way to (a) upload a new
 version, or (b) deploy a tailored fork into a cookbook so it installs like any
 catalog skill. The two halves operated on disjoint tables — ``SkillFork`` /
@@ -11,15 +11,15 @@ catalog skill. The two halves operated on disjoint tables — ``SkillFork`` /
 
 This module adds the two missing MCP tools and the bridge between the tables:
 
-  - ``recipes_tailor_version`` wraps POST /api/forks/{id}/version. MCP transport
+  - ``loopskill_tailor_version`` wraps POST /api/forks/{id}/version. MCP transport
     can't carry a multipart UploadFile, so the tarball is passed base64-encoded.
     Mints a ``ForkVersion`` and advances ``fork.latest_version_id``.
 
-  - ``recipes_cookbook_attach`` is the bridge: it takes the fork's latest
+  - ``loopskill_bundle_attach`` is the bridge: it takes the fork's latest
     ForkVersion tarball, extracts its SKILL.md body, promotes it into a real
     catalog ``Skill`` (private, is_public=False) + ``CookbookSkill`` link via
     ``write_cookbook_skill``, AND mints a ``SkillVersion`` from the same tarball
-    so ``recipes_cookbook_install`` can resolve an installable version. Because
+    so ``loopskill_bundle_install`` can resolve an installable version. Because
     the promoted unit is a real ``Skill`` row, the install URL is signed with the
     canonical ``recipes-skill-install`` salt automatically (salt parity free) —
     a tailored fork now installs byte-identically to any catalog skill.
@@ -200,7 +200,7 @@ def _resolve_owned_fork(db: Session, ctx: AuthContext, fork_id: str) -> SkillFor
     return fork
 
 
-def recipes_tailor_version(
+def loopskill_tailor_version(
     db: Session,
     *,
     fork_id: str,
@@ -292,13 +292,13 @@ def recipes_tailor_version(
         "checksum_sha256": version.checksum_sha256,
         "changelog": version.changelog,
         "message": (
-            "Version uploaded. Deploy into a cookbook via recipes_cookbook_attach "
+            "Version uploaded. Deploy into a cookbook via loopskill_bundle_attach "
             "to make it installable like a catalog skill."
         ),
     }
 
 
-def recipes_cookbook_attach(
+def loopskill_bundle_attach(
     db: Session,
     *,
     fork_id: str,
@@ -310,7 +310,7 @@ def recipes_cookbook_attach(
 
     Promotes the fork's latest ForkVersion into a real catalog Skill (private,
     is_public=False) linked into the target cookbook via write_cookbook_skill,
-    AND mints a SkillVersion from the same tarball so recipes_cookbook_install
+    AND mints a SkillVersion from the same tarball so loopskill_bundle_install
     can resolve an installable version. The promoted skill installs with the
     canonical recipes-skill-install salt automatically (it's a real Skill row).
 
@@ -335,7 +335,7 @@ def recipes_cookbook_attach(
         return {
             "error": "no_versions",
             "code": "no_versions",
-            "message": "Fork has no uploaded version. Call recipes_tailor_version first.",
+            "message": "Fork has no uploaded version. Call loopskill_tailor_version first.",
         }
     fork_version = db.query(ForkVersion).filter(ForkVersion.id == fork.latest_version_id).first()
     if fork_version is None:
@@ -442,6 +442,6 @@ def recipes_cookbook_attach(
         "is_public": False,
         "message": (
             f"Fork deployed into cookbook as private skill {promoted_slug!r}. "
-            "Install it (or share the cookbook) via recipes_cookbook_install."
+            "Install it (or share the cookbook) via loopskill_bundle_install."
         ),
     }

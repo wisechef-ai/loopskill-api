@@ -54,9 +54,9 @@ def test_healthz_lists_phase_a_tools(mcp_client):
     # minimum (the v1 contract that external MCP clients depend on) rather
     # than the exact count so future additions don't break this test.
     PHASE_A_REQUIRED = {
-        "recipes_search",
-        "recipes_install",
-        "recipes_recall",
+        "loopskill_search",
+        "loopskill_install",
+        "loopskill_recall",
     }
     assert PHASE_A_REQUIRED.issubset(expected), (
         f"Phase A tool contract broken — missing {PHASE_A_REQUIRED - expected}"
@@ -113,7 +113,7 @@ def test_build_mcp_server_dispatches_search_tool(db_session):
     req = types.CallToolRequest(
         method="tools/call",
         params=types.CallToolRequestParams(
-            name="recipes_search", arguments={"query": "Dispatch"}
+            name="loopskill_search", arguments={"query": "Dispatch"}
         ),
     )
     result = asyncio.get_event_loop().run_until_complete(handler(req)) \

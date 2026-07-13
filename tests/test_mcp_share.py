@@ -1,14 +1,14 @@
-"""Tests for Phase D — recipes_share_* MCP tools (app/mcp/tools/share.py).
+"""Tests for Phase D — loopskill_share_* MCP tools (app/mcp/tools/share.py).
 
 TDD-first: these tests are written BEFORE the implementation. They should
 be RED until the implementation is complete.
 
 Required (≥6):
-  test_recipes_share_create_returns_cbt_format
-  test_recipes_share_create_persists_hash_not_plaintext
-  test_recipes_share_list_returns_only_active
-  test_recipes_share_revoke_invalidates_immediately
-  test_recipes_share_rotate_creates_new_invalidates_old
+  test_loopskill_share_create_returns_cbt_format
+  test_loopskill_share_create_persists_hash_not_plaintext
+  test_loopskill_share_list_returns_only_active
+  test_loopskill_share_revoke_invalidates_immediately
+  test_loopskill_share_rotate_creates_new_invalidates_old
   test_config_blocks_parseable
 """
 from __future__ import annotations
@@ -110,15 +110,15 @@ def _user_ctx(user_id, cookbook_id=None) -> AuthContext:
 
 
 class TestRecipesShareCreate:
-    def test_recipes_share_create_returns_cbt_format(self, db_session):
+    def test_loopskill_share_create_returns_cbt_format(self, db_session):
         """Token matches ^cbt_[a-f0-9]{8}_[a-f0-9]{32}$."""
-        from app.mcp.tools.share import recipes_share_create
+        from app.mcp.tools.share import loopskill_share_create
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
         ctx = _master_ctx()
 
-        result = recipes_share_create(
+        result = loopskill_share_create(
             db_session,
             cookbook_id=str(cb.id),
             ctx=ctx,
@@ -129,15 +129,15 @@ class TestRecipesShareCreate:
             f"Token {result['token']!r} does not match expected format"
         )
 
-    def test_recipes_share_create_persists_hash_not_plaintext(self, db_session):
+    def test_loopskill_share_create_persists_hash_not_plaintext(self, db_session):
         """DB row stores SHA-256 hash, not the plaintext token."""
-        from app.mcp.tools.share import recipes_share_create
+        from app.mcp.tools.share import loopskill_share_create
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
         ctx = _master_ctx()
 
-        result = recipes_share_create(
+        result = loopskill_share_create(
             db_session,
             cookbook_id=str(cb.id),
             name="hash-check",
@@ -156,15 +156,15 @@ class TestRecipesShareCreate:
         assert row.token_hash == expected_hash, "DB stores hash, not plaintext"
         assert row.token_hash != plaintext, "plaintext must NOT be stored"
 
-    def test_recipes_share_create_returns_config_blocks(self, db_session):
+    def test_loopskill_share_create_returns_config_blocks(self, db_session):
         """create result includes config_blocks with hermes_yaml and claude_desktop_json."""
-        from app.mcp.tools.share import recipes_share_create
+        from app.mcp.tools.share import loopskill_share_create
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
         ctx = _master_ctx()
 
-        result = recipes_share_create(
+        result = loopskill_share_create(
             db_session,
             cookbook_id=str(cb.id),
             ctx=ctx,
@@ -174,16 +174,16 @@ class TestRecipesShareCreate:
         assert "hermes_yaml" in cb_result
         assert "claude_desktop_json" in cb_result
 
-    def test_recipes_share_create_forbidden_for_non_owner(self, db_session):
+    def test_loopskill_share_create_forbidden_for_non_owner(self, db_session):
         """Non-owner gets error response, not 403 exception."""
-        from app.mcp.tools.share import recipes_share_create
+        from app.mcp.tools.share import loopskill_share_create
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
         stranger = _make_user(db_session)
         ctx = _user_ctx(stranger.id)
 
-        result = recipes_share_create(
+        result = loopskill_share_create(
             db_session,
             cookbook_id=str(cb.id),
             ctx=ctx,
@@ -192,21 +192,21 @@ class TestRecipesShareCreate:
 
 
 class TestRecipesShareList:
-    def test_recipes_share_list_returns_only_active(self, db_session):
+    def test_loopskill_share_list_returns_only_active(self, db_session):
         """list returns tokens, but filtering is handled at caller level.
 
         The contract says list returns all tokens with is_active field so
         callers can distinguish. Verify at least one active token returned.
         """
-        from app.mcp.tools.share import recipes_share_create, recipes_share_list
+        from app.mcp.tools.share import loopskill_share_create, loopskill_share_list
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
         ctx = _master_ctx()
 
         # Create two active tokens
-        recipes_share_create(db_session, cookbook_id=str(cb.id), name="t1", ctx=ctx)
-        recipes_share_create(db_session, cookbook_id=str(cb.id), name="t2", ctx=ctx)
+        loopskill_share_create(db_session, cookbook_id=str(cb.id), name="t1", ctx=ctx)
+        loopskill_share_create(db_session, cookbook_id=str(cb.id), name="t2", ctx=ctx)
 
         # Manually revoke one by inserting an inactive token
         cb_prefix = str(cb.id).replace("-", "")[:8]
@@ -225,7 +225,7 @@ class TestRecipesShareList:
         db_session.add(inactive_row)
         db_session.flush()
 
-        result = recipes_share_list(db_session, cookbook_id=str(cb.id), ctx=ctx)
+        result = loopskill_share_list(db_session, cookbook_id=str(cb.id), ctx=ctx)
         assert "tokens" in result
         tokens = result["tokens"]
 
@@ -243,38 +243,38 @@ class TestRecipesShareList:
             assert "is_active" in t
             assert "created_at" in t
 
-    def test_recipes_share_list_forbidden_for_non_owner(self, db_session):
+    def test_loopskill_share_list_forbidden_for_non_owner(self, db_session):
         """Non-owner gets error response."""
-        from app.mcp.tools.share import recipes_share_list
+        from app.mcp.tools.share import loopskill_share_list
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
         stranger = _make_user(db_session)
         ctx = _user_ctx(stranger.id)
 
-        result = recipes_share_list(db_session, cookbook_id=str(cb.id), ctx=ctx)
+        result = loopskill_share_list(db_session, cookbook_id=str(cb.id), ctx=ctx)
         assert "error" in result
 
 
 class TestRecipesShareRevoke:
-    def test_recipes_share_revoke_invalidates_immediately(self, db_session):
+    def test_loopskill_share_revoke_invalidates_immediately(self, db_session):
         """After revoke, list shows token as inactive."""
         from app.mcp.tools.share import (
-            recipes_share_create,
-            recipes_share_list,
-            recipes_share_revoke,
+            loopskill_share_create,
+            loopskill_share_list,
+            loopskill_share_revoke,
         )
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
         ctx = _master_ctx()
 
-        created = recipes_share_create(
+        created = loopskill_share_create(
             db_session, cookbook_id=str(cb.id), name="revoke-me", ctx=ctx
         )
         token_id = created["id"]
 
-        revoke_result = recipes_share_revoke(
+        revoke_result = loopskill_share_revoke(
             db_session, cookbook_id=str(cb.id), token_id=token_id, ctx=ctx
         )
         assert revoke_result.get("revoked") is True
@@ -288,7 +288,7 @@ class TestRecipesShareRevoke:
         assert row.is_active is False
 
         # Verify via list
-        list_result = recipes_share_list(
+        list_result = loopskill_share_list(
             db_session, cookbook_id=str(cb.id), ctx=ctx
         )
         token_in_list = next(
@@ -297,43 +297,43 @@ class TestRecipesShareRevoke:
         assert token_in_list is not None
         assert token_in_list["is_active"] is False
 
-    def test_recipes_share_revoke_returns_error_for_wrong_cookbook(self, db_session):
+    def test_loopskill_share_revoke_returns_error_for_wrong_cookbook(self, db_session):
         """Revoking a token from another cookbook returns error."""
-        from app.mcp.tools.share import recipes_share_create, recipes_share_revoke
+        from app.mcp.tools.share import loopskill_share_create, loopskill_share_revoke
 
         user = _make_user(db_session)
         cb_a = _make_cookbook(db_session, owner_id=user.id)
         cb_b = _make_cookbook(db_session, owner_id=user.id)
         ctx = _master_ctx()
 
-        created = recipes_share_create(
+        created = loopskill_share_create(
             db_session, cookbook_id=str(cb_a.id), ctx=ctx
         )
         token_id = created["id"]
 
         # Try to revoke using cb_b
-        result = recipes_share_revoke(
+        result = loopskill_share_revoke(
             db_session, cookbook_id=str(cb_b.id), token_id=token_id, ctx=ctx
         )
         assert "error" in result
 
 
 class TestRecipesShareRotate:
-    def test_recipes_share_rotate_creates_new_invalidates_old(self, db_session):
+    def test_loopskill_share_rotate_creates_new_invalidates_old(self, db_session):
         """Rotate: old token is_active=False, new token is returned."""
-        from app.mcp.tools.share import recipes_share_create, recipes_share_rotate
+        from app.mcp.tools.share import loopskill_share_create, loopskill_share_rotate
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
         ctx = _master_ctx()
 
-        created = recipes_share_create(
+        created = loopskill_share_create(
             db_session, cookbook_id=str(cb.id), name="rotate-me", scope="edit", ctx=ctx
         )
         old_token_id = created["id"]
         old_token = created["token"]
 
-        rotate_result = recipes_share_rotate(
+        rotate_result = loopskill_share_rotate(
             db_session,
             cookbook_id=str(cb.id),
             token_id=old_token_id,
@@ -363,16 +363,16 @@ class TestRecipesShareRotate:
         assert new_row is not None
         assert new_row.is_active is True
 
-    def test_recipes_share_rotate_returns_config_blocks(self, db_session):
+    def test_loopskill_share_rotate_returns_config_blocks(self, db_session):
         """Rotate result includes parseable config_blocks."""
-        from app.mcp.tools.share import recipes_share_create, recipes_share_rotate
+        from app.mcp.tools.share import loopskill_share_create, loopskill_share_rotate
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
         ctx = _master_ctx()
 
-        created = recipes_share_create(db_session, cookbook_id=str(cb.id), ctx=ctx)
-        rotate_result = recipes_share_rotate(
+        created = loopskill_share_create(db_session, cookbook_id=str(cb.id), ctx=ctx)
+        rotate_result = loopskill_share_rotate(
             db_session,
             cookbook_id=str(cb.id),
             token_id=created["id"],
@@ -386,13 +386,13 @@ class TestRecipesShareRotate:
 class TestConfigBlocksParseable:
     def test_config_blocks_parseable(self, db_session):
         """config_blocks from create: yaml.safe_load + json.loads succeed."""
-        from app.mcp.tools.share import recipes_share_create
+        from app.mcp.tools.share import loopskill_share_create
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
         ctx = _master_ctx()
 
-        result = recipes_share_create(
+        result = loopskill_share_create(
             db_session,
             cookbook_id=str(cb.id),
             name="parse-test",
@@ -444,7 +444,7 @@ class TestMcpShareDispatch:
 
         # create
         result = call_tool_sync(
-            "recipes_share_create",
+            "loopskill_share_create",
             {"cookbook_id": str(cb.id), "name": "dispatch-test"},
             caller=master_caller,
             db=db_session,
@@ -454,7 +454,7 @@ class TestMcpShareDispatch:
 
         # list
         list_result = call_tool_sync(
-            "recipes_share_list",
+            "loopskill_share_list",
             {"cookbook_id": str(cb.id)},
             caller=master_caller,
             db=db_session,
@@ -463,7 +463,7 @@ class TestMcpShareDispatch:
 
         # revoke
         revoke_result = call_tool_sync(
-            "recipes_share_revoke",
+            "loopskill_share_revoke",
             {"cookbook_id": str(cb.id), "token_id": token_id},
             caller=master_caller,
             db=db_session,
@@ -472,7 +472,7 @@ class TestMcpShareDispatch:
 
         # Create another token for rotate test
         result2 = call_tool_sync(
-            "recipes_share_create",
+            "loopskill_share_create",
             {"cookbook_id": str(cb.id), "name": "rotate-dispatch"},
             caller=master_caller,
             db=db_session,
@@ -480,7 +480,7 @@ class TestMcpShareDispatch:
         token_id2 = result2["id"]
 
         rotate_result = call_tool_sync(
-            "recipes_share_rotate",
+            "loopskill_share_rotate",
             {"cookbook_id": str(cb.id), "token_id": token_id2},
             caller=master_caller,
             db=db_session,
@@ -496,20 +496,20 @@ class TestShareToolsErrorPaths:
 
     def test_create_with_ctx_none_defaults_to_master(self, db_session):
         """ctx=None defaults to master scope (covers line 59)."""
-        from app.mcp.tools.share import recipes_share_create
+        from app.mcp.tools.share import loopskill_share_create
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
 
         # ctx=None → should default to master and succeed
-        result = recipes_share_create(db_session, cookbook_id=str(cb.id))
+        result = loopskill_share_create(db_session, cookbook_id=str(cb.id))
         assert "token" in result
 
     def test_create_with_bad_uuid_returns_error(self, db_session):
         """Bad cookbook_id UUID → cookbook_not_found error (covers lines 37-38, 63)."""
-        from app.mcp.tools.share import recipes_share_create
+        from app.mcp.tools.share import loopskill_share_create
 
-        result = recipes_share_create(
+        result = loopskill_share_create(
             db_session, cookbook_id="not-a-valid-uuid", ctx=_master_ctx()
         )
         assert "error" in result
@@ -517,9 +517,9 @@ class TestShareToolsErrorPaths:
 
     def test_create_with_nonexistent_cookbook_returns_error(self, db_session):
         """Non-existent cookbook UUID → cookbook_not_found error."""
-        from app.mcp.tools.share import recipes_share_create
+        from app.mcp.tools.share import loopskill_share_create
 
-        result = recipes_share_create(
+        result = loopskill_share_create(
             db_session,
             cookbook_id=str(uuid4()),  # valid UUID but doesn't exist
             ctx=_master_ctx(),
@@ -529,12 +529,12 @@ class TestShareToolsErrorPaths:
 
     def test_create_with_invalid_scope_returns_error(self, db_session):
         """Invalid scope → error dict, not exception (covers lines 77-81)."""
-        from app.mcp.tools.share import recipes_share_create
+        from app.mcp.tools.share import loopskill_share_create
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
 
-        result = recipes_share_create(
+        result = loopskill_share_create(
             db_session,
             cookbook_id=str(cb.id),
             scope="super_admin",  # invalid scope
@@ -545,19 +545,19 @@ class TestShareToolsErrorPaths:
 
     def test_list_with_ctx_none_defaults_to_master(self, db_session):
         """ctx=None defaults to master scope for list (covers line 105)."""
-        from app.mcp.tools.share import recipes_share_list
+        from app.mcp.tools.share import loopskill_share_list
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
 
-        result = recipes_share_list(db_session, cookbook_id=str(cb.id))
+        result = loopskill_share_list(db_session, cookbook_id=str(cb.id))
         assert "tokens" in result
 
     def test_list_with_bad_uuid_returns_error(self, db_session):
         """Bad cookbook_id → error (covers lines 37-38, 109)."""
-        from app.mcp.tools.share import recipes_share_list
+        from app.mcp.tools.share import loopskill_share_list
 
-        result = recipes_share_list(
+        result = loopskill_share_list(
             db_session, cookbook_id="bad-uuid-here", ctx=_master_ctx()
         )
         assert "error" in result
@@ -565,23 +565,23 @@ class TestShareToolsErrorPaths:
 
     def test_revoke_with_ctx_none_defaults_to_master(self, db_session):
         """ctx=None defaults to master scope for revoke (covers line 133)."""
-        from app.mcp.tools.share import recipes_share_create, recipes_share_revoke
+        from app.mcp.tools.share import loopskill_share_create, loopskill_share_revoke
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
-        created = recipes_share_create(db_session, cookbook_id=str(cb.id))
+        created = loopskill_share_create(db_session, cookbook_id=str(cb.id))
 
         # ctx=None → master
-        result = recipes_share_revoke(
+        result = loopskill_share_revoke(
             db_session, cookbook_id=str(cb.id), token_id=created["id"]
         )
         assert result.get("revoked") is True
 
     def test_revoke_with_bad_uuid_returns_error(self, db_session):
         """Bad cookbook_id → error (covers lines 37-38, 137)."""
-        from app.mcp.tools.share import recipes_share_revoke
+        from app.mcp.tools.share import loopskill_share_revoke
 
-        result = recipes_share_revoke(
+        result = loopskill_share_revoke(
             db_session,
             cookbook_id="not-valid",
             token_id=str(uuid4()),
@@ -592,14 +592,14 @@ class TestShareToolsErrorPaths:
 
     def test_revoke_forbidden_for_non_owner(self, db_session):
         """Non-owner gets forbidden error (covers line 140)."""
-        from app.mcp.tools.share import recipes_share_revoke
+        from app.mcp.tools.share import loopskill_share_revoke
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
         stranger = _make_user(db_session)
         ctx = _user_ctx(stranger.id)
 
-        result = recipes_share_revoke(
+        result = loopskill_share_revoke(
             db_session,
             cookbook_id=str(cb.id),
             token_id=str(uuid4()),
@@ -610,12 +610,12 @@ class TestShareToolsErrorPaths:
 
     def test_revoke_nonexistent_token_returns_error(self, db_session):
         """Non-existent token_id → error dict via exception (covers lines 144-148)."""
-        from app.mcp.tools.share import recipes_share_revoke
+        from app.mcp.tools.share import loopskill_share_revoke
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
 
-        result = recipes_share_revoke(
+        result = loopskill_share_revoke(
             db_session,
             cookbook_id=str(cb.id),
             token_id=str(uuid4()),  # valid UUID but no matching row
@@ -625,22 +625,22 @@ class TestShareToolsErrorPaths:
 
     def test_rotate_with_ctx_none_defaults_to_master(self, db_session):
         """ctx=None defaults to master scope for rotate (covers line 169)."""
-        from app.mcp.tools.share import recipes_share_create, recipes_share_rotate
+        from app.mcp.tools.share import loopskill_share_create, loopskill_share_rotate
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
-        created = recipes_share_create(db_session, cookbook_id=str(cb.id))
+        created = loopskill_share_create(db_session, cookbook_id=str(cb.id))
 
-        result = recipes_share_rotate(
+        result = loopskill_share_rotate(
             db_session, cookbook_id=str(cb.id), token_id=created["id"]
         )
         assert "new_token" in result
 
     def test_rotate_with_bad_uuid_returns_error(self, db_session):
         """Bad cookbook_id → error (covers lines 37-38, 173)."""
-        from app.mcp.tools.share import recipes_share_rotate
+        from app.mcp.tools.share import loopskill_share_rotate
 
-        result = recipes_share_rotate(
+        result = loopskill_share_rotate(
             db_session,
             cookbook_id="totally-invalid",
             token_id=str(uuid4()),
@@ -651,14 +651,14 @@ class TestShareToolsErrorPaths:
 
     def test_rotate_forbidden_for_non_owner(self, db_session):
         """Non-owner gets forbidden error (covers line 176)."""
-        from app.mcp.tools.share import recipes_share_rotate
+        from app.mcp.tools.share import loopskill_share_rotate
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
         stranger = _make_user(db_session)
         ctx = _user_ctx(stranger.id)
 
-        result = recipes_share_rotate(
+        result = loopskill_share_rotate(
             db_session,
             cookbook_id=str(cb.id),
             token_id=str(uuid4()),
@@ -669,12 +669,12 @@ class TestShareToolsErrorPaths:
 
     def test_rotate_nonexistent_token_returns_error(self, db_session):
         """Non-existent token_id → error dict (covers lines 185-189)."""
-        from app.mcp.tools.share import recipes_share_rotate
+        from app.mcp.tools.share import loopskill_share_rotate
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
 
-        result = recipes_share_rotate(
+        result = loopskill_share_rotate(
             db_session,
             cookbook_id=str(cb.id),
             token_id=str(uuid4()),  # valid UUID but no matching row
@@ -684,12 +684,12 @@ class TestShareToolsErrorPaths:
 
     def test_rotate_invalid_token_id_uuid_returns_error(self, db_session):
         """Invalid token_id UUID → error dict from _rotate_service (covers lines 297-298)."""
-        from app.mcp.tools.share import recipes_share_rotate
+        from app.mcp.tools.share import loopskill_share_rotate
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
 
-        result = recipes_share_rotate(
+        result = loopskill_share_rotate(
             db_session,
             cookbook_id=str(cb.id),
             token_id="not-a-uuid",  # triggers ValueError in _rotate_service
@@ -699,12 +699,12 @@ class TestShareToolsErrorPaths:
 
     def test_revoke_invalid_token_id_uuid_returns_error(self, db_session):
         """Invalid token_id UUID → error dict from _revoke_service (covers lines 362-363)."""
-        from app.mcp.tools.share import recipes_share_revoke
+        from app.mcp.tools.share import loopskill_share_revoke
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, owner_id=user.id)
 
-        result = recipes_share_revoke(
+        result = loopskill_share_revoke(
             db_session,
             cookbook_id=str(cb.id),
             token_id="not-a-uuid-either",  # triggers ValueError in _revoke_service

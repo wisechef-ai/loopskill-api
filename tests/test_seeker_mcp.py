@@ -1,4 +1,4 @@
-"""Round-trip tests for the recipes_seeker MCP tool."""
+"""Round-trip tests for the loopskill_seeker MCP tool."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from uuid import uuid4
 import pytest
 
 from app.mcp.server import call_tool_sync
-from app.mcp.tools import recipes_seeker
+from app.mcp.tools import loopskill_seeker
 from app.models import SkillVersion
 from tests.conftest import make_skill
 
@@ -61,7 +61,7 @@ def test_seeker_returns_vendors_recommendations_and_unsupported(monkeypatch, db_
     db_session.commit()
 
     _patch_vendor_paths(monkeypatch, claude_dir)
-    result = recipes_seeker(db_session)
+    result = loopskill_seeker(db_session)
 
     assert "claude" in result["vendors"]
     claude_skills = {s["name"] for s in result["vendors"]["claude"]}
@@ -82,7 +82,7 @@ def test_seeker_dispatch_via_call_tool_sync(monkeypatch, db_session, tmp_path):
     _write_skill(claude_dir, "gamma", version="0.1.0")
 
     _patch_vendor_paths(monkeypatch, claude_dir)
-    result = call_tool_sync("recipes_seeker", {}, db=db_session)
+    result = call_tool_sync("loopskill_seeker", {}, db=db_session)
 
     assert "vendors" in result
     assert "recommendations" in result
@@ -104,7 +104,7 @@ def test_seeker_when_no_vendor_paths_exist_returns_all_unsupported(monkeypatch, 
     import app.mcp.tools.seeker as tool_mod
     monkeypatch.setattr(tool_mod, "vendor_paths", _fake)
 
-    result = recipes_seeker(db_session)
+    result = loopskill_seeker(db_session)
     assert result["vendors"] == {}
     assert result["recommendations"] == []
     assert sorted(result["unsupported_paths"]) == ["claude", "codex", "hermes", "opencode"]

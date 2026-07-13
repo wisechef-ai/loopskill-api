@@ -14,7 +14,7 @@ from app.library_service import (
 from app.mcp.tools.composite_loop_catalog import _NOT_HANDLED
 
 
-def recipes_like(
+def loopskill_like(
     db: Session,
     *,
     action: Literal["like", "unlike"],
@@ -67,8 +67,8 @@ def dispatch_library(name: str, db: Session, args: dict, ctx: AuthContext) -> ob
     god-object cap (test_w0_2_pyfile_size_discipline). Same delegation pattern
     as dispatch_composite_loop.
     """
-    if name == "recipes_like":
-        return recipes_like(
+    if name == "loopskill_like":
+        return loopskill_like(
             db,
             action=args.get("action"),
             type=args.get("type"),

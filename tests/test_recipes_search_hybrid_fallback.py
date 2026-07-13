@@ -1,6 +1,6 @@
 """Hybrid search fallback tests — issue #111.
 
-Verifies that ``/api/skills/search`` and the ``recipes_search`` MCP tool
+Verifies that ``/api/skills/search`` and the ``loopskill_search`` MCP tool
 fall through to recall-style ranking when the literal keyword pass returns
 fewer than 3 hits AND a non-empty query was provided.
 
@@ -18,7 +18,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.mcp.tools.search import recipes_search
+from app.mcp.tools.search import loopskill_search
 from app.models import Skill
 
 
@@ -71,7 +71,7 @@ def test_broad_dev_query_was_a_zero_hit_keyword_match(db_session):
     broad = ("development coding code review debugging testing github pull "
              "request refactor tdd planning software engineering")
     # hybrid=False forces the legacy literal-only behaviour for the comparison.
-    out = recipes_search(db_session, query=broad, hybrid=False)
+    out = loopskill_search(db_session, query=broad, hybrid=False)
     assert out["total"] == 0, (
         f"reproducer query no longer 0-hit on keyword path — got {out['total']}"
     )
@@ -84,7 +84,7 @@ def test_broad_dev_query_returns_hits_via_hybrid_fallback(db_session):
     _seed_dev_skills(db_session)
     broad = ("development coding code review debugging testing github pull "
              "request refactor tdd planning software engineering")
-    out = recipes_search(db_session, query=broad, hybrid=True, limit=10)
+    out = loopskill_search(db_session, query=broad, hybrid=True, limit=10)
     # With hybrid we should land at least 1 dev skill via BM25.
     assert out["total"] >= 1, f"hybrid fallback returned no results: {out}"
     assert out["hybrid_augmented"] is True
@@ -100,7 +100,7 @@ def test_specific_keyword_query_uses_keyword_path_only(db_session):
     """When the literal pass already returns >=3 hits, we don't widen."""
     _seed_dev_skills(db_session)
     # "code" appears in 4 titles/descriptions — well above the threshold.
-    out = recipes_search(db_session, query="code", hybrid=True, limit=10)
+    out = loopskill_search(db_session, query="code", hybrid=True, limit=10)
     assert out["total"] >= 3
     assert out["hybrid_augmented"] is False
     assert out["backend"] == "keyword"
@@ -110,7 +110,7 @@ def test_hybrid_disabled_preserves_legacy_behaviour(db_session):
     """hybrid=False must give the exact old shape so existing callers don't
     silently start getting wider results without opt-in."""
     _seed_dev_skills(db_session)
-    out = recipes_search(db_session, query="testing", hybrid=False)
+    out = loopskill_search(db_session, query="testing", hybrid=False)
     assert out["hybrid_augmented"] is False
     assert out["backend"] == "keyword"
 
@@ -118,7 +118,7 @@ def test_hybrid_disabled_preserves_legacy_behaviour(db_session):
 def test_empty_query_does_not_invoke_hybrid(db_session):
     """No query → keyword path lists by recency. No hybrid widening."""
     _seed_dev_skills(db_session)
-    out = recipes_search(db_session, query=None, hybrid=True, limit=10)
+    out = loopskill_search(db_session, query=None, hybrid=True, limit=10)
     assert out["backend"] == "keyword"
     assert out["hybrid_augmented"] is False
 
@@ -126,7 +126,7 @@ def test_empty_query_does_not_invoke_hybrid(db_session):
 def test_hybrid_response_shape_is_stable(db_session):
     """Pin the keys so MCP clients can rely on the contract."""
     _seed_dev_skills(db_session)
-    out = recipes_search(db_session, query="security audit codebase", hybrid=True)
+    out = loopskill_search(db_session, query="security audit codebase", hybrid=True)
     assert set(out.keys()) >= {"results", "total", "backend", "hybrid_augmented"}
     assert isinstance(out["results"], list)
     assert isinstance(out["total"], int)

@@ -71,7 +71,7 @@ def test_library_heart_contract_mcp_to_http_and_free_scope(db_session):
 
     for artifact_type, artifact in (("skill", skill), ("personality", personality), ("loop", loop)):
         assert _dispatch(
-            "recipes_like",
+            "loopskill_like",
             db_session,
             {"action": "like", "type": artifact_type, "id": str(artifact.id)},
             {"auth_ctx": ctx},

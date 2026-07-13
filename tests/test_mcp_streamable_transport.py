@@ -201,12 +201,12 @@ class TestStreamableHTTPTransport:
             headers=headers,
         )
 
-        # Invoke the slow tool (recipes_seeker has no required args)
+        # Invoke the slow tool (loopskill_seeker has no required args)
         start = time.monotonic()
         call_resp = mcp_client.post(
             "/api/mcp/http",
             json=_jsonrpc_request("tools/call", {
-                "name": "recipes_seeker",
+                "name": "loopskill_seeker",
                 "arguments": {},
             }, req_id=3),
             headers=headers,

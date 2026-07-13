@@ -1,4 +1,4 @@
-"""Tests for recipes_doctor — issue #112.
+"""Tests for loopskill_doctor — issue #112.
 
 Verifies the three error codes:
 - ``install_dir_required`` for empty input
@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.mcp.tools.doctor import recipes_doctor
+from app.mcp.tools.doctor import loopskill_doctor
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ def db():
 
 
 def test_empty_input_returns_install_dir_required(db):
-    out = recipes_doctor(db, "")
+    out = loopskill_doctor(db, "")
     assert out["ok"] is False
     assert out["error"] == "install_dir_required"
     assert "agent" in out["hint"].lower()
@@ -43,7 +43,7 @@ def test_empty_input_returns_install_dir_required(db):
     ],
 )
 def test_remote_shaped_path_returns_not_server_inspectable(db, remote_path):
-    out = recipes_doctor(db, remote_path)
+    out = loopskill_doctor(db, remote_path)
     assert out["ok"] is False, f"unexpected ok=True for {remote_path}"
     assert out["error"] == "not_server_inspectable", (
         f"expected not_server_inspectable for {remote_path}, got {out['error']}"
@@ -58,7 +58,7 @@ def test_server_local_missing_path_returns_install_dir_not_found(db, tmp_path):
     # tmp_path lives under /tmp on Linux — NOT one of the remote-shaped
     # prefixes, so this should fall through to install_dir_not_found.
     missing = tmp_path / "does-not-exist"
-    out = recipes_doctor(db, str(missing))
+    out = loopskill_doctor(db, str(missing))
     assert out["ok"] is False
     assert out["error"] == "install_dir_not_found"
 
@@ -70,7 +70,7 @@ def test_valid_install_dir_no_violations(db, tmp_path):
     )
     meta = tmp_path / "_meta.json"
     meta.write_text(json.dumps({"slug": "testskill", "version": "1.0.0"}))
-    out = recipes_doctor(db, str(tmp_path))
+    out = loopskill_doctor(db, str(tmp_path))
     assert out["ok"] is True
     assert out["skill_md_present"] is True
     assert out["meta_present"] is True
@@ -83,7 +83,7 @@ def test_install_dir_with_hardcoded_paths_flags_them(db, tmp_path):
     (tmp_path / "_meta.json").write_text("{}")
     script = tmp_path / "run.sh"
     script.write_text("cp /home/adam/foo /Users/bob/bar")
-    out = recipes_doctor(db, str(tmp_path))
+    out = loopskill_doctor(db, str(tmp_path))
     assert out["ok"] is False
     assert "run.sh" in out["hardcoded_paths"]
     hits = out["hardcoded_paths"]["run.sh"]
@@ -94,5 +94,5 @@ def test_install_dir_with_hardcoded_paths_flags_them(db, tmp_path):
 def test_not_server_inspectable_preserves_input_path_verbatim(db):
     """Agents need the path echoed back so they can log/correlate."""
     p = "/Users/wisevision/.hermes/skills/critical-code-reviewer"
-    out = recipes_doctor(db, p)
+    out = loopskill_doctor(db, p)
     assert out["install_dir"] == p

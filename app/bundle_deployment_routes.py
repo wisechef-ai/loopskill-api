@@ -348,7 +348,7 @@ async def bundle_preflight(
     body: dict = Body(default={}),
     db: Session = Depends(get_db),
 ):
-    """Pre-flight green-light check for `recipes apply cookbook://<slug>`.
+    """Pre-flight green-light check for `recipes apply bundle://<slug>`.
 
     Public so the meta-skill can call it without an OAuth round-trip; the body
     carries the host fingerprint that drives compat checks. The endpoint only

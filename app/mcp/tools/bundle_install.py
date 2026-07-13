@@ -1,4 +1,4 @@
-"""recipes_cookbook_install — MCP tool for cookbook-scoped installs.
+"""loopskill_bundle_install — MCP tool for cookbook-scoped installs.
 
 cookbook_share_2105 Phase F.
 
@@ -158,7 +158,7 @@ def _resolve_version(db: Session, skill: Skill, pinned_version: str | None) -> S
     return version
 
 
-def recipes_cookbook_install(
+def loopskill_bundle_install(
     *,
     db: Session,
     ctx: AuthContext,
@@ -169,7 +169,7 @@ def recipes_cookbook_install(
 
     Args:
         db: SQLAlchemy session (required; MCP server hands one in via
-            validate_key path same as recipes_install).
+            validate_key path same as loopskill_install).
         ctx: AuthContext (required). cbt_token callers may omit ``cookbook_id``.
         cookbook_id: Cookbook UUID string. Optional for cbt_token (defaults
             to ctx.bundle_scope), required for user/master.

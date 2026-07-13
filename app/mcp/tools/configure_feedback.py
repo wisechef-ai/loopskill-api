@@ -47,7 +47,7 @@ def _resolve_user_cookbook(db: Session, ctx: AuthContext) -> Bundle | None:
     )
 
 
-def recipes_configure_feedback(
+def loopskill_configure_feedback(
     db: Session,
     *,
     repo: str | None = None,
@@ -185,6 +185,6 @@ def recipes_configure_feedback(
         "mode": mode,
         "message": (
             f"Feedback from this cookbook will now create issues in {repo}. "
-            "Test with recipes_feedback() to confirm."
+            "Test with loopskill_feedback() to confirm."
         ),
     }

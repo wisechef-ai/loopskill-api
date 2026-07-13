@@ -1,4 +1,4 @@
-"""recipes_recipify MCP tool — Phase G round-trip."""
+"""loopskill_skillify MCP tool — Phase G round-trip."""
 from __future__ import annotations
 
 from typing import Generator
@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.mcp.tools import recipes_recipify
+from app.mcp.tools import loopskill_skillify
 from app.models import Base, Bundle, BundleSkill, Skill, User
 
 
@@ -50,7 +50,7 @@ def test_mcp_tool_round_trip(db_session):
     db_session.add_all([user, cb])
     db_session.commit()
 
-    out = recipes_recipify(
+    out = loopskill_skillify(
         db_session,
         slug="scrape-bot",
         content=_GOOD,
@@ -78,7 +78,7 @@ def test_mcp_tool_no_longer_returns_not_implemented(db_session):
     db_session.add_all([user, cb])
     db_session.commit()
 
-    out = recipes_recipify(
+    out = loopskill_skillify(
         db_session,
         slug="another-slug",
         content=_GOOD,
@@ -96,7 +96,7 @@ def test_mcp_tool_rejects_bad_frontmatter(db_session):
     db_session.add_all([user, cb])
     db_session.commit()
 
-    out = recipes_recipify(
+    out = loopskill_skillify(
         db_session,
         slug="ok-slug",
         content="no frontmatter here",

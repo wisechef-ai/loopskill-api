@@ -3,13 +3,13 @@
 Covers:
 1. _is_pro_tier: Pro and above accepted
 2. _is_pro_tier: Free/None rejected
-3. recipes_tailor: happy-path fork creation
-4. recipes_tailor: idempotent (existing fork returned)
-5. recipes_tailor: source skill not found
-6. recipes_tailor: master key rejected (no user_id)
-7. recipes_tailor: Pro+ still works
-8. recipes_fork_list: returns user's forks
-9. recipes_fork_list: master key returns empty
+3. loopskill_tailor: happy-path fork creation
+4. loopskill_tailor: idempotent (existing fork returned)
+5. loopskill_tailor: source skill not found
+6. loopskill_tailor: master key rejected (no user_id)
+7. loopskill_tailor: Pro+ still works
+8. loopskill_fork_list: returns user's forks
+9. loopskill_fork_list: master key returns empty
 10. MCP dispatch: tools registered in definitions
 11. MCP dispatch: tailor dispatched via call_tool_sync
 12. MCP dispatch: fork_list dispatched via call_tool_sync
@@ -113,7 +113,7 @@ class TestTierLabels:
         assert _is_pro_tier("") is False
 
 
-# ── MCP: recipes_tailor ──────────────────────────────────────────────────
+# ── MCP: loopskill_tailor ──────────────────────────────────────────────────
 
 
 class TestRecipesTailor:
@@ -122,10 +122,10 @@ class TestRecipesTailor:
         skill = _make_skill(db, "tailor-skill-1")
         db.commit()
 
-        from app.mcp.tools.tailor import recipes_tailor
+        from app.mcp.tools.tailor import loopskill_tailor
 
         ctx = AuthContext(scope="user", user_id=user.id, tier="pro")
-        result = recipes_tailor(
+        result = loopskill_tailor(
             db, source_slug=skill.slug, name="My Tailored Fork", ctx=ctx,
         )
         assert result["status"] == "forked"
@@ -138,14 +138,14 @@ class TestRecipesTailor:
         skill = _make_skill(db, "tailor-skill-2")
         db.commit()
 
-        from app.mcp.tools.tailor import recipes_tailor
+        from app.mcp.tools.tailor import loopskill_tailor
 
         ctx = AuthContext(scope="user", user_id=user.id, tier="pro")
 
-        r1 = recipes_tailor(db, source_slug=skill.slug, name="My Fork", ctx=ctx)
+        r1 = loopskill_tailor(db, source_slug=skill.slug, name="My Fork", ctx=ctx)
         assert r1["status"] == "forked"
 
-        r2 = recipes_tailor(db, source_slug=skill.slug, name="My Fork", ctx=ctx)
+        r2 = loopskill_tailor(db, source_slug=skill.slug, name="My Fork", ctx=ctx)
         assert r2["status"] == "existing"
         assert r2["fork_id"] == r1["fork_id"]
 
@@ -153,20 +153,20 @@ class TestRecipesTailor:
         user = _make_user(db, "pro")
         db.commit()
 
-        from app.mcp.tools.tailor import recipes_tailor
+        from app.mcp.tools.tailor import loopskill_tailor
 
         ctx = AuthContext(scope="user", user_id=user.id, tier="pro")
-        result = recipes_tailor(db, source_slug="nonexistent-xyz", name="Test", ctx=ctx)
+        result = loopskill_tailor(db, source_slug="nonexistent-xyz", name="Test", ctx=ctx)
         assert result.get("error") == "source_not_found"
 
     def test_master_key_rejected(self, db: Session) -> None:
         skill = _make_skill(db, "tailor-skill-3")
         db.commit()
 
-        from app.mcp.tools.tailor import recipes_tailor
+        from app.mcp.tools.tailor import loopskill_tailor
 
         ctx = AuthContext(scope="master")
-        result = recipes_tailor(db, source_slug=skill.slug, name="Master Fork", ctx=ctx)
+        result = loopskill_tailor(db, source_slug=skill.slug, name="Master Fork", ctx=ctx)
         assert result.get("error") == "auth_required"
 
     def test_pro_plus_still_works(self, db: Session) -> None:
@@ -174,14 +174,14 @@ class TestRecipesTailor:
         skill = _make_skill(db, "tailor-skill-4")
         db.commit()
 
-        from app.mcp.tools.tailor import recipes_tailor
+        from app.mcp.tools.tailor import loopskill_tailor
 
         ctx = AuthContext(scope="user", user_id=user.id, tier="pro_plus")
-        result = recipes_tailor(db, source_slug=skill.slug, name="Pro+ Fork", ctx=ctx)
+        result = loopskill_tailor(db, source_slug=skill.slug, name="Pro+ Fork", ctx=ctx)
         assert result["status"] == "forked"
 
 
-# ── MCP: recipes_fork_list ───────────────────────────────────────────────
+# ── MCP: loopskill_fork_list ───────────────────────────────────────────────
 
 
 class TestRecipesForkList:
@@ -190,27 +190,27 @@ class TestRecipesForkList:
         skill = _make_skill(db, "list-skill-1")
         db.commit()
 
-        from app.mcp.tools.tailor import recipes_fork_list, recipes_tailor
+        from app.mcp.tools.tailor import loopskill_fork_list, loopskill_tailor
 
         ctx = AuthContext(scope="user", user_id=user.id, tier="pro")
-        recipes_tailor(db, source_slug=skill.slug, name="My Fork", ctx=ctx)
+        loopskill_tailor(db, source_slug=skill.slug, name="My Fork", ctx=ctx)
 
-        result = recipes_fork_list(db, ctx=ctx)
+        result = loopskill_fork_list(db, ctx=ctx)
         assert "forks" in result
         assert len(result["forks"]) == 1
         assert result["forks"][0]["source_slug"] == skill.slug
 
     def test_master_key_returns_empty(self, db: Session) -> None:
-        from app.mcp.tools.tailor import recipes_fork_list
+        from app.mcp.tools.tailor import loopskill_fork_list
 
         ctx = AuthContext(scope="master")
-        result = recipes_fork_list(db, ctx=ctx)
+        result = loopskill_fork_list(db, ctx=ctx)
         assert result == {"forks": []}
 
     def test_none_ctx_returns_empty(self, db: Session) -> None:
-        from app.mcp.tools.tailor import recipes_fork_list
+        from app.mcp.tools.tailor import loopskill_fork_list
 
-        result = recipes_fork_list(db, ctx=None)
+        result = loopskill_fork_list(db, ctx=None)
         assert result == {"forks": []}
 
 
@@ -222,8 +222,8 @@ class TestMCPDispatchIntegration:
         from app.mcp.registry import _tool_definitions
 
         names = [t.name for t in _tool_definitions()]
-        assert "recipes_tailor" in names, f"recipes_tailor not in {names}"
-        assert "recipes_fork_list" in names, f"recipes_fork_list not in {names}"
+        assert "loopskill_tailor" in names, f"loopskill_tailor not in {names}"
+        assert "loopskill_fork_list" in names, f"loopskill_fork_list not in {names}"
 
     def test_tailor_dispatched_via_call_tool_sync(self, db: Session) -> None:
         user = _make_user(db, "pro")
@@ -240,7 +240,7 @@ class TestMCPDispatchIntegration:
             "auth_ctx": ctx,
         }
         payload = call_tool_sync(
-            "recipes_tailor",
+            "loopskill_tailor",
             {"source_slug": skill.slug, "name": "Dispatch Test Fork"},
             caller=caller,
             db=db,
@@ -262,7 +262,7 @@ class TestMCPDispatchIntegration:
             "auth_ctx": ctx,
         }
         payload = call_tool_sync(
-            "recipes_fork_list",
+            "loopskill_fork_list",
             {},
             caller=caller,
             db=db,

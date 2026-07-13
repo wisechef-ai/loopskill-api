@@ -1,4 +1,4 @@
-"""recipes_recall — Phase E hybrid recall (vector + BM25).
+"""loopskill_recall — Phase E hybrid recall (vector + BM25).
 
 Wraps :func:`app.recall_routes.recall_skills` so the MCP layer never
 duplicates ranking logic. Caller scope determines tier visibility: master
@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.recall_routes import recall_skills
 
 
-def recipes_recall(
+def loopskill_recall(
     db: Session,
     *,
     query: str = "",

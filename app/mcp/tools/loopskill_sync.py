@@ -1,4 +1,4 @@
-"""recipes_sync — apply or preview pending skill version updates for a cookbook.
+"""loopskill_sync — apply or preview pending skill version updates for a cookbook.
 
 Default behaviour (``dry_run=False``): writes back ``pinned_version`` to the
 latest semver for every outdated skill in the specified cookbook.  Returns the
@@ -63,7 +63,7 @@ def _find_outdated_skills(db: Session, cookbook_id: UUID) -> list[dict[str, Any]
     return out
 
 
-def recipes_sync(
+def loopskill_sync(
     db: Session,
     *,
     cookbook_id: str,
@@ -142,7 +142,7 @@ def recipes_sync(
 
     db.commit()  # Phase B (Issue #15a): commit, not flush
 
-    # Build tarball URLs for the updated skills (same logic as recipes_install)
+    # Build tarball URLs for the updated skills (same logic as loopskill_install)
     install_urls = _build_install_urls(db, outdated)
     result["applied"] = True
     if install_urls:

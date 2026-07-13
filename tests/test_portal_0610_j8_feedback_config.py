@@ -1,7 +1,7 @@
 """portal_0610 J8 — delivery cockpit backend: feedback-repo binding HTTP routes.
 
 The cockpit needs an HTTP surface for per-cookbook feedback routing (the MCP
-recipes_configure_feedback tool was the only entry point). These thin routes
+loopskill_configure_feedback tool was the only entry point). These thin routes
 delegate to that tool for a single source of truth.
 
   GET   /api/cookbooks/{id}/feedback-config  → where feedback routes (no PAT)

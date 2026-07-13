@@ -1,4 +1,4 @@
-"""MCP tool: recipes_propose_skill_patch.
+"""MCP tool: loopskill_propose_skill_patch.
 
 Submit a working patch to a LoopSkill catalog skill, creating a draft PR
 on wisechef-ai/loopskill-api. Mirrors app/mcp/tools/feedback.py in structure.
@@ -24,7 +24,7 @@ from app.skill_patch_validation import (
 logger = logging.getLogger(__name__)
 
 
-def recipes_propose_skill_patch(
+def loopskill_propose_skill_patch(
     db: Session,
     *,
     slug: str,

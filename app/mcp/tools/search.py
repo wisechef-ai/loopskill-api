@@ -1,4 +1,4 @@
-"""recipes_search — full-text catalog search with hybrid recall fallback.
+"""loopskill_search — full-text catalog search with hybrid recall fallback.
 
 Backed by the same ORM query used by ``GET /api/skills/search``. We import the
 SQLAlchemy primitives directly rather than calling the FastAPI handler to keep
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 HYBRID_MIN_KEYWORD_HITS = 3
 
 
-def recipes_search(
+def loopskill_search(
     db: Session,
     query: str | None = None,
     category: str | None = None,
@@ -44,7 +44,7 @@ def recipes_search(
     - ``backend = "hybrid"``  — literal + recall results unioned.
     - ``backend = "recall_only"`` — literal returned zero, recall provided all.
 
-    WIS-948: default limit raised 20->100 so a bare recipes_search() call
+    WIS-948: default limit raised 20->100 so a bare loopskill_search() call
     returns the full (or near-full) catalog instead of silently capping at 20.
     The HTTP search endpoint also honours a ?limit= alias for the same reason:
     Pro-tier buyers browsing the catalog saw only 20/63 paid skills they own.
@@ -135,7 +135,7 @@ def recipes_search(
                     backend = "recall_only" if not rows else "hybrid"
         # Rationale: hybrid recall failure must never kill the keyword-only search path
         except Exception:  # noqa: BLE001
-            logger.exception("recipes_search hybrid fallback failed; returning keyword only")
+            logger.exception("loopskill_search hybrid fallback failed; returning keyword only")
 
     return {
         "results": final_results,

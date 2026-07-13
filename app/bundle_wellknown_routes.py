@@ -35,7 +35,7 @@ key, matching the existing public skill-detail surface):
 Paywall invariant: the index reveals WHAT is in the bundle (names + descriptions
 are already public on the cookbook page); only FREE bodies are served verbatim.
 Installing a paid skill's real body still requires authenticated
-``recipes_cookbook_install`` / a tier key.
+``loopskill_bundle_install`` / a tier key.
 """
 
 from __future__ import annotations
@@ -98,7 +98,7 @@ def _stub_skill_md(skill, cookbook_slug: str) -> str:
         "Install this cookbook with an authenticated Recipes key and the real "
         "body is delivered:\n\n"
         "```\n"
-        f'loopskill_bundle_install from "cookbook://{cookbook_slug}"\n'
+        f'loopskill_bundle_install from "bundle://{cookbook_slug}"\n'
         "```\n\n"
         f"Or subscribe at https://app.loopskill.io/pricing and install "
         f"`{skill.slug}` directly.\n"

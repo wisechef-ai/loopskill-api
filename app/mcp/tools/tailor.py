@@ -1,4 +1,4 @@
-"""recipes_tailor — fork a skill and get an install URL (one MCP call).
+"""loopskill_tailor — fork a skill and get an install URL (one MCP call).
 
 # Public-scope MCP tool: authz is handled by the underlying REST route
 # (forks_routes.require_operator) which enforces Pro-tier subscription.
@@ -12,7 +12,7 @@ integrator_2905 W1: exposed at Pro tier (not pro_plus) for broader first-dollar
 funnel. The tier gate is enforced by the underlying REST route
 (forks_routes.require_operator) which now accepts Pro.
 
-Also provides `recipes_fork_list` to enumerate the caller's existing forks.
+Also provides `loopskill_fork_list` to enumerate the caller's existing forks.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from app.auth_ctx import AuthContext
 from app.models import Skill, SkillFork
 
 
-def recipes_fork_list(
+def loopskill_fork_list(
     db: Session,
     *,
     ctx: AuthContext | None = None,
@@ -68,7 +68,7 @@ def recipes_fork_list(
     }
 
 
-def recipes_tailor(
+def loopskill_tailor(
     db: Session,
     *,
     source_slug: str,

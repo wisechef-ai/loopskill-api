@@ -1,6 +1,6 @@
 """v7 Phase E — round-trip recall through the MCP tool dispatch.
 
-Confirms ``recipes_recall`` is no longer a Phase-E stub and that the
+Confirms ``loopskill_recall`` is no longer a Phase-E stub and that the
 service-layer wiring matches the contract documented in
 :func:`app.recall_routes.recall_skills`.
 """
@@ -11,11 +11,11 @@ import json
 
 from app.embeddings import embed_skill
 from app.mcp.server import call_tool_sync
-from app.mcp.tools import recipes_recall
+from app.mcp.tools import loopskill_recall
 
 
 def test_recall_no_longer_stub(db_session):
-    out = recipes_recall(db_session, query="anything")
+    out = loopskill_recall(db_session, query="anything")
     # Stub returned {"error": "not_implemented", ...}; live impl returns hits.
     assert out.get("error") != "not_implemented"
     assert "hits" in out
@@ -37,7 +37,7 @@ def test_recall_via_mcp_dispatch(db_session):
     db_session.flush()
 
     out = call_tool_sync(
-        "recipes_recall",
+        "loopskill_recall",
         {"query": "clean a messy csv file", "limit": 3},
         db=db_session,
     )
@@ -50,5 +50,5 @@ def test_recall_via_mcp_dispatch(db_session):
 
 
 def test_recall_empty_query_reports_error(db_session):
-    out = call_tool_sync("recipes_recall", {}, db=db_session)
+    out = call_tool_sync("loopskill_recall", {}, db=db_session)
     assert out.get("error") == "query_required"

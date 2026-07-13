@@ -1,4 +1,4 @@
-"""recipes_list_cookbook — list a caller's cookbook + skill provenance.
+"""loopskill_list_bundle — list a caller's cookbook + skill provenance.
 
 Phase A only ships a read path against the existing ``Bundle`` /
 ``CookbookSkill`` tables (added in PR #19). The full CRUD endpoints are
@@ -26,7 +26,7 @@ def _coerce_uuid(value: Any) -> UUID | None:
         return None
 
 
-def recipes_list_cookbook(
+def loopskill_list_bundle(
     db: Session,
     user_id: Any | None = None,
     cookbook_id: str | None = None,

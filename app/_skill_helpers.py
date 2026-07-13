@@ -373,7 +373,7 @@ def _resolve_cookbook_owner_tier(db: Session, cookbook) -> str | None:
 # ── Install-event recording (denormalised counter sync) ────────────────────
 #
 # Shared by every install-producing route so all paths (single-skill /api/skills/install,
-# cookbook bulk install, cookbook single-skill install, MCP recipes_cookbook_install)
+# cookbook bulk install, cookbook single-skill install, MCP loopskill_bundle_install)
 # write an InstallEvent row AND bump Skill.install_count in the same transaction.
 #
 # Before recipes-D, only /api/skills/install recorded events. Bundle-share installs  # compat-alias
@@ -393,7 +393,7 @@ def _record_install_event(
 ) -> None:
     """Insert an InstallEvent and atomically bump Skill.install_count.
 
-    Same shape as install_routes.recipes_install does for the single-skill path,
+    Same shape as install_routes.loopskill_install does for the single-skill path,
     factored out so cookbook and MCP install paths produce identical records.
 
     Args:
@@ -410,7 +410,7 @@ def _record_install_event(
             - ``"direct"``  — /api/skills/install (canonical single-skill path)
             - ``"cookbook"`` — POST /api/cookbooks/{id}/install or single-skill
               install via cookbook prefix
-            - ``"mcp"``     — recipes_cookbook_install MCP tool
+            - ``"mcp"``     — loopskill_bundle_install MCP tool
             Stored as a tag on the event row's ``api_key_id`` metadata via
             future schema extension; today it parameterises which install path
             wrote the row for observability without requiring a schema change.
@@ -460,7 +460,7 @@ def _record_install_event(
             return
 
     # Atomic SQL-level bump — concurrent installs cannot lose writes.
-    # Same pattern as install_routes.recipes_install (RCP-13).
+    # Same pattern as install_routes.loopskill_install (RCP-13).
     db.query(Skill).filter(Skill.id == skill.id).update(
         {Skill.install_count: Skill.install_count + 1},
         synchronize_session=False,

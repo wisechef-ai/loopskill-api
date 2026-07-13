@@ -4,13 +4,13 @@ Before this fix, ``build_mcp_server()._call_tool`` hardcoded
 ``caller={"scope": "operator", "user_id": None}`` and dropped the auth
 result resolved by ``_authenticate``. As a consequence:
 
-* ``recipes_list_cookbook`` called without an explicit ``cookbook_id``
+* ``loopskill_list_bundle`` called without an explicit ``cookbook_id``
   always fell through to the no-cookbook branch (since ``user_id=None``
   matches no row).
-* ``recipes_install`` recorded ``InstallEvent.api_key_id=NULL`` even when
+* ``loopskill_install`` recorded ``InstallEvent.api_key_id=NULL`` even when
   the caller authenticated with a real APIKey — defeating per-key
   install analytics.
-* ``recipes_sync`` saw an empty operator caller for every request.
+* ``loopskill_sync`` saw an empty operator caller for every request.
 
 This test module verifies the per-call plumbing that closes the gap:
 ``_authenticate`` (SSE) and the StreamableHTTP ASGI auth wrapper both
@@ -244,7 +244,7 @@ class TestValidateKeyApiKeyId:
         assert result["api_key_id"] is None
 
 
-# ── recipes_list_cookbook — the original RCP-10 bug ───────────────────────
+# ── loopskill_list_bundle — the original RCP-10 bug ───────────────────────
 
 
 class TestListCookbookUsesCallerUserId:
@@ -279,7 +279,7 @@ class TestListCookbookUsesCallerUserId:
             "api_key_id": api_key.id,
         }
         payload = _drive_call_tool_with_caller(
-            server, "recipes_list_cookbook", {}, caller
+            server, "loopskill_list_bundle", {}, caller
         )
         assert payload["cookbook"] is not None, (
             "Bug regression: caller's own cookbook should resolve from user_id"
@@ -293,15 +293,15 @@ class TestListCookbookUsesCallerUserId:
         confirms the original behavior is unchanged for the master-key path.
         """
         server = build_mcp_server(db_factory=lambda: db_session)
-        payload = _drive_call_tool(server, "recipes_list_cookbook", {})
+        payload = _drive_call_tool(server, "loopskill_list_bundle", {})
         assert payload == {"cookbook": None, "skills": []}
 
 
-# ── recipes_install — InstallEvent.api_key_id plumbing ────────────────────
+# ── loopskill_install — InstallEvent.api_key_id plumbing ────────────────────
 
 
 class TestInstallRecordsApiKeyId:
-    """``recipes_install`` records an InstallEvent. With auth plumbing fixed,
+    """``loopskill_install`` records an InstallEvent. With auth plumbing fixed,
     the row must capture the authenticated caller's api_key_id.
     """
 
@@ -317,7 +317,7 @@ class TestInstallRecordsApiKeyId:
         )
         db_session.add(version)
         db_session.commit()
-        # Capture identity columns before the dispatch — recipes_install
+        # Capture identity columns before the dispatch — loopskill_install
         # commits, which expires our ORM instances under SAVEPOINT isolation.
         api_key_id = api_key.id
         user_id = user.id
@@ -332,7 +332,7 @@ class TestInstallRecordsApiKeyId:
             "api_key_id": api_key_id,
         }
         payload = _drive_call_tool_with_caller(
-            server, "recipes_install", {"slug": "installable-skill"}, caller
+            server, "loopskill_install", {"slug": "installable-skill"}, caller
         )
         assert payload.get("slug") == "installable-skill"
 
@@ -362,7 +362,7 @@ class TestInstallRecordsApiKeyId:
         # ASGI fast-path stashes exactly this dict when the master key is used).
         caller = {"scope": "operator", "user_id": None, "api_key_id": None}
         _drive_call_tool_with_caller(
-            server, "recipes_install", {"slug": "master-installable"}, caller
+            server, "loopskill_install", {"slug": "master-installable"}, caller
         )
 
         event = (
@@ -635,16 +635,16 @@ class TestStreamableHTTPAuthGateStashesCaller:
         )
 
 
-# ── recipes_sync caller plumbing ────────────────────────────────────────
+# ── loopskill_sync caller plumbing ────────────────────────────────────────
 
 
 class TestRecipesSyncReceivesCaller:
-    """``recipes_sync`` accepts a ``caller`` kwarg. After the fix, that
+    """``loopskill_sync`` accepts a ``caller`` kwarg. After the fix, that
     kwarg must reflect the authenticated user — not the hardcoded master.
     """
 
     def test_sync_receives_ctx_from_request_context(self, db_session):
-        """Phase B (Issue #15): recipes_sync now takes ctx= (AuthContext),
+        """Phase B (Issue #15): loopskill_sync now takes ctx= (AuthContext),
         not caller=. Verify the AuthContext is reconstructed from the caller
         dict and passed correctly.
         """
@@ -658,7 +658,7 @@ class TestRecipesSyncReceivesCaller:
             captured["dry_run"] = dry_run
             return {"applied": False, "changes": []}
 
-        with patch.object(server_mod, "recipes_sync", fake_sync):
+        with patch.object(server_mod, "loopskill_sync", fake_sync):
             server = build_mcp_server(db_factory=lambda: db_session)
             user, api_key = _make_user_and_key(db_session, "rec_sync_token")
             caller = {
@@ -668,11 +668,11 @@ class TestRecipesSyncReceivesCaller:
             }
             _drive_call_tool_with_caller(
                 server,
-                "recipes_sync",
+                "loopskill_sync",
                 {"cookbook_id": str(uuid4()), "dry_run": True},
                 caller,
             )
-        assert captured["ctx"] is not None, "ctx must be passed to recipes_sync"
+        assert captured["ctx"] is not None, "ctx must be passed to loopskill_sync"
         assert isinstance(captured["ctx"], AuthContext), (
             f"ctx must be AuthContext, got {type(captured['ctx'])}"
         )
@@ -688,14 +688,14 @@ def test_tool_catalogue_unchanged():
     """RCP-10 must not shrink the tool surface below the v1 contract.
 
     Original constant was ``== 10`` (Phase A baseline). The catalogue has
-    grown to 14 as new MCP tools shipped (recipes_doctor, recipes_feedback,
-    recipes_carousel_today, recipes_propose_skill_patch). Pin the floor so
+    grown to 14 as new MCP tools shipped (loopskill_doctor, loopskill_feedback,
+    loopskill_carousel_today, loopskill_propose_skill_patch). Pin the floor so
     external MCP clients keep working; track growth in source-control diffs.
     """
     tools = _tool_definitions()
     assert len(tools) >= 10
     names = {t.name for t in tools}
-    PHASE_A_REQUIRED = {"recipes_search", "recipes_install", "recipes_recall"}
+    PHASE_A_REQUIRED = {"loopskill_search", "loopskill_install", "loopskill_recall"}
     assert PHASE_A_REQUIRED.issubset(names), (
         f"Phase A tool contract broken — missing {PHASE_A_REQUIRED - names}"
     )

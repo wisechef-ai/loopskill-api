@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import app.feedback_ratelimit as rl_module
-from app.mcp.tools.publish_request import recipes_publish_request
+from app.mcp.tools.publish_request import loopskill_publish_request
 
 FAKE_ISSUE_URL = "https://github.com/wisechef-ai/recipes-api/issues/99"
 SAMPLE_SLUG = "test-skill-pub"
@@ -58,14 +58,14 @@ def reset_ratelimit():
 # ── Test 1: Happy path — creates DB row and dispatches issue ──────────────────
 
 def test_publish_request_creates_row_and_dispatches_issue(db_session):
-    """recipes_publish_request happy path: inserts SkillPublishRequest + dispatches."""
+    """loopskill_publish_request happy path: inserts SkillPublishRequest + dispatches."""
     with (
         patch("app.mcp.tools.publish_request.github_dispatch.dispatch_event",
               return_value=FAKE_ISSUE_URL) as mock_dispatch,
         patch("app.mcp.tools.publish_request.scan_tarball", return_value=[]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[]),
     ):
-        result = recipes_publish_request(
+        result = loopskill_publish_request(
             db_session,
             slug=SAMPLE_SLUG,
             content=SAMPLE_CONTENT,
@@ -105,7 +105,7 @@ def test_publish_request_rate_limit_returns_existing_url(db_session):
         patch("app.mcp.tools.publish_request.scan_tarball", return_value=[]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[]),
     ):
-        result1 = recipes_publish_request(
+        result1 = loopskill_publish_request(
             db_session,
             slug=SAMPLE_SLUG,
             content=SAMPLE_CONTENT,
@@ -116,7 +116,7 @@ def test_publish_request_rate_limit_returns_existing_url(db_session):
     # Second call — should be rate-limited
     with patch("app.mcp.tools.publish_request.github_dispatch.dispatch_event",
                return_value=FAKE_ISSUE_URL) as mock2:
-        result2 = recipes_publish_request(
+        result2 = loopskill_publish_request(
             db_session,
             slug=SAMPLE_SLUG,
             content=SAMPLE_CONTENT,
@@ -150,7 +150,7 @@ def test_publish_request_quality_gate_blocks_high_severity_without_dispatch(db_s
               return_value=[high_finding]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[]),
     ):
-        result = recipes_publish_request(
+        result = loopskill_publish_request(
             db_session,
             slug=SAMPLE_SLUG,
             content=SAMPLE_CONTENT,
@@ -184,7 +184,7 @@ def test_publish_request_warnings_included_in_payload(db_session):
               return_value=[med_finding]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[]),
     ):
-        result = recipes_publish_request(
+        result = loopskill_publish_request(
             db_session,
             slug=SAMPLE_SLUG,
             content=SAMPLE_CONTENT,
@@ -210,7 +210,7 @@ def test_publish_request_invalid_slug_rejected(db_session):
         "has spaces",           # spaces not allowed
     ]
     for bad_slug in bad_slugs:
-        result = recipes_publish_request(
+        result = loopskill_publish_request(
             db_session,
             slug=bad_slug,
             content=SAMPLE_CONTENT,
@@ -246,7 +246,7 @@ def test_publish_request_force_bypasses_rate_limit(db_session):
         patch("app.mcp.tools.publish_request.scan_tarball", return_value=[]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[]),
     ):
-        r_blocked = recipes_publish_request(
+        r_blocked = loopskill_publish_request(
             db_session,
             slug=unique_slug,
             content=SAMPLE_CONTENT,
@@ -270,7 +270,7 @@ def test_publish_request_force_bypasses_rate_limit(db_session):
         patch("app.mcp.tools.publish_request.scan_tarball", return_value=[]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[]),
     ):
-        r_forced = recipes_publish_request(
+        r_forced = loopskill_publish_request(
             db_session,
             slug=unique_slug,
             content=SAMPLE_CONTENT,
@@ -358,7 +358,7 @@ def test_admin_tarball_endpoint_requires_master_key(db_session):
 
 def test_publish_request_invalid_version_rejected(db_session):
     """Versions not matching semver N.N.N must be rejected."""
-    result = recipes_publish_request(
+    result = loopskill_publish_request(
         db_session,
         slug=SAMPLE_SLUG,
         content=SAMPLE_CONTENT,
@@ -376,7 +376,7 @@ def test_publish_request_with_references_and_scripts(db_session):
         patch("app.mcp.tools.publish_request.scan_tarball", return_value=[]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[]),
     ):
-        result = recipes_publish_request(
+        result = loopskill_publish_request(
             db_session,
             slug=unique_slug,
             content=SAMPLE_CONTENT,
@@ -404,7 +404,7 @@ def test_publish_request_quality_gate_blocks_gate_block_findings(db_session):
         patch("app.mcp.tools.publish_request.scan_tarball", return_value=[]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[gate_block]),
     ):
-        result = recipes_publish_request(
+        result = loopskill_publish_request(
             db_session,
             slug=unique_slug,
             content=SAMPLE_CONTENT,
@@ -422,7 +422,7 @@ def test_publish_request_dispatch_failure_returns_empty_issue_url(db_session):
         patch("app.mcp.tools.publish_request.scan_tarball", return_value=[]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[]),
     ):
-        result = recipes_publish_request(
+        result = loopskill_publish_request(
             db_session,
             slug=unique_slug,
             content=SAMPLE_CONTENT,

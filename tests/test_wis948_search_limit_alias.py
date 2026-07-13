@@ -8,7 +8,7 @@ catalog could only see 20 of 63 paid skills they own.
 Fixes shipped (2026-06-13):
   1. HTTP endpoint: `limit` Query alias added; when both `limit` and `page_size`
      are supplied, `limit` wins; both are clamped at 100.
-  2. MCP tool (recipes_search): default limit raised 20 → 100.
+  2. MCP tool (loopskill_search): default limit raised 20 → 100.
 """
 
 from __future__ import annotations
@@ -130,15 +130,15 @@ class TestSearchLimitAlias:
 
 
 class TestMcpSearchDefault:
-    """recipes_search() MCP tool — default limit raised 20 → 100."""
+    """loopskill_search() MCP tool — default limit raised 20 → 100."""
 
     def test_default_limit_is_100(self, db_session):
-        """Bare recipes_search() without limit arg returns up to 100 results."""
-        from app.mcp.tools.search import recipes_search
+        """Bare loopskill_search() without limit arg returns up to 100 results."""
+        from app.mcp.tools.search import loopskill_search
 
         _seed_n_skills(db_session, 30)
 
-        result = recipes_search(db_session)
+        result = loopskill_search(db_session)
         assert result["total"] >= 30, (
             f"total should be >=30, got {result['total']}"
         )
@@ -147,10 +147,10 @@ class TestMcpSearchDefault:
         )
 
     def test_mcp_explicit_limit_respected(self, db_session):
-        """recipes_search(limit=5) must return at most 5 results."""
-        from app.mcp.tools.search import recipes_search
+        """loopskill_search(limit=5) must return at most 5 results."""
+        from app.mcp.tools.search import loopskill_search
 
         _seed_n_skills(db_session, 10)
 
-        result = recipes_search(db_session, limit=5)
+        result = loopskill_search(db_session, limit=5)
         assert len(result["results"]) <= 5

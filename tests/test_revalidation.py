@@ -1,4 +1,4 @@
-"""Phase 2 revalidation — bundle_status on every MCP response + recipes_sync.
+"""Phase 2 revalidation — bundle_status on every MCP response + loopskill_sync.
 
 Seven spec tests (a–g).  All must FAIL against the pre-Phase-2 codebase
 (RED commit), then PASS after the implementation (GREEN commit).
@@ -71,7 +71,7 @@ def test_status_block_present_on_search(db_session):
     _add_cookbook_skill(db_session, cb.id, skill.id, pinned="1.0")
 
     result = call_tool_sync(
-        "recipes_search",
+        "loopskill_search",
         {"query": "outdated"},
         caller=_caller(user.id),
         db=db_session,
@@ -91,7 +91,7 @@ def test_status_block_omits_when_no_outdated(db_session):
     user = _make_user(db_session)
 
     result = call_tool_sync(
-        "recipes_search",
+        "loopskill_search",
         {"query": "anything"},
         caller=_caller(user.id),
         db=db_session,
@@ -101,10 +101,10 @@ def test_status_block_omits_when_no_outdated(db_session):
     )
 
 
-# ── (c) recipes_sync default is APPLY (dry_run=false) ───────────────────────
+# ── (c) loopskill_sync default is APPLY (dry_run=false) ───────────────────────
 
 def test_sync_default_applies(db_session):
-    """Calling recipes_sync without dry_run updates pinned_version in DB."""
+    """Calling loopskill_sync without dry_run updates pinned_version in DB."""
     user = _make_user(db_session)
     skill = _make_skill(db_session, slug="sync-default")
     _make_version(db_session, skill.id, "1.0")
@@ -113,7 +113,7 @@ def test_sync_default_applies(db_session):
     _add_cookbook_skill(db_session, cb.id, skill.id, pinned="1.0")
 
     result = call_tool_sync(
-        "recipes_sync",
+        "loopskill_sync",
         {"cookbook_id": str(cb.id)},
         caller=_caller(user.id),
         db=db_session,
@@ -140,7 +140,7 @@ def test_sync_dry_run_returns_diff_no_pull(db_session):
     _add_cookbook_skill(db_session, cb.id, skill.id, pinned="1.0")
 
     result = call_tool_sync(
-        "recipes_sync",
+        "loopskill_sync",
         {"cookbook_id": str(cb.id), "dry_run": True},
         caller=_caller(user.id),
         db=db_session,
@@ -169,7 +169,7 @@ def test_sync_apply_writes_pinned_version(db_session):
 
     # Apply sync
     call_tool_sync(
-        "recipes_sync",
+        "loopskill_sync",
         {"cookbook_id": str(cb.id)},
         caller=_caller(user.id),
         db=db_session,
@@ -177,7 +177,7 @@ def test_sync_apply_writes_pinned_version(db_session):
 
     # Subsequent search must NOT show the skill as outdated
     result = call_tool_sync(
-        "recipes_search",
+        "loopskill_search",
         {"query": "sync-f2"},
         caller=_caller(user.id),
         db=db_session,
@@ -198,7 +198,7 @@ def test_status_silent_when_no_outdated_skills(db_session):
     _add_cookbook_skill(db_session, cb.id, skill.id, pinned="1.0")
 
     result = call_tool_sync(
-        "recipes_search",
+        "loopskill_search",
         {"query": "current"},
         caller=_caller(user.id),
         db=db_session,
@@ -208,14 +208,14 @@ def test_status_silent_when_no_outdated_skills(db_session):
     )
 
 
-# ── (g) recipes_sync listed in initialize + dry_run default ──────────────────
+# ── (g) loopskill_sync listed in initialize + dry_run default ──────────────────
 
 def test_recipes_sync_tool_listed_in_initialize():
-    """tools/list must include recipes_sync with dry_run=false default."""
+    """tools/list must include loopskill_sync with dry_run=false default."""
     tools = {t.name: t for t in _tool_definitions()}
-    assert "recipes_sync" in tools, "recipes_sync tool not registered"
+    assert "loopskill_sync" in tools, "loopskill_sync tool not registered"
 
-    schema = tools["recipes_sync"].inputSchema
+    schema = tools["loopskill_sync"].inputSchema
     assert schema["properties"]["dry_run"]["default"] is False, (
         "dry_run default must be false (Adam directive 2026-05-07)"
     )

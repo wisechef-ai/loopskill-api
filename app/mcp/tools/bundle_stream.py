@@ -1,51 +1,51 @@
-"""spotify_0608 Ph D — "streaming" MCP verbs for cookbook composition.
+"""spotify_0608 Ph D — "streaming" MCP verbs for bundle composition.
 
-The product thesis (D2/D3): *streaming = MCP-orchestrated cookbook
+The product thesis (D2/D3): *streaming = MCP-orchestrated bundle
 composition*. Three verbs make an agent able to consume the catalogue the way
 a listener consumes Spotify — on tap, from a link, in ONE call:
 
-  1. ``recipes_install_from_cookbook`` — "install from ``<link>``": resolve a
-     PUBLIC cookbook by its slug and hand back every skill's install line in
-     one shot. Anonymous-reachable (a public cookbook's skills are streamable
+  1. ``loopskill_install_from_bundle`` — "install from ``<link>``": resolve a
+     PUBLIC bundle by its slug and hand back every skill's install line in
+     one shot. Anonymous-reachable (a public bundle's skills are streamable
      by anyone, exactly like a public playlist's tracks). This is the
-     top-of-funnel verb the public cookbook page surfaces as its one-line
+     top-of-funnel verb the public bundle page surfaces as its one-line
      clone instruction (GTM build-plan mod #1).
 
-  2. ``recipes_pick_best_from_cookbook`` — "pick best from ``<link>``": given a
-     public cookbook link and an optional ``need`` description, return the
+  2. ``loopskill_pick_best_from_bundle`` — "pick best from ``<link>``": given a
+     public bundle link and an optional ``need`` description, return the
      single best-matching skill (ranked by real 7d installs then total, with a
      keyword relevance pre-filter when ``need`` is supplied) + its install
      line. Lets an agent say "give me the right tool for X from this stack."
 
-  3. ``recipes_compose_cookbook_from_links`` — "compose new from
-     ``<l1> <l2> …>``": resolve N links (public cookbooks, internal catalogue
+  3. ``loopskill_compose_bundle_from_links`` — "compose new from
+     ``<l1> <l2> …>``": resolve N links (public bundles, internal catalogue
      skills, and/or external federated skills) into the union of their skills
-     and mint a NEW cookbook owned by the caller containing all of them. The
+     and mint a NEW bundle owned by the caller containing all of them. The
      verb that turns three links into a working, shareable stack in one call.
 
 Link grammar (``_parse_link``) — deliberately forgiving so a human or an agent
 can paste almost anything:
 
-  ``cookbook://<slug>`` / ``cookbook:<slug>``   → a public cookbook
+  ``bundle://<slug>`` / ``bundle:<slug>``   → a public bundle
   ``skill://<slug>``    / ``recipes:<slug>``    → an internal catalogue skill
   ``<source>:<slug>``   (source ∈ wired federation namespaces, e.g.
                          ``clawhub:web-scraper``, ``hermes-hub:pr-draft``)
                                                   → an external federated skill
-  bare ``<slug>``                                → tried as a public cookbook
+  bare ``<slug>``                                → tried as a public bundle
                                                    first, then an internal skill
 
 Any ``?ref=<creator>`` attribution query is stripped before parsing (the
 public page appends it; the verb tolerates it).
 
-Authorization model: these verbs read only PUBLIC cookbooks (visibility
-=='public'). A public cookbook's membership IS the install grant — the same
-contract the already-shipped public cookbook page (``GET
+Authorization model: these verbs read only PUBLIC bundles (visibility
+=='public'). A public bundle's membership IS the install grant — the same
+contract the already-shipped public bundle page (``GET
 /api/cookbooks/public/{slug}``) exposes, which lists every member skill. We do
 NOT re-gate each member through ``authz.can_install`` because that would wrongly
 strip the curator's intentionally-public external skills (materialized rows are
 ``is_public=False`` by the federation isolation wall, reachable only via
-cookbook membership). Composition (verb 3) writes into a NEW cookbook owned by
-the authenticated caller and respects the tier cookbook cap.
+bundle membership). Composition (verb 3) writes into a NEW bundle owned by
+the authenticated caller and respects the tier bundle cap.
 """
 
 from __future__ import annotations
@@ -76,7 +76,7 @@ logger = logging.getLogger(__name__)
 # ── Link parsing ───────────────────────────────────────────────────────────
 
 # Kinds returned by _parse_link.
-LINK_COOKBOOK = "cookbook"
+LINK_BUNDLE = "cookbook"
 LINK_SKILL = "skill"
 LINK_EXTERNAL = "external"
 LINK_BARE = "bare"
@@ -98,7 +98,7 @@ def _parse_link(link: str) -> tuple[str, ...]:
       ("cookbook", slug)
       ("skill", slug)
       ("external", source, external_slug)
-      ("bare", token)            — caller resolves cookbook-then-skill
+      ("bare", token)            — caller resolves bundle-then-skill
 
     Raises CookbookInstallError("bad_link", ...) on an empty/garbage token.
     """
@@ -109,7 +109,7 @@ def _parse_link(link: str) -> tuple[str, ...]:
         raise CookbookInstallError("bad_link", "empty link", status=422)
 
     # scheme:// forms
-    for scheme, kind in (("cookbook://", LINK_COOKBOOK), ("skill://", LINK_SKILL)):
+    for scheme, kind in (("bundle://", LINK_BUNDLE), ("skill://", LINK_SKILL)):
         if raw.lower().startswith(scheme):
             rest = raw[len(scheme) :].strip("/").strip()
             if not rest:
@@ -123,8 +123,8 @@ def _parse_link(link: str) -> tuple[str, ...]:
         tail = tail.strip().lstrip("/").strip()
         if not tail:
             raise CookbookInstallError("bad_link", f"empty slug after {head_l}:", status=422)
-        if head_l == LINK_COOKBOOK:
-            return (LINK_COOKBOOK, tail)
+        if head_l == "bundle":
+            return (LINK_BUNDLE, tail)
         if head_l in (LINK_SKILL, "recipes"):
             return (LINK_SKILL, tail)
         # external federation source?
@@ -188,7 +188,7 @@ def _skill_install_entry(
 # ── Verb 1: install-from-bundle ──────────────────────────────────────────
 
 
-def recipes_install_from_cookbook(
+def loopskill_install_from_bundle(
     db: Session,
     *,
     link: str,
@@ -198,7 +198,7 @@ def recipes_install_from_cookbook(
     """Install every skill in a PUBLIC cookbook referenced by ``link``.
 
     "Streaming" verb #1 — the one-line clone the public cookbook page surfaces.
-    ``link`` may be ``cookbook://<slug>``, ``cookbook:<slug>``, or a bare slug.
+    ``link`` may be ``bundle://<slug>``, ``bundle:<slug>``, or a bare slug.
     Anonymous-reachable: a public cookbook's skills are streamable by anyone.
 
     Returns ``{cookbook, name, slug, skills: [...], clone_line}``. Records an
@@ -209,7 +209,7 @@ def recipes_install_from_cookbook(
     if kind[0] == LINK_EXTERNAL or kind[0] == LINK_SKILL:
         raise CookbookInstallError(
             "not_a_cookbook_link",
-            "install_from_cookbook needs a cookbook link (cookbook://<slug>).",
+            "install_from_cookbook needs a cookbook link (bundle://<slug>).",
             status=422,
         )
     cb = _resolve_public_cookbook(db, kind[1])
@@ -236,7 +236,7 @@ def recipes_install_from_cookbook(
         "name": cb.name,
         "slug": cb.slug,
         "skills": skills_payload,
-        "clone_line": f'recipes_install_from_cookbook from "cookbook://{cb.slug}{ref_q}"',
+        "clone_line": f'loopskill_install_from_bundle from "bundle://{cb.slug}{ref_q}"',
     }
 
 
@@ -267,7 +267,7 @@ def _relevance(skill: Skill, need: str) -> int:
     return 0
 
 
-def recipes_pick_best_from_cookbook(
+def loopskill_pick_best_from_bundle(
     db: Session,
     *,
     link: str,
@@ -287,7 +287,7 @@ def recipes_pick_best_from_cookbook(
     if kind[0] in (LINK_EXTERNAL, LINK_SKILL):
         raise CookbookInstallError(
             "not_a_cookbook_link",
-            "pick_best_from_cookbook needs a cookbook link (cookbook://<slug>).",
+            "pick_best_from_cookbook needs a cookbook link (bundle://<slug>).",
             status=422,
         )
     cb = _resolve_public_cookbook(db, kind[1])
@@ -328,7 +328,7 @@ def recipes_pick_best_from_cookbook(
     ranked = [_entry(it) for it in pool]
     picked = dict(ranked[0])
     picked["install_line"] = (
-        f'recipes_install_from_cookbook from "cookbook://{cb.slug}"  # then keep: {picked["slug"]}'
+        f'loopskill_install_from_bundle from "bundle://{cb.slug}"  # then keep: {picked["slug"]}'
     )
     return {
         "picked": picked,
@@ -355,7 +355,7 @@ def _resolve_one_link_to_skills(db: Session, link: str) -> list[Skill]:
     """
     kind = _parse_link(link)
 
-    if kind[0] == LINK_COOKBOOK:
+    if kind[0] == LINK_BUNDLE:
         cb = _resolve_public_cookbook(db, kind[1])
         return [skill for _cs, skill in _cookbook_member_rows(db, cb.id)]
 
@@ -385,7 +385,7 @@ def _resolve_one_link_to_skills(db: Session, link: str) -> list[Skill]:
     raise CookbookInstallError("link_unresolvable", f"link_unresolvable: {token}", status=404)
 
 
-def recipes_compose_cookbook_from_links(
+def loopskill_compose_bundle_from_links(
     db: Session,
     *,
     links: list[str],
@@ -458,7 +458,7 @@ def recipes_compose_cookbook_from_links(
     cb = Bundle(
         id=uuid4(),
         name=cb_name,
-        description="Composed via recipes_compose_cookbook_from_links.",
+        description="Composed via loopskill_compose_bundle_from_links.",
         is_base=False,
         bundle_owner=ctx.user_id,
     )
@@ -481,6 +481,6 @@ def recipes_compose_cookbook_from_links(
         "links": per_link,
         "next": (
             "Publish this cookbook (set visibility='public' + a slug) to get a shareable "
-            "cookbook:// link, then recipes_install_from_cookbook installs the whole stack in one call."
+            "bundle:// link, then loopskill_install_from_bundle installs the whole stack in one call."
         ),
     }

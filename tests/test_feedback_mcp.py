@@ -1,14 +1,14 @@
 """tests/test_feedback_mcp.py — Stream 1 test suite.
 
 9 test cases covering:
-  1. recipes_feedback happy path
-  2. recipes_feedback dedup (same signature within 7d)
-  3. recipes_feedback per-tool window (11th call in 24h)
-  4. recipes_feedback force=true override
-  5. recipes_feedback cross-tool ceiling (31st total)
-  6. recipes_feedback loop detector (3 in 5 min)
-  7. recipes_request_recipe happy path
-  8. recipes_report_skill_error happy path (RECIPES_REPORT_ERRORS=true)
+  1. loopskill_feedback happy path
+  2. loopskill_feedback dedup (same signature within 7d)
+  3. loopskill_feedback per-tool window (11th call in 24h)
+  4. loopskill_feedback force=true override
+  5. loopskill_feedback cross-tool ceiling (31st total)
+  6. loopskill_feedback loop detector (3 in 5 min)
+  7. loopskill_request_skill happy path
+  8. loopskill_report_skill_error happy path (RECIPES_REPORT_ERRORS=true)
   9. github_dispatch failure -> endpoint still returns ok=true (durable write)
 """
 from __future__ import annotations
@@ -61,7 +61,7 @@ def feedback_client(db_session: Session):
         yield c
 
 
-# ── Test 1: recipes_feedback happy path ──────────────────────────────────────
+# ── Test 1: loopskill_feedback happy path ──────────────────────────────────────
 
 def test_feedback_happy_path(feedback_client, db_session):
     """POST /api/v1/feedback returns 201 with ok=true; issue_url is pending ("").
@@ -86,7 +86,7 @@ def test_feedback_happy_path(feedback_client, db_session):
     mock_dispatch.assert_called_once()
 
 
-# ── Test 2: recipes_feedback dedup ────────────────────────────────────────────
+# ── Test 2: loopskill_feedback dedup ────────────────────────────────────────────
 
 def test_feedback_dedup(feedback_client, db_session):
     """Same feedback signature within 7d returns deduped=True with cached issue_url."""
@@ -274,7 +274,7 @@ def test_feedback_loop_detector(db_session):
     assert "retry_at" in detail
 
 
-# ── Test 7: recipes_request_recipe happy path ─────────────────────────────────
+# ── Test 7: loopskill_request_skill happy path ─────────────────────────────────
 
 def test_recipify_request_happy_path(db_session):
     """POST /api/v1/recipify-request returns 201 with ok=true."""
@@ -309,22 +309,22 @@ def test_recipify_request_happy_path(db_session):
     assert call_args[0][1]["target_name"] == "cognee-api-watchdog"
 
 
-# ── Test 8: recipes_report_skill_error happy path ─────────────────────────────
+# ── Test 8: loopskill_report_skill_error happy path ─────────────────────────────
 
 @pytest.mark.skipif(
     os.environ.get("RECIPES_REPORT_ERRORS", "").lower() != "true",
     reason="RECIPES_REPORT_ERRORS not set to true",
 )
 def test_skill_error_happy_path_mcp(db_session):
-    """recipes_report_skill_error MCP tool returns ok=true when RECIPES_REPORT_ERRORS=true."""
+    """loopskill_report_skill_error MCP tool returns ok=true when RECIPES_REPORT_ERRORS=true."""
     from tests.conftest import make_skill
-    from app.mcp.tools.skill_error import recipes_report_skill_error
+    from app.mcp.tools.skill_error import loopskill_report_skill_error
 
     make_skill(db_session, slug="cognee-v1-api-migration")
 
     with patch("app.mcp.tools.skill_error.github_dispatch.dispatch_event",
                return_value=FAKE_ISSUE_URL) as mock_dispatch:
-        result = recipes_report_skill_error(
+        result = loopskill_report_skill_error(
             db_session,
             slug="cognee-v1-api-migration",
             signature="deadbeef1234abcd",

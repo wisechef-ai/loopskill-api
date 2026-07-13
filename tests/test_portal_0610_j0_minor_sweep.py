@@ -35,7 +35,7 @@ def _user_ctx(user_id):
 
 
 def test_r8_invalid_channel_rejected(db_session):
-    from app.mcp.tools.fleet import recipes_fleet_create, recipes_fleet_subscribe
+    from app.mcp.tools.fleet import loopskill_fleet_create, loopskill_fleet_subscribe
     from app.models import Bundle, User
 
     owner = User(id=uuid.uuid4(), display_name="o", email=f"{uuid.uuid4().hex[:8]}@e.com")
@@ -46,10 +46,10 @@ def test_r8_invalid_channel_rejected(db_session):
     db_session.flush()
     ctx = _user_ctx(owner.id)
 
-    fleet = recipes_fleet_create(db=db_session, name="f", ctx=ctx)
+    fleet = loopskill_fleet_create(db=db_session, name="f", ctx=ctx)
     fleet_id = fleet["fleet_id"] if "fleet_id" in fleet else fleet.get("id")
 
-    bad = recipes_fleet_subscribe(
+    bad = loopskill_fleet_subscribe(
         db=db_session, fleet_id=str(fleet_id), cookbook_id=str(cb.id), channel="turbo", ctx=ctx
     )
     assert bad.get("error") == "invalid_channel", bad
@@ -57,21 +57,21 @@ def test_r8_invalid_channel_rejected(db_session):
 
 
 def test_r8_valid_channels_accepted(db_session):
-    from app.mcp.tools.fleet import recipes_fleet_create, recipes_fleet_subscribe
+    from app.mcp.tools.fleet import loopskill_fleet_create, loopskill_fleet_subscribe
     from app.models import Bundle, User
 
     owner = User(id=uuid.uuid4(), display_name="o", email=f"{uuid.uuid4().hex[:8]}@e.com")
     db_session.add(owner)
     db_session.flush()
     ctx = _user_ctx(owner.id)
-    fleet = recipes_fleet_create(db=db_session, name="f2", ctx=ctx)
+    fleet = loopskill_fleet_create(db=db_session, name="f2", ctx=ctx)
     fleet_id = fleet["fleet_id"] if "fleet_id" in fleet else fleet.get("id")
 
     for ch in ("canary", "stable", "frozen"):
         cb = Bundle(id=uuid.uuid4(), name=f"cb-{ch}", bundle_owner=owner.id)
         db_session.add(cb)
         db_session.flush()
-        out = recipes_fleet_subscribe(
+        out = loopskill_fleet_subscribe(
             db=db_session, fleet_id=str(fleet_id), cookbook_id=str(cb.id), channel=ch, ctx=ctx
         )
         assert out.get("error") is None, out
