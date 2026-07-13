@@ -1,4 +1,4 @@
-"""Server-side pre-flight checks for `recipes apply cookbook://<slug>`.
+"""Server-side pre-flight checks for `recipes apply bundle://<slug>`.
 
 spotify_0608 Ph A — re-homed from ``bucket_preflight``. The meta-skill calls
 this before touching the host filesystem. Returns a structured report that

@@ -1,9 +1,9 @@
 """Tests for spotify_0608 Ph D — streaming MCP cookbook-composition verbs.
 
 Covers the three verbs in app/mcp/tools/cookbook_stream.py:
-  - recipes_install_from_cookbook  (install from a public cookbook link)
-  - recipes_pick_best_from_cookbook (best skill for a need from a link)
-  - recipes_compose_cookbook_from_links (compose a new owned cookbook from N links)
+  - loopskill_install_from_bundle  (install from a public cookbook link)
+  - loopskill_pick_best_from_bundle (best skill for a need from a link)
+  - loopskill_compose_bundle_from_links (compose a new owned cookbook from N links)
 
 Plus the link grammar (_parse_link / _strip_ref) and the dispatch wiring
 (registry tool defs + server _dispatch branches).
@@ -23,15 +23,15 @@ from app.auth_ctx import AuthContext
 from app.mcp.tools.bundle_install import CookbookInstallError
 from app.mcp.tools.bundle_stream import (
     LINK_BARE,
-    LINK_COOKBOOK,
+    LINK_BUNDLE,
     LINK_EXTERNAL,
     LINK_SKILL,
     _parse_link,
     _relevance,
     _strip_ref,
-    recipes_compose_cookbook_from_links,
-    recipes_install_from_cookbook,
-    recipes_pick_best_from_cookbook,
+    loopskill_compose_bundle_from_links,
+    loopskill_install_from_bundle,
+    loopskill_pick_best_from_bundle,
 )
 from app.models import (
     Base,
@@ -161,10 +161,18 @@ def test_strip_ref_drops_query_and_fragment():
     assert _strip_ref("  bar  ") == "bar"
 
 
-def test_parse_link_cookbook_scheme():
-    assert _parse_link("cookbook://my-stack") == (LINK_COOKBOOK, "my-stack")
-    assert _parse_link("cookbook:my-stack") == (LINK_COOKBOOK, "my-stack")
-    assert _parse_link("cookbook://my-stack?ref=alice") == (LINK_COOKBOOK, "my-stack")
+def test_parse_link_bundle_scheme():
+    assert _parse_link("bundle://my-stack") == (LINK_BUNDLE, "my-stack")
+    assert _parse_link("bundle:my-stack") == (LINK_BUNDLE, "my-stack")
+    assert _parse_link("bundle://my-stack?ref=alice") == (LINK_BUNDLE, "my-stack")
+
+
+def test_parse_link_drops_legacy_cookbook_scheme():
+    # lsrename_0713: the cookbook:// URI scheme was renamed to bundle:// and
+    # back-compat was DROPPED. A legacy cookbook:// link must NOT resolve as a
+    # bundle — it falls through to a bare token (unknown scheme prefix).
+    assert _parse_link("cookbook://my-stack") == (LINK_BARE, "cookbook://my-stack")
+    assert _parse_link("cookbook:my-stack") == (LINK_BARE, "cookbook:my-stack")
 
 
 def test_parse_link_skill_scheme():
@@ -226,11 +234,11 @@ def test_install_from_cookbook_returns_all_skills_and_clone_line(db):
     _attach(db, cb, s1)
     _attach(db, cb, s2)
 
-    out = recipes_install_from_cookbook(db, link="cookbook://awakened-agent")
+    out = loopskill_install_from_bundle(db, link="bundle://awakened-agent")
     assert out["slug"] == "awakened-agent"
     assert {s["slug"] for s in out["skills"]} == {"summarize-cli", "super-memory"}
     assert all(s["tarball_url"] for s in out["skills"])
-    assert "cookbook://awakened-agent" in out["clone_line"]
+    assert "bundle://awakened-agent" in out["clone_line"]
     assert f"?ref={owner.id}" in out["clone_line"]
     # install events recorded for both
     assert db.query(InstallEvent).count() == 2
@@ -242,7 +250,7 @@ def test_install_from_cookbook_bare_slug(db):
     s1 = _mk_skill(db, "tool-a")
     _mk_version(db, s1)
     _attach(db, cb, s1)
-    out = recipes_install_from_cookbook(db, link="bare-stack")
+    out = loopskill_install_from_bundle(db, link="bare-stack")
     assert out["slug"] == "bare-stack"
     assert len(out["skills"]) == 1
 
@@ -251,13 +259,13 @@ def test_install_from_cookbook_private_is_404(db):
     owner = _mk_user(db)
     _mk_cookbook(db, owner, "secret", visibility="private")
     with pytest.raises(CookbookInstallError) as ei:
-        recipes_install_from_cookbook(db, link="cookbook://secret")
+        loopskill_install_from_bundle(db, link="bundle://secret")
     assert ei.value.status == 404
 
 
 def test_install_from_cookbook_rejects_skill_link(db):
     with pytest.raises(CookbookInstallError) as ei:
-        recipes_install_from_cookbook(db, link="skill://summarize-cli")
+        loopskill_install_from_bundle(db, link="skill://summarize-cli")
     assert ei.value.code == "not_a_cookbook_link"
 
 
@@ -270,7 +278,7 @@ def test_install_from_cookbook_skips_disabled(db):
     _mk_version(db, s2)
     _attach(db, cb, s1)
     _attach(db, cb, s2, source="disabled")
-    out = recipes_install_from_cookbook(db, link="cookbook://with-disabled")
+    out = loopskill_install_from_bundle(db, link="bundle://with-disabled")
     assert {s["slug"] for s in out["skills"]} == {"live"}
 
 
@@ -286,7 +294,7 @@ def test_pick_best_by_need_relevance(db):
     _mk_version(db, s2)
     _attach(db, cb, s1)
     _attach(db, cb, s2)
-    out = recipes_pick_best_from_cookbook(db, link="cookbook://tools", need="pull request")
+    out = loopskill_pick_best_from_bundle(db, link="bundle://tools", need="pull request")
     assert out["picked"]["slug"] == "pr-draft"
     assert out["picked"]["relevance"] >= 1
     assert "install_line" in out["picked"]
@@ -302,7 +310,7 @@ def test_pick_best_ties_broken_by_installs(db):
     _attach(db, cb, s1)
     _attach(db, cb, s2)
     _install(db, s2, n=5)  # s2 more installed; both equally relevant
-    out = recipes_pick_best_from_cookbook(db, link="cookbook://popular", need="memory")
+    out = loopskill_pick_best_from_bundle(db, link="bundle://popular", need="memory")
     assert out["picked"]["slug"] == "high"
 
 
@@ -316,7 +324,7 @@ def test_pick_best_no_need_ranks_by_installs(db):
     _attach(db, cb, s1)
     _attach(db, cb, s2)
     _install(db, s1, n=3)
-    out = recipes_pick_best_from_cookbook(db, link="cookbook://noneed")
+    out = loopskill_pick_best_from_bundle(db, link="bundle://noneed")
     assert out["picked"]["slug"] == "a"
 
 
@@ -326,14 +334,14 @@ def test_pick_best_need_with_no_match_falls_back_to_popularity(db):
     s1 = _mk_skill(db, "alpha", "Alpha", "nothing relevant")
     _mk_version(db, s1)
     _attach(db, cb, s1)
-    out = recipes_pick_best_from_cookbook(db, link="cookbook://fallback", need="zzz-unmatchable")
+    out = loopskill_pick_best_from_bundle(db, link="bundle://fallback", need="zzz-unmatchable")
     assert out["picked"]["slug"] == "alpha"  # fell back, didn't return None
 
 
 def test_pick_best_empty_cookbook_returns_none(db):
     owner = _mk_user(db)
     _mk_cookbook(db, owner, "empty")
-    out = recipes_pick_best_from_cookbook(db, link="cookbook://empty")
+    out = loopskill_pick_best_from_bundle(db, link="bundle://empty")
     assert out["picked"] is None
     assert out["ranked"] == []
 
@@ -344,7 +352,7 @@ def test_pick_best_does_not_record_installs(db):
     s1 = _mk_skill(db, "x")
     _mk_version(db, s1)
     _attach(db, cb, s1)
-    recipes_pick_best_from_cookbook(db, link="cookbook://noinstall", need="x")
+    loopskill_pick_best_from_bundle(db, link="bundle://noinstall", need="x")
     assert db.query(InstallEvent).count() == 0  # picking != installing
 
 
@@ -363,9 +371,9 @@ def test_compose_unions_skills_from_multiple_links(db):
     _mk_skill(db, "chef")
 
     ctx = _user_ctx(owner)
-    out = recipes_compose_cookbook_from_links(
+    out = loopskill_compose_bundle_from_links(
         db,
-        links=["cookbook://src-stack", "skill://chef"],
+        links=["bundle://src-stack", "skill://chef"],
         name="My Awakened Agent",
         ctx=ctx,
     )
@@ -386,7 +394,7 @@ def test_compose_dedupes_overlapping_skills(db):
     _attach(db, cb_a, s1)
     _attach(db, cb_b, s1)
     ctx = _user_ctx(owner)
-    out = recipes_compose_cookbook_from_links(db, links=["cookbook://a-stack", "cookbook://b-stack"], ctx=ctx)
+    out = loopskill_compose_bundle_from_links(db, links=["bundle://a-stack", "bundle://b-stack"], ctx=ctx)
     assert out["skill_count"] == 1  # deduped
 
 
@@ -396,12 +404,12 @@ def test_compose_partial_success_reports_bad_link(db):
     cb = _mk_cookbook(db, owner, "good-stack")
     _attach(db, cb, s1)
     ctx = _user_ctx(owner)
-    out = recipes_compose_cookbook_from_links(
-        db, links=["cookbook://good-stack", "skill://does-not-exist"], ctx=ctx
+    out = loopskill_compose_bundle_from_links(
+        db, links=["bundle://good-stack", "skill://does-not-exist"], ctx=ctx
     )
     assert out["skill_count"] == 1
     per = {entry["link"]: entry for entry in out["links"]}
-    assert per["cookbook://good-stack"]["ok"] is True
+    assert per["bundle://good-stack"]["ok"] is True
     assert per["skill://does-not-exist"]["ok"] is False
 
 
@@ -409,27 +417,27 @@ def test_compose_all_links_dead_raises(db):
     owner = _mk_user(db)
     ctx = _user_ctx(owner)
     with pytest.raises(CookbookInstallError) as ei:
-        recipes_compose_cookbook_from_links(db, links=["skill://nope"], ctx=ctx)
+        loopskill_compose_bundle_from_links(db, links=["skill://nope"], ctx=ctx)
     assert ei.value.code == "no_skills_resolved"
 
 
 def test_compose_requires_user_scope(db):
     with pytest.raises(CookbookInstallError) as ei:
-        recipes_compose_cookbook_from_links(db, links=["skill://x"], ctx=AuthContext(scope="anonymous"))
+        loopskill_compose_bundle_from_links(db, links=["skill://x"], ctx=AuthContext(scope="anonymous"))
     assert ei.value.status == 401
 
 
 def test_compose_rejects_empty_links(db):
     owner = _mk_user(db)
     with pytest.raises(CookbookInstallError) as ei:
-        recipes_compose_cookbook_from_links(db, links=[], ctx=_user_ctx(owner))
+        loopskill_compose_bundle_from_links(db, links=[], ctx=_user_ctx(owner))
     assert ei.value.code == "no_links"
 
 
 def test_compose_rejects_too_many_links(db):
     owner = _mk_user(db)
     with pytest.raises(CookbookInstallError) as ei:
-        recipes_compose_cookbook_from_links(
+        loopskill_compose_bundle_from_links(
             db, links=[f"skill://s{i}" for i in range(26)], ctx=_user_ctx(owner)
         )
     assert ei.value.code == "too_many_links"
@@ -444,7 +452,7 @@ def test_compose_honors_tier_cookbook_cap(db):
     _attach(db, src, s1)
     ctx = _user_ctx(owner, tier="free")
     with pytest.raises(CookbookInstallError) as ei:
-        recipes_compose_cookbook_from_links(db, links=["cookbook://z-stack"], ctx=ctx)
+        loopskill_compose_bundle_from_links(db, links=["bundle://z-stack"], ctx=ctx)
     assert ei.value.code == "cookbook_limit"
 
 
@@ -452,7 +460,7 @@ def test_compose_bare_token_resolves_cookbook_then_skill(db):
     owner = _mk_user(db)
     _mk_skill(db, "barewin")
     ctx = _user_ctx(owner)
-    out = recipes_compose_cookbook_from_links(db, links=["barewin"], ctx=ctx)
+    out = loopskill_compose_bundle_from_links(db, links=["barewin"], ctx=ctx)
     assert out["skill_count"] == 1
     assert out["skills"][0]["slug"] == "barewin"
 
@@ -464,9 +472,9 @@ def test_verbs_registered_in_registry():
     from app.mcp.registry import _tool_definitions
 
     names = {t.name for t in _tool_definitions()}
-    assert "recipes_install_from_cookbook" in names
-    assert "recipes_pick_best_from_cookbook" in names
-    assert "recipes_compose_cookbook_from_links" in names
+    assert "loopskill_install_from_bundle" in names
+    assert "loopskill_pick_best_from_bundle" in names
+    assert "loopskill_compose_bundle_from_links" in names
 
 
 def test_dispatch_routes_install_from_cookbook(db):
@@ -478,9 +486,9 @@ def test_dispatch_routes_install_from_cookbook(db):
     from app.mcp.server import _dispatch
 
     out = _dispatch(
-        "recipes_install_from_cookbook",
+        "loopskill_install_from_bundle",
         db,
-        {"link": "cookbook://disp-stack"},
+        {"link": "bundle://disp-stack"},
         {"scope": "anonymous"},
     )
     assert out["slug"] == "disp-stack"
@@ -490,9 +498,9 @@ def test_dispatch_maps_error_envelope(db):
     from app.mcp.server import _dispatch
 
     out = _dispatch(
-        "recipes_install_from_cookbook",
+        "loopskill_install_from_bundle",
         db,
-        {"link": "cookbook://missing"},
+        {"link": "bundle://missing"},
         {"scope": "anonymous"},
     )
     assert out["code"] == "cookbook_not_found"

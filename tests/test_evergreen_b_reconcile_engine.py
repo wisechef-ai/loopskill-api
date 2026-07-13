@@ -2,7 +2,7 @@
 
 Pins the reconcile-contract §1 diff shape against the new
 app/services/reconcile.py engine. Six diff shapes (add/update/remove/drift/
-mixed/no-op) + prune gating + backward-compat that recipes_sync is untouched.
+mixed/no-op) + prune gating + backward-compat that loopskill_sync is untouched.
 """
 
 from __future__ import annotations
@@ -304,10 +304,10 @@ class TestReconcileIsolation:
 
 
 class TestBackwardCompat:
-    """recipes_sync must keep its update-only behavior (unchanged surface)."""
+    """loopskill_sync must keep its update-only behavior (unchanged surface)."""
 
     def test_recipes_sync_still_update_only(self, db):
-        from app.mcp.tools.recipes_sync import recipes_sync
+        from app.mcp.tools.loopskill_sync import loopskill_sync
 
         owner = _user(db)
         cb = _cookbook(db, owner)
@@ -316,7 +316,7 @@ class TestBackwardCompat:
         db.commit()
 
         ctx = AuthContext(scope="user", user_id=owner.id, tier="pro")
-        res = recipes_sync(db=db, ctx=ctx, cookbook_id=str(cb.id))
+        res = loopskill_sync(db=db, ctx=ctx, cookbook_id=str(cb.id))
         # Legacy shape: 'changes' with action='update', not the new {add,update,...} diff.
         assert "changes" in res
         assert res["changes"][0]["action"] == "update"

@@ -4,47 +4,47 @@ Each tool is a plain async function ``(db: Session, **args) -> dict`` so the
 same callable serves the SSE transport, the stdio transport, and unit tests.
 """
 
-from app.mcp.tools.carousel_today import recipes_carousel_today
-from app.mcp.tools.configure_feedback import recipes_configure_feedback
+from app.mcp.tools.carousel_today import loopskill_carousel_today
+from app.mcp.tools.configure_feedback import loopskill_configure_feedback
 from app.mcp.tools.bundle_install import (
     CookbookInstallError,
-    recipes_cookbook_install,
+    loopskill_bundle_install,
 )
 from app.mcp.tools.bundle_stream import (
-    recipes_compose_cookbook_from_links,
-    recipes_install_from_cookbook,
-    recipes_pick_best_from_cookbook,
+    loopskill_compose_bundle_from_links,
+    loopskill_install_from_bundle,
+    loopskill_pick_best_from_bundle,
 )
-from app.mcp.tools.doctor import recipes_doctor
-from app.mcp.tools.feedback import recipes_feedback
+from app.mcp.tools.doctor import loopskill_doctor
+from app.mcp.tools.feedback import loopskill_feedback
 from app.mcp.tools.fleet import (
-    recipes_fleet_create,
-    recipes_fleet_list,
-    recipes_fleet_subscribe,
-    recipes_fleet_sync,
+    loopskill_fleet_create,
+    loopskill_fleet_list,
+    loopskill_fleet_subscribe,
+    loopskill_fleet_sync,
 )
-from app.mcp.tools.install import recipes_install
-from app.mcp.tools.like import recipes_like
-from app.mcp.tools.list_cookbook import recipes_list_cookbook
-from app.mcp.tools.publish_request import recipes_publish_request
-from app.mcp.tools.recall import recipes_recall
-from app.mcp.tools.recipes_sync import recipes_sync
-from app.mcp.tools.recipify import recipes_recipify
-from app.mcp.tools.recipify_request import recipes_request_recipe
-from app.mcp.tools.search import recipes_search
-from app.mcp.tools.seeker import recipes_seeker
+from app.mcp.tools.install import loopskill_install
+from app.mcp.tools.like import loopskill_like
+from app.mcp.tools.list_cookbook import loopskill_list_bundle
+from app.mcp.tools.publish_request import loopskill_publish_request
+from app.mcp.tools.recall import loopskill_recall
+from app.mcp.tools.loopskill_sync import loopskill_sync
+from app.mcp.tools.recipify import loopskill_skillify
+from app.mcp.tools.recipify_request import loopskill_request_skill
+from app.mcp.tools.search import loopskill_search
+from app.mcp.tools.seeker import loopskill_seeker
 from app.mcp.tools.share import (
-    recipes_share_create,
-    recipes_share_list,
-    recipes_share_revoke,
-    recipes_share_rotate,
+    loopskill_share_create,
+    loopskill_share_list,
+    loopskill_share_revoke,
+    loopskill_share_rotate,
 )
-from app.mcp.tools.skill_error import recipes_report_skill_error
-from app.mcp.tools.skill_patch import recipes_propose_skill_patch
-from app.mcp.tools.subrecipe_resolve import recipes_subrecipe_resolve
-from app.mcp.tools.fork_deploy import recipes_cookbook_attach, recipes_tailor_version
-from app.mcp.tools.tailor import recipes_fork_list, recipes_tailor
-from app.mcp.tools.bundle_handoff import recipes_cookbook_handoff  # compat-alias
+from app.mcp.tools.skill_error import loopskill_report_skill_error
+from app.mcp.tools.skill_patch import loopskill_propose_skill_patch
+from app.mcp.tools.subrecipe_resolve import loopskill_subskill_resolve
+from app.mcp.tools.fork_deploy import loopskill_bundle_attach, loopskill_tailor_version
+from app.mcp.tools.tailor import loopskill_fork_list, loopskill_tailor
+from app.mcp.tools.bundle_handoff import loopskill_bundle_handoff  # compat-alias
 from app.mcp.tools.loopskill_catalog import (
     loopskill_get_loop,
     loopskill_get_personality,
@@ -61,50 +61,50 @@ from app.mcp.tools.composite_loop_catalog import (
 )
 
 __all__ = [
-    "recipes_search",
-    "recipes_install",
-    "recipes_like",
-    "recipes_list_cookbook",
-    "recipes_recall",
-    "recipes_recipify",
-    "recipes_carousel_today",
-    "recipes_subrecipe_resolve",
-    "recipes_doctor",
-    "recipes_seeker",
-    "recipes_sync",
-    "recipes_feedback",
-    "recipes_request_recipe",
-    "recipes_report_skill_error",
-    "recipes_propose_skill_patch",
+    "loopskill_search",
+    "loopskill_install",
+    "loopskill_like",
+    "loopskill_list_bundle",
+    "loopskill_recall",
+    "loopskill_skillify",
+    "loopskill_carousel_today",
+    "loopskill_subskill_resolve",
+    "loopskill_doctor",
+    "loopskill_seeker",
+    "loopskill_sync",
+    "loopskill_feedback",
+    "loopskill_request_skill",
+    "loopskill_report_skill_error",
+    "loopskill_propose_skill_patch",
     # Phase D: share-token MCP tools
-    "recipes_share_create",
-    "recipes_share_list",
-    "recipes_share_revoke",
-    "recipes_share_rotate",
+    "loopskill_share_create",
+    "loopskill_share_list",
+    "loopskill_share_revoke",
+    "loopskill_share_rotate",
     # Phase E: fleet tools
-    "recipes_fleet_create",
-    "recipes_fleet_subscribe",
-    "recipes_fleet_sync",
-    "recipes_fleet_list",
+    "loopskill_fleet_create",
+    "loopskill_fleet_subscribe",
+    "loopskill_fleet_sync",
+    "loopskill_fleet_list",
     # Phase C: publish-request MCP tool
-    "recipes_publish_request",
+    "loopskill_publish_request",
     # cookbook_share_2105 Phase F: bundle-scoped install  # compat-alias
-    "recipes_cookbook_install",
+    "loopskill_bundle_install",
     "CookbookInstallError",
     # spotify_0608 Ph D: streaming bundle-composition verbs
-    "recipes_install_from_cookbook",
-    "recipes_pick_best_from_cookbook",
-    "recipes_compose_cookbook_from_links",
+    "loopskill_install_from_bundle",
+    "loopskill_pick_best_from_bundle",
+    "loopskill_compose_bundle_from_links",
     # integrator_2905 W1: tailor/fork tools
-    "recipes_fork_list",
-    "recipes_tailor",
+    "loopskill_fork_list",
+    "loopskill_tailor",
     # loopclose_3005 Phase C: close the MCP tailor loop
-    "recipes_tailor_version",
-    "recipes_cookbook_attach",
+    "loopskill_tailor_version",
+    "loopskill_bundle_attach",
     # loopclose_3005 Phase I: bundle handoff
-    "recipes_cookbook_handoff",
+    "loopskill_bundle_handoff",
     # loopclose_3005 Phase J: user-routable feedback (THE MOAT)
-    "recipes_configure_feedback",
+    "loopskill_configure_feedback",
     # loopskill_0622 Phase 8: runnable catalog types (loops + personalities)
     "loopskill_search_loops",
     "loopskill_get_loop",

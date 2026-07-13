@@ -1,10 +1,10 @@
-"""recipes_share_* — Phase D MCP tools for cookbook share-token management.
+"""loopskill_share_* — Phase D MCP tools for cookbook share-token management.
 
 4 tools:
-  recipes_share_create  — create a new share token (returns config_blocks)
-  recipes_share_list    — list tokens for a cookbook (metadata only)
-  recipes_share_revoke  — soft-delete (deactivate) a token
-  recipes_share_rotate  — deactivate old + create new (returns config_blocks)
+  loopskill_share_create  — create a new share token (returns config_blocks)
+  loopskill_share_list    — list tokens for a cookbook (metadata only)
+  loopskill_share_revoke  — soft-delete (deactivate) a token
+  loopskill_share_rotate  — deactivate old + create new (returns config_blocks)
 
 All 4 require can_write_cookbook(ctx, cookbook).
 Service logic is delegated to app.share_token_routes._*_service helpers so
@@ -39,7 +39,7 @@ def _load_cookbook(db: Session, cookbook_id: str) -> Bundle | None:
     return db.query(Bundle).filter(Bundle.id == cid).first()
 
 
-def recipes_share_create(
+def loopskill_share_create(
     db: Session,
     *,
     cookbook_id: str,
@@ -87,7 +87,7 @@ def recipes_share_create(
     return result
 
 
-def recipes_share_list(
+def loopskill_share_list(
     db: Session,
     *,
     cookbook_id: str,
@@ -114,7 +114,7 @@ def recipes_share_list(
     return {"tokens": tokens}
 
 
-def recipes_share_revoke(
+def loopskill_share_revoke(
     db: Session,
     *,
     cookbook_id: str,
@@ -148,7 +148,7 @@ def recipes_share_revoke(
     return {"revoked": True, "token_id": token_id}
 
 
-def recipes_share_rotate(
+def loopskill_share_rotate(
     db: Session,
     *,
     cookbook_id: str,

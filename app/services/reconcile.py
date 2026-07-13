@@ -1,6 +1,6 @@
 """Reconcile engine — evergreen_0206 Phase B.
 
-Extends the update-only `recipes_sync` into a full desired-state reconcile that
+Extends the update-only `loopskill_sync` into a full desired-state reconcile that
 computes the complete diff between a cookbook's *declared* skill set (server
 desired-state) and an agent's *reported* local set (its lockfile):
 
@@ -12,13 +12,13 @@ Design:
   * Pure-ish compute (`compute_reconcile_plan`) — given the cookbook's declared
     rows + the caller's reported local state, returns the diff. No DB writes.
   * `plan` (dry_run) returns the diff; `apply` executes the server-side pin
-    writes (same as recipes_sync) and returns the diff the *client* must apply
+    writes (same as loopskill_sync) and returns the diff the *client* must apply
     locally (install_urls for add/update/drift, uninstall directives for
     remove). The agent-side application is Phase D.
   * REMOVE is gated behind an explicit `prune` flag (premortem #4 — default
     reconcile never uninstalls). REMOVE keys off the cookbook no longer
     declaring the skill (row absent OR source='disabled').
-  * Backward-compat: `recipes_sync` is untouched for existing callers; this is a
+  * Backward-compat: `loopskill_sync` is untouched for existing callers; this is a
     new surface (`recipes_reconcile`).
 """
 
@@ -248,7 +248,7 @@ def _attach_tarball_urls(db: Session, plan: ReconcilePlan) -> None:
     and rolls back the whole apply without it — but the engine never emitted
     one, so the first real reconcile ever run failed. Salt parity: the token
     MUST verify against ``install_routes._download``'s salt chain (primary
-    ``loopskill-install``; see recipes_sync._one_shot_urls and the
+    ``loopskill-install``; see loopskill_sync._one_shot_urls and the
     test_secfix_1905_d salt-parity suite).
     """
     from itsdangerous import URLSafeTimedSerializer

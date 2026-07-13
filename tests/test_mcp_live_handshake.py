@@ -200,6 +200,6 @@ def test_full_sdk_handshake_survives_get_stream(http_client: httpx.Client) -> No
     )
     # Sanity check: the canonical recipes tools should be present.
     tool_names = {t["name"] for t in tools}
-    expected = {"recipes_search", "recipes_install", "recipes_list_cookbook"}
+    expected = {"loopskill_search", "loopskill_install", "loopskill_list_bundle"}
     missing = expected - tool_names
     assert not missing, f"missing expected tools: {missing}"

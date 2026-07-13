@@ -1,4 +1,4 @@
-"""recipes_subrecipe_resolve — Phase C (sub-recipe key minting).
+"""loopskill_subskill_resolve — Phase C (sub-recipe key minting).
 
 Phase A always reported the caller as ``operator`` (legacy alias). Phase G (recipes_2005/G)
 updates the stub to return the canonical ``pro_plus`` scope (Phase 5 slug parity).
@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 
-def recipes_subrecipe_resolve(db: Session, **_: Any) -> dict[str, Any]:  # noqa: ARG001
+def loopskill_subskill_resolve(db: Session, **_: Any) -> dict[str, Any]:  # noqa: ARG001
     """Phase C stub: resolve a sub-recipe key to a scope.
 
     Phase G update: returns canonical 'pro_plus' scope instead of legacy 'operator'.

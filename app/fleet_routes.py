@@ -9,7 +9,7 @@ key whose scope='fleet' auth_ctx is already stamped by the middleware), then
 delegates to the existing tool functions — no fleet logic is duplicated.
 
 PM7 (contract-probe-first): the response shapes mirror the MCP tool contracts
-exactly (recipes_fleet_list → {fleets:[{fleet_id,name,subscriptions:[...]}]},
+exactly (loopskill_fleet_list → {fleets:[{fleet_id,name,subscriptions:[...]}]},
 etc.) so the two surfaces never drift.
 """
 
@@ -24,10 +24,10 @@ from sqlalchemy.orm import Session
 from app.auth_ctx import AuthContext
 from app.database import get_db
 from app.mcp.tools.fleet import (
-    recipes_fleet_create,
-    recipes_fleet_list,
-    recipes_fleet_subscribe,
-    recipes_fleet_sync,
+    loopskill_fleet_create,
+    loopskill_fleet_list,
+    loopskill_fleet_subscribe,
+    loopskill_fleet_sync,
 )
 from app.models import User
 
@@ -102,11 +102,11 @@ class FleetCreateIn(BaseModel):
 def list_fleets(request: Request, db: Session = Depends(get_db)):
     """GET /api/fleets — list the caller's fleets + subscriptions.
 
-    Mirrors recipes_fleet_list. The AppShell rail + /home + /fleets page all
+    Mirrors loopskill_fleet_list. The AppShell rail + /home + /fleets page all
     consume this. An anonymous caller gets 401 (the page bounces to /signin).
     """
     ctx = resolve_fleet_ctx(request, db)
-    return _raise_for_tool_error(recipes_fleet_list(db, ctx=ctx))
+    return _raise_for_tool_error(loopskill_fleet_list(db, ctx=ctx))
 
 
 @router.post("", status_code=201)
@@ -116,7 +116,7 @@ def create_fleet(body: FleetCreateIn, request: Request, db: Session = Depends(ge
     name = (body.name or "").strip()
     if not name:
         raise HTTPException(status_code=422, detail="invalid_name")
-    return _raise_for_tool_error(recipes_fleet_create(db, name=name, ctx=ctx))
+    return _raise_for_tool_error(loopskill_fleet_create(db, name=name, ctx=ctx))
 
 
 class SubscribeIn(BaseModel):
@@ -129,7 +129,7 @@ def subscribe_fleet(fleet_id: str, body: SubscribeIn, request: Request, db: Sess
     """POST /api/fleets/{id}/subscribe — subscribe a cookbook on a channel (idempotent)."""
     ctx = resolve_fleet_ctx(request, db)
     return _raise_for_tool_error(
-        recipes_fleet_subscribe(
+        loopskill_fleet_subscribe(
             db, fleet_id=fleet_id, cookbook_id=body.cookbook_id, channel=body.channel, ctx=ctx
         )
     )
@@ -143,4 +143,4 @@ class SyncIn(BaseModel):
 def sync_fleet_route(fleet_id: str, body: SyncIn, request: Request, db: Session = Depends(get_db)):
     """POST /api/fleets/{id}/sync — sync every subscribed cookbook. dry_run previews."""
     ctx = resolve_fleet_ctx(request, db)
-    return _raise_for_tool_error(recipes_fleet_sync(db, fleet_id=fleet_id, dry_run=body.dry_run, ctx=ctx))
+    return _raise_for_tool_error(loopskill_fleet_sync(db, fleet_id=fleet_id, dry_run=body.dry_run, ctx=ctx))

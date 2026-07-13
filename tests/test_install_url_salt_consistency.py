@@ -7,7 +7,7 @@ Phase 3+4 renamed the canonical salt from "recipes-skill-install" to
 Three producers that drifted in the original incident are pinned here:
   - bundle_routes._make_install_url
   - mcp/tools/install
-  - mcp/tools/recipes_sync._build_install_urls
+  - mcp/tools/loopskill_sync._build_install_urls
 """
 
 from __future__ import annotations
@@ -60,22 +60,22 @@ def test_mcp_install_tool_uses_canonical_salt() -> None:
 
 
 def test_mcp_recipes_sync_uses_canonical_salt() -> None:
-    """The MCP recipes_sync URL builder MUST pin the canonical salt.
+    """The MCP loopskill_sync URL builder MUST pin the canonical salt.
 
-    NOTE: ``import app.mcp.tools.recipes_sync as m`` does NOT give the module
-    here — ``app/mcp/tools/__init__.py`` rebinds the ``recipes_sync`` package
+    NOTE: ``import app.mcp.tools.loopskill_sync as m`` does NOT give the module
+    here — ``app/mcp/tools/__init__.py`` rebinds the ``loopskill_sync`` package
     attribute to the *function* of the same name, so the ``import ... as``
     form resolves to the function and ``inspect.getsource`` would return only
     that function's body (which never contains the salt — the salt lives in
     the ``_build_install_urls`` producer). Inspect the producer function
     directly, mirroring ``test_cookbook_routes_signer_uses_canonical_salt``.
     """
-    from app.mcp.tools.recipes_sync import _build_install_urls
+    from app.mcp.tools.loopskill_sync import _build_install_urls
 
     src = inspect.getsource(_build_install_urls)
     assert f'salt="{INSTALL_SALT}"' in src, (
-        "mcp.tools.recipes_sync._build_install_urls drifted off the canonical "
-        "install salt. Every recipes_sync install URL would silently break."
+        "mcp.tools.loopskill_sync._build_install_urls drifted off the canonical "
+        "install salt. Every loopskill_sync install URL would silently break."
     )
 
 

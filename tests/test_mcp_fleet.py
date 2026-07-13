@@ -31,10 +31,10 @@ from app.auth_ctx import AuthContext
 from app.authz import can_use_fleet
 from app.database import get_db
 from app.mcp.tools.fleet import (
-    recipes_fleet_create,
-    recipes_fleet_list,
-    recipes_fleet_subscribe,
-    recipes_fleet_sync,
+    loopskill_fleet_create,
+    loopskill_fleet_list,
+    loopskill_fleet_subscribe,
+    loopskill_fleet_sync,
 )
 from app.models import Base, Bundle, BundleSkill, Fleet, Skill, SkillVersion
 
@@ -124,10 +124,10 @@ def _make_skill_with_versions(db: Session, slug: str) -> Skill:
 
 
 def test_fleet_create_returns_unique_rec_fleet_key(fleet_db):
-    """recipes_fleet_create must return a key with the rec_fleet_ prefix."""
+    """loopskill_fleet_create must return a key with the rec_fleet_ prefix."""
     owner = uuid4()
     ctx = AuthContext(scope="user", user_id=owner)
-    result = recipes_fleet_create(fleet_db, name="Alpha Fleet", ctx=ctx)
+    result = loopskill_fleet_create(fleet_db, name="Alpha Fleet", ctx=ctx)
 
     assert "fleet_id" in result
     assert "fleet_key" in result
@@ -143,7 +143,7 @@ def test_fleet_create_returns_unique_rec_fleet_key(fleet_db):
     assert len(parts[3]) == 32, f"Expected 32-hex random, got: {parts[3]!r}"
 
     # Second create must produce a DIFFERENT key
-    result2 = recipes_fleet_create(fleet_db, name="Beta Fleet", ctx=ctx)
+    result2 = loopskill_fleet_create(fleet_db, name="Beta Fleet", ctx=ctx)
     assert result2["fleet_key"] != result["fleet_key"]
 
 
@@ -154,7 +154,7 @@ def test_fleet_create_persists_hash_not_plaintext(fleet_db):
     """Fleet row must store sha256 hash, NOT the plaintext key."""
     owner = uuid4()
     ctx = AuthContext(scope="user", user_id=owner)
-    result = recipes_fleet_create(fleet_db, name="Hash Fleet", ctx=ctx)
+    result = loopskill_fleet_create(fleet_db, name="Hash Fleet", ctx=ctx)
 
     fleet_id = result["fleet_id"]
     plaintext_key = result["fleet_key"]
@@ -173,17 +173,17 @@ def test_fleet_create_persists_hash_not_plaintext(fleet_db):
 
 
 def test_fleet_subscribe_idempotent(fleet_db):
-    """Calling recipes_fleet_subscribe twice with same args must be idempotent."""
+    """Calling loopskill_fleet_subscribe twice with same args must be idempotent."""
     owner = uuid4()
     ctx = AuthContext(scope="user", user_id=owner)
 
-    fleet_result = recipes_fleet_create(fleet_db, name="Sub Fleet", ctx=ctx)
+    fleet_result = loopskill_fleet_create(fleet_db, name="Sub Fleet", ctx=ctx)
     fleet_id = fleet_result["fleet_id"]
 
     cookbook = _make_cookbook(fleet_db, owner_id=owner)
     cb_id = str(cookbook.id)
 
-    r1 = recipes_fleet_subscribe(
+    r1 = loopskill_fleet_subscribe(
         fleet_db, fleet_id=fleet_id, cookbook_id=cb_id, channel="stable", ctx=ctx
     )
     assert r1["fleet_id"] == fleet_id
@@ -191,7 +191,7 @@ def test_fleet_subscribe_idempotent(fleet_db):
     assert r1["channel"] == "stable"
 
     # Second call must NOT raise and must return same result
-    r2 = recipes_fleet_subscribe(
+    r2 = loopskill_fleet_subscribe(
         fleet_db, fleet_id=fleet_id, cookbook_id=cb_id, channel="stable", ctx=ctx
     )
     assert r2["fleet_id"] == fleet_id
@@ -215,11 +215,11 @@ def test_fleet_subscribe_idempotent(fleet_db):
 
 
 def test_fleet_sync_aggregates_across_cookbooks(fleet_db):
-    """recipes_fleet_sync must aggregate changes across all subscribed cookbooks."""
+    """loopskill_fleet_sync must aggregate changes across all subscribed cookbooks."""
     owner = uuid4()
     ctx = AuthContext(scope="master")
 
-    fleet_result = recipes_fleet_create(
+    fleet_result = loopskill_fleet_create(
         fleet_db, name="Sync Fleet", ctx=AuthContext(scope="user", user_id=owner)
     )
     fleet_id = fleet_result["fleet_id"]
@@ -247,14 +247,14 @@ def test_fleet_sync_aggregates_across_cookbooks(fleet_db):
     # only advances to versions that passed the eval gate (promoted_to_stable_at).
     # This test's versions are unpromoted, and its purpose is aggregation across
     # cookbooks, so it subscribes on 'canary' (advances to latest = 2.0.0).
-    recipes_fleet_subscribe(
+    loopskill_fleet_subscribe(
         fleet_db,
         fleet_id=fleet_id,
         cookbook_id=str(cb1.id),
         channel="canary",
         ctx=ctx,
     )
-    recipes_fleet_subscribe(
+    loopskill_fleet_subscribe(
         fleet_db,
         fleet_id=fleet_id,
         cookbook_id=str(cb2.id),
@@ -263,7 +263,7 @@ def test_fleet_sync_aggregates_across_cookbooks(fleet_db):
     )
 
     # Sync with dry_run=True
-    result = recipes_fleet_sync(fleet_db, fleet_id=fleet_id, dry_run=True, ctx=ctx)
+    result = loopskill_fleet_sync(fleet_db, fleet_id=fleet_id, dry_run=True, ctx=ctx)
 
     assert "fleet_id" in result
     assert result["fleet_id"] == fleet_id
@@ -292,7 +292,7 @@ def test_x_fleet_key_header_grants_install_access(fleet_db):
 
     owner = uuid4()
     ctx_user = AuthContext(scope="user", user_id=owner)
-    result = recipes_fleet_create(fleet_db, name="Middleware Fleet", ctx=ctx_user)
+    result = loopskill_fleet_create(fleet_db, name="Middleware Fleet", ctx=ctx_user)
     fleet_key = result["fleet_key"]
     fleet_id = result["fleet_id"]
 
@@ -319,7 +319,7 @@ def test_fleet_key_prefix_distinct_from_cbt_and_rec_live(fleet_db):
     """Fleet keys must be distinctly prefixed from cbt_ and rec_live_ keys."""
     owner = uuid4()
     ctx = AuthContext(scope="user", user_id=owner)
-    result = recipes_fleet_create(fleet_db, name="Prefix Fleet", ctx=ctx)
+    result = loopskill_fleet_create(fleet_db, name="Prefix Fleet", ctx=ctx)
     key = result["fleet_key"]
 
     # Must NOT be a cbt_ token
@@ -340,15 +340,15 @@ def test_fleet_key_prefix_distinct_from_cbt_and_rec_live(fleet_db):
 
 
 def test_fleet_list_returns_subscriptions(fleet_db):
-    """recipes_fleet_list must return all fleets owned by the caller with subscriptions."""
+    """loopskill_fleet_list must return all fleets owned by the caller with subscriptions."""
     owner = uuid4()
     ctx = AuthContext(scope="user", user_id=owner)
 
-    f1 = recipes_fleet_create(fleet_db, name="List Fleet 1", ctx=ctx)
-    f2 = recipes_fleet_create(fleet_db, name="List Fleet 2", ctx=ctx)
+    f1 = loopskill_fleet_create(fleet_db, name="List Fleet 1", ctx=ctx)
+    f2 = loopskill_fleet_create(fleet_db, name="List Fleet 2", ctx=ctx)
 
     cb = _make_cookbook(fleet_db, owner_id=owner)
-    recipes_fleet_subscribe(
+    loopskill_fleet_subscribe(
         fleet_db,
         fleet_id=f1["fleet_id"],
         cookbook_id=str(cb.id),
@@ -356,7 +356,7 @@ def test_fleet_list_returns_subscriptions(fleet_db):
         ctx=ctx,
     )
 
-    result = recipes_fleet_list(fleet_db, ctx=ctx)
+    result = loopskill_fleet_list(fleet_db, ctx=ctx)
     assert "fleets" in result
     fleet_ids = {f["fleet_id"] for f in result["fleets"]}
     assert f1["fleet_id"] in fleet_ids
@@ -421,78 +421,78 @@ def test_can_use_fleet_predicate(fleet_db):
 
 
 def test_fleet_create_forbidden_for_anonymous(fleet_db):
-    """recipes_fleet_create must return forbidden for anonymous callers."""
+    """loopskill_fleet_create must return forbidden for anonymous callers."""
     ctx = AuthContext.anonymous()
-    result = recipes_fleet_create(fleet_db, name="Anon Fleet", ctx=ctx)
+    result = loopskill_fleet_create(fleet_db, name="Anon Fleet", ctx=ctx)
     assert "error" in result
     assert result["error"] == "forbidden"
 
 
 def test_fleet_subscribe_invalid_fleet_id(fleet_db):
-    """recipes_fleet_subscribe must return error for bad fleet_id."""
+    """loopskill_fleet_subscribe must return error for bad fleet_id."""
     ctx = AuthContext(scope="master")
-    result = recipes_fleet_subscribe(
+    result = loopskill_fleet_subscribe(
         fleet_db, fleet_id="not-a-uuid", cookbook_id=str(uuid4()), ctx=ctx
     )
     assert result.get("error") == "invalid_fleet_id"
 
 
 def test_fleet_subscribe_not_found(fleet_db):
-    """recipes_fleet_subscribe must return not_found for unknown fleet."""
+    """loopskill_fleet_subscribe must return not_found for unknown fleet."""
     ctx = AuthContext(scope="master")
-    result = recipes_fleet_subscribe(
+    result = loopskill_fleet_subscribe(
         fleet_db, fleet_id=str(uuid4()), cookbook_id=str(uuid4()), ctx=ctx
     )
     assert result.get("error") == "not_found"
 
 
 def test_fleet_subscribe_forbidden(fleet_db):
-    """recipes_fleet_subscribe must return forbidden for wrong user."""
+    """loopskill_fleet_subscribe must return forbidden for wrong user."""
     owner = uuid4()
     ctx_owner = AuthContext(scope="user", user_id=owner)
-    fleet_result = recipes_fleet_create(fleet_db, name="Forbidden Fleet", ctx=ctx_owner)
+    fleet_result = loopskill_fleet_create(fleet_db, name="Forbidden Fleet", ctx=ctx_owner)
     fleet_id = fleet_result["fleet_id"]
 
     other_ctx = AuthContext(scope="user", user_id=uuid4())
     cb_id = str(uuid4())
-    result = recipes_fleet_subscribe(fleet_db, fleet_id=fleet_id, cookbook_id=cb_id, ctx=other_ctx)
+    result = loopskill_fleet_subscribe(fleet_db, fleet_id=fleet_id, cookbook_id=cb_id, ctx=other_ctx)
     assert result.get("error") == "forbidden"
 
 
 def test_fleet_subscribe_invalid_cookbook_id(fleet_db):
-    """recipes_fleet_subscribe must return error for bad cookbook_id."""
+    """loopskill_fleet_subscribe must return error for bad cookbook_id."""
     owner = uuid4()
     ctx = AuthContext(scope="user", user_id=owner)
-    fleet_result = recipes_fleet_create(fleet_db, name="CB Invalid", ctx=ctx)
+    fleet_result = loopskill_fleet_create(fleet_db, name="CB Invalid", ctx=ctx)
     fleet_id = fleet_result["fleet_id"]
 
-    result = recipes_fleet_subscribe(fleet_db, fleet_id=fleet_id, cookbook_id="bad", ctx=ctx)
+    result = loopskill_fleet_subscribe(fleet_db, fleet_id=fleet_id, cookbook_id="bad", ctx=ctx)
     assert result.get("error") == "invalid_cookbook_id"
 
 
 def test_fleet_sync_invalid_fleet_id(fleet_db):
-    """recipes_fleet_sync must return error for invalid fleet_id."""
+    """loopskill_fleet_sync must return error for invalid fleet_id."""
     ctx = AuthContext(scope="master")
-    result = recipes_fleet_sync(fleet_db, fleet_id="bad-uuid", ctx=ctx)
+    result = loopskill_fleet_sync(fleet_db, fleet_id="bad-uuid", ctx=ctx)
     assert result.get("error") == "invalid_fleet_id"
 
 
 def test_fleet_sync_not_found(fleet_db):
-    """recipes_fleet_sync must return not_found for unknown fleet."""
+    """loopskill_fleet_sync must return not_found for unknown fleet."""
     ctx = AuthContext(scope="master")
-    result = recipes_fleet_sync(fleet_db, fleet_id=str(uuid4()), ctx=ctx)
+    result = loopskill_fleet_sync(fleet_db, fleet_id=str(uuid4()), ctx=ctx)
     assert result.get("error") == "not_found"
 
 
 def test_fleet_sync_forbidden(fleet_db):
-    """recipes_fleet_sync must return forbidden for wrong user."""
+    """loopskill_fleet_sync must return forbidden for wrong user."""
     owner = uuid4()
     ctx_owner = AuthContext(scope="user", user_id=owner)
-    fleet_result = recipes_fleet_create(fleet_db, name="Sync Forbidden", ctx=ctx_owner)
+    fleet_result = loopskill_fleet_create(fleet_db, name="Sync Forbidden", ctx=ctx_owner)
     fleet_id = fleet_result["fleet_id"]
 
     other_ctx = AuthContext(scope="user", user_id=uuid4())
-    result = recipes_fleet_sync(fleet_db, fleet_id=fleet_id, ctx=other_ctx)
+    result = loopskill_fleet_sync(fleet_db, fleet_id=fleet_id, ctx=other_ctx)
     assert result.get("error") == "forbidden"
 
 
@@ -502,10 +502,10 @@ def test_fleet_list_master_sees_all(fleet_db):
     owner2 = uuid4()
     ctx1 = AuthContext(scope="user", user_id=owner1)
     ctx2 = AuthContext(scope="user", user_id=owner2)
-    r1 = recipes_fleet_create(fleet_db, name="Master List A", ctx=ctx1)
-    r2 = recipes_fleet_create(fleet_db, name="Master List B", ctx=ctx2)
+    r1 = loopskill_fleet_create(fleet_db, name="Master List A", ctx=ctx1)
+    r2 = loopskill_fleet_create(fleet_db, name="Master List B", ctx=ctx2)
 
-    result = recipes_fleet_list(fleet_db, ctx=AuthContext(scope="master"))
+    result = loopskill_fleet_list(fleet_db, ctx=AuthContext(scope="master"))
     fleet_ids = {f["fleet_id"] for f in result["fleets"]}
     assert r1["fleet_id"] in fleet_ids
     assert r2["fleet_id"] in fleet_ids
@@ -515,16 +515,16 @@ def test_fleet_list_fleet_scope(fleet_db):
     """Fleet-scoped key can list only its own fleet."""
     owner = uuid4()
     ctx_user = AuthContext(scope="user", user_id=owner)
-    fleet_result = recipes_fleet_create(fleet_db, name="Fleet Scope List", ctx=ctx_user)
+    fleet_result = loopskill_fleet_create(fleet_db, name="Fleet Scope List", ctx=ctx_user)
     fleet_id = UUID(fleet_result["fleet_id"])
 
     ctx_fleet = AuthContext(scope="fleet", fleet_id=fleet_id, user_id=owner)  # type: ignore[call-arg]
-    result = recipes_fleet_list(fleet_db, ctx=ctx_fleet)
+    result = loopskill_fleet_list(fleet_db, ctx=ctx_fleet)
     assert len(result["fleets"]) == 1
     assert result["fleets"][0]["fleet_id"] == str(fleet_id)
 
 
 def test_fleet_list_forbidden_for_anonymous(fleet_db):
     """Anonymous callers cannot list fleets."""
-    result = recipes_fleet_list(fleet_db, ctx=AuthContext.anonymous())
+    result = loopskill_fleet_list(fleet_db, ctx=AuthContext.anonymous())
     assert "error" in result

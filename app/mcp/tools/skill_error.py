@@ -1,4 +1,4 @@
-"""MCP tool: recipes_report_skill_error.
+"""MCP tool: loopskill_report_skill_error.
 
 Report that an installed recipe is broken, has wrong instructions, or fails
 on this host. Wraps the same helpers as POST /api/v1/skill-error without
@@ -31,7 +31,7 @@ def _is_opted_in() -> bool:
     return os.environ.get("RECIPES_REPORT_ERRORS", "").lower() == "true"
 
 
-def recipes_report_skill_error(
+def loopskill_report_skill_error(
     db: Session,
     *,
     slug: str,

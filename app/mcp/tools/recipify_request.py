@@ -1,4 +1,4 @@
-"""MCP tool: recipes_request_recipe.
+"""MCP tool: loopskill_request_skill.
 
 Request a new recipe (skill) to be added to the marketplace.
 Reuses the same signature/ratelimit/dispatch helpers as
@@ -22,7 +22,7 @@ def _sha256(*parts: str) -> str:
     return hashlib.sha256("|".join(parts).encode()).hexdigest()
 
 
-def recipes_request_recipe(
+def loopskill_request_skill(
     db: Session,
     *,
     target_name: str,

@@ -1,4 +1,4 @@
-"""recipes_cookbook_handoff — transfer or fork a cookbook to a new owner.
+"""loopskill_bundle_handoff — transfer or fork a cookbook to a new owner.
 
 loopclose_3005 Phase I.
 
@@ -42,7 +42,7 @@ from app.models import Bundle, BundleSkill, User
 _TAILORED_SOURCES = {"custom-added"}
 
 
-def recipes_cookbook_handoff(
+def loopskill_bundle_handoff(
     db: Session,
     *,
     ctx: AuthContext | None = None,

@@ -207,11 +207,18 @@ def test_mcp_registry_has_bundle_install() -> None:
     assert "bundle_install" in names, f"bundle_install not in MCP tools: {sorted(names)}"
 
 
-def test_mcp_old_tool_names_kept_as_compat() -> None:
-    """Old recipes_* MCP tool names must still be registered as compat aliases."""  # compat-test
+def test_mcp_loopskill_tool_names_present() -> None:
+    """Canonical loopskill_* MCP tool names must be registered.
+
+    lsrename_0713: the recipes_*/loopskill_* back-compat alias layer this
+    test used to assert was DROPPED — see test_loopskill_mcp_tool_rename.py
+    for the full cutover regression suite (including the "old name is not
+    dispatchable" proofs). This test now only pins that the canonical names
+    survive P34's bundle-vocabulary rename.
+    """
     from app.mcp.registry import _tool_definitions
 
     names = {t.name for t in _tool_definitions()}
-    compat_names = ["recipes_install", "recipes_search", "recipes_list_cookbook"]
-    for name in compat_names:
-        assert name in names, f"compat-test: {name} removed from MCP — existing agents would break"  # compat-test
+    canonical_names = ["loopskill_install", "loopskill_search", "loopskill_list_bundle"]
+    for name in canonical_names:
+        assert name in names, f"{name} missing from MCP tools: {sorted(names)}"

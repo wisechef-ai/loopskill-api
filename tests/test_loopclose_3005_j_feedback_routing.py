@@ -23,10 +23,10 @@ Test inventory:
   T18. configure_feedback: clear path (repo=None) → clears fields.
   T19. configure_feedback: github_app mode → not-yet-live error.
   T20. configure_feedback: unowned cookbook → rejected.
-  T21. recipes_feedback: default path (no custom routing).
-  T22. recipes_feedback: user-routed path dispatches to user's repo.
-  T23. recipes_feedback: user-routed path fails → fallback to default.
-  T24. recipes_feedback: no custom routing configured → default.
+  T21. loopskill_feedback: default path (no custom routing).
+  T22. loopskill_feedback: user-routed path dispatches to user's repo.
+  T23. loopskill_feedback: user-routed path fails → fallback to default.
+  T24. loopskill_feedback: no custom routing configured → default.
   T25. Regression: dispatch_event signature unchanged.
   T26. SECRET HYGIENE: PAT never appears in log output.
   T27. Migration: new columns present in model schema.
@@ -270,48 +270,48 @@ class TestConfigureFeedback:
     def test_free_tier_rejected(self, db_session):
         """T13: free-tier caller is rejected."""
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.configure_feedback import recipes_configure_feedback
+        from app.mcp.tools.configure_feedback import loopskill_configure_feedback
 
         ctx = AuthContext(scope="user", user_id=uuid.uuid4(), tier="free")
-        result = recipes_configure_feedback(db_session, repo="owner/repo", mode="pat", pat="ghp_x", ctx=ctx)
+        result = loopskill_configure_feedback(db_session, repo="owner/repo", mode="pat", pat="ghp_x", ctx=ctx)
         assert result["ok"] is False
         assert "Pro" in result["error"]
 
     def test_bad_repo_format(self, db_session):
         """T14: bad repo format → error."""
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.configure_feedback import recipes_configure_feedback
+        from app.mcp.tools.configure_feedback import loopskill_configure_feedback
 
         user_id = uuid.uuid4()
         _make_cookbook(db_session, user_id)
         ctx = AuthContext(scope="user", user_id=user_id, tier="pro")
-        result = recipes_configure_feedback(db_session, repo="notavalid", mode="pat", pat="ghp_x", ctx=ctx)
+        result = loopskill_configure_feedback(db_session, repo="notavalid", mode="pat", pat="ghp_x", ctx=ctx)
         assert result["ok"] is False
         assert "Invalid repo" in result["error"]
 
     def test_missing_pat(self, db_session):
         """T15: mode=pat but no PAT → error."""
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.configure_feedback import recipes_configure_feedback
+        from app.mcp.tools.configure_feedback import loopskill_configure_feedback
 
         user_id = uuid.uuid4()
         _make_cookbook(db_session, user_id)
         ctx = AuthContext(scope="user", user_id=user_id, tier="pro")
-        result = recipes_configure_feedback(db_session, repo="owner/repo", mode="pat", pat=None, ctx=ctx)
+        result = loopskill_configure_feedback(db_session, repo="owner/repo", mode="pat", pat=None, ctx=ctx)
         assert result["ok"] is False
         assert "pat is required" in result["error"]
 
     def test_pat_verify_fails(self, db_session):
         """T16: PAT fails verification → error, nothing stored."""
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.configure_feedback import recipes_configure_feedback
+        from app.mcp.tools.configure_feedback import loopskill_configure_feedback
 
         user_id = uuid.uuid4()
         cb = _make_cookbook(db_session, user_id)
         ctx = AuthContext(scope="user", user_id=user_id, tier="pro")
 
         with patch("app.mcp.tools.configure_feedback.verify_repo_access", return_value=False):
-            result = recipes_configure_feedback(
+            result = loopskill_configure_feedback(
                 db_session, repo="owner/repo", mode="pat", pat="ghp_badtoken", ctx=ctx
             )
 
@@ -330,14 +330,14 @@ class TestConfigureFeedback:
 
         from app.auth_ctx import AuthContext
         from app.feedback_cred_vault import decrypt_pat
-        from app.mcp.tools.configure_feedback import recipes_configure_feedback
+        from app.mcp.tools.configure_feedback import loopskill_configure_feedback
 
         user_id = uuid.uuid4()
         cb = _make_cookbook(db_session, user_id)
         ctx = AuthContext(scope="user", user_id=user_id, tier="pro")
 
         with patch("app.mcp.tools.configure_feedback.verify_repo_access", return_value=True):
-            result = recipes_configure_feedback(
+            result = loopskill_configure_feedback(
                 db_session,
                 repo="myuser/my-feedback-repo",
                 mode="pat",
@@ -365,7 +365,7 @@ class TestConfigureFeedback:
         monkeypatch.setenv("WR_FEEDBACK_CRED_KEY", Fernet.generate_key().decode())
 
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.configure_feedback import recipes_configure_feedback
+        from app.mcp.tools.configure_feedback import loopskill_configure_feedback
 
         user_id = uuid.uuid4()
         cb = _make_cookbook(db_session, user_id)
@@ -373,12 +373,12 @@ class TestConfigureFeedback:
 
         # First configure
         with patch("app.mcp.tools.configure_feedback.verify_repo_access", return_value=True):
-            recipes_configure_feedback(db_session, repo="owner/repo", mode="pat", pat="ghp_x", ctx=ctx)
+            loopskill_configure_feedback(db_session, repo="owner/repo", mode="pat", pat="ghp_x", ctx=ctx)
         db_session.refresh(cb)
         assert cb.feedback_repo == "owner/repo"
 
         # Then clear
-        result = recipes_configure_feedback(db_session, repo=None, ctx=ctx)
+        result = loopskill_configure_feedback(db_session, repo=None, ctx=ctx)
         assert result["ok"] is True
         assert result.get("cleared") is True
         db_session.refresh(cb)
@@ -389,26 +389,26 @@ class TestConfigureFeedback:
     def test_github_app_not_live(self, db_session):
         """T19: github_app mode → not-yet-live error."""
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.configure_feedback import recipes_configure_feedback
+        from app.mcp.tools.configure_feedback import loopskill_configure_feedback
 
         user_id = uuid.uuid4()
         _make_cookbook(db_session, user_id)
         ctx = AuthContext(scope="user", user_id=user_id, tier="pro_plus")
-        result = recipes_configure_feedback(db_session, repo="owner/repo", mode="github_app", ctx=ctx)
+        result = loopskill_configure_feedback(db_session, repo="owner/repo", mode="github_app", ctx=ctx)
         assert result["ok"] is False
         assert "not yet live" in result["error"]
 
     def test_unowned_cookbook_rejected(self, db_session):
         """T20: user doesn't own cookbook → rejected."""
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.configure_feedback import recipes_configure_feedback
+        from app.mcp.tools.configure_feedback import loopskill_configure_feedback
 
         owner_id = uuid.uuid4()
         attacker_id = uuid.uuid4()
         cb = _make_cookbook(db_session, owner_id)
         ctx = AuthContext(scope="user", user_id=attacker_id, tier="pro")
 
-        result = recipes_configure_feedback(
+        result = loopskill_configure_feedback(
             db_session,
             repo="owner/repo",
             mode="pat",
@@ -420,7 +420,7 @@ class TestConfigureFeedback:
         assert "do not own" in result["error"]
 
 
-# ── recipes_feedback routing tests ───────────────────────────────────────────
+# ── loopskill_feedback routing tests ───────────────────────────────────────────
 
 
 class TestFeedbackRouting:
@@ -446,14 +446,14 @@ class TestFeedbackRouting:
     def test_default_path_no_routing(self, db_session):
         """T21: user with no custom routing → default dispatch_event."""
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.feedback import recipes_feedback
+        from app.mcp.tools.feedback import loopskill_feedback
 
         user_id = uuid.uuid4()
         ctx = AuthContext(scope="user", user_id=user_id, tier="free")
 
         with patch("app.mcp.tools.feedback.github_dispatch") as mock_gd:
             mock_gd.dispatch_event.return_value = True
-            result = recipes_feedback(
+            result = loopskill_feedback(
                 db_session,
                 category="ux",
                 message="test feedback default path",
@@ -474,7 +474,7 @@ class TestFeedbackRouting:
 
         from app.auth_ctx import AuthContext
         from app.feedback_cred_vault import encrypt_pat
-        from app.mcp.tools.feedback import recipes_feedback
+        from app.mcp.tools.feedback import loopskill_feedback
 
         user_id = uuid.uuid4()
         enc = encrypt_pat("ghp_USERTOKEN")
@@ -493,7 +493,7 @@ class TestFeedbackRouting:
 
         with patch("app.mcp.tools.feedback.github_dispatch") as mock_gd:
             mock_gd.dispatch_issue.return_value = "https://github.com/testuser/feedback-repo/issues/7"
-            result = recipes_feedback(
+            result = loopskill_feedback(
                 db_session,
                 category="billing",
                 message="test user-routed feedback",
@@ -520,7 +520,7 @@ class TestFeedbackRouting:
 
         from app.auth_ctx import AuthContext
         from app.feedback_cred_vault import encrypt_pat
-        from app.mcp.tools.feedback import recipes_feedback
+        from app.mcp.tools.feedback import loopskill_feedback
 
         user_id = uuid.uuid4()
         enc = encrypt_pat("ghp_FAILING")
@@ -539,7 +539,7 @@ class TestFeedbackRouting:
             mock_gd.dispatch_issue.return_value = None
             # Fallback dispatch_event succeeds
             mock_gd.dispatch_event.return_value = True
-            result = recipes_feedback(
+            result = loopskill_feedback(
                 db_session,
                 category="ux",
                 message="test fallback path",
@@ -553,11 +553,11 @@ class TestFeedbackRouting:
 
     def test_no_user_ctx_uses_default(self, db_session):
         """T24: no ctx (anonymous) → default dispatch_event."""
-        from app.mcp.tools.feedback import recipes_feedback
+        from app.mcp.tools.feedback import loopskill_feedback
 
         with patch("app.mcp.tools.feedback.github_dispatch") as mock_gd:
             mock_gd.dispatch_event.return_value = True
-            result = recipes_feedback(
+            result = loopskill_feedback(
                 db_session,
                 category="ux",
                 message="anonymous feedback",
@@ -594,7 +594,7 @@ class TestRegressions:
 
         from app.auth_ctx import AuthContext
         from app.feedback_cred_vault import encrypt_pat
-        from app.mcp.tools.feedback import recipes_feedback
+        from app.mcp.tools.feedback import loopskill_feedback
 
         secret_token = "ghp_SUPERSECRETTOKEN_MUST_NOT_APPEAR"
         user_id = uuid.uuid4()
@@ -619,7 +619,7 @@ class TestRegressions:
         with caplog.at_level(logging.DEBUG, logger="app"):
             with patch("app.mcp.tools.feedback.github_dispatch") as mock_gd:
                 mock_gd.dispatch_issue.return_value = "https://github.com/t/r/issues/1"
-                recipes_feedback(
+                loopskill_feedback(
                     db_session,
                     category="ux",
                     message="secret test",
@@ -641,7 +641,7 @@ class TestRegressions:
         assert hasattr(Bundle, "feedback_pat_enc")
 
     def test_configure_feedback_dispatch_wiring(self, db_session, monkeypatch):
-        """T28: MCP _dispatch routes 'recipes_configure_feedback' correctly."""
+        """T28: MCP _dispatch routes 'loopskill_configure_feedback' correctly."""
         from app.mcp.server import _dispatch
 
         user_id = uuid.uuid4()
@@ -668,7 +668,7 @@ class TestRegressions:
         # Patch verify_repo_access to avoid real HTTP
         with patch("app.mcp.tools.configure_feedback.verify_repo_access", return_value=False):
             result = _dispatch(
-                "recipes_configure_feedback",
+                "loopskill_configure_feedback",
                 db_session,
                 {
                     "repo": "test/repo",

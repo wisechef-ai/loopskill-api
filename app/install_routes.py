@@ -283,7 +283,7 @@ def install_skill(
     )
 
     # spotify_0608 Ph E — mint a provenance_id for this (direct) install so the
-    # agent can pass it to recipes_feedback / recipes_report_skill_error and have
+    # agent can pass it to loopskill_feedback / loopskill_report_skill_error and have
     # the report route to the correct creator repo. The direct path has no
     # bundle context (cookbook_id stays NULL); attribution is 'attributed'  # compat-alias
     # because we know the exact skill + version.

@@ -640,7 +640,7 @@ def public_cookbook_page(slug: str, db: Session = Depends(get_db)):
     # One copy-paste MCP line (the entire top-of-funnel). ?ref makes the install
     # attributable to the creator from the public page.
     ref_q = f"?ref={card['ref']}" if card["ref"] else ""
-    card["clone_line"] = f'recipes_cookbook_install from "cookbook://{cb.slug}{ref_q}"'
+    card["clone_line"] = f'loopskill_bundle_install from "bundle://{cb.slug}{ref_q}"'
     return card
 
 
@@ -1153,7 +1153,7 @@ def reorder_cookbook_skills(
 def _make_install_url(skill_slug: str, version_id: UUID, version_semver: str) -> str:
     """Build a signed download URL for a skill version (Issue #27).
 
-    Uses the same HMAC-signing flow as routes.py:recipes_install so the URL
+    Uses the same HMAC-signing flow as routes.py:loopskill_install so the URL
     resolves to /api/skills/_download?token=<signed> — a route that exists
     and serves the tarball bytes.
 
@@ -1534,7 +1534,7 @@ def handoff_cookbook(
     Delegates to the MCP tool implementation for a single source of truth.
     """
     from app.auth_ctx import AuthContext
-    from app.mcp.tools.bundle_handoff import recipes_cookbook_handoff  # compat-alias
+    from app.mcp.tools.bundle_handoff import loopskill_bundle_handoff  # compat-alias
 
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
 
@@ -1546,7 +1546,7 @@ def handoff_cookbook(
     else:
         raise HTTPException(status_code=401, detail="auth_required")
 
-    result = recipes_cookbook_handoff(
+    result = loopskill_bundle_handoff(
         db,
         ctx=auth_ctx,
         cookbook_id=cookbook_id,
@@ -1615,7 +1615,7 @@ def set_feedback_config(
     repo validation, PAT verification + encryption all live there). Pro/Pro+ only.
     """
     from app.auth_ctx import AuthContext
-    from app.mcp.tools.configure_feedback import recipes_configure_feedback
+    from app.mcp.tools.configure_feedback import loopskill_configure_feedback
 
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     # Resolve ownership first (404/403 before the tool's softer error dict).
@@ -1628,7 +1628,7 @@ def set_feedback_config(
     else:
         raise HTTPException(status_code=401, detail="auth_required")
 
-    result = recipes_configure_feedback(
+    result = loopskill_configure_feedback(
         db,
         ctx=auth_ctx,
         cookbook_id=cookbook_id,

@@ -1,16 +1,15 @@
 """MCP tool registry — _tool_definitions() returns the advertised types.Tool list.
 
-Naming convention (post loopskill rename):
-* PRIMARY names are ``loopskill_*`` (new canonical names advertised to MCP clients).
-* BACK-COMPAT aliases are ``recipes_*`` — kept so existing agents that hard-code
-  the old names continue to work.  Dispatch normalisation in
-  ``app/mcp/_alias_map.py`` routes both names to the same handler.
+Naming convention (post lsrename_0713 wire cutover):
+* ``loopskill_*`` names are the ONLY names advertised to MCP clients. There is
+  no back-compat ``recipes_*`` alias layer — it was dropped in this sprint.
+  A client calling an old ``recipes_*`` name gets ``unknown tool`` (see
+  ``app/mcp/server.py:_dispatch`` and ``app/mcp/_alias_map.py``).
 """
 
 from __future__ import annotations
 
 import mcp.types as types
-from app.mcp._alias_map import LOOPSKILL_TO_RECIPES
 from app.mcp._registry_bundle import _bundle_tools
 from app.mcp._registry_d import _phase_d_tools, _phase_e_tools
 from app.mcp._registry_j import _phase_j_tools
@@ -22,7 +21,7 @@ def _core_tools() -> list[types.Tool]:
     """Core loopskill_* tools: search, install, bundle-install, list, recall, etc."""
     return [
         types.Tool(
-            name="recipes_like",
+            name="loopskill_like",
             description="Like or unlike a skill, personality, or loop in the caller's Liked bundle.",
             inputSchema={
                 "type": "object",
@@ -115,7 +114,7 @@ def _core_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="loopskill_recipify",
+            name="loopskill_skillify",
             description=(
                 "Convert a SKILL.md draft into a CookbookSkill row: validates "
                 "YAML frontmatter, classifies the category, infers related "
@@ -157,8 +156,8 @@ def _core_tools() -> list[types.Tool]:
             inputSchema={"type": "object"},
         ),
         types.Tool(
-            name="loopskill_subrecipe_resolve",
-            description="Phase C stub — resolve a sub-recipe key to a scope.",
+            name="loopskill_subskill_resolve",
+            description="Phase C stub — resolve a sub-skill key to a scope.",
             inputSchema={"type": "object"},
         ),
         types.Tool(
@@ -236,11 +235,11 @@ def _core_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="loopskill_request_recipe",
+            name="loopskill_request_skill",
             description=(
-                "Request a new recipe (skill). Use when the user says "
-                "'recipify X', 'please add X to recipes', "
-                "'we need a recipe for X'. Creates a GitHub wishlist issue."
+                "Request a new skill. Use when the user says "
+                "'skillify X', 'please add X to loopskill', "
+                "'we need a skill for X'. Creates a GitHub wishlist issue."
             ),
             inputSchema={
                 "type": "object",
@@ -293,9 +292,9 @@ def _core_tools() -> list[types.Tool]:
 
 
 def _tool_definitions() -> list[types.Tool]:
-    primary: list[types.Tool] = [
+    return [
         *_bundle_tools(),  # Phase 3+4 new-vocab tools (bundle_list, bundle_install)
-        *_core_tools(),  # loopskill_search, install, recall, recipify, etc.
+        *_core_tools(),  # loopskill_search, install, recall, skillify, etc.
         *_share_tools(),  # Phase D share-token tools (loopskill_share_*)
         *_fleet_tools(),  # Phase E fleet tools (loopskill_fleet_*)
         *_publish_tools(),  # loopskill_publish_request
@@ -305,19 +304,5 @@ def _tool_definitions() -> list[types.Tool]:
         *_phase_j_tools(),  # loopclose_3005 Phase J (configure_feedback)
         *_loopskill_catalog_tools(),  # loopskill_0622 Phase 8 — loops + personalities
     ]
-
-    # ── Back-compat aliases: also advertise recipes_* names ─────────────────
-    # Built dynamically from the alias map so new loopskill_* entries auto-get
-    # a compat alias once they're added to LOOPSKILL_TO_RECIPES.
-    primary_by_name = {t.name: t for t in primary}
-    compat_aliases: list[types.Tool] = [
-        types.Tool(
-            name=recipes_name,
-            description=primary_by_name[ls_name].description,
-            inputSchema=primary_by_name[ls_name].inputSchema,
-        )
-        for ls_name, recipes_name in LOOPSKILL_TO_RECIPES.items()
-        if ls_name in primary_by_name
-    ]
-
-    return [*primary, *compat_aliases]
+    # lsrename_0713: back-compat recipes_* alias generation removed. loopskill_*
+    # is the only advertised vocabulary now.

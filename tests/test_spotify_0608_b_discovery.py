@@ -244,7 +244,8 @@ def test_public_page_renders_with_ref_and_clone_line(db):
     assert body["slug"] == "awakened"
     assert body["ref"] == str(u.id)
     assert "summarize-cli" in [sk["slug"] for sk in body["skills"]]
-    assert "cookbook://awakened" in body["clone_line"]
+    assert "bundle://awakened" in body["clone_line"]
+    assert "loopskill_bundle_install" in body["clone_line"]
     assert f"?ref={u.id}" in body["clone_line"]
 
 

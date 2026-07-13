@@ -138,7 +138,7 @@ def get_bundle_status(db: Session, user_id: UUID | str | None) -> dict[str, Any]
 
     result: dict[str, Any] = {
         "your_cookbooks": list(cookbooks_map.values()),
-        "hint": "Call recipes_sync(<cookbook_id>) to apply updates.",
+        "hint": "Call loopskill_sync(<cookbook_id>) to apply updates.",
     }
 
     _cache_set(cache_key, result)
@@ -146,7 +146,7 @@ def get_bundle_status(db: Session, user_id: UUID | str | None) -> dict[str, Any]
 
 
 def invalidate_bundle_status(user_id: UUID | str | None) -> None:
-    """Invalidate cached status for a user (called after recipes_sync applies)."""
+    """Invalidate cached status for a user (called after loopskill_sync applies)."""
     if user_id is None:
         return
     try:

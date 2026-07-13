@@ -3,12 +3,12 @@
 Phase E — recipes_2005 sprint.
 
 Tool signatures:
-    recipes_fleet_create(db, *, name, ctx) -> {fleet_id, fleet_key, name}
-    recipes_fleet_subscribe(db, *, fleet_id, cookbook_id, channel='stable', ctx) ->
+    loopskill_fleet_create(db, *, name, ctx) -> {fleet_id, fleet_key, name}
+    loopskill_fleet_subscribe(db, *, fleet_id, cookbook_id, channel='stable', ctx) ->
         {fleet_id, cookbook_id, channel}
-    recipes_fleet_sync(db, *, fleet_id, dry_run=False, ctx) ->
+    loopskill_fleet_sync(db, *, fleet_id, dry_run=False, ctx) ->
         {fleet_id, cookbooks_synced: [{cookbook_id, changes:[...], applied:bool}]}
-    recipes_fleet_list(db, *, ctx) ->
+    loopskill_fleet_list(db, *, ctx) ->
         {fleets: [{fleet_id, name, subscriptions:[{cookbook_id, channel}]}]}
 
 Fleet key format: rec_fleet_<8hex>_<32hex>
@@ -43,7 +43,7 @@ def _generate_fleet_key() -> str:
 # ── tool implementations ──────────────────────────────────────────────────
 
 
-def recipes_fleet_create(
+def loopskill_fleet_create(
     db: Session,
     *,
     name: str,
@@ -82,7 +82,7 @@ def recipes_fleet_create(
     }
 
 
-def recipes_fleet_subscribe(
+def loopskill_fleet_subscribe(
     db: Session,
     *,
     fleet_id: str,
@@ -168,7 +168,7 @@ def recipes_fleet_subscribe(
     }
 
 
-def recipes_fleet_sync(
+def loopskill_fleet_sync(
     db: Session,
     *,
     fleet_id: str,
@@ -178,7 +178,7 @@ def recipes_fleet_sync(
     """Synchronise all cookbooks subscribed to the fleet.
 
     Iterates fleet subscriptions and delegates each cookbook sync to the
-    existing recipes_sync service logic. Aggregates results across cookbooks.
+    existing loopskill_sync service logic. Aggregates results across cookbooks.
     """
     from app.services.fleet_sync import sync_fleet
 
@@ -202,7 +202,7 @@ def recipes_fleet_sync(
     }
 
 
-def recipes_fleet_list(
+def loopskill_fleet_list(
     db: Session,
     *,
     ctx: AuthContext,

@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.auth_ctx import AuthContext
-from app.mcp.tools import recipes_recipify
+from app.mcp.tools import loopskill_skillify
 from app.models import Base, Bundle, User
 
 _GOOD = """---
@@ -78,13 +78,13 @@ def _make_user(db: Session) -> User:
 
 
 def test_recipify_via_ctx_creates_owned_cookbook(db_session):
-    """server.py:_dispatch calls recipes_recipify(db, ctx=ctx, **args) — ctx
+    """server.py:_dispatch calls loopskill_skillify(db, ctx=ctx, **args) — ctx
     carries the authenticated user_id, but NO user_id kwarg is passed. The
     new cookbook MUST be owned by ctx.user_id, not NULL."""
     user = _make_user(db_session)
     ctx = AuthContext(scope="user", user_id=user.id)
 
-    out = recipes_recipify(
+    out = loopskill_skillify(
         db_session,
         slug="scrape-bot",
         content=_GOOD,
@@ -113,8 +113,8 @@ def test_recipify_via_ctx_reuses_existing_owned_cookbook(db_session):
     user = _make_user(db_session)
     ctx = AuthContext(scope="user", user_id=user.id)
 
-    out1 = recipes_recipify(db_session, slug="skill-one", content=_GOOD, ctx=ctx)
-    out2 = recipes_recipify(
+    out1 = loopskill_skillify(db_session, slug="skill-one", content=_GOOD, ctx=ctx)
+    out2 = loopskill_skillify(
         db_session,
         slug="skill-two",
         content=_GOOD.replace("scrape-bot", "skill-two"),
@@ -137,7 +137,7 @@ def test_recipify_fails_closed_when_no_owner_resolves(db_session):
     target_cookbook_id → owner_required, and ZERO cookbooks written."""
     before = db_session.query(Bundle).count()
 
-    out = recipes_recipify(
+    out = loopskill_skillify(
         db_session,
         slug="orphan-attempt",
         content=_GOOD,
@@ -158,7 +158,7 @@ def test_recipify_fails_closed_when_no_owner_resolves(db_session):
 def test_recipify_with_explicit_user_id_kwarg_still_works(db_session):
     """The legacy explicit user_id kwarg path is preserved (no regression)."""
     user = _make_user(db_session)
-    out = recipes_recipify(
+    out = loopskill_skillify(
         db_session,
         slug="legacy-kwarg",
         content=_GOOD,

@@ -4,14 +4,14 @@ Live-reproduced on prod 2026-06-10: a FREE-tier authenticated API key
 downloaded the COMPLETE `chef` (tier=pro) tarball (HTTP 200, real files). The
 direct install route enforced visibility (public/private) but NOT tier-access,
 and `TIER_RANK` was not even imported. Same gap on both cookbook install routes
-and the MCP recipes_cookbook_install tool.
+and the MCP loopskill_bundle_install tool.
 
 This suite pins the fix across ALL FOUR install surfaces:
 
   1. GET  /api/skills/install                         (direct)
   2. POST /api/cookbooks/{id}/install                 (cookbook bulk, HTTP)
   3. GET  /api/cookbooks/{id}/skills/{slug}/install   (cookbook single, HTTP)
-  4. recipes_cookbook_install(...)                    (MCP tool)
+  4. loopskill_bundle_install(...)                    (MCP tool)
 
 Invariants:
   - free authenticated key → PRO skill (direct)            → 403 (was 200)
@@ -263,7 +263,7 @@ def test_cookbook_single_pro_owner_pro_skill_200(middleware_client, db_session):
     assert resp.status_code == 200, resp.text[:200]
 
 
-# ── Surface 4: MCP recipes_cookbook_install ────────────────────────────────
+# ── Surface 4: MCP loopskill_bundle_install ────────────────────────────────
 
 
 def _user_ctx(user):
@@ -273,7 +273,7 @@ def _user_ctx(user):
 
 
 def test_mcp_bulk_free_owner_skips_pro(db_session):
-    from app.mcp.tools.bundle_install import recipes_cookbook_install
+    from app.mcp.tools.bundle_install import loopskill_bundle_install
 
     owner = _mk_user(db_session, tier="free")
     cb = _mk_cookbook(db_session, owner=owner)
@@ -282,14 +282,14 @@ def test_mcp_bulk_free_owner_skips_pro(db_session):
     _add_to_cookbook(db_session, cb, free_sk)
     _add_to_cookbook(db_session, cb, pro_sk)
 
-    out = recipes_cookbook_install(db=db_session, ctx=_user_ctx(owner), cookbook_id=str(cb.id))
+    out = loopskill_bundle_install(db=db_session, ctx=_user_ctx(owner), cookbook_id=str(cb.id))
     slugs = {s["slug"] for s in out["skills"]}
     assert "mcp-free" in slugs
     assert "mcp-pro" not in slugs, "MCP bulk leaked a Pro skill from a free-owner cookbook"
 
 
 def test_mcp_single_free_owner_pro_skill_raises(db_session):
-    from app.mcp.tools.bundle_install import CookbookInstallError, recipes_cookbook_install
+    from app.mcp.tools.bundle_install import CookbookInstallError, loopskill_bundle_install
 
     owner = _mk_user(db_session, tier="free")
     cb = _mk_cookbook(db_session, owner=owner)
@@ -297,7 +297,7 @@ def test_mcp_single_free_owner_pro_skill_raises(db_session):
     _add_to_cookbook(db_session, cb, pro_sk)
 
     with pytest.raises(CookbookInstallError) as exc:
-        recipes_cookbook_install(
+        loopskill_bundle_install(
             db=db_session, ctx=_user_ctx(owner), cookbook_id=str(cb.id), slug="mcp-pro-single"
         )
     assert exc.value.status == 403
@@ -305,14 +305,14 @@ def test_mcp_single_free_owner_pro_skill_raises(db_session):
 
 
 def test_mcp_single_pro_owner_pro_skill_ok(db_session):
-    from app.mcp.tools.bundle_install import recipes_cookbook_install
+    from app.mcp.tools.bundle_install import loopskill_bundle_install
 
     owner = _mk_user(db_session, tier="pro")
     cb = _mk_cookbook(db_session, owner=owner)
     pro_sk = _mk_skill(db_session, slug="mcp-pro-ok", tier="pro")
     _add_to_cookbook(db_session, cb, pro_sk)
 
-    out = recipes_cookbook_install(
+    out = loopskill_bundle_install(
         db=db_session, ctx=_user_ctx(owner), cookbook_id=str(cb.id), slug="mcp-pro-ok"
     )
     assert out["slug"] == "mcp-pro-ok"

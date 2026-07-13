@@ -1,4 +1,4 @@
-"""recipes_recipify — Phase G MCP tool.
+"""loopskill_skillify — Phase G MCP tool.
 
 Wraps the ``app.recipify`` service. The MCP tool input mirrors RecipifyIn from
 ``app.recipify_routes``; the output mirrors RecipifyOut. Errors surface as
@@ -36,7 +36,7 @@ def _coerce_uuid(value) -> UUID | None:
         return None
 
 
-def recipes_recipify(
+def loopskill_skillify(
     db: Session,
     *,
     slug: str | None = None,
@@ -69,7 +69,7 @@ def recipes_recipify(
         ctx = AuthContext(scope="master")
 
     # loopclose_3005 Phase X — owner resolution fixed for good.
-    # The bug: server.py:_dispatch invokes recipes_recipify(db, ctx=ctx, **args)
+    # The bug: server.py:_dispatch invokes loopskill_skillify(db, ctx=ctx, **args)
     # — it passes the authenticated AuthContext but NO user_id kwarg, so
     # owner_id used to coerce to None and a non-base Cookbook(bundle_owner=None)  # compat-alias
     # orphan was written, invisible to every user forever (list_cookbooks filters

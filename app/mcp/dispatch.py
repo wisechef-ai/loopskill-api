@@ -2,7 +2,7 @@
 
 The actual _dispatch, call_tool_sync, _ctx_from_caller, and ToolDispatch
 implementations live in server.py so that:
-  - patch.object(server_mod, "recipes_sync", ...) is visible to _dispatch
+  - patch.object(server_mod, "loopskill_sync", ...) is visible to _dispatch
   - monkeypatch.setattr(server_mod, "_dispatch", ...) still intercepts calls
 
 For organizational reference only: see app/mcp/server.py for the implementations.

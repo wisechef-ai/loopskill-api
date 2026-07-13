@@ -1,7 +1,7 @@
 """Stream 4 tests — graphify integration:
 - declared_relation signal in edge_builder
 - dry-run safety gate (delta_pct ≤ 20%)
-- recipes_install version pinning + related surfacing
+- loopskill_install version pinning + related surfacing
 """
 from __future__ import annotations
 
@@ -169,11 +169,11 @@ def test_dry_run_compare_returns_shape(db_session: Session):
     assert isinstance(report["breaking"], bool)
 
 
-# ── recipes_install tests ───────────────────────────────────────────────
+# ── loopskill_install tests ───────────────────────────────────────────────
 
 
 def test_recipes_install_at_version_pinning(db_session: Session):
-    from app.mcp.tools.install import recipes_install
+    from app.mcp.tools.install import loopskill_install
 
     skill = _make_skill(db_session, "alpha", semver="0.1.0")
     # Add a 0.2.0 version too
@@ -190,16 +190,16 @@ def test_recipes_install_at_version_pinning(db_session: Session):
     db_session.commit()
 
     # Pin via @version suffix
-    out = recipes_install(db_session, "alpha@0.1.0")
+    out = loopskill_install(db_session, "alpha@0.1.0")
     assert out["version"] == "0.1.0"
     assert out["version_pinned"] is True
 
     # Pin via explicit kwarg
-    out = recipes_install(db_session, "alpha", version="0.1.0")
+    out = loopskill_install(db_session, "alpha", version="0.1.0")
     assert out["version"] == "0.1.0"
 
     # Unknown version
-    out = recipes_install(db_session, "alpha@9.9.9")
+    out = loopskill_install(db_session, "alpha@9.9.9")
     assert out["error"] == "version_not_found"
     assert out["version"] == "9.9.9"
     assert "0.1.0" in out["available_versions"]
@@ -207,7 +207,7 @@ def test_recipes_install_at_version_pinning(db_session: Session):
 
 def test_recipes_install_surfaces_related_skills(db_session: Session):
     from app.edge_builder import build_edges, persist_edges
-    from app.mcp.tools.install import recipes_install
+    from app.mcp.tools.install import loopskill_install
 
     _make_skill(
         db_session,
@@ -226,6 +226,6 @@ def test_recipes_install_surfaces_related_skills(db_session: Session):
     persist_edges(db_session, edges)
     db_session.commit()
 
-    out = recipes_install(db_session, "alpha")
+    out = loopskill_install(db_session, "alpha")
     assert "related_skills" in out
     assert "beta" in out["related_skills"]

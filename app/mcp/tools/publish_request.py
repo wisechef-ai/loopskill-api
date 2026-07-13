@@ -1,7 +1,7 @@
-"""MCP tool: recipes_publish_request.
+"""MCP tool: loopskill_publish_request.
 
 Submit a skill for review and potential public-catalog inclusion.
-Mirrors the recipes_feedback / recipes_request_recipe pattern EXACTLY.
+Mirrors the loopskill_feedback / loopskill_request_skill pattern EXACTLY.
 
 Internal flow:
   1. Validate slug (SLUG_RE) + semver (SEMVER_RE)
@@ -112,7 +112,7 @@ def _build_tarball(
     return buf.getvalue()
 
 
-def recipes_publish_request(
+def loopskill_publish_request(
     db: Session,
     *,
     slug: str,

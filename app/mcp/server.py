@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session
 from app.auth_ctx import AuthContext
 from app.database import SessionLocal, get_db
 from app.mcp.auth import validate_key
-from app.mcp._alias_map import normalize_tool_name  # loopskill→recipes normalizer
+from app.mcp._alias_map import normalize_tool_name
 
 # Submodule re-exports — backward compat for all existing imports
 from app.mcp.registry import _tool_definitions  # noqa: F401
@@ -60,40 +60,40 @@ from app.mcp.tools.composite_loop_catalog import (
 )
 from app.mcp.tools.like import dispatch_library as _dispatch_library
 from app.mcp.tools import (
-    recipes_carousel_today,
-    recipes_configure_feedback,
-    recipes_doctor,
-    recipes_feedback,
-    recipes_fleet_create,
-    recipes_fleet_list,
-    recipes_fleet_subscribe,
-    recipes_fleet_sync,
-    recipes_fork_list,
-    recipes_install,
-    recipes_cookbook_install,
+    loopskill_carousel_today,
+    loopskill_configure_feedback,
+    loopskill_doctor,
+    loopskill_feedback,
+    loopskill_fleet_create,
+    loopskill_fleet_list,
+    loopskill_fleet_subscribe,
+    loopskill_fleet_sync,
+    loopskill_fork_list,
+    loopskill_install,
+    loopskill_bundle_install,
     CookbookInstallError,
-    recipes_install_from_cookbook,
-    recipes_pick_best_from_cookbook,
-    recipes_compose_cookbook_from_links,
-    recipes_list_cookbook,
-    recipes_propose_skill_patch,
-    recipes_publish_request,
-    recipes_recall,
-    recipes_recipify,
-    recipes_report_skill_error,
-    recipes_request_recipe,
-    recipes_search,
-    recipes_seeker,
-    recipes_share_create,
-    recipes_share_list,
-    recipes_share_revoke,
-    recipes_share_rotate,
-    recipes_subrecipe_resolve,
-    recipes_sync,
-    recipes_tailor,
-    recipes_tailor_version,
-    recipes_cookbook_attach,
-    recipes_cookbook_handoff,
+    loopskill_install_from_bundle,
+    loopskill_pick_best_from_bundle,
+    loopskill_compose_bundle_from_links,
+    loopskill_list_bundle,
+    loopskill_propose_skill_patch,
+    loopskill_publish_request,
+    loopskill_recall,
+    loopskill_skillify,
+    loopskill_report_skill_error,
+    loopskill_request_skill,
+    loopskill_search,
+    loopskill_seeker,
+    loopskill_share_create,
+    loopskill_share_list,
+    loopskill_share_revoke,
+    loopskill_share_rotate,
+    loopskill_subskill_resolve,
+    loopskill_sync,
+    loopskill_tailor,
+    loopskill_tailor_version,
+    loopskill_bundle_attach,
+    loopskill_bundle_handoff,
     loopskill_connector_publish,
 )
 
@@ -124,10 +124,15 @@ def _ctx_from_caller(caller: dict[str, Any]) -> AuthContext:
 
 
 def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, Any]) -> Any:
-    """Route a tool name to its implementation. Pure sync — no I/O outside the DB."""
-    # loopskill rename: normalise canonical loopskill_* names to the legacy
-    # recipes_* dispatch names so the existing if-chain works unchanged.
-    # Back-compat recipes_* names pass through unmodified (NOOP alias).
+    """Route a tool name to its implementation. Pure sync — no I/O outside the DB.
+
+    lsrename_0713: the recipes_*→loopskill_* back-compat alias layer has been
+    dropped. ``normalize_tool_name`` now only resolves the (unrelated) legacy
+    ``loop_*`` verifier names from activate_0701 Phase A1. Any ``recipes_*``
+    name that reaches this function falls through every branch below and
+    hits ``raise ValueError(f"unknown tool: {name}")`` at the end — there is
+    no handler registered for it.
+    """
     name = normalize_tool_name(name)
 
     # Phase B (Issue #5/#6/#7/#15): resolve AuthContext from caller.
@@ -139,8 +144,8 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
 
     _tool_ns = vars(_srv_mod)
 
-    if name == "recipes_search":
-        return _tool_ns.get("recipes_search", recipes_search)(
+    if name == "loopskill_search":
+        return _tool_ns.get("loopskill_search", loopskill_search)(
             db,
             query=args.get("query"),
             category=args.get("category"),
@@ -168,8 +173,8 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
     if name == "loopskill_connector_publish":
         fn = _tool_ns.get("loopskill_connector_publish", loopskill_connector_publish)
         return fn(db, ctx=ctx, **{k: v for k, v in args.items() if k != "ctx"})
-    if name == "recipes_install":
-        return _tool_ns.get("recipes_install", recipes_install)(
+    if name == "loopskill_install":
+        return _tool_ns.get("loopskill_install", loopskill_install)(
             db,
             slug=args["slug"],
             api_key_id=caller.get("api_key_id"),
@@ -178,11 +183,11 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
     _lib_result = _dispatch_library(name, db, args, ctx)
     if _lib_result is not _NOT_HANDLED:  # type: ignore[comparison-overlap]
         return _lib_result
-    if name == "recipes_cookbook_install":
+    if name == "loopskill_bundle_install":
         # cookbook_share_2105 Phase F. Map CookbookInstallError to the
         # standard {error, status, code} envelope MCP callers parse.
         try:
-            return recipes_cookbook_install(
+            return loopskill_bundle_install(
                 db=db,
                 ctx=ctx,
                 cookbook_id=args.get("cookbook_id"),
@@ -191,18 +196,18 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
         except CookbookInstallError as exc:
             return {"error": exc.message, "code": exc.code, "status": exc.status}
     # ── spotify_0608 Ph D: streaming bundle-composition verbs ─────────────
-    if name == "recipes_install_from_cookbook":
+    if name == "loopskill_install_from_bundle":
         try:
-            return _tool_ns.get("recipes_install_from_cookbook", recipes_install_from_cookbook)(
+            return _tool_ns.get("loopskill_install_from_bundle", loopskill_install_from_bundle)(
                 db,
                 link=args["link"],
                 ctx=ctx,
             )
         except CookbookInstallError as exc:
             return {"error": exc.message, "code": exc.code, "status": exc.status}
-    if name == "recipes_pick_best_from_cookbook":
+    if name == "loopskill_pick_best_from_bundle":
         try:
-            return _tool_ns.get("recipes_pick_best_from_cookbook", recipes_pick_best_from_cookbook)(
+            return _tool_ns.get("loopskill_pick_best_from_bundle", loopskill_pick_best_from_bundle)(
                 db,
                 link=args["link"],
                 need=args.get("need"),
@@ -210,9 +215,9 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             )
         except CookbookInstallError as exc:
             return {"error": exc.message, "code": exc.code, "status": exc.status}
-    if name == "recipes_compose_cookbook_from_links":
+    if name == "loopskill_compose_bundle_from_links":
         try:
-            return _tool_ns.get("recipes_compose_cookbook_from_links", recipes_compose_cookbook_from_links)(
+            return _tool_ns.get("loopskill_compose_bundle_from_links", loopskill_compose_bundle_from_links)(
                 db,
                 links=args["links"],
                 name=args.get("name"),
@@ -220,33 +225,33 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             )
         except CookbookInstallError as exc:
             return {"error": exc.message, "code": exc.code, "status": exc.status}
-    if name == "recipes_list_cookbook":
-        return _tool_ns.get("recipes_list_cookbook", recipes_list_cookbook)(
+    if name == "loopskill_list_bundle":
+        return _tool_ns.get("loopskill_list_bundle", loopskill_list_bundle)(
             db,
             user_id=caller.get("user_id"),
             cookbook_id=args.get("cookbook_id"),
         )
-    if name == "recipes_recall":
-        return _tool_ns.get("recipes_recall", recipes_recall)(db, **args)
-    if name == "recipes_recipify":
-        return _tool_ns.get("recipes_recipify", recipes_recipify)(db, ctx=ctx, **args)
-    if name == "recipes_carousel_today":
-        return _tool_ns.get("recipes_carousel_today", recipes_carousel_today)(db)
-    if name == "recipes_subrecipe_resolve":
-        return _tool_ns.get("recipes_subrecipe_resolve", recipes_subrecipe_resolve)(db, **args)
-    if name == "recipes_doctor":
-        return _tool_ns.get("recipes_doctor", recipes_doctor)(db, install_dir=args["install_dir"])
-    if name == "recipes_seeker":
-        return _tool_ns.get("recipes_seeker", recipes_seeker)(db, **args)
-    if name == "recipes_sync":
-        return _tool_ns.get("recipes_sync", recipes_sync)(
+    if name == "loopskill_recall":
+        return _tool_ns.get("loopskill_recall", loopskill_recall)(db, **args)
+    if name == "loopskill_skillify":
+        return _tool_ns.get("loopskill_skillify", loopskill_skillify)(db, ctx=ctx, **args)
+    if name == "loopskill_carousel_today":
+        return _tool_ns.get("loopskill_carousel_today", loopskill_carousel_today)(db)
+    if name == "loopskill_subskill_resolve":
+        return _tool_ns.get("loopskill_subskill_resolve", loopskill_subskill_resolve)(db, **args)
+    if name == "loopskill_doctor":
+        return _tool_ns.get("loopskill_doctor", loopskill_doctor)(db, install_dir=args["install_dir"])
+    if name == "loopskill_seeker":
+        return _tool_ns.get("loopskill_seeker", loopskill_seeker)(db, **args)
+    if name == "loopskill_sync":
+        return _tool_ns.get("loopskill_sync", loopskill_sync)(
             db,
             cookbook_id=args["cookbook_id"],
             dry_run=args.get("dry_run", False),
             ctx=ctx,
         )
-    if name == "recipes_feedback":
-        return _tool_ns.get("recipes_feedback", recipes_feedback)(
+    if name == "loopskill_feedback":
+        return _tool_ns.get("loopskill_feedback", loopskill_feedback)(
             db,
             category=args["category"],
             message=args["message"],
@@ -258,8 +263,8 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             ctx=ctx,
             provenance_id=args.get("provenance_id"),
         )
-    if name == "recipes_request_recipe":
-        return _tool_ns.get("recipes_request_recipe", recipes_request_recipe)(
+    if name == "loopskill_request_skill":
+        return _tool_ns.get("loopskill_request_skill", loopskill_request_skill)(
             db,
             target_name=args["target_name"],
             why_useful=args["why_useful"],
@@ -267,8 +272,8 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             agent_id=args.get("agent_id"),
             api_key_id=caller.get("api_key_id"),
         )
-    if name == "recipes_report_skill_error":
-        return _tool_ns.get("recipes_report_skill_error", recipes_report_skill_error)(
+    if name == "loopskill_report_skill_error":
+        return _tool_ns.get("loopskill_report_skill_error", loopskill_report_skill_error)(
             db,
             slug=args["slug"],
             signature=args["signature"],
@@ -278,8 +283,8 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             api_key_id=caller.get("api_key_id"),
             provenance_id=args.get("provenance_id"),
         )
-    if name == "recipes_propose_skill_patch":
-        return _tool_ns.get("recipes_propose_skill_patch", recipes_propose_skill_patch)(
+    if name == "loopskill_propose_skill_patch":
+        return _tool_ns.get("loopskill_propose_skill_patch", loopskill_propose_skill_patch)(
             db,
             slug=args["slug"],
             base_version=args["base_version"],
@@ -290,63 +295,63 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             api_key_id=caller.get("api_key_id"),
         )
     # ── Phase D: share-token management tools ───────────────────────────────
-    if name == "recipes_share_create":
-        return _tool_ns.get("recipes_share_create", recipes_share_create)(
+    if name == "loopskill_share_create":
+        return _tool_ns.get("loopskill_share_create", loopskill_share_create)(
             db,
             cookbook_id=args["cookbook_id"],
             name=args.get("name"),
             scope=args.get("scope", "install"),
             ctx=ctx,
         )
-    if name == "recipes_share_list":
-        return _tool_ns.get("recipes_share_list", recipes_share_list)(
+    if name == "loopskill_share_list":
+        return _tool_ns.get("loopskill_share_list", loopskill_share_list)(
             db,
             cookbook_id=args["cookbook_id"],
             ctx=ctx,
         )
-    if name == "recipes_share_revoke":
-        return _tool_ns.get("recipes_share_revoke", recipes_share_revoke)(
+    if name == "loopskill_share_revoke":
+        return _tool_ns.get("loopskill_share_revoke", loopskill_share_revoke)(
             db,
             cookbook_id=args["cookbook_id"],
             token_id=args["token_id"],
             ctx=ctx,
         )
-    if name == "recipes_share_rotate":
-        return _tool_ns.get("recipes_share_rotate", recipes_share_rotate)(
+    if name == "loopskill_share_rotate":
+        return _tool_ns.get("loopskill_share_rotate", loopskill_share_rotate)(
             db,
             cookbook_id=args["cookbook_id"],
             token_id=args["token_id"],
             ctx=ctx,
         )
     # Phase E: fleet tools
-    if name == "recipes_fleet_create":
-        return _tool_ns.get("recipes_fleet_create", recipes_fleet_create)(
+    if name == "loopskill_fleet_create":
+        return _tool_ns.get("loopskill_fleet_create", loopskill_fleet_create)(
             db,
             name=args["name"],
             ctx=ctx,
         )
-    if name == "recipes_fleet_subscribe":
-        return _tool_ns.get("recipes_fleet_subscribe", recipes_fleet_subscribe)(
+    if name == "loopskill_fleet_subscribe":
+        return _tool_ns.get("loopskill_fleet_subscribe", loopskill_fleet_subscribe)(
             db,
             fleet_id=args["fleet_id"],
             cookbook_id=args["cookbook_id"],
             channel=args.get("channel", "stable"),
             ctx=ctx,
         )
-    if name == "recipes_fleet_sync":
-        return _tool_ns.get("recipes_fleet_sync", recipes_fleet_sync)(
+    if name == "loopskill_fleet_sync":
+        return _tool_ns.get("loopskill_fleet_sync", loopskill_fleet_sync)(
             db,
             fleet_id=args["fleet_id"],
             dry_run=args.get("dry_run", False),
             ctx=ctx,
         )
-    if name == "recipes_fleet_list":
-        return _tool_ns.get("recipes_fleet_list", recipes_fleet_list)(
+    if name == "loopskill_fleet_list":
+        return _tool_ns.get("loopskill_fleet_list", loopskill_fleet_list)(
             db,
             ctx=ctx,
         )
-    if name == "recipes_publish_request":
-        return _tool_ns.get("recipes_publish_request", recipes_publish_request)(
+    if name == "loopskill_publish_request":
+        return _tool_ns.get("loopskill_publish_request", loopskill_publish_request)(
             db,
             slug=args["slug"],
             content=args["content"],
@@ -364,21 +369,21 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             ctx=ctx,
         )
     # integrator_2905 W1: tailor / fork tools
-    if name == "recipes_fork_list":
-        return _tool_ns.get("recipes_fork_list", recipes_fork_list)(
+    if name == "loopskill_fork_list":
+        return _tool_ns.get("loopskill_fork_list", loopskill_fork_list)(
             db,
             ctx=ctx,
         )
-    if name == "recipes_tailor":
-        return _tool_ns.get("recipes_tailor", recipes_tailor)(
+    if name == "loopskill_tailor":
+        return _tool_ns.get("loopskill_tailor", loopskill_tailor)(
             db,
             source_slug=args["source_slug"],
             name=args["name"],
             readme=args.get("readme"),
             ctx=ctx,
         )
-    if name == "recipes_tailor_version":
-        return _tool_ns.get("recipes_tailor_version", recipes_tailor_version)(
+    if name == "loopskill_tailor_version":
+        return _tool_ns.get("loopskill_tailor_version", loopskill_tailor_version)(
             db,
             fork_id=args["fork_id"],
             tarball_base64=args["tarball_base64"],
@@ -386,16 +391,16 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             changelog=args.get("changelog"),
             ctx=ctx,
         )
-    if name == "recipes_cookbook_attach":
-        return _tool_ns.get("recipes_cookbook_attach", recipes_cookbook_attach)(
+    if name == "loopskill_bundle_attach":
+        return _tool_ns.get("loopskill_bundle_attach", loopskill_bundle_attach)(
             db,
             fork_id=args["fork_id"],
             target_cookbook_id=args["target_cookbook_id"],
             slug=args.get("slug"),
             ctx=ctx,
         )
-    if name == "recipes_cookbook_handoff":
-        return _tool_ns.get("recipes_cookbook_handoff", recipes_cookbook_handoff)(
+    if name == "loopskill_bundle_handoff":
+        return _tool_ns.get("loopskill_bundle_handoff", loopskill_bundle_handoff)(
             db,
             ctx=ctx,
             cookbook_id=args["cookbook_id"],
@@ -404,8 +409,8 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             mode=args.get("mode", "transfer"),
         )
     # ── Phase J: user-routable feedback (THE MOAT) ──────────────────────────
-    if name == "recipes_configure_feedback":
-        return _tool_ns.get("recipes_configure_feedback", recipes_configure_feedback)(
+    if name == "loopskill_configure_feedback":
+        return _tool_ns.get("loopskill_configure_feedback", loopskill_configure_feedback)(
             db,
             repo=args.get("repo"),
             mode=args.get("mode"),
@@ -442,13 +447,13 @@ def call_tool_sync(
     try:
         payload = _dispatch(name, session, args or {}, caller)
 
-        # After a successful recipes_sync apply, invalidate cached status
-        if normalized_name == "recipes_sync" and isinstance(payload, dict) and payload.get("applied"):
+        # After a successful loopskill_sync apply, invalidate cached status
+        if normalized_name == "loopskill_sync" and isinstance(payload, dict) and payload.get("applied"):
             invalidate_bundle_status(caller.get("user_id"))
 
-        # Inject bundle_status for authenticated users (skip for recipes_sync  # compat-alias
+        # Inject bundle_status for authenticated users (skip for loopskill_sync  # compat-alias
         # itself to avoid noisy double-reporting — sync already returns the diff).
-        if isinstance(payload, dict) and normalized_name != "recipes_sync":
+        if isinstance(payload, dict) and normalized_name != "loopskill_sync":
             user_id = caller.get("user_id")
             status = get_bundle_status(session, user_id)
             if status:
@@ -513,16 +518,10 @@ def build_mcp_server(db_factory: Callable[[], Session] = SessionLocal) -> Server
     return server
 
 
-# ── FastAPI router (SSE transport) ──────────────────────────────────────────
-#
-# Public surface: /api/mcp/{healthz,sse,messages/}
-#
-# Why /api/mcp instead of plain /mcp:
-# The Cloudflare zone fronting app.loopskill.io intercepts literal /mcp/*
-# paths at the edge (likely CF's managed AI Gateway / Workers MCP product)
-# and returns 404 before the request ever reaches our cloudflared tunnel.
-# /api/mcp/* passes through cleanly via the existing /api/* tunnel rule.
-# Verified 2026-05-07 by inspecting cloudflared_tunnel_total_requests counter.
+# ── FastAPI router (SSE transport) — public surface /api/mcp/{healthz,sse,messages/}
+# Why /api/mcp not plain /mcp: the Cloudflare zone fronting app.loopskill.io
+# 404s literal /mcp/* at the edge (CF AI Gateway); /api/mcp/* passes via the
+# /api/* tunnel rule (verified 2026-05-07 via cloudflared_tunnel_total_requests).
 
 router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 

@@ -12,7 +12,7 @@ This suite pins the contract: ANY mutation to a cookbook's declared skill set
 advances the parent generation token. Three write paths:
   1. add_skill_to_cookbook        (bundle_routes.py)
   2. remove_skill_from_cookbook   (bundle_routes.py)
-  3. recipes_sync pin-write       (mcp/tools/recipes_sync.py)
+  3. loopskill_sync pin-write       (mcp/tools/loopskill_sync.py)
 
 RED until Phase A wires `_touch_cookbook_generation(db, cb)` into all three.
 """
@@ -221,11 +221,11 @@ class TestGenerationTokenAdvancesOnChildMutation:
 
 
 class TestGenerationTokenSyncPinWrite:
-    """recipes_sync's pin-write must also advance the generation token."""
+    """loopskill_sync's pin-write must also advance the generation token."""
 
     def test_sync_pin_write_bumps_generation(self, db_session):
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.recipes_sync import recipes_sync
+        from app.mcp.tools.loopskill_sync import loopskill_sync
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, user)
@@ -259,19 +259,19 @@ class TestGenerationTokenSyncPinWrite:
             api_key_id=None,
             tier="pro",
         )
-        result = recipes_sync(db=db_session, ctx=ctx, cookbook_id=str(cb.id))
+        result = loopskill_sync(db=db_session, ctx=ctx, cookbook_id=str(cb.id))
         assert result.get("applied") is True, result
 
         after = _generation(db_session, cb.id)
         assert after > before, (
-            "recipes_sync pin-write must advance the parent generation token "
+            "loopskill_sync pin-write must advance the parent generation token "
             f"(before={before!r} after={after!r})"
         )
 
     def test_sync_noop_does_not_falsely_bump(self, db_session):
         """If nothing is outdated, the generation token must NOT move."""
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.recipes_sync import recipes_sync
+        from app.mcp.tools.loopskill_sync import loopskill_sync
 
         user = _make_user(db_session)
         cb = _make_cookbook(db_session, user)
@@ -289,7 +289,7 @@ class TestGenerationTokenSyncPinWrite:
         before = _backdate(db_session, cb.id)
 
         ctx = AuthContext(scope="user", user_id=user.id, api_key_id=None, tier="pro")
-        recipes_sync(db=db_session, ctx=ctx, cookbook_id=str(cb.id))
+        loopskill_sync(db=db_session, ctx=ctx, cookbook_id=str(cb.id))
 
         after = _generation(db_session, cb.id)
         assert after == before, "a no-op sync must not advance the generation token"

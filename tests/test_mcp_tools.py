@@ -16,14 +16,14 @@ from uuid import uuid4
 import pytest
 
 from app.mcp.tools import (
-    recipes_carousel_today,
-    recipes_doctor,
-    recipes_install,
-    recipes_list_cookbook,
-    recipes_recall,
-    recipes_recipify,
-    recipes_search,
-    recipes_subrecipe_resolve,
+    loopskill_carousel_today,
+    loopskill_doctor,
+    loopskill_install,
+    loopskill_list_bundle,
+    loopskill_recall,
+    loopskill_skillify,
+    loopskill_search,
+    loopskill_subskill_resolve,
 )
 from app.models import (
     CarouselEntry,
@@ -35,7 +35,7 @@ from app.models import (
 from tests.conftest import make_skill
 
 
-# ── recipes_search ──────────────────────────────────────────────────────────
+# ── loopskill_search ──────────────────────────────────────────────────────────
 
 def test_search_returns_public_skills_matching_query(db_session):
     make_skill(db_session, slug="orchestrate-llm", title="Orchestrate LLM",
@@ -44,7 +44,7 @@ def test_search_returns_public_skills_matching_query(db_session):
                description="Unrelated", category="ops")
     db_session.commit()
 
-    result = recipes_search(db_session, query="orchestrate", limit=10)
+    result = loopskill_search(db_session, query="orchestrate", limit=10)
     slugs = {r["slug"] for r in result["results"]}
     assert "orchestrate-llm" in slugs
     assert "not-this" not in slugs
@@ -55,11 +55,11 @@ def test_search_excludes_private_skills(db_session):
     make_skill(db_session, slug="private-x", title="Private Skill",
                description="hidden", category="ops", is_public=False)
     db_session.commit()
-    result = recipes_search(db_session, query="Private", limit=10)
+    result = loopskill_search(db_session, query="Private", limit=10)
     assert all(r["slug"] != "private-x" for r in result["results"])
 
 
-# ── recipes_install ─────────────────────────────────────────────────────────
+# ── loopskill_install ─────────────────────────────────────────────────────────
 
 def test_install_returns_signed_url_and_manifest(db_session):
     skill = make_skill(db_session, slug="install-me", title="Install Me",
@@ -77,7 +77,7 @@ def test_install_returns_signed_url_and_manifest(db_session):
     db_session.add(sv)
     db_session.commit()
 
-    out = recipes_install(db_session, slug="install-me")
+    out = loopskill_install(db_session, slug="install-me")
     assert out["slug"] == "install-me"
     assert out["version"] == "1.0.0"
     assert out["checksum_sha256"] == "abc123"
@@ -86,14 +86,14 @@ def test_install_returns_signed_url_and_manifest(db_session):
 
 
 def test_install_unknown_slug_returns_not_found(db_session):
-    out = recipes_install(db_session, slug="ghost-skill")
+    out = loopskill_install(db_session, slug="ghost-skill")
     assert out["error"] == "not_found"
 
 
-# ── recipes_list_cookbook ───────────────────────────────────────────────────
+# ── loopskill_list_bundle ───────────────────────────────────────────────────
 
 def test_list_cookbook_returns_null_for_unknown_user(db_session):
-    out = recipes_list_cookbook(db_session, user_id=str(uuid4()))
+    out = loopskill_list_bundle(db_session, user_id=str(uuid4()))
     assert out == {"cookbook": None, "skills": []}
 
 
@@ -108,19 +108,19 @@ def test_list_cookbook_returns_skills_for_owner(db_session):
     ))
     db_session.commit()
 
-    out = recipes_list_cookbook(db_session, user_id=str(owner_id))
+    out = loopskill_list_bundle(db_session, user_id=str(owner_id))
     assert out["cookbook"]["name"] == "My Book"
     assert len(out["skills"]) == 1
     assert out["skills"][0]["slug"] == "cb-skill"
     assert out["skills"][0]["source"] == "forked"
 
 
-# ── recipes_recall / recipes_recipify / recipes_subrecipe_resolve ───────────
+# ── loopskill_recall / loopskill_skillify / loopskill_subskill_resolve ───────────
 
 def test_recall_requires_query(db_session):
     # Phase E (v2) replaces the stub. Empty calls report a missing-query error
     # instead of the old not_implemented payload.
-    out = recipes_recall(db_session)
+    out = loopskill_recall(db_session)
     assert out.get("error") == "query_required"
 
 
@@ -130,13 +130,13 @@ def test_recall_returns_hits_shape(db_session):
     make_skill(db_session, slug="web-scraper", title="Web scraper",
                description="Scrape websites and extract data", tier="free")
     db_session.flush()
-    out = recipes_recall(db_session, query="scrape websites", limit=3)
+    out = loopskill_recall(db_session, query="scrape websites", limit=3)
     assert "hits" in out and "backend" in out
     assert isinstance(out["hits"], list)
 
 
 def test_recipify_is_no_longer_phase_g_stub(db_session):
-    out = recipes_recipify(db_session)
+    out = loopskill_skillify(db_session)
     assert out.get("error") != "not_implemented"
     assert out.get("phase") != "G"
     assert out.get("code") == "missing_slug"
@@ -148,10 +148,10 @@ def test_subrecipe_resolve_reports_pro_plus(db_session):
     Previously returned 'operator' (Phase A stub); updated to canonical 'pro_plus' in Phase G.
     The stub will be replaced with real sub-key validation logic in Phase C.
     """
-    assert recipes_subrecipe_resolve(db_session) == {"scope": "pro_plus"}
+    assert loopskill_subskill_resolve(db_session) == {"scope": "pro_plus"}
 
 
-# ── recipes_carousel_today ──────────────────────────────────────────────────
+# ── loopskill_carousel_today ──────────────────────────────────────────────────
 
 def test_carousel_today_returns_entries_for_utc_today(db_session):
     today = datetime.now(timezone.utc)
@@ -169,16 +169,16 @@ def test_carousel_today_returns_entries_for_utc_today(db_session):
     ))
     db_session.commit()
 
-    out = recipes_carousel_today(db_session)
+    out = loopskill_carousel_today(db_session)
     assert out["date"] == today.date().isoformat()
     assert any(e["skill"]["slug"] == "carousel-skill" for e in out["entries"])
 
 
-# ── recipes_doctor ──────────────────────────────────────────────────────────
+# ── loopskill_doctor ──────────────────────────────────────────────────────────
 
 def test_doctor_flags_missing_files(db_session):
     with tempfile.TemporaryDirectory() as tmp:
-        out = recipes_doctor(db_session, install_dir=tmp)
+        out = loopskill_doctor(db_session, install_dir=tmp)
         assert out["ok"] is False
         assert out["skill_md_present"] is False
         assert out["meta_present"] is False
@@ -190,7 +190,7 @@ def test_doctor_passes_clean_install(db_session):
             f.write("# Skill\nNo paths here.\n")
         with open(os.path.join(tmp, "_meta.json"), "w") as f:
             json.dump({"name": "x"}, f)
-        out = recipes_doctor(db_session, install_dir=tmp)
+        out = loopskill_doctor(db_session, install_dir=tmp)
         assert out["ok"] is True
         assert out["meta_valid"] is True
         assert out["hardcoded_paths"] == {}
@@ -204,13 +204,13 @@ def test_doctor_detects_hardcoded_home_paths(db_session):
             json.dump({}, f)
         with open(os.path.join(tmp, "run.sh"), "w") as f:
             f.write("cd /home/alice/repos/foo && ./run\n")
-        out = recipes_doctor(db_session, install_dir=tmp)
+        out = loopskill_doctor(db_session, install_dir=tmp)
         assert out["ok"] is False
         assert "run.sh" in out["hardcoded_paths"]
         assert any("/home/alice/" in p for p in out["hardcoded_paths"]["run.sh"])
 
 
 def test_doctor_handles_missing_install_dir(db_session):
-    out = recipes_doctor(db_session, install_dir="/nonexistent/path/x42")
+    out = loopskill_doctor(db_session, install_dir="/nonexistent/path/x42")
     assert out["ok"] is False
     assert out["error"] == "install_dir_not_found"

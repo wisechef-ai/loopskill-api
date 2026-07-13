@@ -1,4 +1,4 @@
-"""recipes_install — mirror of ``GET /api/skills/install`` for MCP callers.
+"""loopskill_install — mirror of ``GET /api/skills/install`` for MCP callers.
 
 Returns a signed tarball URL, sha256 checksum and manifest. The HTTP handler
 also writes an InstallEvent row; we replicate that here so analytics stay
@@ -58,7 +58,7 @@ def _related_slugs(db: Session, slug: str, limit: int = 10) -> list[str]:
     return [r.target_slug for r in rows]
 
 
-def recipes_install(
+def loopskill_install(
     db: Session,
     slug: str,
     api_key_id: Any | None = None,

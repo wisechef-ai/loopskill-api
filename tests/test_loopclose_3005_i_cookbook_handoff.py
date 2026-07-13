@@ -3,7 +3,7 @@
 TDD-first: written BEFORE the implementation.
 
 Contract:
-  recipes_cookbook_handoff(db, *, ctx, cookbook_id, new_owner_user_id=None,
+  loopskill_bundle_handoff(db, *, ctx, cookbook_id, new_owner_user_id=None,
                            new_owner_email=None, mode='transfer'|'fork')
 
   transfer:
@@ -41,7 +41,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.auth_ctx import AuthContext
 from app.models import Base, Bundle, BundleSkill, Skill, User
-from app.mcp.tools.bundle_handoff import recipes_cookbook_handoff
+from app.mcp.tools.bundle_handoff import loopskill_bundle_handoff
 
 
 # ─────────────────────────── Fixtures ───────────────────────────────────
@@ -134,7 +134,7 @@ def test_transfer_changes_owner(db_session):
     db_session.commit()
 
     ctx = AuthContext(scope="user", user_id=user_a.id)
-    result = recipes_cookbook_handoff(
+    result = loopskill_bundle_handoff(
         db_session,
         ctx=ctx,
         cookbook_id=str(cb.id),
@@ -158,7 +158,7 @@ def test_transfer_new_owner_can_list(db_session):
     db_session.commit()
 
     ctx = AuthContext(scope="user", user_id=user_a.id)
-    recipes_cookbook_handoff(
+    loopskill_bundle_handoff(
         db_session, ctx=ctx, cookbook_id=str(cb.id),
         new_owner_user_id=str(user_b.id), mode="transfer",
     )
@@ -180,7 +180,7 @@ def test_transfer_by_email(db_session):
     db_session.commit()
 
     ctx = AuthContext(scope="user", user_id=user_a.id)
-    result = recipes_cookbook_handoff(
+    result = loopskill_bundle_handoff(
         db_session,
         ctx=ctx,
         cookbook_id=str(cb.id),
@@ -203,7 +203,7 @@ def test_transfer_master_can_handoff(db_session):
     db_session.commit()
 
     ctx = AuthContext(scope="master")
-    result = recipes_cookbook_handoff(
+    result = loopskill_bundle_handoff(
         db_session,
         ctx=ctx,
         cookbook_id=str(cb.id),
@@ -228,7 +228,7 @@ def test_fork_creates_new_cookbook(db_session):
     db_session.commit()
 
     ctx = AuthContext(scope="user", user_id=user_a.id)
-    result = recipes_cookbook_handoff(
+    result = loopskill_bundle_handoff(
         db_session,
         ctx=ctx,
         cookbook_id=str(cb.id),
@@ -258,7 +258,7 @@ def test_fork_lineage_set(db_session):
     db_session.commit()
 
     ctx = AuthContext(scope="user", user_id=user_a.id)
-    result = recipes_cookbook_handoff(
+    result = loopskill_bundle_handoff(
         db_session,
         ctx=ctx,
         cookbook_id=str(cb.id),
@@ -288,7 +288,7 @@ def test_fork_copies_only_custom_added_skills(db_session):
     db_session.commit()
 
     ctx = AuthContext(scope="user", user_id=user_a.id)
-    result = recipes_cookbook_handoff(
+    result = loopskill_bundle_handoff(
         db_session,
         ctx=ctx,
         cookbook_id=str(cb.id),
@@ -321,7 +321,7 @@ def test_fork_result_skill_count(db_session):
     db_session.commit()
 
     ctx = AuthContext(scope="user", user_id=user_a.id)
-    result = recipes_cookbook_handoff(
+    result = loopskill_bundle_handoff(
         db_session,
         ctx=ctx,
         cookbook_id=str(cb.id),
@@ -339,7 +339,7 @@ def test_fork_new_owner_can_list(db_session):
     db_session.commit()
 
     ctx = AuthContext(scope="user", user_id=user_a.id)
-    result = recipes_cookbook_handoff(
+    result = loopskill_bundle_handoff(
         db_session,
         ctx=ctx,
         cookbook_id=str(cb.id),
@@ -364,7 +364,7 @@ def test_handoff_wrong_owner_rejected(db_session):
     db_session.commit()
 
     ctx = AuthContext(scope="user", user_id=user_c.id)  # user_c != owner
-    result = recipes_cookbook_handoff(
+    result = loopskill_bundle_handoff(
         db_session,
         ctx=ctx,
         cookbook_id=str(cb.id),
@@ -380,7 +380,7 @@ def test_handoff_unknown_cookbook_rejected(db_session):
     db_session.commit()
 
     ctx = AuthContext(scope="user", user_id=user.id)
-    result = recipes_cookbook_handoff(
+    result = loopskill_bundle_handoff(
         db_session,
         ctx=ctx,
         cookbook_id=str(uuid4()),
@@ -397,7 +397,7 @@ def test_handoff_unknown_new_owner_rejected(db_session):
     db_session.commit()
 
     ctx = AuthContext(scope="user", user_id=user_a.id)
-    result = recipes_cookbook_handoff(
+    result = loopskill_bundle_handoff(
         db_session,
         ctx=ctx,
         cookbook_id=str(cb.id),
@@ -414,7 +414,7 @@ def test_handoff_no_new_owner_specified(db_session):
     db_session.commit()
 
     ctx = AuthContext(scope="user", user_id=user_a.id)
-    result = recipes_cookbook_handoff(
+    result = loopskill_bundle_handoff(
         db_session,
         ctx=ctx,
         cookbook_id=str(cb.id),
@@ -431,7 +431,7 @@ def test_handoff_invalid_mode(db_session):
     db_session.commit()
 
     ctx = AuthContext(scope="user", user_id=user_a.id)
-    result = recipes_cookbook_handoff(
+    result = loopskill_bundle_handoff(
         db_session,
         ctx=ctx,
         cookbook_id=str(cb.id),
@@ -448,7 +448,7 @@ def test_handoff_unauthenticated_rejected(db_session):
     db_session.commit()
 
     ctx = AuthContext.anonymous()
-    result = recipes_cookbook_handoff(
+    result = loopskill_bundle_handoff(
         db_session,
         ctx=ctx,
         cookbook_id=str(cb.id),
@@ -472,7 +472,7 @@ def test_handoff_base_cookbook_rejected(db_session):
     db_session.commit()
 
     ctx = AuthContext(scope="master")
-    result = recipes_cookbook_handoff(
+    result = loopskill_bundle_handoff(
         db_session,
         ctx=ctx,
         cookbook_id=str(base_cb.id),
@@ -486,7 +486,7 @@ def test_handoff_base_cookbook_rejected(db_session):
 
 
 def test_dispatch_wiring(db_session):
-    """recipes_cookbook_handoff is reachable via call_tool_sync."""
+    """loopskill_bundle_handoff is reachable via call_tool_sync."""
     from app.mcp.server import call_tool_sync
 
     user_a = _make_user(db_session)
@@ -496,7 +496,7 @@ def test_dispatch_wiring(db_session):
 
     ctx = AuthContext(scope="user", user_id=user_a.id)
     result = call_tool_sync(
-        "recipes_cookbook_handoff",
+        "loopskill_bundle_handoff",
         {
             "cookbook_id": str(cb.id),
             "new_owner_user_id": str(user_b.id),

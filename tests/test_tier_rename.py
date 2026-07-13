@@ -234,11 +234,11 @@ class TestMarketingCountsCanonicalSlugs:
 
 class TestRecallDefaultTierFilter:
     def test_recall_default_tier_filter_uses_canonical_slugs(self):
-        """recipes_recall default tier_filter uses 'pro'/'pro_plus', not 'cook'/'operator'."""
+        """loopskill_recall default tier_filter uses 'pro'/'pro_plus', not 'cook'/'operator'."""
         import inspect
         import app.mcp.tools.recall as recall_mod
 
-        src = inspect.getsource(recall_mod.recipes_recall)
+        src = inspect.getsource(recall_mod.loopskill_recall)
         assert '"cook"' not in src, (
             "recall default tier_filter should not contain literal 'cook'"
         )
@@ -254,11 +254,11 @@ class TestRecallDefaultTierFilter:
 
 class TestSearchFallbackTierFilter:
     def test_search_fallback_tier_filter_uses_canonical_slugs(self):
-        """recipes_search hybrid fallback tier_filter uses 'pro'/'pro_plus', not 'cook'/'operator'."""
+        """loopskill_search hybrid fallback tier_filter uses 'pro'/'pro_plus', not 'cook'/'operator'."""
         import inspect
         import app.mcp.tools.search as search_mod
 
-        src = inspect.getsource(search_mod.recipes_search)
+        src = inspect.getsource(search_mod.loopskill_search)
         # The fallback list should use canonical tier names
         assert '"cook"' not in src, (
             "search fallback should not contain literal 'cook'"
@@ -273,11 +273,11 @@ class TestSearchFallbackTierFilter:
 
 class TestSubrecipeResolveScope:
     def test_subrecipe_resolve_scope_updated(self):
-        """recipes_subrecipe_resolve returns canonical 'pro_plus' scope, not 'operator'."""
+        """loopskill_subskill_resolve returns canonical 'pro_plus' scope, not 'operator'."""
         import app.mcp.tools.subrecipe_resolve as sr
 
         # Call the function with a mock DB
-        result = sr.recipes_subrecipe_resolve(db=MagicMock())
+        result = sr.loopskill_subskill_resolve(db=MagicMock())
         assert result.get("scope") != "operator", (
             "subrecipe_resolve should return 'pro_plus' scope, not legacy 'operator'"
         )

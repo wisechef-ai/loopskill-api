@@ -1140,7 +1140,7 @@ class FleetSubscription(Base):
 class RecipifyRequest(Base):
     """User request to add a new recipe/skill to the marketplace.
 
-    Created via POST /api/v1/recipify-request or the recipes_request_recipe
+    Created via POST /api/v1/recipify-request or the loopskill_request_skill
     MCP tool. Dispatches a GitHub repository_dispatch event of type
     'recipify-request'.
     """
@@ -1167,7 +1167,7 @@ class RecipifyRequest(Base):
 class FeedbackSubmission(Base):
     """User/agent feedback submission.
 
-    Created via POST /api/v1/feedback or the recipes_feedback MCP tool.
+    Created via POST /api/v1/feedback or the loopskill_feedback MCP tool.
     Dispatches a GitHub repository_dispatch event of type 'feedback'.
     """
 
@@ -1193,7 +1193,7 @@ class FeedbackSubmission(Base):
 class SkillPublishRequest(Base):
     """Creator-submitted publish request for a new public skill.
 
-    Created via the recipes_publish_request MCP tool.
+    Created via the loopskill_publish_request MCP tool.
     Dispatches a GitHub repository_dispatch event of type 'skill-publish-request'.
     Adam reviews the GitHub issue and approves/rejects by labelling it.
     """
@@ -1240,7 +1240,7 @@ class SkillPublishRequest(Base):
 class SkillPatch(Base):
     """Agent-submitted skill patch awaiting draft PR creation.
 
-    Created via POST /api/v1/skill-patch or the recipes_propose_skill_patch
+    Created via POST /api/v1/skill-patch or the loopskill_propose_skill_patch
     MCP tool. Dispatches a GitHub repository_dispatch event of type 'skill-patch'.
     """
 

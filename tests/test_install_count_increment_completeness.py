@@ -7,13 +7,13 @@ increment regresses visibly in CI before it reaches prod.
 Code paths under test:
     1. /api/telemetry  (event_type=install)          [routes.py, RCP-13, tested by test_install_count_sync]
     2. /api/skills/install  (direct single-skill)    [install_routes.py, RCP-13, tested by test_install_count_sync]
-    3. MCP recipes_install                           [mcp/tools/install.py — BUG: missing increment before this fix]
+    3. MCP loopskill_install                           [mcp/tools/install.py — BUG: missing increment before this fix]
     4. POST /api/cookbooks/{id}/install              [bundle_routes.py, _record_install_event]
-    5. MCP recipes_cookbook_install single-skill     [mcp/tools/cookbook_install.py, _record_install_event]
-    6. MCP recipes_cookbook_install bulk             [mcp/tools/cookbook_install.py, _record_install_event]
+    5. MCP loopskill_bundle_install single-skill     [mcp/tools/cookbook_install.py, _record_install_event]
+    6. MCP loopskill_bundle_install bulk             [mcp/tools/cookbook_install.py, _record_install_event]
 
 Root cause (Phase C finding):
-    Path #3 (``app/mcp/tools/install.py:recipes_install``) wrote an
+    Path #3 (``app/mcp/tools/install.py:loopskill_install``) wrote an
     InstallEvent row but never issued the SQL-level
     ``Skill.install_count += 1`` update.  All 7 of the 9 "hot skills"
     with negative drift had their installs routed through the MCP tool
@@ -60,11 +60,11 @@ def _read_count(db: Session, slug: str) -> int:
     return int(row.install_count or 0)
 
 
-# ── Path 3: MCP recipes_install ──────────────────────────────────────────────
+# ── Path 3: MCP loopskill_install ──────────────────────────────────────────────
 
 
 class TestMcpRecipesInstallBumpsCounter:
-    """``app/mcp/tools/install.recipes_install`` must bump install_count.
+    """``app/mcp/tools/install.loopskill_install`` must bump install_count.
 
     Before the Phase C fix, the MCP tool inserted an InstallEvent but
     omitted the companion SQL-level ``Skill.install_count += 1`` update.
@@ -74,18 +74,18 @@ class TestMcpRecipesInstallBumpsCounter:
         self, db_session: Session
     ) -> None:
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.install import recipes_install
+        from app.mcp.tools.install import loopskill_install
 
         skill = make_skill(db_session, slug="larry")
         _make_version(db_session, skill)
         assert _read_count(db_session, "larry") == 0
 
         ctx = AuthContext(scope="master")
-        result = recipes_install(db_session, slug="larry", ctx=ctx)
+        result = loopskill_install(db_session, slug="larry", ctx=ctx)
 
         assert "error" not in result, f"Unexpected error: {result}"
         assert _read_count(db_session, "larry") == 1, (
-            "MCP recipes_install did not bump Skill.install_count — "
+            "MCP loopskill_install did not bump Skill.install_count — "
             "see Phase C root-cause analysis."
         )
 
@@ -93,14 +93,14 @@ class TestMcpRecipesInstallBumpsCounter:
         self, db_session: Session
     ) -> None:
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.install import recipes_install
+        from app.mcp.tools.install import loopskill_install
 
         skill = make_skill(db_session, slug="multi-agent-discord-coordination")
         _make_version(db_session, skill)
 
         ctx = AuthContext(scope="master")
         for _ in range(5):
-            r = recipes_install(
+            r = loopskill_install(
                 db_session,
                 slug="multi-agent-discord-coordination",
                 ctx=ctx,
@@ -113,7 +113,7 @@ class TestMcpRecipesInstallBumpsCounter:
         self, db_session: Session
     ) -> None:
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.install import recipes_install
+        from app.mcp.tools.install import loopskill_install
 
         skill_a = make_skill(db_session, slug="pr-draft")
         _make_version(db_session, skill_a)
@@ -121,7 +121,7 @@ class TestMcpRecipesInstallBumpsCounter:
         # No version for clean-architecture so installing it fails gracefully.
 
         ctx = AuthContext(scope="master")
-        recipes_install(db_session, slug="pr-draft", ctx=ctx)
+        loopskill_install(db_session, slug="pr-draft", ctx=ctx)
 
         assert _read_count(db_session, "pr-draft") == 1
         assert _read_count(db_session, "clean-architecture") == 0
@@ -131,13 +131,13 @@ class TestMcpRecipesInstallBumpsCounter:
     ) -> None:
         """Pinned-version path (slug@1.2.3) must also increment the counter."""
         from app.auth_ctx import AuthContext
-        from app.mcp.tools.install import recipes_install
+        from app.mcp.tools.install import loopskill_install
 
         skill = make_skill(db_session, slug="code-review")
         _make_version(db_session, skill, semver="2.1.0")
 
         ctx = AuthContext(scope="master")
-        result = recipes_install(
+        result = loopskill_install(
             db_session, slug="code-review@2.1.0", ctx=ctx
         )
 

@@ -334,7 +334,7 @@ def _attach(db, cb, skill, source="custom-added", pinned=None):
 
 
 def test_mcp_cookbook_install_single_returns_provenance(db):
-    from app.mcp.tools.bundle_install import recipes_cookbook_install
+    from app.mcp.tools.bundle_install import loopskill_bundle_install
 
     owner = _mk_user(db)
     cb = _mk_cookbook(db, owner)
@@ -343,7 +343,7 @@ def test_mcp_cookbook_install_single_returns_provenance(db):
     db.commit()
     _attach(db, cb, s)
     ctx = AuthContext(scope="user", user_id=owner.id, tier="pro")
-    out = recipes_cookbook_install(db=db, ctx=ctx, cookbook_id=str(cb.id), slug="mcp-single")
+    out = loopskill_bundle_install(db=db, ctx=ctx, cookbook_id=str(cb.id), slug="mcp-single")
     assert out.get("provenance_id"), "MCP single install must return provenance_id"
     resolved = resolve_provenance(db, out["provenance_id"])
     assert resolved.bundle_id == cb.id  # stamped with the cookbook
@@ -351,7 +351,7 @@ def test_mcp_cookbook_install_single_returns_provenance(db):
 
 def test_mcp_cookbook_install_bulk_per_skill_provenance(db):
     """R4 nit (a): provenance rides PER-SKILL under skills[], not top-level."""
-    from app.mcp.tools.bundle_install import recipes_cookbook_install
+    from app.mcp.tools.bundle_install import loopskill_bundle_install
 
     owner = _mk_user(db)
     cb = _mk_cookbook(db, owner)
@@ -361,7 +361,7 @@ def test_mcp_cookbook_install_bulk_per_skill_provenance(db):
         db.commit()
         _attach(db, cb, sk)
     ctx = AuthContext(scope="user", user_id=owner.id, tier="pro")
-    out = recipes_cookbook_install(db=db, ctx=ctx, cookbook_id=str(cb.id))
+    out = loopskill_bundle_install(db=db, ctx=ctx, cookbook_id=str(cb.id))
     assert "provenance_id" not in out  # NOT cookbook-top-level
     skills = out["skills"]
     assert len(skills) == 2
@@ -435,7 +435,7 @@ def test_feedback_tool_routes_via_provenance(db):
         patch.object(fb.github_dispatch, "dispatch_issue", side_effect=_fake_dispatch_issue),
         patch("app.feedback_cred_vault.decrypt_pat", return_value="ghp_fake"),
     ):
-        out = fb.recipes_feedback(
+        out = fb.loopskill_feedback(
             db,
             category="install",
             message="skill broke on cold start",
@@ -469,7 +469,7 @@ def test_feedback_tool_no_provenance_uses_default(db):
             fb.github_dispatch, "dispatch_issue", side_effect=AssertionError("must not route to curator")
         ),
     ):
-        out = fb.recipes_feedback(
+        out = fb.loopskill_feedback(
             db,
             category="install",
             message="no provenance supplied here",
