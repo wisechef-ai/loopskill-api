@@ -16,7 +16,7 @@ stripe==15.3.0
 redis>=5.0
 httpx>=0.26
 PyYAML>=6.0.3
-tomli>=2.0; python_version < "3.11"
+tomli>=2.4.1; python_version < "3.11"
 
 # Security pins (integrator_2905 W0.4 — pip-audit 2026-05-30).
 # These are transitive deps (pulled by fastapi/httpx) with known CVEs in the
