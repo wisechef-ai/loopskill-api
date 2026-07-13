@@ -9,7 +9,7 @@ pydantic>=2.13.4
 pydantic-settings>=2.1
 pydantic[email]>=2.5
 python-multipart>=0.0.20
-itsdangerous>=2.1
+itsdangerous>=2.2.0
 PyJWT>=2.8
 cryptography>=41.0
 stripe==15.3.0
