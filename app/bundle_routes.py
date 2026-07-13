@@ -339,6 +339,54 @@ def _skills_for(
     return q.all()
 
 
+def _public_bundle_skill_out(skill: Skill) -> dict:
+    """Bundle-detail skill row for the public page — MUST carry a viewable
+    ``source_url`` (loopskill_ui_0713) so a visitor can see what they're
+    installing before clicking anything.
+
+    Reuses ``is_external_skill`` (app.services.bundle_external) rather than
+    re-deriving the ``ext:`` slug check, and reads ``original_source_url``
+    — the SAME field ``materialize_external_skill`` (bundle_external.py)
+    already stamps from the federation adapter's resolved ``ExternalSkill
+    .origin_url`` (the metasearch/federation layer's one true per-origin
+    resolver, see app/services/metasearch.py + github_taps_live.py). No new
+    resolver is introduced here — this only plumbs the existing value into
+    the bundle serializer.
+
+    ``loopskill_url`` is populated ONLY when hitting it is a REAL, rendered
+    (non-404) page — hard "never 404" rule (Adam):
+      - External (``ext:``) skills: no LoopSkill detail page exists yet
+        (``GET /api/skills/ext:...`` verified 404 live) → always ``None``.
+      - Internal skills: ``/skills/<slug>`` renders iff
+        ``get_skill_detail`` finds it (``is_public=True``,
+        ``is_archived=False``) — the exact same gate that route enforces.
+    """
+    ext = is_external_skill(skill)
+    is_public = bool(skill.is_public)
+    is_archived = bool(getattr(skill, "is_archived", False))
+
+    origin = getattr(skill, "original_source_url", None) or None
+    if origin:
+        source_url = origin
+    elif not ext and is_public:
+        # No recorded origin (self-authored curated skill) — the LoopSkill
+        # page itself is the viewable source; truthy + still matches the
+        # contract test's ``^/skills/`` alternative.
+        source_url = f"/skills/{skill.slug}"
+    else:
+        source_url = None
+
+    loopskill_url = f"/skills/{skill.slug}" if (not ext and is_public and not is_archived) else None
+
+    return {
+        "slug": skill.slug,
+        "title": skill.title,
+        "is_public": is_public,
+        "source_url": source_url,
+        "loopskill_url": loopskill_url,
+    }
+
+
 def _corrections_absorbed_count(db: Session, slug: str) -> int:
     """Best-effort count of field-feedback items that referenced this skill.
 
@@ -585,16 +633,10 @@ def public_cookbook_page(slug: str, db: Session = Depends(get_db)):
 
     card = _public_cb_card(db, cb)
     skill_rows = _skills_for(db, cb.id, include_disabled=False)
-    card["skills"] = [
-        {
-            "slug": skill.slug,
-            "title": skill.title,
-            "is_public": bool(skill.is_public),
-            "source": cs.source,
-            "pinned_version": cs.pinned_version,
-        }
-        for cs, skill in skill_rows
-    ]
+    card["skills"] = [_public_bundle_skill_out(skill) for _cs, skill in skill_rows]
+    for entry, (cs, _skill) in zip(card["skills"], skill_rows, strict=True):
+        entry["source"] = cs.source
+        entry["pinned_version"] = cs.pinned_version
     # One copy-paste MCP line (the entire top-of-funnel). ?ref makes the install
     # attributable to the creator from the public page.
     ref_q = f"?ref={card['ref']}" if card["ref"] else ""
