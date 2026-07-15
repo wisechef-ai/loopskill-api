@@ -57,7 +57,37 @@ def reindex_source(db, source_id: str, *, dry_run: bool = False) -> dict:
     shallow live-search adapter — the deep walk is what produces the giants'
     real ~50k / 20k counts. Sources without a deep walker keep the Phase B
     shallow-adapter full-catalog fetch.
+
+    spotify_1507 Phase C2: ``hermes-hub`` is handled by the snapshot ingest
+    (``hub_snapshot.ingest_hub_snapshot``) which fetches the full ~83k-skill
+    JSON endpoint, dedupes against directly-indexed sources, and writes both
+    the FederationHubSkill rows and the FederationIndexCache summary.
     """
+    # ── spotify_1507 Phase C2: hub snapshot ingest ──────────────────────
+    if source_id == "hermes-hub":
+        from app.services.hub_snapshot import ingest_hub_snapshot
+
+        try:
+            report = ingest_hub_snapshot(db, commit=not dry_run)
+        # Rationale: snapshot fetch failure must not abort the whole reindex run.
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("reindex: hub snapshot ingest failed: %s", exc)
+            return {"source": source_id, "status": "error", "indexed": None, "error": str(exc)[:120]}
+        if report["status"] == "error":
+            return {
+                "source": source_id,
+                "status": "error",
+                "indexed": None,
+                "error": report.get("error", "")[:120],
+            }
+        return {
+            "source": source_id,
+            "status": "ok",
+            "indexed": report["indexed"],
+            "deduped": report.get("deduped"),
+            "installable": report.get("installable"),
+        }
+
     from app.services import federation_cache as fcache
     from app.services.federation import route_install
     from app.services.federation_adapters import get_adapter
