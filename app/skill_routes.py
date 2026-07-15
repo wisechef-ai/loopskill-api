@@ -538,6 +538,9 @@ def get_external_skills(
             "installable": None,
             "walked_at": None,
             "stale": None,
+            # spotify_1507 Phase C2: deduped count + snapshot freshness (hermes-hub only).
+            "deduped_indexed": None,
+            "snapshot_generated_at": None,
         }
         if is_enabled or (force_refresh and source_id in requested):
             has_query = bool((q or "").strip())
@@ -561,6 +564,9 @@ def get_external_skills(
                     block["installable"] = existing.get("installable")
                     block["walked_at"] = existing.get("walked_at")
                     block["stale"] = existing.get("stale")
+                    # spotify_1507 Phase C2: surface deduped count + freshness.
+                    block["deduped_indexed"] = existing.get("deduped_indexed")
+                    block["snapshot_generated_at"] = existing.get("snapshot_generated_at")
                     if is_enabled:
                         all_external.extend(found)
 
@@ -621,6 +627,9 @@ def get_external_skills(
                     block["installable"] = existing.get("installable")
                     block["walked_at"] = existing.get("walked_at")
                     block["stale"] = existing.get("stale")
+                    # spotify_1507 Phase C2: surface deduped count + freshness.
+                    block["deduped_indexed"] = existing.get("deduped_indexed")
+                    block["snapshot_generated_at"] = existing.get("snapshot_generated_at")
         else:
             # NOT enabled: read the honest cached block from the persistent
             # store ONLY — NEVER an inline walk or network call (decision #7).
@@ -634,6 +643,9 @@ def get_external_skills(
                 block["installable"] = cached["installable"]
                 block["walked_at"] = cached["walked_at"]
                 block["stale"] = cached["stale"]
+                # spotify_1507 Phase C2: surface deduped count + snapshot freshness.
+                block["deduped_indexed"] = cached.get("deduped_indexed")
+                block["snapshot_generated_at"] = cached.get("snapshot_generated_at")
         per_source[source_id] = block
 
     # The isolation wall: internal=[] (this surface is external-only); the toggle
@@ -642,10 +654,23 @@ def get_external_skills(
     # namespace + community-quality label on every external row.
     merged = merge_search([], all_external, free_sources_enabled=bool(enabled))
     payload = merged.to_dict()
+
     # Honest dual-count: sum of cached/live indexed across sources, omitting
     # null/failed sources (never fabricated). This is what the portal reads.
+    # spotify_1507 Phase C2: for the hermes-hub source, prefer the deduped
+    # count (raw snapshot minus rows already indexed via skills-sh/clawhub)
+    # so the headline total never double-counts overlapping sources.
+    def _count_for_total(block: dict, source_id: str) -> int | None:
+        """Return the count to include in the total sum, honoring dedup."""
+        if source_id == "hermes-hub":
+            deduped = block.get("deduped_indexed")
+            if isinstance(deduped, int):
+                return deduped
+        val = block.get("indexed")
+        return val if isinstance(val, int) else None
+
     payload["counts"]["external_indexed"] = sum(
-        b["indexed"] for b in per_source.values() if isinstance(b.get("indexed"), int)
+        c for c in (_count_for_total(b, sid) for sid, b in per_source.items()) if c is not None
     )
     payload["counts"]["external_installable"] = sum(
         b["installable"] for b in per_source.values() if isinstance(b.get("installable"), int)

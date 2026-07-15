@@ -29,9 +29,10 @@ def _is_redistributable(license_id: str | None) -> bool:
 class HermesHubAdapter(SourceAdapter):
     """Maps the Hermes Hub skills catalog into ExternalSkill.
 
-    Hermes Hub (hermes-agent.nousresearch.com/docs/skills) emits a JSON catalog;
-    we already have hub-search-* skills producing a unified envelope. Hub skills
-    are SKILL.md-based → fetch-origin installable, license from the manifest.
+    spotify_1507 Phase C2: search/resolve now read from the ingested snapshot
+    rows (``FederationHubSkill`` table) when available, falling back to the
+    HTML-catalog callback for backward compat. The snapshot has ~83k federated
+    skills from one JSON endpoint vs the ~100 bundled skills in the HTML table.
     """
 
     source_id = "hermes-hub"
@@ -54,11 +55,75 @@ class HermesHubAdapter(SourceAdapter):
             description=row.get("description", ""),
         )
 
+    def _map_hub_skill(self, skill: Any) -> ExternalSkill:
+        """Map a FederationHubSkill ORM row → ExternalSkill (Phase C2)."""
+        install_path = InstallPath.DEEP_LINK
+        if skill.install_path == "fetch_origin":
+            install_path = InstallPath.FETCH_ORIGIN
+        return ExternalSkill(
+            slug=skill.slug,
+            title=skill.title or skill.slug,
+            source=self.source_id,
+            install_path=install_path,
+            origin_url=skill.origin_url or f"https://hermes-agent.nousresearch.com/skills/{skill.slug}",
+            license=None,
+            redistributable=install_path == InstallPath.FETCH_ORIGIN,
+            description=skill.description or "",
+        )
+
     def search(self, query: str, limit: int = 20) -> list[ExternalSkill]:
+        # Phase C2: prefer ingested snapshot rows from the DB.
+        try:
+            from sqlalchemy import or_
+
+            from app.database import SessionLocal
+            from app.models import FederationHubSkill
+
+            db = SessionLocal()
+            try:
+                q = (query or "").strip().lower()
+                db_q = db.query(FederationHubSkill)
+                if q:
+                    like = f"%{q}%"
+                    db_q = db_q.filter(
+                        or_(
+                            FederationHubSkill.title.ilike(like),
+                            FederationHubSkill.description.ilike(like),
+                            FederationHubSkill.identifier.ilike(like),
+                            FederationHubSkill.slug.ilike(like),
+                        )
+                    )
+                rows = db_q.order_by(FederationHubSkill.title).limit(limit).all()
+                if rows:
+                    return [self._map_hub_skill(r) for r in rows]
+            finally:
+                db.close()
+        # Rationale: DB unavailable (e.g. test without engine) → fallback to callback.
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Fallback: HTML-catalog callback (backward compat).
         rows = self._fetch(query)[:limit]
         return [self._map(r) for r in rows]
 
     def resolve(self, slug: str) -> ExternalSkill | None:
+        # Phase C2: resolve from ingested snapshot rows.
+        try:
+            from app.database import SessionLocal
+            from app.models import FederationHubSkill
+
+            db = SessionLocal()
+            try:
+                row = db.query(FederationHubSkill).filter(FederationHubSkill.slug == slug).first()
+                if row:
+                    return self._map_hub_skill(row)
+            finally:
+                db.close()
+        # Rationale: DB unavailable → fallback to callback.
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Fallback: HTML-catalog callback.
         rows = self._fetch(slug)
         for r in rows:
             if r.get("slug") == slug:

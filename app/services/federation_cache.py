@@ -62,9 +62,14 @@ def read_source_cache(db: "Session", source: str) -> dict[str, Any] | None:
     if row is None:
         return None
     walked_at_iso = row.walked_at.isoformat() if row.walked_at else None
+    snapshot_iso = None
+    if hasattr(row, "snapshot_generated_at") and row.snapshot_generated_at:
+        snapshot_iso = row.snapshot_generated_at.isoformat()
     return {
         "indexed": row.indexed_count,
         "installable": row.installable_count,
+        "deduped_indexed": getattr(row, "deduped_indexed_count", None),
+        "snapshot_generated_at": snapshot_iso,
         "walked_at": walked_at_iso,
         "stale": _is_stale(row.walked_at, row.ttl_seconds),
         "ttl_seconds": row.ttl_seconds,
@@ -134,9 +139,14 @@ def read_all_cached(db: "Session") -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
     for row in db.query(FederationIndexCache).all():
         walked_at_iso = row.walked_at.isoformat() if row.walked_at else None
+        snapshot_iso = None
+        if hasattr(row, "snapshot_generated_at") and row.snapshot_generated_at:
+            snapshot_iso = row.snapshot_generated_at.isoformat()
         out[row.source] = {
             "indexed": row.indexed_count,
             "installable": row.installable_count,
+            "deduped_indexed": getattr(row, "deduped_indexed_count", None),
+            "snapshot_generated_at": snapshot_iso,
             "walked_at": walked_at_iso,
             "stale": _is_stale(row.walked_at, row.ttl_seconds),
             "ttl_seconds": row.ttl_seconds,

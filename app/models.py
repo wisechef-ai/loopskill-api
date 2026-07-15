@@ -1499,6 +1499,52 @@ class FederationIndexCache(Base):
     walked_at = Column(DateTime(timezone=True), nullable=True)
     ttl_seconds = Column(Integer, nullable=False, server_default="86400")  # daily default
     last_error = Column(Text, nullable=True)  # last walk failure message, if any
+    # spotify_1507 Phase C2: deduped count for the hermes-hub source — the raw
+    # snapshot count MINUS rows whose upstream source (skills-sh/clawhub) we
+    # already index directly. NULL for sources without a snapshot ingest. The
+    # route's external_indexed TOTAL uses deduped_indexed_count when present so
+    # the fleet owner's headline number is honest (never double-counted).
+    deduped_indexed_count = Column(Integer, nullable=True)
+    # spotify_1507 Phase C2: the snapshot's generated_at timestamp from the Hub
+    # JSON — lets the G7-style freshness logic see how old the snapshot is.
+    snapshot_generated_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class FederationHubSkill(Base):
+    """Individual hub-snapshot skill row (spotify_1507 Phase C2).
+
+    One row per skill in the Hermes Skills Hub snapshot JSON. The source of
+    truth for the hermes-hub browse/search surface — the reindex cron bulk-
+    upserts these after fetching the ~33 MB snapshot. ``identifier`` is the
+    Hub's canonical id (e.g. ``skills-sh/davila7/claude-code-templates/x``).
+    ``upstream_source`` is the Hub's ``source`` field (clawhub, skills-sh, …).
+
+    ``duplicate_of`` marks rows whose upstream source we already index
+    directly (skills-sh via sitemap, clawhub via cursor) — the row is kept for
+    search/resolve but excluded from the deduped_indexed_count total so the
+    headline number never double-counts.
+    """
+
+    __tablename__ = "federation_hub_skills"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    slug = Column(String(255), nullable=False, unique=True, index=True)
+    title = Column(String(512), nullable=False, default="")
+    description = Column(Text, nullable=True)
+    source = Column(String(64), nullable=False, default="hermes-hub")  # always "hermes-hub"
+    upstream_source = Column(String(64), nullable=True)  # clawhub|skills-sh|github|official|…
+    identifier = Column(String(512), nullable=True)  # the Hub's raw identifier
+    origin_url = Column(Text, nullable=True)
+    install_path = Column(String(32), nullable=False, default="deep_link")
+    trust_level = Column(String(32), nullable=True)  # community|trusted|builtin
+    tags = Column(JSON, nullable=True)  # list[str]
+    extra = Column(JSON, nullable=True)  # dict — the Hub row's extra field
+    duplicate_of = Column(String(64), nullable=True)  # upstream source id if duplicate
+    repo = Column(String(512), nullable=True)
+    path = Column(String(512), nullable=True)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
