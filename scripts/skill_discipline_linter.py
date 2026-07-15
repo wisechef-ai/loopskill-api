@@ -148,6 +148,28 @@ ALLOWED_LINK_DOMAINS = (
     "readthedocs.io",  # common library docs host
     "readthedocs.org",
     "python.org",  # docs.python.org parent + downloads
+    # spotify_1507 Ph0 batch-2: additional first-party tool/API/source domains
+    # surfaced by the orphan-republish batch — each is a skill citing ITS OWN
+    # tool's API or docs (not third-party promo). Same root-cause fix class.
+    "linear.app",  # linear skill — api.linear.app GraphQL
+    "dspy.ai",  # dspy skill — official docs
+    "excalidraw.com",  # excalidraw skill — the tool itself
+    "google.dev",  # ai.google.dev (Gemini/nano-banana API docs)
+    "googleapis.com",  # tenor.googleapis.com, other Google API hosts
+    "x.ai",  # grok-search skill — api.x.ai / console.x.ai
+    "x.com",  # xitter/scrapling — X/Twitter platform + developer.x.com
+    "twitter.com",  # publish.twitter.com embed API
+    "twimg.com",  # pbs.twimg.com / cdn.syndication.twimg.com (X media CDN)
+    "summarize.sh",  # summarize-cli skill — the tool's own site
+    "unpkg.com",  # p5js — CDN for the library it wraps
+    "jsdelivr.com",  # alt CDN host form
+    "w3.org",  # excalidraw/svg — W3C spec references
+    "semanticscholar.org",  # arxiv skill — api.semanticscholar.org
+    "xkcd.com",  # blogwatcher — example RSS feed
+    "youtu.be",  # summarize-cli — youtube short-link example
+    "youtube.com",
+    "web.archive.org",  # scrapling — archival fetch target
+    "archive.org",
 )
 
 # Placeholder / RFC-2606 reserved / docs-example domains. Always documentation,

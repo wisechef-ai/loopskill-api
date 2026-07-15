@@ -209,7 +209,10 @@ def test_spotify1507_widened_api_doc_domains_pass() -> None:
         "\nDocs: https://export.arxiv.org/api/query, https://api.tavily.com/search,\n"
         "https://tenor.com/gifapi, https://docs.stripe.com/api,\n"
         "https://docs.comfy.org/, https://cdn.jsdelivr.net/npm/x,\n"
-        "https://modal.com/docs, https://platform.openai.com/docs.\n"
+        "https://modal.com/docs, https://platform.openai.com/docs,\n"
+        "https://api.linear.app/graphql, https://dspy.ai/, https://excalidraw.com/,\n"
+        "https://ai.google.dev/, https://api.x.ai/v1, https://x.com/i/api,\n"
+        "https://summarize.sh/, https://unpkg.com/p5, https://web.archive.org/x.\n"
     )
     result = lint_skill(body, recipe_yaml=CLEAN_RECIPE_YAML)
     rules = {v["rule"] for v in result["violations"]}
