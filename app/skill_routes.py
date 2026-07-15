@@ -661,11 +661,26 @@ def get_external_skills(
     # count (raw snapshot minus rows already indexed via skills-sh/clawhub)
     # so the headline total never double-counts overlapping sources.
     def _count_for_total(block: dict, source_id: str) -> int | None:
-        """Return the count to include in the total sum, honoring dedup."""
-        if source_id == "hermes-hub":
-            deduped = block.get("deduped_indexed")
-            if isinstance(deduped, int):
-                return deduped
+        """Return the count to include in the total sum, honoring dedup.
+
+        Dedupe topology (review 2026-07-15):
+        - hermes-hub deduped count excludes upstream=skills-sh rows (our direct
+          skills-sh walk is the SAME 1:1 set, and it carries installs data, so
+          the direct block owns that count).
+        - The direct clawhub walk is a strict SUBSET of the hub snapshot's
+          clawhub coverage (5.5k vs 62k; the direct cursor-walk regressed
+          2026-07-11). While a fresh hub snapshot is present, the direct
+          clawhub block is EXCLUDED from the total — the hub's clawhub rows
+          carry that count instead. Per-source blocks always show raw counts.
+        """
+        hub_block = per_source.get("hermes-hub") or {}
+        hub_dedup = hub_block.get("deduped_indexed")
+        hub_fresh = isinstance(hub_dedup, int) and hub_dedup > 0
+        if source_id == "hermes-hub" and hub_fresh:
+            return hub_dedup
+        if source_id == "clawhub" and hub_fresh:
+            # Subset of the hub snapshot's clawhub coverage — skip from total.
+            return None
         val = block.get("indexed")
         return val if isinstance(val, int) else None
 

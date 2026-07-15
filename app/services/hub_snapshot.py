@@ -47,8 +47,26 @@ HUB_FETCH_TIMEOUT_S = 120.0
 HUB_MAX_SIZE_BYTES = 100 * 1024 * 1024  # 100 MB sanity cap
 HUB_BATCH_SIZE = 2000  # bulk upsert batch size
 
-# Upstream sources we index directly → hub rows from these are duplicates.
-_DIRECTLY_INDEXED_UPSTREAM: frozenset[str] = frozenset({"skills-sh", "clawhub"})
+# Upstream sources we index directly (post-normalization tokens) → hub rows
+# from these are duplicates of our own walk.
+# BUG-FIX (review 2026-07-15): the LIVE snapshot spells the source "skills.sh"
+# (dot), not "skills-sh" — normalize before ANY comparison, or 19,966 rows
+# dodge dedupe/installability mapping while hyphen-spelled tests stay green.
+# clawhub was REMOVED from this set: our direct clawhub cursor-walk regressed
+# 62k→5.5k on 2026-07-11 (silent collapse), so the hub snapshot is the
+# authoritative clawhub count; skill_routes skips the direct clawhub block
+# from the total instead (subset relationship inverted).
+_DIRECTLY_INDEXED_UPSTREAM: frozenset[str] = frozenset({"skills-sh"})
+
+
+def normalize_upstream(source: str | None) -> str:
+    """Canonicalize a Hub upstream-source token: lowercase, dots→hyphens.
+
+    The live snapshot uses "skills.sh"; our source ids use "skills-sh".
+    All comparisons in this module go through this normalizer.
+    """
+    return (source or "").strip().lower().replace(".", "-")
+
 
 # Slug sanitization: ``/`` → ``-``, collapse runs of separators.
 _SLUG_SEPARATOR_RE = re.compile(r"[/\s]+")
@@ -107,7 +125,7 @@ def install_path_for_row(row: dict[str, Any]) -> InstallPath:
     - clawhub → deep_link (ClawHavoc posture: never rehost)
     - lobehub / browse-sh / claude-marketplace → deep_link
     """
-    upstream = (row.get("source") or "").strip()
+    upstream = normalize_upstream(row.get("source"))
     repo = (row.get("repo") or "").strip()
     path = (row.get("path") or "").strip()
 
@@ -127,7 +145,7 @@ def origin_url_for_row(row: dict[str, Any]) -> str:
     - official: hermes-agent docs skills/{name}
     - fallback: repo URL or hub docs page
     """
-    upstream = (row.get("source") or "").strip()
+    upstream = normalize_upstream(row.get("source"))
     name = (row.get("name") or "").strip()
     identifier = (row.get("identifier") or "").strip()
     repo = (row.get("repo") or "").strip()
@@ -159,7 +177,7 @@ def map_hub_row(row: dict[str, Any]) -> dict[str, Any]:
     ``_DIRECTLY_INDEXED_UPSTREAM`` — the row is kept for search but excluded
     from the deduped count.
     """
-    upstream = (row.get("source") or "").strip()
+    upstream = normalize_upstream(row.get("source"))
     install_path = install_path_for_row(row)
     return {
         "slug": "",  # filled after dedupe

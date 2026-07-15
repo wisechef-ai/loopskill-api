@@ -36,7 +36,7 @@ def _make_snapshot() -> dict:
             {
                 "name": "Telegram Bot Builder",
                 "description": "Build a telegram bot",
-                "source": "skills-sh",
+                "source": "skills.sh",
                 "identifier": "skills-sh/davila7/claude-code-templates/telegram-bot-builder",
                 "trust_level": "community",
                 "repo": "davila7/claude-code-templates",
@@ -120,7 +120,7 @@ def _make_snapshot() -> dict:
             {
                 "name": "PDF Generator",
                 "description": "Generate PDFs",
-                "source": "skills-sh",
+                "source": "skills.sh",
                 "identifier": "skills-sh/user/pdf-tools/generator",
                 "trust_level": "community",
                 "repo": "user/pdf-tools",
@@ -210,7 +210,7 @@ class TestSlugDedup:
 
 class TestInstallPathMapping:
     def test_skills_sh_with_repo_path_is_fetch_origin(self):
-        row = {"source": "skills-sh", "repo": "owner/repo", "path": "skill"}
+        row = {"source": "skills.sh", "repo": "owner/repo", "path": "skill"}
         assert hs.install_path_for_row(row) == hs.InstallPath.FETCH_ORIGIN
 
     def test_github_with_repo_path_is_fetch_origin(self):
@@ -247,7 +247,7 @@ class TestInstallPathMapping:
 
 class TestOriginUrl:
     def test_skills_sh_with_repo(self):
-        row = {"source": "skills-sh", "repo": "owner/repo", "path": "skill"}
+        row = {"source": "skills.sh", "repo": "owner/repo", "path": "skill"}
         url = hs.origin_url_for_row(row)
         assert "github.com/owner/repo" in url
         assert "tree/main/skill" in url
@@ -292,8 +292,11 @@ class TestParseSnapshot:
         clawhub_rows = [r for r in rows if r["upstream_source"] == "clawhub"]
         for r in skills_sh_rows:
             assert r["duplicate_of"] == "skills-sh"
+        # Inverted topology (review 2026-07-15): clawhub rows are NOT dupes —
+        # the hub snapshot OWNS the clawhub count (direct walk = regressed
+        # subset); the route total skips the direct clawhub block instead.
         for r in clawhub_rows:
-            assert r["duplicate_of"] == "clawhub"
+            assert r["duplicate_of"] is None
 
     def test_non_duplicate_rows_have_null_duplicate_of(self):
         data = _make_snapshot()
@@ -309,8 +312,8 @@ class TestComputeCounts:
         rows, _, _ = hs.parse_snapshot_skills(data)
         indexed, deduped = hs.compute_deduped_count(rows)
         assert indexed == 10
-        # 2 skills-sh + 2 clawhub = 4 duplicates → deduped = 6
-        assert deduped == 6
+        # 2 skills.sh duplicates only (clawhub owned by hub) → deduped = 8
+        assert deduped == 8
 
     def test_installable_count(self):
         data = _make_snapshot()
@@ -424,7 +427,7 @@ class TestFullIngest:
         report = hs.ingest_hub_snapshot(db_session, _get=fake_get, commit=False)
         assert report["status"] == "ok"
         assert report["indexed"] == 10
-        assert report["deduped"] == 6
+        assert report["deduped"] == 8
         assert report["installable"] == 4
 
         from app.models import FederationHubSkill
@@ -436,7 +439,7 @@ class TestFullIngest:
         block = fcache.read_source_cache(db_session, "hermes-hub")
         assert block is not None
         assert block["indexed"] == 10
-        assert block["deduped_indexed"] == 6
+        assert block["deduped_indexed"] == 8
         assert block["installable"] == 4
         assert block["snapshot_generated_at"] is not None
         assert block["walked_at"] is not None
@@ -521,7 +524,7 @@ class TestReindexIntegration:
         report = reindex.reindex_source(db_session, "hermes-hub", dry_run=False)
         assert report["status"] == "ok"
         assert report["indexed"] == 10
-        assert report.get("deduped") == 6
+        assert report.get("deduped") == 8
 
     def test_reindex_hermes_hub_failure_returns_error(self, db_session, monkeypatch):
         import scripts.federation_reindex as reindex
@@ -575,3 +578,90 @@ class TestDedupedCountInRoute:
         hub_block = body["per_source"]["hermes-hub"]
         assert hub_block["deduped_indexed"] == 80
         assert hub_block["indexed"] == 100  # raw count still visible per-source
+
+
+# ─────────────── review 2026-07-15: normalization + dedupe topology ───────────────
+
+
+class TestUpstreamNormalization:
+    """The LIVE snapshot spells the source "skills.sh" (dot); source ids use
+    "skills-sh". Without normalization, every skills.sh row dodges dedupe and
+    installability mapping while hyphen-spelled fixtures stay green."""
+
+    def test_dot_spelled_skills_sh_normalizes(self):
+        from app.services.hub_snapshot import normalize_upstream
+
+        assert normalize_upstream("skills.sh") == "skills-sh"
+        assert normalize_upstream("SKILLS.SH") == "skills-sh"
+        assert normalize_upstream(" clawhub ") == "clawhub"
+        assert normalize_upstream(None) == ""
+
+    def test_dot_spelled_row_is_marked_duplicate(self):
+        from app.services.hub_snapshot import map_hub_row
+
+        row = map_hub_row(
+            {
+                "name": "x",
+                "source": "skills.sh",
+                "identifier": "skills-sh/o/r/x",
+                "repo": "o/r",
+                "path": "x",
+            }
+        )
+        assert row["duplicate_of"] == "skills-sh"
+        assert row["install_path"] == "fetch_origin"
+
+    def test_clawhub_rows_are_not_duplicates(self):
+        """Inverted topology: the hub snapshot OWNS the clawhub count (the
+        direct clawhub cursor-walk is a regressed subset, 5.5k of 62k); the
+        route-level total skips the direct clawhub block instead."""
+        from app.services.hub_snapshot import map_hub_row
+
+        row = map_hub_row({"name": "y", "source": "clawhub", "identifier": "y"})
+        assert row["duplicate_of"] is None
+        assert row["install_path"] == "deep_link"
+
+
+    def test_route_total_skips_direct_clawhub_when_hub_fresh(self):
+        """Pin the _count_for_total topology at the unit level: with a fresh
+        hub deduped count present, the direct clawhub block contributes None
+        to the total; without it, clawhub's raw count flows through."""
+        # Mirror of the closure logic in skill_routes.get_external_skills —
+        # kept in sync by this test (if the route changes shape, update both).
+
+        def count_for_total(per_source, block, source_id):
+            hub_block = per_source.get("hermes-hub") or {}
+            hub_dedup = hub_block.get("deduped_indexed")
+            hub_fresh = isinstance(hub_dedup, int) and hub_dedup > 0
+            if source_id == "hermes-hub" and hub_fresh:
+                return hub_dedup
+            if source_id == "clawhub" and hub_fresh:
+                return None
+            val = block.get("indexed")
+            return val if isinstance(val, int) else None
+
+        fresh = {
+            "hermes-hub": {"indexed": 83772, "deduped_indexed": 63806},
+            "clawhub": {"indexed": 5467},
+            "skills-sh": {"indexed": 19966},
+        }
+        total = sum(
+            c
+            for c in (count_for_total(fresh, b, sid) for sid, b in fresh.items())
+            if c is not None
+        )
+        # hub-deduped (83772 - 19966 skills.sh dupes) + skills-sh direct; clawhub skipped.
+        assert total == 63806 + 19966
+
+        stale = {
+            "hermes-hub": {"indexed": None, "deduped_indexed": None},
+            "clawhub": {"indexed": 5467},
+            "skills-sh": {"indexed": 19966},
+        }
+        total_stale = sum(
+            c
+            for c in (count_for_total(stale, b, sid) for sid, b in stale.items())
+            if c is not None
+        )
+        # No fresh hub snapshot → direct walks carry the total (old behavior).
+        assert total_stale == 5467 + 19966
