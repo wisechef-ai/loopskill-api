@@ -219,10 +219,13 @@ def fetch_snapshot(
 
     get = _get or guarded_get
 
-    # Rationale: the snapshot is large; a stream-to-disk avoids loading a 33 MB
-    # blob into memory and lets us sanity-check before committing to a parse.
+    # BUG-FIX (prod 2026-07-15): guarded_get() does NOT accept a ``stream``
+    # kwarg — passing it raised TypeError on every real fetch, so the ingest
+    # never ran outside tests (which inject a fake getter). Fetch whole-body:
+    # the snapshot is ~33 MB, well within the API box's memory; the max_size
+    # cap below still guards a runaway response.
     try:
-        resp = get(url, timeout=timeout, stream=True)
+        resp = get(url, timeout=timeout)
     # Rationale: a network failure must not crash the reindex — return None so
     # the caller keeps the previous cache.
     except Exception as exc:  # noqa: BLE001
