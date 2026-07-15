@@ -189,6 +189,9 @@ def create_app() -> FastAPI:
     app.include_router(intent_survey_router, tags=["surveys"])
     app.include_router(skill_error_router, tags=["skill-errors"])
     app.include_router(transparency_router, tags=["transparency"])
+    from app.engagement_routes import router as engagement_router  # spotify_1507 PhA
+
+    app.include_router(engagement_router, tags=["engagement"])
     app.include_router(feedback_v1_router, tags=["feedback"])
     app.include_router(skill_patch_router, tags=["skill-patches"])
     app.include_router(recall_router, tags=["recall"])

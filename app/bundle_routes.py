@@ -575,6 +575,10 @@ def _public_cb_card(db: Session, cb: Bundle) -> dict:
         "created_at": cb.created_at.isoformat() if cb.created_at else None,
         # spotify_0608 Ph G — verified-maintainer badge on the public card.
         "is_verified": bool(cb.is_verified),
+        # spotify_1507 Ph A — Spotify playlist signals on the public card.
+        "follower_count": int(cb.follower_count or 0),
+        "is_editorial": bool(cb.is_editorial),
+        "curated_by": cb.curated_by,
         # ?ref attribution: a creator-tagged clone link surfaced ON the card so
         # install attribution is visible from week 1 (GTM build-plan mod #2).
         # portal_0610 R2: creator HANDLE (validatable), not the raw owner UUID.
@@ -606,6 +610,18 @@ def discover_cookbooks(
         # one created_at, so without a secondary key the order was arbitrary
         # DB-insertion. Bundle.id.desc() makes "newest" stable + reproducible.
         q = q.order_by(Bundle.created_at.desc(), Bundle.id.desc())
+        rows = q.offset(offset).limit(limit).all()
+        cards = [_public_cb_card(db, cb) for cb in rows]
+    elif sort == "engagement":
+        # spotify_1507 Ph A — Spotify-style engagement ranking by follower_count
+        # (the "playlist followers" signal). Editorial bundles float to the top
+        # within the same follower tier so curated content leads the feed.
+        q = q.order_by(
+            Bundle.is_editorial.desc(),
+            Bundle.follower_count.desc(),
+            Bundle.created_at.desc(),
+            Bundle.id.desc(),
+        )
         rows = q.offset(offset).limit(limit).all()
         cards = [_public_cb_card(db, cb) for cb in rows]
     else:

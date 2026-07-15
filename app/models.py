@@ -162,7 +162,7 @@ class Org(Base):
 # ── Skills & Versions ───────────────────────────────────────────────────
 
 
-VALID_SKILL_KINDS = ("skill", "loop", "verifier")
+VALID_SKILL_KINDS = ("skill", "loop", "verifier", "mcp-server", "personality")
 
 
 class Skill(Base):
@@ -891,6 +891,14 @@ class Bundle(Base):
     # fleet subscribe time. Gates cross-org bundle access in fleet subscriptions.
     org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
 
+    # spotify_1507 PhA — Spotify playlist semantics. follower_count is a
+    # denormalized counter maintained on follow/unfollow (not re-counted per
+    # request). is_editorial marks human-curated bundles (the "Spotify
+    # editorial playlists"). curated_by distinguishes human vs AI curation.
+    follower_count = Column(Integer, nullable=False, default=0, server_default="0")
+    is_editorial = Column(Boolean, nullable=False, default=False, server_default="0")
+    curated_by = Column(String(32), nullable=True)  # 'human' | 'ai' | None
+
     share_tokens = relationship("BundleShareToken", back_populates="bundle", cascade="all, delete-orphan")
     deployments = relationship(
         "BundleDeployment",
@@ -915,6 +923,77 @@ class FollowedBundle(Base):
     followed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (UniqueConstraint("user_id", "bundle_id", name="uq_followed_bundles_user_bundle"),)
+
+
+class SkillLike(Base):
+    """A user's 'like' on a track (skill/mcp-server/personality/loop).
+
+    Works on LOCAL skills (skill_id set) AND FEDERATED tracks
+    (federated_source + federated_slug set, skill_id NULL) via the stable
+    track identity `source:slug`. This is the Spotify 'heart' on a track.
+    """
+
+    __tablename__ = "skill_likes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Local skill reference (NULL for federated-only tracks)
+    skill_id = Column(
+        UUID(as_uuid=True), ForeignKey("skills.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    # Federated track identity (NULL for local skills). Together with skill_id,
+    # exactly one must be non-NULL. The pair (federated_source, federated_slug)
+    # is the stable identity that survives upstream renames/deep-link changes.
+    federated_source = Column(String(64), nullable=True, index=True)
+    federated_slug = Column(String(255), nullable=True, index=True)
+    liked_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        # One like per user per track. For local tracks the unique key is
+        # (user_id, skill_id); for federated it's (user_id, federated_source,
+        # federated_slug). The partial unique indexes enforce this at DB level.
+        UniqueConstraint("user_id", "skill_id", name="uq_skill_likes_user_local"),
+        UniqueConstraint(
+            "user_id",
+            "federated_source",
+            "federated_slug",
+            name="uq_skill_likes_user_federated",
+        ),
+    )
+
+
+class SkillFavourite(Base):
+    """A user's 'save for later' (favourite) on a track.
+
+    Semantically distinct from a Like: a like is public engagement signal
+    (ranking input); a favourite is a private bookmark (library entry).
+    Same dual local/federated identity as SkillLike.
+    """
+
+    __tablename__ = "skill_favourites"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    skill_id = Column(
+        UUID(as_uuid=True), ForeignKey("skills.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    federated_source = Column(String(64), nullable=True, index=True)
+    federated_slug = Column(String(255), nullable=True, index=True)
+    favourited_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "skill_id", name="uq_skill_favourites_user_local"),
+        UniqueConstraint(
+            "user_id",
+            "federated_source",
+            "federated_slug",
+            name="uq_skill_favourites_user_federated",
+        ),
+    )
 
 
 class BundleSkill(Base):

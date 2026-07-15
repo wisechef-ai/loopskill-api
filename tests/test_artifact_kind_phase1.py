@@ -195,9 +195,20 @@ def test_validate_loop_spec_rejects_negative_budget(db_session: Session) -> None
 
 
 def test_assert_kind_valid_rejects_invalid() -> None:
-    """assert_kind_valid raises ValueError for unknown kind 'personality'."""
-    with pytest.raises(ValueError, match="personality"):
-        assert_kind_valid("personality")
+    """assert_kind_valid raises ValueError for a genuinely unknown kind.
+
+    NOTE: 'personality' became a VALID kind in spotify_1507 Phase A (typed
+    tracks: skill|loop|verifier|mcp-server|personality). Use a kind that is
+    still genuinely invalid to exercise the rejection path.
+    """
+    with pytest.raises(ValueError, match="totally-bogus-kind"):
+        assert_kind_valid("totally-bogus-kind")
+
+
+def test_assert_kind_valid_accepts_new_typed_kinds() -> None:
+    """spotify_1507 Ph A: mcp-server + personality are now valid kinds."""
+    assert_kind_valid("mcp-server")
+    assert_kind_valid("personality")
 
 
 def test_assert_kind_valid_accepts_loop() -> None:

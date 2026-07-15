@@ -52,10 +52,32 @@ def follow_bundle(bundle_id: str, request: Request, db: Session = Depends(get_db
         db.add(FollowedBundle(id=uuid4(), user_id=user_id, bundle_id=bundle.id))
         try:
             db.commit()
+            # spotify_1507 Ph A — maintain the denormalized follower_count so the
+            # engagement-ranked discover feed doesn't re-count per request. Recount
+            # from the source table (authoritative) rather than a blind += to stay
+            # correct under concurrent (un)follows.
+            _resync_follower_count(db, bundle.id)
         except IntegrityError:
             # Rationale: concurrent re-follows race only on the idempotency unique constraint.
             db.rollback()
     return {"following": True, "bundle_id": str(bundle.id)}
+
+
+def _resync_follower_count(db: Session, bundle_id) -> None:
+    """Recompute Bundle.follower_count from the followed_bundles source of truth.
+
+    Denormalized counter kept correct-by-construction: recount rather than
+    increment so concurrent follow/unfollow can't drift it (spotify_1507 Ph A).
+    """
+    from sqlalchemy import func as _func
+
+    count = (
+        db.query(_func.count(FollowedBundle.id)).filter(FollowedBundle.bundle_id == bundle_id).scalar() or 0
+    )
+    db.query(Bundle).filter(Bundle.id == bundle_id).update(
+        {"follower_count": count}, synchronize_session=False
+    )
+    db.commit()
 
 
 @_h.delete("/{bundle_id}/follow")
@@ -69,6 +91,8 @@ def unfollow_bundle(bundle_id: str, request: Request, db: Session = Depends(get_
         .delete(synchronize_session=False)
     )
     db.commit()
+    # spotify_1507 Ph A — keep the denormalized counter in sync on unfollow too.
+    _resync_follower_count(db, bundle.id)
     return {"following": False, "bundle_id": str(bundle.id)}
 
 

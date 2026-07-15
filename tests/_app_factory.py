@@ -85,6 +85,7 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.intent_survey_routes", "router", ""),
     ("app.skill_error_routes", "router", ""),
     ("app.transparency_routes", "router", ""),
+    ("app.engagement_routes", "router", ""),  # spotify_1507 PhA — likes/favourites/discover/library
     ("app.feedback_v1_routes", "router", ""),
     ("app.skill_patch_routes", "router", ""),
     ("app.recall_routes", "router", ""),
