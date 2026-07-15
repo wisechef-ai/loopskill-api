@@ -171,6 +171,20 @@ ALLOWED_LINK_DOMAINS = (
     "web.archive.org",  # scrapling — archival fetch target
     "archive.org",
     "developers.google.com",  # gif-search — Tenor/Google API developer docs
+    # spotify_1507 Ph0 batch-3: infra / cloud-console / source domains cited by
+    # real skills' own tooling. Same root-cause class (not third-party promo).
+    "console.cloud.google.com",  # google-workspace — GCP console setup
+    "cloud.google.com",
+    "raw.githubusercontent.com",  # scrapling/others — raw source fetch
+    "githubusercontent.com",
+    "download.pytorch.org",  # comfyui/stable-diffusion — PyTorch wheels
+    "pytorch.org",
+    "railway.app",  # railway-serverless-diagnose — the platform it diagnoses
+    "railway.com",
+    "iana.org",  # hostinger-dns/railway — data.iana.org RDAP bootstrap
+    "centralnic.com",  # rdap.centralnic.com — RDAP registry lookups
+    "duckduckgo.com",  # scrapling — html.duckduckgo.com search endpoint
+    "civitai.com",  # comfyui — model hub the skill pulls checkpoints from
 )
 
 # Placeholder / RFC-2606 reserved / docs-example domains. Always documentation,
@@ -200,11 +214,36 @@ AGENT_DISCIPLINE_RE = re.compile(
     re.IGNORECASE,
 )
 
-# `report (back) to NAME` / `tell NAME` — flag unless NAME is a placeholder.
+# `report (back) to NAME` — a directive to route output to a recipient. The
+# NAME here is almost always a real target, so we flag it broadly (unless a
+# placeholder). `tell NAME` is far noisier in normal prose ("tell you", "tell
+# me about", "tell the team", "tell if/whether") so it is handled separately
+# with a stricter proper-noun requirement (see COMMON_TELL_WORDS below).
 REPORT_BACK_RE = re.compile(
-    r"\b(?:report\s+(?:back\s+)?to|tell)\s+(?!\$\{|the\s+user\b|your\b|a\b|an\b)([A-Za-z][A-Za-z0-9_-]*)",
+    r"\breport\s+(?:back\s+)?to\s+(?!\$\{|the\s+user\b|your\b|a\b|an\b)([A-Za-z][A-Za-z0-9_-]*)",
     re.IGNORECASE,
 )
+
+# `tell <Name>` only trips when the target looks like an actual proper noun —
+# i.e. Capitalized and not a common English word / product / agent name. This
+# is Adam's documented root-cause fix: the bare-`tell` regex was firing on
+# ordinary prose ("the scripts tell you to re-export", "tell me about the last
+# time…", "tell if you're improving") — 44/45 hits in the orphan-republish
+# batch were this FP class. We keep the genuine leak signal ("tell Adam",
+# "tell Mariusz") by requiring a Capitalized target NOT in this denylist.
+TELL_RE = re.compile(
+    r"\btell\s+(?!\$\{)([A-Z][A-Za-z0-9_-]*)",
+)
+COMMON_TELL_WORDS = frozenset({
+    # pronouns / articles / connectors that follow "tell" in normal prose
+    "you", "me", "us", "them", "him", "her", "it", "the", "a", "an", "your",
+    "my", "our", "their", "his", "its", "if", "whether", "which", "what",
+    "when", "where", "who", "whom", "how", "why", "someone", "anyone",
+    "anybody", "everyone", "everybody", "nobody", "people", "users", "back",
+    "apart", "yourself", "itself", "this", "that", "these", "those",
+    # product / agent names that are not report-back recipients
+    "claude", "codex", "hermes", "openclaw", "gpt", "chatgpt", "gemini",
+})
 
 # Bare-name regex (per user-name); built dynamically because we want word boundaries
 # but also need to skip occurrences inside emails/URLs.
@@ -377,12 +416,20 @@ def _check_external_promo(line: str, lineno: int) -> list[Violation]:
 
 def _check_report_back(line: str, lineno: int) -> list[Violation]:
     masked = _strip_url_email_spans(line)
+    target = None
+    # `report (back) to NAME` — broad flag (real recipient directive).
     m = REPORT_BACK_RE.search(masked)
     if m:
         target = m.group(1)
-        # Skip generic targets that aren't actually proper names.
         if target.lower() in {"someone", "anyone", "anybody", "back"}:
-            return []
+            target = None
+    # `tell <Name>` — stricter: only a Capitalized proper noun not in the
+    # common-prose denylist (kills "tell you / tell me about / tell if" FPs).
+    if target is None:
+        mt = TELL_RE.search(masked)
+        if mt and mt.group(1).lower() not in COMMON_TELL_WORDS:
+            target = mt.group(1)
+    if target is not None:
         return [
             Violation(
                 rule="no_report_back_without_placeholder",
