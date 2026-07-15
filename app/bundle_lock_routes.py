@@ -35,7 +35,11 @@ from app.services.drift_service import (
     prior_revision_hashes,
 )
 
-router = APIRouter(prefix="/api/bundles", tags=["bundle-lock"])
+# Inner router carries the routes with NO surface prefix; the module-level
+# `router` mounts it under BOTH /api/bundles and /api/cookbooks so the
+# dual-surface symmetry contract (test_loopskill_bundle_surface_symmetry) holds
+# — /api/cookbooks is the backward-compat alias of the primary /api/bundles.
+_h = APIRouter(tags=["bundle-lock"])
 
 
 def _ctx(request: Request) -> AuthContext | None:
@@ -73,7 +77,7 @@ class DriftRequest(BaseModel):
     installed: list[DriftRequestSkill]
 
 
-@router.post("/{bundle_id}/lock")
+@_h.post("/{bundle_id}/lock")
 def mint_lock(bundle_id: str, request: Request, db: Session = Depends(get_db)):
     """Mint a new immutable bundle-lock revision. Owner/master only."""
     bundle = _bundle_or_404(db, bundle_id)
@@ -87,7 +91,7 @@ def mint_lock(bundle_id: str, request: Request, db: Session = Depends(get_db)):
     }
 
 
-@router.get("/{bundle_id}/lock")
+@_h.get("/{bundle_id}/lock")
 def get_lock(bundle_id: str, request: Request, db: Session = Depends(get_db)):
     """Read the current lock. Public for public bundles; else owner/master."""
     bundle = _bundle_or_404(db, bundle_id)
@@ -105,7 +109,7 @@ def get_lock(bundle_id: str, request: Request, db: Session = Depends(get_db)):
     }
 
 
-@router.get("/{bundle_id}/lock/history")
+@_h.get("/{bundle_id}/lock/history")
 def lock_history(bundle_id: str, request: Request, db: Session = Depends(get_db)):
     """All lock revisions (audit trail). Owner/master."""
     from app.models import BundleLock
@@ -132,7 +136,7 @@ def lock_history(bundle_id: str, request: Request, db: Session = Depends(get_db)
     }
 
 
-@router.post("/{bundle_id}/drift")
+@_h.post("/{bundle_id}/drift")
 def compute_drift(bundle_id: str, body: DriftRequest, request: Request, db: Session = Depends(get_db)):
     """Three-way per-skill drift verdict vs the current lock.
 
@@ -188,3 +192,9 @@ def compute_drift(bundle_id: str, body: DriftRequest, request: Request, db: Sess
             "extras": len(extras),
         },
     }
+
+
+# Dual-surface mount: /api/bundles (primary) + /api/cookbooks (compat alias).
+router = APIRouter()
+router.include_router(_h, prefix="/api/bundles", tags=["bundle-lock"])
+router.include_router(_h, prefix="/api/cookbooks", tags=["cookbooks"])  # compat-alias
