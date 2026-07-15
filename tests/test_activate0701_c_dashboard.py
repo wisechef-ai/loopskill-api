@@ -72,3 +72,36 @@ def test_dashboard_non_owner_404(client, db_session):
     db_session.commit()
     r = client.get(f"/api/fleets/{f.id}/dashboard", headers={"x-api-key": pt2})
     assert r.status_code == 404  # no existence leak
+
+
+def test_dashboard_surfaces_ralph_loops(client, db_session):
+    """spotify_1507 Ph F — a stuck member (6 same-outcome no-change runs) shows
+    up in the dashboard's ralph_loops so the pane can flag a spinning agent."""
+    import uuid as _uuid
+
+    from app.models import FleetMember, LoopRun
+
+    u, pt, k, f = _setup(db_session)
+    m = FleetMember(fleet_id=f.id, host="h", profile="d", skills_dir="~", api_key_id=k.id)
+    db_session.add(m)
+    db_session.flush()
+    for _ in range(6):
+        db_session.add(
+            LoopRun(
+                id=_uuid.uuid4(),
+                member_id=m.id,
+                fleet_id=f.id,
+                loop_slug="stuck-loop",
+                instance_key="i1",
+                outcome="no_change",
+                accepted_change=False,
+            )
+        )
+    db_session.commit()
+
+    r = client.get(f"/api/fleets/{f.id}/dashboard", headers={"x-api-key": pt})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ralph_count"] == 1
+    assert body["ralph_loops"][0]["loop_slug"] == "stuck-loop"
+    assert body["ralph_loops"][0]["run_count"] == 6
