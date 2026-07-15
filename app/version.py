@@ -62,4 +62,4 @@ allowlist widened with legitimate API-doc/source domains (arxiv, tavily, tenor,
 stripe, comfyui, modal, etc.) so real orphan-tarball skills stop false-blocking.
 """
 
-__version__ = "0.9.20"
+__version__ = "0.9.21"

@@ -192,6 +192,9 @@ def create_app() -> FastAPI:
     from app.engagement_routes import router as engagement_router  # spotify_1507 PhA
 
     app.include_router(engagement_router, tags=["engagement"])
+    from app.bundle_lock_routes import router as bundle_lock_router  # spotify_1507 PhB
+
+    app.include_router(bundle_lock_router, tags=["bundle-lock"])
     app.include_router(feedback_v1_router, tags=["feedback"])
     app.include_router(skill_patch_router, tags=["skill-patches"])
     app.include_router(recall_router, tags=["recall"])
