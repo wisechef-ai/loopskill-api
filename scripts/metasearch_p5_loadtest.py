@@ -22,8 +22,8 @@ Usage:
   # search-only (no reconcile — needs a fleet setup):
   python scripts/metasearch_p5_loadtest.py --base-url https://app.loopskill.io --api-key $KEY --search-only
 
-  # reconcile-only (needs a fleet with agents):
-  python scripts/metasearch_p5_loadtest.py --base-url https://app.loopskill.io --api-key $KEY --reconcile-only --fleet-id $FLEET
+  # reconcile-only (needs a cookbook the caller owns):
+  python scripts/metasearch_p5_loadtest.py --base-url https://app.loopskill.io --api-key $KEY --reconcile-only --cookbook-id $COOKBOOK_ID
 
 Exit code 0 = PASS (all targets met), 1 = FAIL (any target missed). Prints a
 structured report to stdout. This is the §7.5 acceptance gate.
@@ -31,6 +31,21 @@ structured report to stdout. This is the §7.5 acceptance gate.
 NOTE: this script CANNOT be run from a dev session — it needs a deployed
 instance with PostgreSQL + real source connectivity. It is the harness that
 RUNS the proof, not the proof itself.
+
+issue-80 fix (2026-07-12): this harness originally POSTed to
+``/api/fleets/{fleet_id}/reconcile`` with body ``{"skills": []}`` — a route
+that was never registered (app/fleet_routes.py only exposes /subscribe and
+/sync). Every reconcile request 404'd, so the gate could never PASS as
+written. The real desired-state-reconcile primitive this harness wants
+already exists at ``POST /api/cookbooks/{cookbook_id}/reconcile``
+(app/reconcile_routes.py, evergreen_0206 Phase D) — it accepts
+``{"local": [...]}`` (the caller's reported lockfile state) and serves a
+cheap 304 fast-path via ``If-None-Match: <generation>`` once the caller has
+seen a generation token, which is exactly the desired-state polling model
+§7.5 describes. This harness now targets that endpoint: cold poll first to
+capture the ETag, then reuse it as If-None-Match on every subsequent poll so
+the 304-fast-path is actually exercised (steady-state agents are assumed
+already in sync — the realistic 30k-poller case — not first-contact ADDs).
 """
 
 from __future__ import annotations
@@ -58,23 +73,32 @@ RANDOM_QUERIES = [
 ]
 
 
-def _req(url: str, method: str = "GET", api_key: str | None = None, body: bytes | None = None) -> tuple[int, dict | None, float]:
-    """Make an HTTP request, return (status, json_body, elapsed_s)."""
+def _req(
+    url: str,
+    method: str = "GET",
+    api_key: str | None = None,
+    body: bytes | None = None,
+    extra_headers: dict[str, str] | None = None,
+) -> tuple[int, dict | None, float, dict[str, str]]:
+    """Make an HTTP request, return (status, json_body, elapsed_s, response_headers)."""
     headers = {"accept": "application/json"}
     if api_key:
         headers["x-api-key"] = api_key
     if body:
         headers["content-type"] = "application/json"
+    if extra_headers:
+        headers.update(extra_headers)
     req = Request(url, data=body, headers=headers, method=method)
     t0 = time.perf_counter()
     try:
         with urlopen(req, timeout=30) as resp:  # noqa: S310
-            data = json.loads(resp.read()) if resp.status == 200 else None
-            return resp.status, data, time.perf_counter() - t0
+            raw = resp.read()
+            data = json.loads(raw) if resp.status == 200 and raw else None
+            return resp.status, data, time.perf_counter() - t0, dict(resp.headers)
     except HTTPError as e:
-        return e.code, None, time.perf_counter() - t0
+        return e.code, None, time.perf_counter() - t0, dict(e.headers or {})
     except (URLError, OSError):
-        return 0, None, time.perf_counter() - t0
+        return 0, None, time.perf_counter() - t0, {}
 
 
 def search_load_test(base_url: str, api_key: str, duration_s: int = 300, rps: float = 5.0) -> dict:
@@ -102,7 +126,7 @@ def search_load_test(base_url: str, api_key: str, duration_s: int = 300, rps: fl
             time.sleep(interval)
 
         for fut in as_completed(futures, timeout=duration_s + 60):
-            status, body, elapsed = fut.result()
+            status, body, elapsed, _headers = fut.result()
             latencies.append(elapsed)
             if status != 200:
                 errors += 1
@@ -130,9 +154,21 @@ def search_load_test(base_url: str, api_key: str, duration_s: int = 300, rps: fl
     return result
 
 
-def reconcile_load_test(base_url: str, api_key: str, fleet_id: str, agent_count: int = 30000) -> dict:
+def reconcile_load_test(base_url: str, api_key: str | None, cookbook_id: str, agent_count: int = 30000) -> dict:
     """(b) Reconcile load: 30k agents polling desired-state (~16.7/s steady) +
-    a 200-agent deploy burst. Targets: p95 <200ms, 0 errors."""
+    a 200-agent deploy burst. Targets: p95 <200ms, 0 errors.
+
+    issue-80: targets ``POST /api/cookbooks/{cookbook_id}/reconcile`` (the
+    real desired-state-reconcile primitive) instead of the never-registered
+    ``/api/fleets/{fleet_id}/reconcile``. Body shape is ``{"local": [...]}``
+    per app/reconcile_routes.py's ``ReconcileIn`` schema, not ``{"skills": []}``.
+
+    A cold warm-up poll captures the ETag/generation token; every simulated
+    agent poll after that sends ``If-None-Match: <generation>`` so the
+    304-fast-path (the whole point of the scale target) is actually
+    exercised — matching the realistic already-in-sync steady-state poller,
+    not a first-contact full diff.
+    """
     print(f"\n{'='*60}")
     print(f"  (b) RECONCILE LOAD — {agent_count} agents, ~{agent_count/30/60:.1f}/s steady + 200-agent burst")
     print(f"{'='*60}")
@@ -140,6 +176,19 @@ def reconcile_load_test(base_url: str, api_key: str, fleet_id: str, agent_count:
     latencies: list[float] = []
     status_counts: Counter = Counter()
     errors = 0
+
+    url = f"{base_url}/api/cookbooks/{cookbook_id}/reconcile"
+
+    # ── Cold warm-up poll: establish the generation token (ETag). ───────
+    warm_status, _warm_body, warm_elapsed, warm_headers = _req(
+        url, "POST", api_key, json.dumps({"local": [], "dry_run": True}).encode()
+    )
+    latencies.append(warm_elapsed)
+    status_counts[warm_status] += 1
+    if warm_status not in (200, 304):
+        errors += 1
+    generation = warm_headers.get("ETag") or warm_headers.get("etag")
+    inm_headers = {"If-None-Match": generation} if generation else {}
 
     # Simulate ~60s of steady-state polling (16.7/s for 60s = ~1000 polls)
     steady_rps = agent_count / 30 / 60  # 30-min cycle
@@ -150,21 +199,20 @@ def reconcile_load_test(base_url: str, api_key: str, fleet_id: str, agent_count:
     with ThreadPoolExecutor(max_workers=20) as pool:
         futures = []
         for i in range(steady_total):
-            # Simulate an agent polling desired-state (the reconcile endpoint)
-            url = f"{base_url}/api/fleets/{fleet_id}/reconcile"
-            # Empty local state → all-declared = adds (worst case for first poll)
-            body = json.dumps({"skills": []}).encode()
-            futures.append(pool.submit(_req, url, "POST", api_key, body))
+            # Steady-state agent already holds the last-seen generation →
+            # If-None-Match hits the cheap 304 fast-path (the realistic case
+            # for 30k already-converged pollers on a 30-min cycle).
+            body = json.dumps({"local": [], "dry_run": True}).encode()
+            futures.append(pool.submit(_req, url, "POST", api_key, body, inm_headers))
             time.sleep(interval)
 
         # 200-agent deploy burst (simulate 200 agents hitting deploy simultaneously)
         for _ in range(200):
-            url = f"{base_url}/api/fleets/{fleet_id}/reconcile"
-            body = json.dumps({"skills": []}).encode()
-            futures.append(pool.submit(_req, url, "POST", api_key, body))
+            body = json.dumps({"local": [], "dry_run": True}).encode()
+            futures.append(pool.submit(_req, url, "POST", api_key, body, inm_headers))
 
         for fut in as_completed(futures, timeout=120):
-            status, _, elapsed = fut.result()
+            status, _, elapsed, _headers = fut.result()
             latencies.append(elapsed)
             status_counts[status] += 1
             if status not in (200, 304):
@@ -197,7 +245,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="§7.5 scale acceptance load test")
     parser.add_argument("--base-url", required=True, help="LoopSkill instance URL")
     parser.add_argument("--api-key", required=True, help="API key for auth")
-    parser.add_argument("--fleet-id", help="Fleet ID for reconcile test")
+    parser.add_argument("--cookbook-id", help="Cookbook (bundle) ID the caller owns, for the reconcile test")
     parser.add_argument("--search-only", action="store_true")
     parser.add_argument("--reconcile-only", action="store_true")
     parser.add_argument("--duration", type=int, default=300, help="Search test duration (s)")
@@ -210,10 +258,10 @@ def main() -> int:
         all_pass = all_pass and search_result["pass"]
 
     if not args.search_only:
-        if not args.fleet_id:
-            print("ERROR: --fleet-id required for reconcile test", file=sys.stderr)
+        if not args.cookbook_id:
+            print("ERROR: --cookbook-id required for reconcile test", file=sys.stderr)
             return 1
-        reconcile_result = reconcile_load_test(args.base_url, args.api_key, args.fleet_id)
+        reconcile_result = reconcile_load_test(args.base_url, args.api_key, args.cookbook_id)
         all_pass = all_pass and reconcile_result["pass"]
 
     print(f"\n{'='*60}")
