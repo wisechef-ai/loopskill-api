@@ -146,7 +146,7 @@ def get_fleet_dashboard(
     cost_per_accepted = total_cost / total_accepted if total_accepted > 0 else None
 
     # spotify_1507 Ph F — Ralph-loop detector: members stuck re-running the same
-    # loop with zero accepted_change. Surfaced on the pane so an operator sees a
+    # loop with zero accepted_change. Surfaced on the pane so a fleet owner sees a
     # spinning agent without reading raw LoopRun rows.
     from app.services.ralph_detector import find_ralph_loops
 

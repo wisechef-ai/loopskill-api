@@ -3,7 +3,7 @@
 "Ralph" (after Ralph Wiggum): an agent stuck re-running the SAME loop over and
 over with no forward progress — same loop_slug + instance_key, repeated
 outcomes, zero accepted_change. Left undetected it burns cost and never
-converges. The fleet pane must surface it so an operator sees "this member is
+converges. The fleet pane must surface it so a fleet owner sees "this member is
 spinning" without reading raw LoopRun rows.
 
 Signal (from the LoopRun telemetry, Phase E): within a recent window, a
