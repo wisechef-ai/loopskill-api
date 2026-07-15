@@ -145,6 +145,13 @@ def get_fleet_dashboard(
     total_accepted = int(rollup_row.total_accepted or 0)
     cost_per_accepted = total_cost / total_accepted if total_accepted > 0 else None
 
+    # spotify_1507 Ph F — Ralph-loop detector: members stuck re-running the same
+    # loop with zero accepted_change. Surfaced on the pane so a fleet owner sees a
+    # spinning agent without reading raw LoopRun rows.
+    from app.services.ralph_detector import find_ralph_loops
+
+    ralph_loops = find_ralph_loops(db, fleet.id)
+
     return {
         "fleet_id": str(fleet.id),
         "fleet_name": fleet.name,
@@ -161,4 +168,6 @@ def get_fleet_dashboard(
         "total_cost_usd": total_cost,
         "total_accepted_changes": total_accepted,
         "total_runs": int(rollup_row.total_runs or 0),
+        "ralph_loops": ralph_loops,
+        "ralph_count": len(ralph_loops),
     }
