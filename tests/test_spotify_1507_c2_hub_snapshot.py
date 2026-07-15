@@ -665,3 +665,33 @@ class TestUpstreamNormalization:
         )
         # No fresh hub snapshot → direct walks carry the total (old behavior).
         assert total_stale == 5467 + 19966
+
+
+class TestFetchSignatureParity:
+    """Prod bug 2026-07-15: fetch_snapshot passed stream=True to guarded_get,
+    which only accepts (url, *, timeout, headers) — TypeError on every REAL
+    fetch while tests passed via permissive fake getters. This fake enforces
+    the real signature so any kwarg drift fails in CI."""
+
+    def test_fetch_uses_only_guarded_get_signature(self):
+        import json as _json
+
+        calls = {}
+
+        def strict_get(url, *, timeout=None, headers=None):
+            calls["url"] = url
+            body = _json.dumps(
+                {"version": 1, "generated_at": "2026-07-15T00:00:00+00:00", "skill_count": 0, "skills": []}
+            ).encode()
+
+            class _R:
+                status_code = 200
+                content = body
+
+            return _R()
+
+        from app.services.hub_snapshot import fetch_snapshot
+
+        data = fetch_snapshot("https://example.test/idx.json", _get=strict_get)
+        assert data is not None and data["skill_count"] == 0
+        assert calls["url"] == "https://example.test/idx.json"
