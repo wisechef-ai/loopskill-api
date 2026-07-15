@@ -170,6 +170,7 @@ ALLOWED_LINK_DOMAINS = (
     "youtube.com",
     "web.archive.org",  # scrapling — archival fetch target
     "archive.org",
+    "developers.google.com",  # gif-search — Tenor/Google API developer docs
 )
 
 # Placeholder / RFC-2606 reserved / docs-example domains. Always documentation,
