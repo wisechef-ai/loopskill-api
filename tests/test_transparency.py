@@ -53,3 +53,24 @@ def test_transparency_cached(client):
     r1 = client.get("/api/health/transparency").json()
     r2 = client.get("/api/health/transparency").json()
     assert r1["computed_at"] == r2["computed_at"]
+
+
+def test_health_status_returns_200(client):
+    """spotify_1507 Ph0: bare GET /api/health is public, always-200, no DB."""
+    r = client.get("/api/health")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["service"] == "loopskill-api"
+    assert "version" in body
+
+
+def test_health_status_no_db_dependency(client):
+    """Liveness must not depend on the DB session — status page semantics."""
+    app = FastAPI()
+    app.include_router(transparency_router)
+    # deliberately NO get_db override — the route must still 200
+    with TestClient(app, raise_server_exceptions=True) as c:
+        r = c.get("/api/health")
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "ok"

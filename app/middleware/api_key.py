@@ -238,6 +238,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         "/healthz",
         "/",
         "/api/healthz",
+        "/api/health",  # spotify_1507 Ph0: public liveness status (no auth, no DB)
         "/api/health/transparency",  # Stream 0: public transparency scorecard
         # loopclose_3005 Phase B — canonical /skill serve (the install front-door
         # printed on the hero + every integrations card). MUST be public so an

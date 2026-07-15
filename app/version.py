@@ -55,6 +55,11 @@ fix/issue-63-rename-sweep: bumped past main (0.9.13) — docs/comments/brand
 rename of stale "WiseRecipes"/"recipes" references to "LoopSkill". Live env
 var names (WR_*, RECIPES_*) are unchanged for prod compatibility — marked with
 TODO(rename) comments. Closes #63.
+
+spotify_1507 Ph0 (0.9.19): bare GET /api/health is now a public, DB-independent
+liveness status (was 401 — a cold-path trust leak); no_external_promo linter
+allowlist widened with legitimate API-doc/source domains (arxiv, tavily, tenor,
+stripe, comfyui, modal, etc.) so real orphan-tarball skills stop false-blocking.
 """
 
-__version__ = "0.9.18"
+__version__ = "0.9.19"

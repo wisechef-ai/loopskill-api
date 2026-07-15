@@ -129,6 +129,25 @@ ALLOWED_LINK_DOMAINS = (
     "developer.mozilla.org",
     # Upstreams referenced by wrapper recipes shipped in this repo:
     "aitoearn.ai",  # AiToEarn MCP server (recipes/aitoearn) — MIT, github.com/yikart/AiToEarn
+    # spotify_1507 Ph0 (Adam's documented root-cause fix, registry quality gate):
+    # legitimate API-doc / source domains cited by real, non-fiction, G3-clean
+    # skills that were false-flagged by no_external_promo during orphan-tarball
+    # republish. Widening the allowlist is the ROOT-CAUSE fix — never reword a
+    # skill body to dodge the linter (that treats the symptom per-skill).
+    "arxiv.org",  # arxiv skill — export.arxiv.org API
+    "export.arxiv.org",
+    "tavily.com",  # tavily-search skill — api.tavily.com
+    "tenor.com",  # gif-search skill — Tenor API key line
+    "stripe.com",  # stripe-* skills — api.stripe.com / docs.stripe.com
+    "comfy.org",  # comfyui skill — docs.comfy.org
+    "jsdelivr.net",  # cdn.jsdelivr.net asset links
+    "modal.com",  # modal-serverless-gpu skill
+    "openai.com",  # platform.openai.com API docs
+    "cloudflare.com",  # cloudflare tunnel / DNS skills
+    "hostinger.com",  # hostinger-dns-api skill
+    "readthedocs.io",  # common library docs host
+    "readthedocs.org",
+    "python.org",  # docs.python.org parent + downloads
 )
 
 # Placeholder / RFC-2606 reserved / docs-example domains. Always documentation,
