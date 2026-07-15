@@ -246,6 +246,55 @@ def test_report_back_to_placeholder_passes() -> None:
     assert "no_report_back_without_placeholder" not in rules
 
 
+def test_spotify1507_tell_prose_false_positives_pass() -> None:
+    """spotify_1507 Ph0: bare `tell <lowercase>` in ordinary prose must NOT
+    trip no_report_back_without_placeholder. This was 44/45 hits in the
+    orphan-republish batch (comfyui 'tell you to re-export', mom-test 'tell me
+    about', lean-startup 'tell if you're improving')."""
+    for prose in (
+        "The scripts detect this and tell you to re-export.",
+        '- "Tell me about the last time you needed to do this?"',
+        "Can't tell if you're improving without innovation accounting.",
+        "Tell the team why the pivot is happening.",
+        "Tell everyone you know what you're exploring.",
+        "Go back to your Claude Code session and tell Claude the result.",
+    ):
+        body = CLEAN_SKILL_MD + "\n" + prose + "\n"
+        result = lint_skill(body, recipe_yaml=CLEAN_RECIPE_YAML)
+        rules = {v["rule"] for v in result["violations"]}
+        assert "no_report_back_without_placeholder" not in rules, prose
+
+
+def test_spotify1507_tell_named_person_still_rejected() -> None:
+    """The relaxation must still catch a genuine `tell <ProperName>` leak."""
+    for leak in (
+        "When done, tell Mariusz the deploy is live.",
+        "Report back to Bartek with the results.",
+        "report to Katarzyna once the migration completes.",
+    ):
+        body = CLEAN_SKILL_MD + "\n" + leak + "\n"
+        result = lint_skill(body, recipe_yaml=CLEAN_RECIPE_YAML)
+        rules = {v["rule"] for v in result["violations"]}
+        assert "no_report_back_without_placeholder" in rules, leak
+
+
+def test_spotify1507_infra_source_domains_pass() -> None:
+    """Ph0 batch-3 infra/source domains cited by real skills must not trip promo."""
+    body = CLEAN_SKILL_MD + (
+        "\nSee https://console.cloud.google.com/apis, "
+        "https://raw.githubusercontent.com/x/y/main/z, "
+        "https://download.pytorch.org/whl/cu121, "
+        "https://backboard.railway.app/graphql, "
+        "https://rdap.centralnic.com/lookup, "
+        "https://html.duckduckgo.com/html, https://civitai.com/models.\n"
+    )
+    result = lint_skill(body, recipe_yaml=CLEAN_RECIPE_YAML)
+    rules = {v["rule"] for v in result["violations"]}
+    assert "no_external_promo" not in rules, [
+        v for v in result["violations"] if v["rule"] == "no_external_promo"
+    ]
+
+
 # ── CLI entry point ────────────────────────────────────────────────────────
 
 
