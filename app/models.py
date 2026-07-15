@@ -248,6 +248,20 @@ class Skill(Base):
     # Populated only when kind='loop'; stores schedule/subagents_config/verifier_slug etc.
     loop_spec = Column(JSON, nullable=True)
 
+    # spotify_1507 Ph B — DRIFT KILLER compat metadata.
+    #   compat_targets : JSON array of runtime targets this track declares
+    #                    compatible, e.g. ["hermes>=0.18", "openclaw", "codex-cli"].
+    #                    NULL = no declared constraints (assume universal).
+    #   compat_status  : 'active' (default — resolves & valid) | 'stale-upstream'
+    #                    (a FEDERATED track whose source 404'd / moved / changed
+    #                    schema on the last compat-cron pass). Followers of
+    #                    bundles containing a stale track get a feed notice — the
+    #                    breakage is SURFACED, never a silent 404 install.
+    #   compat_checked_at : last time the nightly compat cron validated this track.
+    compat_targets = Column(JSON, nullable=True)
+    compat_status = Column(String(32), nullable=False, default="active", server_default="active", index=True)
+    compat_checked_at = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -1018,6 +1032,15 @@ class BundleSkill(Base):
     )
     source = Column(String(20), nullable=False)
     pinned_version = Column(String(50), nullable=True)
+    # spotify_1507 Ph B — explicit pin-vs-track choice per bundle entry (the
+    # lockfile decision at the ENTRY level, distinct from Bundle.pin_mode which
+    # is the whole-bundle apply strategy):
+    #   'track' (default) = follow the bundle-lock revision; converges on bumps.
+    #   'pin'             = frozen to pinned_version; upstream bumps do NOT move
+    #                       this entry until the owner explicitly re-pins.
+    # This is what lets a curator say "auto-update everything EXCEPT this one
+    # skill I've validated at v1.2.0."
+    pin_mode = Column(String(16), nullable=False, default="track", server_default="track")
     # portal_0610 J2 — Composer reorder. install + manifest emit in this order;
     # ties fall back to added_at. Default 100 matches BundleDeployment.
     install_order = Column(Integer, nullable=False, default=100, server_default="100")
@@ -1026,6 +1049,50 @@ class BundleSkill(Base):
     __table_args__ = (
         Index("ix_bundle_skills_source", "source"),
         Index("ix_bundle_skills_order", "bundle_id", "install_order"),
+    )
+
+
+class BundleLock(Base):
+    """spotify_1507 Ph B — an IMMUTABLE published snapshot of a bundle.
+
+    THE core drift-killer primitive. When a bundle is published, we mint a
+    bundle-lock: the exact (slug, version, content_hash) of every member skill
+    at that instant, plus a monotonic revision number. Deploys install FROM
+    THE LOCK, never from 'latest' — so the same bundle deployed to two agents
+    is byte-identical (hash-proven), and 'latest' drifting upstream can't
+    silently change what a follower's fleet gets.
+
+    Immutability contract: a lock row is NEVER updated. A bundle bump mints a
+    NEW lock with revision = prev + 1. `locked_entries` is frozen at mint time.
+    This is the lockfile (npm package-lock / Cargo.lock semantics) for agent
+    skills.
+
+    locked_entries JSON shape:
+        [{"slug": str, "version": str, "content_hash": str,
+          "source": "local"|"<federated-source>", "pin_mode": "track"|"pin"}]
+    """
+
+    __tablename__ = "bundle_locks"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    bundle_id = Column(
+        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Monotonic per-bundle revision. rev 1 = first publish; each bump += 1.
+    revision = Column(Integer, nullable=False, default=1)
+    # Frozen snapshot of every entry's exact resolved version + content hash.
+    locked_entries = Column(JSON, nullable=False, default=list)
+    # A single hash over the whole lock (sha256 of the canonical sorted
+    # locked_entries) — the "lockfile checksum" a deploy can compare in O(1)
+    # to know if two agents are on the same lock without diffing entry-by-entry.
+    lock_hash = Column(String(64), nullable=False)
+    # Who/what minted it + when. created_at is the immutable mint time.
+    created_by = Column(UUID(as_uuid=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("bundle_id", "revision", name="uq_bundle_locks_bundle_revision"),
+        Index("ix_bundle_locks_bundle_rev", "bundle_id", "revision"),
     )
 
 
