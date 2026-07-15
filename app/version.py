@@ -60,6 +60,14 @@ spotify_1507 Ph0 (0.9.19): bare GET /api/health is now a public, DB-independent
 liveness status (was 401 — a cold-path trust leak); no_external_promo linter
 allowlist widened with legitimate API-doc/source domains (arxiv, tavily, tenor,
 stripe, comfyui, modal, etc.) so real orphan-tarball skills stop false-blocking.
+
+atomic-habits/2026-07-13-rank8-catalog-hygiene: bumped past main (0.9.23) —
+adds a STARTER_LOOPS SSOT entry + LOOP_TAGS_BY_SLUG discovery tags for
+repo-steward-loop, which was published straight against the live DB without
+ever entering the seed pipeline (install_count=0, latest_version=null, zero
+discovery tags). Re-running seed_starter_catalog.py now produces a v1.0.0
+LoopVersion manifest for it carrying category + tags, matching the other 9
+starter loops. Data-only, no schema change.
 """
 
-__version__ = "0.9.23"
+__version__ = "0.9.24"

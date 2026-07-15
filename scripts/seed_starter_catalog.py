@@ -462,7 +462,7 @@ STARTER_LOOPS = [
             "- `tool_allowlist`: [read_file, write_file].\n\n"
             "## Verify it (stage matching data + schema)\n"
             "```\n"
-            "curl -X POST .../api/loops/json-schema-validate-loop/run -H 'x-api-key: KEY' \\\n"
+            "curl -X POST .../api/loops/json-schema-validate-loop/run -H 'x-api-key: *** \\\n"
             '  -d \'{"workspace_files": {"schema.json": "{\\"required\\":[\\"id\\"],\\"types\\":{\\"id\\":\\"int\\"}}", "data.json": "{\\"id\\": 1}"}}\'\n'
             "```\n"
         ),
@@ -494,6 +494,84 @@ STARTER_LOOPS = [
             "You are a data-wrangling agent. Read schema.json, read data.json, and "
             "transform data.json so every required key is present with the correct "
             "type. Run the validator and iterate until it passes."
+        ),
+    },
+    {
+        # atomic-habits 2026-07-13 rank-8 REVENUE/CATALOG: repo-steward-loop was
+        # published directly against the live app.loopskill.io DB (no matching
+        # STARTER_LOOPS entry here, no LoopVersion row — install_count=0,
+        # latest_version=null, no discovery tags). This SSOT entry brings it
+        # under the same seed pipeline as the other 9 starter loops so a
+        # re-seed produces a v1.0.0 manifest carrying category + discovery
+        # tags (F-API-14 pattern, see LOOP_TAGS_BY_SLUG below). Spec copied
+        # verbatim from the live `loops` row (verified via psql 2026-07-13)
+        # so re-seeding is a pure metadata refresh, not a behavior change.
+        "slug": "repo-steward-loop",
+        "title": "Repo Steward Loop",
+        "description": (
+            "Wake up to a triaged repo: green Dependabot PRs merged, every other "
+            "PR/issue/red-CI triage-commented — nothing else touched. Scans your "
+            "configured repo list every cycle and ends with an objective verdict: "
+            "NOTHING_TO_DO or a non-empty actions list. Battle-tested as a "
+            "30-minute cron steward before publication."
+        ),
+        "category": "development",
+        "readme": (
+            "# Repo Steward Loop\n\n"
+            "Autonomous repository steward. Every cycle it scans a configured list of\n"
+            "repositories for open PRs (with CI/mergeability rollup), open issues, and a\n"
+            "red default-branch CI run — then takes only three whitelisted actions:\n"
+            "read state, post triage/nudge comments, and merge green Dependabot PRs.\n"
+            "It ends every cycle with an objective, machine-checkable verdict.\n\n"
+            "## Configuration\n"
+            "- `REPOS` (required): space-separated `owner/repo` entries.\n"
+            "- Requires an authenticated `gh` CLI with repo read + PR comment/merge scope.\n\n"
+            "## Safety contract\n"
+            "- `max_turns`: 15\n"
+            "- `budget_usd`: 0.50\n"
+            "- `tool_allowlist`: gh read + comment + Dependabot-merge only — no code\n"
+            "  writes, no force pushes, no issue closes, no human-PR merges.\n"
+        ),
+        "license": "MIT",
+        "tier": "free",
+        "success_condition": (
+            "A steward cycle completed over every repository in $REPOS and produced "
+            "repo-steward-report.txt whose verdict line is NOTHING_TO_DO or ACTIONS: "
+            "with at least one recorded action."
+        ),
+        "verification_script": (
+            "test -s repo-steward-report.txt || exit 1\n"
+            "head -n1 repo-steward-report.txt | grep -Eq '^(NOTHING_TO_DO|ACTIONS:)$' || exit 1\n"
+            "if head -n1 repo-steward-report.txt | grep -q '^ACTIONS:$'; then grep -q '^- ' repo-steward-report.txt || exit 1; fi\n"
+            "exit 0"
+        ),
+        "max_turns": 15,
+        "budget_usd": "0.50",
+        "stopping_criteria": {
+            "success": "verification_script exits 0 — report artifact present with NOTHING_TO_DO or a non-empty ACTIONS list",
+            "failure": "max_turns reached without producing repo-steward-report.txt, or any action attempted outside the allowlist",
+            "budget": "hard stop at budget_usd 0.50; the NOTHING_TO_DO fast path keeps idle cycles near zero cost",
+        },
+        "tool_allowlist": [
+            "github_read_prs",
+            "github_read_issues",
+            "github_read_ci",
+            "github_post_comment",
+            "github_merge_dependabot_pr",
+        ],
+        "system_prompt": (
+            "You are a repository steward. Scan the repositories listed in the REPOS "
+            "environment variable (space-separated owner/repo entries) using the gh "
+            "CLI: open PRs with CI/mergeability rollup, open issues, and the latest "
+            "default-branch CI run. If nothing is actionable, write "
+            "repo-steward-report.txt containing exactly 'NOTHING_TO_DO' and stop. "
+            "Otherwise act ONLY within the allowlist: (1) post concise triage or "
+            "nudge comments on stale, conflicting, or unlabelled items; (2) merge "
+            "Dependabot PRs whose CI rollup is fully green. NEVER push code, close "
+            "issues, merge human-authored PRs, or modify repository settings. Then "
+            "write repo-steward-report.txt with first line 'ACTIONS:' followed by "
+            "one '- ' bullet per action taken (repo, item number, action). The "
+            "report file is your verdict artifact — the run fails without it."
         ),
     },
 ]
@@ -688,6 +766,11 @@ LOOP_TAGS_BY_SLUG: dict[str, list[str]] = {
     "changelog-from-commits-loop": ["changelog", "git", "release", "documentation"],
     "doc-coverage-loop": ["documentation", "coverage", "quality", "ci"],
     "json-schema-validate-loop": ["json", "schema", "validation", "data"],
+    # atomic-habits 2026-07-13 rank-8 REVENUE/CATALOG: repo-steward-loop had
+    # category=development but zero discovery tags, so it never surfaced under
+    # capability searches (ci, dependabot, repo-maintenance, cron) even though
+    # it's the flagship (only) live loop. Catalog hygiene, no tier/Stripe touch.
+    "repo-steward-loop": ["ci", "dependabot", "repo-maintenance", "cron", "github", "automation"],
 }
 
 
