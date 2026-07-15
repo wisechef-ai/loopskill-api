@@ -200,6 +200,32 @@ def test_allowlisted_domains_pass() -> None:
     assert "no_external_promo" not in rules
 
 
+def test_spotify1507_widened_api_doc_domains_pass() -> None:
+    """spotify_1507 Ph0: legitimate API-doc/source domains cited by real skills
+    (arxiv, tavily, tenor, stripe, comfyui, modal, etc.) must NOT trip
+    no_external_promo. Root-cause fix — these are the domains that false-blocked
+    ~half of orphan-tarball republish candidates."""
+    body = CLEAN_SKILL_MD + (
+        "\nDocs: https://export.arxiv.org/api/query, https://api.tavily.com/search,\n"
+        "https://tenor.com/gifapi, https://docs.stripe.com/api,\n"
+        "https://docs.comfy.org/, https://cdn.jsdelivr.net/npm/x,\n"
+        "https://modal.com/docs, https://platform.openai.com/docs.\n"
+    )
+    result = lint_skill(body, recipe_yaml=CLEAN_RECIPE_YAML)
+    rules = {v["rule"] for v in result["violations"]}
+    assert "no_external_promo" not in rules, [
+        v for v in result["violations"] if v["rule"] == "no_external_promo"
+    ]
+
+
+def test_spotify1507_true_affiliate_still_rejected() -> None:
+    """The widening must NOT open the gate to genuine promo/affiliate links."""
+    bad = CLEAN_SKILL_MD + "\nBuy now at https://sketchy-affiliate.biz/?ref=xyz.\n"
+    result = lint_skill(bad, recipe_yaml=CLEAN_RECIPE_YAML)
+    rules = {v["rule"] for v in result["violations"]}
+    assert "no_external_promo" in rules
+
+
 # ── Rule: no_report_back_without_placeholder ───────────────────────────────
 
 

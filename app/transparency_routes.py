@@ -57,6 +57,26 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/health", tags=["transparency"])
 
+from app.version import __version__ as VERSION
+
+
+@router.get("")
+def health_status() -> dict[str, Any]:
+    """Public liveness status — no auth, no DB dependency.
+
+    spotify_1507 Phase 0: the bare ``GET /api/health`` used to 401 (only the
+    ``/api/health/transparency`` sub-route was public), which read as a trust
+    leak on the cold-agent path — a status URL should never demand a key. This
+    returns a minimal, always-200, DB-independent liveness surface (same
+    disclosure level as a public status page). Detailed operational metrics
+    remain at ``/api/health/transparency``; DB liveness at ``/api/healthz``.
+    """
+    return {
+        "status": "ok",
+        "service": "loopskill-api",
+        "version": VERSION,
+    }
+
 
 # In-process cache (60s TTL). Same approach as elsewhere in the app.
 _CACHE_TTL_S = 60
