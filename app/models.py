@@ -1096,6 +1096,97 @@ class BundleLock(Base):
     )
 
 
+# ── fleetos_1607 Phase E — BYO-repo origins (metadata-only = the hyperscale gate) ─
+#
+# A private fleet brings its OWN GitHub repo as its registry. LoopSkill stores
+# METADATA ONLY: the artifact's origin (github:owner/repo@<sha>:<path>) and a
+# content-hash LOCK computed at publish/lock time. The server NEVER stores or
+# proxies the private bytes — agents fetch content DIRECTLY from the user's repo
+# with the user's token (secretRef), then verify the fetched content's hash
+# against this lock. A mismatch = refuse + emit an origin-drift event. This keeps
+# LoopSkill's storage/bandwidth flat per private fleet (KB of metadata, not GB of
+# content) — the hyperscale gate (§0 #8). The public catalog is unaffected (it
+# uses the durable content-addressed store, already shipped).
+
+
+class ArtifactOrigin(Base):
+    """SHA-pinned origin + content-hash lock for a BYO-repo artifact.
+
+    fleetos_1607 Phase E. Identifies WHERE an artifact's bytes live (a commit-SHA
+    pinned path in the user's own repo) and WHAT they must hash to (the lock). The
+    server stores this row; it does NOT store the bytes. A reconcile client fetches
+    ``github:{owner}/{repo}@{commit_sha}:{path}`` using the user's token, hashes
+    the result, and compares to ``content_hash`` — refusing on mismatch.
+
+    SHA is ALWAYS a full commit SHA (tags move, force-push exists). A branch/tag
+    ref is never a valid origin pin.
+    """
+
+    __tablename__ = "artifact_origins"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    # Owning scope — the fleet/user whose private repo this is.
+    owner_user_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
+    # Logical artifact identity (e.g. a skill slug or loop_id) this origin backs.
+    artifact_kind = Column(String(32), nullable=False)  # 'skill' | 'loop' | 'scripts_pack' | 'soul'
+    artifact_key = Column(String(255), nullable=False)
+    # github:owner/repo — the repo half of the origin. Kept split from sha/path
+    # so an index/query can group by repo.
+    repo = Column(String(512), nullable=False)  # "owner/repo"
+    # ALWAYS a 40-hex full commit SHA. A partial/branch/tag ref is rejected at
+    # write time by the service layer.
+    commit_sha = Column(String(64), nullable=False)
+    path = Column(Text, nullable=False)  # path within the repo at that SHA
+    # The content-hash LOCK: sha256 of the artifact bytes as of that SHA+path.
+    # A member's fetched content MUST hash to this or the install fails closed.
+    content_hash = Column(String(64), nullable=False)
+    # Optional secretRef name the agent uses to fetch (the user's token). NAME
+    # only — never the token value (§0 #4).
+    fetch_secret_ref = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_user_id",
+            "org_id",
+            "artifact_kind",
+            "artifact_key",
+            name="uq_artifact_origin_scope_key",
+        ),
+        Index("idx_artifact_origin_repo", "repo", "commit_sha"),
+    )
+
+
+class OriginDriftEvent(Base):
+    """A record that a member's fetched content failed hash-verification.
+
+    fleetos_1607 Phase E. When a reconcile client fetches an artifact from a
+    BYO-repo origin and the content hash does NOT match the lock (force-push,
+    tampering, wrong SHA served), it refuses the install and reports an
+    origin-drift event here. This is the audit trail for "the user's repo served
+    something other than what we locked" — the honest failure surface of the
+    BYO-repo trade-off (§0 #8 / premortem #5).
+    """
+
+    __tablename__ = "origin_drift_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    origin_id = Column(
+        UUID(as_uuid=True), ForeignKey("artifact_origins.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    member_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    repo = Column(String(512), nullable=False)
+    commit_sha = Column(String(64), nullable=False)
+    expected_hash = Column(String(64), nullable=False)
+    observed_hash = Column(String(64), nullable=True)  # NULL = fetch failed entirely
+    detail = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class BundleShareToken(Base):
     """Share token for scoped delegation of bundle access (Phase 3).
 
