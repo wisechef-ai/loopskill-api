@@ -68,6 +68,18 @@ ever entering the seed pipeline (install_count=0, latest_version=null, zero
 discovery tags). Re-running seed_starter_catalog.py now produces a v1.0.0
 LoopVersion manifest for it carrying category + tags, matching the other 9
 starter loops. Data-only, no schema change.
+
+fleetos_1607 Phase 0 (0.9.25): the declarative fleet-artifact primitives that
+turn LoopSkill from a marketplace into the control plane for AI agent fleets.
+Three additive tables (loop_manifests, scripts_packs, host_profiles) + a pure
+services module (app/services/fleet_artifacts.py): canonical loop-manifest
+serialization with byte-identical round-trip, a scripts-pack secret-scan gate
+that REUSES the shipped security_scan.scan_tarball (planted key => refused,
+RED-proofed), and host-profile compatibility validation (typed requires{} vs
+os/runtimes/packages). The soul artifact was deleted by the 5-step pass — the
+existing Personality model already is the deployable-SOUL primitive. Migration
+547f9f97e64d is portable (plain CREATE TABLE, no PL/pgSQL) and round-trips on
+SQLite + Postgres. Additive-only, no data migration.
 """
 
-__version__ = "0.9.24"
+__version__ = "0.9.25"

@@ -1280,6 +1280,200 @@ class FleetSubscription(Base):
     subscribed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+# ── fleetos_1607 Phase 0 — the declarative fleet artifact primitives ─────────
+#
+# LoopSkill grows from a marketplace into the control plane for AI agent fleets.
+# The desired state of a WHOLE agent (its loops/crons with per-member placements,
+# its scripts packs, its SOUL, its host profile, its secret refs) is captured as
+# first-class declarative artifacts. Phase 0 ships the slim, code-reads-it-now
+# subset of those artifacts (§0 #16d: ~25 speculative manifest fields are
+# documented `reserved`, NOT implemented). Later phases layer placements (A),
+# harvest (B), golden bundles (C), the run registry (D), and BYO-repo origins (E)
+# on top of these tables.
+#
+# soul artifact: DELETED as a new table by the 5-step deletion pass (§0 #7/#16).
+# The existing `Personality` model already IS the deployable-SOUL primitive
+# (system prompt + agent config, the SOUL.md shape). A golden bundle references
+# a Personality row as its soul artifact — no duplicate table earns its place.
+
+
+class LoopManifest(Base):
+    """Slim declarative desired-state of ONE loop (cron/autonomous job) — v1.
+
+    fleetos_1607 Phase 0. This is the fleet-side manifest for a runnable loop as
+    it is declared into a golden bundle and reconciled onto a fleet member — NOT
+    the marketplace `Verifier` artifact (that is the publishable catalog object).
+    A LoopManifest is the pull-based desired state the reconcile engine drives a
+    host toward.
+
+    v1 carries ONLY the fields a reader consumes this sprint. Everything else the
+    council enumerated (misfire policy, jitter, delivery idempotency keys, a
+    failover object, resource limits, retry backoff curves, …) lives in the
+    ``reserved`` JSON blob as documented-not-implemented, so a future migration
+    can promote a field without a schema break and without shipping dead columns.
+
+    Honest-guarantee doctrine (§0 #11): ``safety_class`` is a REQUIRED, typed
+    contract — {idempotent | best-effort | manual-only}. ``fenced`` is reserved
+    in the enum but fire-time fenced enforcement is deferred to v2; epochs (Phase
+    A) stamp every run so the registry can flag stale-epoch after the fact.
+    """
+
+    __tablename__ = "loop_manifests"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    # Stable, human-meaningful loop identity — survives re-declaration + moves.
+    # Unique per (owner scope) — a fleet cannot declare two loops with one id.
+    loop_id = Column(String(128), nullable=False, index=True)
+    manifest_version = Column(Integer, nullable=False, default=1, server_default="1")
+
+    # Ownership / tenancy. owner_user_id for personal fleets; org_id for orgs.
+    owner_user_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    enabled = Column(Boolean, nullable=False, default=True, server_default="true")
+
+    # ── Schedule contract ──
+    schedule = Column(String(128), nullable=False)  # cron expr or "30m" / "every 2h"
+    tz = Column(String(64), nullable=False, default="UTC", server_default="UTC")
+    # forbid (default) | allow | replace — what happens if a tick fires while the
+    # previous run of THIS loop is still in flight on the owning member.
+    concurrency_policy = Column(String(16), nullable=False, default="forbid", server_default="forbid")
+
+    # ── Behavior ──
+    prompt = Column(Text, nullable=False)  # secret-interpolation LINTED on write
+    # skills[] as content locks: [{"id": "slug", "hash": "sha256:…"}]. A member
+    # verifies fetched skill content against the hash before enrolling it.
+    skills = Column(JSON, nullable=False, default=list)
+    model = Column(String(128), nullable=True)
+    deliver = Column(String(255), nullable=True)  # 'origin' | platform:chat:thread | …
+
+    # ── Typed compatibility requirements (§0 #5) ──
+    # {"os": ["linux"], "runtime": {"python": ">=3.11"}, "packages": [...],
+    #  "network": [...], "connector": [...], "secret": [...]}
+    requires = Column(JSON, nullable=False, default=dict)
+
+    # ── Secret references (§0 #4) — NAMES + injection mode ONLY, never values ──
+    # [{"name": "OPENAI_API_KEY", "required": true, "injection_mode": "env"}]
+    secret_refs = Column(JSON, nullable=False, default=list)
+
+    # ── State contract (§0 #6) ──
+    # stateless | external | local-resettable | local-required
+    state_class = Column(String(24), nullable=False, default="stateless", server_default="stateless")
+    state_locator = Column(Text, nullable=True)  # path/URI for the state, if any
+
+    timeout_seconds = Column(Integer, nullable=True)
+
+    # ── Honest-guarantee safety class (§0 #11) ──
+    # idempotent | best-effort | manual-only  (fenced reserved, v2)
+    safety_class = Column(String(16), nullable=False, default="best-effort", server_default="best-effort")
+
+    # Documented-not-implemented fields (§0 #16d). A future migration promotes a
+    # key out of here into a typed column; nothing reads these in v1.
+    reserved = Column(JSON, nullable=False, default=dict)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        # A loop_id is unique within a single owner scope. Two NULLs are distinct
+        # in SQL, so this constrains per-user and per-org independently; the app
+        # layer guarantees exactly one of owner_user_id / org_id is set.
+        UniqueConstraint("loop_id", "owner_user_id", "org_id", name="uq_loop_manifest_scope"),
+        CheckConstraint(
+            "concurrency_policy IN ('forbid','allow','replace')",
+            name="ck_loop_manifest_concurrency_policy",
+        ),
+        CheckConstraint(
+            "state_class IN ('stateless','external','local-resettable','local-required')",
+            name="ck_loop_manifest_state_class",
+        ),
+        CheckConstraint(
+            "safety_class IN ('idempotent','best-effort','manual-only','fenced')",
+            name="ck_loop_manifest_safety_class",
+        ),
+        Index("idx_loop_manifest_owner", "owner_user_id", "loop_id"),
+    )
+
+
+class ScriptsPack(Base):
+    """A signed, content-addressed tarball of an agent's scripts directory.
+
+    fleetos_1607 Phase 0. Many loops shell out to helper scripts (the 215-file
+    ``~/.hermes/scripts`` reality on adam-xps). A golden bundle therefore has to
+    carry those scripts as a first-class artifact, not assume they materialize on
+    the target host. A ScriptsPack is content-addressed by ``sha256`` (the same
+    {sha}.tar.gz rail the marketplace already uses) so identical packs dedupe and
+    a member can verify what it fetched.
+
+    Publish-time discipline: canonical paths + POSIX modes are recorded in
+    ``entries`` (so a restore reproduces exec bits), a ``symlink_policy`` governs
+    how symlinks are treated, and a secret-scan MUST pass before a pack is stored
+    (a planted key ⇒ publish refused — the RED-proof gate).
+    """
+
+    __tablename__ = "scripts_packs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    name = Column(String(255), nullable=False)
+    owner_user_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
+    # Content address — the identity of the pack. Two identical trees share a row.
+    sha256 = Column(String(64), nullable=False, index=True)
+    tarball_path = Column(Text, nullable=True)  # storage locator for the bytes
+    tarball_size_bytes = Column(Integer, nullable=True)
+    # [{"path": "scripts/foo.sh", "mode": "0755", "sha256": "…"}]
+    entries = Column(JSON, nullable=False, default=list)
+    # 'reject' (default, safest) | 'preserve-internal' | 'follow' — how a restore
+    # handles symlinks inside the pack.
+    symlink_policy = Column(String(24), nullable=False, default="reject", server_default="reject")
+    # True once the publish-time secret scan passed. A pack is NOT installable
+    # until this is set; the publish path refuses to store an unscanned pack.
+    secret_scan_clean = Column(Boolean, nullable=False, default=False, server_default="false")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("owner_user_id", "org_id", "sha256", name="uq_scripts_pack_scope_sha"),
+        CheckConstraint(
+            "symlink_policy IN ('reject','preserve-internal','follow')",
+            name="ck_scripts_pack_symlink_policy",
+        ),
+    )
+
+
+class HostProfile(Base):
+    """LITE substrate requirements of a host — os, runtimes, packages.
+
+    fleetos_1607 Phase 0. A golden bundle restores onto a COMPATIBLE host; a
+    HostProfile is the three-field typed contract that ``bootstrap`` validates
+    FIRST (loud per unmet requirement) before it reconciles anything. The council
+    proposed a full substrate manifest; the 5-step simplify pass tombstoned that
+    as a v2 candidate (§0 #16d) — v1 is os + runtimes + packages and one
+    validation routine, nothing more.
+    """
+
+    __tablename__ = "host_profiles"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    name = Column(String(255), nullable=False)  # e.g. "adam-xps" / "tori-default"
+    owner_user_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
+    # {"os": "linux", "arch": "x86_64"}  — matched against a loop's requires.os.
+    os = Column(JSON, nullable=False, default=dict)
+    # {"python": "3.11.9", "node": "20.11.0", …}  — version strings, compared
+    # against a loop's requires.runtime specifiers.
+    runtimes = Column(JSON, nullable=False, default=dict)
+    # ["git", "ripgrep", "curl", …]  — presence set, matched against requires.packages.
+    packages = Column(JSON, nullable=False, default=list)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (UniqueConstraint("name", "owner_user_id", "org_id", name="uq_host_profile_scope_name"),)
+
+
 # ── Feedback v1 tables (Stream 1 — feedback-loop sprint) ────────────────────
 
 
