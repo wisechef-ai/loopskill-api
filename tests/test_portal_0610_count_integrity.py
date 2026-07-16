@@ -104,6 +104,76 @@ def test_b3_stats_excludes_test_installs(middleware_client, db_session):
     assert top.get("b3-skill") == 3
 
 
+# ── atomic-habits 2026-07-16 rank-8: top_installed excludes dead slugs ──────
+
+
+def test_top_installed_excludes_archived_skill(middleware_client, db_session):
+    """Reproduces the live bug: GET /api/stats top_installed surfaced
+    web-scraper-pro / email-composer / client-reporter / loopskill — 4 of 5
+    entries — for skills that no longer exist in the public catalog
+    (archived or otherwise unpublished, denormalized skill_slug on
+    InstallEvent survives the skill's lifecycle change). Same defect class
+    as R5 (archived skills polluting by_tier/by_category counts) but never
+    extended to top_installed. Now InnER JOINed to Skill + is_public/
+    is_archived filtered — dead slugs can no longer rank.
+    """
+    live = _mk_skill(db_session, "live-skill", is_public=True, is_archived=False)
+    archived = _mk_skill(db_session, "archived-skill", is_public=True, is_archived=True)
+    organic = _mk_key(db_session, is_test=False)
+
+    _mk_install(db_session, live, key=organic)
+    for _ in range(25):
+        _mk_install(db_session, archived, key=organic)  # was the "top" slug by volume
+
+    resp = middleware_client.get("/api/stats")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    slugs = {t["slug"] for t in body["top_installed"]}
+
+    assert "archived-skill" not in slugs, (
+        "archived skill's install volume must not surface in the public "
+        "top_installed transparency stat"
+    )
+    assert "live-skill" in slugs
+
+
+def test_top_installed_excludes_deleted_skill_row(middleware_client, db_session):
+    """When the Skill row is hard-deleted but the historical InstallEvent
+    rows remain (skill_id FK would block a real hard-delete in prod, but
+    this proves the JOIN-based filter degrades safely if skill_slug ever
+    drifts from a live skill's actual slug — e.g. a rename).
+    """
+    from app.models import InstallEvent
+
+    live = _mk_skill(db_session, "renamed-skill-new", is_public=True, is_archived=False)
+    organic = _mk_key(db_session, is_test=False)
+    _mk_install(db_session, live, key=organic)
+
+    # Simulate slug drift: an install event recorded under the OLD slug
+    # string, pointing at a skill_id that still exists but whose current
+    # slug no longer matches skill_slug.
+    db_session.add(
+        InstallEvent(
+            id=uuid.uuid4(),
+            skill_id=live.id,
+            skill_slug="renamed-skill-old",
+            api_key_id=organic.id,
+            version_semver="1.0.0",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    db_session.flush()
+
+    resp = middleware_client.get("/api/stats")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    slugs = {t["slug"] for t in body["top_installed"]}
+    # The stale slug string has no matching Skill.slug row, so it's excluded
+    # entirely rather than surfacing a dead/wrong slug publicly.
+    assert "renamed-skill-old" not in slugs
+    assert "renamed-skill-new" in slugs
+
+
 # ── R5: /api/stats excludes archived skills ────────────────────────────────
 
 

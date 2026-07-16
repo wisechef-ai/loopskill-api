@@ -158,10 +158,23 @@ def marketplace_stats(db: Session = Depends(get_db)):
     by_category = [{"category": c or "uncategorized", "count": int(n)} for c, n in cat_rows]
 
     # Top installed skills (lifetime) — organic only (B3).
+    #
+    # atomic-habits 2026-07-16 rank-8 fix: this query grouped raw
+    # InstallEvent.skill_slug with NO join back to Skill, so slugs whose
+    # skill row was later deleted, unpublished, or renamed kept surfacing
+    # in the public transparency stat forever — verified live: 4 of the 5
+    # /api/stats top_installed entries (web-scraper-pro, email-composer,
+    # client-reporter, loopskill) 404 on GET /api/skills/{slug} and don't
+    # appear anywhere in /api/skills/search. Same defect class as R5
+    # (archived skills polluting by_tier/by_category) but R5's fix was
+    # never extended to top_installed. INNER JOIN to Skill + the same
+    # _public_skill predicate closes the gap — a dead slug can no longer
+    # rank on the public catalog's flagship traffic surface.
     top_rows = (
         db.query(InstallEvent.skill_slug, _f.count(InstallEvent.id).label("installs"))
+        .join(Skill, Skill.slug == InstallEvent.skill_slug)
         .outerjoin(APIKey, APIKey.id == InstallEvent.api_key_id)
-        .filter(_organic)
+        .filter(_organic, *_public_skill)
         .group_by(InstallEvent.skill_slug)
         .order_by(_f.count(InstallEvent.id).desc())
         .limit(10)
