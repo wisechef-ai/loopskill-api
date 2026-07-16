@@ -95,6 +95,19 @@ authz.can_manage_fleet capability — a bare fleet-member key gets 403, an
 operator/owner/master key gets through. Stale-member alert
 (app/services/stale_member_alert.py) replaces the deleted Phase F failover.
 13 RED-proofed tests. Additive-only, no data migration.
+
+fleetos_1607 Phase B (0.9.27): harvest — reverse GitOps via the SHIPPED feedback
+rail. An agent submits its live-state manifest; the server diffs it against the
+golden bundle (new-local / modified-local / missing-local) and routes the drift
+back as a proposal through the EXISTING loopclose_3005 Phase J rail (per-bundle
+feedback_repo + Fernet PAT vault + dispatch_issue) — ZERO new tables, ZERO new
+auth model (§0 #13). Every harvested loop is secret-scanned + path-escape-scanned
+BEFORE it can become a proposal (a poisoned member is BLOCKED, never proposed);
+reports are HMAC-signed by the member key (lock #13). No feedback_repo configured
+=> in-app feed fallback. The MCP _dispatch god node was refactored: the delegated
+dispatch chain (fleet-write / placement / harvest) moved to app/mcp/dispatch_chain.py
+to keep server.py under the 600-line gate. 11 RED-proofed tests (diff, poison
+block, signature, routing, non-owner 403, end-to-end). Additive-only, no migration.
 """
 
-__version__ = "0.9.26"
+__version__ = "0.9.27"
