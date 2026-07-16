@@ -59,8 +59,7 @@ from app.mcp.tools.composite_loop_catalog import (
     dispatch_composite_loop as _dispatch_composite_loop,
 )
 from app.mcp.tools.like import dispatch_library as _dispatch_library
-from app.mcp.tools.fleet_write import _NOT_HANDLED as _DISPATCH_SKIP, dispatch_f1
-from app.mcp.tools.placement import dispatch_placement
+from app.mcp.dispatch_chain import DISPATCH_NOT_HANDLED, run_dispatch_chain
 from app.mcp.tools import (
     loopskill_carousel_today,
     loopskill_configure_feedback,
@@ -420,11 +419,11 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             cookbook_id=args.get("cookbook_id"),
             ctx=ctx,
         )
-    # Delegated dispatch chain: fleet write-surface (F1) + placement (Phase A).
-    for _h in (dispatch_f1, dispatch_placement):
-        _r = _h(name, db, args, ctx)
-        if _r is not _DISPATCH_SKIP:
-            return _r
+    # Delegated dispatch chain (fleet write / placements / harvest) — see
+    # app/mcp/dispatch_chain.py. Kept out of this god node for the 600-line gate.
+    _r = run_dispatch_chain(name, db, args, ctx)
+    if _r is not DISPATCH_NOT_HANDLED:
+        return _r
     raise ValueError(f"unknown tool: {name}")
 
 
