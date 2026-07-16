@@ -147,6 +147,22 @@ marketplace skill). Registered in main.py + tests/_app_factory._ROUTER_SPECS.
 AGENTS.md refreshed with the fleetos control-plane framing + the dispatch_chain
 convention. 4 RED-proofed tests (cold-agent keyless 200, alt paths, route in real
 create_app, EXEMPT_PATHS pin). No schema, no migration.
+
+fleetos_1607 Phase C (0.9.31): golden bundle composition + bootstrap planner.
+app/services/golden_bundle.py composes ALL artifact types (loop manifests +
+aggregated secret_refs + personalities/soul + host_profile ref) into one
+declarative desired state (compose_golden_bundle), and plans a restore/kickstart
+onto a target host (plan_bootstrap) with the host_profile validated FIRST — an
+incompatible host yields ok=False with the NAMED unmet requirement, and missing
+required secrets block with the named secret (a restore never silently proceeds
+onto an incompatible host). triage_loops_for_bundle classifies loops portable vs
+host-bound (the coverage audit IS the triage). The phoenix drill itself is
+host-gated (needs a fresh VM) so it ships as a standing predicate +
+scheduled/manual op: ~/.hermes/goals/checks/phoenix-drill-current.sh (drill <100d).
+5 RED-proofed tests (compose gathers+dedups, bootstrap ok on compatible host,
+fail-named on incompatible host, fail on missing secret, portable/host-bound
+triage). No schema, no migration. Reuses Phase 0 validate_host_profile +
+manifest_to_transport.
 """
 
-__version__ = "0.9.30"
+__version__ = "0.9.31"
