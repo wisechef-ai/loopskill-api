@@ -136,6 +136,17 @@ passes / (total - unknown - stale), honest None when nothing counts. fleet_state
 trust_ledger_view expose the same numbers (trust-log.sh API parity). Existing prod
 rows (NULL tick_id) are exempt from dedup by design. 6 RED-proofed tests. Migration
 7c51d9bc2d36 additive (ADD COLUMN, all nullable) — safe on the populated prod table.
+
+fleetos_1607 Phase T (0.9.30): the trojan skill — the fleet control-plane front
+door. GET /fleet/skill serves a complete fleet-control-plane SKILL.md
+(docs/fleet-skill/SKILL.md) as text/plain, no redirect (larrybrain pattern) —
+any agent that reads markdown becomes a fleet CLIENT in one curl (enroll,
+reconcile, report runs, harvest, and with an operator key, placements). Public
+GET-only (added to APIKeyMiddleware.EXEMPT_PATHS); distinct from /skill (the
+marketplace skill). Registered in main.py + tests/_app_factory._ROUTER_SPECS.
+AGENTS.md refreshed with the fleetos control-plane framing + the dispatch_chain
+convention. 4 RED-proofed tests (cold-agent keyless 200, alt paths, route in real
+create_app, EXEMPT_PATHS pin). No schema, no migration.
 """
 
-__version__ = "0.9.29"
+__version__ = "0.9.30"

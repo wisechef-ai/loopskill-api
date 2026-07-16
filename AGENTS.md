@@ -196,3 +196,52 @@ Two PUBLIC routes under `/api/cookbooks/public/` (already in `PUBLIC_PREFIXES`):
 surface (tested in `tests/test_cookbook_wellknown.py::test_paid_skill_serves_stub_not_body`).
 This is the SERVE half of the federation `well-known` adapter (which CONSUMES).
 Vault: `shared-knowledge/recipes/cookbook-bundle-bridge.md`.
+
+---
+
+## fleetos_1607 — the control plane for AI agent fleets (2026-07-16)
+
+LoopSkill grows from a marketplace into the **control plane for AI agent fleets**.
+The desired state of a WHOLE agent — its loops (crons) with per-member
+placements, scripts packs, SOUL, host profile, secret refs — is captured as
+first-class declarative artifacts grouped into golden bundles. One primitive
+serves three products: DR restore, host migration, and new-agent kickstart.
+
+Public category descriptor is **"the control plane for AI agent fleets"**
+("Kubernetes for X" / "Spotify for X" are third-party trademarks — allowed in
+editorial body prose, BANNED from product name, hero, meta titles, ads).
+
+Shipped phases (all additive, one PR per phase):
+
+- **Phase 0** (`app/services/fleet_artifacts.py`, tables `loop_manifests` /
+  `scripts_packs` / `host_profiles`): slim loop-manifest v1 (canonical
+  serialization round-trips byte-identical), scripts-pack secret-scan gate
+  (reuses `security_scan.scan_tarball`), host-profile compatibility validation.
+  The `soul` artifact IS the existing `Personality` model (no new table).
+- **Phase A** (`app/services/placement.py`, `app/mcp/tools/placement.py`, tables
+  `loop_placements` / `placement_confirmations` / `fleet_member_liveness`):
+  epoch-CAS placements — every transition is a compare-and-swap on a monotonic
+  `placement_epoch`. Manager surface gated by `authz.can_manage_fleet` (a bare
+  fleet-member key gets 403). Stale-member alert replaces the deleted failover.
+  NO exactly-once claim (honest-guarantee doctrine).
+- **Phase B** (`app/services/harvest.py`, `app/mcp/tools/harvest.py`): reverse
+  GitOps — an agent's live state is diffed vs the golden bundle and proposed back
+  through the EXISTING feedback rail (`feedback_repo` + Fernet PAT vault +
+  `dispatch_issue`). Zero new tables/auth. Poisoned artifacts blocked pre-proposal.
+- **Phase E** (`app/services/byo_origin.py`, tables `artifact_origins` /
+  `origin_drift_events`): BYO-repo registries — the server stores an artifact's
+  SHA-pinned origin + content-hash LOCK (metadata only, never the bytes); agents
+  fetch content directly from the user's repo and verify against the lock,
+  failing closed + recording origin-drift on mismatch. The hyperscale gate.
+- **Phase D** (`app/services/run_registry.py`, additive columns on `loop_runs`):
+  honest run registry — dedup on `(loop, tick, attempt, epoch)`, `unknown` is a
+  first-class outcome, stale-epoch runs excluded from pass numerators. Pass rate =
+  passes / (total − unknown − stale); honest None when nothing counts.
+- **Phase T** (`app/fleet_skill_serve_routes.py`, `docs/fleet-skill/SKILL.md`):
+  the trojan skill. `GET /fleet/skill` serves a complete fleet-control-plane
+  SKILL.md (larrybrain pattern) — any agent becomes a fleet CLIENT in one curl.
+  Public GET-only (in `EXEMPT_PATHS`); distinct from `/skill` (the marketplace
+  skill). When adding a new delegated MCP tool, append its dispatcher to
+  `app/mcp/dispatch_chain.py` (NOT to `server.py._dispatch` — the 600-line gate).
+
+Plan-doc: `obsidian-vault/projects/recipes/plans/2026-07-16-fleetos-1607-execution-plan.md`.

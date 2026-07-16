@@ -105,7 +105,8 @@ INLINE_ALLOWLIST_MARKERS: tuple[str, ...] = (
     "Operator must",  # human role
     "operator can",  # human role
     "operator before",  # human role
-    "operator key",  # auth key, not tier
+    "operator key",    # auth key, not tier
+    "operator-scoped",  # auth-scope compound (fleetos manager key), not tier
     "operator/owner",  # auth-scope enumeration (fleetos manager capability), not tier
     "appointed operator",  # fleet-manager capability holder, not tier
     "operator exactly",  # prose: 'tell the operator exactly', human role

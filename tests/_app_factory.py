@@ -52,6 +52,7 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.routes", "router", ""),
     ("app.routes", "utm_router", ""),
     ("app.skill_serve_routes", "skill_serve_router", ""),
+    ("app.fleet_skill_serve_routes", "fleet_skill_serve_router", ""),
     ("app.health_routes", "router", "/api"),
     ("app.access_routes", "router", "/api"),
     ("app.recipe_routes", "router", "/api"),
