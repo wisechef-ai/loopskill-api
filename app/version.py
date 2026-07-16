@@ -108,6 +108,20 @@ reports are HMAC-signed by the member key (lock #13). No feedback_repo configure
 dispatch chain (fleet-write / placement / harvest) moved to app/mcp/dispatch_chain.py
 to keep server.py under the 600-line gate. 11 RED-proofed tests (diff, poison
 block, signature, routing, non-owner 403, end-to-end). Additive-only, no migration.
+
+fleetos_1607 Phase E (0.9.28): BYO-repo registries — metadata-only = the
+hyperscale gate. Two additive tables (artifact_origins, origin_drift_events) +
+app/services/byo_origin.py. A private fleet brings its OWN GitHub repo; LoopSkill
+stores the artifact ORIGIN (github:owner/repo@<sha>:<path>, SHA always — tags move,
+force-push exists) + a content-hash LOCK, and NOTHING ELSE. Agents fetch the bytes
+DIRECTLY from the user's repo with the user's token (secretRef) and verify the
+fetched content's hash against the lock — refusing FAIL-CLOSED on mismatch and
+recording an origin-drift event (force-push / tamper / wrong-SHA audit trail).
+Server content_bytes_stored == 0 by design — storage stays flat per private fleet
+(the hyperscale receipt, §0 #8). Public catalog unchanged (durable store).
+10 RED-proofed tests (SHA-only pin, lock storage, hash-verify OK, force-push
+fail-closed + drift event, failed-fetch fail-closed, metadata-only footprint).
+Migration a520ed06c5d2 round-trips on SQLite + Postgres. Additive-only.
 """
 
-__version__ = "0.9.27"
+__version__ = "0.9.28"
