@@ -284,3 +284,51 @@ def can_access_bundle(ctx: AuthContext, bundle: Any) -> bool:
     if ctx.scope == "user" and ctx.org_id is not None and bundle_org is not None and ctx.org_id == bundle_org:
         return True
     return False
+
+
+def can_manage_fleet(ctx: AuthContext, fleet: Any) -> bool:
+    """Return True if ctx holds the FLEET-MANAGER capability over ``fleet``.
+
+    fleetos_1607 Phase A / §0 #9. The manager surface (placement writes —
+    assign / evacuate / force_move — and the fleet-state read) is a KEY
+    CAPABILITY, not an agent identity. It is granted to:
+
+    - Master scope: always.
+    - The fleet OWNER (user scope, ctx.user_id == fleet.owner_user_id).
+    - An org member of the fleet's org (user scope, same non-NULL org_id).
+    - An OPERATOR-scope key (the appointed fleet manager — Tori is the first
+      holder; any client can mint an operator key over THEIR fleet).
+
+    Critically it is NOT granted to a bare fleet-MEMBER key. A ``fleet``-scope
+    key identifies an enrolled agent (one member); such a key can report its own
+    runs and read its own drift, but MUST NOT drive placements for the whole
+    fleet. This is the authz boundary the concurrency suite RED-proofs
+    (member-key → manager tool = 403).
+    """
+    if ctx.scope == "master":
+        return True
+    # Operator-scope key = the appointed manager capability. It must still be
+    # bound to this fleet's owner/org to prevent a cross-tenant operator key
+    # from managing an unrelated fleet.
+    if ctx.scope == "operator":
+        owner = getattr(fleet, "owner_user_id", None)
+        fleet_org = getattr(fleet, "org_id", None)
+        if ctx.user_id is not None and owner is not None and ctx.user_id == owner:
+            return True
+        if ctx.org_id is not None and fleet_org is not None and ctx.org_id == fleet_org:
+            return True
+        # A master-appointed operator with neither binding is not auto-trusted
+        # over an arbitrary fleet — fall through to False.
+        return False
+    if (
+        ctx.scope == "user"
+        and ctx.user_id is not None
+        and ctx.user_id == getattr(fleet, "owner_user_id", None)
+    ):
+        return True
+    fleet_org = getattr(fleet, "org_id", None)
+    if ctx.scope == "user" and ctx.org_id is not None and fleet_org is not None and ctx.org_id == fleet_org:
+        return True
+    # Everything else — including a bare fleet-member (scope="fleet") key — is
+    # denied the manager capability.
+    return False

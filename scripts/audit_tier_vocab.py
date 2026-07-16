@@ -83,8 +83,8 @@ INLINE_ALLOWLIST_MARKERS: tuple[str, ...] = (
     "legacy slug",
     "Legacy slug",
     "LEGACY_SLUG",
-    "LEGACY",        # catches LEGACY_TIER_URL_ALIASES etc.
-    "legacy",        # any line that already calls it out as legacy
+    "LEGACY",  # catches LEGACY_TIER_URL_ALIASES etc.
+    "legacy",  # any line that already calls it out as legacy
     "Legacy",
     "# legacy",
     "# Legacy",
@@ -99,20 +99,26 @@ INLINE_ALLOWLIST_MARKERS: tuple[str, ...] = (
     "pre-Phase",
     "pre-rename",
     # English usage of 'operator' as a human role (not a tier name)
-    "solo-operator",   # product description compound
-    "Solo-operator",   # product description compound (capitalized variant)
-    "$OPERATOR",       # environment variable
-    "Operator must",   # human role
-    "operator can",    # human role
-    "operator before", # human role
-    "operator key",    # auth key, not tier
+    "solo-operator",  # product description compound
+    "Solo-operator",  # product description compound (capitalized variant)
+    "$OPERATOR",  # environment variable
+    "Operator must",  # human role
+    "operator can",  # human role
+    "operator before",  # human role
+    "operator key",  # auth key, not tier
+    "operator/owner",  # auth-scope enumeration (fleetos manager capability), not tier
+    "appointed operator",  # fleet-manager capability holder, not tier
+    "operator exactly",  # prose: 'tell the operator exactly', human role
+    "operator outcome",  # prose: the operator's outcome, human role
+    "operator runs",  # prose: 'evacuate the operator runs', human role
+    "master-appointed operator",  # auth-scope prose, not tier
     # Scope literals in auth_ctx.py (operator is a Scope, not a tier)
-    'Scope = Literal',
+    "Scope = Literal",
     # Studio as a feature label (buckets/windows runtime) not a tier name
-    "Studio tier,",    # runtime adapter description
-    "Studio tier)",    # runtime adapter description
+    "Studio tier,",  # runtime adapter description
+    "Studio tier)",  # runtime adapter description
     # English usage of 'operator' as env var (not a tier name)
-    "{{OPERATOR}}",    # f-string env var reference
+    "{{OPERATOR}}",  # f-string env var reference
     # Lines that reference the sunset date or explicitly call out the sunset
     "sunset 2026-06-10",
     "2026-06-10",
