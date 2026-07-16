@@ -122,6 +122,20 @@ Server content_bytes_stored == 0 by design — storage stays flat per private fl
 10 RED-proofed tests (SHA-only pin, lock storage, hash-verify OK, force-push
 fail-closed + drift event, failed-fetch fail-closed, metadata-only footprint).
 Migration a520ed06c5d2 round-trips on SQLite + Postgres. Additive-only.
+
+fleetos_1607 Phase D (0.9.29): fleet run registry — honest event semantics.
+Upgrades the shipped loop_runs facts table (activate_0701, at-least-once emitter,
+no dedup) into an HONEST registry. Five additive nullable columns (tick_id,
+attempt, placement_epoch, member_seq, stale_epoch) + app/services/run_registry.py:
+dedup on (loop, tick, attempt, epoch) so duplicate delivery cannot inflate a pass
+rate; `unknown` is a first-class outcome distinct from fail (a killed / non-terminal
+run is unknown, excluded from the pass numerator, visible in the total); a
+stale-epoch run (epoch < the loop's current live placement epoch) is flagged and
+excluded from pass numerators but counted in the health denominator. pass_rate =
+passes / (total - unknown - stale), honest None when nothing counts. fleet_state +
+trust_ledger_view expose the same numbers (trust-log.sh API parity). Existing prod
+rows (NULL tick_id) are exempt from dedup by design. 6 RED-proofed tests. Migration
+7c51d9bc2d36 additive (ADD COLUMN, all nullable) — safe on the populated prod table.
 """
 
-__version__ = "0.9.28"
+__version__ = "0.9.29"

@@ -2197,7 +2197,39 @@ class LoopRun(Base):
     detail = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
-    __table_args__ = (Index("ix_loop_runs_member_slug_created", "member_id", "loop_slug", "created_at"),)
+    # ── fleetos_1607 Phase D — honest event contract (§0 #11 / #17) ──
+    # The registry must not lie: duplicate delivery cannot inflate a pass rate,
+    # a killed run is `unknown` (not a silent success), and a run stamped with a
+    # superseded placement epoch is flagged `stale-epoch` and EXCLUDED from pass
+    # numerators. These columns give every run the identity needed to dedup and
+    # to reason about which epoch owned the tick. All nullable — existing rows
+    # (pre-Phase-D, at-least-once emitter) keep working unchanged.
+    #
+    # tick_id: deterministic f(loop, schedule-boundary) — the logical "this
+    #   scheduled firing", stable across retries/members. (instance_key was the
+    #   emitter's opaque key; tick_id is the dedup axis.)
+    tick_id = Column(String(255), nullable=True, index=True)
+    # attempt: retry counter within a tick (0-based). dedup is on
+    #   (loop, tick, attempt, epoch).
+    attempt = Column(Integer, nullable=True)
+    # placement_epoch: the epoch of the placement that owned this run (Phase A).
+    #   A run whose epoch is < the loop's current live epoch is stale.
+    placement_epoch = Column(Integer, nullable=True)
+    # member_seq: the emitting member's monotonic sequence — server receipt
+    #   time + this dominate wall clocks for ordering.
+    member_seq = Column(Integer, nullable=True)
+    # True when this run was flagged as carrying a superseded (stale) epoch.
+    #   Excluded from pass numerators; counted in the health denominator.
+    stale_epoch = Column(Boolean, nullable=False, default=False, server_default="false")
+
+    __table_args__ = (
+        Index("ix_loop_runs_member_slug_created", "member_id", "loop_slug", "created_at"),
+        # Dedup axis: at most one run per (loop, tick, attempt, epoch). Enforced
+        # at the service layer for the whole table (existing NULL-tick rows are
+        # exempt — they predate the contract); a Postgres partial unique index
+        # pins it for new rows in the migration.
+        Index("ix_loop_runs_dedup", "loop_slug", "tick_id", "attempt", "placement_epoch"),
+    )
 
 
 class CronHealthSnapshot(Base):
