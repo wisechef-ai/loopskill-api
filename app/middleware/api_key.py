@@ -247,6 +247,10 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         "/skill",
         "/skill/",
         "/SKILL.md",
+        # fleetos_1607 T — fleet-control-plane SKILL.md (public GET-only doc).
+        "/fleet/skill",
+        "/fleet/skill/",
+        "/fleet/SKILL.md",
     }
     # Prefixes for paths that use JWT auth instead of API key
     JWT_AUTH_PREFIXES = (
