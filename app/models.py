@@ -1474,6 +1474,142 @@ class HostProfile(Base):
     __table_args__ = (UniqueConstraint("name", "owner_user_id", "org_id", name="uq_host_profile_scope_name"),)
 
 
+# ── fleetos_1607 Phase A — placements: the spine (epochs without the fenced tax) ─
+#
+# A LoopPlacement is the authoritative binding of ONE loop to ONE fleet member.
+# It is the single-writer contract that makes "which host runs this loop right
+# now" a first-class, race-safe fact instead of a file-sync guess.
+#
+# Correctness model (§0 #11, honest-guarantee doctrine):
+#   * placement_epoch is a monotonic counter PER loop_key. Every state
+#     transition CAS-checks the expected epoch and bumps it — two concurrent
+#     writers cannot both win (the loser sees a stale epoch and is rejected).
+#   * A move is cooperative: drain (epoch++, status=draining) → the old member
+#     confirms it stopped (dedup by member-monotonic seq) → activate at the new
+#     member (epoch++, status=active). A dead host uses force_move, which skips
+#     the cooperative confirm and records the per-safety-class duplicate risk.
+#   * Fire-time fenced enforcement is NOT built in v1 (deferred to v2). Instead
+#     every LoopRun (Phase D) is stamped with the placement_epoch, so a zombie
+#     that reconciles late sees its epoch is stale and kills its local copy, and
+#     the registry flags any run carrying a stale epoch. Epochs ship now as cheap
+#     DB rows; fencing is the v2 upgrade that reads them.
+
+
+class LoopPlacement(Base):
+    """Authoritative binding of one loop to one fleet member, epoch-stamped.
+
+    fleetos_1607 Phase A. The resolution rule (§0 #16 / A.2): a placement row
+    OVERRIDES a bundle's default assignment for the same loop. There is at most
+    ONE non-removed placement per (fleet_id, loop_key) — enforced by a partial
+    unique index on Postgres and in the service layer for SQLite.
+
+    ``placement_epoch`` is the monotonic guard. It is unique-per-loop and only
+    ever increases; a transition supplies the epoch it EXPECTS and the write
+    succeeds only if that matches (compare-and-swap). The new epoch is
+    expected+1. This closes the council's concurrent-reassignment,
+    delayed-confirmation, and server-crash-replay races without a fencing token.
+    """
+
+    __tablename__ = "loop_placements"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    fleet_id = Column(
+        UUID(as_uuid=True), ForeignKey("fleets.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # Stable loop identity — matches LoopManifest.loop_id (a string key, not an
+    # FK, so a placement can be declared before/independent of a manifest row and
+    # survives manifest re-authoring).
+    loop_key = Column(String(128), nullable=False, index=True)
+    member_id = Column(
+        UUID(as_uuid=True), ForeignKey("fleet_members.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # assigned → active → draining → removed  (see VALID_PLACEMENT_STATUS)
+    status = Column(String(16), nullable=False, default="assigned", server_default="assigned")
+    # Monotonic per (fleet_id, loop_key). CAS guard on every transition.
+    placement_epoch = Column(Integer, nullable=False, default=1, server_default="1")
+    # Idempotency key for the operation that produced THIS state — a retried
+    # assign/evacuate with the same op_id is a no-op, not a double transition.
+    last_op_id = Column(String(64), nullable=True)
+    # True when the current transition was a force-move onto a presumed-dead
+    # host (cooperative drain skipped). The registry treats runs under a forced
+    # placement as duplicate-risk per the loop's safety_class.
+    forced = Column(Boolean, nullable=False, default=False, server_default="false")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('assigned','active','draining','removed')",
+            name="ck_loop_placement_status",
+        ),
+        # One live placement per (fleet, loop). The service layer enforces the
+        # "not removed" scoping on SQLite; Postgres gets the partial unique index
+        # in the migration. This full UNIQUE covers the epoch dimension so the
+        # audit trail of superseded placements is preserved distinctly.
+        UniqueConstraint("fleet_id", "loop_key", "placement_epoch", name="uq_loop_placement_epoch"),
+        Index("idx_loop_placement_lookup", "fleet_id", "loop_key", "status"),
+        Index("idx_loop_placement_member", "member_id", "status"),
+    )
+
+
+class PlacementConfirmation(Base):
+    """A fleet member's epoch-stamped confirmation that it stopped a loop.
+
+    fleetos_1607 Phase A. During a cooperative move the OLD member must confirm
+    it has drained the loop before the loop activates on the new member. A member
+    emits confirmations with a monotonically increasing per-member sequence; the
+    server dedups on (member_id, member_seq) so a retried/duplicated confirmation
+    can never be counted twice (closes the delayed/duplicate-confirmation race).
+    """
+
+    __tablename__ = "placement_confirmations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    placement_id = Column(
+        UUID(as_uuid=True), ForeignKey("loop_placements.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    member_id = Column(
+        UUID(as_uuid=True), ForeignKey("fleet_members.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # The epoch the member is confirming it drained. Must match the placement's
+    # draining epoch or the confirmation is rejected as stale.
+    confirmed_epoch = Column(Integer, nullable=False)
+    # Member-monotonic dedup sequence.
+    member_seq = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (UniqueConstraint("member_id", "member_seq", name="uq_placement_confirmation_seq"),)
+
+
+class FleetMemberLiveness(Base):
+    """Per-member liveness + typed capability advertisement (assign preflight).
+
+    fleetos_1607 Phase A. Distinct from the anonymized FleetPing (a privacy
+    heartbeat). This is the OPERATIONAL ping the manager surface reads: when did
+    this member last check in, and what does it ``provides`` (os/arch/runtimes/
+    packages/connectors/secrets) so an assign can refuse up-front when a member
+    can't satisfy a loop's typed requirements. Also the source of the
+    stale-member ALERT (ping older than 3× the reconcile interval).
+    """
+
+    __tablename__ = "fleet_member_liveness"
+
+    member_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("fleet_members.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    last_ping_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    # {"os": "linux", "arch": "x86_64", "runtimes": {...}, "packages": [...],
+    #  "connectors": [...], "secrets": ["OPENAI_API_KEY", ...]}  — NAMES only for
+    #  secrets (never values), matching the secret_refs doctrine (§0 #4).
+    provides = Column(JSON, nullable=False, default=dict)
+    reconcile_interval_seconds = Column(Integer, nullable=False, default=300, server_default="300")
+
+
 # ── Feedback v1 tables (Stream 1 — feedback-loop sprint) ────────────────────
 
 

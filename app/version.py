@@ -80,6 +80,21 @@ os/runtimes/packages). The soul artifact was deleted by the 5-step pass — the
 existing Personality model already is the deployable-SOUL primitive. Migration
 547f9f97e64d is portable (plain CREATE TABLE, no PL/pgSQL) and round-trips on
 SQLite + Postgres. Additive-only, no data migration.
+
+fleetos_1607 Phase A (0.9.26): placements — the spine. Three additive tables
+(loop_placements, placement_confirmations, fleet_member_liveness) + the
+epoch-CAS placement service (app/services/placement.py): every transition is a
+compare-and-swap on a monotonic placement_epoch, so two concurrent writers
+cannot both win. Cooperative move = drain (epoch++) -> old-member confirm (deduped
+on member_seq) -> activate-new (epoch++); force_move retires the old placement,
+flags forced=True, and surfaces per-safety-class duplicate-risk text (no
+exactly-once claim, honest-guarantee doctrine). A Postgres partial unique index
+enforces the single-live-placement invariant at the DB layer. Manager surface
+(assign/evacuate/placements/force_move MCP tools) is gated by the new
+authz.can_manage_fleet capability — a bare fleet-member key gets 403, an
+operator/owner/master key gets through. Stale-member alert
+(app/services/stale_member_alert.py) replaces the deleted Phase F failover.
+13 RED-proofed tests. Additive-only, no data migration.
 """
 
-__version__ = "0.9.25"
+__version__ = "0.9.26"

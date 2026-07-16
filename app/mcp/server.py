@@ -59,6 +59,8 @@ from app.mcp.tools.composite_loop_catalog import (
     dispatch_composite_loop as _dispatch_composite_loop,
 )
 from app.mcp.tools.like import dispatch_library as _dispatch_library
+from app.mcp.tools.fleet_write import _NOT_HANDLED as _DISPATCH_SKIP, dispatch_f1
+from app.mcp.tools.placement import dispatch_placement
 from app.mcp.tools import (
     loopskill_carousel_today,
     loopskill_configure_feedback,
@@ -418,12 +420,11 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             cookbook_id=args.get("cookbook_id"),
             ctx=ctx,
         )
-    # activate_0701 Phase F1: fleet write-surface (delegated dispatch)
-    from app.mcp.tools.fleet_write import _NOT_HANDLED as _SKIP, dispatch_f1
-
-    _r = dispatch_f1(name, db, args, ctx)
-    if _r is not _SKIP:
-        return _r
+    # Delegated dispatch chain: fleet write-surface (F1) + placement (Phase A).
+    for _h in (dispatch_f1, dispatch_placement):
+        _r = _h(name, db, args, ctx)
+        if _r is not _DISPATCH_SKIP:
+            return _r
     raise ValueError(f"unknown tool: {name}")
 
 
