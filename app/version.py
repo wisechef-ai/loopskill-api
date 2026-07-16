@@ -163,6 +163,19 @@ scheduled/manual op: ~/.hermes/goals/checks/phoenix-drill-current.sh (drill <100
 fail-named on incompatible host, fail on missing secret, portable/host-bound
 triage). No schema, no migration. Reuses Phase 0 validate_host_profile +
 manifest_to_transport.
+
+fleetos_1607 Phase I (0.9.32): the ingest surface — the missing write path.
+Phases 0/A shipped LoopManifest + FleetMemberLiveness schema + read/compute/authz
+but NO tool ever WROTE those rows, so the placement chain was inert by
+construction (assign can't fire without a manifest; preflight can't pass without
+a liveness row). app/mcp/tools/fleet_ingest.py adds loopskill_ping (member
+advertises liveness + typed provides{}, upsert) and loopskill_declare_loop
+(owner declares/updates a loop's desired-state manifest, upsert by
+(owner-scope, loop_id) with version bump). Both owner/master-gated (bare member
+key -> 403). Wired into the delegated dispatch chain. 9 RED-proofed tests incl.
+the KEYSTONE test_ingest_makes_assign_succeed: declare_loop + ping => preflight
+passes => assign creates a real placement at epoch 1 (the exact chain that was
+inert). No schema, no migration.
 """
 
-__version__ = "0.9.31"
+__version__ = "0.9.32"
