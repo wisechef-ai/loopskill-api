@@ -98,6 +98,7 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.fleet_routes", "router", ""),  # portal_0610 J3
     ("app.fleet_member_routes", "router", ""),  # activate_0701 Phase 1
     ("app.sync_report_routes", "router", ""),  # activate_0701 Phase T
+    ("app.loop_assignment_routes", "router", ""),  # feat/member-loop-apply
     ("app.connector_routes", "router", ""),  # activate_0701 Phase B
     ("app.reconcile_routes", "router", ""),  # evergreen_0206 Phase D
     ("app.org_routes", "router", ""),  # activate_0701 Phase TEN
