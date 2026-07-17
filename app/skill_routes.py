@@ -760,16 +760,37 @@ def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)
 
     decision = route_install(skill)
     if not decision.allowed:
-        # Deep-link / non-redistributable: never rehosted — hand back the origin.
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "reason": decision.reason,
-                "install_path": skill.install_path.value,
-                "origin_url": skill.origin_url,
-                "license": skill.license,
-            },
-        )
+        # Deep-link / non-redistributable: never rehosted — hand back the
+        # origin as a SUCCESS payload the caller can act on.
+        #
+        # feat/deep-link-install-contract (2026-07-17): this used to raise a
+        # 409 whose detail happened to carry origin_url — agents had to treat
+        # an HTTP error as success-with-homework (Adam's 'when I point the
+        # agent to a skill on loopskill, the agent should be able to install
+        # it'). Now the honest answer is a 200: LoopSkill's part of the job —
+        # resolving WHERE the skill lives and HOW to get it — succeeded; the
+        # fetch is simply the agent's to perform, directly from origin. The
+        # license posture is unchanged: content is NEVER rehosted, and the
+        # agent's fetch from origin is its own relationship with the source.
+        return {
+            "slug": skill.slug,
+            "source": skill.source,
+            "install_path": skill.install_path.value,
+            "installed": False,
+            "reason": decision.reason,
+            "license": skill.license,
+            "origin_url": skill.origin_url,
+            "namespace": "external",
+            "quality": "community · as-is",
+            "agent_instructions": (
+                "LoopSkill does not redistribute this skill (license unknown or "
+                "restricted). To install it, fetch the skill definition yourself "
+                f"directly from its origin page: {skill.origin_url} — locate the "
+                "SKILL.md (or equivalent) there and save it into your agent's "
+                "skills directory. Attribute the original author; respect the "
+                "origin's license and terms."
+            ),
+        }
 
     if skill.install_path == InstallPath.FETCH_ORIGIN:
         origin_fetch = get_origin_fetcher(source)
@@ -843,6 +864,10 @@ def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)
             "slug": skill.slug,
             "source": skill.source,
             "install_path": skill.install_path.value,
+            # feat/deep-link-install-contract: discriminator mirroring the
+            # deep-link payload's installed=False — one field tells an agent
+            # whether `content` carries the body or the fetch is theirs to do.
+            "installed": True,
             "license": skill.license,
             "origin_url": skill.origin_url,
             "raw_url": raw_url,
