@@ -725,6 +725,33 @@ def verify_cookbook(
 # ── Endpoints ────────────────────────────────────────────────────────────
 
 
+def _ensure_bundle_slug(db: Session, cb: Bundle) -> None:
+    """Assign a unique URL slug to a bundle that lacks one (in-place, no commit).
+
+    fix/bundle-slug-on-create (2026-07-17): every public surface — the
+    discover feed and /public/{slug} — filters on ``Bundle.slug.isnot(None)``,
+    but only the Pro deploy path (bundle_deployment_routes) ever slugified.
+    A bundle created via POST /api/cookbooks and flipped public was therefore
+    INVISIBLE on every public surface: public in name, unreachable in practice
+    (found live 2026-07-17 shipping the 'LoopSkill Essentials' bundle).
+
+    Reuses the deploy path's ``_slugify`` + collision-suffix discipline so the
+    two creation paths cannot drift. Idempotent: existing slug is never changed
+    (slugs are shareable URLs — renames must not break them).
+    """
+    if cb.slug:
+        return
+    from app.bundle_deployment_routes import _slugify
+
+    base_slug = _slugify(cb.name or "")
+    slug = base_slug
+    suffix = 0
+    while db.query(Bundle).filter(Bundle.slug == slug, Bundle.id != cb.id).first() is not None:
+        suffix += 1
+        slug = f"{base_slug}-{suffix}"
+    cb.slug = slug
+
+
 @_h.post("", status_code=201)
 def create_cookbook(
     body: CookbookCreateIn,
@@ -758,6 +785,9 @@ def create_cookbook(
         is_base=False,
         bundle_owner=ctx.user_id,
     )
+    # fix/bundle-slug-on-create: slugify at birth so a later visibility flip
+    # can never produce a slug-less (publicly invisible) bundle.
+    _ensure_bundle_slug(db, cb)
     db.add(cb)
     db.commit()
     db.refresh(cb)
@@ -1043,6 +1073,11 @@ def set_cookbook_visibility(
     if vis not in {"public", "private"}:
         raise HTTPException(status_code=422, detail="invalid_visibility")
     cb.visibility = vis
+    # fix/bundle-slug-on-create: backfill a slug for pre-fix bundles at the
+    # moment they go public — the discover feed and /public/{slug} both filter
+    # on slug IS NOT NULL, so a slug-less public bundle is invisible.
+    if vis == "public":
+        _ensure_bundle_slug(db, cb)
     _touch_bundle_generation(db, cb.id)
     db.commit()
     return {"cookbook_id": str(cb.id), "visibility": vis}
