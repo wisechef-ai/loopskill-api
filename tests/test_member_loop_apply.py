@@ -60,7 +60,7 @@ def _mk_key(db, user, *, label="owner-key"):
     return raw
 
 
-def _mk_fleet(db, owner):
+def _mk_fleet(db, owner, *, org_id=None):
     from app.models import Fleet
 
     fleet = Fleet(
@@ -68,6 +68,7 @@ def _mk_fleet(db, owner):
         owner_user_id=owner.id,
         name="loop-apply-fleet",
         fleet_api_key_hash=hashlib.sha256(uuid.uuid4().hex.encode()).hexdigest(),
+        org_id=org_id,
     )
     db.add(fleet)
     db.flush()
@@ -84,13 +85,16 @@ def _enroll_member(client, db, fleet, owner_key, *, host="agent-host", profile="
     return r.json()["member_id"], r.json()["api_key"]
 
 
-def _mk_manifest(db, owner, *, loop_id="daily-brief", schedule="0 7 * * *", prompt="Do the daily brief."):
+def _mk_manifest(
+    db, owner, *, loop_id="daily-brief", schedule="0 7 * * *", prompt="Do the daily brief.", org_id=None
+):
     from app.models import LoopManifest
 
     m = LoopManifest(
         id=uuid.uuid4(),
         loop_id=loop_id,
         owner_user_id=owner.id,
+        org_id=org_id,
         schedule=schedule,
         prompt=prompt,
         skills=[{"id": "discord-post-from-cron", "hash": "sha256:abc"}],
@@ -189,6 +193,37 @@ class TestAssignmentsRead:
         r = middleware_client.get("/api/my/loop-assignments", headers={"x-api-key": key_b})
         assert r.status_code == 200
         assert r.json()["count"] == 0
+
+    def test_org_scoped_fleet_resolves_org_manifest(self, middleware_client, db_session):
+        """Regression (fix/loop-assignment-scope-match, live-found wiring Tori):
+        declare_loop stamps BOTH owner_user_id AND org_id from the fleet, but
+        the original read filter used org-XOR-owner — every org-scoped fleet's
+        assignment came back manifest=null and nothing ever scheduled."""
+        import uuid as _uuid
+
+        from app.models import Org
+
+        owner = _mk_user(db_session)
+        owner_key = _mk_key(db_session, owner)
+        org = Org(
+            id=_uuid.uuid4(),
+            name="loop-apply-org",
+            slug=f"loop-apply-org-{_uuid.uuid4().hex[:8]}",
+            api_key_hash="x" * 64,
+        )
+        db_session.add(org)
+        db_session.flush()
+        fleet = _mk_fleet(db_session, owner, org_id=org.id)
+        member_id, member_key = _enroll_member(middleware_client, db_session, fleet, owner_key)
+        # Manifest declared as declare_loop would: owner AND org both stamped.
+        _mk_manifest(db_session, owner, loop_id="org-loop", org_id=org.id)
+        _mk_placement(db_session, fleet, member_id, loop_key="org-loop")
+
+        r = middleware_client.get("/api/my/loop-assignments", headers={"x-api-key": member_key})
+        assert r.status_code == 200, r.text
+        a = r.json()["assignments"][0]
+        assert a["manifest"] is not None, "org-scoped manifest must resolve (the live bug)"
+        assert a["manifest"]["loop_id"] == "org-loop"
 
 
 # ═══════════════ Client half: apply_assignments ═══════════════

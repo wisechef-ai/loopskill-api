@@ -89,18 +89,25 @@ def my_loop_assignments(
         .all()
     )
 
-    # Resolve each placement's manifest within the fleet owner's scope.
+    # Resolve each placement's manifest within the fleet's declaration scope.
     # loop_key is a string identity (not an FK) — see LoopPlacement docstring.
+    #
+    # fix/loop-assignment-scope-match: declare_loop (fleet_ingest) stamps BOTH
+    # owner_user_id AND org_id from the fleet onto every manifest, so the read
+    # side must match BOTH — including org_id IS NULL for personal fleets. The
+    # original org-XOR-owner filter returned manifest=null for every loop of an
+    # org-scoped fleet (found live wiring Tori as the first member).
     assignments: list[dict[str, Any]] = []
     for p in placements:
         mq = db.query(LoopManifest).filter(
             LoopManifest.loop_id == p.loop_key,
             LoopManifest.enabled == True,  # noqa: E712
+            LoopManifest.owner_user_id == fleet.owner_user_id,
         )
         if fleet.org_id is not None:
             mq = mq.filter(LoopManifest.org_id == fleet.org_id)
         else:
-            mq = mq.filter(LoopManifest.owner_user_id == fleet.owner_user_id)
+            mq = mq.filter(LoopManifest.org_id.is_(None))
         manifest = mq.first()
         assignments.append(
             {
