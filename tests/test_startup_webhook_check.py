@@ -22,7 +22,7 @@ import pytest
 
 
 # The expected production URL (must match the constant in app/startup_checks.py)
-_EXPECTED_WEBHOOK_URL = "https://recipes.wisechef.ai/api/stripe/webhook"
+_EXPECTED_WEBHOOK_URL = "https://app.loopskill.io/api/stripe/webhook"
 
 
 def _make_endpoint(url: str = _EXPECTED_WEBHOOK_URL, status: str = "enabled") -> dict:
