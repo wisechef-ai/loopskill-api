@@ -205,7 +205,13 @@ def _assignment(loop_key="daily-brief", *, epoch=1, manifest="default"):
             "deliver": "origin",
             "model": None,
         }
-    return {"loop_key": loop_key, "placement_id": uuid.uuid4().hex, "epoch": epoch, "status": "assigned", "manifest": manifest}
+    return {
+        "loop_key": loop_key,
+        "placement_id": uuid.uuid4().hex,
+        "epoch": epoch,
+        "status": "assigned",
+        "manifest": manifest,
+    }
 
 
 class TestApplyAssignments:
@@ -260,7 +266,12 @@ class TestApplyAssignments:
 
         jobs = tmp_path / "jobs.json"
         # A user-owned job that must NEVER be touched.
-        user_job = {"id": "abc123", "name": "my-own-cron", "prompt": "mine", "schedule": {"kind": "cron", "expr": "0 5 * * *"}}
+        user_job = {
+            "id": "abc123",
+            "name": "my-own-cron",
+            "prompt": "mine",
+            "schedule": {"kind": "cron", "expr": "0 5 * * *"},
+        }
         jobs.write_text(json.dumps({"jobs": [user_job]}))
 
         apply_assignments([_assignment()], jobs)

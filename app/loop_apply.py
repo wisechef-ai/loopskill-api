@@ -92,25 +92,31 @@ def manifest_to_job(
     schedule = str(manifest.get("schedule") or "").strip()
     prompt = str(manifest.get("prompt") or "")
 
-    base: dict[str, Any] = existing.copy() if existing else {
-        "id": uuid.uuid4().hex[:12],
-        "created_at": now_iso,
-        "next_run_at": None,  # scheduler repopulates from the schedule expr
-        "last_run_at": None,
-        "last_status": None,
-        "last_error": None,
-        "last_delivery_error": None,
-        "paused_at": None,
-        "paused_reason": None,
-        "origin": None,
-    }
+    base: dict[str, Any] = (
+        existing.copy()
+        if existing
+        else {
+            "id": uuid.uuid4().hex[:12],
+            "created_at": now_iso,
+            "next_run_at": None,  # scheduler repopulates from the schedule expr
+            "last_run_at": None,
+            "last_status": None,
+            "last_error": None,
+            "last_delivery_error": None,
+            "paused_at": None,
+            "paused_reason": None,
+            "origin": None,
+        }
+    )
 
     model = manifest.get("model")
     base.update(
         {
             "name": f"{MANAGED_PREFIX}{loop_id}",
             "prompt": prompt,
-            "skills": [s.get("id") for s in (manifest.get("skills") or []) if isinstance(s, dict) and s.get("id")],
+            "skills": [
+                s.get("id") for s in (manifest.get("skills") or []) if isinstance(s, dict) and s.get("id")
+            ],
             "skill": None,
             "tags": ["tier1", MANAGED_TAG, loop_id],
             "model": model,
@@ -158,11 +164,13 @@ def apply_assignments(
     jobs: list[dict[str, Any]] = data.get("jobs", [])
 
     managed = {
-        j["name"][len(MANAGED_PREFIX):]: j
+        j["name"][len(MANAGED_PREFIX) :]: j
         for j in jobs
         if isinstance(j.get("name"), str) and j["name"].startswith(MANAGED_PREFIX)
     }
-    unmanaged = [j for j in jobs if not (isinstance(j.get("name"), str) and j["name"].startswith(MANAGED_PREFIX))]
+    unmanaged = [
+        j for j in jobs if not (isinstance(j.get("name"), str) and j["name"].startswith(MANAGED_PREFIX))
+    ]
 
     desired_jobs: dict[str, dict[str, Any]] = {}
     for a in assignments:
