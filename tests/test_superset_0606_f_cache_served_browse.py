@@ -174,9 +174,15 @@ class TestInstallResolvesFromCache:
         # The real assertion: no exception, real content, slug matched from cache.
         assert body["slug"] == "github-gstack--s0"
 
-    def test_install_deep_link_from_cache_409(self, db_session, monkeypatch):
-        """A cached deep-link skill (ClawHub) returns 409 + origin, never rehosted,
-        resolved straight from cache."""
+    def test_install_deep_link_from_cache_200_contract(self, db_session, monkeypatch):
+        """A cached deep-link skill (ClawHub) returns 200 + origin + agent
+        instructions, never rehosted, resolved straight from cache.
+
+        feat/deep-link-install-contract (2026-07-17): was a 409 whose detail
+        carried origin_url — agents had to treat an error as
+        success-with-homework. Now a 200 with installed=False +
+        agent_instructions; the zero-rehost invariant is unchanged.
+        """
         fcache.write_source_cache(
             db_session,
             "clawhub",
@@ -195,11 +201,13 @@ class TestInstallResolvesFromCache:
         )
         client = _client(db_session, monkeypatch)
         r = client.get("/api/skills/external/clawhub/identyclaw/install")
-        assert r.status_code == 409
-        detail = r.json()["detail"]
-        assert detail["install_path"] == "deep_link"
-        assert detail["origin_url"] == "https://clawhub.ai/skills/identyclaw"
-        assert "content" not in detail  # zero rehost
+        assert r.status_code == 200
+        body = r.json()
+        assert body["install_path"] == "deep_link"
+        assert body["installed"] is False
+        assert body["origin_url"] == "https://clawhub.ai/skills/identyclaw"
+        assert "clawhub.ai/skills/identyclaw" in body["agent_instructions"]
+        assert "content" not in body  # zero rehost
 
 
 # ─────────── github tree-url parse + cache-derived raw fetch (no api walk) ────
