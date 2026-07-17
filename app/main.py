@@ -209,6 +209,9 @@ def create_app() -> FastAPI:
     from app.sync_report_routes import router as sync_report_router  # activate_0701 Phase T
 
     app.include_router(sync_report_router, tags=["sync-report"])  # activate_0701 Phase T
+    from app.loop_assignment_routes import router as loop_assignment_router  # feat/member-loop-apply
+
+    app.include_router(loop_assignment_router, tags=["loop-assignments"])  # feat/member-loop-apply
     from app.connector_routes import router as connector_router  # activate_0701 Phase B
 
     app.include_router(connector_router, tags=["connectors"])  # activate_0701 Phase B
