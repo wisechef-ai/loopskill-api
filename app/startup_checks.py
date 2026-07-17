@@ -20,7 +20,11 @@ logger = logging.getLogger(__name__)
 # ── Phase 4: boot-time Stripe webhook endpoint smoke test ─────────────────────
 
 # The expected production URL for our Stripe webhook endpoint.
-EXPECTED_WEBHOOK_URL = "https://recipes.wisechef.ai/api/stripe/webhook"
+# fix/checkout-hardening (2026-07-17): was https://recipes.wisechef.ai/api/stripe/webhook
+# — a stale artifact of the recipes → loopskill rename. The real, enabled
+# endpoint in Stripe has pointed at app.loopskill.io since the migration, so
+# every boot logged a false "zero enabled endpoints" CRITICAL + #tori alert.
+EXPECTED_WEBHOOK_URL = "https://app.loopskill.io/api/stripe/webhook"
 
 # Env var holding the Discord #tori webhook URL for ops alerts.
 _TORI_DISCORD_WEBHOOK_URL_VAR = "TORI_DISCORD_WEBHOOK_URL"

@@ -9,8 +9,10 @@ from __future__ import annotations
 import logging
 import time
 
+import stripe
 from cachetools import TTLCache
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.auth_routes import get_current_user_optional
@@ -104,12 +106,55 @@ async def create_subscription_checkout(
     except SubscriptionError as e:
         logger.error("Checkout creation failed for user %s tier %s: %s", user.id, tier, e)
         raise HTTPException(status_code=400, detail=str(e))
+    except stripe.InvalidRequestError as e:
+        # fix/checkout-hardening (2026-07-17): Stripe hard-forbids mixing
+        # currencies on one customer while ANY subscription is active. A
+        # leftover sub in another currency (e.g. a EUR e2e test sub from the
+        # recipes drills) made every USD checkout die as an opaque 500.
+        # Surface it as an actionable 409 instead so the user/support can act.
+        msg = str(e)
+        if "combine currencies" in msg or "cannot combine" in msg.lower():
+            logger.error(
+                "Checkout currency conflict for user %s tier %s (customer has an "
+                "active subscription/session in another currency): %s",
+                user.id,
+                tier,
+                msg,
+            )
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "reason": "currency_conflict",
+                    "message": (
+                        "Your billing profile has an active subscription in a "
+                        "different currency, which blocks this checkout. "
+                        "Contact support to resolve it."
+                    ),
+                },
+            )
+        logger.exception("Stripe InvalidRequestError for user %s tier %s", user.id, tier)
+        raise HTTPException(status_code=500, detail="checkout_error")
     # Rationale: unexpected Stripe/DB error during checkout; surface as 500
     except Exception:  # noqa: BLE001
         logger.exception("Unexpected checkout error for user %s tier %s", user.id, tier)
         raise HTTPException(status_code=500, detail="checkout_error")
 
     return result
+
+
+@router.get("/checkout/{tier}")
+async def checkout_get_redirect(tier: str):
+    """Redirect browser GETs on the POST-only checkout route to /pricing.
+
+    fix/checkout-hardening (2026-07-17): the pricing page's sign-in CTA links
+    to ``/signin?next=/api/checkout/pro`` — after OAuth the browser lands here
+    with a GET and used to hit a bare 405 Method Not Allowed dead-end (Adam
+    reproduced it live). A GET can never create a Checkout Session (the JSON
+    body + CSRF posture live on the POST), so the honest behaviour is to send
+    the browser back to /pricing where the real upgrade button is.
+    """
+    del tier  # every tier variant redirects to the same pricing surface
+    return RedirectResponse(url="/pricing", status_code=303)
 
 
 @router.get("/billing/me")
