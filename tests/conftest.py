@@ -175,6 +175,14 @@ def client(db_session: Session):
     except Exception:
         pass
 
+    # REVENUE/CATALOG (atomic-habits fallback 2026-07-18): curated loop packs
+    try:
+        from app.loop_pack_routes import router as loop_pack_router
+
+        test_app.include_router(loop_pack_router)
+    except Exception:
+        pass
+
     test_app.dependency_overrides[get_db] = override_get_db
 
     with TestClient(

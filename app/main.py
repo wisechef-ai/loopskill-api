@@ -244,6 +244,15 @@ def create_app() -> FastAPI:
     from app.loop_routes import router as loop_router
     from app.personality_routes import router as personality_router
 
+    # REVENUE/CATALOG (atomic-habits fallback 2026-07-18) — curated loop packs.
+    # No new table; live-resolves membership against Verifier. See module doc.
+    # MUST register BEFORE loop_router: loop_router's compat mount owns
+    # GET /api/loops/{slug}, which would otherwise swallow the static
+    # /api/loops/packs path (FastAPI matches routes in registration order).
+    from app.loop_pack_routes import router as loop_pack_router
+
+    app.include_router(loop_pack_router)
+
     app.include_router(loop_router)
     app.include_router(personality_router, tags=["personalities"])
 
@@ -252,6 +261,7 @@ def create_app() -> FastAPI:
     from app.composite_loop_routes import router as composite_loop_router
 
     app.include_router(composite_loop_router, tags=["composite-loops"])
+
 
     # feat/unified-search — GET /api/search: anonymous Spotify-style search
     # across skills, loops, bundles, personalities in one call.
