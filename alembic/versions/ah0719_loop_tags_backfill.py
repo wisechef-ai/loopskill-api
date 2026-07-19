@@ -25,6 +25,7 @@ risk to any other table.
 """
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from typing import Union
 
@@ -59,9 +60,13 @@ def upgrade() -> None:
     op.add_column("loops", sa.Column("tags", sa.JSON(), nullable=True))
 
     for slug, tags in LOOP_TAGS.items():
+        # json.dumps, not the raw list: SQLite's driver can't bind a Python
+        # list ("type 'list' is not supported") — this broke alembic upgrade
+        # head on every fresh-SQLite CI run. A JSON column compares/serves
+        # identically from a serialized string on both SQLite and Postgres.
         conn.execute(
             sa.text("UPDATE loops SET tags = :tags WHERE slug = :slug"),
-            {"tags": tags, "slug": slug},
+            {"tags": json.dumps(tags), "slug": slug},
         )
 
 
