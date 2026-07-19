@@ -108,6 +108,7 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.loop_routes", "router", ""),  # dual-mount /api/loops + /api/verifiers
     ("app.personality_routes", "router", "/api"),
     ("app.search_routes", "router", "/api"),  # feat/unified-search
+    ("app.composite_loop_deploy_routes", "router", ""),  # feat/composite-loop-deploy
 ]
 
 
