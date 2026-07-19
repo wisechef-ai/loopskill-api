@@ -24,6 +24,7 @@ and epoch-CAS semantics never drift from the MCP surface:
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 from uuid import UUID
 
@@ -168,7 +169,13 @@ def deploy_composite_loop(
     # Stable op_id per (fleet, loop, member) triple — a re-deploy of the same
     # loop to the same member replays the existing placement (idempotent),
     # rather than colliding with the "already_placed" transition guard.
-    op_id = f"composite-deploy:{fleet.id}:{slug}:{member.id}"
+    #
+    # HASHED, not the raw triple: last_op_id is String(64) and the raw
+    # "composite-deploy:{uuid}:{slug}:{uuid}" form is ~100+ chars. SQLite
+    # (tests) silently accepts oversized varchars; Postgres raised
+    # StringDataRightTruncation on the FIRST live deploy (found 2026-07-19).
+    # sha256 hex = 64 chars exactly, deterministic for the same triple.
+    op_id = hashlib.sha256(f"composite-deploy:{fleet.id}:{slug}:{member.id}".encode()).hexdigest()
     try:
         placement = placement_svc.assign(
             db,
