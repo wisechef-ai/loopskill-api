@@ -98,14 +98,13 @@ def _auth_ctx_from_jwt_cookie(request) -> "AuthContext":
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.id == user_id).first()
-        if user and user.subscription_status in ("active", "trialing"):
+        # BUGFIX (2026-07-19): identity mustn't gate on subscription status
+        # (old code 401'd fresh signups). `tier` alone stays conditional.
+        if user:
             org_id, is_org_owner = _resolve_org_membership(db, user_id)
+            tier = user.subscription_tier if user.subscription_status in ("active", "trialing") else None
             return AuthContext(
-                scope="user",
-                user_id=user_id,
-                tier=user.subscription_tier,
-                org_id=org_id,
-                is_org_owner=is_org_owner,
+                scope="user", user_id=user_id, tier=tier, org_id=org_id, is_org_owner=is_org_owner
             )
     finally:
         db.close()
