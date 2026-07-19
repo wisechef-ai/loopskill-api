@@ -75,6 +75,30 @@ def _valid_schedule(schedule: str | None) -> bool:
     return bool(_CRON_5FIELD.match(s) or _SHORTHAND.match(s))
 
 
+def _schedule_block(schedule: str) -> dict[str, Any]:
+    """Project a manifest schedule string into the Hermes jobs.json shape.
+
+    Live-found 2026-07-19 (first real deploy, 'atomic-habits' schedule='24h'):
+    writing shorthand as {kind: 'cron', expr: '24h'} poisons every consumer
+    that trusts kind — cron-watchdog fed '24h' to croniter and CRASHED its
+    whole tick (CroniterBadCronError: 'Exactly 5, 6 or 7 columns...').
+    Native Hermes shorthand jobs use {kind: 'interval', minutes: N, display:
+    'every Nm'} — mirror that exactly; only genuine 5-field exprs get
+    kind='cron'.
+    """
+    s = schedule.strip()
+    m = _SHORTHAND.match(s)
+    if m:
+        num = int(re.sub(r"[^0-9]", "", s))
+        minutes = num * 60 if s.lower().rstrip().endswith("h") else num
+        return {
+            "kind": "interval",
+            "minutes": minutes,
+            "display": f"every {num}{'h' if minutes == num * 60 else 'm'}",
+        }
+    return {"kind": "cron", "expr": s, "display": s}
+
+
 def manifest_to_job(
     manifest: dict[str, Any],
     *,
@@ -123,8 +147,8 @@ def manifest_to_job(
             "provider": None,
             "base_url": None,
             "script": None,
-            "schedule": {"kind": "cron", "expr": schedule, "display": schedule},
-            "schedule_display": schedule,
+            "schedule": _schedule_block(schedule),
+            "schedule_display": _schedule_block(schedule).get("display", schedule),
             "repeat": base.get("repeat") or {"times": None, "completed": 0},
             "enabled": bool(manifest.get("enabled", True)),
             "state": "scheduled",
