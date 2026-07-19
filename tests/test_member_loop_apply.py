@@ -352,3 +352,28 @@ class TestApplyAssignments:
         a["manifest"]["schedule"] = "every 30m"
         result = apply_assignments([a], jobs)
         assert result.created == ["half-hourly"]
+
+    def test_shorthand_schedule_writes_interval_kind(self, tmp_path: Path):
+        """Regression (live 2026-07-19): shorthand written as kind='cron'
+        crashed cron-watchdog's whole tick (croniter can't parse '24h').
+        Shorthand must project to the native Hermes interval shape."""
+        import json as _json
+
+        from app.loop_apply import apply_assignments
+
+        jobs = tmp_path / "jobs.json"
+        a = _assignment("daily-loop")
+        a["manifest"]["schedule"] = "24h"
+        apply_assignments([a], jobs)
+        job = _json.loads(jobs.read_text())["jobs"][0]
+        assert job["schedule"]["kind"] == "interval"
+        assert job["schedule"]["minutes"] == 1440
+        assert "expr" not in job["schedule"]
+        assert job["schedule_display"] == "every 24h"
+
+        # And a genuine 5-field expr still gets kind='cron'.
+        b = _assignment("cron-loop")
+        apply_assignments([a, b], jobs)
+        jobs_by_name = {j["name"]: j for j in _json.loads(jobs.read_text())["jobs"]}
+        assert jobs_by_name["loopskill/cron-loop"]["schedule"]["kind"] == "cron"
+        assert jobs_by_name["loopskill/cron-loop"]["schedule"]["expr"] == "0 7 * * *"
