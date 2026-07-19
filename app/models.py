@@ -2038,6 +2038,12 @@ class Verifier(Base):
     # from a 4.8 from 200). Maintained alongside rating_avg on each rating.
     rating_count = Column(Integer, default=0, nullable=False, server_default="0")
     is_archived = Column(Boolean, default=False, server_default="false", nullable=False)
+    # atomic_habits_0719 rank-8 REVENUE/CATALOG — discovery tags. Live evidence
+    # 2026-07-19: all 10 runnable loops carry only a single category, no tags —
+    # they don't surface under topic/tag search. Catalog metadata only (no
+    # tier/Stripe/pricing SSOT touched); widens the top of the run→install
+    # funnel via search discoverability. JSON array of strings, NULL-safe.
+    tags = Column(JSON, nullable=True)
 
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

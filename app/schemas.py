@@ -354,6 +354,9 @@ class VerifierOut(BaseModel):
     budget_usd: float | None = None
     tool_allowlist: list[str] = []
     rating_avg: float | None = None
+    # atomic_habits_0719 rank-8 REVENUE/CATALOG — discovery tags for topic/tag
+    # search on app.loopskill.io. NULL-safe (defaults to []).
+    tags: list[str] = []
     created_at: datetime
     updated_at: datetime
 
@@ -445,6 +448,13 @@ class VerifierRunOut(BaseModel):
     duration_seconds: float
     bounds: dict = {}
     error: str | None = None
+    # atomic_habits_0719 rank-1 — install→run bridge. Mirrors the deep-link
+    # install contract (c855da0, #121): a passed=true run hands the agent a
+    # one-line path to pull this SAME verifier's full manifest for reuse,
+    # instead of leaving it stranded after a one-shot run. None on failed
+    # runs (nothing to install) and for /agent mode (501, never reaches here).
+    install_hint: str | None = None
+    agent_instructions: str | None = None
 
 
 # loopskill_activate_0701 Phase A1 — backward-compat schema aliases.  # compat-alias
