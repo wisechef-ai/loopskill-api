@@ -179,9 +179,7 @@ def _deploy_body(fleet, member_id):
 
 
 class TestDeployHappyPath:
-    def test_deploy_creates_manifest_and_placement_then_member_sees_it(
-        self, middleware_client, db_session
-    ):
+    def test_deploy_creates_manifest_and_placement_then_member_sees_it(self, middleware_client, db_session):
         owner = _mk_user(db_session)
         owner_key = _mk_key(db_session, owner)
         fleet = _mk_fleet(db_session, owner)
@@ -208,11 +206,7 @@ class TestDeployHappyPath:
 
         from app.models import LoopManifest, LoopPlacement
 
-        manifest = (
-            db_session.query(LoopManifest)
-            .filter(LoopManifest.loop_id == "brief-loop")
-            .one()
-        )
+        manifest = db_session.query(LoopManifest).filter(LoopManifest.loop_id == "brief-loop").one()
         assert manifest.owner_user_id == owner.id
         assert manifest.org_id == fleet.org_id  # both stamped from the fleet
         assert manifest.schedule == "0 7 * * *"
@@ -227,9 +221,7 @@ class TestDeployHappyPath:
         assert placement.status == "active"
 
         # Full-chain kill-test: the member's own sync-tick surface sees it.
-        r2 = middleware_client.get(
-            "/api/my/loop-assignments", headers={"x-api-key": member_key}
-        )
+        r2 = middleware_client.get("/api/my/loop-assignments", headers={"x-api-key": member_key})
         assert r2.status_code == 200, r2.text
         assignments = r2.json()["assignments"]
         assert len(assignments) == 1
@@ -372,7 +364,11 @@ class TestDeployIdempotent:
 
 
 class TestDeployNotDeployable:
-    def test_version_missing_schedule_and_prompt_409(self, middleware_client, db_session):
+    def test_versionless_loop_deploys_from_row(self, middleware_client, db_session):
+        """Seeded/v0 loops (versions=[]) are deployable from the ROW's own
+        schedule/prompt columns — the live 'atomic-habits' shape. Requiring a
+        version row would have 409'd the only live composite loop
+        (live-found pre-merge, supervisor review)."""
         owner = _mk_user(db_session)
         owner_key = _mk_key(db_session, owner)
         fleet = _mk_fleet(db_session, owner)
@@ -386,8 +382,15 @@ class TestDeployNotDeployable:
             headers={"x-api-key": owner_key},
             json=_deploy_body(fleet, member_id),
         )
-        assert r.status_code == 409, r.text
-        assert r.json()["detail"]["reason"] == "not_deployable"
+        assert r.status_code == 200, r.text
+        assert r.json()["deployed"] is True
+
+        from app.models import LoopManifest
+
+        m = db_session.query(LoopManifest).filter(LoopManifest.loop_id == "no-version-loop").first()
+        assert m is not None
+        assert m.schedule == "0 7 * * *"
+        assert m.prompt == "Write the daily brief."
 
     def test_version_with_empty_schedule_409(self, middleware_client, db_session):
         from app.models import CompositeLoopVersion

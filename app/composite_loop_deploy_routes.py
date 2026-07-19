@@ -70,18 +70,29 @@ def _not_deployable(detail: str) -> HTTPException:
 
 
 def _resolve_deployable_manifest(cl: CompositeLoop) -> dict[str, Any]:
-    """Return the latest version's manifest dict, or raise 409 not_deployable.
+    """Return the deployable manifest dict, or raise 409 not_deployable.
+
+    Source order: latest version's manifest when one exists, else the
+    CompositeLoop ROW itself — schedule/prompt/skills are NOT NULL columns on
+    the row (the publish surface writes them there), and seeded/v0 loops like
+    'atomic-habits' legitimately have versions=[] while being fully runnable.
+    Requiring a version row would 409 every such loop (live-found pre-merge).
 
     The minimum bar for a "runnable" LoopManifest is a non-empty schedule +
     prompt (mirrors LoopManifest's own NOT NULL contract on those columns).
     """
-    if not cl.versions:
-        raise _not_deployable("composite loop has no published version")
-    manifest = cl.versions[0].manifest or {}
+    if cl.versions:
+        manifest = dict(cl.versions[0].manifest or {})
+    else:
+        manifest = {
+            "schedule": cl.schedule,
+            "prompt": getattr(cl, "prompt", None),
+            "skills": list(cl.skills or []),
+        }
     if not str(manifest.get("schedule") or "").strip():
-        raise _not_deployable("latest version manifest is missing a schedule")
+        raise _not_deployable("composite loop has no schedule (row or version)")
     if not str(manifest.get("prompt") or "").strip():
-        raise _not_deployable("latest version manifest is missing a prompt")
+        raise _not_deployable("composite loop has no prompt (row or version)")
     return manifest
 
 
