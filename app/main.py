@@ -262,6 +262,14 @@ def create_app() -> FastAPI:
 
     app.include_router(composite_loop_router, tags=["composite-loops"])
 
+    # feat/composite-loop-deploy — POST /api/composite-loops/{slug}/deploy:
+    # deploys a composite loop onto a fleet member via the existing placement
+    # chain (declare_loop + placement.assign). Kept in its own file to respect
+    # the 600-line pyfile-size gate.
+    from app.composite_loop_deploy_routes import router as composite_loop_deploy_router
+
+    app.include_router(composite_loop_deploy_router, tags=["composite-loops"])
+
     # feat/unified-search — GET /api/search: anonymous Spotify-style search
     # across skills, loops, bundles, personalities in one call.
     from app.search_routes import router as search_router
