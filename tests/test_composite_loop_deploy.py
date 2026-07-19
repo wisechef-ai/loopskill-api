@@ -430,3 +430,33 @@ class TestDeployNotDeployable:
         )
         assert r.status_code == 409, r.text
         assert r.json()["detail"]["reason"] == "not_deployable"
+
+
+class TestDeployOpIdLength:
+    def test_placement_op_id_fits_column(self, middleware_client, db_session):
+        """Regression (live-found 2026-07-19, first prod deploy): op_id was the
+        raw 'composite-deploy:{fleet_uuid}:{slug}:{member_uuid}' string
+        (~100+ chars) but LoopPlacement.last_op_id is String(64). SQLite in
+        tests silently accepts oversized varchars; Postgres raised
+        StringDataRightTruncation -> 500 on the very first live deploy.
+        op_id is now sha256-hexed (exactly 64 chars, still deterministic)."""
+        owner = _mk_user(db_session, tier="pro")
+        owner_key = _mk_key(db_session, owner)
+        fleet = _mk_fleet(db_session, owner)
+        member_id, _member_key = _enroll_member(middleware_client, db_session, fleet, owner_key)
+        _ping_member(db_session, member_id)
+        cl = _mk_composite_loop(db_session, slug="a-deliberately-long-composite-loop-slug-for-op-id-length")
+        db_session.commit()
+
+        r = middleware_client.post(
+            f"/api/composite-loops/{cl.slug}/deploy",
+            headers={"x-api-key": owner_key},
+            json=_deploy_body(fleet, member_id),
+        )
+        assert r.status_code == 200, r.text
+
+        from app.models import LoopPlacement
+
+        p = db_session.query(LoopPlacement).filter(LoopPlacement.loop_key == cl.slug).first()
+        assert p is not None and p.last_op_id is not None
+        assert len(p.last_op_id) <= 64, f"op_id {len(p.last_op_id)} chars overflows String(64)"
