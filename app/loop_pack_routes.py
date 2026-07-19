@@ -52,11 +52,7 @@ def _resolve_pack(pack_slug: str, db: Session) -> dict:
 
     member_slugs = pack["member_slugs"]
     assert isinstance(member_slugs, list)
-    rows = (
-        db.query(Verifier)
-        .filter(Verifier.slug.in_(member_slugs), Verifier.is_archived.is_(False))
-        .all()
-    )
+    rows = db.query(Verifier).filter(Verifier.slug.in_(member_slugs), Verifier.is_archived.is_(False)).all()
     by_slug = {v.slug: v for v in rows}
 
     members = []

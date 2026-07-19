@@ -262,7 +262,6 @@ def create_app() -> FastAPI:
 
     app.include_router(composite_loop_router, tags=["composite-loops"])
 
-
     # feat/unified-search — GET /api/search: anonymous Spotify-style search
     # across skills, loops, bundles, personalities in one call.
     from app.search_routes import router as search_router
