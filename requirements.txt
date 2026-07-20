@@ -31,7 +31,7 @@ urllib3>=2.7.0
 
 # MCP server (Phase A → Phase 1 v7.1) — official Python SDK
 # 1.4+ required for StreamableHTTP transport (StreamableHTTPSessionManager)
-mcp[cli]>=1.4,<1.28.0
+mcp[cli]>=1.28.1,<1.29.0
 
 # tests
 pytest>=8.0
