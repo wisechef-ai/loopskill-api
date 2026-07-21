@@ -99,7 +99,12 @@ def test_ah0720_backfills_version_when_loop_preexists(migrated_sqlite_url):
         _db.SessionLocal = original
         engine.dispose()
 
-    # Re-run the migration's upgrade() logic directly (idempotent replay path)
+    # Re-run the migration's upgrade() logic directly (idempotent replay path).
+    # NOTE (2026-07-21, ah0721): target ah0719_loop_tags explicitly rather than
+    # "downgrade -1" — later migrations (e.g. ah0721_composite_loop_ver) stack
+    # on top of ah0720 as new heads get added, so "-1" would only unwind the
+    # newest migration instead of ah0720's, silently skipping this regression
+    # test's actual coverage. Always name the down_revision this test needs.
     env = {**os.environ, "WR_DATABASE_URL": migrated_sqlite_url, "DATABASE_URL": migrated_sqlite_url}
     subprocess.run(
         ["alembic", "upgrade", "ah0720_repo_steward_ver"],
@@ -108,9 +113,8 @@ def test_ah0720_backfills_version_when_loop_preexists(migrated_sqlite_url):
         capture_output=True,
         text=True,
     )
-    # already at head — this is a downgrade-then-upgrade smoke instead
     r2 = subprocess.run(
-        ["alembic", "downgrade", "-1"],
+        ["alembic", "downgrade", "ah0719_loop_tags"],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
