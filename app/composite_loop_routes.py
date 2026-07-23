@@ -60,11 +60,13 @@ def _composite_loop_to_out(cl: CompositeLoop) -> CompositeLoopOut:
         latest_version=cl.versions[0].semver if cl.versions else None,
         created_at=cl.created_at or datetime.now(UTC),
         updated_at=cl.updated_at or datetime.now(UTC),
+        tags=list(cl.tags or []),
     )
 
 
 def list_composite_loops(
     q: str | None = Query(None, description="keyword search over title/description"),
+    tag: str | None = Query(None, description="filter to loops carrying this discovery tag"),
     limit: int = Query(100, le=200),
     db: Session = Depends(get_db),
 ) -> list[CompositeLoopOut]:
@@ -78,6 +80,12 @@ def list_composite_loops(
         like = f"%{q}%"
         query = query.filter(or_(CompositeLoop.title.ilike(like), CompositeLoop.description.ilike(like)))
     rows = query.order_by(CompositeLoop.install_count.desc()).limit(limit).all()
+    # ah0723 rank-8: tag filter applied in Python, not SQL — composite_loops
+    # is a handful of rows (not the 1000s-of-skills scale that would justify
+    # a JSON-array SQL containment query), and this keeps the fix scoped to
+    # catalog metadata with zero new SQL surface to review.
+    if tag:
+        rows = [r for r in rows if tag in (r.tags or [])]
     return [_composite_loop_to_out(r) for r in rows]
 
 

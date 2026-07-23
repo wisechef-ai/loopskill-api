@@ -2475,6 +2475,9 @@ class CompositeLoop(Base):
     residency = Column(String(32), nullable=True)
 
     install_count = Column(Integer, default=0, nullable=False, server_default="0")
+    # ah0723 rank-8 REVENUE/CATALOG — discovery tags (mirrors loops.tags
+    # from ah0719). JSON array of strings, NULL-safe (API treats NULL as []).
+    tags = Column(JSON, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

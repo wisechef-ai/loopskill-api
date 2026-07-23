@@ -527,6 +527,9 @@ class CompositeLoopOut(BaseModel):
     latest_version: str | None = None
     created_at: datetime
     updated_at: datetime
+    # ah0723 rank-8 REVENUE/CATALOG — discovery tags (mirrors SkillOut/loops
+    # tags pattern). NULL-safe, defaults to [] when the row has none.
+    tags: list[str] = []
 
     model_config = {"from_attributes": True}
 

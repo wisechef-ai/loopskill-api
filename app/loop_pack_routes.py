@@ -95,6 +95,7 @@ def _resolve_pack(pack_slug: str, db: Session) -> dict:
                     "run_count": 0,  # composite loops don't have run_count; use install_count
                     "install_count": c.install_count or 0,
                     "category": c.tier or "free",
+                    "tags": list(c.tags or []),
                 }
             )
     else:

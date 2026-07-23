@@ -99,8 +99,15 @@ def test_ah0721_backfills_version_when_loop_preexists(migrated_sqlite_url, slug)
     env = {**os.environ, "WR_DATABASE_URL": migrated_sqlite_url, "DATABASE_URL": migrated_sqlite_url}
     # Re-run downgrade-then-upgrade as an idempotent replay smoke (matches the
     # ah0720 pattern — we're already at head, so this exercises both paths).
+    #
+    # ah0723_composite_loop_tags (2026-07-23): a new migration chained on top
+    # of ah0721 means a relative "downgrade -1" no longer replays ah0721's
+    # backfill logic — it only undoes ah0723's tags column. Target ah0721's
+    # OWN down_revision explicitly so this test keeps exercising the exact
+    # upgrade() this test is named for, regardless of how many migrations
+    # get chained on afterward.
     r2 = subprocess.run(
-        ["alembic", "downgrade", "-1"],
+        ["alembic", "downgrade", "ah0720_repo_steward_ver"],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
