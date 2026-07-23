@@ -108,8 +108,34 @@ def get_composite_loop(slug: str, db: Session = Depends(get_db)) -> CompositeLoo
             }
             for v in cl.versions
         ],
+        agent_instructions=_composite_loop_agent_instructions(cl),
     )
     return CompositeLoopDetailOut(**base)
+
+
+def _composite_loop_agent_instructions(cl: CompositeLoop) -> str:
+    """One-shot install instructions for a REMOTE agent reading this JSON.
+
+    ah0723 rank-1: the deploy API (POST /api/composite-loops/{slug}/deploy)
+    already requires a logged-in human's fleet_id + member_id (portal-only
+    flow, see composite_loop_deploy_routes.py) — a remote/anonymous agent
+    can't self-serve a POST with args it doesn't have. This mirrors the
+    fetch-and-report contract used by agent_instructions elsewhere
+    (skill_routes.py FETCH_ORIGIN, verifier_routes.py post-run) instead of
+    inventing a new pattern: tell the calling agent exactly what to relay
+    to its human operator to close the loop.
+    """
+    return (
+        f"To run '{cl.slug}' on your own fleet: have your human operator open "
+        f"https://app.loopskill.io/loops/view?slug={cl.slug} while signed in, "
+        "pick a fleet + agent, and click Deploy — or call "
+        f"POST /api/composite-loops/{cl.slug}/deploy with a signed-in session "
+        "cookie and JSON body {fleet_id, member_id} (both from GET /api/fleets "
+        "and GET /api/fleets/{fleet_id}/members). The target agent applies it "
+        "on its next sync tick (~30 min) as a local cron running the schedule "
+        f"'{cl.schedule}'. No manual copy-paste of skills/config required — "
+        "the deploy call materializes the full composition server-side."
+    )
 
 
 def publish_composite_loop(

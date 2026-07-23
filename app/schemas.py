@@ -539,6 +539,14 @@ class CompositeLoopDetailOut(CompositeLoopOut):
     budget_usd: float | None = None
     prompt: str = ""
     versions: list[dict] = []
+    # ah0723 rank-1 — distribution=1 bottleneck (dreaming 2026-07-22 maturity
+    # verdict): atomic-habits + dreaming both show install_count=0 LIVE
+    # despite the deploy API + portal CTA shipping (#125, portal e82cb8d).
+    # A remote agent reading this endpoint got a UI-only click-path with no
+    # machine-actionable instructions — mirrors the agent_instructions field
+    # already on skill install (skill_routes.py) and verifier run
+    # (verifier_routes.py). Populated in get_composite_loop().
+    agent_instructions: str | None = None
 
 
 class CompositeLoopPublishIn(BaseModel):
