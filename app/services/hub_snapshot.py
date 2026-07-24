@@ -117,6 +117,48 @@ def dedupe_slugs(slugs: list[str]) -> list[str]:
 # ─────────────────────────────── Install path mapping ───────────────────
 
 
+def resolved_repo_path(row: dict[str, Any]) -> str:
+    """Return the skill's REAL path inside its repo.
+
+    ponytail_0724 fix. The Hub snapshot carries two path-ish fields and only one
+    of them is the truth:
+
+    - ``path``               — a skill *label* (e.g. ``"ponytail"``). Frequently
+      NOT the directory the skill actually lives in.
+    - ``resolved_github_id`` — ``"<owner>/<repo>/<real/path>"``, the upstream's
+      own resolution (e.g. ``"dietrichgebert/ponytail/skills/ponytail"``).
+
+    Trusting ``path`` minted ``/tree/main/ponytail`` → 404, while the truth was
+    ``/tree/main/skills/ponytail``. That affected 16,006 of 90,605 snapshot rows
+    (17.7% of the corpus, ~80% of the skills.sh subset) — every skill nested in
+    a subdirectory.
+
+    We prefer ``resolved_github_id`` but FAIL CLOSED to the flat ``path`` when
+    it is absent, malformed, or claims a different repo than the row's own
+    ``repo`` (defence against a poisoned upstream row pointing us at a
+    third-party repository). The owner/repo comparison is case-insensitive
+    because GitHub owner names are, and upstream casing is inconsistent.
+    """
+    flat_path = (row.get("path") or "").strip().strip("/")
+    repo = (row.get("repo") or "").strip().strip("/")
+    resolved = row.get("resolved_github_id")
+
+    if not isinstance(resolved, str) or not repo:
+        return flat_path
+
+    parts = resolved.strip().strip("/").split("/")
+    if len(parts) < 3:
+        # "owner/repo" with no path component, or plain garbage → no truth here.
+        return flat_path
+
+    if "/".join(parts[:2]).lower() != repo.lower():
+        # The resolved id belongs to a different repository — do not trust it.
+        return flat_path
+
+    real_path = "/".join(parts[2:]).strip("/")
+    return real_path or flat_path
+
+
 def install_path_for_row(row: dict[str, Any]) -> InstallPath:
     """Map a Hub snapshot row to its install path based on the upstream source.
 
@@ -127,7 +169,7 @@ def install_path_for_row(row: dict[str, Any]) -> InstallPath:
     """
     upstream = normalize_upstream(row.get("source"))
     repo = (row.get("repo") or "").strip()
-    path = (row.get("path") or "").strip()
+    path = resolved_repo_path(row)
 
     if upstream in ("skills-sh", "github") and repo and path:
         return InstallPath.FETCH_ORIGIN
@@ -140,7 +182,8 @@ def install_path_for_row(row: dict[str, Any]) -> InstallPath:
 def origin_url_for_row(row: dict[str, Any]) -> str:
     """Build the origin URL for a Hub snapshot row based on its upstream source.
 
-    - skills.sh / github: github URL from repo + path
+    - skills.sh / github: github URL from repo + REAL path (see
+      ``resolved_repo_path`` — ponytail_0724)
     - clawhub: clawhub.ai/skills/{identifier}
     - official: hermes-agent docs skills/{name}
     - fallback: repo URL or hub docs page
@@ -149,7 +192,7 @@ def origin_url_for_row(row: dict[str, Any]) -> str:
     name = (row.get("name") or "").strip()
     identifier = (row.get("identifier") or "").strip()
     repo = (row.get("repo") or "").strip()
-    path = (row.get("path") or "").strip()
+    path = resolved_repo_path(row)
 
     if upstream in ("skills-sh", "github") and repo:
         base = f"https://github.com/{repo}"
@@ -193,7 +236,9 @@ def map_hub_row(row: dict[str, Any]) -> dict[str, Any]:
         "extra": row.get("extra") if isinstance(row.get("extra"), dict) else {},
         "duplicate_of": upstream if upstream in _DIRECTLY_INDEXED_UPSTREAM else None,
         "repo": (row.get("repo") or "")[:512],
-        "path": (row.get("path") or "")[:512],
+        # ponytail_0724: store the REAL in-repo path (resolved_github_id truth),
+        # never the flat label — the install resolver reads this column too.
+        "path": resolved_repo_path(row)[:512],
     }
 
 

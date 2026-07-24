@@ -268,6 +268,92 @@ class TestOriginUrl:
         assert "github.com/owner/repo" in url
 
 
+# ────────────────── ponytail_0724: resolved_github_id path truth ──────────────
+#
+# BUG (found 2026-07-24, Adam): the hub snapshot's flat ``path`` field is a
+# skill *label*, NOT its real location in the repo. Upstream carries the truth
+# in ``resolved_github_id`` = "<owner>/<repo>/<real/path>". We ignored it and
+# built ``/tree/main/<path>``, minting a 404 for 16,006 of 90,605 rows (17.7%
+# of the corpus; ~80% of everything skills.sh indexes) — every skill living in
+# a subdirectory such as ``skills/<name>``.
+#
+# Reference case: dietrichgebert/ponytail
+#   ingested path     : "ponytail"        → /tree/main/ponytail        → 404
+#   resolved_github_id: ".../skills/ponytail" → /tree/main/skills/ponytail → 200
+
+
+class TestResolvedGithubIdPathTruth:
+    """``resolved_github_id`` outranks the flat ``path`` label when present."""
+
+    PONYTAIL = {
+        "source": "skills.sh",
+        "name": "ponytail",
+        "repo": "dietrichgebert/ponytail",
+        "path": "ponytail",
+        "resolved_github_id": "dietrichgebert/ponytail/skills/ponytail",
+    }
+
+    def test_real_subdir_path_is_used_not_the_flat_label(self):
+        url = hs.origin_url_for_row(self.PONYTAIL)
+        assert url == "https://github.com/dietrichgebert/ponytail/tree/main/skills/ponytail"
+
+    def test_flat_label_path_is_never_emitted_when_resolved_id_present(self):
+        url = hs.origin_url_for_row(self.PONYTAIL)
+        assert not url.endswith("/tree/main/ponytail"), "the 404-minting label leaked"
+
+    def test_resolved_path_helper_extracts_path_after_owner_repo(self):
+        assert hs.resolved_repo_path(self.PONYTAIL) == "skills/ponytail"
+
+    def test_deeply_nested_path_is_preserved_whole(self):
+        row = {
+            "source": "skills.sh",
+            "repo": "pproenca/dot-skills",
+            "path": "12-factor-app",
+            "resolved_github_id": "pproenca/dot-skills/skills/.experimental/12-factor-app",
+        }
+        assert hs.resolved_repo_path(row) == "skills/.experimental/12-factor-app"
+        assert hs.origin_url_for_row(row).endswith("/tree/main/skills/.experimental/12-factor-app")
+
+    def test_falls_back_to_flat_path_when_no_resolved_id(self):
+        row = {"source": "skills.sh", "repo": "owner/repo", "path": "skill"}
+        assert hs.resolved_repo_path(row) == "skill"
+        assert hs.origin_url_for_row(row).endswith("/tree/main/skill")
+
+    def test_ignores_resolved_id_belonging_to_a_different_repo(self):
+        """Fail closed: a mismatched owner/repo prefix must not be trusted."""
+        row = {
+            "source": "skills.sh",
+            "repo": "owner/repo",
+            "path": "skill",
+            "resolved_github_id": "someone-else/other-repo/skills/skill",
+        }
+        assert hs.resolved_repo_path(row) == "skill"
+
+    def test_repo_prefix_match_is_case_insensitive(self):
+        """GitHub owners are case-insensitive; upstream casing varies."""
+        row = {
+            "source": "skills.sh",
+            "repo": "dietrichgebert/ponytail",
+            "path": "ponytail",
+            "resolved_github_id": "DietrichGebert/ponytail/skills/ponytail",
+        }
+        assert hs.resolved_repo_path(row) == "skills/ponytail"
+
+    def test_malformed_resolved_id_falls_back_safely(self):
+        for bad in ("", "owner/repo", "not-a-path", None, 123, {"x": 1}):
+            row = {"source": "skills.sh", "repo": "owner/repo", "path": "skill", "resolved_github_id": bad}
+            assert hs.resolved_repo_path(row) == "skill"
+
+    def test_install_path_still_fetch_origin_for_resolved_rows(self):
+        assert hs.install_path_for_row(self.PONYTAIL) == hs.InstallPath.FETCH_ORIGIN
+
+    def test_mapped_row_persists_the_resolved_path(self):
+        """map_hub_row must store the REAL path so installs resolve too."""
+        mapped = hs.map_hub_row(self.PONYTAIL)
+        assert mapped["path"] == "skills/ponytail"
+        assert mapped["origin_url"].endswith("/tree/main/skills/ponytail")
+
+
 # ─────────────────────────── Parse + count ─────────────────────────────────
 
 
@@ -621,7 +707,6 @@ class TestUpstreamNormalization:
         assert row["duplicate_of"] is None
         assert row["install_path"] == "deep_link"
 
-
     def test_route_total_skips_direct_clawhub_when_hub_fresh(self):
         """Pin the _count_for_total topology at the unit level: with a fresh
         hub deduped count present, the direct clawhub block contributes None
@@ -645,11 +730,7 @@ class TestUpstreamNormalization:
             "clawhub": {"indexed": 5467},
             "skills-sh": {"indexed": 19966},
         }
-        total = sum(
-            c
-            for c in (count_for_total(fresh, b, sid) for sid, b in fresh.items())
-            if c is not None
-        )
+        total = sum(c for c in (count_for_total(fresh, b, sid) for sid, b in fresh.items()) if c is not None)
         # hub-deduped (83772 - 19966 skills.sh dupes) + skills-sh direct; clawhub skipped.
         assert total == 63806 + 19966
 
@@ -659,9 +740,7 @@ class TestUpstreamNormalization:
             "skills-sh": {"indexed": 19966},
         }
         total_stale = sum(
-            c
-            for c in (count_for_total(stale, b, sid) for sid, b in stale.items())
-            if c is not None
+            c for c in (count_for_total(stale, b, sid) for sid, b in stale.items()) if c is not None
         )
         # No fresh hub snapshot → direct walks carry the total (old behavior).
         assert total_stale == 5467 + 19966

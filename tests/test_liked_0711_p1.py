@@ -89,8 +89,17 @@ def test_library_heart_contract_mcp_to_http_and_free_scope(db_session):
         "personalities": 1,
         "loops": 1,
     }
-    for shelf in body["shelves"].values():
-        assert set(shelf[0]) == {"id", "slug", "title", "liked_at"}
+    # ponytail_0724: the SKILLS shelf is now a union of local Liked-bundle rows
+    # and federated skill_likes, so each skill row additionally carries
+    # ``source`` ("local" or the federation source) and ``federated`` (bool) so
+    # the UI can badge external entries. Personalities and loops are local-only
+    # artifacts and keep the original 4-key shape. Additive change — the
+    # original four keys are still present on every shelf.
+    for shelf_name, shelf in body["shelves"].items():
+        base_keys = {"id", "slug", "title", "liked_at"}
+        expected = (base_keys | {"source", "federated"}) if shelf_name == "skills" else base_keys
+        assert set(shelf[0]) == expected
+        assert base_keys <= set(shelf[0])
         assert shelf[0]["liked_at"] is not None
     assert "count" not in str(body).lower()
     assert "total" not in str(body).lower()
