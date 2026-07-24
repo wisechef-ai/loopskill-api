@@ -133,7 +133,7 @@ def _composite_loop_agent_instructions(cl: CompositeLoop) -> str:
     fetch-and-report contract used by agent_instructions elsewhere
     (skill_routes.py FETCH_ORIGIN, verifier_routes.py post-run) instead of
     inventing a new pattern: tell the calling agent exactly what to relay
-    to its human operator to close the loop.
+    to its human teammate to close the loop.
 
     ah0724 rank-8 REVENUE/CATALOG: prepend a value hook ("Why: ...") ahead
     of the deploy mechanics so a remote agent relays *why* it's worth
@@ -145,7 +145,7 @@ def _composite_loop_agent_instructions(cl: CompositeLoop) -> str:
     why = _composite_loop_value_tagline(cl) or f"run '{cl.slug}' as an autonomous loop on your fleet"
     return (
         f"Why: {why}. "
-        f"To run '{cl.slug}' on your own fleet: have your human operator open "
+        f"To run '{cl.slug}' on your own fleet: have your human teammate open "
         f"https://app.loopskill.io/loops/view?slug={cl.slug} while signed in, "
         "pick a fleet + agent, and click Deploy — or call "
         f"POST /api/composite-loops/{cl.slug}/deploy with a signed-in session "
