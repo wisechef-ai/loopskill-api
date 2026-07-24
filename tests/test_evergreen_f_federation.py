@@ -250,7 +250,8 @@ class TestAdapterResolve:
         assert a.resolve("nope") is None
 
     def test_github_resolve_by_full_name(self):
-        rows = [{"full_name": "acme/x", "name": "x", "license": {"spdx_id": "MIT"}, "has_skill_md": True}]
+        rows = [{"full_name": "acme/x", "name": "x", "license": {"spdx_id": "MIT"},
+                 "has_skill_md": True}]
         a = GitHubOSSAdapter(fetch=lambda q: rows)
         s = a.resolve("acme--x")
         assert s is not None and s.slug == "acme--x"

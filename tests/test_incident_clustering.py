@@ -6,7 +6,6 @@ Covers:
   - upsert idempotency
   - status preservation when candidate already advanced past 'pending'
 """
-
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -137,11 +136,14 @@ def test_upsert_preserves_advanced_status(db_session):
     db_session.add(cand)
     db_session.flush()
 
-    cluster = Cluster(skill_id=skill.id, error_signature=SIG_A, cluster_count=99, distinct_agents=12)
+    cluster = Cluster(skill_id=skill.id,
+                      error_signature=SIG_A,
+                      cluster_count=99, distinct_agents=12)
     upsert_candidate(db_session, cluster)
     db_session.flush()
 
-    refreshed = db_session.query(PatchCandidate).filter_by(skill_id=skill.id, error_signature=SIG_A).one()
+    refreshed = db_session.query(PatchCandidate).filter_by(
+        skill_id=skill.id, error_signature=SIG_A).one()
     assert refreshed.status == "canary"
     assert refreshed.cluster_count == 99
     assert refreshed.distinct_agents == 12

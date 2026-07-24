@@ -24,7 +24,6 @@ from app.referral import (
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
-
 def _make_user(db, display_name="Test User", referral_code=None, **kw) -> User:
     u = User(
         id=uuid4(),
@@ -38,7 +37,6 @@ def _make_user(db, display_name="Test User", referral_code=None, **kw) -> User:
 
 
 # ── Test 1: Cookie roundtrip ────────────────────────────────────────────
-
 
 def test_referral_cookie_sets_and_reads(db_session):
     """Simulate: referrer has a code, new user signs in with ?ref=CODE cookie."""
@@ -77,7 +75,6 @@ def test_referral_cookie_missing_code(db_session):
 
 # ── Test 2: Signin persistence ──────────────────────────────────────────
 
-
 def test_referral_persists_across_signin(db_session):
     """Referral row survives and links referrer → referred user."""
     ref_code = generate_referral_code()
@@ -92,7 +89,6 @@ def test_referral_persists_across_signin(db_session):
 
     # Verify persistence by querying fresh
     from sqlalchemy.orm import Session
-
     db_referral = db_session.query(Referral).filter(Referral.id == referral.id).first()
     assert db_referral is not None
     assert db_referral.referrer_user_id == referrer.id
@@ -102,7 +98,6 @@ def test_referral_persists_across_signin(db_session):
 
 # ── Test 3: Invoice attribution ─────────────────────────────────────────
 
-
 def test_invoice_accrues_referrer_share(db_session):
     """First invoice on referred user accrues 50% to referrer's creator_payouts."""
     ref_code = generate_referral_code()
@@ -110,8 +105,7 @@ def test_invoice_accrues_referrer_share(db_session):
     db_session.commit()
 
     new_user = _make_user(
-        db_session,
-        "Referred",
+        db_session, "Referred",
         referred_by=referrer.id,
         subscription_id="sub_test_invoice",
         subscription_tier="cook",
@@ -136,9 +130,8 @@ def test_invoice_accrues_referrer_share(db_session):
         mock_stripe.Subscription.retrieve.return_value = {
             "items": {"data": [{"plan": {"amount": 500}}]}  # 500 cents = $5.00
         }
-
+        
         from app.subscription_service import _accrue_referral_on_first_payment
-
         _accrue_referral_on_first_payment(new_user, db_session)
 
     # Verify referral converted
@@ -147,14 +140,17 @@ def test_invoice_accrues_referrer_share(db_session):
     assert referral.reward_cents == 250  # 50% of 500 (cook tier default)
 
     # Verify payout row created for referrer
-    payout = db_session.query(CreatorPayout).filter(CreatorPayout.creator_id == referrer.id).first()
+    payout = (
+        db_session.query(CreatorPayout)
+        .filter(CreatorPayout.creator_id == referrer.id)
+        .first()
+    )
     assert payout is not None
     assert payout.creator_share_cents == 250
     assert payout.status == "pending"
 
 
 # ── Test 4: Rate-lock enforcement ───────────────────────────────────────
-
 
 def test_rate_lock_first_50_vs_rest(db_session):
     """First 50 referrers get 50%, subsequent get 30%."""

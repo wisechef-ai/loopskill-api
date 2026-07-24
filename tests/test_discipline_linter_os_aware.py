@@ -12,7 +12,6 @@ Covers the 9 mandatory cases from the task spec:
   8. test_curl_pipe_bash_universal_reject
   9. test_cli_os_target_override
 """
-
 from __future__ import annotations
 
 import sys
@@ -110,7 +109,6 @@ A Linux-only skill.
 # Helper
 # ---------------------------------------------------------------------------
 
-
 def _violations_by_rule(result: dict) -> set[str]:
     return {v["rule"] for v in result["violations"]}
 
@@ -118,7 +116,6 @@ def _violations_by_rule(result: dict) -> set[str]:
 # ---------------------------------------------------------------------------
 # Test 1: Linux default accepts systemctl
 # ---------------------------------------------------------------------------
-
 
 def test_linux_default_accepts_systemctl() -> None:
     """No os_supported declared → defaults to linux → systemctl must pass."""
@@ -135,7 +132,6 @@ def test_linux_default_accepts_systemctl() -> None:
 # Test 2: Linux default rejects launchctl
 # ---------------------------------------------------------------------------
 
-
 def test_linux_default_rejects_launchctl() -> None:
     """No os_supported → linux default → launchctl (macOS-only) must fail."""
     md = _BASE_MD_NO_FRONTMATTER + "\nRun: `launchctl bootstrap system /Library/LaunchDaemons/x.plist`\n"
@@ -149,7 +145,6 @@ def test_linux_default_rejects_launchctl() -> None:
 # ---------------------------------------------------------------------------
 # Test 3: macOS accepts ~/Library/ path
 # ---------------------------------------------------------------------------
-
 
 def test_macos_accepts_library_path() -> None:
     """os_supported:[macos] → ~/Library/Application Support/cognee must pass."""
@@ -165,7 +160,6 @@ def test_macos_accepts_library_path() -> None:
 # Test 4: macOS accepts launchctl
 # ---------------------------------------------------------------------------
 
-
 def test_macos_accepts_launchctl() -> None:
     """os_supported:[macos] → launchctl must pass."""
     md = _BASE_MD_MACOS + "\nUse `launchctl load ~/Library/LaunchAgents/com.example.plist`.\n"
@@ -180,7 +174,6 @@ def test_macos_accepts_launchctl() -> None:
 # ---------------------------------------------------------------------------
 # Test 5: macOS rejects systemctl
 # ---------------------------------------------------------------------------
-
 
 def test_macos_rejects_systemctl() -> None:
     """os_supported:[macos] → systemctl must fail (it's in macos forbidden_commands)."""
@@ -200,7 +193,6 @@ def test_macos_rejects_systemctl() -> None:
 # ---------------------------------------------------------------------------
 # Test 6: Windows accepts %APPDATA% and Get- commands
 # ---------------------------------------------------------------------------
-
 
 def test_windows_accepts_appdata_and_get_cmd() -> None:
     """os_supported:[windows] → %APPDATA% path and Get-Process must pass."""
@@ -222,7 +214,6 @@ def test_windows_accepts_appdata_and_get_cmd() -> None:
 # Test 7: Multi-OS union (linux + macos → systemctl AND launchctl both pass)
 # ---------------------------------------------------------------------------
 
-
 def test_multi_os_union() -> None:
     """os_supported:[linux,macos] → union profile → systemctl AND launchctl both pass."""
     md = _BASE_MD_LINUX_MACOS + (
@@ -243,7 +234,6 @@ def test_multi_os_union() -> None:
 # Test 8: curl | bash is rejected for ANY OS (universal security gate)
 # ---------------------------------------------------------------------------
 
-
 def test_curl_pipe_bash_universal_reject() -> None:
     """curl|bash must fail regardless of OS target. Security gate is universal."""
     for os_target in (None, ["linux"], ["macos"], ["windows"]):
@@ -259,7 +249,6 @@ def test_curl_pipe_bash_universal_reject() -> None:
 # Test 9: --os-target CLI flag overrides frontmatter
 # ---------------------------------------------------------------------------
 
-
 def test_cli_os_target_override(tmp_path: Path) -> None:
     """--os-target=macos overrides linux frontmatter declaration."""
     # Create a skill with os_supported: [linux] in frontmatter but launchctl content.
@@ -268,7 +257,8 @@ def test_cli_os_target_override(tmp_path: Path) -> None:
     skill_dir = tmp_path / "skill"
     skill_dir.mkdir()
     (skill_dir / "SKILL.md").write_text(
-        _BASE_MD_LINUX_FRONTMATTER + "\nUse `launchctl load ~/Library/LaunchAgents/com.example.plist`.\n"
+        _BASE_MD_LINUX_FRONTMATTER
+        + "\nUse `launchctl load ~/Library/LaunchAgents/com.example.plist`.\n"
     )
     (skill_dir / "recipe.yaml").write_text(CLEAN_RECIPE_YAML)
 
@@ -282,7 +272,10 @@ def test_cli_os_target_override(tmp_path: Path) -> None:
     # (There might still be a no_curl_bash or other rule, but not the OS command one.)
     # Actually in this minimal test we just check launchctl is no longer a blocker;
     # we run lint_skill directly to inspect rules cleanly.
-    md = _BASE_MD_LINUX_FRONTMATTER + "\nUse `launchctl load ~/Library/LaunchAgents/com.example.plist`.\n"
+    md = (
+        _BASE_MD_LINUX_FRONTMATTER
+        + "\nUse `launchctl load ~/Library/LaunchAgents/com.example.plist`.\n"
+    )
     result = lint_skill(md, recipe_yaml=CLEAN_RECIPE_YAML, os_targets=["macos"])
     rules = _violations_by_rule(result)
     assert "os_unknown_command" not in rules, (
@@ -294,7 +287,6 @@ def test_cli_os_target_override(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Bonus: frontmatter parser unit tests
 # ---------------------------------------------------------------------------
-
 
 def test_parse_frontmatter_inline_list() -> None:
     text = "---\nos_supported: [linux, macos]\n---\n# Skill\n"

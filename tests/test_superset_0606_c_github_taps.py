@@ -45,12 +45,8 @@ class TestTapList:
         # marketing_0712 — 7th facet (github-marketing) added.
         assert len(GITHUB_TAPS) == 7
         assert set(GITHUB_FACET_SOURCES) == {
-            "github-anthropic",
-            "github-openai",
-            "github-huggingface",
-            "github-nvidia",
-            "github-gstack",
-            "github-superpowers",
+            "github-anthropic", "github-openai", "github-huggingface",
+            "github-nvidia", "github-gstack", "github-superpowers",
             "github-marketing",
         }
 
@@ -80,15 +76,8 @@ class TestTapList:
 
 class TestGitHubTapAdapter:
     def test_redistributable_skill_is_fetch_origin(self):
-        rows = [
-            {
-                "slug": "github-gstack--x",
-                "name": "x",
-                "html_url": "https://h",
-                "license": "mit",
-                "redistributable": True,
-            }
-        ]
+        rows = [{"slug": "github-gstack--x", "name": "x", "html_url": "https://h",
+                 "license": "mit", "redistributable": True}]
         ad = get_adapter("github-gstack", fetch=lambda q: rows)
         assert isinstance(ad, GitHubTapAdapter)
         sk = ad.search("")[0]
@@ -98,15 +87,8 @@ class TestGitHubTapAdapter:
 
     def test_source_available_skill_is_deep_link(self):
         # An anthropic docx-style skill with a non-redistributable license.
-        rows = [
-            {
-                "slug": "github-anthropic--docx",
-                "name": "docx",
-                "html_url": "https://h",
-                "license": "licenseref-anthropic",
-                "redistributable": False,
-            }
-        ]
+        rows = [{"slug": "github-anthropic--docx", "name": "docx", "html_url": "https://h",
+                 "license": "licenseref-anthropic", "redistributable": False}]
         ad = get_adapter("github-anthropic", fetch=lambda q: rows)
         sk = ad.search("")[0]
         assert sk.install_path.value == "deep_link"
@@ -119,15 +101,8 @@ class TestGitHubTapAdapter:
             assert ad.source_id == facet
 
     def test_resolve_by_slug(self):
-        rows = [
-            {
-                "slug": "github-nvidia--cuda",
-                "name": "cuda",
-                "html_url": "h",
-                "license": "apache-2.0",
-                "redistributable": True,
-            }
-        ]
+        rows = [{"slug": "github-nvidia--cuda", "name": "cuda", "html_url": "h",
+                 "license": "apache-2.0", "redistributable": True}]
         ad = get_adapter("github-nvidia", fetch=lambda q: rows)
         assert ad.resolve("github-nvidia--cuda") is not None
         assert ad.resolve("nope") is None
@@ -150,11 +125,7 @@ class TestGitHubTapFetch:
     def test_walk_lists_skill_dirs_and_resolves_repo_license(self, monkeypatch):
         # gstack: whole-repo MIT → all skills fetch-origin, no per-skill LICENSE read.
         contents = [
-            {
-                "type": "dir",
-                "name": "skill-a",
-                "html_url": "https://github.com/garrytan/gstack/tree/main/skill-a",
-            },
+            {"type": "dir", "name": "skill-a", "html_url": "https://github.com/garrytan/gstack/tree/main/skill-a"},
             {"type": "dir", "name": "skill-b", "html_url": "https://x"},
             {"type": "dir", "name": ".hidden"},  # skipped
             {"type": "file", "name": "README.md"},  # skipped
@@ -278,25 +249,13 @@ class TestTapInstall:
     def test_origin_fetcher_resolves_real_skill_md(self, monkeypatch):
         import app.services.federation_install as fi
 
-        rows = [
-            {
-                "slug": "github-gstack--cool",
-                "name": "cool",
-                "license": "mit",
-                "redistributable": True,
-                "repo": "garrytan/gstack",
-                "branch": "main",
-                "skill_path": "cool",
-                "html_url": "h",
-            }
-        ]
+        rows = [{"slug": "github-gstack--cool", "name": "cool", "license": "mit",
+                 "redistributable": True, "repo": "garrytan/gstack", "branch": "main",
+                 "skill_path": "cool", "html_url": "h"}]
         monkeypatch.setitem(fl.LIVE_FETCH, "github-gstack", lambda q: rows)
         monkeypatch.setattr(
-            fi,
-            "guarded_get",
-            lambda url, **k: (
-                _Resp(200, text="---\nname: cool\n---\n# Cool skill") if "SKILL.md" in url else _Resp(404)
-            ),
+            fi, "guarded_get",
+            lambda url, **k: _Resp(200, text="---\nname: cool\n---\n# Cool skill") if "SKILL.md" in url else _Resp(404),
         )
         got = fi.github_tap_origin_skill_md("github-gstack--cool")
         assert got is not None
@@ -330,25 +289,12 @@ class TestTapInstall:
             ("github-superpowers", "obra/superpowers", "mit"),
         ]:
             slug = f"{facet}--demo"
-            rows = [
-                {
-                    "slug": slug,
-                    "name": "demo",
-                    "license": lic,
-                    "redistributable": True,
-                    "repo": repo,
-                    "branch": "main",
-                    "skill_path": "skills/demo",
-                    "html_url": "h",
-                }
-            ]
+            rows = [{"slug": slug, "name": "demo", "license": lic, "redistributable": True,
+                     "repo": repo, "branch": "main", "skill_path": "skills/demo", "html_url": "h"}]
             monkeypatch.setitem(fl.LIVE_FETCH, facet, lambda q, _r=rows: _r)
             monkeypatch.setattr(
-                fi,
-                "guarded_get",
-                lambda url, **k: (
-                    _Resp(200, text=f"---\nname: demo\n---\n# {url}") if "SKILL.md" in url else _Resp(404)
-                ),
+                fi, "guarded_get",
+                lambda url, **k: _Resp(200, text=f"---\nname: demo\n---\n# {url}") if "SKILL.md" in url else _Resp(404),
             )
             payload = resolve_external_install(facet, slug)
             assert payload is not None, f"{facet} must yield an installable skill"
@@ -361,18 +307,9 @@ class TestTapInstall:
         from app.services.bundle_external import resolve_external_install
 
         slug = "github-anthropic--docx"
-        rows = [
-            {
-                "slug": slug,
-                "name": "docx",
-                "license": "licenseref-anthropic",
-                "redistributable": False,
-                "repo": "anthropics/skills",
-                "branch": "main",
-                "skill_path": "skills/docx",
-                "html_url": "h",
-            }
-        ]
+        rows = [{"slug": slug, "name": "docx", "license": "licenseref-anthropic",
+                 "redistributable": False, "repo": "anthropics/skills", "branch": "main",
+                 "skill_path": "skills/docx", "html_url": "h"}]
         monkeypatch.setitem(fl.LIVE_FETCH, "github-anthropic", lambda q: rows)
         # route_install blocks deep-link BEFORE the fetcher fires → None (no rehost).
         assert resolve_external_install("github-anthropic", slug) is None

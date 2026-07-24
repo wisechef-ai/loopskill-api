@@ -4,7 +4,6 @@ Covers the bundle-lock lifecycle + three-way drift classification. Each guard
 is RED-proofed: the negative case (drift NOT detected / clobber) is asserted to
 fail-closed, per the plan's "RED-proof each guard" gate.
 """
-
 from __future__ import annotations
 
 from uuid import uuid4
@@ -32,20 +31,11 @@ def _seed_skill_with_version(db, slug, semver="1.0.0", checksum="hash-v1"):
 
 
 def _bundle_with_skill(db, skill, pin_mode="track", pinned_version=None):
-    bundle = Bundle(
-        id=uuid4(), name="Test Bundle", visibility="public", is_base=False, slug=f"b-{uuid4().hex[:8]}"
-    )
+    bundle = Bundle(id=uuid4(), name="Test Bundle", visibility="public", is_base=False, slug=f"b-{uuid4().hex[:8]}")
     db.add(bundle)
     db.flush()
-    db.add(
-        BundleSkill(
-            bundle_id=bundle.id,
-            skill_id=skill.id,
-            source="custom-added",
-            pin_mode=pin_mode,
-            pinned_version=pinned_version,
-        )
-    )
+    db.add(BundleSkill(bundle_id=bundle.id, skill_id=skill.id, source="custom-added",
+                       pin_mode=pin_mode, pinned_version=pinned_version))
     db.commit()
     return bundle
 
@@ -54,14 +44,10 @@ def _bundle_with_skill(db, skill, pin_mode="track", pinned_version=None):
 
 
 def test_lock_hash_deterministic_and_order_independent():
-    a = [
-        {"slug": "x", "version": "1", "content_hash": "h1"},
-        {"slug": "y", "version": "2", "content_hash": "h2"},
-    ]
-    b = [
-        {"slug": "y", "version": "2", "content_hash": "h2"},
-        {"slug": "x", "version": "1", "content_hash": "h1"},
-    ]  # reversed
+    a = [{"slug": "x", "version": "1", "content_hash": "h1"},
+         {"slug": "y", "version": "2", "content_hash": "h2"}]
+    b = [{"slug": "y", "version": "2", "content_hash": "h2"},
+         {"slug": "x", "version": "1", "content_hash": "h1"}]  # reversed
     assert compute_lock_hash(a) == compute_lock_hash(b)
 
 
@@ -103,15 +89,10 @@ def test_mint_lock_is_immutable_bumps_revision(db_session):
     lock1 = mint_bundle_lock(db_session, bundle)
     # bump the skill upstream: new version with a strictly-later timestamp so
     # "latest" ordering is unambiguous (mirrors a real second publish).
-    db_session.add(
-        SkillVersion(
-            id=uuid4(),
-            skill_id=skill.id,
-            semver="2.0.0",
-            checksum_sha256="hash-a-v2",
-            created_at=datetime.datetime.now() + datetime.timedelta(seconds=10),
-        )
-    )
+    db_session.add(SkillVersion(
+        id=uuid4(), skill_id=skill.id, semver="2.0.0", checksum_sha256="hash-a-v2",
+        created_at=datetime.datetime.now() + datetime.timedelta(seconds=10),
+    ))
     db_session.commit()
     lock2 = mint_bundle_lock(db_session, bundle)
 
@@ -203,15 +184,10 @@ def test_prior_revision_hashes_maps_slug_history(db_session):
     skill = _seed_skill_with_version(db_session, "grok-search", "1.0.0", "gh1")
     bundle = _bundle_with_skill(db_session, skill)
     mint_bundle_lock(db_session, bundle)
-    db_session.add(
-        SkillVersion(
-            id=uuid4(),
-            skill_id=skill.id,
-            semver="2.0.0",
-            checksum_sha256="gh2",
-            created_at=datetime.datetime.now() + datetime.timedelta(seconds=10),
-        )
-    )
+    db_session.add(SkillVersion(
+        id=uuid4(), skill_id=skill.id, semver="2.0.0", checksum_sha256="gh2",
+        created_at=datetime.datetime.now() + datetime.timedelta(seconds=10),
+    ))
     db_session.commit()
     mint_bundle_lock(db_session, bundle)
 
@@ -281,7 +257,9 @@ def _lock_app(db, user_id):
 
     @app.middleware("http")
     async def inject_auth(request: Request, call_next):
-        request.state.auth_ctx = AuthContext(scope="user", user_id=user_id, api_key_id=None, tier="free")
+        request.state.auth_ctx = AuthContext(
+            scope="user", user_id=user_id, api_key_id=None, tier="free"
+        )
         return await call_next(request)
 
     app.dependency_overrides[get_db] = override_get_db
@@ -294,19 +272,11 @@ def test_route_mint_and_get_lock(db_session):
 
     owner = uuid4()
     skill = _seed_skill_with_version(db_session, "route-skill", "1.0.0", "rh1")
-    bundle = Bundle(
-        id=uuid4(),
-        name="Route B",
-        visibility="public",
-        is_base=False,
-        slug=f"rb-{uuid4().hex[:8]}",
-        bundle_owner=owner,
-    )
+    bundle = Bundle(id=uuid4(), name="Route B", visibility="public", is_base=False,
+                    slug=f"rb-{uuid4().hex[:8]}", bundle_owner=owner)
     db_session.add(bundle)
     db_session.flush()
-    db_session.add(
-        BundleSkill(bundle_id=bundle.id, skill_id=skill.id, source="custom-added", pin_mode="track")
-    )
+    db_session.add(BundleSkill(bundle_id=bundle.id, skill_id=skill.id, source="custom-added", pin_mode="track"))
     db_session.commit()
 
     client = TestClient(_lock_app(db_session, owner))
@@ -327,33 +297,20 @@ def test_route_drift_three_way(db_session):
 
     owner = uuid4()
     skill = _seed_skill_with_version(db_session, "drift-skill", "1.0.0", "dh1")
-    bundle = Bundle(
-        id=uuid4(),
-        name="Drift B",
-        visibility="public",
-        is_base=False,
-        slug=f"db-{uuid4().hex[:8]}",
-        bundle_owner=owner,
-    )
+    bundle = Bundle(id=uuid4(), name="Drift B", visibility="public", is_base=False,
+                    slug=f"db-{uuid4().hex[:8]}", bundle_owner=owner)
     db_session.add(bundle)
     db_session.flush()
-    db_session.add(
-        BundleSkill(bundle_id=bundle.id, skill_id=skill.id, source="custom-added", pin_mode="track")
-    )
+    db_session.add(BundleSkill(bundle_id=bundle.id, skill_id=skill.id, source="custom-added", pin_mode="track"))
     db_session.commit()
 
     client = TestClient(_lock_app(db_session, owner))
     client.post(f"/api/bundles/{bundle.id}/lock")
 
     # agent reports a hand-edited copy → drift (not clobbered)
-    r = client.post(
-        f"/api/bundles/{bundle.id}/drift",
-        json={
-            "installed": [
-                {"slug": "drift-skill", "pinned_version": "1.0.0", "checksum_sha256": "HAND-EDITED"}
-            ]
-        },
-    )
+    r = client.post(f"/api/bundles/{bundle.id}/drift", json={
+        "installed": [{"slug": "drift-skill", "pinned_version": "1.0.0", "checksum_sha256": "HAND-EDITED"}]
+    })
     assert r.status_code == 200, r.text
     body = r.json()
     verdicts = {x["slug"]: x["verdict"] for x in body["results"]}
@@ -366,29 +323,18 @@ def test_route_drift_in_sync(db_session):
 
     owner = uuid4()
     skill = _seed_skill_with_version(db_session, "sync-skill", "1.0.0", "syncedhash")
-    bundle = Bundle(
-        id=uuid4(),
-        name="Sync B",
-        visibility="public",
-        is_base=False,
-        slug=f"sb-{uuid4().hex[:8]}",
-        bundle_owner=owner,
-    )
+    bundle = Bundle(id=uuid4(), name="Sync B", visibility="public", is_base=False,
+                    slug=f"sb-{uuid4().hex[:8]}", bundle_owner=owner)
     db_session.add(bundle)
     db_session.flush()
-    db_session.add(
-        BundleSkill(bundle_id=bundle.id, skill_id=skill.id, source="custom-added", pin_mode="track")
-    )
+    db_session.add(BundleSkill(bundle_id=bundle.id, skill_id=skill.id, source="custom-added", pin_mode="track"))
     db_session.commit()
 
     client = TestClient(_lock_app(db_session, owner))
     client.post(f"/api/bundles/{bundle.id}/lock")
 
-    r = client.post(
-        f"/api/bundles/{bundle.id}/drift",
-        json={
-            "installed": [{"slug": "sync-skill", "pinned_version": "1.0.0", "checksum_sha256": "syncedhash"}]
-        },
-    )
+    r = client.post(f"/api/bundles/{bundle.id}/drift", json={
+        "installed": [{"slug": "sync-skill", "pinned_version": "1.0.0", "checksum_sha256": "syncedhash"}]
+    })
     assert r.json()["summary"]["in_sync"] == 1
     assert r.json()["summary"]["drift"] == 0

@@ -298,9 +298,9 @@ class TestReconcileIsolation:
 
         ctx = AuthContext(scope="user", user_id=intruder.id, tier="pro")
         res = recipes_reconcile(db, cookbook_id=str(cb.id), local=[], ctx=ctx)
-        assert res.get("error") == "cookbook_forbidden", (
-            "a non-owner must not be able to reconcile another tenant's cookbook"
-        )
+        assert (
+            res.get("error") == "cookbook_forbidden"
+        ), "a non-owner must not be able to reconcile another tenant's cookbook"
 
 
 class TestBackwardCompat:

@@ -65,7 +65,9 @@ def test_server_local_missing_path_returns_install_dir_not_found(db, tmp_path):
 
 def test_valid_install_dir_no_violations(db, tmp_path):
     skill_md = tmp_path / "SKILL.md"
-    skill_md.write_text("---\nname: testskill\ndescription: portable\n---\n# Test skill\n")
+    skill_md.write_text(
+        "---\nname: testskill\ndescription: portable\n---\n# Test skill\n"
+    )
     meta = tmp_path / "_meta.json"
     meta.write_text(json.dumps({"slug": "testskill", "version": "1.0.0"}))
     out = loopskill_doctor(db, str(tmp_path))

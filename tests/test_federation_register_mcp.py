@@ -82,7 +82,9 @@ class TestBuildConfig:
         cfg = build_mcp_server_config(sk)
         assert cfg["server_key"] == "web-search"
         assert cfg["endpoint"] == "https://mcp.acme.dev/sse"
-        assert cfg["mcp_config"] == {"mcpServers": {"web-search": {"url": "https://mcp.acme.dev/sse"}}}
+        assert cfg["mcp_config"] == {
+            "mcpServers": {"web-search": {"url": "https://mcp.acme.dev/sse"}}
+        }
         assert "mcp_servers:" in cfg["hermes_yaml"]
         assert "web-search" in cfg["hermes_yaml"]
         assert '"mcpServers"' in cfg["claude_desktop_json"]
@@ -118,9 +120,8 @@ class TestBuildConfig:
 
 
 class TestRegisterMcpRoute:
-    def _seed_mcp_row(
-        self, db_session, *, source="lobehub", slug="acme--web-search", endpoint="https://mcp.acme.dev/sse"
-    ):
+    def _seed_mcp_row(self, db_session, *, source="lobehub", slug="acme--web-search",
+                      endpoint="https://mcp.acme.dev/sse"):
         """Seed the federation cache first_page with a REGISTER_MCP row.
 
         The install route resolves cache-first (read_first_page → from_dict), so
@@ -138,7 +139,9 @@ class TestRegisterMcpRoute:
             "redistributable": True,
             "description": "remote MCP server",
         }
-        fcache.write_source_cache(db_session, source, indexed_count=1, installable_count=1, first_page=[row])
+        fcache.write_source_cache(
+            db_session, source, indexed_count=1, installable_count=1, first_page=[row]
+        )
 
     def test_register_mcp_install_returns_config_block(self, client, db_session):
         self._seed_mcp_row(db_session)
@@ -148,7 +151,9 @@ class TestRegisterMcpRoute:
         assert body["install_path"] == "register_mcp"
         assert body["server_key"] == "web-search"
         assert body["endpoint"] == "https://mcp.acme.dev/sse"
-        assert body["mcp_config"] == {"mcpServers": {"web-search": {"url": "https://mcp.acme.dev/sse"}}}
+        assert body["mcp_config"] == {
+            "mcpServers": {"web-search": {"url": "https://mcp.acme.dev/sse"}}
+        }
         assert "mcp_servers:" in body["hermes_yaml"]
         # The legacy inert stub note must be GONE for this path.
         assert "not yet executable here" not in body.get("note", "")

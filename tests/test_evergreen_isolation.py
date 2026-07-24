@@ -214,3 +214,4 @@ class TestPhaseFFederationIsolation:
         assert INTERNAL_SOURCE == "recipes"
         res = merge_search([], [], free_sources_enabled=True)
         assert res.external == [] and res.internal == []
+

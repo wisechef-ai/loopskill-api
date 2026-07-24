@@ -1,5 +1,4 @@
 """tests/test_quality_1705_quality_score.py — Phase C scoring gates."""
-
 from __future__ import annotations
 
 import sys
@@ -39,9 +38,9 @@ def session_factory(db_engine):
 
 def test_quality_score_column_exists(db_engine):
     with db_engine.connect() as conn:
-        ddl = conn.execute(
-            text("SELECT sql FROM sqlite_master WHERE type='table' AND name='skills'")
-        ).scalar()
+        ddl = conn.execute(text(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='skills'"
+        )).scalar()
     assert "quality_score" in ddl
 
 
@@ -240,21 +239,18 @@ def test_main_is_idempotent(session_factory):
     session.close()
 
     import io
-
     sys.argv = ["scorer", "--commit", "--db-url", db_url]
     scorer.main()
 
     # Second run: capture stdout, parse updated_count
     sys.argv = ["scorer", "--commit", "--db-url", db_url]
     import contextlib
-
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         scorer.main()
     out = buf.getvalue()
     import json
-
-    payload = json.loads(out[out.index("{") : out.rindex("}") + 1])
+    payload = json.loads(out[out.index("{"):out.rindex("}") + 1])
     assert payload["updated_count"] == 0, "Idempotent: second --commit produces zero diffs"
 
 
@@ -283,7 +279,12 @@ def test_unhappy_paths_score_zero_when_key_missing():
 
 
 def test_unhappy_paths_score_low_for_one_entry():
-    rm = "---\nunhappy_paths:\n  - condition: x rate limit\n    recovery: backoff and retry\n---\nbody"
+    rm = (
+        "---\nunhappy_paths:\n"
+        "  - condition: x rate limit\n"
+        "    recovery: backoff and retry\n"
+        "---\nbody"
+    )
     # v2: 1 entry = 4.0 (bumped from 3.0 — token attempt is worth something)
     assert scorer._unhappy_paths_score(rm) == 4.0
 
@@ -406,10 +407,10 @@ body
 # -----------------------------------------------------------------------------
 
 
-def _mk_anchor_skill(slug, install, has_outcome_verb=True, n_unhappy=3, uhappy_avg=80, fresh_days=0):
+def _mk_anchor_skill(slug, install, has_outcome_verb=True, n_unhappy=3,
+                      uhappy_avg=80, fresh_days=0):
     """Build the input args compute_score expects for an anchor-skill test."""
     from datetime import datetime, timezone, timedelta
-
     now = datetime.now(timezone.utc)
     # Fake a description that starts with an outcome verb (well over 100c)
     if has_outcome_verb:
@@ -427,13 +428,10 @@ def _mk_anchor_skill(slug, install, has_outcome_verb=True, n_unhappy=3, uhappy_a
     # Created long ago so age cap doesn't kick in
     created = now - timedelta(days=60)
     return dict(
-        install_count=install,
-        last_verified=last_verified,
-        description=desc,
-        created_at=created,
+        install_count=install, last_verified=last_verified,
+        description=desc, created_at=created,
         all_install_counts=[install, 0, 0, 5, 10],
-        now=now,
-        readme=readme,
+        now=now, readme=readme,
     )
 
 
@@ -442,7 +440,6 @@ def test_v2_anchor_well_documented_skill_with_some_installs_scores_at_least_8():
     installs should score ≥8.0 under v2. This is the floor that Adam-named
     references (larry/chef/plan-for-goal/ruthless-mentor/brainstorming) hit."""
     from scripts.quality_1705_compute_quality_score import compute_score
-
     args = _mk_anchor_skill("chef", install=2)
     assert compute_score(**args) >= 8.0
 
@@ -453,10 +450,10 @@ def test_v2_anchor_zero_install_well_documented_skill_scores_at_least_8():
     being new. This was the v1 bug — zero installs dropped 2 points off
     every new skill, making 8.0+ unreachable until adoption proved itself."""
     from scripts.quality_1705_compute_quality_score import compute_score
-
     args = _mk_anchor_skill("plan-for-goal", install=0)
     assert compute_score(**args) >= 8.0, (
-        "Zero-install but well-documented skill should clear 8.0 — v2's job is to stop penalising newness."
+        "Zero-install but well-documented skill should clear 8.0 — "
+        "v2's job is to stop penalising newness."
     )
 
 
@@ -464,7 +461,6 @@ def test_v2_anchor_thin_description_skill_scores_below_8():
     """Reverse check: skills with thin/non-outcome descriptions stay below 8.0
     even with good unhappy_paths. The formula correctly surfaces content debt."""
     from scripts.quality_1705_compute_quality_score import compute_score
-
     args = _mk_anchor_skill("data-pipeline", install=0, has_outcome_verb=False)
     # has_outcome_verb=False produces "A data-pipeline skill that does the thing..."
     # which is short (<100c) AND article-led → desc_s should be modest
@@ -479,20 +475,19 @@ def test_v2_install_weight_is_only_10_percent():
     This is the structural fix that lets new skills clear 8.0."""
     from scripts.quality_1705_compute_quality_score import compute_score
     from datetime import datetime, timezone, timedelta
-
     now = datetime.now(timezone.utc)
     base_kwargs = dict(
         last_verified=now,
         description="Generates a real outcome with substantial description text "
-        "for over 100 characters of useful explanation here.",
+                   "for over 100 characters of useful explanation here.",
         created_at=now - timedelta(days=60),
         all_install_counts=[0, 0, 100],
         now=now,
         readme="---\nunhappy_paths:\n"
-        "  - condition: " + "x" * 80 + "\n    recovery: " + "y" * 80 + "\n"
-        "  - condition: " + "x" * 80 + "\n    recovery: " + "y" * 80 + "\n"
-        "  - condition: " + "x" * 80 + "\n    recovery: " + "y" * 80 + "\n"
-        "---\nbody",
+               "  - condition: " + "x"*80 + "\n    recovery: " + "y"*80 + "\n"
+               "  - condition: " + "x"*80 + "\n    recovery: " + "y"*80 + "\n"
+               "  - condition: " + "x"*80 + "\n    recovery: " + "y"*80 + "\n"
+               "---\nbody",
     )
     # Same skill, install=0 vs install=100 — score diff should be ≤ 0.5 (i.e.
     # the install signal accounts for at most ~0.5 points on the 10-point scale)

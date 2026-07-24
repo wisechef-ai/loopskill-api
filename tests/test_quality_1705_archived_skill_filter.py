@@ -11,7 +11,6 @@ Acceptance gates this guards:
 - incident-response-openclaw → 301 → incident-response (alias hits)
 - hub-search-* (4 variants) → 301 → local-skills-discovery (alias hits)
 """
-
 from __future__ import annotations
 
 import uuid

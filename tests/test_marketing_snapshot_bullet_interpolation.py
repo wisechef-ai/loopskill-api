@@ -9,7 +9,6 @@ the LIVE DB counts. This pins three contracts:
 2. An unknown {token} in copy is left verbatim (never raises KeyError).
 3. The number rendered always equals counts.pro_skills (drift-proof).
 """
-
 from __future__ import annotations
 
 from app.marketing_routes import _SafeCountDict, marketing_snapshot
@@ -51,5 +50,7 @@ def test_bullet_count_tracks_db_no_drift(db_session) -> None:
 
     snap = marketing_snapshot(db_session)
     pro_count = snap["counts"]["pro_skills"]
-    catalog_bullet = next(b for b in snap["tiers"]["pro"]["bullets"] if "paid skill in the catalog" in b)
+    catalog_bullet = next(
+        b for b in snap["tiers"]["pro"]["bullets"] if "paid skill in the catalog" in b
+    )
     assert f"{pro_count} today" in catalog_bullet

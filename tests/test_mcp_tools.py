@@ -37,16 +37,11 @@ from tests.conftest import make_skill
 
 # ── loopskill_search ──────────────────────────────────────────────────────────
 
-
 def test_search_returns_public_skills_matching_query(db_session):
-    make_skill(
-        db_session,
-        slug="orchestrate-llm",
-        title="Orchestrate LLM",
-        description="LLM orchestration helper",
-        category="ops",
-    )
-    make_skill(db_session, slug="not-this", title="Other Tool", description="Unrelated", category="ops")
+    make_skill(db_session, slug="orchestrate-llm", title="Orchestrate LLM",
+               description="LLM orchestration helper", category="ops")
+    make_skill(db_session, slug="not-this", title="Other Tool",
+               description="Unrelated", category="ops")
     db_session.commit()
 
     result = loopskill_search(db_session, query="orchestrate", limit=10)
@@ -57,14 +52,8 @@ def test_search_returns_public_skills_matching_query(db_session):
 
 
 def test_search_excludes_private_skills(db_session):
-    make_skill(
-        db_session,
-        slug="private-x",
-        title="Private Skill",
-        description="hidden",
-        category="ops",
-        is_public=False,
-    )
+    make_skill(db_session, slug="private-x", title="Private Skill",
+               description="hidden", category="ops", is_public=False)
     db_session.commit()
     result = loopskill_search(db_session, query="Private", limit=10)
     assert all(r["slug"] != "private-x" for r in result["results"])
@@ -72,9 +61,9 @@ def test_search_excludes_private_skills(db_session):
 
 # ── loopskill_install ─────────────────────────────────────────────────────────
 
-
 def test_install_returns_signed_url_and_manifest(db_session):
-    skill = make_skill(db_session, slug="install-me", title="Install Me", description="…", category="ops")
+    skill = make_skill(db_session, slug="install-me", title="Install Me",
+                       description="…", category="ops")
     sv = SkillVersion(
         id=uuid4(),
         skill_id=skill.id,
@@ -103,7 +92,6 @@ def test_install_unknown_slug_returns_not_found(db_session):
 
 # ── loopskill_list_bundle ───────────────────────────────────────────────────
 
-
 def test_list_cookbook_returns_null_for_unknown_user(db_session):
     out = loopskill_list_bundle(db_session, user_id=str(uuid4()))
     assert out == {"cookbook": None, "skills": []}
@@ -113,8 +101,11 @@ def test_list_cookbook_returns_skills_for_owner(db_session):
     owner_id = uuid4()
     cb = Bundle(id=uuid4(), name="My Book", bundle_owner=owner_id)
     db_session.add(cb)
-    skill = make_skill(db_session, slug="cb-skill", title="Cookbook Skill", description="…", category="ops")
-    db_session.add(BundleSkill(bundle_id=cb.id, skill_id=skill.id, source="forked"))
+    skill = make_skill(db_session, slug="cb-skill", title="Cookbook Skill",
+                       description="…", category="ops")
+    db_session.add(BundleSkill(
+        bundle_id=cb.id, skill_id=skill.id, source="forked"
+    ))
     db_session.commit()
 
     out = loopskill_list_bundle(db_session, user_id=str(owner_id))
@@ -126,7 +117,6 @@ def test_list_cookbook_returns_skills_for_owner(db_session):
 
 # ── loopskill_recall / loopskill_skillify / loopskill_subskill_resolve ───────────
 
-
 def test_recall_requires_query(db_session):
     # Phase E (v2) replaces the stub. Empty calls report a missing-query error
     # instead of the old not_implemented payload.
@@ -137,13 +127,8 @@ def test_recall_requires_query(db_session):
 def test_recall_returns_hits_shape(db_session):
     from tests.conftest import make_skill
 
-    make_skill(
-        db_session,
-        slug="web-scraper",
-        title="Web scraper",
-        description="Scrape websites and extract data",
-        tier="free",
-    )
+    make_skill(db_session, slug="web-scraper", title="Web scraper",
+               description="Scrape websites and extract data", tier="free")
     db_session.flush()
     out = loopskill_recall(db_session, query="scrape websites", limit=3)
     assert "hits" in out and "backend" in out
@@ -168,24 +153,20 @@ def test_subrecipe_resolve_reports_pro_plus(db_session):
 
 # ── loopskill_carousel_today ──────────────────────────────────────────────────
 
-
 def test_carousel_today_returns_entries_for_utc_today(db_session):
     today = datetime.now(timezone.utc)
-    skill = make_skill(
-        db_session, slug="carousel-skill", title="Carousel Skill", description="…", category="ops"
-    )
-    db_session.add(
-        CarouselEntry(
-            id=uuid4(),
-            featured_date=today,
-            slot=1,
-            position=0,
-            skill_id=skill.id,
-            role="new-capability",
-            tagline="hello",
-            score=8.0,
-        )
-    )
+    skill = make_skill(db_session, slug="carousel-skill", title="Carousel Skill",
+                       description="…", category="ops")
+    db_session.add(CarouselEntry(
+        id=uuid4(),
+        featured_date=today,
+        slot=1,
+        position=0,
+        skill_id=skill.id,
+        role="new-capability",
+        tagline="hello",
+        score=8.0,
+    ))
     db_session.commit()
 
     out = loopskill_carousel_today(db_session)
@@ -194,7 +175,6 @@ def test_carousel_today_returns_entries_for_utc_today(db_session):
 
 
 # ── loopskill_doctor ──────────────────────────────────────────────────────────
-
 
 def test_doctor_flags_missing_files(db_session):
     with tempfile.TemporaryDirectory() as tmp:

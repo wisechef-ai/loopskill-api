@@ -218,7 +218,6 @@ class TestValidateKeyApiKeyId:
         assert result["api_key_id"] is None
         # auth_ctx should be present and correct
         from app.auth_ctx import AuthContext
-
         assert isinstance(result.get("auth_ctx"), AuthContext)
         assert result["auth_ctx"].scope == "master"
 
@@ -279,7 +278,9 @@ class TestListCookbookUsesCallerUserId:
             "user_id": user.id,
             "api_key_id": api_key.id,
         }
-        payload = _drive_call_tool_with_caller(server, "loopskill_list_bundle", {}, caller)
+        payload = _drive_call_tool_with_caller(
+            server, "loopskill_list_bundle", {}, caller
+        )
         assert payload["cookbook"] is not None, (
             "Bug regression: caller's own cookbook should resolve from user_id"
         )
@@ -335,7 +336,11 @@ class TestInstallRecordsApiKeyId:
         )
         assert payload.get("slug") == "installable-skill"
 
-        event = db_session.query(InstallEvent).filter(InstallEvent.skill_slug == "installable-skill").one()
+        event = (
+            db_session.query(InstallEvent)
+            .filter(InstallEvent.skill_slug == "installable-skill")
+            .one()
+        )
         assert event.api_key_id == api_key_id, (
             "Bug regression: InstallEvent.api_key_id must reflect authenticated key"
         )
@@ -356,9 +361,15 @@ class TestInstallRecordsApiKeyId:
         # Master operator scope — explicitly null user/key (the production
         # ASGI fast-path stashes exactly this dict when the master key is used).
         caller = {"scope": "operator", "user_id": None, "api_key_id": None}
-        _drive_call_tool_with_caller(server, "loopskill_install", {"slug": "master-installable"}, caller)
+        _drive_call_tool_with_caller(
+            server, "loopskill_install", {"slug": "master-installable"}, caller
+        )
 
-        event = db_session.query(InstallEvent).filter(InstallEvent.skill_slug == "master-installable").one()
+        event = (
+            db_session.query(InstallEvent)
+            .filter(InstallEvent.skill_slug == "master-installable")
+            .one()
+        )
         assert event.api_key_id is None
 
 
@@ -619,7 +630,9 @@ class TestStreamableHTTPAuthGateStashesCaller:
                 },
             )
         assert resp.status_code == 401
-        assert called["forwarded"] is False, "Unauthorized requests must not reach the session manager"
+        assert called["forwarded"] is False, (
+            "Unauthorized requests must not reach the session manager"
+        )
 
 
 # ── loopskill_sync caller plumbing ────────────────────────────────────────

@@ -102,21 +102,11 @@ def test_invalid_yaml():
     assert res["errors"][0].startswith("yaml:")
 
 
-@pytest.mark.parametrize(
-    "slug",
-    [
-        "cognee",
-        "scrapling-official",
-        "web-scraper-pro",
-        "faster-whisper",
-        "kokoro-tts",
-        "manim-video",
-        "ascii-video",
-        "comfyui",
-        "llama-cpp",
-        "ollama-low-vram-model-pick",
-    ],
-)
+@pytest.mark.parametrize("slug", [
+    "cognee", "scrapling-official", "web-scraper-pro", "faster-whisper",
+    "kokoro-tts", "manim-video", "ascii-video", "comfyui",
+    "llama-cpp", "ollama-low-vram-model-pick",
+])
 def test_top10_recipes_validate(slug):
     """F.9 deliverable: every authored recipe.yaml must pass F.1 validation."""
     repo_root = Path(__file__).resolve().parents[1]

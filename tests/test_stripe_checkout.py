@@ -27,7 +27,6 @@ from app.models import User, StripeEventId
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
-
 def _make_user(db: Session, email: str = "stripe@example.com", **kwargs) -> User:
     """Create and flush a User row for testing."""
     defaults = dict(
@@ -66,7 +65,11 @@ def _fake_subscription(sub_id="sub_test_123", tier="pro", price_id="price_cook_1
         "status": "active",
         "customer": "cus_test_123",
         "current_period_end": 1740000000,  # far future
-        "items": {"data": [{"price": {"id": price_id, "metadata": {"tier": tier}}}]},
+        "items": {
+            "data": [
+                {"price": {"id": price_id, "metadata": {"tier": tier}}}
+            ]
+        },
         "metadata": {},
     }
 
@@ -91,7 +94,6 @@ class TestCheckoutCreation:
     def test_checkout_returns_session_url(self, mock_stripe, client, db_session):
         """1. Valid tier creates a checkout session and returns {session_id, url, tier}."""
         from app.checkout_routes import get_current_user_optional
-
         user = _make_user(db_session, stripe_customer_id="cus_existing_001")
         mock_stripe.checkout.Session.create.return_value = {
             "id": "cs_test_xyz",
@@ -99,10 +101,7 @@ class TestCheckoutCreation:
         }
 
         client.app.dependency_overrides[get_current_user_optional] = lambda: user
-        with patch(
-            "app.subscription_service.TIER_PRICE_IDS",
-            {"pro": "price_test_cook", "pro_plus": "price_test_operator"},
-        ):
+        with patch("app.subscription_service.TIER_PRICE_IDS", {"pro": "price_test_cook", "pro_plus": "price_test_operator"}):
             try:
                 resp = client.post("/api/checkout/cook")
             finally:
@@ -117,7 +116,6 @@ class TestCheckoutCreation:
     def test_checkout_rejects_invalid_tier(self, client, db_session):
         """2. Invalid tier returns 400 with helpful message."""
         from app.checkout_routes import get_current_user_optional
-
         user = _make_user(db_session)
         client.app.dependency_overrides[get_current_user_optional] = lambda: user
         try:
@@ -177,10 +175,11 @@ class TestWebhookSignatureVerification:
     def test_invalid_signature_rejected(self, mock_stripe, client):
         """5. Invalid webhook signature returns 400."""
         import stripe as real_stripe
-
-        mock_stripe.error.SignatureVerificationError = real_stripe.error.SignatureVerificationError
-        mock_stripe.Webhook.construct_event.side_effect = real_stripe.error.SignatureVerificationError(
-            "bad sig", "payload", "sig"
+        mock_stripe.error.SignatureVerificationError = (
+            real_stripe.error.SignatureVerificationError
+        )
+        mock_stripe.Webhook.construct_event.side_effect = (
+            real_stripe.error.SignatureVerificationError("bad sig", "payload", "sig")
         )
 
         resp = client.post(
@@ -261,7 +260,6 @@ class TestBillingMe:
     def test_billing_me_returns_subscription_state(self, client, db_session):
         """10. /api/billing/me returns current subscription state for authed user."""
         from app.checkout_routes import get_current_user_optional
-
         user = _make_user(
             db_session,
             subscription_status="active",

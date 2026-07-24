@@ -88,4 +88,6 @@ def test_no_hardcoded_app_version_literals_outside_version_py() -> None:
         for i, line in enumerate(py.read_text().splitlines(), 1):
             if pattern.search(line):
                 offenders.append(f"{py.relative_to(APP_DIR.parent)}:{i}: {line.strip()}")
-    assert not offenders, "hardcoded version literals (use app.version.__version__):\n" + "\n".join(offenders)
+    assert not offenders, "hardcoded version literals (use app.version.__version__):\n" + "\n".join(
+        offenders
+    )

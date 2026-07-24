@@ -22,7 +22,6 @@ This file pins the seam with the PRODUCTION middleware via `build_test_app`:
 
 Same bug class as 2026-05-19 P1 on `/api/skills/access`.
 """
-
 from __future__ import annotations
 
 import io
@@ -137,7 +136,9 @@ def _seed_skill_with_tarball(db, slug: str, tier: str, files: dict[str, bytes]) 
 class TestSkillFilesPublicAtMiddleware:
     def test_files_manifest_public_no_key(self, app_with_real_middleware, db):
         """GET /api/skills/{slug}/files with NO api-key → 200 (was bare-401)."""
-        _seed_skill_with_tarball(db, "w01-free", "free", {"SKILL.md": b"# Hello\n", "run.py": b"print(1)\n"})
+        _seed_skill_with_tarball(
+            db, "w01-free", "free", {"SKILL.md": b"# Hello\n", "run.py": b"print(1)\n"}
+        )
         client = TestClient(app_with_real_middleware)
         resp = client.get("/api/skills/w01-free/files")  # deliberately no x-api-key
         assert resp.status_code == 200, resp.text
@@ -149,7 +150,9 @@ class TestSkillFilesPublicAtMiddleware:
 
     def test_file_skillmd_public_no_key_on_free_skill(self, app_with_real_middleware, db):
         """GET /api/skills/{slug}/file?path=SKILL.md (free skill, no key) → 200."""
-        _seed_skill_with_tarball(db, "w01-free2", "free", {"SKILL.md": b"# Free skill body\n"})
+        _seed_skill_with_tarball(
+            db, "w01-free2", "free", {"SKILL.md": b"# Free skill body\n"}
+        )
         client = TestClient(app_with_real_middleware)
         resp = client.get("/api/skills/w01-free2/file", params={"path": "SKILL.md"})
         assert resp.status_code == 200, resp.text
@@ -168,7 +171,8 @@ class TestSkillFilesPublicAtMiddleware:
         resp = client.get("/api/skills/w01-pro/file", params={"path": "secret.py"})
         # Must NOT be the middleware's bare 401 "Invalid or missing x-api-key header"
         assert resp.status_code != 401, (
-            f"Middleware bare-401'd before the route ran — W0.1 regression. Body: {resp.text}"
+            "Middleware bare-401'd before the route ran — W0.1 regression. "
+            f"Body: {resp.text}"
         )
         assert resp.status_code == 403, resp.text
         assert "Pro subscription required" in resp.json()["detail"]
@@ -179,11 +183,14 @@ class TestSkillFilesPublicAtMiddleware:
         bare-401. The middleware seam stays open (request reaches the route); the
         route's paywall closes on the body. SKILL.md is the curated deliverable,
         so it is gated exactly like scripts/."""
-        _seed_skill_with_tarball(db, "w01-pro2", "pro", {"SKILL.md": b"# Pro readme\n", "x.py": b"1\n"})
+        _seed_skill_with_tarball(
+            db, "w01-pro2", "pro", {"SKILL.md": b"# Pro readme\n", "x.py": b"1\n"}
+        )
         client = TestClient(app_with_real_middleware)
         resp = client.get("/api/skills/w01-pro2/file", params={"path": "SKILL.md"})
         assert resp.status_code != 401, (
-            f"Middleware bare-401'd before the route ran — W0.1 regression. Body: {resp.text}"
+            "Middleware bare-401'd before the route ran — W0.1 regression. "
+            f"Body: {resp.text}"
         )
         assert resp.status_code == 403, resp.text
         assert "Pro subscription required" in resp.json()["detail"]

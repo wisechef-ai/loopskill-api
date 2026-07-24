@@ -5,7 +5,6 @@ its fallback URL when the connection cap is hit.  These tests verify the
 ``since`` filter, action classification, and that the fallback URL emitted
 by a 503 sse_pool_exhausted response actually works.
 """
-
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -110,22 +109,12 @@ def test_since_filter_returns_only_new_events(db_session):
 
     old_ts = datetime(2026, 1, 1, 0, 0, 0)
     new_ts = datetime(2026, 5, 1, 0, 0, 0)
-    db_session.add(
-        BundleSkill(
-            bundle_id=cb.id,
-            skill_id=s_old.id,
-            source="custom-added",
-            added_at=old_ts,
-        )
-    )
-    db_session.add(
-        BundleSkill(
-            bundle_id=cb.id,
-            skill_id=s_new.id,
-            source="custom-added",
-            added_at=new_ts,
-        )
-    )
+    db_session.add(BundleSkill(
+        bundle_id=cb.id, skill_id=s_old.id, source="custom-added", added_at=old_ts,
+    ))
+    db_session.add(BundleSkill(
+        bundle_id=cb.id, skill_id=s_new.id, source="custom-added", added_at=new_ts,
+    ))
     db_session.commit()
 
     client = _build_client(db_session, uid=user.id)
@@ -144,14 +133,10 @@ def test_disabled_classified_as_removed(db_session):
     skill = _make_skill(db_session, "ghost")
     db_session.add(cb)
     db_session.flush()
-    db_session.add(
-        BundleSkill(
-            bundle_id=cb.id,
-            skill_id=skill.id,
-            source="disabled",
-            added_at=datetime(2026, 5, 1, 0, 0, 0),
-        )
-    )
+    db_session.add(BundleSkill(
+        bundle_id=cb.id, skill_id=skill.id, source="disabled",
+        added_at=datetime(2026, 5, 1, 0, 0, 0),
+    ))
     db_session.commit()
 
     client = _build_client(db_session, uid=user.id)
@@ -168,14 +153,10 @@ def test_overridden_classified_as_updated(db_session):
     skill = _make_skill(db_session, "patched")
     db_session.add(cb)
     db_session.flush()
-    db_session.add(
-        BundleSkill(
-            bundle_id=cb.id,
-            skill_id=skill.id,
-            source="overridden",
-            added_at=datetime(2026, 5, 1, 0, 0, 0),
-        )
-    )
+    db_session.add(BundleSkill(
+        bundle_id=cb.id, skill_id=skill.id, source="overridden",
+        added_at=datetime(2026, 5, 1, 0, 0, 0),
+    ))
     db_session.commit()
 
     client = _build_client(db_session, uid=user.id)

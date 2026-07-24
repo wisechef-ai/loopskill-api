@@ -3,7 +3,6 @@
 Verified at the unit level via a mock urllib3 PoolManager: when the env var
 is "off", `send_heartbeat` MUST NOT call `.request(...)` at all.
 """
-
 from __future__ import annotations
 
 import os
@@ -45,7 +44,6 @@ def test_unset_sends(monkeypatch):
     body = kwargs.get("body") or args[2]
     # Body must contain only salt and last_seen_day
     import json as _json
-
     parsed = _json.loads(body)
     assert set(parsed.keys()) == {"salt", "last_seen_day"}
 

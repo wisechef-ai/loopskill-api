@@ -8,7 +8,6 @@ skill's readme YAML frontmatter. It must:
     unhappy_paths block
   * stop counting at the next top-level YAML key (not bleed into siblings)
 """
-
 from __future__ import annotations
 
 from fastapi import FastAPI

@@ -3,7 +3,6 @@
 Covers: schema validation, regex audit rejection, rate limiting (10/h per
 agent_fp_anon), happy path persistence, FK enforcement on skill_id.
 """
-
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -48,7 +47,8 @@ def _make_skill(db, slug="incident-target"):
     return s
 
 
-def _payload(skill_id, sig="abc123def4567890" + "0" * 16, agent="agent-fp-deadbeef-cafe", **over):
+def _payload(skill_id, sig="abc123def4567890" + "0" * 16,
+             agent="agent-fp-deadbeef-cafe", **over):
     base = {
         "skill_id": str(skill_id),
         "error_signature": sig,
@@ -64,7 +64,6 @@ def _payload(skill_id, sig="abc123def4567890" + "0" * 16, agent="agent-fp-deadbe
 
 
 # ── audit_payload ──────────────────────────────────────────────────────
-
 
 def test_audit_rejects_api_key():
     p = {"command": "run rec_" + "0" * 32}
@@ -103,7 +102,6 @@ def test_audit_walks_env_fingerprint_dict():
 
 # ── Rate limit unit ────────────────────────────────────────────────────
 
-
 def test_rate_limit_allows_under_threshold():
     _reset_rate_limits()
     for _ in range(10):
@@ -125,7 +123,6 @@ def test_rate_limit_independent_per_agent():
 
 
 # ── Endpoint ───────────────────────────────────────────────────────────
-
 
 def test_post_incident_happy_path(feedback_client, db_session):
     skill = _make_skill(db_session)
@@ -171,8 +168,7 @@ def test_post_incident_rejects_audit_violation(feedback_client, db_session):
 
 def test_post_incident_rejects_missing_skill(feedback_client, db_session):
     r = feedback_client.post(
-        "/api/feedback/incident",
-        json=_payload(uuid4()),
+        "/api/feedback/incident", json=_payload(uuid4()),
     )
     assert r.status_code == 404
 
@@ -193,7 +189,8 @@ def test_post_incident_persists_env_fingerprint(feedback_client, db_session):
     db_session.commit()
     payload = _payload(
         skill.id,
-        env_fingerprint={"os": "darwin", "arch": "arm64", "ram_gb": 64, "skill_version": "1.2.3"},
+        env_fingerprint={"os": "darwin", "arch": "arm64",
+                         "ram_gb": 64, "skill_version": "1.2.3"},
     )
     r = feedback_client.post("/api/feedback/incident", json=payload)
     assert r.status_code == 201

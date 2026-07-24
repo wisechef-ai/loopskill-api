@@ -10,7 +10,6 @@ Tests:
   3. Empty name rejected (422)
   4. Non-existent cookbook (404)
 """
-
 from __future__ import annotations
 
 import uuid

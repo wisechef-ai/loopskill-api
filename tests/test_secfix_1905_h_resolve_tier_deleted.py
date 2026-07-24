@@ -15,7 +15,6 @@ from pathlib import Path
 
 # ── 1. Function deleted from _skill_helpers ───────────────────────────────────
 
-
 def test_resolve_caller_tier_not_in_skill_helpers() -> None:
     """_resolve_caller_tier must be absent from app/_skill_helpers.py."""
     src = (Path(__file__).parents[1] / "app" / "_skill_helpers.py").read_text()
@@ -25,7 +24,6 @@ def test_resolve_caller_tier_not_in_skill_helpers() -> None:
 
 
 # ── 2. No callers in app/ ─────────────────────────────────────────────────────
-
 
 def test_no_callers_of_resolve_caller_tier_in_app() -> None:
     """No file in app/ should call _resolve_caller_tier("""
@@ -44,13 +42,13 @@ def test_no_callers_of_resolve_caller_tier_in_app() -> None:
                 if "_resolve_caller_tier_for_install" in line:
                     continue
                 found.append(f"{py_file.relative_to(app_dir.parent)}:{i}: {line.strip()}")
-    assert not found, "_resolve_caller_tier() called in app/ — issue #25 not fully fixed:\n" + "\n".join(
-        found
+    assert not found, (
+        "_resolve_caller_tier() called in app/ — issue #25 not fully fixed:\n"
+        + "\n".join(found)
     )
 
 
 # ── 3. Middleware stamps tier from User.subscription_tier ─────────────────────
-
 
 def test_middleware_stamps_tier_in_auth_ctx() -> None:
     """APIKeyMiddleware must populate auth_ctx.tier when a valid api-key is used.
@@ -74,11 +72,10 @@ def test_middleware_stamps_tier_in_auth_ctx() -> None:
 
 # ── 4. skill_routes uses auth_ctx.tier ───────────────────────────────────────
 
-
 def test_skill_routes_uses_auth_ctx_tier() -> None:
     """skill_routes.py must read the paywall tier from auth_ctx, not _resolve_caller_tier."""
     src = (Path(__file__).parents[1] / "app" / "skill_routes.py").read_text()
-    assert "auth_ctx.tier" in src or 'auth_ctx", None), "tier"' in src or '"auth_ctx", None)' in src, (
+    assert "auth_ctx.tier" in src or "auth_ctx\", None), \"tier\"" in src or "\"auth_ctx\", None)" in src, (
         "skill_routes.py does not use auth_ctx.tier for the paywall — issue #25 incomplete"
     )
     assert "_resolve_caller_tier(" not in src, (
@@ -88,11 +85,12 @@ def test_skill_routes_uses_auth_ctx_tier() -> None:
 
 # ── 5. access_routes uses auth_ctx.tier ──────────────────────────────────────
 
-
 def test_access_routes_uses_auth_ctx_tier() -> None:
     """access_routes.py must read the tier from auth_ctx, not _resolve_caller_tier."""
     src = (Path(__file__).parents[1] / "app" / "access_routes.py").read_text()
-    assert "auth_ctx" in src, "access_routes.py does not reference auth_ctx — issue #25 incomplete"
+    assert "auth_ctx" in src, (
+        "access_routes.py does not reference auth_ctx — issue #25 incomplete"
+    )
     assert "_resolve_caller_tier(" not in src, (
         "access_routes.py still calls _resolve_caller_tier() — issue #25 not fully applied"
     )

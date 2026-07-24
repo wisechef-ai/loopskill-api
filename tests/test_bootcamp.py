@@ -110,7 +110,9 @@ class TestClaimGrounding:
         cfg = load_bootcamp_config()
         for track in cfg["tracks"]:
             first = track["steps"][0]
-            assert first["tier"] == "free", f"track {track['id']} must start free, got {first['tier']}"
+            assert first["tier"] == "free", (
+                f"track {track['id']} must start free, got {first['tier']}"
+            )
 
     def test_every_track_crosses_into_paid(self):
         """A bootcamp that never reaches a paid skill has no conversion path."""

@@ -16,7 +16,6 @@ from unittest.mock import MagicMock, patch
 
 # ── 1. sqlite env skips the check ────────────────────────────────────────────
 
-
 def test_alembic_check_skips_on_sqlite(tmp_path) -> None:
     """check_alembic_heads is a no-op when DATABASE_URL contains 'sqlite'."""
     from app.startup_checks import check_alembic_heads
@@ -26,7 +25,6 @@ def test_alembic_check_skips_on_sqlite(tmp_path) -> None:
 
 
 # ── 2. non-sqlite + head mismatch raises ─────────────────────────────────────
-
 
 def test_alembic_check_raises_on_head_mismatch() -> None:
     """Simulated pg URL with stale heads raises RuntimeError."""
@@ -57,13 +55,11 @@ def test_alembic_check_raises_on_head_mismatch() -> None:
         mock_mc.configure.return_value = fake_ctx
 
         import pytest
-
         with pytest.raises(RuntimeError, match="NOT at alembic head"):
             check_alembic_heads(database_url="postgresql://user:pass@host/db")
 
 
 # ── 3. grep: no create_all in main.py ────────────────────────────────────────
-
 
 def test_no_create_all_in_main() -> None:
     """app/main.py must not contain Base.metadata.create_all."""
@@ -76,18 +72,17 @@ def test_no_create_all_in_main() -> None:
 
 # ── 4. create_app calls check_alembic_heads (not create_all) ─────────────────
 
-
 def test_create_app_calls_check_alembic_heads(monkeypatch) -> None:
     """create_app() must invoke check_alembic_heads() (no-op in sqlite env)."""
     called = []
 
     import app.startup_checks as sc
-
     monkeypatch.setattr(sc, "check_alembic_heads", lambda: called.append("called"))
 
     import app.main as main_mod
-
     importlib.reload(main_mod)
     app_obj = main_mod.create_app()
 
-    assert "called" in called, "create_app() did not call check_alembic_heads() — issue #21 regression"
+    assert "called" in called, (
+        "create_app() did not call check_alembic_heads() — issue #21 regression"
+    )

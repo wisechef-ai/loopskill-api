@@ -101,7 +101,9 @@ def live_reconcile_server():
 
     class InjectAuth(BaseHTTPMiddleware):
         async def dispatch(self, request, call_next):
-            request.state.auth_ctx = AuthContext(scope="user", user_id=owner_id, api_key_id=None, tier="pro")
+            request.state.auth_ctx = AuthContext(
+                scope="user", user_id=owner_id, api_key_id=None, tier="pro"
+            )
             request.state.api_key_id = f"loadtest-{uuid4()}"
             return await call_next(request)
 
@@ -166,7 +168,9 @@ class TestReconcileLoadtestTargetsRealEndpoint:
             f"ship-blocker was real), got {status}"
         )
 
-    def test_green_fixed_harness_passes_against_real_reconcile_endpoint(self, live_reconcile_server):
+    def test_green_fixed_harness_passes_against_real_reconcile_endpoint(
+        self, live_reconcile_server
+    ):
         """GREEN: the fixed harness targets the real cookbook reconcile route
         and gets 200 on the cold poll + 304s on repeat polls (fast-path) —
         the correctness contract the §7.5 gate depends on.
@@ -252,7 +256,9 @@ class TestReconcileLoadtestTargetsRealEndpoint:
         from scripts.metasearch_p5_loadtest import reconcile_load_test
 
         base_url, cookbook_id = live_reconcile_server
-        result = reconcile_load_test(base_url, api_key=None, cookbook_id=cookbook_id, agent_count=100_000)
+        result = reconcile_load_test(
+            base_url, api_key=None, cookbook_id=cookbook_id, agent_count=100_000
+        )
         # steady_rps = 100_000/30/60 ≈ 55.6/s * 60s ≈ 3333 steady polls + 200 burst.
         assert result["total_requests"] > 200
         assert result["errors"] == 0, f"100k agent_count produced errors: {result}"
@@ -269,7 +275,9 @@ class TestReconcileLoadtestTargetsRealEndpoint:
         # A syntactically-valid-looking but nonexistent UUID → warm-up gets
         # 404, no ETag header, inm_headers must fall back to {} without raising.
         nonexistent_uuid = "00000000-0000-0000-0000-000000000000"
-        result = reconcile_load_test(base_url, api_key=None, cookbook_id=nonexistent_uuid, agent_count=1)
+        result = reconcile_load_test(
+            base_url, api_key=None, cookbook_id=nonexistent_uuid, agent_count=1
+        )
         assert result["errors"] > 0  # every poll 404s — expected, not a crash
         assert result["pass"] is False
         assert result["status_codes"].get(200, 0) == 0

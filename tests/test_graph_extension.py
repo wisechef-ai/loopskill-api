@@ -18,7 +18,6 @@ Tests cover:
   * existing edge types (tag_overlap, co_install, related_skills,
     category_sibling) still answerable via the new endpoint
 """
-
 from __future__ import annotations
 
 import json
@@ -49,7 +48,6 @@ from tests.conftest import make_skill
 
 # ── Test scaffolding ────────────────────────────────────────────────────
 
-
 @pytest.fixture()
 def graph_app(db_session: Session) -> Generator[TestClient, None, None]:
     """TestClient with the graph router + middleware-equivalent.
@@ -76,15 +74,14 @@ def graph_app(db_session: Session) -> Generator[TestClient, None, None]:
 
 def _make_skill_with_tags(db: Session, slug: str, tags: list[str], **kw) -> Skill:
     skill = make_skill(db, slug=slug, title=slug.title(), **kw)
-    toml_text = f'[skill]\nname = "{slug}"\ntags = {json.dumps(tags)}\n'
-    db.add(
-        SkillVersion(
-            id=uuid4(),
-            skill_id=skill.id,
-            semver="1.0.0",
-            skill_toml=toml_text,
-        )
+    toml_text = (
+        "[skill]\n"
+        f'name = "{slug}"\n'
+        f'tags = {json.dumps(tags)}\n'
     )
+    db.add(SkillVersion(
+        id=uuid4(), skill_id=skill.id, semver="1.0.0", skill_toml=toml_text,
+    ))
     db.flush()
     return skill
 
@@ -97,9 +94,8 @@ def _ensure_incident_reports_table(db: Session) -> None:
     we use a slug+signature shape, so drop any existing table and recreate.
     """
     db.execute(text("DROP TABLE IF EXISTS incident_reports"))
-    db.execute(
-        text(
-            """
+    db.execute(text(
+        """
         CREATE TABLE incident_reports (
             id VARCHAR(36) PRIMARY KEY,
             skill_slug VARCHAR(255),
@@ -107,8 +103,7 @@ def _ensure_incident_reports_table(db: Session) -> None:
             occurred_at DATETIME
         )
         """
-        )
-    )
+    ))
     db.flush()
 
 
@@ -129,7 +124,6 @@ def _insert_incident(db: Session, skill_slug: str, signature: str, when: datetim
 
 
 # ── 1. failed_after derivation ──────────────────────────────────────────
-
 
 class TestFailedAfter:
     def test_returns_empty_when_table_missing(self, db_session: Session):
@@ -155,14 +149,12 @@ class TestFailedAfter:
 
             t0 = datetime.now(timezone.utc)
             # Predecessor installed 2 minutes before victim's incident
-            db_session.add(
-                InstallEvent(
-                    id=uuid4(),
-                    skill_id=preceder.id,
-                    skill_slug=preceder.slug,
-                    created_at=t0 - timedelta(minutes=2),
-                )
-            )
+            db_session.add(InstallEvent(
+                id=uuid4(),
+                skill_id=preceder.id,
+                skill_slug=preceder.slug,
+                created_at=t0 - timedelta(minutes=2),
+            ))
             db_session.commit()
 
             _insert_incident(db_session, "victim", "TimeoutError", t0)
@@ -190,14 +182,10 @@ class TestFailedAfter:
 
             t0 = datetime.now(timezone.utc)
             # 10 minutes before — beyond the 5-minute window
-            db_session.add(
-                InstallEvent(
-                    id=uuid4(),
-                    skill_id=preceder.id,
-                    skill_slug=preceder.slug,
-                    created_at=t0 - timedelta(minutes=10),
-                )
-            )
+            db_session.add(InstallEvent(
+                id=uuid4(), skill_id=preceder.id, skill_slug=preceder.slug,
+                created_at=t0 - timedelta(minutes=10),
+            ))
             db_session.commit()
             _insert_incident(db_session, "victim", "X", t0)
 
@@ -216,14 +204,10 @@ class TestFailedAfter:
             db_session.commit()
 
             t0 = datetime.now(timezone.utc)
-            db_session.add(
-                InstallEvent(
-                    id=uuid4(),
-                    skill_id=preceder.id,
-                    skill_slug=preceder.slug,
-                    created_at=t0 - timedelta(minutes=2),
-                )
-            )
+            db_session.add(InstallEvent(
+                id=uuid4(), skill_id=preceder.id, skill_slug=preceder.slug,
+                created_at=t0 - timedelta(minutes=2),
+            ))
             db_session.commit()
             # 1 incident → weight 1.0; min_weight 0.99 should keep it
             _insert_incident(db_session, "victim", "X", t0)
@@ -236,7 +220,6 @@ class TestFailedAfter:
 
 
 # ── 2. arch_compatible_with derivation ──────────────────────────────────
-
 
 class TestArchCompatible:
     def test_returns_empty_when_column_missing(self, db_session: Session):
@@ -256,7 +239,9 @@ class TestArchCompatible:
 
         # SQLite supports ADD COLUMN. We do this on the session's own
         # connection so the rest of the test sees it.
-        db_session.execute(text("ALTER TABLE install_events ADD COLUMN host_fingerprint VARCHAR(64)"))
+        db_session.execute(text(
+            "ALTER TABLE install_events ADD COLUMN host_fingerprint VARCHAR(64)"
+        ))
         db_session.flush()
 
         alpha = _make_skill_with_tags(db_session, "alpha", ["x"])
@@ -269,7 +254,6 @@ class TestArchCompatible:
         # dialect-specific serialisation (hex vs dashed) consistently with
         # the FK target rows.
         from app.models import InstallEvent as _IE
-
         for slug, skill_obj, fp in [
             ("alpha", alpha, "host-A"),
             ("alpha", alpha, "host-B"),
@@ -287,7 +271,9 @@ class TestArchCompatible:
             # Direct UPDATE to set the test-only column without round-tripping
             # via the ORM (the model doesn't declare host_fingerprint yet).
             db_session.execute(
-                text("UPDATE install_events SET host_fingerprint=:fp WHERE id=:id"),
+                text(
+                    "UPDATE install_events SET host_fingerprint=:fp WHERE id=:id"
+                ),
                 {"fp": fp, "id": ie.id.hex},
             )
         db_session.flush()
@@ -309,22 +295,16 @@ class TestArchCompatible:
 
 # ── 3. replaced_by — manual + auto-detection ────────────────────────────
 
-
 class TestReplacedBy:
     def test_manual_replacement_surfaces_at_weight_one(self, db_session: Session):
         from app.graph_extension import replaced_by_edges
 
         old = _make_skill_with_tags(db_session, "old-skill", ["x"])
         new = _make_skill_with_tags(db_session, "new-skill", ["x"])
-        db_session.add(
-            SkillReplacement(
-                id=uuid4(),
-                source_id=old.id,
-                target_id=new.id,
-                reason="superseded",
-                created_by="master",
-            )
-        )
+        db_session.add(SkillReplacement(
+            id=uuid4(), source_id=old.id, target_id=new.id,
+            reason="superseded", created_by="master",
+        ))
         db_session.commit()
 
         edges = replaced_by_edges(db_session, "old-skill")
@@ -338,19 +318,15 @@ class TestReplacedBy:
 
         old = _make_skill_with_tags(db_session, "flaky", ["x"])
         new = _make_skill_with_tags(db_session, "stable", ["x"])
-        db_session.add(
-            ReplacementCandidate(
-                id=uuid4(),
-                source_id=old.id,
-                target_id=new.id,
-                evidence_json={
-                    "incident_count": 12,
-                    "incident_share": 0.7,
-                    "co_invoke_weight": 0.5,
-                },
-                status="pending",
-            )
-        )
+        db_session.add(ReplacementCandidate(
+            id=uuid4(), source_id=old.id, target_id=new.id,
+            evidence_json={
+                "incident_count": 12,
+                "incident_share": 0.7,
+                "co_invoke_weight": 0.5,
+            },
+            status="pending",
+        ))
         db_session.commit()
 
         edges = replaced_by_edges(db_session, "flaky")
@@ -364,20 +340,18 @@ class TestReplacedBy:
 
         old = _make_skill_with_tags(db_session, "flaky", ["x"])
         new = _make_skill_with_tags(db_session, "stable", ["x"])
-        db_session.add(
-            ReplacementCandidate(
-                id=uuid4(),
-                source_id=old.id,
-                target_id=new.id,
-                evidence_json={"incident_share": 0.9, "co_invoke_weight": 0.9},
-                status="rejected",
-            )
-        )
+        db_session.add(ReplacementCandidate(
+            id=uuid4(), source_id=old.id, target_id=new.id,
+            evidence_json={"incident_share": 0.9, "co_invoke_weight": 0.9},
+            status="rejected",
+        ))
         db_session.commit()
 
         assert replaced_by_edges(db_session, "flaky") == []
 
-    def test_sweep_proposes_candidates_when_evidence_meets_threshold(self, db_session: Session):
+    def test_sweep_proposes_candidates_when_evidence_meets_threshold(
+        self, db_session: Session
+    ):
         """The cron sweep should flag a high-incident skill with a viable
         co-installed alternative that itself has fewer incidents."""
         from app.graph_extension import sweep_replacement_candidates
@@ -395,15 +369,12 @@ class TestReplacedBy:
             for _ in range(4):
                 _insert_incident(db_session, "stable", "Boom", t)
 
-            db_session.add(
-                SkillDerivedEdge(
-                    id=uuid4(),
-                    source_slug="flaky",
-                    target_slug="stable",
-                    weight=0.5,
-                    signals={"jaccard": 0.0, "category": 0.0, "coinstall": 0.6},
-                )
-            )
+            db_session.add(SkillDerivedEdge(
+                id=uuid4(),
+                source_slug="flaky", target_slug="stable",
+                weight=0.5,
+                signals={"jaccard": 0.0, "category": 0.0, "coinstall": 0.6},
+            ))
             db_session.commit()
 
             inserted = sweep_replacement_candidates(db_session)
@@ -433,15 +404,11 @@ class TestReplacedBy:
                 _insert_incident(db_session, "stable", "Boom", t)
 
             # Co-invoke too weak (0.1 < CO_INVOKED_MIN=0.3)
-            db_session.add(
-                SkillDerivedEdge(
-                    id=uuid4(),
-                    source_slug="flaky",
-                    target_slug="stable",
-                    weight=0.2,
-                    signals={"coinstall": 0.1},
-                )
-            )
+            db_session.add(SkillDerivedEdge(
+                id=uuid4(),
+                source_slug="flaky", target_slug="stable",
+                weight=0.2, signals={"coinstall": 0.1},
+            ))
             db_session.commit()
 
             assert sweep_replacement_candidates(db_session) == 0
@@ -463,15 +430,11 @@ class TestReplacedBy:
                 _insert_incident(db_session, "flaky", "Boom", t)
             for _ in range(3):
                 _insert_incident(db_session, "stable", "Boom", t)
-            db_session.add(
-                SkillDerivedEdge(
-                    id=uuid4(),
-                    source_slug="flaky",
-                    target_slug="stable",
-                    weight=0.6,
-                    signals={"coinstall": 0.5},
-                )
-            )
+            db_session.add(SkillDerivedEdge(
+                id=uuid4(),
+                source_slug="flaky", target_slug="stable",
+                weight=0.6, signals={"coinstall": 0.5},
+            ))
             db_session.commit()
 
             n1 = sweep_replacement_candidates(db_session)
@@ -488,9 +451,10 @@ class TestReplacedBy:
 
 # ── 4. /api/graph/related endpoint ──────────────────────────────────────
 
-
 class TestEndpoint:
-    def test_endpoint_validates_edge_type(self, graph_app: TestClient, db_session: Session):
+    def test_endpoint_validates_edge_type(
+        self, graph_app: TestClient, db_session: Session
+    ):
         _make_skill_with_tags(db_session, "alpha", ["x"])
         db_session.commit()
         r = graph_app.get("/api/graph/related?skill=alpha&edge=garbage")
@@ -501,7 +465,9 @@ class TestEndpoint:
         r = graph_app.get("/api/graph/related?skill=nope&edge=related_skills")
         assert r.status_code == 404
 
-    def test_endpoint_returns_declared_related(self, graph_app: TestClient, db_session: Session):
+    def test_endpoint_returns_declared_related(
+        self, graph_app: TestClient, db_session: Session
+    ):
         _make_skill_with_tags(db_session, "alpha", ["x"], related_skills=["beta"])
         _make_skill_with_tags(db_session, "beta", ["x"])
         db_session.commit()
@@ -519,15 +485,12 @@ class TestEndpoint:
     ):
         _make_skill_with_tags(db_session, "alpha", ["x"])
         _make_skill_with_tags(db_session, "beta", ["x"])
-        db_session.add(
-            SkillDerivedEdge(
-                id=uuid4(),
-                source_slug="alpha",
-                target_slug="beta",
-                weight=0.6,
-                signals={"jaccard": 0.5, "category": 1.0, "coinstall": 0.0},
-            )
-        )
+        db_session.add(SkillDerivedEdge(
+            id=uuid4(),
+            source_slug="alpha", target_slug="beta",
+            weight=0.6,
+            signals={"jaccard": 0.5, "category": 1.0, "coinstall": 0.0},
+        ))
         db_session.commit()
 
         r = graph_app.get("/api/graph/related?skill=alpha&edge=tag_overlap")
@@ -535,31 +498,27 @@ class TestEndpoint:
         body = r.json()
         assert any(e["skill_slug"] == "beta" and e["weight"] == 0.5 for e in body)
 
-    def test_endpoint_min_weight_filter(self, graph_app: TestClient, db_session: Session):
+    def test_endpoint_min_weight_filter(
+        self, graph_app: TestClient, db_session: Session
+    ):
         _make_skill_with_tags(db_session, "alpha", ["x"])
         _make_skill_with_tags(db_session, "beta", ["x"])
         _make_skill_with_tags(db_session, "gamma", ["x"])
-        db_session.add(
-            SkillDerivedEdge(
-                id=uuid4(),
-                source_slug="alpha",
-                target_slug="beta",
-                weight=0.8,
-                signals={"jaccard": 0.8},
-            )
-        )
-        db_session.add(
-            SkillDerivedEdge(
-                id=uuid4(),
-                source_slug="alpha",
-                target_slug="gamma",
-                weight=0.2,
-                signals={"jaccard": 0.2},
-            )
-        )
+        db_session.add(SkillDerivedEdge(
+            id=uuid4(),
+            source_slug="alpha", target_slug="beta",
+            weight=0.8, signals={"jaccard": 0.8},
+        ))
+        db_session.add(SkillDerivedEdge(
+            id=uuid4(),
+            source_slug="alpha", target_slug="gamma",
+            weight=0.2, signals={"jaccard": 0.2},
+        ))
         db_session.commit()
 
-        r = graph_app.get("/api/graph/related?skill=alpha&edge=tag_overlap&min_weight=0.5")
+        r = graph_app.get(
+            "/api/graph/related?skill=alpha&edge=tag_overlap&min_weight=0.5"
+        )
         body = r.json()
         slugs = {e["skill_slug"] for e in body}
         assert "beta" in slugs
@@ -571,23 +530,15 @@ class TestEndpoint:
         flaky = _make_skill_with_tags(db_session, "flaky", ["x"])
         stable = _make_skill_with_tags(db_session, "stable", ["x"])
         better = _make_skill_with_tags(db_session, "better", ["x"])
-        db_session.add(
-            SkillReplacement(
-                id=uuid4(),
-                source_id=flaky.id,
-                target_id=stable.id,
-                created_by="master",
-            )
-        )
-        db_session.add(
-            ReplacementCandidate(
-                id=uuid4(),
-                source_id=flaky.id,
-                target_id=better.id,
-                evidence_json={"incident_share": 0.6, "co_invoke_weight": 0.5},
-                status="pending",
-            )
-        )
+        db_session.add(SkillReplacement(
+            id=uuid4(), source_id=flaky.id, target_id=stable.id,
+            created_by="master",
+        ))
+        db_session.add(ReplacementCandidate(
+            id=uuid4(), source_id=flaky.id, target_id=better.id,
+            evidence_json={"incident_share": 0.6, "co_invoke_weight": 0.5},
+            status="pending",
+        ))
         db_session.commit()
 
         r = graph_app.get("/api/graph/related?skill=flaky&edge=replaced_by")
@@ -597,7 +548,9 @@ class TestEndpoint:
         assert body[0]["weight"] == 1.0
         assert any(e["skill_slug"] == "better" and e["weight"] < 1.0 for e in body)
 
-    def test_endpoint_failed_after_empty_when_table_missing(self, graph_app: TestClient, db_session: Session):
+    def test_endpoint_failed_after_empty_when_table_missing(
+        self, graph_app: TestClient, db_session: Session
+    ):
         # Belt-and-braces: if B.1 hasn't shipped, endpoint must be 200 [].
         _drop_incident_reports_table(db_session)
         _make_skill_with_tags(db_session, "victim", ["x"])
@@ -617,7 +570,9 @@ class TestEndpoint:
         assert r.status_code == 200
         assert r.json() == []
 
-    def test_endpoint_public_no_api_key_required(self, graph_app: TestClient, db_session: Session):
+    def test_endpoint_public_no_api_key_required(
+        self, graph_app: TestClient, db_session: Session
+    ):
         """The /api/graph prefix is in PUBLIC_PREFIXES, so no auth header
         is required. The TestClient here doesn't even mount the auth
         middleware, but the production wiring also exempts the prefix —
@@ -629,9 +584,9 @@ class TestEndpoint:
 
     def test_public_prefix_registered_in_middleware(self):
         from app.middleware import APIKeyMiddleware
-
         assert any(
-            p == "/api/graph" or p.startswith("/api/graph") for p in APIKeyMiddleware.PUBLIC_PREFIXES
+            p == "/api/graph" or p.startswith("/api/graph")
+            for p in APIKeyMiddleware.PUBLIC_PREFIXES
         ), f"/api/graph must be in PUBLIC_PREFIXES, got {APIKeyMiddleware.PUBLIC_PREFIXES}"
 
     def test_category_sibling_falls_back_to_db_when_no_signal_row(
@@ -654,9 +609,10 @@ class TestEndpoint:
 
 # ── 5. POST /api/graph/replacements (master-only) ───────────────────────
 
-
 class TestReplacementsWriteEndpoint:
-    def test_post_requires_master_key(self, graph_app: TestClient, db_session: Session):
+    def test_post_requires_master_key(
+        self, graph_app: TestClient, db_session: Session
+    ):
         a = _make_skill_with_tags(db_session, "a", ["x"])
         b = _make_skill_with_tags(db_session, "b", ["x"])
         db_session.commit()
@@ -666,7 +622,9 @@ class TestReplacementsWriteEndpoint:
         )
         assert r.status_code == 401
 
-    def test_post_with_master_key_inserts(self, graph_app: TestClient, db_session: Session):
+    def test_post_with_master_key_inserts(
+        self, graph_app: TestClient, db_session: Session
+    ):
         _make_skill_with_tags(db_session, "a", ["x"])
         _make_skill_with_tags(db_session, "b", ["x"])
         db_session.commit()
@@ -681,7 +639,9 @@ class TestReplacementsWriteEndpoint:
         assert body["target_slug"] == "b"
         assert body["reason"] == "test"
 
-    def test_post_rejects_self_replacement(self, graph_app: TestClient, db_session: Session):
+    def test_post_rejects_self_replacement(
+        self, graph_app: TestClient, db_session: Session
+    ):
         _make_skill_with_tags(db_session, "a", ["x"])
         db_session.commit()
         r = graph_app.post(
@@ -691,19 +651,18 @@ class TestReplacementsWriteEndpoint:
         )
         assert r.status_code == 422
 
-    def test_get_lists_replacements_publicly(self, graph_app: TestClient, db_session: Session):
+    def test_get_lists_replacements_publicly(
+        self, graph_app: TestClient, db_session: Session
+    ):
         a = _make_skill_with_tags(db_session, "a", ["x"])
         b = _make_skill_with_tags(db_session, "b", ["x"])
-        db_session.add(
-            SkillReplacement(
-                id=uuid4(),
-                source_id=a.id,
-                target_id=b.id,
-                created_by="master",
-            )
-        )
+        db_session.add(SkillReplacement(
+            id=uuid4(), source_id=a.id, target_id=b.id, created_by="master",
+        ))
         db_session.commit()
         r = graph_app.get("/api/graph/replacements")
         assert r.status_code == 200
         body = r.json()
-        assert any(row["source_slug"] == "a" and row["target_slug"] == "b" for row in body)
+        assert any(
+            row["source_slug"] == "a" and row["target_slug"] == "b" for row in body
+        )

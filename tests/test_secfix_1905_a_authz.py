@@ -8,7 +8,6 @@ Tests cover:
   - can_call_admin_mcp_tool
   - can_run_sandbox
 """
-
 import pytest
 from uuid import uuid4
 from unittest.mock import MagicMock
@@ -24,7 +23,6 @@ from app.authz import (
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
 
 def make_skill(is_public: bool = True, skill_owner=None):
     """Create a mock skill object."""
@@ -43,7 +41,6 @@ def make_cookbook(bundle_owner=None, cookbook_id=None):
 
 
 # ── can_read_skill ────────────────────────────────────────────────────────────
-
 
 def test_can_read_public_skill_anonymous():
     """Public skills are readable by anyone including anonymous."""
@@ -122,7 +119,6 @@ def test_phase_c_clause_skipped_without_db():
 
 # ── can_install ───────────────────────────────────────────────────────────────
 
-
 def test_can_install_mirrors_can_read():
     """can_install has the same rules as can_read_skill."""
     uid = uuid4()
@@ -144,7 +140,6 @@ def test_can_install_master_all():
 
 
 # ── can_write_cookbook ────────────────────────────────────────────────────────
-
 
 def test_can_write_cookbook_master():
     """Master can write any cookbook."""
@@ -201,7 +196,6 @@ def test_cannot_write_cookbook_anonymous():
 
 # ── can_call_admin_mcp_tool ───────────────────────────────────────────────────
 
-
 def test_can_call_admin_mcp_tool_master_only():
     """Only master scope may call admin MCP tools."""
     assert can_call_admin_mcp_tool(AuthContext(scope="master")) is True
@@ -212,7 +206,6 @@ def test_can_call_admin_mcp_tool_master_only():
 
 
 # ── can_run_sandbox ───────────────────────────────────────────────────────────
-
 
 def test_can_run_sandbox_master():
     """Master scope can always run sandbox."""
@@ -246,10 +239,8 @@ def test_master_override_in_can_run_sandbox():
 
 # ── Import test ───────────────────────────────────────────────────────────────
 
-
 def test_imports_cleanly():
     """Module imports cleanly from app.authz."""
     from app.authz import can_write_cookbook, can_run_sandbox  # noqa: F401
-
     assert can_write_cookbook is not None
     assert can_run_sandbox is not None

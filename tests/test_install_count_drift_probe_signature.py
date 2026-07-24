@@ -17,7 +17,6 @@ Fix: deterministic hashlib.sha256 of the canonical input.
 
 Acceptance gate: Phase A in 2026-05-26-repohygiene-2605-execution-plan.md.
 """
-
 from __future__ import annotations
 
 import subprocess
@@ -52,7 +51,9 @@ def _compute_signature_via_subprocess(slug: str, pyhashseed: str | None = None) 
         import os as _os
 
         env = {**_os.environ, "PYTHONHASHSEED": pyhashseed}
-    out = subprocess.check_output([sys.executable, "-c", code], env=env, text=True, stderr=subprocess.STDOUT)
+    out = subprocess.check_output(
+        [sys.executable, "-c", code], env=env, text=True, stderr=subprocess.STDOUT
+    )
     return out.strip()
 
 
@@ -82,7 +83,9 @@ def test_signature_is_stable_across_python_hash_seeds() -> None:
 
 def test_different_slugs_produce_different_signatures() -> None:
     """Sanity: distinct slugs must hash to distinct signatures (no all-zero constant)."""
-    assert _compute_signature_via_subprocess("larry") != _compute_signature_via_subprocess("pr-draft")
+    assert _compute_signature_via_subprocess("larry") != _compute_signature_via_subprocess(
+        "pr-draft"
+    )
     assert _compute_signature_via_subprocess("clean-architecture") != _compute_signature_via_subprocess(
         "code-review"
     )

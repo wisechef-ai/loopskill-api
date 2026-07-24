@@ -32,216 +32,91 @@ from app.ranking import combine, score_bm25, score_vector
 # Each entry: slug, title, description, related_skills (tags), tier, category
 SEED_CATALOG = [
     # research
-    (
-        "paper-summariser",
-        "Academic paper summariser",
-        "Reads PDFs of academic papers and produces structured TLDR summaries with citations.",
-        ["research", "summarisation", "pdf"],
-        "free",
-        "research",
-    ),
-    (
-        "literature-search",
-        "Scholarly literature search",
-        "Searches Google Scholar and arXiv for papers matching a topic and ranks by citation count.",
-        ["research", "scholar", "arxiv"],
-        "pro",
-        "research",
-    ),
+    ("paper-summariser", "Academic paper summariser",
+     "Reads PDFs of academic papers and produces structured TLDR summaries with citations.",
+     ["research", "summarisation", "pdf"], "free", "research"),
+    ("literature-search", "Scholarly literature search",
+     "Searches Google Scholar and arXiv for papers matching a topic and ranks by citation count.",
+     ["research", "scholar", "arxiv"], "pro", "research"),
     # dev-tools
-    (
-        "python-formatter",
-        "Python code formatter",
-        "Formats Python source files using black and ruff with project defaults.",
-        ["python", "formatter", "lint"],
-        "free",
-        "dev-tools",
-    ),
-    (
-        "git-rebase-helper",
-        "Git rebase assistant",
-        "Walks an interactive git rebase explaining merge conflicts and suggesting resolutions.",
-        ["git", "rebase", "vcs"],
-        "free",
-        "dev-tools",
-    ),
+    ("python-formatter", "Python code formatter",
+     "Formats Python source files using black and ruff with project defaults.",
+     ["python", "formatter", "lint"], "free", "dev-tools"),
+    ("git-rebase-helper", "Git rebase assistant",
+     "Walks an interactive git rebase explaining merge conflicts and suggesting resolutions.",
+     ["git", "rebase", "vcs"], "free", "dev-tools"),
     # agency
-    (
-        "client-onboarding",
-        "Marketing agency client onboarding",
-        "Generates a kickoff document, brand brief, and intake survey for a new agency client.",
-        ["agency", "onboarding", "client"],
-        "pro",
-        "agency",
-    ),
-    (
-        "retainer-report",
-        "Monthly retainer report builder",
-        "Aggregates marketing channel results into a polished monthly retainer report PDF.",
-        ["agency", "report", "retainer"],
-        "pro_plus",
-        "agency",
-    ),
+    ("client-onboarding", "Marketing agency client onboarding",
+     "Generates a kickoff document, brand brief, and intake survey for a new agency client.",
+     ["agency", "onboarding", "client"], "pro", "agency"),
+    ("retainer-report", "Monthly retainer report builder",
+     "Aggregates marketing channel results into a polished monthly retainer report PDF.",
+     ["agency", "report", "retainer"], "pro_plus", "agency"),
     # marketing
-    (
-        "seo-audit",
-        "Website SEO audit",
-        "Crawls a website and produces an SEO audit covering meta tags, schema, and core web vitals.",
-        ["seo", "audit", "marketing"],
-        "free",
-        "marketing",
-    ),
-    (
-        "ad-copy-generator",
-        "Search ad copy generator",
-        "Creates Google and Meta search ad headlines and descriptions from a product brief.",
-        ["ads", "copy", "marketing"],
-        "pro",
-        "marketing",
-    ),
+    ("seo-audit", "Website SEO audit",
+     "Crawls a website and produces an SEO audit covering meta tags, schema, and core web vitals.",
+     ["seo", "audit", "marketing"], "free", "marketing"),
+    ("ad-copy-generator", "Search ad copy generator",
+     "Creates Google and Meta search ad headlines and descriptions from a product brief.",
+     ["ads", "copy", "marketing"], "pro", "marketing"),
     # content
-    (
-        "blog-outline",
-        "Blog post outline writer",
-        "Generates an SEO-aware blog post outline with H2 headings and target keywords.",
-        ["content", "blog", "writing"],
-        "free",
-        "content",
-    ),
-    (
-        "video-script",
-        "YouTube video script writer",
-        "Drafts hook-first YouTube video scripts from a topic and target audience.",
-        ["content", "video", "youtube"],
-        "pro",
-        "content",
-    ),
+    ("blog-outline", "Blog post outline writer",
+     "Generates an SEO-aware blog post outline with H2 headings and target keywords.",
+     ["content", "blog", "writing"], "free", "content"),
+    ("video-script", "YouTube video script writer",
+     "Drafts hook-first YouTube video scripts from a topic and target audience.",
+     ["content", "video", "youtube"], "pro", "content"),
     # automation
-    (
-        "zapier-builder",
-        "Zapier workflow builder",
-        "Designs multi-step Zapier zaps from a description of business inputs and outputs.",
-        ["automation", "zapier", "workflow"],
-        "pro",
-        "automation",
-    ),
-    (
-        "email-router",
-        "Inbox email router",
-        "Triages incoming emails into folders by sender, intent, and urgency.",
-        ["automation", "email", "triage"],
-        "free",
-        "automation",
-    ),
+    ("zapier-builder", "Zapier workflow builder",
+     "Designs multi-step Zapier zaps from a description of business inputs and outputs.",
+     ["automation", "zapier", "workflow"], "pro", "automation"),
+    ("email-router", "Inbox email router",
+     "Triages incoming emails into folders by sender, intent, and urgency.",
+     ["automation", "email", "triage"], "free", "automation"),
     # code-review
-    (
-        "pr-reviewer",
-        "Pull request reviewer",
-        "Reviews GitHub pull requests for bugs, style violations, and missing tests.",
-        ["code-review", "github", "pr"],
-        "pro",
-        "code-review",
-    ),
-    (
-        "security-scanner",
-        "Source code security scanner",
-        "Scans a repository for known security antipatterns (XSS, SQLi, secret leaks).",
-        ["code-review", "security", "scan"],
-        "pro_plus",
-        "code-review",
-    ),
+    ("pr-reviewer", "Pull request reviewer",
+     "Reviews GitHub pull requests for bugs, style violations, and missing tests.",
+     ["code-review", "github", "pr"], "pro", "code-review"),
+    ("security-scanner", "Source code security scanner",
+     "Scans a repository for known security antipatterns (XSS, SQLi, secret leaks).",
+     ["code-review", "security", "scan"], "pro_plus", "code-review"),
     # productivity
-    (
-        "calendar-cleaner",
-        "Calendar cleaner",
-        "Audits a calendar for low-value recurring meetings and suggests deletions.",
-        ["productivity", "calendar", "meetings"],
-        "free",
-        "productivity",
-    ),
-    (
-        "inbox-zero",
-        "Inbox zero coach",
-        "Walks a user through processing their inbox to zero with reply, archive, and snooze.",
-        ["productivity", "email", "inbox"],
-        "pro",
-        "productivity",
-    ),
+    ("calendar-cleaner", "Calendar cleaner",
+     "Audits a calendar for low-value recurring meetings and suggests deletions.",
+     ["productivity", "calendar", "meetings"], "free", "productivity"),
+    ("inbox-zero", "Inbox zero coach",
+     "Walks a user through processing their inbox to zero with reply, archive, and snooze.",
+     ["productivity", "email", "inbox"], "pro", "productivity"),
     # data
-    (
-        "web-scraper",
-        "Web scraper",
-        "Scrapes structured data from arbitrary websites using CSS selectors and pagination.",
-        ["data", "scraping", "web"],
-        "free",
-        "data",
-    ),
-    (
-        "csv-cleaner",
-        "CSV data cleaner",
-        "Cleans and normalises messy CSV files: deduping, type coercion, header repair.",
-        ["data", "csv", "cleaning"],
-        "free",
-        "data",
-    ),
-    (
-        "sql-query-writer",
-        "SQL query writer",
-        "Writes parameterised SQL queries for analytic questions against a known schema.",
-        ["data", "sql", "analytics"],
-        "pro",
-        "data",
-    ),
+    ("web-scraper", "Web scraper",
+     "Scrapes structured data from arbitrary websites using CSS selectors and pagination.",
+     ["data", "scraping", "web"], "free", "data"),
+    ("csv-cleaner", "CSV data cleaner",
+     "Cleans and normalises messy CSV files: deduping, type coercion, header repair.",
+     ["data", "csv", "cleaning"], "free", "data"),
+    ("sql-query-writer", "SQL query writer",
+     "Writes parameterised SQL queries for analytic questions against a known schema.",
+     ["data", "sql", "analytics"], "pro", "data"),
     # ops
-    (
-        "terraform-helper",
-        "Terraform helper",
-        "Authors and lints Terraform modules for AWS, GCP, and Azure infrastructure.",
-        ["ops", "terraform", "infrastructure"],
-        "pro_plus",
-        "ops",
-    ),
-    (
-        "docker-builder",
-        "Docker image builder",
-        "Builds optimised multi-stage Dockerfiles from a project description.",
-        ["ops", "docker", "containers"],
-        "free",
-        "ops",
-    ),
-    (
-        "k8s-debugger",
-        "Kubernetes debugger",
-        "Debugs failing Kubernetes pods by inspecting events, logs, and resource limits.",
-        ["ops", "kubernetes", "debug"],
-        "pro_plus",
-        "ops",
-    ),
-    (
-        "incident-postmortem",
-        "Incident postmortem writer",
-        "Drafts a blameless incident postmortem from a Slack timeline and an outage summary.",
-        ["ops", "incident", "postmortem"],
-        "pro_plus",
-        "ops",
-    ),
+    ("terraform-helper", "Terraform helper",
+     "Authors and lints Terraform modules for AWS, GCP, and Azure infrastructure.",
+     ["ops", "terraform", "infrastructure"], "pro_plus", "ops"),
+    ("docker-builder", "Docker image builder",
+     "Builds optimised multi-stage Dockerfiles from a project description.",
+     ["ops", "docker", "containers"], "free", "ops"),
+    ("k8s-debugger", "Kubernetes debugger",
+     "Debugs failing Kubernetes pods by inspecting events, logs, and resource limits.",
+     ["ops", "kubernetes", "debug"], "pro_plus", "ops"),
+    ("incident-postmortem", "Incident postmortem writer",
+     "Drafts a blameless incident postmortem from a Slack timeline and an outage summary.",
+     ["ops", "incident", "postmortem"], "pro_plus", "ops"),
     # extras to round to 25
-    (
-        "invoice-generator",
-        "Invoice generator",
-        "Generates invoices in PDF and tracks unpaid status for freelancers and agencies.",
-        ["agency", "invoice", "billing"],
-        "pro",
-        "agency",
-    ),
-    (
-        "twitter-thread",
-        "Twitter thread writer",
-        "Turns a long-form essay into a Twitter / X thread with a strong hook tweet.",
-        ["content", "twitter", "social"],
-        "free",
-        "content",
-    ),
+    ("invoice-generator", "Invoice generator",
+     "Generates invoices in PDF and tracks unpaid status for freelancers and agencies.",
+     ["agency", "invoice", "billing"], "pro", "agency"),
+    ("twitter-thread", "Twitter thread writer",
+     "Turns a long-form essay into a Twitter / X thread with a strong hook tweet.",
+     ["content", "twitter", "social"], "free", "content"),
 ]
 
 
@@ -368,9 +243,8 @@ def test_decode_embedding_roundtrip():
 
 
 def test_recall_filters_by_tier(seeded_db):
-    out = recall_skills(
-        seeded_db, query="terraform module aws", tier_filter=["free"], is_master=False, user_tier="free"
-    )
+    out = recall_skills(seeded_db, query="terraform module aws",
+                        tier_filter=["free"], is_master=False, user_tier="free")
     slugs = [h["slug"] for h in out["hits"]]
     # terraform-helper is operator-tier — must NOT appear when filter is free-only
     assert "terraform-helper" not in slugs
@@ -378,27 +252,18 @@ def test_recall_filters_by_tier(seeded_db):
 
 def test_recall_marks_tier_locked(seeded_db):
     # Expand filter to include operator-tier results, but caller is free-tier.
-    out = recall_skills(
-        seeded_db,
-        query="terraform module aws",
-        tier_filter=["free", "cook", "operator"],
-        is_master=False,
-        user_tier="free",
-    )
+    out = recall_skills(seeded_db, query="terraform module aws",
+                        tier_filter=["free", "cook", "operator"],
+                        is_master=False, user_tier="free")
     slugs = {h["slug"]: h for h in out["hits"]}
     if "terraform-helper" in slugs:
         assert slugs["terraform-helper"]["install_status"] == "tier_locked"
 
 
 def test_recall_master_sees_everything(seeded_db):
-    out = recall_skills(
-        seeded_db,
-        query="terraform module aws",
-        tier_filter=["free", "cook", "operator"],
-        is_master=True,
-        user_tier=None,
-        limit=5,
-    )
+    out = recall_skills(seeded_db, query="terraform module aws",
+                        tier_filter=["free", "cook", "operator"],
+                        is_master=True, user_tier=None, limit=5)
     hits = out["hits"]
     assert hits, "master should see at least one hit"
     # No tier_locked because master can install anything.
@@ -407,15 +272,8 @@ def test_recall_master_sees_everything(seeded_db):
 
 def test_recall_excludes_non_public(db_session):
     from tests.conftest import make_skill
-
-    sk = make_skill(
-        db_session,
-        slug="hidden-skill",
-        title="Hidden",
-        description="should not appear",
-        tier="free",
-        is_public=False,
-    )
+    sk = make_skill(db_session, slug="hidden-skill", title="Hidden",
+                    description="should not appear", tier="free", is_public=False)
     sk.embedding = json.dumps(embed_skill(sk))
     db_session.flush()
     out = recall_skills(db_session, query="hidden", is_master=True)
@@ -447,8 +305,9 @@ def test_eval_set_top3_accuracy(seeded_db):
             misses.append((query, expected, slugs))
     accuracy = hits_top3 / len(EVAL_QUERIES)
     # Assertion message reports misses for diagnosis.
-    assert accuracy >= 0.70, f"top-3 accuracy {accuracy:.2%} < 70%. Misses: " + "; ".join(
-        f"'{q}' -> expected {e}, got {g}" for q, e, g in misses[:8]
+    assert accuracy >= 0.70, (
+        f"top-3 accuracy {accuracy:.2%} < 70%. Misses: " +
+        "; ".join(f"'{q}' -> expected {e}, got {g}" for q, e, g in misses[:8])
     )
 
 

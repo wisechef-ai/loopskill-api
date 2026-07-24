@@ -11,7 +11,6 @@ These tests prove the wiring is live END TO END:
   4. A canary FAILURE blocks promotion (the bad version never reaches stable).
   5. The admin sweep batch-promotes; non-master is 403'd.
 """
-
 from __future__ import annotations
 
 import hashlib
@@ -143,7 +142,8 @@ def test_canary_failure_blocks_promotion(middleware_client, db_session):
     resp = middleware_client.post(
         f"/api/cookbooks/{cb.id}/reconcile-report",
         headers={"x-api-key": key},
-        json={"slug": "b1-block", "semver": "2.0.0", "outcome": "reconcile_failed", "failure_reason": "boom"},
+        json={"slug": "b1-block", "semver": "2.0.0", "outcome": "reconcile_failed",
+              "failure_reason": "boom"},
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["promoted_to_stable"] is False

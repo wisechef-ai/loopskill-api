@@ -26,7 +26,6 @@ Invariants:
 
 The pure rank predicate is also unit-tested in isolation.
 """
-
 from __future__ import annotations
 
 import hashlib
@@ -168,7 +167,9 @@ def test_direct_free_key_pro_skill_403(middleware_client, db_session):
     key = _mk_key(db_session, user)
     _mk_skill(db_session, slug="chef-probe", tier="pro", is_public=True)
 
-    resp = middleware_client.get("/api/skills/install?slug=chef-probe", headers={"x-api-key": key})
+    resp = middleware_client.get(
+        "/api/skills/install?slug=chef-probe", headers={"x-api-key": key}
+    )
     assert resp.status_code == 403, (
         f"PAYWALL BYPASS: free key got {resp.status_code} on a Pro skill: {resp.text[:200]}"
     )
@@ -180,7 +181,9 @@ def test_direct_free_key_free_skill_200(middleware_client, db_session):
     key = _mk_key(db_session, user)
     _mk_skill(db_session, slug="free-probe", tier="free", is_public=True)
 
-    resp = middleware_client.get("/api/skills/install?slug=free-probe", headers={"x-api-key": key})
+    resp = middleware_client.get(
+        "/api/skills/install?slug=free-probe", headers={"x-api-key": key}
+    )
     assert resp.status_code == 200, resp.text[:200]
 
 
@@ -190,7 +193,9 @@ def test_direct_pro_key_pro_skill_200(middleware_client, db_session):
     key = _mk_key(db_session, user)
     _mk_skill(db_session, slug="pro-probe", tier="pro", is_public=True)
 
-    resp = middleware_client.get("/api/skills/install?slug=pro-probe", headers={"x-api-key": key})
+    resp = middleware_client.get(
+        "/api/skills/install?slug=pro-probe", headers={"x-api-key": key}
+    )
     assert resp.status_code == 200, resp.text[:200]
 
 
@@ -200,7 +205,9 @@ def test_direct_lapsed_pro_key_pro_skill_403(middleware_client, db_session):
     key = _mk_key(db_session, user)
     _mk_skill(db_session, slug="pro-lapsed-probe", tier="pro", is_public=True)
 
-    resp = middleware_client.get("/api/skills/install?slug=pro-lapsed-probe", headers={"x-api-key": key})
+    resp = middleware_client.get(
+        "/api/skills/install?slug=pro-lapsed-probe", headers={"x-api-key": key}
+    )
     assert resp.status_code == 403, resp.text[:200]
 
 
@@ -217,7 +224,9 @@ def test_cookbook_bulk_free_owner_skips_pro(middleware_client, db_session):
     _add_to_cookbook(db_session, cb, free_sk)
     _add_to_cookbook(db_session, cb, pro_sk)
 
-    resp = middleware_client.post(f"/api/cookbooks/{cb.id}/install", headers={"x-api-key": key})
+    resp = middleware_client.post(
+        f"/api/cookbooks/{cb.id}/install", headers={"x-api-key": key}
+    )
     assert resp.status_code == 200, resp.text[:200]
     slugs = {s["slug"] for s in resp.json()["skills"]}
     assert "cb-free" in slugs

@@ -7,7 +7,6 @@ the ASGI app directly: a custom ``asgi_sse_request()`` helper opens the
 request, hands back the receive/send queues, and lets the test pull body
 chunks one at a time.
 """
-
 from __future__ import annotations
 
 import asyncio
@@ -27,7 +26,6 @@ from app.sync_fanout import publish_event, reset_fanout
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
-
 
 @pytest.fixture()
 def engine_fixture():
@@ -86,7 +84,6 @@ class _InjectAuthASGI:
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
             from starlette.datastructures import State
-
             state = scope.get("state")
             if state is None:
                 state = State()
@@ -188,7 +185,6 @@ class SSEDriver:
 
 # ── Tests ────────────────────────────────────────────────────────────────
 
-
 @pytest.mark.asyncio
 async def test_sse_initial_heartbeat_then_event(db_session):
     reset_fanout()
@@ -215,7 +211,7 @@ async def test_sse_initial_heartbeat_then_event(db_session):
         assert ev[0] == f"id: {eid}"
         assert ev[1] == "event: cookbook_event"
         assert ev[2].startswith("data: ")
-        payload = json.loads(ev[2][len("data: ") :])
+        payload = json.loads(ev[2][len("data: "):])
         assert payload["slug"] == "alpha"
         assert payload["version"] == "1.0.0"
         assert ev[3] == ""
@@ -256,7 +252,7 @@ async def test_sse_last_event_id_resume(db_session):
             if line.startswith("id: "):
                 replayed_ids.append(int(line.split(": ", 1)[1]))
             elif line.startswith("data: ") and line != "data: {}":
-                replayed_slugs.append(json.loads(line[len("data: ") :])["slug"])
+                replayed_slugs.append(json.loads(line[len("data: "):])["slug"])
         assert replayed_ids == [eid2, eid3]
         assert replayed_slugs == ["b", "c"]
         # The trailing heartbeat after the replay confirms the loop entered.

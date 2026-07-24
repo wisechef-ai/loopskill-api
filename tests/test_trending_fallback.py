@@ -18,7 +18,6 @@ These tests cover:
   - private skills excluded even when install events exist for them
   - ordering: most installs first
 """
-
 from __future__ import annotations
 
 import uuid
@@ -38,7 +37,6 @@ from app.models import Base, Skill, TelemetryEvent
 
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
-
 
 @pytest.fixture()
 def engine_fixture():
@@ -91,7 +89,6 @@ def client(app_with_middleware) -> TestClient:
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
-
 def _make_skill(db, slug, *, is_public=True, category="devops"):
     s = Skill(
         id=uuid.uuid4(),
@@ -125,7 +122,6 @@ def _make_install(db, skill_slug, *, days_ago=0):
 
 
 # ── Tests ───────────────────────────────────────────────────────────────────
-
 
 class TestTrendingEmptyDB:
     def test_empty_db_returns_empty_shape(self, client):
@@ -184,7 +180,10 @@ class TestTrendingFallback:
         resp = client.get("/api/skills/trending?period=week")
         assert resp.status_code == 200
         body = resp.json()
-        assert body["total"] == 1, f"week-period with only month-old events should widen to month, got {body}"
+        assert body["total"] == 1, (
+            f"week-period with only month-old events should widen to month, "
+            f"got {body}"
+        )
         assert body["results"][0]["slug"] == "stale-but-installed"
 
     def test_day_widens_through_week_to_month(self, client, db):

@@ -11,7 +11,6 @@ Required (≥6):
   test_loopskill_share_rotate_creates_new_invalidates_old
   test_config_blocks_parseable
 """
-
 from __future__ import annotations
 
 import hashlib
@@ -126,7 +125,9 @@ class TestRecipesShareCreate:
         )
         assert "token" in result
         pattern = re.compile(r"^cbt_[a-f0-9]{8}_[a-f0-9]{32}$")
-        assert pattern.match(result["token"]), f"Token {result['token']!r} does not match expected format"
+        assert pattern.match(result["token"]), (
+            f"Token {result['token']!r} does not match expected format"
+        )
 
     def test_loopskill_share_create_persists_hash_not_plaintext(self, db_session):
         """DB row stores SHA-256 hash, not the plaintext token."""
@@ -146,7 +147,11 @@ class TestRecipesShareCreate:
         expected_hash = hashlib.sha256(plaintext.encode()).hexdigest()
 
         # Fetch the row directly from DB
-        row = db_session.query(BundleShareToken).filter(BundleShareToken.id == UUID(result["id"])).first()
+        row = (
+            db_session.query(BundleShareToken)
+            .filter(BundleShareToken.id == UUID(result["id"]))
+            .first()
+        )
         assert row is not None
         assert row.token_hash == expected_hash, "DB stores hash, not plaintext"
         assert row.token_hash != plaintext, "plaintext must NOT be stored"
@@ -264,21 +269,31 @@ class TestRecipesShareRevoke:
         cb = _make_cookbook(db_session, owner_id=user.id)
         ctx = _master_ctx()
 
-        created = loopskill_share_create(db_session, cookbook_id=str(cb.id), name="revoke-me", ctx=ctx)
+        created = loopskill_share_create(
+            db_session, cookbook_id=str(cb.id), name="revoke-me", ctx=ctx
+        )
         token_id = created["id"]
 
-        revoke_result = loopskill_share_revoke(db_session, cookbook_id=str(cb.id), token_id=token_id, ctx=ctx)
+        revoke_result = loopskill_share_revoke(
+            db_session, cookbook_id=str(cb.id), token_id=token_id, ctx=ctx
+        )
         assert revoke_result.get("revoked") is True
         assert revoke_result.get("token_id") == token_id
 
         # Verify in DB
-        row = db_session.query(BundleShareToken).filter(BundleShareToken.id == UUID(token_id)).first()
+        row = db_session.query(BundleShareToken).filter(
+            BundleShareToken.id == UUID(token_id)
+        ).first()
         assert row is not None
         assert row.is_active is False
 
         # Verify via list
-        list_result = loopskill_share_list(db_session, cookbook_id=str(cb.id), ctx=ctx)
-        token_in_list = next((t for t in list_result["tokens"] if t["id"] == token_id), None)
+        list_result = loopskill_share_list(
+            db_session, cookbook_id=str(cb.id), ctx=ctx
+        )
+        token_in_list = next(
+            (t for t in list_result["tokens"] if t["id"] == token_id), None
+        )
         assert token_in_list is not None
         assert token_in_list["is_active"] is False
 
@@ -291,11 +306,15 @@ class TestRecipesShareRevoke:
         cb_b = _make_cookbook(db_session, owner_id=user.id)
         ctx = _master_ctx()
 
-        created = loopskill_share_create(db_session, cookbook_id=str(cb_a.id), ctx=ctx)
+        created = loopskill_share_create(
+            db_session, cookbook_id=str(cb_a.id), ctx=ctx
+        )
         token_id = created["id"]
 
         # Try to revoke using cb_b
-        result = loopskill_share_revoke(db_session, cookbook_id=str(cb_b.id), token_id=token_id, ctx=ctx)
+        result = loopskill_share_revoke(
+            db_session, cookbook_id=str(cb_b.id), token_id=token_id, ctx=ctx
+        )
         assert "error" in result
 
 
@@ -331,16 +350,16 @@ class TestRecipesShareRotate:
         assert rotate_result["new_token_id"] != old_token_id
 
         # Old token should be inactive in DB
-        old_row = db_session.query(BundleShareToken).filter(BundleShareToken.id == UUID(old_token_id)).first()
+        old_row = db_session.query(BundleShareToken).filter(
+            BundleShareToken.id == UUID(old_token_id)
+        ).first()
         assert old_row is not None
         assert old_row.is_active is False
 
         # New token should be active in DB
-        new_row = (
-            db_session.query(BundleShareToken)
-            .filter(BundleShareToken.id == UUID(rotate_result["new_token_id"]))
-            .first()
-        )
+        new_row = db_session.query(BundleShareToken).filter(
+            BundleShareToken.id == UUID(rotate_result["new_token_id"])
+        ).first()
         assert new_row is not None
         assert new_row.is_active is True
 
@@ -490,7 +509,9 @@ class TestShareToolsErrorPaths:
         """Bad cookbook_id UUID → cookbook_not_found error (covers lines 37-38, 63)."""
         from app.mcp.tools.share import loopskill_share_create
 
-        result = loopskill_share_create(db_session, cookbook_id="not-a-valid-uuid", ctx=_master_ctx())
+        result = loopskill_share_create(
+            db_session, cookbook_id="not-a-valid-uuid", ctx=_master_ctx()
+        )
         assert "error" in result
         assert result["error"] == "cookbook_not_found"
 
@@ -536,7 +557,9 @@ class TestShareToolsErrorPaths:
         """Bad cookbook_id → error (covers lines 37-38, 109)."""
         from app.mcp.tools.share import loopskill_share_list
 
-        result = loopskill_share_list(db_session, cookbook_id="bad-uuid-here", ctx=_master_ctx())
+        result = loopskill_share_list(
+            db_session, cookbook_id="bad-uuid-here", ctx=_master_ctx()
+        )
         assert "error" in result
         assert result["error"] == "cookbook_not_found"
 
@@ -549,7 +572,9 @@ class TestShareToolsErrorPaths:
         created = loopskill_share_create(db_session, cookbook_id=str(cb.id))
 
         # ctx=None → master
-        result = loopskill_share_revoke(db_session, cookbook_id=str(cb.id), token_id=created["id"])
+        result = loopskill_share_revoke(
+            db_session, cookbook_id=str(cb.id), token_id=created["id"]
+        )
         assert result.get("revoked") is True
 
     def test_revoke_with_bad_uuid_returns_error(self, db_session):
@@ -606,7 +631,9 @@ class TestShareToolsErrorPaths:
         cb = _make_cookbook(db_session, owner_id=user.id)
         created = loopskill_share_create(db_session, cookbook_id=str(cb.id))
 
-        result = loopskill_share_rotate(db_session, cookbook_id=str(cb.id), token_id=created["id"])
+        result = loopskill_share_rotate(
+            db_session, cookbook_id=str(cb.id), token_id=created["id"]
+        )
         assert "new_token" in result
 
     def test_rotate_with_bad_uuid_returns_error(self, db_session):

@@ -115,7 +115,6 @@ class TestGitHubAuthURL:
         # query before asserting so this test stays stable against quoting
         # changes.
         from urllib.parse import urlparse, parse_qs
-
         qs = parse_qs(urlparse(url).query)
         assert qs.get("redirect_uri") == ["http://localhost/cb"]
         assert "state=random_state" in url
@@ -135,10 +134,8 @@ class TestGitHubCodeExchange:
     @pytest.mark.asyncio
     async def test_exchange_raises_when_not_configured(self):
         """Should raise AuthError when client ID/secret are missing."""
-        with (
-            patch.object(settings, "GITHUB_CLIENT_ID", ""),
-            patch.object(settings, "GITHUB_CLIENT_SECRET", ""),
-        ):
+        with patch.object(settings, "GITHUB_CLIENT_ID", ""), \
+             patch.object(settings, "GITHUB_CLIENT_SECRET", ""):
             with pytest.raises(AuthError, match="not configured"):
                 await exchange_github_code("fake_code")
 
@@ -165,11 +162,9 @@ class TestGitHubCodeExchange:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        with (
-            patch.object(settings, "GITHUB_CLIENT_ID", "id"),
-            patch.object(settings, "GITHUB_CLIENT_SECRET", "secret"),
-            patch("app.auth.httpx.AsyncClient", return_value=mock_client),
-        ):
+        with patch.object(settings, "GITHUB_CLIENT_ID", "id"), \
+             patch.object(settings, "GITHUB_CLIENT_SECRET", "secret"), \
+             patch("app.auth.httpx.AsyncClient", return_value=mock_client):
             result = await exchange_github_code("valid_code")
 
         assert result["provider"] == "github"
@@ -208,11 +203,9 @@ class TestGitHubCodeExchange:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        with (
-            patch.object(settings, "GITHUB_CLIENT_ID", "id"),
-            patch.object(settings, "GITHUB_CLIENT_SECRET", "secret"),
-            patch("app.auth.httpx.AsyncClient", return_value=mock_client),
-        ):
+        with patch.object(settings, "GITHUB_CLIENT_ID", "id"), \
+             patch.object(settings, "GITHUB_CLIENT_SECRET", "secret"), \
+             patch("app.auth.httpx.AsyncClient", return_value=mock_client):
             result = await exchange_github_code("valid_code")
 
         assert result["email"] == "private@example.com"
@@ -230,11 +223,9 @@ class TestGitHubCodeExchange:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        with (
-            patch.object(settings, "GITHUB_CLIENT_ID", "id"),
-            patch.object(settings, "GITHUB_CLIENT_SECRET", "secret"),
-            patch("app.auth.httpx.AsyncClient", return_value=mock_client),
-        ):
+        with patch.object(settings, "GITHUB_CLIENT_ID", "id"), \
+             patch.object(settings, "GITHUB_CLIENT_SECRET", "secret"), \
+             patch("app.auth.httpx.AsyncClient", return_value=mock_client):
             with pytest.raises(AuthError, match="token exchange failed"):
                 await exchange_github_code("bad_code")
 
@@ -252,7 +243,6 @@ class TestGoogleAuthURL:
         assert "client_id=g_test_client" in url
         # URL-encoded redirect_uri (same as GitHub OAuth test).
         from urllib.parse import urlparse, parse_qs
-
         qs = parse_qs(urlparse(url).query)
         assert qs.get("redirect_uri") == ["http://localhost/cb"]
         assert "state=g_state" in url
@@ -269,10 +259,8 @@ class TestGoogleCodeExchange:
     @pytest.mark.asyncio
     async def test_exchange_raises_when_not_configured(self):
         """Should raise AuthError when Google client ID/secret are missing."""
-        with (
-            patch.object(settings, "GOOGLE_CLIENT_ID", ""),
-            patch.object(settings, "GOOGLE_CLIENT_SECRET", ""),
-        ):
+        with patch.object(settings, "GOOGLE_CLIENT_ID", ""), \
+             patch.object(settings, "GOOGLE_CLIENT_SECRET", ""):
             with pytest.raises(AuthError, match="not configured"):
                 await exchange_google_code("fake_code")
 
@@ -298,11 +286,9 @@ class TestGoogleCodeExchange:
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
 
-        with (
-            patch.object(settings, "GOOGLE_CLIENT_ID", "id"),
-            patch.object(settings, "GOOGLE_CLIENT_SECRET", "secret"),
-            patch("app.auth.httpx.AsyncClient", return_value=mock_client),
-        ):
+        with patch.object(settings, "GOOGLE_CLIENT_ID", "id"), \
+             patch.object(settings, "GOOGLE_CLIENT_SECRET", "secret"), \
+             patch("app.auth.httpx.AsyncClient", return_value=mock_client):
             result = await exchange_google_code("valid_code")
 
         assert result["provider"] == "google"
@@ -435,7 +421,6 @@ class TestAuthRoutes:
         """
         from app.database import engine
         from sqlalchemy.exc import OperationalError
-
         if engine.dialect.name != "postgresql":
             pytest.skip(f"Integration tests require Postgres; got {engine.dialect.name}")
         try:
@@ -458,12 +443,11 @@ class TestAuthRoutes:
         original_settings = app.auth_routes.settings
         app.auth_routes.settings = real_settings
 
-        with (
-            patch.object(real_settings, "GITHUB_CLIENT_ID", "test_gh_id"),
-            patch.object(real_settings, "GITHUB_CLIENT_SECRET", "test_gh_secret"),
-            patch.object(real_settings, "GOOGLE_CLIENT_ID", "test_google_id"),
-            patch.object(real_settings, "GOOGLE_CLIENT_SECRET", "test_google_secret"),
-        ):
+        with patch.object(real_settings, "GITHUB_CLIENT_ID", "test_gh_id"), \
+             patch.object(real_settings, "GITHUB_CLIENT_SECRET", "test_gh_secret"), \
+             patch.object(real_settings, "GOOGLE_CLIENT_ID", "test_google_id"), \
+             patch.object(real_settings, "GOOGLE_CLIENT_SECRET", "test_google_secret"):
+
             app = create_app()
             with TestClient(app, raise_server_exceptions=False) as c:
                 yield c

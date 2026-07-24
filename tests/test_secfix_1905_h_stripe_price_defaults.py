@@ -37,11 +37,9 @@ def _make_settings_non_sqlite(**overrides):
 
 # ── 1. Legacy defaults are now "" ─────────────────────────────────────────────
 
-
 def test_legacy_price_defaults_empty() -> None:
     """STRIPE_PRICE_COOK / OPERATOR / STUDIO must default to empty string."""
     from app.config import Settings
-
     # Use sqlite so no validation runs
     with patch.dict(os.environ, {"WR_DATABASE_URL": "sqlite:///dev.db"}, clear=False):
         s = Settings()
@@ -51,7 +49,6 @@ def test_legacy_price_defaults_empty() -> None:
 
 
 # ── 2. Canonical defaults remain "" ───────────────────────────────────────────
-
 
 def test_canonical_price_defaults_empty() -> None:
     """STRIPE_PRICE_PRO and STRIPE_PRICE_PRO_PLUS must default to empty string.
@@ -63,10 +60,8 @@ def test_canonical_price_defaults_empty() -> None:
     We explicitly drop them so this test sees the true default.
     """
     from app.config import Settings
-
-    env = {
-        k: v for k, v in os.environ.items() if k not in ("WR_STRIPE_PRICE_PRO", "WR_STRIPE_PRICE_PRO_PLUS")
-    }
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("WR_STRIPE_PRICE_PRO", "WR_STRIPE_PRICE_PRO_PLUS")}
     env["WR_DATABASE_URL"] = "sqlite:///dev.db"
     with patch.dict(os.environ, env, clear=True):
         s = Settings()
@@ -75,7 +70,6 @@ def test_canonical_price_defaults_empty() -> None:
 
 
 # ── 3. Non-sqlite + both empty → raises ───────────────────────────────────────
-
 
 def test_empty_price_ids_raise_in_prod() -> None:
     """Raising RuntimeError when both canonical and legacy price IDs are empty."""
@@ -94,11 +88,9 @@ def test_empty_price_ids_raise_in_prod() -> None:
 
 # ── 4. sqlite env tolerates empty ─────────────────────────────────────────────
 
-
 def test_sqlite_env_tolerates_empty_prices() -> None:
     """sqlite DB URL bypasses the price-ID gate (dev env)."""
     from app.config import Settings
-
     env = {
         "WR_DATABASE_URL": "sqlite:///dev.db",
         "WR_STRIPE_PRICE_PRO": "",
@@ -110,7 +102,6 @@ def test_sqlite_env_tolerates_empty_prices() -> None:
 
 
 # ── 5. Legacy alias is sufficient ─────────────────────────────────────────────
-
 
 def test_legacy_alias_satisfies_price_check() -> None:
     """Setting STRIPE_PRICE_COOK (legacy) alone passes the gate."""

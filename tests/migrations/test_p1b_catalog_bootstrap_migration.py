@@ -144,13 +144,15 @@ class TestFullChainSQLite:
         db_url = f"sqlite:///{tmp_path / 'fresh.db'}"
 
         r = _run_alembic(["upgrade", "head"], db_url)
-        assert r.returncode == 0, (
-            f"Prerequisite upgrade head failed — can't test downgrade:\n{r.stderr[-2000:]}"
-        )
+        assert (
+            r.returncode == 0
+        ), f"Prerequisite upgrade head failed — can't test downgrade:\n{r.stderr[-2000:]}"
 
         r = _run_alembic(["downgrade", "base"], db_url)
         assert r.returncode == 0, (
-            f"alembic downgrade base failed:\nSTDOUT:\n{r.stdout[-3000:]}\nSTDERR:\n{r.stderr[-3000:]}"
+            f"alembic downgrade base failed:\n"
+            f"STDOUT:\n{r.stdout[-3000:]}\n"
+            f"STDERR:\n{r.stderr[-3000:]}"
         )
 
 

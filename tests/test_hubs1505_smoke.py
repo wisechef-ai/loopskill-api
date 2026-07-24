@@ -14,7 +14,6 @@ Acceptance gates from the plan-doc, mapped to test fns:
     discipline-linter clean, codex marked preview, JSON schema cited.
   - Phase D: All 7 skills share a common frontmatter+linter contract.
 """
-
 from __future__ import annotations
 
 import re
@@ -163,7 +162,8 @@ def test_discipline_linter_clean(slug):
     skill_md, recipe_yaml, _ = _read_skill(slug)
     r = lint_skill(skill_md, recipe_yaml=recipe_yaml)
     assert r["ok"], (
-        f"{slug}: discipline linter failed with {len(r['violations'])} violations: {r['violations']!r}"
+        f"{slug}: discipline linter failed with {len(r['violations'])} violations: "
+        f"{r['violations']!r}"
     )
 
 

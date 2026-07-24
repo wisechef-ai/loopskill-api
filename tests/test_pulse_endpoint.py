@@ -35,17 +35,7 @@ from app.models import Fleet, FleetSubscription, User
 def _sub(unit_amount, *, interval="month", qty=1, percent_off=None, amount_off=None):
     """Build a minimal Stripe-subscription-shaped dict for the pure function."""
     s: dict = {
-        "items": {
-            "data": [
-                {
-                    "quantity": qty,
-                    "price": {
-                        "unit_amount": unit_amount,
-                        "recurring": {"interval": interval, "interval_count": 1},
-                    },
-                }
-            ]
-        },
+        "items": {"data": [{"quantity": qty, "price": {"unit_amount": unit_amount, "recurring": {"interval": interval, "interval_count": 1}}}]},
     }
     if percent_off is not None or amount_off is not None:
         s["discount"] = {"coupon": {"percent_off": percent_off, "amount_off": amount_off}}

@@ -27,14 +27,10 @@ def test_resolve_prefers_apt(monkeypatch):
 
 def test_resolve_falls_back_to_curl(monkeypatch, runtime_root):
     monkeypatch.setattr(linux_adapter, "which", lambda n: None)
-    plan = linux_adapter.resolve(
-        {
-            "name": "uv",
-            "url": "https://example.com/uv",
-            "sha256": "0" * 64,
-            "_skill_slug": "demo",
-        }
-    )
+    plan = linux_adapter.resolve({
+        "name": "uv", "url": "https://example.com/uv",
+        "sha256": "0" * 64, "_skill_slug": "demo",
+    })
     assert plan.method == "curl"
     assert plan.url == "https://example.com/uv"
 
@@ -44,11 +40,9 @@ def test_apt_install_invokes_apt(monkeypatch):
     plan = linux_adapter.resolve({"name": "ripgrep"})
 
     seen = {}
-
     def fake_run(cmd, **kw):
         seen["cmd"] = cmd
         return subprocess.CompletedProcess(cmd, 0, stdout="ok\n", stderr="")
-
     res = linux_adapter.install(plan, _runner=fake_run)
     assert res.ok
     assert "apt-get" in seen["cmd"]
@@ -57,13 +51,10 @@ def test_apt_install_invokes_apt(monkeypatch):
 
 def test_curl_requires_sha256(monkeypatch, runtime_root):
     monkeypatch.setattr(linux_adapter, "which", lambda n: None)
-    plan = linux_adapter.resolve(
-        {
-            "name": "tool",
-            "url": "https://example.com/tool",
-            "_skill_slug": "demo",
-        }
-    )
+    plan = linux_adapter.resolve({
+        "name": "tool", "url": "https://example.com/tool",
+        "_skill_slug": "demo",
+    })
     res = linux_adapter.install(plan, _runner=None)
     assert not res.ok
     assert "sha256" in res.message
@@ -83,14 +74,10 @@ def test_curl_validates_sha256(monkeypatch, runtime_root):
         def get(url, **kw):
             return _R()
 
-    plan = linux_adapter.resolve(
-        {
-            "name": "tool",
-            "url": "https://example.com/tool",
-            "sha256": real_sha,
-            "_skill_slug": "demo",
-        }
-    )
+    plan = linux_adapter.resolve({
+        "name": "tool", "url": "https://example.com/tool",
+        "sha256": real_sha, "_skill_slug": "demo",
+    })
     res = linux_adapter.install(plan, _http=_HTTP)
     assert res.ok, res.message
     assert plan.target_path.exists()
@@ -109,14 +96,10 @@ def test_curl_rejects_sha256_mismatch(monkeypatch, runtime_root):
         def get(url, **kw):
             return _R()
 
-    plan = linux_adapter.resolve(
-        {
-            "name": "tool",
-            "url": "https://example.com/tool",
-            "sha256": "f" * 64,
-            "_skill_slug": "demo",
-        }
-    )
+    plan = linux_adapter.resolve({
+        "name": "tool", "url": "https://example.com/tool",
+        "sha256": "f" * 64, "_skill_slug": "demo",
+    })
     res = linux_adapter.install(plan, _http=_HTTP)
     assert not res.ok
     assert "sha256 mismatch" in res.message

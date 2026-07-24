@@ -159,7 +159,7 @@ class TestInstallResolvesFromCache:
         # Stub the origin fetcher so we exercise resolve, not the network.
         monkeypatch.setattr(
             "app.services.federation_install.get_origin_fetcher",
-            lambda _src: lambda _slug: ("https://raw.example/SKILL.md", "---\nname: s0\n---\nbody"),
+            lambda _src: (lambda _slug: ("https://raw.example/SKILL.md", "---\nname: s0\n---\nbody")),
             raising=False,
         )
 

@@ -60,13 +60,17 @@ class TestSearchLimitAlias:
         r_default = client.get("/api/skills/search")
         assert r_default.status_code == 200
         default_results = r_default.json()["results"]
-        assert len(default_results) == 50, f"expected default page_size=50, got {len(default_results)}"
+        assert len(default_results) == 50, (
+            f"expected default page_size=50, got {len(default_results)}"
+        )
 
         # With ?limit=100 — must return all 60 (all seeded) > 50
         r_limit = client.get("/api/skills/search?limit=100")
         assert r_limit.status_code == 200
         limit_results = r_limit.json()["results"]
-        assert len(limit_results) >= 60, f"?limit=100 should return >=60 skills, got {len(limit_results)}"
+        assert len(limit_results) >= 60, (
+            f"?limit=100 should return >=60 skills, got {len(limit_results)}"
+        )
 
     def test_limit_alias_wins_over_page_size(self, client, db_session):
         """When both ?limit= and ?page_size= are supplied, limit wins."""
@@ -75,7 +79,9 @@ class TestSearchLimitAlias:
         # limit=30 should beat page_size=10
         r = client.get("/api/skills/search?page_size=10&limit=30")
         assert r.status_code == 200
-        assert len(r.json()["results"]) >= 30, "limit=30 should override page_size=10"
+        assert len(r.json()["results"]) >= 30, (
+            "limit=30 should override page_size=10"
+        )
 
     def test_limit_alias_capped_at_100_returns_422_not_default(self, client, db_session):
         """?limit= values above 100 must return 422 (explicit rejection), NOT
@@ -88,12 +94,15 @@ class TestSearchLimitAlias:
 
         r = client.get("/api/skills/search?limit=200")
         assert r.status_code == 422, (
-            f"?limit=200 should be rejected with 422 (explicit cap at 100), got {r.status_code}"
+            f"?limit=200 should be rejected with 422 (explicit cap at 100), "
+            f"got {r.status_code}"
         )
         # Confirm that ?limit=100 (the valid max) works and returns >20 rows
         r100 = client.get("/api/skills/search?limit=100")
         assert r100.status_code == 200
-        assert len(r100.json()["results"]) >= 60, "?limit=100 should return all 60 seeded skills"
+        assert len(r100.json()["results"]) >= 60, (
+            "?limit=100 should return all 60 seeded skills"
+        )
 
     def test_page_size_100_still_works(self, client, db_session):
         """Existing callers using ?page_size=100 are unaffected."""
@@ -130,7 +139,9 @@ class TestMcpSearchDefault:
         _seed_n_skills(db_session, 30)
 
         result = loopskill_search(db_session)
-        assert result["total"] >= 30, f"total should be >=30, got {result['total']}"
+        assert result["total"] >= 30, (
+            f"total should be >=30, got {result['total']}"
+        )
         assert len(result["results"]) >= 30, (
             f"results length should be >=30 with default limit=100, got {len(result['results'])}"
         )

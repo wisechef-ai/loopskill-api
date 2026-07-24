@@ -25,9 +25,9 @@ def test_install_routes_verifier_uses_canonical_salt() -> None:
     from app import install_routes
 
     src = inspect.getsource(install_routes)
-    assert f'salt="{INSTALL_SALT}"' in src, (
-        f'install_routes must contain salt="{INSTALL_SALT}". Drift detected.'
-    )
+    assert (
+        f'salt="{INSTALL_SALT}"' in src
+    ), f'install_routes must contain salt="{INSTALL_SALT}". Drift detected.'
     # Old salt must still be present for the fallback verifier path
     assert OLD_INSTALL_SALT in src, f"Old salt {OLD_INSTALL_SALT!r} not found — compat fallback missing"
 

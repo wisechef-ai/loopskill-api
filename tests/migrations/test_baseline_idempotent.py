@@ -11,7 +11,6 @@ Scenario:
 
 This test guards against the baseline revision accidentally touching data.
 """
-
 import os
 import sqlite3
 import subprocess
@@ -132,14 +131,8 @@ class TestBaselineIdempotent:
         tel_cols = _get_columns(conn, "telemetry_events")
         conn.close()
         # Sprint-4 columns must NOT be present yet
-        for sprint4_col in (
-            "skill_id",
-            "goal_class",
-            "duration_seconds",
-            "retry_count",
-            "user_intervention",
-            "agent_class_hash",
-        ):
+        for sprint4_col in ("skill_id", "goal_class", "duration_seconds",
+                            "retry_count", "user_intervention", "agent_class_hash"):
             assert sprint4_col not in tel_cols, (
                 f"Sprint-4 column '{sprint4_col}' appeared before migration ran"
             )
@@ -158,7 +151,9 @@ class TestBaselineIdempotent:
         for legacy_col in ("id", "event_type", "skill_slug", "payload", "client_ip", "created_at"):
             assert legacy_col in tel_cols, f"Stamp dropped column '{legacy_col}'"
         for sprint4_col in ("skill_id", "goal_class"):
-            assert sprint4_col not in tel_cols, f"Sprint-4 column appeared after stamp (should be no-op)"
+            assert sprint4_col not in tel_cols, (
+                f"Sprint-4 column appeared after stamp (should be no-op)"
+            )
 
     def test_alembic_version_after_stamp(self, baseline_db):
         """alembic_version table must record the baseline revision after stamp."""
@@ -166,7 +161,9 @@ class TestBaselineIdempotent:
         rows = conn.execute("SELECT version_num FROM alembic_version").fetchall()
         conn.close()
         version_nums = [r[0] for r in rows]
-        assert BASELINE_REV in version_nums, f"Expected {BASELINE_REV} in alembic_version, got {version_nums}"
+        assert BASELINE_REV in version_nums, (
+            f"Expected {BASELINE_REV} in alembic_version, got {version_nums}"
+        )
 
     def test_upgrade_head_from_baseline(self, baseline_db):
         """After stamping, upgrade head must add the sprint-4 columns correctly."""
@@ -182,14 +179,8 @@ class TestBaselineIdempotent:
         conn.close()
 
         # Typed telemetry columns
-        for col in (
-            "skill_id",
-            "goal_class",
-            "duration_seconds",
-            "retry_count",
-            "user_intervention",
-            "agent_class_hash",
-        ):
+        for col in ("skill_id", "goal_class", "duration_seconds",
+                    "retry_count", "user_intervention", "agent_class_hash"):
             assert col in tel_cols, f"'{col}' missing from telemetry_events after upgrade"
 
         # Carousel scoring columns

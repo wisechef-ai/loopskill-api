@@ -84,7 +84,9 @@ def _skillspector_available() -> bool:
     if venv_bin.exists():
         return True
     try:
-        result = subprocess.run(["skillspector", "--version"], capture_output=True, text=True, timeout=5)
+        result = subprocess.run(
+            ["skillspector", "--version"], capture_output=True, text=True, timeout=5
+        )
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return False
@@ -138,7 +140,9 @@ def test_malicious_skill_blocked_in_blocker_mode(tmp_path):
     sarif_out = tmp_path / "malicious-blocked.sarif"
     result = _run_ci(MALICIOUS_FIXTURE, sarif_out, block_on_high=True)
 
-    assert result.returncode == 1, f"Blocker mode must exit 1 for malicious skill, got {result.returncode}"
+    assert result.returncode == 1, (
+        f"Blocker mode must exit 1 for malicious skill, got {result.returncode}"
+    )
 
     sarif = _load_sarif(sarif_out)
     findings = _get_findings(sarif)

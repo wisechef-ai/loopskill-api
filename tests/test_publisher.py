@@ -40,7 +40,6 @@ from app.models import Base, Creator, Skill, SkillVersion, User
 
 # ─────────────────────────── DB Fixtures ────────────────────────────────
 
-
 @pytest.fixture(scope="session")
 def engine_fixture():
     """In-memory SQLite engine shared for the test session."""
@@ -49,7 +48,6 @@ def engine_fixture():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-
     # SQLite doesn't enforce FK by default — enable it
     @event.listens_for(engine, "connect")
     def set_sqlite_pragma(conn, _record):
@@ -76,7 +74,6 @@ def db_session(engine_fixture) -> Generator[Session, None, None]:
 
 
 # ─────────────────────────── Helpers ─────────────────────────────────────
-
 
 def _make_user(db: Session, user_id=None) -> User:
     uid = user_id or uuid4()
@@ -137,14 +134,14 @@ def _valid_toml(
         for k, v in extra.items():
             extra_lines += f'\n{k} = "{v}"'
     return (
-        f"[skill]\n"
+        f'[skill]\n'
         f'name = "{name}"\n'
         f'version = "{version}"\n'
         f'description = "{description}"\n'
         f'license = "{license}"\n'
         f'entrypoint = "{entrypoint}"'
-        f"{slug_line}"
-        f"{extra_lines}\n"
+        f'{slug_line}'
+        f'{extra_lines}\n'
     ).encode()
 
 
@@ -153,7 +150,6 @@ def _make_tarball(content: bytes = b"fake tarball data") -> bytes:
 
 
 # ─────────────────────────── App Fixture ─────────────────────────────────
-
 
 def _make_client(db: Session, skills_dir: str, api_key_user_id=None, is_admin=False):
     """Create a TestClient with a minimal test app (no APIKeyMiddleware or Redis):
@@ -204,7 +200,6 @@ def _make_client(db: Session, skills_dir: str, api_key_user_id=None, is_admin=Fa
 
 
 # ─────────────────────────── Test Cases ──────────────────────────────────
-
 
 class TestPublishSkillSuccess:
     """AC1 — happy path returns {skill_id, version, tarball_path, sha256}."""
@@ -503,9 +498,7 @@ class TestPublishMissingLicense:
         tarball_bytes = b"tarball"
         sig_bytes = _sign_tarball(priv, tarball_bytes)
         # Toml missing 'license'
-        bad_toml = (
-            b'[skill]\nname = "lic-skill"\nversion = "1.0.0"\ndescription = "test"\nentrypoint = "run.sh"\n'
-        )
+        bad_toml = b'[skill]\nname = "lic-skill"\nversion = "1.0.0"\ndescription = "test"\nentrypoint = "run.sh"\n'
 
         client, env = _make_client(db_session, str(tmp_path), api_key_user_id=user.id)
         try:
@@ -574,7 +567,9 @@ class TestPublishPrivateVsPublicVisibility:
         priv, pub_bytes = _make_keypair()
         tarball_bytes = b"private tarball"
         sig_bytes = _sign_tarball(priv, tarball_bytes)
-        toml_bytes = _valid_toml(name="private-vis-skill", slug="private-vis-skill", version="1.0.0")
+        toml_bytes = _valid_toml(
+            name="private-vis-skill", slug="private-vis-skill", version="1.0.0"
+        )
 
         client, env = _make_client(db_session, str(tmp_path), api_key_user_id=user.id)
         try:
@@ -614,7 +609,9 @@ class TestPublishPrivateVsPublicVisibility:
         priv, pub_bytes = _make_keypair()
         tarball_bytes = b"public tarball"
         sig_bytes = _sign_tarball(priv, tarball_bytes)
-        toml_bytes = _valid_toml(name="public-vis-skill", slug="public-vis-skill", version="1.0.0")
+        toml_bytes = _valid_toml(
+            name="public-vis-skill", slug="public-vis-skill", version="1.0.0"
+        )
 
         client, env = _make_client(db_session, str(tmp_path), api_key_user_id=user.id)
         try:
@@ -646,12 +643,17 @@ class TestPublishPrivateVsPublicVisibility:
         assert search_resp.status_code == 200, search_resp.text
         body = search_resp.json()
         slugs = [r["slug"] for r in body.get("results", [])]
-        assert "public-vis-skill" in slugs, f"Public skill missing from search results: {slugs}"
+        assert "public-vis-skill" in slugs, (
+            f"Public skill missing from search results: {slugs}"
+        )
 
         # And the row must persist with is_public=True
         from app.models import Skill as SkillModel
-
-        row = db_session.query(SkillModel).filter(SkillModel.slug == "public-vis-skill").first()
+        row = (
+            db_session.query(SkillModel)
+            .filter(SkillModel.slug == "public-vis-skill")
+            .first()
+        )
         assert row is not None and row.is_public is True
 
 
@@ -689,7 +691,6 @@ class TestPublishTomlPersisted:
 
         # Verify the DB row directly
         from uuid import UUID
-
         skill_id = UUID(body["skill_id"])
         version_row = (
             db_session.query(SkillVersion)
@@ -874,7 +875,6 @@ class TestPublishExistingSkillPreservesNonEmptyDescription:
 
 # ─── fix_2005: publish syncs skills.readme from tarball SKILL.md ──────────
 
-
 def _make_real_tarball(skill_md_text: str) -> bytes:
     """Build a real gzipped tar containing SKILL.md + recipe.yaml at the root."""
     import tarfile as _tf
@@ -962,7 +962,9 @@ class TestPublishReadmeSync:
         priv, pub_bytes = _make_keypair()
         tarball_bytes = _make_real_tarball(self.SKILL_MD)
         sig_bytes = _sign_tarball(priv, tarball_bytes)
-        toml_bytes = _valid_toml(name="readme-seed-skill", slug="readme-seed-skill", version="1.0.0")
+        toml_bytes = _valid_toml(
+            name="readme-seed-skill", slug="readme-seed-skill", version="1.0.0"
+        )
 
         # Admin master-key path can create from scratch
         client, env = _make_client(db_session, str(tmp_path), is_admin=True)

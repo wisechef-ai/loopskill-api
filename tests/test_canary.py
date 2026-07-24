@@ -7,7 +7,6 @@ Covers:
   - terminal states are sticky
   - /api/stats/patches endpoint shape
 """
-
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -31,7 +30,6 @@ from app.models import PatchCandidate, Skill
 
 
 # ── Fakes ──────────────────────────────────────────────────────────────
-
 
 class FakeMetrics:
     def __init__(self, m: StageMetrics):
@@ -70,12 +68,9 @@ class FakeShadow:
 
 def _good_metrics() -> StageMetrics:
     return StageMetrics(
-        incident_rate=1.0,
-        baseline_rate=1.0,
-        new_signatures=1,
-        baseline_new_sig_rate=2.0,
-        p95_latency_ms=100,
-        baseline_p95_ms=100,
+        incident_rate=1.0, baseline_rate=1.0,
+        new_signatures=1, baseline_new_sig_rate=2.0,
+        p95_latency_ms=100, baseline_p95_ms=100,
         sustained_hours=0,
     )
 
@@ -90,11 +85,11 @@ def _engine(metrics=None, static_=None, prop=None, shadow=None) -> Engine:
 
 
 def _mk_candidate():
-    return PatchCandidate(id=uuid4(), skill_id=uuid4(), error_signature="x", status="pending")
+    return PatchCandidate(id=uuid4(), skill_id=uuid4(),
+                          error_signature="x", status="pending")
 
 
 # ── Rollback rules ─────────────────────────────────────────────────────
-
 
 def test_rollback_when_incident_rate_high_for_4h():
     m = _good_metrics()
@@ -145,7 +140,6 @@ def test_no_rollback_within_thresholds():
 
 # ── Static / property / shadow transitions ─────────────────────────────
 
-
 def test_static_pass_advances_to_property():
     e = _engine(static_=FakeStatic(has=True, passes=True))
     next_stage, _ = e.step(_mk_candidate(), Stage.STATIC)
@@ -185,12 +179,12 @@ def test_shadow_clean_advances_to_canary_1():
 
 # ── Canary dwell + rollback ────────────────────────────────────────────
 
-
 def test_canary_holds_during_dwell():
     e = _engine()
     now = datetime.now(timezone.utc)
     just_entered = now - timedelta(hours=1)
-    next_stage, _ = e.step(_mk_candidate(), Stage.CANARY_1, now=now, entered_at=just_entered)
+    next_stage, _ = e.step(_mk_candidate(), Stage.CANARY_1,
+                            now=now, entered_at=just_entered)
     assert next_stage == Stage.CANARY_1
 
 
@@ -198,7 +192,8 @@ def test_canary_advances_after_dwell():
     e = _engine()
     now = datetime.now(timezone.utc)
     entered = now - DWELL[Stage.CANARY_1] - timedelta(seconds=1)
-    next_stage, _ = e.step(_mk_candidate(), Stage.CANARY_1, now=now, entered_at=entered)
+    next_stage, _ = e.step(_mk_candidate(), Stage.CANARY_1,
+                            now=now, entered_at=entered)
     assert next_stage == Stage.CANARY_10
 
 
@@ -208,7 +203,8 @@ def test_canary_advances_through_all_tiers():
     for stage in chain:
         now = datetime.now(timezone.utc)
         entered = now - DWELL[stage] - timedelta(seconds=1)
-        next_stage, _ = e.step(_mk_candidate(), stage, now=now, entered_at=entered)
+        next_stage, _ = e.step(_mk_candidate(), stage, now=now,
+                                entered_at=entered)
         assert next_stage == NEXT_STAGE[stage]
 
 
@@ -218,7 +214,8 @@ def test_canary_rolls_back_when_metrics_bad():
     bad.sustained_hours = 5
     e = _engine(metrics=bad)
     now = datetime.now(timezone.utc)
-    next_stage, reason = e.step(_mk_candidate(), Stage.CANARY_10, now=now, entered_at=now)
+    next_stage, reason = e.step(_mk_candidate(), Stage.CANARY_10,
+                                  now=now, entered_at=now)
     assert next_stage == Stage.ROLLED_BACK
     assert reason
 
@@ -231,7 +228,6 @@ def test_terminal_states_sticky():
 
 
 # ── /api/stats/patches endpoint ────────────────────────────────────────
-
 
 @pytest.fixture
 def stats_client(db_session):
@@ -250,16 +246,14 @@ def stats_client(db_session):
 
 
 def _mk_patch(db, status):
-    skill = Skill(id=uuid4(), slug=f"s-{status}-{uuid4().hex[:6]}", title="x", is_public=True)
+    skill = Skill(id=uuid4(), slug=f"s-{status}-{uuid4().hex[:6]}",
+                  title="x", is_public=True)
     db.add(skill)
     db.flush()
     p = PatchCandidate(
-        id=uuid4(),
-        skill_id=skill.id,
+        id=uuid4(), skill_id=skill.id,
         error_signature=f"sig-{status}-{uuid4().hex[:6]}",
-        cluster_count=3,
-        distinct_agents=3,
-        status=status,
+        cluster_count=3, distinct_agents=3, status=status,
         created_at=datetime.now(timezone.utc),
     )
     db.add(p)
@@ -268,7 +262,8 @@ def _mk_patch(db, status):
 
 
 def test_patch_stats_returns_status_breakdown(stats_client, db_session):
-    for status in ["pending", "drafted", "canary", "rolled_out", "rolled_back", "rejected"]:
+    for status in ["pending", "drafted", "canary", "rolled_out",
+                    "rolled_back", "rejected"]:
         _mk_patch(db_session, status)
     db_session.commit()
     r = stats_client.get("/api/stats/patches?period=7d")

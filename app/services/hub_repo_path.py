@@ -54,7 +54,7 @@ _UNSAFE_UNICODE = frozenset(
     "\u29f8"  # BIG SOLIDUS
     "\uff3c"  # FULLWIDTH REVERSE SOLIDUS
     "\u2216"  # SET MINUS
-    "\u29f5"  # REVERSE SOLIDUS OPERATOR
+    "\u29f5"  # REVERSE SOLIDUS (math symbol form)
     "\u202a\u202b\u202c\u202d\u202e"  # bidi embedding/override
     "\u2066\u2067\u2068\u2069"  # bidi isolates
     "\u200e\u200f\u061c"  # LTR/RTL marks, arabic letter mark

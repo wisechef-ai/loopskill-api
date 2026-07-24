@@ -17,7 +17,6 @@ RED-first tests (authored before the recipify.py fix) pinning the contract:
 These run on the SQLite fixture (fast). The migration/constraint proof is a
 separate Postgres-gated test per alembic-postgres-only-sql-discipline.
 """
-
 from __future__ import annotations
 
 from typing import Generator
@@ -93,7 +92,6 @@ def test_recipify_via_ctx_creates_owned_cookbook(db_session):
     )
     assert "error" not in out, out
     from uuid import UUID as _UUID
-
     cb = db_session.query(Bundle).filter(Bundle.id == _UUID(out["cookbook_id"])).first()
     assert cb is not None
     assert cb.bundle_owner == user.id, (
@@ -101,7 +99,11 @@ def test_recipify_via_ctx_creates_owned_cookbook(db_session):
         "(the orphan bug: bundle_owner=NULL → invisible to every user)"
     )
     # And it must be visible when filtering by that user's id (list_cookbooks semantics).
-    visible = db_session.query(Bundle).filter(Bundle.bundle_owner == user.id).all()
+    visible = (
+        db_session.query(Bundle)
+        .filter(Bundle.bundle_owner == user.id)
+        .all()
+    )
     assert cb.id in [c.id for c in visible]
 
 
@@ -119,7 +121,11 @@ def test_recipify_via_ctx_reuses_existing_owned_cookbook(db_session):
         ctx=ctx,
     )
     assert out1["cookbook_id"] == out2["cookbook_id"]
-    owned = db_session.query(Bundle).filter(Bundle.bundle_owner == user.id).count()
+    owned = (
+        db_session.query(Bundle)
+        .filter(Bundle.bundle_owner == user.id)
+        .count()
+    )
     assert owned == 1
 
 
@@ -160,6 +166,5 @@ def test_recipify_with_explicit_user_id_kwarg_still_works(db_session):
     )
     assert "error" not in out, out
     from uuid import UUID as _UUID
-
     cb = db_session.query(Bundle).filter(Bundle.id == _UUID(out["cookbook_id"])).first()
     assert cb.bundle_owner == user.id

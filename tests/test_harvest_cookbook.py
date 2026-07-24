@@ -3,7 +3,6 @@
 Tests for scripts/harvest_cookbook.py — deterministic Python harvest of
 SKILL.md frontmatter files. Uses 10 fixture files.
 """
-
 import csv
 import os
 import sys
@@ -198,14 +197,12 @@ def skill_dir():
             md_file.write_text(fix["content"])
             # touch with mtime to simulate recency
             import time
-
             mtime = time.time() - fix["recency_days"] * 86400
             os.utime(md_file, (mtime, mtime))
         yield tmpdir
 
 
 # ── parse_skill_md ───────────────────────────────────────────────────────
-
 
 class TestParseSkillMd:
     def test_parses_name(self, skill_dir):
@@ -251,7 +248,6 @@ class TestParseSkillMd:
 
 # ── score_skill ──────────────────────────────────────────────────────────
 
-
 class TestScoreSkill:
     def test_score_is_numeric(self, skill_dir):
         md = Path(skill_dir) / "skill-alpha" / "SKILL.md"
@@ -290,7 +286,6 @@ class TestScoreSkill:
 
 # ── harvest_directory ────────────────────────────────────────────────────
 
-
 class TestHarvestDirectory:
     def test_returns_list_of_skill_entries(self, skill_dir):
         entries = harvest_directory(skill_dir)
@@ -314,7 +309,6 @@ class TestHarvestDirectory:
 
 
 # ── write_csv ────────────────────────────────────────────────────────────
-
 
 class TestWriteCsv:
     def test_csv_written(self, skill_dir):

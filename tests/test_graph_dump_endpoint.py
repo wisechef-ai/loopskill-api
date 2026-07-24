@@ -3,7 +3,6 @@
 GET /api/skills/graph returns the entire derived edge set for portal-side
 visualisation. No auth, single round-trip, weight-sorted.
 """
-
 from __future__ import annotations
 
 import pytest
@@ -20,7 +19,6 @@ def graph_with_three_edges(db_session: Session):
     make_skill_with_tags(db_session, "c", ["x", "y"], category="devops")
     db_session.commit()
     from app.edge_builder import build_edges, persist_edges
-
     persist_edges(db_session, build_edges(db_session))
     db_session.commit()
 
@@ -64,10 +62,10 @@ class TestGraphDumpEndpoint:
 
     def test_only_public_skills_in_nodes(self, client: TestClient, db_session: Session):
         make_skill_with_tags(db_session, "pub", ["x", "y"], category="devops")
-        make_skill_with_tags(db_session, "internal", ["x", "y"], category="devops", is_public=False)
+        make_skill_with_tags(db_session, "internal", ["x", "y"], category="devops",
+                             is_public=False)
         db_session.commit()
         from app.edge_builder import build_edges, persist_edges
-
         persist_edges(db_session, build_edges(db_session))
         db_session.commit()
         r = client.get("/api/skills/graph")
@@ -81,7 +79,9 @@ class TestGraphDumpEndpoint:
         body = r.json()
         assert body == {"nodes": [], "edges": [], "edge_count": 0, "node_count": 0}
 
-    def test_includes_install_count_per_node(self, client: TestClient, graph_with_three_edges):
+    def test_includes_install_count_per_node(
+        self, client: TestClient, graph_with_three_edges
+    ):
         r = client.get("/api/skills/graph")
         body = r.json()
         for n in body["nodes"]:

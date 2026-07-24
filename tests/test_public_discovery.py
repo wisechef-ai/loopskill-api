@@ -6,7 +6,6 @@ Covers G2 (LarryBrain spec §4.1: search is no-auth, trending is no-auth).
 Tests the FULL middleware stack — that's the contract being verified, not
 just the route handlers.
 """
-
 from __future__ import annotations
 
 import uuid
@@ -26,7 +25,6 @@ from app.models import Base, Skill
 
 # ── DB fixtures ─────────────────────────────────────────────────────────────
 
-
 @pytest.fixture(scope="module")
 def engine_fixture():
     engine = create_engine(
@@ -34,11 +32,9 @@ def engine_fixture():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-
     @event.listens_for(engine, "connect")
     def _pragma(conn, _record):
         conn.execute("PRAGMA foreign_keys=ON")
-
     Base.metadata.create_all(bind=engine)
     yield engine
     Base.metadata.drop_all(bind=engine)
@@ -72,7 +68,6 @@ def app_with_middleware(db) -> FastAPI:
             yield db
         finally:
             pass
-
     app.dependency_overrides[get_db] = _override_get_db
     app.include_router(skills_router)  # router already has prefix="/api"
     app.include_router(skill_router, prefix="/api")  # Phase E: /skills/search + /skills/trending
@@ -103,7 +98,6 @@ def _make_skill(db, slug, title="Skill", category="devops", is_public=True, inst
 
 
 # ── Tests ───────────────────────────────────────────────────────────────────
-
 
 class TestPublicSearch:
     def test_search_works_without_api_key(self, client, db):
@@ -149,5 +143,6 @@ class TestStillProtected:
         # 404 also acceptable if the route does its own existence check first
         # (depends on middleware ordering). What we DON'T want is 200.
         assert resp.status_code in (401, 404, 403), (
-            f"install endpoint returned {resp.status_code} without auth — should be 401/403/404, never 200"
+            f"install endpoint returned {resp.status_code} without auth — "
+            f"should be 401/403/404, never 200"
         )

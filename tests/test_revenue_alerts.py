@@ -22,7 +22,6 @@ from app import revenue_alerts
 # Payload shape
 # ---------------------------------------------------------------------------
 
-
 def test_build_embed_payload_full() -> None:
     payload = revenue_alerts._build_embed_payload(
         event_kind="new_subscription",
@@ -58,7 +57,9 @@ def test_build_embed_payload_pro_plus_aliases() -> None:
             amount_usd=100.0,
             extra_lines=[],
         )
-        tier_field = next(f for f in payload["embeds"][0]["fields"] if f["name"] == "Tier")
+        tier_field = next(
+            f for f in payload["embeds"][0]["fields"] if f["name"] == "Tier"
+        )
         assert tier_field["value"] == "Pro+", f"slug={slug!r}"
 
 
@@ -82,7 +83,6 @@ def test_build_embed_payload_minimal() -> None:
 # No-op when neither transport configured
 # ---------------------------------------------------------------------------
 
-
 def test_post_revenue_event_silent_when_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
     """No env → no thread → no exception. Silent."""
     monkeypatch.delenv("RECIPES_REVENUE_WEBHOOK_URL", raising=False)
@@ -103,7 +103,6 @@ def test_post_revenue_event_silent_when_unconfigured(monkeypatch: pytest.MonkeyP
 # ---------------------------------------------------------------------------
 # Webhook URL path is preferred when both are set
 # ---------------------------------------------------------------------------
-
 
 def test_send_prefers_webhook_url(monkeypatch: pytest.MonkeyPatch) -> None:
     """When both webhook URL and bot token are set, webhook wins."""
@@ -152,7 +151,6 @@ def test_send_falls_back_to_bot_when_no_webhook(monkeypatch: pytest.MonkeyPatch)
 # ---------------------------------------------------------------------------
 # Failures don't propagate
 # ---------------------------------------------------------------------------
-
 
 def test_send_swallows_exceptions(monkeypatch: pytest.MonkeyPatch) -> None:
     """A network error in _send must NEVER raise — it would block Stripe webhooks."""

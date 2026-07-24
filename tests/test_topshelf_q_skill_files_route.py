@@ -160,10 +160,10 @@ def _make_app_with_auth(db_session, auth_ctx: AuthContext):
 
 
 class TestSkillFilesManifest:
+
     def test_manifest_lists_files(self, db_session):
         """GET /api/skills/{slug}/files returns the correct manifest."""
         from app import skill_file_cache
-
         skill_file_cache.clear_cache()
 
         tarball_files = {
@@ -205,17 +205,14 @@ class TestSkillFilesManifest:
         an empty manifest. Both layouts exist in the live catalog.
         """
         from app import skill_file_cache
-
         skill_file_cache.clear_cache()
 
         # Flat layout — files at archive root, NO wrapping directory.
-        tarball_path = _make_flat_tarball(
-            {
-                "SKILL.md": b"# Flat skill",
-                "recipe.yaml": b"name: flat",
-                "skill.toml": b"[skill]\nname = 'flat'",
-            }
-        )
+        tarball_path = _make_flat_tarball({
+            "SKILL.md": b"# Flat skill",
+            "recipe.yaml": b"name: flat",
+            "skill.toml": b"[skill]\nname = 'flat'",
+        })
         try:
             sk = _make_skill(db_session, slug="flat-skill")
             _make_version(db_session, sk.id, tarball_path=tarball_path)
@@ -236,7 +233,6 @@ class TestSkillFilesManifest:
     def test_flat_tarball_single_file_content(self, db_session):
         """A flat tarball's individual files are fetchable via /file."""
         from app import skill_file_cache
-
         skill_file_cache.clear_cache()
 
         tarball_path = _make_flat_tarball({"SKILL.md": b"# Flat body here"})
@@ -265,7 +261,6 @@ class TestSkillFilesManifest:
     def test_manifest_404_no_tarball(self, db_session):
         """Skill exists but tarball_path is None → 404."""
         from app import skill_file_cache
-
         skill_file_cache.clear_cache()
 
         sk = _make_skill(db_session, slug="no-tarball-skill-q")
@@ -280,7 +275,6 @@ class TestSkillFilesManifest:
     def test_manifest_total_bytes(self, db_session):
         """total_bytes sums only regular-file sizes."""
         from app import skill_file_cache
-
         skill_file_cache.clear_cache()
 
         content = b"x" * 100
@@ -305,10 +299,10 @@ class TestSkillFilesManifest:
 
 
 class TestSkillFileAuthGating:
+
     def test_master_can_access_any_file(self, db_session):
         """Master scope can fetch any file including scripts/."""
         from app import skill_file_cache
-
         skill_file_cache.clear_cache()
 
         tarball_files = {
@@ -333,7 +327,6 @@ class TestSkillFileAuthGating:
     def test_pro_can_access_any_file(self, db_session):
         """Pro-tier caller can fetch scripts/ files from a pro skill."""
         from app import skill_file_cache
-
         skill_file_cache.clear_cache()
 
         tarball_files = {
@@ -363,7 +356,6 @@ class TestSkillFileAuthGating:
         teaser is the /files manifest (tree) + the metadata card, not the content.
         """
         from app import skill_file_cache
-
         skill_file_cache.clear_cache()
 
         tarball_files = {
@@ -392,7 +384,6 @@ class TestSkillFileAuthGating:
     def test_anonymous_blocked_from_non_skillmd(self, db_session):
         """Anonymous caller (no auth_ctx tier) blocked from non-SKILL.md in pro skill."""
         from app import skill_file_cache
-
         skill_file_cache.clear_cache()
 
         tarball_files = {"SKILL.md": b"# Skill", "templates/x.yml": b"template"}
@@ -413,7 +404,6 @@ class TestSkillFileAuthGating:
     def test_free_tier_skill_allows_all_files_for_free_user(self, db_session):
         """Free-tier skill: even free callers can access scripts/ (skill is free)."""
         from app import skill_file_cache
-
         skill_file_cache.clear_cache()
 
         tarball_files = {"SKILL.md": b"# Skill", "scripts/run.sh": b"#!/bin/bash"}
@@ -444,7 +434,6 @@ class TestSkillFilePathTraversal:
 
     def _make_skill_with_tarball(self, db_session, slug: str):
         from app import skill_file_cache
-
         skill_file_cache.clear_cache()
 
         tarball_files = {"SKILL.md": b"safe content"}
@@ -529,10 +518,10 @@ class TestSkillFilePathTraversal:
 
 
 class TestSkillFileSizeCap:
+
     def test_file_over_1mb_returns_413(self, db_session):
         """File > 1 MiB → 413 Request Entity Too Large."""
         from app import skill_file_cache
-
         skill_file_cache.clear_cache()
 
         big_content = b"x" * (1 * 1024 * 1024 + 1)  # 1 MiB + 1 byte
@@ -554,7 +543,6 @@ class TestSkillFileSizeCap:
     def test_file_exactly_1mb_is_allowed(self, db_session):
         """File exactly 1 MiB → 200 (boundary condition)."""
         from app import skill_file_cache
-
         skill_file_cache.clear_cache()
 
         exact_content = b"x" * (1 * 1024 * 1024)  # exactly 1 MiB
@@ -576,7 +564,6 @@ class TestSkillFileSizeCap:
     def test_missing_file_in_tarball_returns_404(self, db_session):
         """Requesting a file that doesn't exist in the tarball → 404."""
         from app import skill_file_cache
-
         skill_file_cache.clear_cache()
 
         tarball_files = {"SKILL.md": b"# content"}

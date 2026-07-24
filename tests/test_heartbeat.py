@@ -5,7 +5,6 @@ only {salt, last_seen_day} are accepted; everything else is a 400.
 The DB stores blake2b(salt, key=server_pepper) — even DB compromise
 reveals nothing because there's no rainbow-table-able column.
 """
-
 from __future__ import annotations
 
 import time
@@ -42,7 +41,6 @@ def hb_client(db_session):
 
 
 # ── Valid payload ────────────────────────────────────────────────────────
-
 
 def test_valid_heartbeat_returns_201(hb_client):
     r = hb_client.post(
@@ -82,7 +80,6 @@ def test_idempotent_same_day_same_salt(hb_client, db_session):
 
 
 # ── Schema strictness — extra fields rejected ───────────────────────────
-
 
 def test_extra_field_rejected(hb_client):
     r = hb_client.post(
@@ -127,7 +124,6 @@ def test_invalid_date_rejected(hb_client):
 
 # ── Throughput: 1000 in <60s ────────────────────────────────────────────
 
-
 def test_thousand_heartbeats_under_60s(hb_client):
     start = time.time()
     for i in range(1000):
@@ -143,7 +139,6 @@ def test_thousand_heartbeats_under_60s(hb_client):
 
 # ── Schema-level anonymity guarantee ─────────────────────────────────────
 
-
 def test_fleet_pings_table_has_no_pii_columns():
     """Mathematical guarantee: the table CANNOT identify an individual.
 
@@ -154,7 +149,8 @@ def test_fleet_pings_table_has_no_pii_columns():
     allowed = {"id", "salt_hash", "last_seen_day", "created_at"}
     actual = {c.name for c in table.columns}
     assert actual == allowed, (
-        f"FleetPing must store ONLY {allowed!r}; found extra column(s): {actual - allowed}"
+        f"FleetPing must store ONLY {allowed!r}; "
+        f"found extra column(s): {actual - allowed}"
     )
 
 
@@ -163,8 +159,9 @@ def test_only_aggregate_query_path_exposed():
     aggregate. No per-customer drill-down route exists.
     """
     from app import heartbeat_routes
-
-    paths = [getattr(r, "path", "") for r in heartbeat_routes.router.routes]
+    paths = [
+        getattr(r, "path", "") for r in heartbeat_routes.router.routes
+    ]
     # Heartbeat write + weekly aggregate; nothing else.
     assert "/api/v1/heartbeat" in paths
     assert "/api/v1/fleet/weekly" in paths
@@ -174,7 +171,6 @@ def test_only_aggregate_query_path_exposed():
 
 
 # ── Weekly aggregate ─────────────────────────────────────────────────────
-
 
 def test_weekly_aggregate_returns_distinct_counts(hb_client, db_session):
     # Simulate three distinct devices on 2026-W18
@@ -216,7 +212,9 @@ def test_pruner_drops_old_rows(db_session):
     # directly against db_session.
     cutoff = today - timedelta(days=TTL_DAYS)
     deleted = (
-        db_session.query(FleetPing).filter(FleetPing.last_seen_day < cutoff).delete(synchronize_session=False)
+        db_session.query(FleetPing)
+        .filter(FleetPing.last_seen_day < cutoff)
+        .delete(synchronize_session=False)
     )
     db_session.commit()
     assert deleted == 1

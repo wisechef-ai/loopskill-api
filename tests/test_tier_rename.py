@@ -13,7 +13,6 @@ Tests:
 10. test_subrecipe_resolve_scope_updated
 11. test_payout_engine_rates_use_canonical_tiers
 """
-
 from __future__ import annotations
 
 import importlib
@@ -118,7 +117,9 @@ class TestLegacyOperatorAliasesForThirtyDays:
         """TIER_RANK['operator'] == TIER_RANK['pro_plus'] during the 30-day alias window."""
         from app.access_routes import TIER_RANK
 
-        assert "operator" in TIER_RANK, "Legacy 'operator' key must exist in TIER_RANK for 30-day alias"
+        assert "operator" in TIER_RANK, (
+            "Legacy 'operator' key must exist in TIER_RANK for 30-day alias"
+        )
         assert TIER_RANK["operator"] == TIER_RANK["pro_plus"], (
             f"operator({TIER_RANK['operator']}) should equal pro_plus({TIER_RANK['pro_plus']}) as legacy alias"
         )
@@ -150,7 +151,9 @@ class TestNewSkillDefaultsToProTier:
         # The default skill tier is 'pro' (see access_routes line 87: TIER_RANK.get(s.tier, TIER_RANK["pro"]))
         # This test verifies the fallback references 'pro', not 'cook'.
         default_rank = TIER_RANK["pro"]
-        assert default_rank == 2, f"Default skill tier 'pro' should have rank 2, got {default_rank}"
+        assert default_rank == 2, (
+            f"Default skill tier 'pro' should have rank 2, got {default_rank}"
+        )
 
     def test_pro_tier_is_canonical_not_cook(self):
         """'pro' is the canonical new-skill tier, not 'cook'."""
@@ -218,10 +221,10 @@ class TestMarketingCountsCanonicalSlugs:
         import app.marketing_routes as mr
 
         src = inspect.getsource(mr.marketing_counts)
-        assert 'display_label("pro")' in src or "display_label('pro')" in src, (
+        assert "display_label(\"pro\")" in src or "display_label('pro')" in src, (
             "display_label should be called with 'pro' (canonical)"
         )
-        assert 'display_label("pro_plus")' in src or "display_label('pro_plus')" in src, (
+        assert "display_label(\"pro_plus\")" in src or "display_label('pro_plus')" in src, (
             "display_label should be called with 'pro_plus' (canonical)"
         )
 
@@ -236,8 +239,12 @@ class TestRecallDefaultTierFilter:
         import app.mcp.tools.recall as recall_mod
 
         src = inspect.getsource(recall_mod.loopskill_recall)
-        assert '"cook"' not in src, "recall default tier_filter should not contain literal 'cook'"
-        assert '"operator"' not in src, "recall default tier_filter should not contain literal 'operator'"
+        assert '"cook"' not in src, (
+            "recall default tier_filter should not contain literal 'cook'"
+        )
+        assert '"operator"' not in src, (
+            "recall default tier_filter should not contain literal 'operator'"
+        )
         assert '"pro"' in src, "recall default tier_filter should contain 'pro'"
         assert '"pro_plus"' in src, "recall default tier_filter should contain 'pro_plus'"
 
@@ -253,8 +260,12 @@ class TestSearchFallbackTierFilter:
 
         src = inspect.getsource(search_mod.loopskill_search)
         # The fallback list should use canonical tier names
-        assert '"cook"' not in src, "search fallback should not contain literal 'cook'"
-        assert '"operator"' not in src, "search fallback should not contain literal 'operator'"
+        assert '"cook"' not in src, (
+            "search fallback should not contain literal 'cook'"
+        )
+        assert '"operator"' not in src, (
+            "search fallback should not contain literal 'operator'"
+        )
 
 
 # ── 10. subrecipe_resolve scope updated ──────────────────────────────────────
@@ -283,8 +294,12 @@ class TestPayoutEngineCanonicalTiers:
         """TIER_RATES in payout_engine uses canonical 'pro'/'pro_plus' keys."""
         import app.payout_engine as pe
 
-        assert "pro" in pe.TIER_RATES, "TIER_RATES should have 'pro' key (canonical)"
-        assert "pro_plus" in pe.TIER_RATES, "TIER_RATES should have 'pro_plus' key (canonical)"
+        assert "pro" in pe.TIER_RATES, (
+            "TIER_RATES should have 'pro' key (canonical)"
+        )
+        assert "pro_plus" in pe.TIER_RATES, (
+            "TIER_RATES should have 'pro_plus' key (canonical)"
+        )
 
     def test_payout_engine_no_bare_cook_key(self):
         """TIER_RATES should not have bare 'cook' as the primary lookup key."""
@@ -299,7 +314,6 @@ class TestPayoutEngineCanonicalTiers:
 
         # 'operator' may be kept as legacy alias, but 'pro_plus' must be present
         assert "pro_plus" in pe.TIER_RATES, "'pro_plus' must be canonical key in TIER_RATES"
-
 
 class TestMarketingCountsCookbooksTotal:
     """Test that marketing_counts includes cookbooks_total (public cookbook count)."""
@@ -320,5 +334,9 @@ class TestMarketingCountsCookbooksTotal:
         import app.marketing_routes as mr
 
         src = inspect.getsource(mr.marketing_counts)
-        assert "Bundle" in src, "marketing_counts should query the Bundle model"
-        assert "visibility" in src, "marketing_counts should filter by Cookbook.visibility"
+        assert "Bundle" in src, (
+            "marketing_counts should query the Bundle model"
+        )
+        assert 'visibility' in src, (
+            "marketing_counts should filter by Cookbook.visibility"
+        )

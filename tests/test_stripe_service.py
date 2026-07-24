@@ -19,7 +19,6 @@ class TestCreateConnectAccount:
         mock_settings.STRIPE_SECRET_KEY = "sk_test_123"
         mock_create.return_value = MagicMock(id="acct_test_123")
         from app.models import User
-
         user = User(
             id="test-id",
             email="creator@test.com",
@@ -37,10 +36,8 @@ class TestCreateConnectAccount:
     @patch("app.stripe_service.stripe.Account.create")
     def test_handles_stripe_error(self, mock_create):
         import stripe
-
         mock_create.side_effect = stripe.error.StripeError("API error")
         from app.models import User
-
         user = User(id="test-id", email="test@test.com", display_name="Test")
 
         with pytest.raises(StripeConnectError):
@@ -57,7 +54,6 @@ class TestCreateOnboardingLink:
     @patch("app.stripe_service.stripe.AccountLink.create")
     def test_handles_error(self, mock_create):
         import stripe
-
         mock_create.side_effect = stripe.error.StripeError("fail")
         with pytest.raises(StripeConnectError):
             create_onboarding_link("acct_test", "r", "r")

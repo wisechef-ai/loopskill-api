@@ -112,14 +112,12 @@ class TestShareCommand:
             **MOCK_API_RESPONSE,
             "name": custom_name,
         }
-
         # Use real argparse-like namespace instead of MagicMock for .name
         class RealArgs:
             def __init__(self):
                 self.cookbook_id = MOCK_COOKBOOK_ID
                 self.read_only = False
                 self.name = custom_name
-
         cmd_share(RealArgs())
         out = capsys.readouterr().out
         assert custom_name in out

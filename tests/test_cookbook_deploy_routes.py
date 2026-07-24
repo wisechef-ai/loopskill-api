@@ -13,7 +13,6 @@ Coverage:
   - bundle_loader strips `_`-prefixed comment keys
   - preflight aggregator + pure check functions
 """
-
 from __future__ import annotations
 
 import uuid
@@ -131,15 +130,12 @@ def test_create_pro_tier_returns_200(db):
     """Pro tier accepted for deployment-cookbook creation."""
     user = _make_user(db, "pro")
     client = TestClient(_build_app(db, user))
-    resp = client.post(
-        "/api/cookbook-deploy/create",
-        json={
-            "name": "My Pro Cookbook",
-            "description": "Test",
-            "visibility": "private",
-            "pin_mode": "latest-stable",
-        },
-    )
+    resp = client.post("/api/cookbook-deploy/create", json={
+        "name": "My Pro Cookbook",
+        "description": "Test",
+        "visibility": "private",
+        "pin_mode": "latest-stable",
+    })
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["status"] == "created"
@@ -176,7 +172,11 @@ def test_add_skill(db):
     assert body["version_pin"] == "1.0.0"
     assert body["install_order"] == 50
 
-    rows = db.query(BundleDeployment).filter(BundleDeployment.bundle_id == uuid.UUID(cb["id"])).all()
+    rows = (
+        db.query(BundleDeployment)
+        .filter(BundleDeployment.bundle_id == uuid.UUID(cb["id"]))
+        .all()
+    )
     assert len(rows) == 1
 
 
@@ -240,10 +240,8 @@ def test_apply_writes_install_events_with_cookbook_annotation(db):
     cb = _create_cookbook(client, name="apply test")
 
     for sk in (s1, s2):
-        client.post(
-            f"/api/cookbook-deploy/{cb['id']}/skills/add",
-            json={"skill_id": str(sk.id), "version_pin": "latest"},
-        )
+        client.post(f"/api/cookbook-deploy/{cb['id']}/skills/add",
+                    json={"skill_id": str(sk.id), "version_pin": "latest"})
 
     resp = client.post(f"/api/cookbook-deploy/{cb['id']}/apply")
     assert resp.status_code == 200, resp.text
@@ -268,12 +266,10 @@ def test_apply_orders_by_install_order(db):
     client = TestClient(_build_app(db, user))
     cb = _create_cookbook(client, name="ordering")
     # add B first with higher order, A second with lower order
-    client.post(
-        f"/api/cookbook-deploy/{cb['id']}/skills/add", json={"skill_id": str(sb_.id), "install_order": 90}
-    )
-    client.post(
-        f"/api/cookbook-deploy/{cb['id']}/skills/add", json={"skill_id": str(sa_.id), "install_order": 10}
-    )
+    client.post(f"/api/cookbook-deploy/{cb['id']}/skills/add",
+                json={"skill_id": str(sb_.id), "install_order": 90})
+    client.post(f"/api/cookbook-deploy/{cb['id']}/skills/add",
+                json={"skill_id": str(sa_.id), "install_order": 10})
     rows = (
         db.query(BundleDeployment)
         .filter(BundleDeployment.bundle_id == uuid.UUID(cb["id"]))
@@ -333,7 +329,6 @@ def _patch_session_local(monkeypatch, db):
     """Replace `app.database.SessionLocal` so calling it returns our test
     session. The `close()` is a no-op so the SAVEPOINT-based per-test session
     stays alive for assertions."""
-
     class _FakeSession:
         def __init__(self, real):
             self._real = real
@@ -425,7 +420,6 @@ def test_cookbook_loader_strips_underscore_keys(tmp_path):
 
     f = tmp_path / "sample.json"
     import json as _json
-
     f.write_text(_json.dumps(sample))
     loaded = load_cookbook_file(f)
     assert "_comment" not in loaded
@@ -444,10 +438,7 @@ def test_preflight_returns_ok_for_empty_cookbook(db):
 
     user = _make_user(db, "pro")
     cb = Bundle(
-        id=uuid.uuid4(),
-        bundle_owner=user.id,
-        name="Empty",
-        slug="empty-stack",
+        id=uuid.uuid4(), bundle_owner=user.id, name="Empty", slug="empty-stack",
         visibility="private",
     )
     db.add(cb)

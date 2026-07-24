@@ -3,7 +3,6 @@
 - dry-run safety gate (delta_pct ≤ 20%)
 - loopskill_install version pinning + related surfacing
 """
-
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -182,7 +181,7 @@ def test_recipes_install_at_version_pinning(db_session: Session):
         id=uuid4(),
         skill_id=skill.id,
         semver="0.2.0",
-        skill_toml='[skill]\nname = "alpha"\n',
+        skill_toml="[skill]\nname = \"alpha\"\n",
         checksum_sha256="y" * 64,
         tarball_size_bytes=256,
         created_at=datetime.now(timezone.utc),

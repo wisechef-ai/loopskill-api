@@ -14,7 +14,6 @@ Uses SQLite in-memory + seed fixtures, no live DB. Per executing-golazo-plan
 pitfall #16: never trust "tests pass" in isolation — re-run the FULL suite
 in CI before merging.
 """
-
 from __future__ import annotations
 
 import os
@@ -60,9 +59,11 @@ def seeded_session(db_engine, monkeypatch):
     for name, slug in pre_creators:
         session.execute(
             text(
-                "INSERT INTO creators (id, name, slug, is_founder, created_at) VALUES (:id, :n, :s, 0, :now)"
+                "INSERT INTO creators (id, name, slug, is_founder, created_at) "
+                "VALUES (:id, :n, :s, 0, :now)"
             ),
-            {"id": str(uuid.uuid4()), "n": name, "s": slug, "now": datetime.now(timezone.utc)},
+            {"id": str(uuid.uuid4()), "n": name, "s": slug,
+             "now": datetime.now(timezone.utc)},
         )
 
     # Seed every skill from ATTRIBUTION as a minimal row + the 4 hub-search
@@ -88,14 +89,17 @@ def seeded_session(db_engine, monkeypatch):
     session.commit()
 
     # Monkey-patch backfill's create_engine to use this test engine
-    monkeypatch.setattr(backfill, "get_db_url", lambda: str(db_engine.url))
+    monkeypatch.setattr(backfill, "get_db_url",
+                        lambda: str(db_engine.url))
     yield session
     session.close()
 
 
 def test_skills_have_last_verified_column(db_engine):
     """The migration must have added last_verified + archived_at columns."""
-    inspector_query = "SELECT sql FROM sqlite_master WHERE type='table' AND name='skills'"
+    inspector_query = (
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='skills'"
+    )
     with db_engine.connect() as conn:
         ddl = conn.execute(text(inspector_query)).scalar()
     assert "last_verified" in ddl, "skills.last_verified must exist"
@@ -104,12 +108,16 @@ def test_skills_have_last_verified_column(db_engine):
 
 def test_backfill_dry_run_writes_nothing(seeded_session, db_engine, capsys):
     """Dry-run mode must not mutate the DB."""
-    original_creator_count = seeded_session.execute(text("SELECT COUNT(*) FROM creators")).scalar()
+    original_creator_count = seeded_session.execute(
+        text("SELECT COUNT(*) FROM creators")
+    ).scalar()
 
     sys.argv = ["backfill", "--db-url", str(db_engine.url)]
     backfill.main()
 
-    after_count = seeded_session.execute(text("SELECT COUNT(*) FROM creators")).scalar()
+    after_count = seeded_session.execute(
+        text("SELECT COUNT(*) FROM creators")
+    ).scalar()
     assert after_count == original_creator_count, "Dry-run must not write"
 
 
@@ -119,7 +127,9 @@ def test_backfill_commit_creates_missing_creators(seeded_session, db_engine):
     backfill.main()
 
     seeded_session.expire_all()
-    creator_names = set(seeded_session.execute(text("SELECT name FROM creators")).scalars().all())
+    creator_names = set(
+        seeded_session.execute(text("SELECT name FROM creators")).scalars().all()
+    )
     # Sample of the new creators that must exist after commit
     assert "Andrej Karpathy" in creator_names
     assert "Anthropic" in creator_names
@@ -205,7 +215,10 @@ def test_backfill_stamps_last_verified_on_survivors(seeded_session, db_engine):
     seeded_session.expire_all()
 
     null_lv = seeded_session.execute(
-        text("SELECT COUNT(*) FROM skills WHERE is_archived = 0 AND is_public = 1 AND last_verified IS NULL")
+        text(
+            "SELECT COUNT(*) FROM skills "
+            "WHERE is_archived = 0 AND is_public = 1 AND last_verified IS NULL"
+        )
     ).scalar()
     assert null_lv == 0, "No survivor should have NULL last_verified after backfill"
 
@@ -221,7 +234,6 @@ def test_backfill_is_idempotent(seeded_session, db_engine, capsys):
     out = capsys.readouterr().out
     # Second run: every "_updated" list and "_created" list should be empty
     import json
-
     payload_start = out.index("{")
     payload_end = out.rindex("}") + 1
     payload = json.loads(out[payload_start:payload_end])

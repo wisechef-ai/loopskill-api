@@ -12,7 +12,6 @@ Contract: for every route whose path contains {fleet_id} or {bundle_id} (or
 their cookbook-alias forms), a user in org B hitting a resource owned by org A
 must get 401/403/404 — NEVER a 200 that leaks org A's data.
 """
-
 from __future__ import annotations
 
 import hashlib
@@ -98,9 +97,8 @@ def _mk_fleet(db, owner, org_id):
 def _mk_bundle(db, owner, org_id):
     from app.models import Bundle
 
-    cb = Bundle(
-        id=uuid.uuid4(), name="probe-bundle", bundle_owner=owner.id, org_id=org_id, visibility="private"
-    )
+    cb = Bundle(id=uuid.uuid4(), name="probe-bundle", bundle_owner=owner.id, org_id=org_id,
+                visibility="private")
     db.add(cb)
     db.flush()
     return cb

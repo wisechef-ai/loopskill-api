@@ -18,7 +18,6 @@ Tests:
   5. End-to-end: created bundle flipped public appears in the discover feed
      and resolves on /public/{slug} — the actual bug's kill-test.
 """
-
 from __future__ import annotations
 
 import uuid

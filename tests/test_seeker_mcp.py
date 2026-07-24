@@ -17,7 +17,13 @@ from tests.conftest import make_skill
 def _write_skill(root: Path, slug: str, version: str = "1.0.0") -> None:
     skill_dir = root / slug
     skill_dir.mkdir(parents=True, exist_ok=True)
-    body = f"---\nname: {slug}\ndescription: demo skill for seeker\nversion: {version}\n---\n\n# body\n"
+    body = (
+        "---\n"
+        f"name: {slug}\n"
+        "description: demo skill for seeker\n"
+        f"version: {version}\n"
+        "---\n\n# body\n"
+    )
     (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
 
 
@@ -27,7 +33,6 @@ def _patch_vendor_paths(monkeypatch, claude_dir: Path) -> None:
     The other three vendors point at non-existent paths so they end up
     in the unsupported_paths list — matching the production behavior.
     """
-
     def _fake(platform=None):
         return {
             "claude": claude_dir,
@@ -35,9 +40,7 @@ def _patch_vendor_paths(monkeypatch, claude_dir: Path) -> None:
             "hermes": Path("/nonexistent/hermes"),
             "opencode": Path("/nonexistent/opencode"),
         }
-
     import app.mcp.tools.seeker as tool_mod
-
     monkeypatch.setattr(tool_mod, "vendor_paths", _fake)
 
 
@@ -49,14 +52,12 @@ def test_seeker_returns_vendors_recommendations_and_unsupported(monkeypatch, db_
 
     # Catalog: alpha has a newer version (recommend "newer"), beta is missing
     skill = make_skill(db_session, slug="alpha", title="Alpha")
-    db_session.add(
-        SkillVersion(
-            id=uuid4(),
-            skill_id=skill.id,
-            semver="2.0.0",
-            created_at=datetime.now(timezone.utc),
-        )
-    )
+    db_session.add(SkillVersion(
+        id=uuid4(),
+        skill_id=skill.id,
+        semver="2.0.0",
+        created_at=datetime.now(timezone.utc),
+    ))
     db_session.commit()
 
     _patch_vendor_paths(monkeypatch, claude_dir)
@@ -101,7 +102,6 @@ def test_seeker_when_no_vendor_paths_exist_returns_all_unsupported(monkeypatch, 
         }
 
     import app.mcp.tools.seeker as tool_mod
-
     monkeypatch.setattr(tool_mod, "vendor_paths", _fake)
 
     result = loopskill_seeker(db_session)

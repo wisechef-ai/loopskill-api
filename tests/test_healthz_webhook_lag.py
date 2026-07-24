@@ -137,9 +137,9 @@ def test_healthz_label_is_none_when_lag_below_threshold(client, db_session):
     body = r.json()
     assert body["stripe_webhook_lag_seconds"] is not None
     assert body["stripe_webhook_lag_seconds"] < 30
-    assert body["stripe_webhook_lag_label"] is None, (
-        "healthy lag must not carry a label — labels are only set on drift suspicion"
-    )
+    assert (
+        body["stripe_webhook_lag_label"] is None
+    ), "healthy lag must not carry a label — labels are only set on drift suspicion"
 
 
 def test_healthz_label_no_qualifying_traffic_on_zero_mrr(client, db_session):
@@ -164,7 +164,7 @@ def test_healthz_label_no_qualifying_traffic_on_zero_mrr(client, db_session):
     body = r.json()
     assert body["stripe_webhook_lag_seconds"] >= 3600
     assert body["stripe_webhook_lag_label"] == "no_qualifying_traffic", (
-        f"expected no_qualifying_traffic with no paid User rows, got {body['stripe_webhook_lag_label']!r}"
+        f"expected no_qualifying_traffic with no paid User rows, got " f"{body['stripe_webhook_lag_label']!r}"
     )
 
 
@@ -202,7 +202,7 @@ def test_healthz_label_drift_suspected_when_paid_traffic_exists(client, db_sessi
     body = r.json()
     assert body["stripe_webhook_lag_seconds"] >= 3600
     assert body["stripe_webhook_lag_label"] == "drift_suspected", (
-        f"expected drift_suspected with a recent paid User row, got {body['stripe_webhook_lag_label']!r}"
+        f"expected drift_suspected with a recent paid User row, got " f"{body['stripe_webhook_lag_label']!r}"
     )
 
 
@@ -287,5 +287,5 @@ def test_healthz_label_free_tier_signup_does_not_trip_drift(client, db_session):
     body = r.json()
     assert body["stripe_webhook_lag_seconds"] >= 3600
     assert body["stripe_webhook_lag_label"] == "no_qualifying_traffic", (
-        f"free-tier signups must not raise drift_suspected; got {body['stripe_webhook_lag_label']!r}"
+        f"free-tier signups must not raise drift_suspected; " f"got {body['stripe_webhook_lag_label']!r}"
     )

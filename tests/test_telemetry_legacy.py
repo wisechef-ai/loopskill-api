@@ -36,14 +36,11 @@ class TestLegacyTelemetry:
         """Legacy payload dict is JSON-serialised into payload column."""
         make_skill(db_session, slug="legacy-skill")
 
-        resp = _post(
-            client,
-            {
-                "event_type": "task_completed",
-                "skill_slug": "legacy-skill",
-                "payload": {"freeform": "data", "version": "1.0.0"},
-            },
-        )
+        resp = _post(client, {
+            "event_type": "task_completed",
+            "skill_slug": "legacy-skill",
+            "payload": {"freeform": "data", "version": "1.0.0"},
+        })
 
         assert resp.status_code == 201, resp.text
         body = resp.json()
@@ -51,7 +48,6 @@ class TestLegacyTelemetry:
         assert "event_id" in body
 
         from uuid import UUID
-
         ev = db_session.get(TelemetryEvent, UUID(body["event_id"]))
         assert ev is not None
         stored = json.loads(ev.payload)
@@ -61,18 +57,14 @@ class TestLegacyTelemetry:
         """When only legacy payload sent, typed columns must be NULL."""
         make_skill(db_session, slug="legacy-null-skill")
 
-        resp = _post(
-            client,
-            {
-                "event_type": "install",
-                "skill_slug": "legacy-null-skill",
-                "payload": {"key": "value"},
-            },
-        )
+        resp = _post(client, {
+            "event_type": "install",
+            "skill_slug": "legacy-null-skill",
+            "payload": {"key": "value"},
+        })
         assert resp.status_code == 201
 
         from uuid import UUID
-
         ev = db_session.get(TelemetryEvent, UUID(resp.json()["event_id"]))
         assert ev.goal_class is None
         assert ev.duration_seconds is None
@@ -82,18 +74,14 @@ class TestLegacyTelemetry:
 
     def test_anonymous_telemetry_no_skill_slug(self, client: TestClient, db_session: Session):
         """skill_slug is optional; anonymous telemetry must be accepted."""
-        resp = _post(
-            client,
-            {
-                "event_type": "first_use",
-                # no skill_slug
-                "payload": {"anonymous": True},
-            },
-        )
+        resp = _post(client, {
+            "event_type": "first_use",
+            # no skill_slug
+            "payload": {"anonymous": True},
+        })
         assert resp.status_code == 201
 
         from uuid import UUID
-
         ev = db_session.get(TelemetryEvent, UUID(resp.json()["event_id"]))
         assert ev.skill_slug is None
         assert ev.skill_id is None
@@ -104,7 +92,6 @@ class TestLegacyTelemetry:
         assert resp.status_code == 201
 
         from uuid import UUID
-
         ev = db_session.get(TelemetryEvent, UUID(resp.json()["event_id"]))
         assert ev.payload is None
         assert ev.goal_class is None
@@ -119,21 +106,17 @@ class TestLegacyTelemetry:
         """Response JSON shape is {status: 'recorded', event_id: <uuid-str>}."""
         make_skill(db_session, slug="shape-skill")
 
-        resp = _post(
-            client,
-            {
-                "event_type": "task_completed",
-                "skill_slug": "shape-skill",
-                "payload": {"status": "ok"},
-            },
-        )
+        resp = _post(client, {
+            "event_type": "task_completed",
+            "skill_slug": "shape-skill",
+            "payload": {"status": "ok"},
+        })
         assert resp.status_code == 201
         body = resp.json()
         assert set(body.keys()) >= {"status", "event_id"}
         assert body["status"] == "recorded"
         # event_id should be a valid UUID4 string
         from uuid import UUID
-
         UUID(body["event_id"])  # raises if invalid
 
     def test_empty_dict_payload_stored_as_json_not_null(self, client: TestClient, db_session: Session):
@@ -143,13 +126,10 @@ class TestLegacyTelemetry:
         """
         from uuid import UUID
 
-        resp = _post(
-            client,
-            {
-                "event_type": "install",
-                "payload": {},
-            },
-        )
+        resp = _post(client, {
+            "event_type": "install",
+            "payload": {},
+        })
         assert resp.status_code == 201
         ev = db_session.get(TelemetryEvent, UUID(resp.json()["event_id"]))
         assert ev.payload is not None, "payload={} must not be stored as NULL — F9 regression"

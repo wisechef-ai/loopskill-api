@@ -48,7 +48,7 @@ def test_github_tap_resolves(monkeypatch):
     monkeypatch.setattr(
         mi,
         "get_origin_fetcher",
-        lambda src: lambda slug: ("https://raw.githubusercontent.com/x/y/main/z/SKILL.md", "# tap body"),
+        lambda src: (lambda slug: ("https://raw.githubusercontent.com/x/y/main/z/SKILL.md", "# tap body")),
     )
     r = resolve_install("github-anthropic:anthropic--skill")
     assert r.resolved is True
@@ -73,14 +73,14 @@ def test_origin_outage_fails_closed_not_raises(monkeypatch):
 
 
 def test_unresolvable_ref_fails_closed(monkeypatch):
-    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: lambda slug: None)
+    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: (lambda slug: None))
     r = resolve_install("well-known:host--skill")
     assert r.resolved is False
     assert r.reason == "unresolvable"
 
 
 def test_empty_body_fails_closed(monkeypatch):
-    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: lambda slug: ("https://x/SKILL.md", "   "))
+    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: (lambda slug: ("https://x/SKILL.md", "   ")))
     r = resolve_install("skills-sh:o--r--s")
     assert r.resolved is False
     assert r.reason == "empty_body"
@@ -136,7 +136,7 @@ def test_resolved_install_to_dict():
 
 def test_large_body_is_clipped(monkeypatch):
     big = "#" * (300 * 1024)
-    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: lambda slug: ("https://x/SKILL.md", big))
+    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: (lambda slug: ("https://x/SKILL.md", big)))
     r = resolve_install("skills-sh:o--r--s")
     assert r.resolved is True
     assert len(r.body.encode("utf-8")) <= 256 * 1024

@@ -6,7 +6,6 @@ Tests for v6 Phase A API extensions:
                               external_resources, pinned_sha, upstream_status
   - GET /api/skills/<slug>/external — public no-auth, returns external_resources
 """
-
 from __future__ import annotations
 
 from uuid import uuid4
@@ -23,7 +22,6 @@ from app.models import Base, Skill
 
 
 # ── Test app setup ───────────────────────────────────────────────────────
-
 
 @pytest.fixture(scope="module")
 def engine_v6():
@@ -45,79 +43,45 @@ def seeded_db(engine_v6):
     from datetime import datetime, timezone
 
     skills = [
-        Skill(
-            id=uuid4(),
-            slug="pantry-alpha",
-            title="Pantry Alpha",
-            is_public=True,
-            skill_variant="original",
-            original_source_url="https://github.com/obra/superpowers",
-            pinned_sha="abc123def456" * 2 + "abcd",
-            upstream_status="active",
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        ),
-        Skill(
-            id=uuid4(),
-            slug="pantry-beta",
-            title="Pantry Beta",
-            is_public=True,
-            skill_variant="original",
-            original_source_url="https://github.com/Houseofmvps/ultraship",
-            pinned_sha="deadbeef" * 8,
-            upstream_status="active",
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        ),
-        Skill(
-            id=uuid4(),
-            slug="menu-alpha",
-            title="Menu Alpha",
-            is_public=True,
-            skill_variant="custom",
-            upstream_status="active",
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        ),
-        Skill(
-            id=uuid4(),
-            slug="menu-beta",
-            title="Menu Beta",
-            is_public=True,
-            skill_variant="custom",
-            upstream_status="active",
-            external_resources=[
-                {
-                    "slug": "ext-tool",
-                    "url": "https://ext.example.com",
-                    "relation": "complementary",
-                    "description": "Pair with this",
-                }
-            ],
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        ),
-        Skill(
-            id=uuid4(),
-            slug="custom-private",
-            title="Custom Private",
-            is_public=False,
-            skill_variant="custom",
-            upstream_status="active",
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        ),
-        Skill(
-            id=uuid4(),
-            slug="abandoned-skill",
-            title="Abandoned",
-            is_public=True,
-            skill_variant="original",
-            original_source_url="https://github.com/defunct/repo",
-            upstream_status="abandoned",
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        ),
+        Skill(id=uuid4(), slug="pantry-alpha", title="Pantry Alpha",
+              is_public=True, skill_variant="original",
+              original_source_url="https://github.com/obra/superpowers",
+              pinned_sha="abc123def456" * 2 + "abcd",
+              upstream_status="active",
+              created_at=datetime.now(timezone.utc),
+              updated_at=datetime.now(timezone.utc)),
+        Skill(id=uuid4(), slug="pantry-beta", title="Pantry Beta",
+              is_public=True, skill_variant="original",
+              original_source_url="https://github.com/Houseofmvps/ultraship",
+              pinned_sha="deadbeef" * 8,
+              upstream_status="active",
+              created_at=datetime.now(timezone.utc),
+              updated_at=datetime.now(timezone.utc)),
+        Skill(id=uuid4(), slug="menu-alpha", title="Menu Alpha",
+              is_public=True, skill_variant="custom",
+              upstream_status="active",
+              created_at=datetime.now(timezone.utc),
+              updated_at=datetime.now(timezone.utc)),
+        Skill(id=uuid4(), slug="menu-beta", title="Menu Beta",
+              is_public=True, skill_variant="custom",
+              upstream_status="active",
+              external_resources=[
+                  {"slug": "ext-tool", "url": "https://ext.example.com",
+                   "relation": "complementary", "description": "Pair with this"}
+              ],
+              created_at=datetime.now(timezone.utc),
+              updated_at=datetime.now(timezone.utc)),
+        Skill(id=uuid4(), slug="custom-private", title="Custom Private",
+              is_public=False, skill_variant="custom",
+              upstream_status="active",
+              created_at=datetime.now(timezone.utc),
+              updated_at=datetime.now(timezone.utc)),
+        Skill(id=uuid4(), slug="abandoned-skill", title="Abandoned",
+              is_public=True, skill_variant="original",
+              original_source_url="https://github.com/defunct/repo",
+              upstream_status="abandoned",
+              created_at=datetime.now(timezone.utc),
+              updated_at=datetime.now(timezone.utc)),
     ]
     session.add_all(skills)
     session.commit()
@@ -164,7 +128,6 @@ def client_v6(seeded_db, _v6_monkeypatch):
 
 # ── subset=pantry filter ─────────────────────────────────────────────────
 
-
 class TestSubsetPantry:
     def test_pantry_returns_only_original_variant(self, client_v6):
         r = client_v6.get("/api/skills/search?subset=pantry")
@@ -189,7 +152,6 @@ class TestSubsetPantry:
 
 # ── subset=menu filter ───────────────────────────────────────────────────
 
-
 class TestSubsetMenu:
     def test_menu_returns_only_custom_variant(self, client_v6):
         r = client_v6.get("/api/skills/search?subset=menu")
@@ -206,7 +168,6 @@ class TestSubsetMenu:
 
 
 # ── variant filter ───────────────────────────────────────────────────────
-
 
 class TestVariantFilter:
     def test_variant_original_filter(self, client_v6):
@@ -230,7 +191,6 @@ class TestVariantFilter:
 
 
 # ── GET /api/skills/<slug> — new v6 fields ───────────────────────────────
-
 
 class TestSkillDetailV6Fields:
     def test_skill_detail_returns_skill_variant(self, client_v6):
@@ -279,7 +239,6 @@ class TestSkillDetailV6Fields:
 
 # ── GET /api/skills/<slug>/external ──────────────────────────────────────
 
-
 class TestSkillExternalEndpoint:
     def test_external_returns_200(self, client_v6):
         r = client_v6.get("/api/skills/menu-beta/external")
@@ -315,7 +274,6 @@ class TestSkillExternalEndpoint:
 
 
 # ── upstream_status filter ───────────────────────────────────────────────
-
 
 class TestUpstreamStatusFilter:
     def test_abandoned_skill_visible_in_search(self, client_v6):

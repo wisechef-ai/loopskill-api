@@ -3,7 +3,6 @@
 loopskill_0622 Phase 8. The validator is what makes the loop registry *vetted*:
 no verification, no bound, no allow-list => rejected.
 """
-
 from __future__ import annotations
 
 import pytest
@@ -85,7 +84,9 @@ def test_empty_tool_allowlist_is_allowed():
 
 def test_stopping_criteria_missing_keys_rejected():
     with pytest.raises(LoopValidationError, match="missing required keys"):
-        validate_loop_manifest(_valid_manifest(stopping_criteria={"success": "x"}))
+        validate_loop_manifest(
+            _valid_manifest(stopping_criteria={"success": "x"})
+        )
 
 
 def test_stopping_criteria_not_object_rejected():

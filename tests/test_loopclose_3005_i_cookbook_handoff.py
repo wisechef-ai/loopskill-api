@@ -29,7 +29,6 @@ Authz:
   - master key without user_id CAN handoff (admin path)
   - cbt_token callers cannot handoff (no user_id, not master)
 """
-
 from __future__ import annotations
 
 from typing import Generator
@@ -160,11 +159,8 @@ def test_transfer_new_owner_can_list(db_session):
 
     ctx = AuthContext(scope="user", user_id=user_a.id)
     loopskill_bundle_handoff(
-        db_session,
-        ctx=ctx,
-        cookbook_id=str(cb.id),
-        new_owner_user_id=str(user_b.id),
-        mode="transfer",
+        db_session, ctx=ctx, cookbook_id=str(cb.id),
+        new_owner_user_id=str(user_b.id), mode="transfer",
     )
 
     # user_b owns it now
@@ -270,7 +266,9 @@ def test_fork_lineage_set(db_session):
         mode="fork",
     )
 
-    new_cb = db_session.query(Bundle).filter(Bundle.id == UUID(result["new_cookbook_id"])).first()
+    new_cb = db_session.query(Bundle).filter(
+        Bundle.id == UUID(result["new_cookbook_id"])
+    ).first()
     assert new_cb.parent_bundle_id == cb.id
     assert new_cb.synced_from_bundle_id == cb.id
     assert result["parent_cookbook_id"] == str(cb.id)
@@ -299,9 +297,14 @@ def test_fork_copies_only_custom_added_skills(db_session):
     )
 
     new_cb_id = UUID(result["new_cookbook_id"])
-    new_skills = db_session.query(BundleSkill).filter(BundleSkill.bundle_id == new_cb_id).all()
+    new_skills = db_session.query(BundleSkill).filter(
+        BundleSkill.bundle_id == new_cb_id
+    ).all()
 
-    slugs_in_new = {db_session.query(Skill).filter(Skill.id == cs.skill_id).first().slug for cs in new_skills}
+    slugs_in_new = {
+        db_session.query(Skill).filter(Skill.id == cs.skill_id).first().slug
+        for cs in new_skills
+    }
     assert "custom-skill" in slugs_in_new, slugs_in_new
     assert "forked-skill" not in slugs_in_new, slugs_in_new
     assert "disabled-skill" not in slugs_in_new, slugs_in_new

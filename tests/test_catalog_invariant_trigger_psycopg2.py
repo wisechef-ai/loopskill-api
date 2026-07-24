@@ -90,11 +90,12 @@ def test_trigger_function_creates_via_psycopg2():
 
         mig_path = (
             Path(__file__).resolve().parent.parent
-            / "alembic"
-            / "versions"
+            / "alembic" / "versions"
             / "a0b1c2d3e4f5_catalog_invariant_no_phantom_public.py"
         )
-        spec = importlib.util.spec_from_file_location("catalog_invariant_migration", mig_path)
+        spec = importlib.util.spec_from_file_location(
+            "catalog_invariant_migration", mig_path
+        )
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
@@ -106,7 +107,9 @@ def test_trigger_function_creates_via_psycopg2():
 
         src = inspect.getsource(mod.upgrade)
         # Match both regular and f-string triple-quoted blocks.
-        sql_blocks = re.findall(r'op\.execute\(\s*f?"""(.*?)"""\s*\)', src, flags=re.DOTALL)
+        sql_blocks = re.findall(
+            r'op\.execute\(\s*f?"""(.*?)"""\s*\)', src, flags=re.DOTALL
+        )
         assert sql_blocks, "no op.execute blocks found in upgrade()"
 
         # Substitute f-string {_TRIGGER_NAME} references with the real value
@@ -125,7 +128,8 @@ def test_trigger_function_creates_via_psycopg2():
         phantom_id = str(uuid.uuid4())
         with pytest.raises(psycopg2_errors.CheckViolation) as exc_info:
             cur.execute(
-                "INSERT INTO skills (id, slug, is_public, is_archived) VALUES (%s, 'phantom', TRUE, FALSE);",
+                "INSERT INTO skills (id, slug, is_public, is_archived) "
+                "VALUES (%s, 'phantom', TRUE, FALSE);",
                 (phantom_id,),
             )
             conn.commit()
@@ -133,16 +137,20 @@ def test_trigger_function_creates_via_psycopg2():
 
         msg = str(exc_info.value)
         assert "catalog_invariant_violation" in msg
-        assert phantom_id in msg, f"trigger message should embed the UUID via string concat, got: {msg[:300]}"
+        assert phantom_id in msg, (
+            f"trigger message should embed the UUID via string concat, got: {msg[:300]}"
+        )
         # Specifically, no leftover ``%%`` / ``%%%%`` escape garbage.
         assert "%%" not in msg, (
-            f"trigger message contains literal '%%' — RAISE EXCEPTION %-format regression: {msg[:300]}"
+            f"trigger message contains literal '%%' — RAISE EXCEPTION %-format "
+            f"regression: {msg[:300]}"
         )
 
         # And a clean publish flow (skill + matching version) must NOT raise.
         clean_id = str(uuid.uuid4())
         cur.execute(
-            "INSERT INTO skills (id, slug, is_public, is_archived) VALUES (%s, 'clean', FALSE, FALSE);",
+            "INSERT INTO skills (id, slug, is_public, is_archived) "
+            "VALUES (%s, 'clean', FALSE, FALSE);",
             (clean_id,),
         )
         cur.execute(

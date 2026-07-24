@@ -19,7 +19,8 @@ def test_reconcile_cache_is_ttlcache() -> None:
     from app.checkout_routes import _reconcile_last_attempt
 
     assert isinstance(_reconcile_last_attempt, TTLCache), (
-        f"_reconcile_last_attempt should be a cachetools.TTLCache, got {type(_reconcile_last_attempt)}"
+        "_reconcile_last_attempt should be a cachetools.TTLCache, got "
+        f"{type(_reconcile_last_attempt)}"
     )
 
 

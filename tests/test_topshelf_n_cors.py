@@ -15,7 +15,6 @@ The tests build a *minimal* FastAPI app that mirrors the CORS configuration
 in ``app/main.py`` — this avoids pulling in the full application stack
 (DB, Stripe, Discord, etc.) and keeps the suite fast and self-contained.
 """
-
 from __future__ import annotations
 
 from fastapi import FastAPI
@@ -93,7 +92,8 @@ def test_disallowed_origin_gets_no_cors_header():
     # the header must be absent so the browser blocks the response).
     assert resp.status_code == 200
     assert ACAO_HEADER not in resp.headers, (
-        f"CORS header must be absent for disallowed origin, got: {resp.headers.get(ACAO_HEADER)}"
+        f"CORS header must be absent for disallowed origin, got: "
+        f"{resp.headers.get(ACAO_HEADER)}"
     )
 
 
@@ -125,7 +125,9 @@ def test_preflight_disallowed_origin():
             "Access-Control-Request-Headers": "content-type",
         },
     )
-    assert ACAO_HEADER not in resp.headers, "CORS header must be absent in preflight for disallowed origin"
+    assert ACAO_HEADER not in resp.headers, (
+        "CORS header must be absent in preflight for disallowed origin"
+    )
 
 
 # ── Tests: no Origin header (non-browser clients like MCP agents) ─────────────
@@ -139,4 +141,6 @@ def test_no_origin_header_returns_no_cors_header():
     """
     resp = _client.get("/healthz")
     assert resp.status_code == 200
-    assert ACAO_HEADER not in resp.headers, "No CORS headers expected when Origin is absent"
+    assert ACAO_HEADER not in resp.headers, (
+        "No CORS headers expected when Origin is absent"
+    )

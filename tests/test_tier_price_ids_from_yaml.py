@@ -4,7 +4,6 @@ Verifies RCP-INCIDENT-2026-05-11 Phase 5 requirement:
 - TIER_PRICE_IDS contains 'pro' and 'pro_plus', not 'cook', 'operator', or 'studio'
 - TIER_USD_PRICE is correctly loaded from yaml with legacy aliases retained
 """
-
 from __future__ import annotations
 
 import importlib
@@ -14,7 +13,6 @@ class TestTierPriceIdsFromYaml:
     def _fresh_ss(self):
         """Force-reload subscription_service to bypass lru_cache."""
         from app import subscription_service as ss
-
         # Bust the lru_cache on the loader helpers
         ss._load_tiers_yaml.cache_clear()
         ss._load_tier_price_ids.cache_clear()
@@ -61,7 +59,6 @@ class TestTierPriceIdsFromYaml:
         """TIER_USD_PRICE values come from config/tiers.yaml price_usd fields."""
         from pathlib import Path
         import yaml
-
         yaml_path = Path(__file__).parent.parent / "config" / "tiers.yaml"
         with open(yaml_path) as f:
             tiers = yaml.safe_load(f)["tiers"]
@@ -126,7 +123,6 @@ class TestEnvVarRenameLegacyFallback:
         """Reload subscription_service with specific settings field overrides."""
         from app import subscription_service as ss
         from app.config import settings
-
         # Apply overrides
         original = {}
         for k, v in overrides.items():
@@ -140,7 +136,6 @@ class TestEnvVarRenameLegacyFallback:
 
     def _restore(self, original):
         from app.config import settings
-
         for k, v in original.items():
             setattr(settings, k, v)
 
@@ -154,7 +149,9 @@ class TestEnvVarRenameLegacyFallback:
         )
         try:
             result = ss._load_tier_price_ids()
-            assert result["pro"] == "price_CANONICAL_pro", f"Expected canonical, got {result['pro']!r}"
+            assert result["pro"] == "price_CANONICAL_pro", (
+                f"Expected canonical, got {result['pro']!r}"
+            )
             assert result["pro_plus"] == "price_CANONICAL_proplus"
         finally:
             self._restore(original)
@@ -219,7 +216,6 @@ class TestEnvVarRenameLegacyFallback:
         the legacy-env-var fallback. Any non-empty default would mask the
         real prod value sourced via WR_STRIPE_PRICE_COOK/STUDIO."""
         from app.config import Settings
-
         defaults = Settings.model_fields
         assert defaults["STRIPE_PRICE_PRO"].default == "", (
             "STRIPE_PRICE_PRO must default to '' so unset .env falls back to legacy. "

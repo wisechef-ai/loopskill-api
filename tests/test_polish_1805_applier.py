@@ -1,5 +1,4 @@
 """polish_1805 item 3 — applier must lint & idempotently update descriptions."""
-
 from __future__ import annotations
 
 import json
@@ -27,8 +26,7 @@ def test_lint_rejects_long_description(tmp_path):
     f.write_text(json.dumps(data))
     r = subprocess.run(
         [sys.executable, str(SCRIPT), "--input", str(f)],
-        capture_output=True,
-        text=True,
+        capture_output=True, text=True,
         cwd=Path(__file__).resolve().parent.parent,
     )
     assert r.returncode == 3, f"expected lint exit, got {r.returncode}: {r.stdout}\n{r.stderr}"
@@ -46,8 +44,7 @@ def test_lint_rejects_banned_phrase(tmp_path):
     f.write_text(json.dumps(data))
     r = subprocess.run(
         [sys.executable, str(SCRIPT), "--input", str(f)],
-        capture_output=True,
-        text=True,
+        capture_output=True, text=True,
         cwd=Path(__file__).resolve().parent.parent,
     )
     assert r.returncode == 3
@@ -61,10 +58,11 @@ def test_real_batch_passes_lint(tmp_path):
         pytest.skip("real batch not present in this checkout")
     r = subprocess.run(
         [sys.executable, str(SCRIPT), "--input", str(real), "--lint-only"],
-        capture_output=True,
-        text=True,
+        capture_output=True, text=True,
         cwd=Path(__file__).resolve().parent.parent,
     )
-    assert r.returncode == 0, f"Shipped batch failed lint! exit={r.returncode}\n{r.stdout}\n{r.stderr}"
+    assert r.returncode == 0, (
+        f"Shipped batch failed lint! exit={r.returncode}\n{r.stdout}\n{r.stderr}"
+    )
     assert "Lint pass" in r.stdout, r.stdout
     assert "LINT FAILED" not in r.stdout

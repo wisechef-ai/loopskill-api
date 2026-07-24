@@ -9,7 +9,6 @@ Note: there are sibling tests for `app/carousel/cron.py:daily_carousel_job`
 (see test_carousel_cron.py) — that's a DIFFERENT writer in the codebase, not
 the one in production. See 2026-05-19 vault log for the root-cause writeup.
 """
-
 from __future__ import annotations
 
 import pytest
@@ -22,7 +21,6 @@ from app.crons.carousel_selector import (
 
 
 # ── derive_tagline ──────────────────────────────────────────────────────────
-
 
 class TestDeriveTagline:
     def test_uses_description_when_present(self):
@@ -155,7 +153,7 @@ class TestSlot1QualityCheck:
     def test_c4_six_char_slug_passes(self):
         p = {"title": "Different", "slug": "skills"}
         ok, _ = slot1_quality_check(p, "A great description that is long enough.")
-        assert _ == "ok"
+        assert _  == "ok"
 
     def test_handles_none_tagline_as_empty(self):
         p = {"title": "x", "slug": "x-y-z"}
@@ -184,20 +182,16 @@ class TestSlot1QualityCheck:
 
 # ── assign_role ─────────────────────────────────────────────────────────────
 
-
 class TestAssignRole:
-    @pytest.mark.parametrize(
-        "slot,expected",
-        [
-            (1, "new-capability"),
-            (2, "new-capability"),
-            (3, "new-capability"),
-            (4, "new-capability"),
-            (5, "new-capability"),
-            (6, "experimental"),
-            (7, "experimental"),
-        ],
-    )
+    @pytest.mark.parametrize("slot,expected", [
+        (1, "new-capability"),
+        (2, "new-capability"),
+        (3, "new-capability"),
+        (4, "new-capability"),
+        (5, "new-capability"),
+        (6, "experimental"),
+        (7, "experimental"),
+    ])
     def test_slot_to_role_mapping(self, slot, expected):
         assert assign_role(slot) == expected
 
@@ -216,7 +210,6 @@ class TestAssignRole:
 # Tested as a literal string match on the source file so accidental edits get
 # caught by the test suite, not by the next 8-day outage.
 
-
 def test_select_filter_clause_present_in_source():
     """Regression: the description-quality filter must remain in the SELECT.
 
@@ -225,7 +218,6 @@ def test_select_filter_clause_present_in_source():
     """
     import pathlib
     import pathlib
-
     src = pathlib.Path("app/crons/carousel_selector.py").read_text()
     required_fragments = [
         "s.description IS NOT NULL",
@@ -250,7 +242,6 @@ def test_insert_writes_slot_role_score_columns():
     """
     import pathlib
     import pathlib
-
     src = pathlib.Path("app/crons/carousel_selector.py").read_text()
     # The INSERT block must mention all three new columns
     assert "INSERT INTO carousel_entries" in src
@@ -276,7 +267,6 @@ def test_tail_backfill_after_slot1_gate_present_in_source():
     fails loudly if the post-gate backfill is removed.
     """
     import pathlib
-
     src = pathlib.Path("app/crons/carousel_selector.py").read_text()
     gate_idx = src.find("# Slot-1 pre-promotion gate")
     insert_idx = src.find("# Insert with slot (1-indexed)")

@@ -12,7 +12,6 @@ Test cases:
 4. Stripe call raises → fail-soft, service continues, only WARNING logged.
 5. WR_STRIPE_WEBHOOK_SECRET doesn't start with whsec_ → CRITICAL + alert.
 """
-
 from __future__ import annotations
 
 import asyncio
@@ -47,13 +46,11 @@ def _run(coro):
 def non_sqlite_db(monkeypatch):
     """Pretend DATABASE_URL is postgres so the sqlite skip guard doesn't fire."""
     from app.config import settings
-
     monkeypatch.setattr(settings, "DATABASE_URL", "postgresql://test@localhost/testdb")
     monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "sk_test_dummy")
 
 
 # ── Test 1: exactly one enabled endpoint → no alert, no CRITICAL ──────────────
-
 
 def test_one_enabled_endpoint_no_alert(caplog):
     """Gate 1: healthy config — exactly one enabled endpoint → no alert."""
@@ -61,18 +58,13 @@ def test_one_enabled_endpoint_no_alert(caplog):
 
     endpoints_resp = {"data": [_make_endpoint()]}
 
-    with (
-        patch("stripe.WebhookEndpoint.list", return_value=endpoints_resp),
-        patch.dict(
-            "os.environ",
-            {
-                "WR_STRIPE_WEBHOOK_SECRET": "whsec_valid_secret",
-                "TORI_DISCORD_WEBHOOK_URL": "",
-            },
-        ),
-        patch("app.startup_checks.post_tori_alert") as mock_alert,
-        caplog.at_level(logging.CRITICAL, logger="app.startup_checks"),
-    ):
+    with patch("stripe.WebhookEndpoint.list", return_value=endpoints_resp), \
+         patch.dict("os.environ", {
+             "WR_STRIPE_WEBHOOK_SECRET": "whsec_valid_secret",
+             "TORI_DISCORD_WEBHOOK_URL": "",
+         }), \
+         patch("app.startup_checks.post_tori_alert") as mock_alert, \
+         caplog.at_level(logging.CRITICAL, logger="app.startup_checks"):
         _run(verify_stripe_webhook_endpoint())
 
     mock_alert.assert_not_called()
@@ -83,25 +75,19 @@ def test_one_enabled_endpoint_no_alert(caplog):
 
 # ── Test 2: zero endpoints → CRITICAL + alert ──────────────────────────────────
 
-
 def test_zero_endpoints_critical_and_alert(caplog):
     """Gate 2: no enabled endpoints → CRITICAL log + Discord alert."""
     from app.startup_checks import verify_stripe_webhook_endpoint
 
     endpoints_resp = {"data": []}  # empty
 
-    with (
-        patch("stripe.WebhookEndpoint.list", return_value=endpoints_resp),
-        patch.dict(
-            "os.environ",
-            {
-                "WR_STRIPE_WEBHOOK_SECRET": "whsec_valid_secret",
-                "TORI_DISCORD_WEBHOOK_URL": "https://discord.example/webhook",
-            },
-        ),
-        patch("app.startup_checks.post_tori_alert") as mock_alert,
-        caplog.at_level(logging.CRITICAL, logger="app.startup_checks"),
-    ):
+    with patch("stripe.WebhookEndpoint.list", return_value=endpoints_resp), \
+         patch.dict("os.environ", {
+             "WR_STRIPE_WEBHOOK_SECRET": "whsec_valid_secret",
+             "TORI_DISCORD_WEBHOOK_URL": "https://discord.example/webhook",
+         }), \
+         patch("app.startup_checks.post_tori_alert") as mock_alert, \
+         caplog.at_level(logging.CRITICAL, logger="app.startup_checks"):
         _run(verify_stripe_webhook_endpoint())
 
     mock_alert.assert_called_once()
@@ -110,35 +96,30 @@ def test_zero_endpoints_critical_and_alert(caplog):
 
     critical_records = [r for r in caplog.records if r.levelno >= logging.CRITICAL]
     assert critical_records, "Expected at least one CRITICAL log record"
-    assert any("zero" in r.message.lower() or "enabled" in r.message.lower() for r in critical_records)
+    assert any(
+        "zero" in r.message.lower() or "enabled" in r.message.lower()
+        for r in critical_records
+    )
 
 
 # ── Test 3: duplicate endpoints → CRITICAL + alert ───────────────────────────
-
 
 def test_duplicate_endpoints_critical_and_alert(caplog):
     """Gate 3: two enabled endpoints found → CRITICAL log + Discord alert."""
     from app.startup_checks import verify_stripe_webhook_endpoint
 
-    endpoints_resp = {
-        "data": [
-            _make_endpoint(),
-            _make_endpoint(url=_EXPECTED_WEBHOOK_URL, status="enabled"),
-        ]
-    }
+    endpoints_resp = {"data": [
+        _make_endpoint(),
+        _make_endpoint(url=_EXPECTED_WEBHOOK_URL, status="enabled"),
+    ]}
 
-    with (
-        patch("stripe.WebhookEndpoint.list", return_value=endpoints_resp),
-        patch.dict(
-            "os.environ",
-            {
-                "WR_STRIPE_WEBHOOK_SECRET": "whsec_valid_secret",
-                "TORI_DISCORD_WEBHOOK_URL": "https://discord.example/webhook",
-            },
-        ),
-        patch("app.startup_checks.post_tori_alert") as mock_alert,
-        caplog.at_level(logging.CRITICAL, logger="app.startup_checks"),
-    ):
+    with patch("stripe.WebhookEndpoint.list", return_value=endpoints_resp), \
+         patch.dict("os.environ", {
+             "WR_STRIPE_WEBHOOK_SECRET": "whsec_valid_secret",
+             "TORI_DISCORD_WEBHOOK_URL": "https://discord.example/webhook",
+         }), \
+         patch("app.startup_checks.post_tori_alert") as mock_alert, \
+         caplog.at_level(logging.CRITICAL, logger="app.startup_checks"):
         _run(verify_stripe_webhook_endpoint())
 
     mock_alert.assert_called_once()
@@ -147,28 +128,25 @@ def test_duplicate_endpoints_critical_and_alert(caplog):
 
     critical_records = [r for r in caplog.records if r.levelno >= logging.CRITICAL]
     assert critical_records, "Expected at least one CRITICAL log record"
-    assert any("2" in r.message or "expected 1" in r.message.lower() for r in critical_records)
+    assert any(
+        "2" in r.message or "expected 1" in r.message.lower()
+        for r in critical_records
+    )
 
 
 # ── Test 4: Stripe call raises → fail-soft, warning only ─────────────────────
-
 
 def test_stripe_raises_fail_soft(caplog):
     """Gate 4: stripe.WebhookEndpoint.list raises → warning logged, no crash."""
     from app.startup_checks import verify_stripe_webhook_endpoint
 
-    with (
-        patch("stripe.WebhookEndpoint.list", side_effect=Exception("Stripe timeout")),
-        patch.dict(
-            "os.environ",
-            {
-                "WR_STRIPE_WEBHOOK_SECRET": "whsec_valid_secret",
-                "TORI_DISCORD_WEBHOOK_URL": "",
-            },
-        ),
-        patch("app.startup_checks.post_tori_alert") as mock_alert,
-        caplog.at_level(logging.WARNING, logger="app.startup_checks"),
-    ):
+    with patch("stripe.WebhookEndpoint.list", side_effect=Exception("Stripe timeout")), \
+         patch.dict("os.environ", {
+             "WR_STRIPE_WEBHOOK_SECRET": "whsec_valid_secret",
+             "TORI_DISCORD_WEBHOOK_URL": "",
+         }), \
+         patch("app.startup_checks.post_tori_alert") as mock_alert, \
+         caplog.at_level(logging.WARNING, logger="app.startup_checks"):
         # Must not raise
         _run(verify_stripe_webhook_endpoint())
 
@@ -182,43 +160,37 @@ def test_stripe_raises_fail_soft(caplog):
 
 # ── Test 5: invalid webhook secret format → CRITICAL + alert ──────────────────
 
-
 def test_invalid_webhook_secret_critical_and_alert(caplog):
     """Gate 5: WR_STRIPE_WEBHOOK_SECRET doesn't start with whsec_ → CRITICAL + alert."""
     from app.startup_checks import verify_stripe_webhook_endpoint
 
     endpoints_resp = {"data": [_make_endpoint()]}
 
-    with (
-        patch("stripe.WebhookEndpoint.list", return_value=endpoints_resp),
-        patch.dict(
-            "os.environ",
-            {
-                "WR_STRIPE_WEBHOOK_SECRET": "sk_wrong_format",
-                "TORI_DISCORD_WEBHOOK_URL": "https://discord.example/webhook",
-            },
-        ),
-        patch("app.startup_checks.post_tori_alert") as mock_alert,
-        caplog.at_level(logging.CRITICAL, logger="app.startup_checks"),
-    ):
+    with patch("stripe.WebhookEndpoint.list", return_value=endpoints_resp), \
+         patch.dict("os.environ", {
+             "WR_STRIPE_WEBHOOK_SECRET": "sk_wrong_format",
+             "TORI_DISCORD_WEBHOOK_URL": "https://discord.example/webhook",
+         }), \
+         patch("app.startup_checks.post_tori_alert") as mock_alert, \
+         caplog.at_level(logging.CRITICAL, logger="app.startup_checks"):
         _run(verify_stripe_webhook_endpoint())
 
     mock_alert.assert_called()
     critical_records = [r for r in caplog.records if r.levelno >= logging.CRITICAL]
     assert critical_records, "Expected CRITICAL log for bad secret format"
-    assert any("whsec_" in r.message or "invalid" in r.message.lower() for r in critical_records)
+    assert any(
+        "whsec_" in r.message or "invalid" in r.message.lower()
+        for r in critical_records
+    )
 
 
 # ── Test 6: regression — real stripe.ListObject shape (no .get on data) ───────
 
-
 class _FakeStripeObject:
     """Mimics stripe._stripe_object.StripeObject: attribute access only,
     `.get(k)` raises AttributeError (the trap that broke prod 2026-05-11)."""
-
     def __init__(self, **kw):
         self._kw = kw
-
     def __getattr__(self, k):
         if k.startswith("_"):
             raise AttributeError(k)
@@ -231,10 +203,8 @@ class _FakeStripeListObject:
     """Mimics stripe._list_object.ListObject. `.data` is the attribute;
     `.get('data')` raises AttributeError because there's no stored 'get' key.
     EXACT shape that broke startup_checks v1 in prod on 2026-05-11."""
-
     def __init__(self, data):
         self.data = data
-
     def __getattr__(self, k):
         if k.startswith("_"):
             raise AttributeError(k)
@@ -254,22 +224,18 @@ def test_endpoints_listobject_shape_regression(caplog):
     )
     endpoints_resp = _FakeStripeListObject(data=[ep])
 
-    with (
-        patch("stripe.WebhookEndpoint.list", return_value=endpoints_resp),
-        patch.dict(
-            "os.environ",
-            {
-                "WR_STRIPE_WEBHOOK_SECRET": "whsec_valid_secret",
-                "TORI_DISCORD_WEBHOOK_URL": "",
-            },
-        ),
-        patch("app.startup_checks.post_tori_alert") as mock_alert,
-        caplog.at_level(logging.CRITICAL, logger="app.startup_checks"),
-    ):
+    with patch("stripe.WebhookEndpoint.list", return_value=endpoints_resp), \
+         patch.dict("os.environ", {
+             "WR_STRIPE_WEBHOOK_SECRET": "whsec_valid_secret",
+             "TORI_DISCORD_WEBHOOK_URL": "",
+         }), \
+         patch("app.startup_checks.post_tori_alert") as mock_alert, \
+         caplog.at_level(logging.CRITICAL, logger="app.startup_checks"):
         _run(verify_stripe_webhook_endpoint())
 
     mock_alert.assert_not_called()
     critical_records = [r for r in caplog.records if r.levelno >= logging.CRITICAL]
     assert not critical_records, (
-        f"ListObject-shape probe must succeed without CRITICAL — got: {[r.message for r in critical_records]}"
+        "ListObject-shape probe must succeed without CRITICAL — got: "
+        f"{[r.message for r in critical_records]}"
     )

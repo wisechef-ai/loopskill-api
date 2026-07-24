@@ -1,5 +1,4 @@
 """Tests for scripts/import_skill_metadata.py — frontmatter parsing + slug normalisation."""
-
 from __future__ import annotations
 
 import sys
@@ -51,7 +50,12 @@ class TestParseFrontmatter:
     def test_well_formed_frontmatter(self, tmp_path):
         f = tmp_path / "SKILL.md"
         f.write_text(
-            "---\nname: test-skill\ndescription: Does a thing\nrelated_skills: [alpha, beta]\n---\n# Body\n"
+            "---\n"
+            "name: test-skill\n"
+            "description: Does a thing\n"
+            "related_skills: [alpha, beta]\n"
+            "---\n"
+            "# Body\n"
         )
         fm = parse_frontmatter(f)
         assert fm["name"] == "test-skill"
@@ -59,7 +63,15 @@ class TestParseFrontmatter:
 
     def test_block_list_format(self, tmp_path):
         f = tmp_path / "SKILL.md"
-        f.write_text("---\nname: x\nrelated_skills:\n  - one\n  - two\n  - three\n---\n")
+        f.write_text(
+            "---\n"
+            "name: x\n"
+            "related_skills:\n"
+            "  - one\n"
+            "  - two\n"
+            "  - three\n"
+            "---\n"
+        )
         fm = parse_frontmatter(f)
         assert fm["related_skills"] == ["one", "two", "three"]
 

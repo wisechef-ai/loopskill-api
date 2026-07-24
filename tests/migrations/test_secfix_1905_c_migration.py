@@ -13,7 +13,6 @@ Verifies:
   4. New rows default to is_sandbox_operator=0 (False)
   5. alembic heads returns exactly 1 head (no fork)
 """
-
 from __future__ import annotations
 
 import os
@@ -73,7 +72,9 @@ def _seed_and_stamp(db_path: str) -> None:
     conn.close()
 
     r = _run_alembic(["stamp", PARENT_REV], db_path)
-    assert r.returncode == 0, f"alembic stamp {PARENT_REV} failed:\n{r.stdout}\n{r.stderr}"
+    assert r.returncode == 0, (
+        f"alembic stamp {PARENT_REV} failed:\n{r.stdout}\n{r.stderr}"
+    )
 
 
 @pytest.fixture()
@@ -92,7 +93,9 @@ def db_at_parent():
 def db_at_head(db_at_parent):
     """DB at PARENT_REV, upgraded to THIS_REV."""
     r = _run_alembic(["upgrade", THIS_REV], db_at_parent)
-    assert r.returncode == 0, f"alembic upgrade {THIS_REV} failed:\n{r.stdout}\n{r.stderr}"
+    assert r.returncode == 0, (
+        f"alembic upgrade {THIS_REV} failed:\n{r.stdout}\n{r.stderr}"
+    )
     return db_at_parent
 
 
@@ -100,13 +103,14 @@ def db_at_head(db_at_parent):
 # Tests
 # ---------------------------------------------------------------------------
 
-
 def test_upgrade_adds_is_sandbox_operator_column(db_at_head):
     """After upgrade, is_sandbox_operator column exists in api_keys."""
     conn = sqlite3.connect(db_at_head)
     cols = _get_columns(conn, "api_keys")
     conn.close()
-    assert "is_sandbox_operator" in cols, f"Expected 'is_sandbox_operator' in api_keys, got: {cols}"
+    assert "is_sandbox_operator" in cols, (
+        f"Expected 'is_sandbox_operator' in api_keys, got: {cols}"
+    )
 
 
 def test_upgrade_column_defaults_to_false(db_at_head):
@@ -117,11 +121,15 @@ def test_upgrade_column_defaults_to_false(db_at_head):
         VALUES ('test-key-c1', 'test-user-c1', 'testpfx', 'testhash', 1)
     """)
     conn.commit()
-    row = conn.execute("SELECT is_sandbox_operator FROM api_keys WHERE id='test-key-c1'").fetchone()
+    row = conn.execute(
+        "SELECT is_sandbox_operator FROM api_keys WHERE id='test-key-c1'"
+    ).fetchone()
     conn.close()
     assert row is not None
     # SQLite: server_default=false() → 0 for new rows, or None if not enforced at insert
-    assert row[0] in (0, False, None), f"Expected is_sandbox_operator default 0/False/None, got {row[0]!r}"
+    assert row[0] in (0, False, None), (
+        f"Expected is_sandbox_operator default 0/False/None, got {row[0]!r}"
+    )
 
 
 def test_upgrade_does_not_remove_existing_columns(db_at_parent):
@@ -144,11 +152,15 @@ def test_upgrade_does_not_remove_existing_columns(db_at_parent):
 def test_downgrade_removes_column(db_at_head):
     """After upgrade then downgrade -1, is_sandbox_operator column is removed."""
     r = _run_alembic(["downgrade", "-1"], db_at_head)
-    assert r.returncode == 0, f"alembic downgrade -1 failed:\n{r.stdout}\n{r.stderr}"
+    assert r.returncode == 0, (
+        f"alembic downgrade -1 failed:\n{r.stdout}\n{r.stderr}"
+    )
     conn = sqlite3.connect(db_at_head)
     cols = _get_columns(conn, "api_keys")
     conn.close()
-    assert "is_sandbox_operator" not in cols, f"Expected column removed after downgrade, got: {cols}"
+    assert "is_sandbox_operator" not in cols, (
+        f"Expected column removed after downgrade, got: {cols}"
+    )
 
 
 def test_upgrade_downgrade_upgrade_round_trip(db_at_parent):
@@ -160,7 +172,9 @@ def test_upgrade_downgrade_upgrade_round_trip(db_at_parent):
         ["upgrade", THIS_REV],
     ]:
         r = _run_alembic(step, db_path)
-        assert r.returncode == 0, f"alembic {' '.join(step)} failed:\n{r.stdout}\n{r.stderr}"
+        assert r.returncode == 0, (
+            f"alembic {' '.join(step)} failed:\n{r.stdout}\n{r.stderr}"
+        )
 
     conn = sqlite3.connect(db_path)
     cols = _get_columns(conn, "api_keys")
@@ -183,7 +197,10 @@ def test_alembic_heads_count_is_one():
             timeout=30,
         )
         assert result.returncode == 0, result.stderr
-        head_lines = [line for line in result.stdout.splitlines() if line.strip() and "(head)" in line]
+        head_lines = [
+            line for line in result.stdout.splitlines()
+            if line.strip() and "(head)" in line
+        ]
         assert len(head_lines) == 1, (
             f"Expected exactly 1 alembic head, got {len(head_lines)}:\n{result.stdout}"
         )

@@ -9,7 +9,6 @@ Covers:
 6. tier_labels._is_pro_plus_tier('cook') == False
 7. Checkout URL alias rewriting: /api/checkout/cook → pro, /api/checkout/operator → pro_plus
 """
-
 from __future__ import annotations
 
 import uuid
@@ -27,7 +26,6 @@ from app.models import Base, User
 
 # ── DB fixtures ───────────────────────────────────────────────────────────
 
-
 @pytest.fixture(scope="module")
 def engine_fixture():
     engine = create_engine(
@@ -35,11 +33,9 @@ def engine_fixture():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-
     @event.listens_for(engine, "connect")
     def _pragma(conn, _record):
         conn.execute("PRAGMA foreign_keys=ON")
-
     Base.metadata.create_all(bind=engine)
     yield engine
     Base.metadata.drop_all(bind=engine)
@@ -78,13 +74,11 @@ def _make_user(db, tier="pro_plus", status="active", sub_id="sub_test_001") -> U
 
 # ── 1. _apply_subscription_state shim tests ───────────────────────────────
 
-
 class TestApplySubscriptionStateShim:
     def test_studio_tier_in_price_metadata_normalised_to_pro_plus(self, db):
         """price.metadata.tier='studio' → user.subscription_tier='pro_plus' via shim."""
         import importlib
         from app import subscription_service as ss
-
         ss = importlib.reload(ss)
 
         user = _make_user(db, tier=None, status=None, sub_id="sub_shim_studio")
@@ -96,11 +90,9 @@ class TestApplySubscriptionStateShim:
             "id": "sub_shim_studio",
             "status": "active",
             "current_period_end": period_end,
-            "items": {
-                "data": [
-                    {"price": {"id": "price_studio_legacy", "metadata": {"tier": "studio"}}},
-                ]
-            },
+            "items": {"data": [
+                {"price": {"id": "price_studio_legacy", "metadata": {"tier": "studio"}}},
+            ]},
             "metadata": {"wiserecipes_user_id": str(user.id)},
         }
 
@@ -117,7 +109,6 @@ class TestApplySubscriptionStateShim:
         """price.metadata.tier='operator' → user.subscription_tier='pro_plus' via Phase 5 shim."""
         import importlib
         from app import subscription_service as ss
-
         ss = importlib.reload(ss)
 
         user = _make_user(db, tier=None, status=None, sub_id="sub_shim_operator")
@@ -129,11 +120,9 @@ class TestApplySubscriptionStateShim:
             "id": "sub_shim_operator",
             "status": "active",
             "current_period_end": period_end,
-            "items": {
-                "data": [
-                    {"price": {"id": "price_op_legacy", "metadata": {"tier": "operator"}}},
-                ]
-            },
+            "items": {"data": [
+                {"price": {"id": "price_op_legacy", "metadata": {"tier": "operator"}}},
+            ]},
             "metadata": {"wiserecipes_user_id": str(user.id)},
         }
 
@@ -148,7 +137,6 @@ class TestApplySubscriptionStateShim:
         """price.metadata.tier='cook' → user.subscription_tier='pro' via Phase 5 shim."""
         import importlib
         from app import subscription_service as ss
-
         ss = importlib.reload(ss)
 
         user = _make_user(db, tier=None, status=None, sub_id="sub_shim_cook")
@@ -160,11 +148,9 @@ class TestApplySubscriptionStateShim:
             "id": "sub_shim_cook",
             "status": "active",
             "current_period_end": period_end,
-            "items": {
-                "data": [
-                    {"price": {"id": "price_cook_legacy", "metadata": {"tier": "cook"}}},
-                ]
-            },
+            "items": {"data": [
+                {"price": {"id": "price_cook_legacy", "metadata": {"tier": "cook"}}},
+            ]},
             "metadata": {"wiserecipes_user_id": str(user.id)},
         }
 
@@ -179,7 +165,6 @@ class TestApplySubscriptionStateShim:
         """If tier comes from price-id reverse-lookup and the key is 'pro_plus', it stays."""
         import importlib
         from app import subscription_service as ss
-
         ss = importlib.reload(ss)
 
         user = _make_user(db, tier=None, status=None, sub_id="sub_rev_lookup")
@@ -191,11 +176,9 @@ class TestApplySubscriptionStateShim:
             "id": "sub_rev_lookup",
             "status": "active",
             "current_period_end": period_end,
-            "items": {
-                "data": [
-                    {"price": {"id": "price_pp_match", "metadata": {}}},
-                ]
-            },
+            "items": {"data": [
+                {"price": {"id": "price_pp_match", "metadata": {}}},
+            ]},
             "metadata": {"wiserecipes_user_id": str(user.id)},
         }
 
@@ -209,7 +192,6 @@ class TestApplySubscriptionStateShim:
 
 # ── 2. Downgrade wrapper tests ────────────────────────────────────────────
 
-
 class TestDowngradeWrappers:
     def test_downgrade_studio_to_cook_delegates_for_pro_plus_user(self, db):
         """downgrade_studio_to_cook() with a 'pro_plus' user → delegates, returns pro."""
@@ -220,11 +202,9 @@ class TestDowngradeWrappers:
         fake_sub = {"id": user.subscription_id, "items": {"data": [{"id": "si_001"}]}}
         fake_modified = {"id": user.subscription_id, "status": "active"}
 
-        with (
-            patch("stripe.Subscription.retrieve", return_value=fake_sub),
-            patch("stripe.Subscription.modify", return_value=fake_modified),
-            patch.object(ss, "TIER_PRICE_IDS", {"pro": "price_pro_test", "pro_plus": "price_pp_test"}),
-        ):
+        with patch("stripe.Subscription.retrieve", return_value=fake_sub), \
+             patch("stripe.Subscription.modify", return_value=fake_modified), \
+             patch.object(ss, "TIER_PRICE_IDS", {"pro": "price_pro_test", "pro_plus": "price_pp_test"}):
             result = ss.downgrade_studio_to_cook(user, db)
 
         assert result["tier"] == "pro"
@@ -241,11 +221,9 @@ class TestDowngradeWrappers:
         fake_sub = {"id": user.subscription_id, "items": {"data": [{"id": "si_002"}]}}
         fake_modified = {"id": user.subscription_id, "status": "active"}
 
-        with (
-            patch("stripe.Subscription.retrieve", return_value=fake_sub),
-            patch("stripe.Subscription.modify", return_value=fake_modified),
-            patch.object(ss, "TIER_PRICE_IDS", {"pro": "price_pro_test", "pro_plus": "price_pp_test"}),
-        ):
+        with patch("stripe.Subscription.retrieve", return_value=fake_sub), \
+             patch("stripe.Subscription.modify", return_value=fake_modified), \
+             patch.object(ss, "TIER_PRICE_IDS", {"pro": "price_pro_test", "pro_plus": "price_pp_test"}):
             result = ss.downgrade_operator_to_cook(user, db)
 
         assert result["tier"] == "pro"
@@ -259,11 +237,9 @@ class TestDowngradeWrappers:
         fake_sub = {"id": user.subscription_id, "items": {"data": [{"id": "si_003"}]}}
         fake_modified = {"id": user.subscription_id, "status": "active"}
 
-        with (
-            patch("stripe.Subscription.retrieve", return_value=fake_sub),
-            patch("stripe.Subscription.modify", return_value=fake_modified),
-            patch.object(ss, "TIER_PRICE_IDS", {"pro": "price_pro_test", "pro_plus": "price_pp_test"}),
-        ):
+        with patch("stripe.Subscription.retrieve", return_value=fake_sub), \
+             patch("stripe.Subscription.modify", return_value=fake_modified), \
+             patch.object(ss, "TIER_PRICE_IDS", {"pro": "price_pro_test", "pro_plus": "price_pp_test"}):
             result = ss.downgrade_studio_to_cook(user, db)
 
         assert result["tier"] == "pro"
@@ -287,126 +263,104 @@ class TestDowngradeWrappers:
 
 # ── 3-7. tier_labels helpers ──────────────────────────────────────────────
 
-
 class TestTierLabelHelpers:
     def test_is_pro_plus_tier_studio(self):
         """Legacy 'studio' slug accepted by _is_pro_plus_tier."""
         from app.tier_labels import _is_pro_plus_tier
-
         assert _is_pro_plus_tier("studio") is True
 
     def test_is_pro_plus_tier_operator(self):
         """Legacy 'operator' slug accepted by _is_pro_plus_tier."""
         from app.tier_labels import _is_pro_plus_tier
-
         assert _is_pro_plus_tier("operator") is True
 
     def test_is_pro_plus_tier_pro_plus(self):
         """Canonical 'pro_plus' slug accepted."""
         from app.tier_labels import _is_pro_plus_tier
-
         assert _is_pro_plus_tier("pro_plus") is True
 
     def test_is_pro_plus_tier_cook(self):
         """'cook' is not pro_plus tier."""
         from app.tier_labels import _is_pro_plus_tier
-
         assert _is_pro_plus_tier("cook") is False
 
     def test_is_pro_plus_tier_pro(self):
         """'pro' is not pro_plus tier."""
         from app.tier_labels import _is_pro_plus_tier
-
         assert _is_pro_plus_tier("pro") is False
 
     def test_is_pro_plus_tier_none(self):
         """None is not pro_plus tier."""
         from app.tier_labels import _is_pro_plus_tier
-
         assert _is_pro_plus_tier(None) is False
 
     def test_is_pro_plus_tier_free(self):
         """'free' is not pro_plus tier."""
         from app.tier_labels import _is_pro_plus_tier
-
         assert _is_pro_plus_tier("free") is False
 
     def test_is_operator_tier_still_works_as_wrapper(self):
         """_is_operator_tier wrapper still delegates correctly."""
         from app.tier_labels import _is_operator_tier
-
         assert _is_operator_tier("pro_plus") is True
         assert _is_operator_tier("operator") is True
         assert _is_operator_tier("pro") is False
 
     def test_is_paid_tier_pro(self):
         from app.tier_labels import _is_paid_tier
-
         assert _is_paid_tier("pro") is True
 
     def test_is_paid_tier_pro_plus(self):
         from app.tier_labels import _is_paid_tier
-
         assert _is_paid_tier("pro_plus") is True
 
     def test_is_paid_tier_legacy_cook(self):
         """Legacy 'cook' slug accepted as paid tier."""
         from app.tier_labels import _is_paid_tier
-
         assert _is_paid_tier("cook") is True
 
     def test_is_paid_tier_legacy_operator(self):
         """Legacy 'operator' slug accepted as paid tier."""
         from app.tier_labels import _is_paid_tier
-
         assert _is_paid_tier("operator") is True
 
     def test_is_paid_tier_studio_legacy(self):
         """Legacy 'studio' slug accepted as paid tier."""
         from app.tier_labels import _is_paid_tier
-
         assert _is_paid_tier("studio") is True
 
     def test_is_paid_tier_free(self):
         from app.tier_labels import _is_paid_tier
-
         assert _is_paid_tier("free") is False
 
     def test_is_paid_tier_none(self):
         from app.tier_labels import _is_paid_tier
-
         assert _is_paid_tier(None) is False
 
     def test_display_label_studio_maps_to_pro_plus(self):
         """display_label('studio') returns 'Pro+' (via legacy slug mapping)."""
         from app.tier_labels import display_label
-
         assert display_label("studio") == "Pro+"
 
     def test_display_label_operator_maps_to_pro_plus(self):
         from app.tier_labels import display_label
-
         assert display_label("operator") == "Pro+"
 
     def test_display_label_pro_plus_maps_to_pro_plus(self):
         from app.tier_labels import display_label
-
         assert display_label("pro_plus") == "Pro+"
 
     def test_display_label_pro_maps_to_pro(self):
         from app.tier_labels import display_label
-
         assert display_label("pro") == "Pro"
 
     def test_display_label_cook_maps_to_pro(self):
         """Legacy 'cook' maps to 'Pro'."""
         from app.tier_labels import display_label
-
         assert display_label("cook") == "Pro"
 
 
 # ── Checkout URL alias rewriting ──────────────────────────────────────────
-
 
 class TestCheckoutUrlAliasRewriting:
     """Test that legacy tier URLs /api/checkout/cook etc. are rewritten to canonical."""
@@ -445,12 +399,10 @@ class TestCheckoutUrlAliasRewriting:
         fake_session = {"id": "cs_alias_cook", "url": "https://checkout.stripe.com/cs_alias_cook"}
         fake_customer = {"id": "cus_alias_cook"}
 
-        with (
-            patch.object(ss, "TIER_PRICE_IDS", {"pro": "price_pro_t", "pro_plus": "price_pp_t"}),
-            patch("stripe.Customer.create", return_value=fake_customer),
-            patch("stripe.checkout.Session.create", return_value=fake_session),
-            patch("stripe.PromotionCode.list", return_value={"data": []}),
-        ):
+        with patch.object(ss, "TIER_PRICE_IDS", {"pro": "price_pro_t", "pro_plus": "price_pp_t"}), \
+             patch("stripe.Customer.create", return_value=fake_customer), \
+             patch("stripe.checkout.Session.create", return_value=fake_session), \
+             patch("stripe.PromotionCode.list", return_value={"data": []}):
             resp = client.post("/api/checkout/cook")
 
         assert resp.status_code == 200, resp.text
@@ -472,12 +424,10 @@ class TestCheckoutUrlAliasRewriting:
         fake_session = {"id": "cs_alias_op", "url": "https://checkout.stripe.com/cs_alias_op"}
         fake_customer = {"id": "cus_alias_op"}
 
-        with (
-            patch.object(ss, "TIER_PRICE_IDS", {"pro": "price_pro_t", "pro_plus": "price_pp_t"}),
-            patch("stripe.Customer.create", return_value=fake_customer),
-            patch("stripe.checkout.Session.create", return_value=fake_session),
-            patch("stripe.PromotionCode.list", return_value={"data": []}),
-        ):
+        with patch.object(ss, "TIER_PRICE_IDS", {"pro": "price_pro_t", "pro_plus": "price_pp_t"}), \
+             patch("stripe.Customer.create", return_value=fake_customer), \
+             patch("stripe.checkout.Session.create", return_value=fake_session), \
+             patch("stripe.PromotionCode.list", return_value={"data": []}):
             resp = client.post("/api/checkout/operator")
 
         assert resp.status_code == 200, resp.text
@@ -499,12 +449,10 @@ class TestCheckoutUrlAliasRewriting:
         fake_session = {"id": "cs_alias_studio", "url": "https://checkout.stripe.com/cs_alias_studio"}
         fake_customer = {"id": "cus_alias_studio"}
 
-        with (
-            patch.object(ss, "TIER_PRICE_IDS", {"pro": "price_pro_t", "pro_plus": "price_pp_t"}),
-            patch("stripe.Customer.create", return_value=fake_customer),
-            patch("stripe.checkout.Session.create", return_value=fake_session),
-            patch("stripe.PromotionCode.list", return_value={"data": []}),
-        ):
+        with patch.object(ss, "TIER_PRICE_IDS", {"pro": "price_pro_t", "pro_plus": "price_pp_t"}), \
+             patch("stripe.Customer.create", return_value=fake_customer), \
+             patch("stripe.checkout.Session.create", return_value=fake_session), \
+             patch("stripe.PromotionCode.list", return_value={"data": []}):
             resp = client.post("/api/checkout/studio")
 
         assert resp.status_code == 200, resp.text
@@ -526,12 +474,10 @@ class TestCheckoutUrlAliasRewriting:
         fake_session = {"id": "cs_pro", "url": "https://checkout.stripe.com/cs_pro"}
         fake_customer = {"id": "cus_canonical_pro"}
 
-        with (
-            patch.object(ss, "TIER_PRICE_IDS", {"pro": "price_pro_t", "pro_plus": "price_pp_t"}),
-            patch("stripe.Customer.create", return_value=fake_customer),
-            patch("stripe.checkout.Session.create", return_value=fake_session),
-            patch("stripe.PromotionCode.list", return_value={"data": []}),
-        ):
+        with patch.object(ss, "TIER_PRICE_IDS", {"pro": "price_pro_t", "pro_plus": "price_pp_t"}), \
+             patch("stripe.Customer.create", return_value=fake_customer), \
+             patch("stripe.checkout.Session.create", return_value=fake_session), \
+             patch("stripe.PromotionCode.list", return_value={"data": []}):
             resp = client.post("/api/checkout/pro")
 
         assert resp.status_code == 200, resp.text

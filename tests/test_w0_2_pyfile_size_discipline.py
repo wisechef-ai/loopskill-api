@@ -14,7 +14,6 @@ the (currently runner-blocked) CI job:
      exists to stop. The waiver list here mirrors the allowlist in
      .github/workflows/pyfile-size-check.yml; the two must agree.
 """
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -42,7 +41,11 @@ def _line_count(p: Path) -> int:
 
 
 def _app_py_files() -> list[Path]:
-    return [p for p in (REPO_ROOT / "app").rglob("*.py") if "__pycache__" not in p.parts]
+    return [
+        p
+        for p in (REPO_ROOT / "app").rglob("*.py")
+        if "__pycache__" not in p.parts
+    ]
 
 
 class TestMiddlewareMcpGodObjectGuard:
@@ -61,7 +64,8 @@ class TestMiddlewareMcpGodObjectGuard:
                 if n > THRESHOLD:
                     offenders.append(f"{p.relative_to(REPO_ROOT)} = {n}")
         assert not offenders, (
-            "middleware/mcp god-object guard tripped (>600 lines, NEVER waived): " + ", ".join(offenders)
+            "middleware/mcp god-object guard tripped (>600 lines, NEVER waived): "
+            + ", ".join(offenders)
         )
 
 

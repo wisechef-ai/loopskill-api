@@ -9,7 +9,6 @@
   6. test_publish_request_force_bypasses_rate_limit
   7. test_admin_tarball_endpoint_requires_master_key
 """
-
 from __future__ import annotations
 
 import io
@@ -58,13 +57,11 @@ def reset_ratelimit():
 
 # ── Test 1: Happy path — creates DB row and dispatches issue ──────────────────
 
-
 def test_publish_request_creates_row_and_dispatches_issue(db_session):
     """loopskill_publish_request happy path: inserts SkillPublishRequest + dispatches."""
     with (
-        patch(
-            "app.mcp.tools.publish_request.github_dispatch.dispatch_event", return_value=FAKE_ISSUE_URL
-        ) as mock_dispatch,
+        patch("app.mcp.tools.publish_request.github_dispatch.dispatch_event",
+              return_value=FAKE_ISSUE_URL) as mock_dispatch,
         patch("app.mcp.tools.publish_request.scan_tarball", return_value=[]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[]),
     ):
@@ -90,8 +87,9 @@ def test_publish_request_creates_row_and_dispatches_issue(db_session):
 
     # Verify row was created in DB
     from app.models import SkillPublishRequest
-
-    row = db_session.query(SkillPublishRequest).filter(SkillPublishRequest.slug == SAMPLE_SLUG).first()
+    row = db_session.query(SkillPublishRequest).filter(
+        SkillPublishRequest.slug == SAMPLE_SLUG
+    ).first()
     assert row is not None
     assert row.status == "pending"
     assert row.issue_url == FAKE_ISSUE_URL
@@ -99,11 +97,11 @@ def test_publish_request_creates_row_and_dispatches_issue(db_session):
 
 # ── Test 2: Rate limit — returns existing URL without new dispatch ─────────────
 
-
 def test_publish_request_rate_limit_returns_existing_url(db_session):
     """Second publish-request with same (identity, slug) within 24h returns cached URL."""
     with (
-        patch("app.mcp.tools.publish_request.github_dispatch.dispatch_event", return_value=FAKE_ISSUE_URL),
+        patch("app.mcp.tools.publish_request.github_dispatch.dispatch_event",
+              return_value=FAKE_ISSUE_URL),
         patch("app.mcp.tools.publish_request.scan_tarball", return_value=[]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[]),
     ):
@@ -116,9 +114,8 @@ def test_publish_request_rate_limit_returns_existing_url(db_session):
     assert result1["status"] == "pending_review"
 
     # Second call — should be rate-limited
-    with patch(
-        "app.mcp.tools.publish_request.github_dispatch.dispatch_event", return_value=FAKE_ISSUE_URL
-    ) as mock2:
+    with patch("app.mcp.tools.publish_request.github_dispatch.dispatch_event",
+               return_value=FAKE_ISSUE_URL) as mock2:
         result2 = loopskill_publish_request(
             db_session,
             slug=SAMPLE_SLUG,
@@ -132,7 +129,6 @@ def test_publish_request_rate_limit_returns_existing_url(db_session):
 
 
 # ── Test 3: Quality gate blocks high-severity findings without dispatching ────
-
 
 def test_publish_request_quality_gate_blocks_high_severity_without_dispatch(db_session):
     """High-severity security findings block publish without opening a GitHub issue."""
@@ -148,10 +144,10 @@ def test_publish_request_quality_gate_blocks_high_severity_without_dispatch(db_s
     )
 
     with (
-        patch(
-            "app.mcp.tools.publish_request.github_dispatch.dispatch_event", return_value=FAKE_ISSUE_URL
-        ) as mock_dispatch,
-        patch("app.mcp.tools.publish_request.scan_tarball", return_value=[high_finding]),
+        patch("app.mcp.tools.publish_request.github_dispatch.dispatch_event",
+              return_value=FAKE_ISSUE_URL) as mock_dispatch,
+        patch("app.mcp.tools.publish_request.scan_tarball",
+              return_value=[high_finding]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[]),
     ):
         result = loopskill_publish_request(
@@ -168,7 +164,6 @@ def test_publish_request_quality_gate_blocks_high_severity_without_dispatch(db_s
 
 # ── Test 4: Medium/low findings included as warnings ─────────────────────────
 
-
 def test_publish_request_warnings_included_in_payload(db_session):
     """Medium/low severity findings appear as warnings, not blockers."""
     from app.security_scan import Finding
@@ -183,8 +178,10 @@ def test_publish_request_warnings_included_in_payload(db_session):
     )
 
     with (
-        patch("app.mcp.tools.publish_request.github_dispatch.dispatch_event", return_value=FAKE_ISSUE_URL),
-        patch("app.mcp.tools.publish_request.scan_tarball", return_value=[med_finding]),
+        patch("app.mcp.tools.publish_request.github_dispatch.dispatch_event",
+              return_value=FAKE_ISSUE_URL),
+        patch("app.mcp.tools.publish_request.scan_tarball",
+              return_value=[med_finding]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[]),
     ):
         result = loopskill_publish_request(
@@ -204,14 +201,13 @@ def test_publish_request_warnings_included_in_payload(db_session):
 
 # ── Test 5: Invalid slug rejected ─────────────────────────────────────────────
 
-
 def test_publish_request_invalid_slug_rejected(db_session):
     """Slugs not matching ^[a-z0-9][a-z0-9_-]{0,63}$ must be rejected."""
     bad_slugs = [
-        "UPPERCASE-SLUG",  # uppercase not allowed
-        "-starts-with-dash",  # must start with alphanumeric
-        "a" * 65,  # too long
-        "has spaces",  # spaces not allowed
+        "UPPERCASE-SLUG",       # uppercase not allowed
+        "-starts-with-dash",    # must start with alphanumeric
+        "a" * 65,               # too long
+        "has spaces",           # spaces not allowed
     ]
     for bad_slug in bad_slugs:
         result = loopskill_publish_request(
@@ -219,11 +215,12 @@ def test_publish_request_invalid_slug_rejected(db_session):
             slug=bad_slug,
             content=SAMPLE_CONTENT,
         )
-        assert result.get("error") is not None, f"Expected error for slug={bad_slug!r}, got: {result}"
+        assert result.get("error") is not None, (
+            f"Expected error for slug={bad_slug!r}, got: {result}"
+        )
 
 
 # ── Test 6: force=True bypasses rate limit ────────────────────────────────────
-
 
 def test_publish_request_force_bypasses_rate_limit(db_session):
     """force=True + confirmation bypasses loop-detector cooldown for repeated submissions.
@@ -232,7 +229,6 @@ def test_publish_request_force_bypasses_rate_limit(db_session):
     After being in cooldown, force=True + non-empty confirmation overrides it.
     """
     import time as _time
-
     unique_slug = f"force-test-{uuid.uuid4().hex[:8]}"
     # The tool uses identity = "anon" when api_key_id is None
     identity = "anon"
@@ -245,9 +241,8 @@ def test_publish_request_force_bypasses_rate_limit(db_session):
 
     # Call WITHOUT force should be loop-blocked
     with (
-        patch(
-            "app.mcp.tools.publish_request.github_dispatch.dispatch_event", return_value=FAKE_ISSUE_URL
-        ) as mock_blocked,
+        patch("app.mcp.tools.publish_request.github_dispatch.dispatch_event",
+              return_value=FAKE_ISSUE_URL) as mock_blocked,
         patch("app.mcp.tools.publish_request.scan_tarball", return_value=[]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[]),
     ):
@@ -270,9 +265,8 @@ def test_publish_request_force_bypasses_rate_limit(db_session):
 
     # Call WITH force=True + confirmation should bypass the cooldown
     with (
-        patch(
-            "app.mcp.tools.publish_request.github_dispatch.dispatch_event", return_value=FAKE_ISSUE_URL
-        ) as mock_forced,
+        patch("app.mcp.tools.publish_request.github_dispatch.dispatch_event",
+              return_value=FAKE_ISSUE_URL) as mock_forced,
         patch("app.mcp.tools.publish_request.scan_tarball", return_value=[]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[]),
     ):
@@ -290,7 +284,6 @@ def test_publish_request_force_bypasses_rate_limit(db_session):
 
 
 # ── Test 7: Admin tarball endpoint requires master key ────────────────────────
-
 
 def test_admin_tarball_endpoint_requires_master_key(db_session):
     """GET /api/admin/skill-publish-requests/{id}/tarball returns 403 for non-master-key."""
@@ -363,7 +356,6 @@ def test_admin_tarball_endpoint_requires_master_key(db_session):
 
 # ── Additional coverage tests ─────────────────────────────────────────────────
 
-
 def test_publish_request_invalid_version_rejected(db_session):
     """Versions not matching semver N.N.N must be rejected."""
     result = loopskill_publish_request(
@@ -379,7 +371,8 @@ def test_publish_request_with_references_and_scripts(db_session):
     """publish_request with references and scripts included builds correctly."""
     unique_slug = f"with-refs-{uuid.uuid4().hex[:8]}"
     with (
-        patch("app.mcp.tools.publish_request.github_dispatch.dispatch_event", return_value=FAKE_ISSUE_URL),
+        patch("app.mcp.tools.publish_request.github_dispatch.dispatch_event",
+              return_value=FAKE_ISSUE_URL),
         patch("app.mcp.tools.publish_request.scan_tarball", return_value=[]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[]),
     ):
@@ -406,9 +399,8 @@ def test_publish_request_quality_gate_blocks_gate_block_findings(db_session):
         "rationale": "UUID leak",
     }
     with (
-        patch(
-            "app.mcp.tools.publish_request.github_dispatch.dispatch_event", return_value=FAKE_ISSUE_URL
-        ) as mock_dispatch,
+        patch("app.mcp.tools.publish_request.github_dispatch.dispatch_event",
+              return_value=FAKE_ISSUE_URL) as mock_dispatch,
         patch("app.mcp.tools.publish_request.scan_tarball", return_value=[]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[gate_block]),
     ):
@@ -425,9 +417,8 @@ def test_publish_request_dispatch_failure_returns_empty_issue_url(db_session):
     """When github_dispatch returns None, request_id is still returned."""
     unique_slug = f"dispatch-fail-{uuid.uuid4().hex[:8]}"
     with (
-        patch(
-            "app.mcp.tools.publish_request.github_dispatch.dispatch_event", return_value=None
-        ),  # dispatch fails
+        patch("app.mcp.tools.publish_request.github_dispatch.dispatch_event",
+              return_value=None),  # dispatch fails
         patch("app.mcp.tools.publish_request.scan_tarball", return_value=[]),
         patch("app.mcp.tools.publish_request._gate_scan", return_value=[]),
     ):
@@ -438,5 +429,6 @@ def test_publish_request_dispatch_failure_returns_empty_issue_url(db_session):
         )
     assert result.get("error") is None, result
     assert result["status"] == "pending_review"
-    assert result["issue_url"] == ""  # empty when dispatch failed
+    assert result["issue_url"] == ""   # empty when dispatch failed
     assert result["request_id"] != ""  # but DB row created
+

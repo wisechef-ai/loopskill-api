@@ -182,9 +182,9 @@ class TestScenario2And3BrokenRollbackAndPromotionBlock:
         assert "blocked" in result.reason
 
         # PROOF C: Chef (stable) selection refuses the un-promoted broken version.
-        assert latest_version_for_channel(db, skill_id, "stable") is None, (
-            "Chef-on-stable must never receive the broken version"
-        )
+        assert (
+            latest_version_for_channel(db, skill_id, "stable") is None
+        ), "Chef-on-stable must never receive the broken version"
         db.close()
 
 
@@ -315,7 +315,7 @@ class TestDogfoodIsolationProbe:
         # A synthetic non-owner attempts to reconcile our internal cookbook.
         intruder_ctx = AuthContext(scope="user", user_id=intruder.id, tier="pro")
         res = recipes_reconcile(db, cookbook_id=str(cb.id), local=[], ctx=intruder_ctx)
-        assert res.get("error") == "cookbook_forbidden", (
-            "our internal cookbook must be invisible/forbidden to a non-owner"
-        )
+        assert (
+            res.get("error") == "cookbook_forbidden"
+        ), "our internal cookbook must be invisible/forbidden to a non-owner"
         db.close()

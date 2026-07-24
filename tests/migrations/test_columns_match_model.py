@@ -6,7 +6,6 @@ the model (CarouselEntry.slot, CarouselEntry.verdict, TelemetryEvent.install_eve
 
 Runs the migration against a fresh in-memory SQLite DB and asserts all F1 columns exist.
 """
-
 import os
 import sqlite3
 import subprocess
@@ -202,7 +201,9 @@ class TestF1ColumnsMatchModel:
             "VALUES ('f1-test-uuid', 'some-skill-uuid', '2026-01-01', 3, 'promote')"
         )
         conn2.commit()
-        row = conn2.execute("SELECT slot, verdict FROM carousel_entries WHERE id='f1-test-uuid'").fetchone()
+        row = conn2.execute(
+            "SELECT slot, verdict FROM carousel_entries WHERE id='f1-test-uuid'"
+        ).fetchone()
         conn2.close()
         assert row[0] == 3
         assert row[1] == "promote"

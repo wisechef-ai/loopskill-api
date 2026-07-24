@@ -1,5 +1,4 @@
 """Tests for Phase 3 — cookbook share-tokens (app/share_token_routes.py)."""
-
 from __future__ import annotations
 
 import hashlib
@@ -28,7 +27,6 @@ from app.models import (
 
 
 # ─────────────────────────── Fixtures ───────────────────────────────────
-
 
 @pytest.fixture(scope="module")
 def engine_fixture():
@@ -62,7 +60,6 @@ def db_session(engine_fixture) -> Generator[Session, None, None]:
 
 
 # ─────────────────────────── Helpers ────────────────────────────────────
-
 
 def _make_user(db: Session, *, tier: str | None = "operator", status: str | None = "active") -> User:
     uid = uuid4()
@@ -104,9 +101,7 @@ def _make_skill(db: Session, slug: str = "test-skill") -> Skill:
     return s
 
 
-def _make_token_row(
-    db: Session, cookbook_id, *, scope: str = "edit", name: str | None = None
-) -> tuple[BundleShareToken, str]:
+def _make_token_row(db: Session, cookbook_id, *, scope: str = "edit", name: str | None = None) -> tuple[BundleShareToken, str]:
     """Create a CookbookShareToken row and return (row, plaintext_token)."""
     cb_prefix = str(cookbook_id).replace("-", "")[:8]
     random_hex = secrets.token_hex(16)
@@ -127,9 +122,7 @@ def _make_token_row(
     return row, full_token
 
 
-def _build_app(
-    db: Session, *, api_key_user_id=None, is_master: bool = False, include_share_token_router: bool = True
-):
+def _build_app(db: Session, *, api_key_user_id=None, is_master: bool = False, include_share_token_router: bool = True):
     """Build a test FastAPI app with cookbook + share-token routes."""
     from app.bundle_routes import router as cookbook_router
     from app.share_token_routes import router as share_token_router
@@ -285,10 +278,7 @@ class TestShareTokens:
 
         # Build app simulating cbt_ middleware
         app_cbt = _build_cbt_app(
-            db_session,
-            token="cbt_dummy",
-            scope="edit",
-            cookbook_id=cb.id,
+            db_session, token="cbt_dummy", scope="edit", cookbook_id=cb.id,
         )
 
         with TestClient(app_cbt) as client:
@@ -306,10 +296,7 @@ class TestShareTokens:
         skill = _make_skill(db_session, slug="blocked-skill")
 
         app_cbt = _build_cbt_app(
-            db_session,
-            token="cbt_dummy",
-            scope="read",
-            cookbook_id=cb.id,
+            db_session, token="cbt_dummy", scope="read", cookbook_id=cb.id,
         )
 
         with TestClient(app_cbt) as client:
@@ -329,10 +316,7 @@ class TestShareTokens:
 
         # Token for cookbook A
         app_cbt = _build_cbt_app(
-            db_session,
-            token="cbt_dummy",
-            scope="edit",
-            cookbook_id=cb_a.id,
+            db_session, token="cbt_dummy", scope="edit", cookbook_id=cb_a.id,
         )
 
         with TestClient(app_cbt) as client:
@@ -362,7 +346,6 @@ class TestShareTokens:
         with pytest.raises(Exception) as exc_info:
             # _publish path should always 403 for cbt_ tokens
             from fastapi import HTTPException
-
             try:
                 enforce_cbt_scope(MockRequest())
             except HTTPException as e:
@@ -437,7 +420,6 @@ class TestShareTokens:
         assert down_revision matches the head read at start."""
         import importlib.util
         import os
-
         path = os.path.join(
             os.path.dirname(__file__),
             "..",
@@ -445,7 +427,9 @@ class TestShareTokens:
             "versions",
             "a3f1e9b5c7d2_v71_share_tokens.py",
         )
-        spec = importlib.util.spec_from_file_location("alembic.versions.a3f1e9b5c7d2_v71_share_tokens", path)
+        spec = importlib.util.spec_from_file_location(
+            "alembic.versions.a3f1e9b5c7d2_v71_share_tokens", path
+        )
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         assert callable(mod.upgrade)
@@ -487,7 +471,8 @@ class TestPhase3CriticReviewFixes:
 
         ctx = require_cookbook_tier(_MockReq(), db=db_session)
         assert ctx.is_master is False, (
-            "HIGH#1 regression: cbt_ token granted master access via api_key_user_id=None signal"
+            "HIGH#1 regression: cbt_ token granted master access via "
+            "api_key_user_id=None signal"
         )
         assert ctx.user_id is None
         assert ctx.cbt_cookbook_id is not None
@@ -505,9 +490,7 @@ class TestPhase3CriticReviewFixes:
 
         ctx = require_cookbook_tier(_MockReq(), db=db_session)
         assert ctx.is_master is True
-        assert (
-            ctx.tier == "pro_plus"
-        )  # Phase 5: master key uses canonical 'pro_plus' slug: master key uses canonical 'operator' slug
+        assert ctx.tier == "pro_plus"  # Phase 5: master key uses canonical 'pro_plus' slug: master key uses canonical 'operator' slug
 
     def test_publish_path_blocked_for_cbt_via_cookbook_helper(self):
         """MED#5: even if a /api/cookbooks/{id}/_publish route is added later,

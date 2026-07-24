@@ -7,7 +7,6 @@ Locks the OAuth-429 fix from 2026-05-08:
   2. ``/api/auth/{github,google}/*`` MUST be exempt — these are one-shot
      OAuth redirects that the upstream provider already rate-limits.
 """
-
 from __future__ import annotations
 
 import time
@@ -61,13 +60,10 @@ def test_rate_limit_uses_cf_connecting_ip(small_app):
     the TestClient's 'testclient' host is treated as a trusted proxy.
     """
     from unittest.mock import patch
-
     client = TestClient(small_app)
 
-    with (
-        patch("app.middleware.settings") as mock_settings,
-        patch("app.utils.client_ip._is_trusted", return_value=True),
-    ):
+    with patch("app.middleware.settings") as mock_settings, \
+         patch("app.utils.client_ip._is_trusted", return_value=True):
         # Visitor A burns through the limit.
         for _ in range(3):
             r = client.get("/api/anything", headers={"cf-connecting-ip": "1.1.1.1"})
@@ -201,7 +197,6 @@ def test_authenticated_callers_bypass_per_ip_bucket(authed_app, scope):
     fix, authenticated callers pass through unrestricted by IP.
     """
     from unittest.mock import patch
-
     client = TestClient(authed_app)
 
     with patch("app.utils.client_ip._is_trusted", return_value=True):
@@ -215,7 +210,7 @@ def test_authenticated_callers_bypass_per_ip_bucket(authed_app, scope):
                 },
             )
             assert r.status_code == 200, (
-                f"authenticated {scope} call #{i + 1} was rate-limited "
+                f"authenticated {scope} call #{i+1} was rate-limited "
                 f"(status={r.status_code}); this would break build-time "
                 "portal fetches and MCP fleet sync."
             )
@@ -224,7 +219,6 @@ def test_authenticated_callers_bypass_per_ip_bucket(authed_app, scope):
 def test_anonymous_callers_still_bucketed(authed_app):
     """No auth header → falls into the per-IP bucket as before."""
     from unittest.mock import patch
-
     client = TestClient(authed_app)
 
     with patch("app.utils.client_ip._is_trusted", return_value=True):
@@ -233,7 +227,8 @@ def test_anonymous_callers_still_bucketed(authed_app):
             assert r.status_code == 200
         r = client.get("/api/anything", headers={"cf-connecting-ip": "1.1.1.1"})
         assert r.status_code == 429, (
-            "anonymous traffic must STILL be bucketed — the bypass only applies to authenticated callers."
+            "anonymous traffic must STILL be bucketed — the bypass only "
+            "applies to authenticated callers."
         )
 
 
@@ -244,7 +239,6 @@ def test_anonymous_scope_literal_still_bucketed(authed_app):
     (rather than leaving it None), it must still hit the bucket.
     """
     from unittest.mock import patch
-
     client = TestClient(authed_app)
 
     with patch("app.utils.client_ip._is_trusted", return_value=True):

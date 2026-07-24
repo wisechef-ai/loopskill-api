@@ -200,7 +200,9 @@ def test_alembic_upgrade_head_from_baseline_postgres(fresh_postgres_db):
     _seed_baseline_schema(fresh_postgres_db)
 
     stamp = _run_alembic(["stamp", BASELINE_REV], fresh_postgres_db)
-    assert stamp.returncode == 0, f"alembic stamp failed:\nSTDOUT: {stamp.stdout}\nSTDERR: {stamp.stderr}"
+    assert stamp.returncode == 0, (
+        f"alembic stamp failed:\nSTDOUT: {stamp.stdout}\nSTDERR: {stamp.stderr}"
+    )
 
     upgrade = _run_alembic(["upgrade", "head"], fresh_postgres_db)
     assert upgrade.returncode == 0, (
@@ -212,7 +214,9 @@ def test_alembic_upgrade_head_from_baseline_postgres(fresh_postgres_db):
     assert current.returncode == 0
     # Head changes over time, but alembic-current always prints the rev.
     # Check it contains "(head)" — alembic appends that marker.
-    assert "(head)" in current.stdout, f"upgrade succeeded but current revision is not head: {current.stdout}"
+    assert "(head)" in current.stdout, (
+        f"upgrade succeeded but current revision is not head: {current.stdout}"
+    )
 
 
 def test_bootstrap_legacy_tables_creates_users_with_baseline_columns(fresh_postgres_db):
@@ -229,7 +233,9 @@ def test_bootstrap_legacy_tables_creates_users_with_baseline_columns(fresh_postg
     stamp = _run_alembic(["stamp", BASELINE_REV], fresh_postgres_db)
     assert stamp.returncode == 0
 
-    upgrade_to_bootstrap = _run_alembic(["upgrade", "a8b9c0d1e2f3"], fresh_postgres_db)
+    upgrade_to_bootstrap = _run_alembic(
+        ["upgrade", "a8b9c0d1e2f3"], fresh_postgres_db
+    )
     assert upgrade_to_bootstrap.returncode == 0, (
         f"alembic upgrade to bootstrap failed:\n"
         f"STDOUT: {upgrade_to_bootstrap.stdout}\nSTDERR: {upgrade_to_bootstrap.stderr}"
@@ -240,7 +246,8 @@ def test_bootstrap_legacy_tables_creates_users_with_baseline_columns(fresh_postg
 
     for table in ("users", "api_keys", "creators", "creator_payouts", "referrals"):
         cur.execute(
-            "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name = %s;",
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name = %s;",
             (table,),
         )
         assert cur.fetchone(), f"bootstrap migration did not create '{table}'"
@@ -334,7 +341,8 @@ def test_tier_drift_sweep_archived_renames_archived_legacy_rows(fresh_postgres_d
     # Migrate up to (but not past) the original non-archived sweep.
     upgrade_to_g = _run_alembic(["upgrade", "g1h2i3j4k5l6"], fresh_postgres_db)
     assert upgrade_to_g.returncode == 0, (
-        f"upgrade to g1h2i3j4k5l6 failed:\nSTDOUT: {upgrade_to_g.stdout}\nSTDERR: {upgrade_to_g.stderr}"
+        f"upgrade to g1h2i3j4k5l6 failed:\nSTDOUT: {upgrade_to_g.stdout}\n"
+        f"STDERR: {upgrade_to_g.stderr}"
     )
 
     # Seed: archived rows with legacy slugs (the prod state on 2026-05-20).
@@ -365,16 +373,22 @@ def test_tier_drift_sweep_archived_renames_archived_legacy_rows(fresh_postgres_d
         "GROUP BY tier ORDER BY tier;"
     )
     pre = dict(cur.fetchall())
-    assert pre == {"cook": 2, "operator": 1, "studio": 1}, f"seed didn't land as expected: {pre}"
+    assert pre == {"cook": 2, "operator": 1, "studio": 1}, (
+        f"seed didn't land as expected: {pre}"
+    )
 
     # Apply the archived sweep.
     upgrade_to_h = _run_alembic(["upgrade", "h2i3j4k5l6m7"], fresh_postgres_db)
     assert upgrade_to_h.returncode == 0, (
-        f"upgrade to h2i3j4k5l6m7 failed:\nSTDOUT: {upgrade_to_h.stdout}\nSTDERR: {upgrade_to_h.stderr}"
+        f"upgrade to h2i3j4k5l6m7 failed:\nSTDOUT: {upgrade_to_h.stdout}\n"
+        f"STDERR: {upgrade_to_h.stderr}"
     )
 
     # Post-sweep: ZERO rows with any legacy slug, anywhere.
-    cur.execute("SELECT COUNT(*) FROM skills WHERE tier IN ('cook','operator','studio');")
+    cur.execute(
+        "SELECT COUNT(*) FROM skills "
+        "WHERE tier IN ('cook','operator','studio');"
+    )
     remaining = cur.fetchone()[0]
     assert remaining == 0, (
         f"after h2i3j4k5l6m7, {remaining} rows still have legacy tier slugs. "
@@ -382,9 +396,14 @@ def test_tier_drift_sweep_archived_renames_archived_legacy_rows(fresh_postgres_d
     )
 
     # Counts moved to the right canonical buckets.
-    cur.execute("SELECT tier, COUNT(*) FROM skills WHERE is_archived=true GROUP BY tier ORDER BY tier;")
+    cur.execute(
+        "SELECT tier, COUNT(*) FROM skills WHERE is_archived=true "
+        "GROUP BY tier ORDER BY tier;"
+    )
     arch = dict(cur.fetchall())
     assert arch.get("pro") == 2, f"archived cook→pro count wrong: {arch}"
-    assert arch.get("pro_plus") == 2, f"archived operator+studio→pro_plus count wrong: {arch}"
+    assert arch.get("pro_plus") == 2, (
+        f"archived operator+studio→pro_plus count wrong: {arch}"
+    )
 
     conn.close()

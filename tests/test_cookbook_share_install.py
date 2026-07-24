@@ -7,7 +7,6 @@ plan-doc matrix plus the new MCP tool + Alembic migration.
 Run:
     pytest -q tests/test_cookbook_share_install.py
 """
-
 from __future__ import annotations
 
 import hashlib
@@ -121,9 +120,7 @@ def _make_skill(
     return s
 
 
-def _add_skill_to_cookbook(
-    db: Session, cookbook: Bundle, skill: Skill, source: str = "custom-added"
-) -> BundleSkill:
+def _add_skill_to_cookbook(db: Session, cookbook: Bundle, skill: Skill, source: str = "custom-added") -> BundleSkill:
     cs = BundleSkill(bundle_id=cookbook.id, skill_id=skill.id, source=source)
     db.add(cs)
     db.flush()
@@ -143,7 +140,9 @@ def _make_skill_version(db: Session, skill: Skill, semver: str = "1.0.0") -> Ski
     return sv
 
 
-def _make_token_row(db: Session, cookbook_id: UUID, scope: str = "edit") -> tuple[BundleShareToken, str]:
+def _make_token_row(
+    db: Session, cookbook_id: UUID, scope: str = "edit"
+) -> tuple[BundleShareToken, str]:
     cb_prefix = str(cookbook_id).replace("-", "")[:8]
     random_hex = secrets.token_hex(16)
     full_token = f"cbt_{cb_prefix}_{random_hex}"
@@ -779,8 +778,12 @@ class TestCookbookInstallEventRecording:
         assert resp.status_code == 200, resp.text
 
         db_session.expire_all()
-        ev_count_a = db_session.query(InstallEvent).filter(InstallEvent.skill_id == skill_a.id).count()
-        ev_count_b = db_session.query(InstallEvent).filter(InstallEvent.skill_id == skill_b.id).count()
+        ev_count_a = (
+            db_session.query(InstallEvent).filter(InstallEvent.skill_id == skill_a.id).count()
+        )
+        ev_count_b = (
+            db_session.query(InstallEvent).filter(InstallEvent.skill_id == skill_b.id).count()
+        )
         assert ev_count_a == 1, f"expected 1 event for skill_a, got {ev_count_a}"
         assert ev_count_b == 1, f"expected 1 event for skill_b, got {ev_count_b}"
 

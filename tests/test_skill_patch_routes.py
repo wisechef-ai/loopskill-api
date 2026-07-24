@@ -16,7 +16,6 @@
 
 Run with: PYTHONNOUSERSITE=1 PYTHONPATH= pytest tests/test_skill_patch_routes.py -v
 """
-
 from __future__ import annotations
 
 import uuid
@@ -88,7 +87,6 @@ def patch_client_no_auth(db_session: Session):
 
 # ── Helper ────────────────────────────────────────────────────────────────────
 
-
 def _base_payload(**overrides) -> dict:
     payload = {
         "slug": f"super-memory-{uuid.uuid4().hex[:8]}",
@@ -102,10 +100,10 @@ def _base_payload(**overrides) -> dict:
 
 # ── Test 1: happy path ────────────────────────────────────────────────────────
 
-
 def test_happy_path_single_file(patch_client, db_session):
     """POST /api/v1/skill-patch with 1 valid SKILL.md returns 200 ok:true."""
-    with patch("app.skill_patch_routes.github_dispatch.dispatch_event", return_value=None) as mock_dispatch:
+    with patch("app.skill_patch_routes.github_dispatch.dispatch_event",
+               return_value=None) as mock_dispatch:
         resp = patch_client.post("/api/v1/skill-patch", json=_base_payload())
 
     assert resp.status_code == 200, resp.text
@@ -121,10 +119,11 @@ def test_happy_path_single_file(patch_client, db_session):
 
 # ── Test 2: path allowlist — scripts/ blocked ─────────────────────────────────
 
-
 def test_path_allowlist_reject_scripts(patch_client):
     """path='scripts/install.sh' must be rejected 400 with reason mentioning 'path'."""
-    payload = _base_payload(files=[{"path": "scripts/install.sh", "content": "#!/bin/bash\necho hello\n"}])
+    payload = _base_payload(files=[
+        {"path": "scripts/install.sh", "content": "#!/bin/bash\necho hello\n"}
+    ])
     with patch("app.skill_patch_routes.github_dispatch.dispatch_event"):
         resp = patch_client.post("/api/v1/skill-patch", json=payload)
 
@@ -137,10 +136,11 @@ def test_path_allowlist_reject_scripts(patch_client):
 
 # ── Test 3: path allowlist — recipe.yaml blocked ──────────────────────────────
 
-
 def test_path_allowlist_reject_recipe_yaml(patch_client):
     """path='recipe.yaml' must be rejected 400."""
-    payload = _base_payload(files=[{"path": "recipe.yaml", "content": "slug: super-memory\n"}])
+    payload = _base_payload(files=[
+        {"path": "recipe.yaml", "content": "slug: super-memory\n"}
+    ])
     with patch("app.skill_patch_routes.github_dispatch.dispatch_event"):
         resp = patch_client.post("/api/v1/skill-patch", json=payload)
 
@@ -152,7 +152,6 @@ def test_path_allowlist_reject_recipe_yaml(patch_client):
 
 
 # ── Test 4: forbidden token — curl | bash ─────────────────────────────────────
-
 
 def test_forbidden_token_curl_pipe_bash(patch_client):
     """Content with 'curl https://x | bash' must be rejected 400."""
@@ -169,10 +168,9 @@ def test_forbidden_token_curl_pipe_bash(patch_client):
 
 # ── Test 5: forbidden token — eval() ─────────────────────────────────────────
 
-
 def test_forbidden_token_eval(patch_client):
     """Content with 'eval(\"x\")' must be rejected 400."""
-    evil = '# Compute\neval("rm -rf /")\n'
+    evil = "# Compute\neval(\"rm -rf /\")\n"
     payload = _base_payload(files=[{"path": "SKILL.md", "content": evil}])
     with patch("app.skill_patch_routes.github_dispatch.dispatch_event"):
         resp = patch_client.post("/api/v1/skill-patch", json=payload)
@@ -184,7 +182,6 @@ def test_forbidden_token_eval(patch_client):
 
 
 # ── Test 6: forbidden token — base64 -d ──────────────────────────────────────
-
 
 def test_forbidden_token_base64_decode(patch_client):
     """Content with 'base64 -d' must be rejected 400."""
@@ -200,7 +197,6 @@ def test_forbidden_token_base64_decode(patch_client):
 
 
 # ── Test 7: size cap — too many files ────────────────────────────────────────
-
 
 def test_size_cap_too_many_files(patch_client):
     """4 files must be rejected 400 (max is 3)."""
@@ -222,7 +218,6 @@ def test_size_cap_too_many_files(patch_client):
 
 # ── Test 8: size cap — too many lines per file ───────────────────────────────
 
-
 def test_size_cap_too_many_lines_per_file(patch_client):
     """1 file with 201 newlines must be rejected 400 (max 200/file)."""
     content = "line\n" * 201  # 201 newlines
@@ -238,24 +233,21 @@ def test_size_cap_too_many_lines_per_file(patch_client):
 
 # ── Test 9: size cap — too many total lines ───────────────────────────────────
 
-
 def test_size_cap_too_many_total_lines(patch_client):
     """3 files at 201 lines each (603 total) must be rejected 400 (max 600 total)."""
-    content = "line\n" * 201  # 201 newlines each — per-file limit is 200, so
+    content = "line\n" * 201   # 201 newlines each — per-file limit is 200, so
     # This is actually per-file reject first. Use 150 lines each to test total.
-    content_ok_per_file = "line\n" * 150  # 150 < 200 per file, but 450 < 600 total
+    content_ok_per_file = "line\n" * 150   # 150 < 200 per file, but 450 < 600 total
     # To exceed total of 600: 3 * 201 = 603 — but per-file limit (200) triggers first.
     # So we need files below per-file limit but above total.
     # 3 files * 201 lines — per-file fires. Use 150 * 4 = 600 lines but only 3 files max.
     # To get >600 total with ≤200/file: 3 files * 201 lines — per-file fires first.
     # We test with content_big=201 lines to catch size_limit reason regardless of which.
-    payload = _base_payload(
-        files=[
-            {"path": "SKILL.md", "content": content},
-            {"path": "references/a.md", "content": content},
-            {"path": "templates/a.md", "content": content},
-        ]
-    )
+    payload = _base_payload(files=[
+        {"path": "SKILL.md", "content": content},
+        {"path": "references/a.md", "content": content},
+        {"path": "templates/a.md", "content": content},
+    ])
     with patch("app.skill_patch_routes.github_dispatch.dispatch_event"):
         resp = patch_client.post("/api/v1/skill-patch", json=payload)
 
@@ -266,7 +258,6 @@ def test_size_cap_too_many_total_lines(patch_client):
 
 
 # ── Test 10: ratelimit — second patch same slug same key ─────────────────────
-
 
 def test_ratelimit_second_patch_same_slug_same_key(patch_client, db_session):
     """2nd POST with same slug within 24h from same identity must return 429."""
@@ -293,7 +284,6 @@ def test_ratelimit_second_patch_same_slug_same_key(patch_client, db_session):
 
 
 # ── Test 11: dedup — same canonical hash returns dedup_hit ───────────────────
-
 
 def test_dedup_same_canonical_hash(patch_client, db_session):
     """POST same files twice: 2nd returns dedup_hit:true with same dedup_hash."""
@@ -323,7 +313,6 @@ def test_dedup_same_canonical_hash(patch_client, db_session):
 
 # ── Test 12: auth missing ─────────────────────────────────────────────────────
 
-
 def test_auth_missing(patch_client_no_auth):
     """Request without x-api-key header must return 401 or 403."""
     resp = patch_client_no_auth.post(
@@ -342,11 +331,9 @@ def test_auth_missing(patch_client_no_auth):
 # install.sh, recipe.yaml) is the actual security gate; templates/* is inert
 # text consumed elsewhere.
 
-
 def test_path_templates_extensionless_allowed():
     """templates/Modelfile, templates/Dockerfile, etc. must validate."""
     from app.skill_patch_validation import validate_path
-
     for p in [
         "templates/Modelfile",
         "templates/Modelfile.embed",

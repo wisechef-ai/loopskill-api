@@ -48,12 +48,8 @@ runtime:
 
 
 def _seed_skill_with_tarball(
-    db_session,
-    tmp_path: Path,
-    slug: str,
-    skill_md: str,
-    *,
-    recipe_yaml: str = _RECIPE_YAML,
+    db_session, tmp_path: Path, slug: str, skill_md: str,
+    *, recipe_yaml: str = _RECIPE_YAML,
 ) -> Skill:
     """Create a Skill + SkillVersion with the tarball written to tmp_path."""
     sid = uuid4()
@@ -126,30 +122,26 @@ def test_audit_flags_hardcoded_home_path(db_session, tmp_path):
 def test_audit_skips_skills_with_missing_tarball_file(db_session, tmp_path):
     """Tarball path is set in DB but the file doesn't exist on disk."""
     sid = uuid4()
-    db_session.add(
-        Skill(
-            id=sid,
-            slug="ghost-tarball",
-            title="x",
-            description="x",
-            category="other",
-            tier="cook",
-            is_public=True,
-            is_archived=False,
-            created_at=datetime.now(timezone.utc),
-        )
-    )
-    db_session.add(
-        SkillVersion(
-            id=uuid4(),
-            skill_id=sid,
-            semver="1.0.0",
-            tarball_path=str(tmp_path / "nonexistent.tar.gz"),
-            tarball_size_bytes=0,
-            checksum_sha256="0" * 64,
-            created_at=datetime.now(timezone.utc),
-        )
-    )
+    db_session.add(Skill(
+        id=sid,
+        slug="ghost-tarball",
+        title="x",
+        description="x",
+        category="other",
+        tier="cook",
+        is_public=True,
+        is_archived=False,
+        created_at=datetime.now(timezone.utc),
+    ))
+    db_session.add(SkillVersion(
+        id=uuid4(),
+        skill_id=sid,
+        semver="1.0.0",
+        tarball_path=str(tmp_path / "nonexistent.tar.gz"),
+        tarball_size_bytes=0,
+        checksum_sha256="0" * 64,
+        created_at=datetime.now(timezone.utc),
+    ))
     db_session.flush()
     report = audit_catalog(db_session)
     assert report["skills_scanned"] == 1
@@ -159,7 +151,13 @@ def test_audit_skips_skills_with_missing_tarball_file(db_session, tmp_path):
 
 
 def test_render_markdown_includes_summary_and_table(db_session, tmp_path):
-    bad_md = "---\nname: bad-skill-2\ndescription: bad\n---\n# bad\n\n/home/adam/foo\n"
+    bad_md = (
+        "---\n"
+        "name: bad-skill-2\n"
+        "description: bad\n"
+        "---\n"
+        "# bad\n\n/home/adam/foo\n"
+    )
     _seed_skill_with_tarball(db_session, tmp_path, "bad-skill-2", bad_md)
     report = audit_catalog(db_session)
     md = render_markdown(report)

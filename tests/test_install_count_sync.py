@@ -19,7 +19,6 @@ These tests pin the contract going forward:
 5. The ``scripts/backfill_install_count.py`` reconciliation script is
    idempotent: running it twice produces identical state.
 """
-
 from __future__ import annotations
 
 import pytest
@@ -53,7 +52,9 @@ def _refresh_count(db: Session, slug: str) -> int:
 class TestInstallCounterIncrement:
     """``POST /api/telemetry`` with event_type=install bumps Skill.install_count."""
 
-    def test_single_install_bumps_counter_from_zero(self, client: TestClient, db_session: Session):
+    def test_single_install_bumps_counter_from_zero(
+        self, client: TestClient, db_session: Session
+    ):
         make_skill(db_session, slug="web-scraper-pro")
         assert _refresh_count(db_session, "web-scraper-pro") == 0
 
@@ -62,7 +63,9 @@ class TestInstallCounterIncrement:
         assert resp.status_code == 201, resp.text
         assert _refresh_count(db_session, "web-scraper-pro") == 1
 
-    def test_n_installs_yields_count_n(self, client: TestClient, db_session: Session):
+    def test_n_installs_yields_count_n(
+        self, client: TestClient, db_session: Session
+    ):
         """The bug we're closing: 51 events landed but the counter stayed at 0.
 
         Drive the loop end-to-end and assert the counter equals the event count.
@@ -88,7 +91,9 @@ class TestInstallCounterIncrement:
         )
         assert n_events == 7
 
-    def test_only_increments_matching_slug(self, client: TestClient, db_session: Session):
+    def test_only_increments_matching_slug(
+        self, client: TestClient, db_session: Session
+    ):
         """Posting an install for skill A must not bump skill B's counter."""
         make_skill(db_session, slug="email-composer")
         make_skill(db_session, slug="code-reviewer")
@@ -137,7 +142,9 @@ class TestInstallWithoutSlug:
     Such events MUST NOT raise and MUST NOT touch any skill counter.
     """
 
-    def test_slugless_install_does_not_raise_or_increment(self, client: TestClient, db_session: Session):
+    def test_slugless_install_does_not_raise_or_increment(
+        self, client: TestClient, db_session: Session
+    ):
         make_skill(db_session, slug="web-scraper-pro")
 
         resp = client.post(
@@ -215,7 +222,9 @@ class TestBackfillIdempotent:
             f"DB must yield no diff. Got: {diff_run_2!r}"
         )
 
-    def test_backfill_handles_skill_with_no_telemetry(self, db_session: Session):
+    def test_backfill_handles_skill_with_no_telemetry(
+        self, db_session: Session
+    ):
         """A skill that has zero install events must end with install_count=0,
         not be skipped (otherwise stale counters can never decay)."""
         from scripts.backfill_install_count import collect_diff
@@ -234,7 +243,9 @@ class TestBackfillIdempotent:
         assert ("brand-new-skill", 0, 0) not in diff
         assert ("ghost-skill", 42, 0) in diff
 
-    def test_backfill_unions_telemetry_and_install_events(self, db_session: Session):
+    def test_backfill_unions_telemetry_and_install_events(
+        self, db_session: Session
+    ):
         """The denormalised counter must reconcile from BOTH source tables.
 
         Production has 13 InstallEvent rows + 121 TelemetryEvent install rows
@@ -298,7 +309,9 @@ class TestSkillsInstallBumpsCounter:
     and ``ORDER BY install_count`` queries silently lie about install volume.
     """
 
-    def test_skills_install_route_bumps_counter(self, db_session: Session):
+    def test_skills_install_route_bumps_counter(
+        self, db_session: Session
+    ):
         """Drive ``/api/skills/install`` end-to-end and verify the counter
         moves with the InstallEvent insert.
 

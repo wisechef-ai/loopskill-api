@@ -36,7 +36,10 @@ _MIG_FILE = "lc3005_x_cookbook_owner_ck.py"
 
 
 def _load_upgrade():
-    mig_path = Path(__file__).resolve().parent.parent / "alembic" / "versions" / _MIG_FILE
+    mig_path = (
+        Path(__file__).resolve().parent.parent
+        / "alembic" / "versions" / _MIG_FILE
+    )
     spec = importlib.util.spec_from_file_location("lc3005_x_migration", mig_path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -76,9 +79,8 @@ def test_phase_x_migration_cleanup_and_invariant():
         with engine.begin() as sconn:
             # Minimal cookbooks table mirroring models.Cookbook (the columns the
             # migration touches: is_base, cookbook_owner).
-            sconn.execute(
-                sa.text(
-                    """
+            sconn.execute(sa.text(
+                """
                 CREATE TABLE cookbooks (
                   id uuid PRIMARY KEY,
                   name text NOT NULL,
@@ -86,30 +88,23 @@ def test_phase_x_migration_cleanup_and_invariant():
                   cookbook_owner uuid
                 );
                 """
-                )
-            )
+            ))
             # Seed prod-shaped state: 1 base catalog (NULL owner, KEEP),
             # 3 non-base orphans (NULL owner, DELETE), 1 owned non-base (KEEP).
             sconn.execute(
-                sa.text(
-                    "INSERT INTO cookbooks (id, name, is_base, cookbook_owner) "
-                    "VALUES (:id, 'WiseChef Recipes Catalog', true, NULL)"
-                ),
+                sa.text("INSERT INTO cookbooks (id, name, is_base, cookbook_owner) "
+                        "VALUES (:id, 'WiseChef Recipes Catalog', true, NULL)"),
                 {"id": base_id},
             )
             for oid in orphan_ids:
                 sconn.execute(
-                    sa.text(
-                        "INSERT INTO cookbooks (id, name, is_base, cookbook_owner) "
-                        "VALUES (:id, 'MCP Cookbook', false, NULL)"
-                    ),
+                    sa.text("INSERT INTO cookbooks (id, name, is_base, cookbook_owner) "
+                            "VALUES (:id, 'MCP Cookbook', false, NULL)"),
                     {"id": oid},
                 )
             sconn.execute(
-                sa.text(
-                    "INSERT INTO cookbooks (id, name, is_base, cookbook_owner) "
-                    "VALUES (:id, 'My Cookbook', false, :owner)"
-                ),
+                sa.text("INSERT INTO cookbooks (id, name, is_base, cookbook_owner) "
+                        "VALUES (:id, 'My Cookbook', false, :owner)"),
                 {"id": owned_id, "owner": owner},
             )
 
@@ -151,7 +146,8 @@ def test_phase_x_migration_cleanup_and_invariant():
             (str(uuid.uuid4()),),
         )
         cur.execute(
-            "INSERT INTO cookbooks (id, name, is_base, cookbook_owner) VALUES (%s, 'owned', false, %s);",
+            "INSERT INTO cookbooks (id, name, is_base, cookbook_owner) "
+            "VALUES (%s, 'owned', false, %s);",
             (str(uuid.uuid4()), str(uuid.uuid4())),
         )
         pg_conn.commit()
