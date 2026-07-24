@@ -49,7 +49,7 @@ def _fake_fanout(monkeypatch, mapping: dict):
     live = {}
     for src, rows in mapping.items():
         if src != "clawhub":
-            live[src] = (lambda rows=rows: (lambda _q: rows))()
+            live[src] = (lambda rows=rows: lambda _q: rows)()
     monkeypatch.setattr(fl, "LIVE_FETCH", live, raising=True)
     claw_rows = mapping.get("clawhub", [])
     monkeypatch.setattr(

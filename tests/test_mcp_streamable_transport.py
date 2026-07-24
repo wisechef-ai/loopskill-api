@@ -62,6 +62,7 @@ def mcp_app(db_session):
     @asynccontextmanager
     async def _lifespan(app):
         from app.mcp.server import run_streamable_http
+
         async with run_streamable_http():
             yield
 
@@ -80,6 +81,7 @@ def mcp_client(mcp_app):
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+
 
 def _parse_sse_response(text: str) -> dict:
     """Parse an SSE-formatted response body to extract the JSON data.
@@ -121,11 +123,14 @@ class TestStreamableHTTPTransport:
         # Step 1: initialize the session
         init_resp = mcp_client.post(
             "/api/mcp/http",
-            json=_jsonrpc_request("initialize", {
-                "protocolVersion": "2025-03-26",
-                "capabilities": {},
-                "clientInfo": {"name": "test-client", "version": "0.1.0"},
-            }),
+            json=_jsonrpc_request(
+                "initialize",
+                {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test-client", "version": "0.1.0"},
+                },
+            ),
             headers=headers,
         )
         assert init_resp.status_code == 200, f"init failed: {init_resp.text}"
@@ -170,6 +175,7 @@ class TestStreamableHTTPTransport:
         def slow_dispatch(name, db, args, caller):
             """Simulate a long-running tool by sleeping 5 seconds."""
             import time
+
             time.sleep(5)
             return original_dispatch(name, db, args, caller)
 
@@ -182,11 +188,14 @@ class TestStreamableHTTPTransport:
         # Initialize session
         init_resp = mcp_client.post(
             "/api/mcp/http",
-            json=_jsonrpc_request("initialize", {
-                "protocolVersion": "2025-03-26",
-                "capabilities": {},
-                "clientInfo": {"name": "test-client", "version": "0.1.0"},
-            }),
+            json=_jsonrpc_request(
+                "initialize",
+                {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test-client", "version": "0.1.0"},
+                },
+            ),
             headers=headers,
         )
         assert init_resp.status_code == 200
@@ -205,10 +214,14 @@ class TestStreamableHTTPTransport:
         start = time.monotonic()
         call_resp = mcp_client.post(
             "/api/mcp/http",
-            json=_jsonrpc_request("tools/call", {
-                "name": "loopskill_seeker",
-                "arguments": {},
-            }, req_id=3),
+            json=_jsonrpc_request(
+                "tools/call",
+                {
+                    "name": "loopskill_seeker",
+                    "arguments": {},
+                },
+                req_id=3,
+            ),
             headers=headers,
         )
         elapsed = time.monotonic() - start

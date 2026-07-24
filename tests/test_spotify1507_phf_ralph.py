@@ -4,6 +4,7 @@ The plan's Phase F gate: "Ralph detector (unit-tested)". Covers the pure
 detector logic + the DB wrapper, with RED-proofs that a converging loop and a
 churning loop are NOT flagged (no false Ralph).
 """
+
 from __future__ import annotations
 
 import uuid
@@ -123,8 +124,17 @@ def test_find_ralph_loops_db_ignores_other_fleets(db_session):
     fleet_b = uuid.uuid4()
     member = uuid.uuid4()
     for _ in range(6):
-        db_session.add(LoopRun(id=uuid.uuid4(), member_id=member, fleet_id=fleet_b,
-                               loop_slug="s", instance_key="i", outcome="x", accepted_change=False))
+        db_session.add(
+            LoopRun(
+                id=uuid.uuid4(),
+                member_id=member,
+                fleet_id=fleet_b,
+                loop_slug="s",
+                instance_key="i",
+                outcome="x",
+                accepted_change=False,
+            )
+        )
     db_session.commit()
     # Querying fleet_a sees nothing from fleet_b.
     assert find_ralph_loops(db_session, fleet_a) == []

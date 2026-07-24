@@ -5,6 +5,7 @@ Tests:
   - Normal path: /healthz returns 200 with db="ok"
   - Verify text("SELECT 1") is used (source-grep regression)
 """
+
 import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -18,6 +19,7 @@ ROUTES_PATH = Path(__file__).parent.parent / "app" / "health_routes.py"
 
 
 # ── Source-grep regression: text("SELECT 1") ─────────────────────────────────
+
 
 def test_routes_uses_select_1_not_func_count():
     """routes.py healthz endpoint must use text('SELECT 1') not func.count(1)."""
@@ -34,6 +36,7 @@ def test_routes_uses_select_1_not_func_count():
 
 
 # ── Functional: 503 when DB raises ───────────────────────────────────────────
+
 
 @pytest.fixture()
 def healthz_client(db_session):
@@ -91,6 +94,4 @@ def test_healthz_returns_503_when_db_raises(db_session):
         f"healthz must return non-200 when the database is unreachable."
     )
     data = resp.json()
-    assert data.get("db") == "error", (
-        f"Expected db='error' in response, got: {data}"
-    )
+    assert data.get("db") == "error", f"Expected db='error' in response, got: {data}"

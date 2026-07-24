@@ -29,13 +29,11 @@ def test_manifest_emits_category_and_tags() -> None:
     for spec in STARTER_LOOPS:
         manifest = _loop_manifest_toml(spec)
         assert "tags = [" in manifest, f"{spec['slug']}: manifest missing tags array"
-        assert (
-            f'category = "{spec.get("category", "")}"' in manifest
-        ), f"{spec['slug']}: manifest missing category line"
+        assert f'category = "{spec.get("category", "")}"' in manifest, (
+            f"{spec['slug']}: manifest missing category line"
+        )
         for tag in LOOP_TAGS_BY_SLUG.get(spec["slug"], []):
-            assert (
-                f'"{tag}"' in manifest
-            ), f"{spec['slug']}: tag {tag!r} not surfaced on manifest"
+            assert f'"{tag}"' in manifest, f"{spec['slug']}: tag {tag!r} not surfaced on manifest"
 
 
 def test_tags_are_lowercase_hyphenated_facets() -> None:
@@ -75,7 +73,7 @@ def test_seed_refreshes_stale_manifest_on_existing_loop(db_session) -> None:
     )
     assert version is not None
     # Simulate a stale (pre-tags) manifest already in the DB.
-    version.manifest = "[loop]\nslug = \"pr-review-loop\"\n"
+    version.manifest = '[loop]\nslug = "pr-review-loop"\n'
     db_session.flush()
 
     # Re-seed → should refresh the stale manifest in place (no new version row).

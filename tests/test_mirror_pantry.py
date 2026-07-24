@@ -3,6 +3,7 @@
 Tests for scripts/mirror_pantry.py — validates the 3 upstream repo cloning
 logic with mocked GitHub API responses. No actual network calls.
 """
+
 import json
 import subprocess
 import sys
@@ -24,6 +25,7 @@ from scripts.mirror_pantry import (
 
 
 # ── PANTRY_SOURCES constant ──────────────────────────────────────────────
+
 
 class TestPantrySourcesConstant:
     def test_exactly_three_sources(self):
@@ -53,6 +55,7 @@ class TestPantrySourcesConstant:
 
 
 # ── check_license ────────────────────────────────────────────────────────
+
 
 class TestCheckLicense:
     def _make_gh_response(self, spdx_id: str) -> str:
@@ -101,6 +104,7 @@ class TestCheckLicense:
 
 # ── get_repo_sha ─────────────────────────────────────────────────────────
 
+
 class TestGetRepoSha:
     @patch("subprocess.run")
     def test_returns_sha_from_gh_api(self, mock_run):
@@ -126,6 +130,7 @@ class TestGetRepoSha:
 
 # ── clone_repo ───────────────────────────────────────────────────────────
 
+
 class TestCloneRepo:
     @patch("subprocess.run")
     @patch("scripts.mirror_pantry.check_license")
@@ -134,6 +139,7 @@ class TestCloneRepo:
         mock_sha.return_value = "abc123"
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             clone_repo("obra/superpowers", "MIT", dest=tmpdir)
         mock_run.assert_called()
@@ -145,6 +151,7 @@ class TestCloneRepo:
         mock_sha.return_value = "deadbeef123"
         mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             result = clone_repo("obra/superpowers", "MIT", dest=tmpdir)
         assert result["sha"] == "deadbeef123"
@@ -157,6 +164,7 @@ class TestCloneRepo:
         mock_sha.return_value = "abc123"
         mock_run.return_value = MagicMock(returncode=0)
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             clone_repo("obra/superpowers", "MIT", dest=tmpdir)
         mock_license.assert_called_once_with("obra/superpowers", "MIT")

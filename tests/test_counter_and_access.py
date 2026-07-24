@@ -6,6 +6,7 @@ A.1: /api/skills/search and /api/skills/{slug} return install_count_total
 A.8: /api/skills/access reflects subscription-tier capability ladder:
      Cook → all skills, Operator → +forks, Studio → +buckets.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -24,6 +25,7 @@ from app.models import APIKey, Base, InstallEvent, Skill, User
 
 
 # ── DB fixtures (module-scoped engine, per-test rollback) ───────────────────
+
 
 @pytest.fixture(scope="module")
 def engine_fixture():
@@ -131,11 +133,10 @@ def _make_user_with_key(db, *, tier: str | None, status: str = "active") -> str:
 
 # ── A.1: install counter fields ─────────────────────────────────────────────
 
+
 class TestInstallCounters:
     def test_search_returns_total_and_7d_counts(self, client, db):
-        skill = _make_skill(
-            db, slug="counter-search-1", title="Counter search target"
-        )
+        skill = _make_skill(db, slug="counter-search-1", title="Counter search target")
         now = datetime.now(timezone.utc)
         # 3 recent installs (within 7d) + 2 old installs (>7d)
         for _ in range(3):
@@ -174,6 +175,7 @@ class TestInstallCounters:
 
 
 # ── A.8: tier semantics ─────────────────────────────────────────────────────
+
 
 class TestAccessTierSemantics:
     def test_anonymous_caller_no_subscription(self, client, db):

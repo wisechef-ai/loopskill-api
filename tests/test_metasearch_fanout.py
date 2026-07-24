@@ -11,7 +11,7 @@ from app.services.metasearch import merge_unified, unify_external
 
 def _fake_live_fetch(monkeypatch, mapping: dict):
     """Patch LIVE_FETCH (used by _fetch_for) with fake per-source fetchers."""
-    fake = {src: (lambda rows=rows: (lambda _q: rows))() for src, rows in mapping.items()}
+    fake = {src: (lambda rows=rows: lambda _q: rows)() for src, rows in mapping.items()}
     monkeypatch.setattr("app.services.federation_live.LIVE_FETCH", fake, raising=True)
 
 

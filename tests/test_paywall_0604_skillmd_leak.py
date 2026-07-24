@@ -20,6 +20,7 @@ THE CONTRACT (Adam, 2026-06-04 — "curated catalog stays Pro; federation is ope
 
 These tests are RED before the fix and GREEN after.
 """
+
 from __future__ import annotations
 
 import io

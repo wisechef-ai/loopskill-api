@@ -15,6 +15,7 @@ Surfaces:
   - GET /api/skills/{slug}/graph -> {declared: [...], derived: [...], all: [...top10...]}
   - GET /api/stats now includes trending_pairs: [{a, b, weight}, ...] top 10
 """
+
 from __future__ import annotations
 
 import json
@@ -29,17 +30,18 @@ from tests.conftest import make_skill
 
 # ── Helpers ─────────────────────────────────────────────────────────────
 
+
 def make_skill_with_tags(db: Session, slug: str, tags: list[str], **kw):
     """Create a Skill plus a SkillVersion whose skill_toml encodes the given tags."""
     from app.models import SkillVersion
+
     skill = make_skill(db, slug=slug, title=slug.title(), **kw)
-    toml_text = (
-        "[skill]\n"
-        f'name = "{slug}"\n'
-        f'tags = {json.dumps(tags)}\n'
-    )
+    toml_text = f'[skill]\nname = "{slug}"\ntags = {json.dumps(tags)}\n'
     v = SkillVersion(
-        id=uuid4(), skill_id=skill.id, semver="1.0.0", skill_toml=toml_text,
+        id=uuid4(),
+        skill_id=skill.id,
+        semver="1.0.0",
+        skill_toml=toml_text,
     )
     db.add(v)
     db.flush()
@@ -49,6 +51,7 @@ def make_skill_with_tags(db: Session, slug: str, tags: list[str], **kw):
 def make_install(db, skill, api_key_id, days_ago: int = 0):
     from app.models import InstallEvent
     from datetime import datetime, timezone, timedelta
+
     e = InstallEvent(
         id=uuid4(),
         skill_id=skill.id,
@@ -63,22 +66,27 @@ def make_install(db, skill, api_key_id, days_ago: int = 0):
 
 # ── 1. Jaccard signal ───────────────────────────────────────────────────
 
+
 class TestJaccardSignal:
     def test_jaccard_half_when_two_of_four_tags_overlap(self):
         from app.edge_builder import jaccard
+
         assert jaccard({"a", "b"}, {"a", "c", "d"}) == pytest.approx(1 / 4)
         assert jaccard({"a", "b", "c"}, {"a", "b", "d", "e"}) == pytest.approx(2 / 5)
 
     def test_jaccard_zero_when_no_overlap(self):
         from app.edge_builder import jaccard
+
         assert jaccard({"a", "b"}, {"c", "d"}) == 0.0
 
     def test_jaccard_one_when_identical(self):
         from app.edge_builder import jaccard
+
         assert jaccard({"a", "b"}, {"a", "b"}) == 1.0
 
     def test_jaccard_zero_on_empty_either_side(self):
         from app.edge_builder import jaccard
+
         assert jaccard(set(), {"a"}) == 0.0
         assert jaccard({"a"}, set()) == 0.0
         assert jaccard(set(), set()) == 0.0
@@ -86,15 +94,18 @@ class TestJaccardSignal:
 
 # ── 2. Tag extraction from skill_toml ───────────────────────────────────
 
+
 class TestTagExtraction:
     def test_extracts_tags_from_latest_skill_toml(self, db_session: Session):
         from app.edge_builder import extract_tags
+
         s = make_skill_with_tags(db_session, "alpha", ["devops", "cron", "watchdog"])
         db_session.commit()
         assert set(extract_tags(s)) == {"devops", "cron", "watchdog"}
 
     def test_extracts_empty_when_no_versions(self, db_session: Session):
         from app.edge_builder import extract_tags
+
         s = make_skill(db_session, slug="naked", title="Naked")
         db_session.commit()
         assert extract_tags(s) == []
@@ -102,20 +113,27 @@ class TestTagExtraction:
     def test_extracts_empty_when_toml_has_no_tags_key(self, db_session: Session):
         from app.edge_builder import extract_tags
         from app.models import SkillVersion
+
         s = make_skill(db_session, slug="tagless", title="Tagless")
-        db_session.add(SkillVersion(
-            id=uuid4(), skill_id=s.id, semver="1.0.0",
-            skill_toml='[skill]\nname = "tagless"\n',
-        ))
+        db_session.add(
+            SkillVersion(
+                id=uuid4(),
+                skill_id=s.id,
+                semver="1.0.0",
+                skill_toml='[skill]\nname = "tagless"\n',
+            )
+        )
         db_session.commit()
         assert extract_tags(s) == []
 
 
 # ── 3. build_edges produces correctly weighted records ──────────────────
 
+
 class TestBuildEdges:
     def test_build_edges_finds_tag_overlap_pair(self, db_session: Session):
         from app.edge_builder import build_edges
+
         make_skill_with_tags(db_session, "a", ["docker", "ci", "deploy"], category="devops")
         make_skill_with_tags(db_session, "b", ["docker", "ci", "monitoring"], category="devops")
         make_skill_with_tags(db_session, "c", ["unrelated"], category="creative")
@@ -129,6 +147,7 @@ class TestBuildEdges:
 
     def test_build_edges_skips_self_loops(self, db_session: Session):
         from app.edge_builder import build_edges
+
         make_skill_with_tags(db_session, "a", ["x", "y"], category="devops")
         make_skill_with_tags(db_session, "b", ["x", "y"], category="devops")
         db_session.commit()
@@ -138,6 +157,7 @@ class TestBuildEdges:
 
     def test_build_edges_skips_internal_skills(self, db_session: Session):
         from app.edge_builder import build_edges
+
         make_skill_with_tags(db_session, "pub", ["x", "y"], category="devops")
         make_skill_with_tags(db_session, "internal", ["x", "y"], category="devops", is_public=False)
         db_session.commit()
@@ -147,12 +167,11 @@ class TestBuildEdges:
 
     def test_build_edges_drops_below_threshold(self, db_session: Session):
         from app.edge_builder import build_edges, WEIGHT_THRESHOLD
+
         # Tiny overlap (1/10 = 0.1 jaccard, no category match, no co-install)
         # Combined = 0.6 * 0.1 = 0.06 — below default 0.15 threshold
-        make_skill_with_tags(db_session, "a",
-            ["x", "a1", "a2", "a3", "a4"], category="devops")
-        make_skill_with_tags(db_session, "b",
-            ["x", "b1", "b2", "b3", "b4"], category="creative")
+        make_skill_with_tags(db_session, "a", ["x", "a1", "a2", "a3", "a4"], category="devops")
+        make_skill_with_tags(db_session, "b", ["x", "b1", "b2", "b3", "b4"], category="creative")
         db_session.commit()
         edges = build_edges(db_session)
         pair_set = {(e["source_slug"], e["target_slug"]) for e in edges}
@@ -162,11 +181,11 @@ class TestBuildEdges:
 
     def test_build_edges_includes_signal_breakdown(self, db_session: Session):
         from app.edge_builder import build_edges
+
         make_skill_with_tags(db_session, "a", ["x", "y"], category="devops")
         make_skill_with_tags(db_session, "b", ["x", "y"], category="devops")
         db_session.commit()
-        edges = [e for e in build_edges(db_session)
-                 if e["source_slug"] == "a" and e["target_slug"] == "b"]
+        edges = [e for e in build_edges(db_session) if e["source_slug"] == "a" and e["target_slug"] == "b"]
         assert edges, "expected a→b edge"
         e = edges[0]
         assert "signals" in e
@@ -179,15 +198,25 @@ class TestBuildEdges:
 
 # ── 4. persist_edges writes derived_edges table ─────────────────────────
 
+
 class TestPersistEdges:
     def test_persist_edges_writes_rows(self, db_session: Session):
         from app.edge_builder import persist_edges
         from app.models import SkillDerivedEdge
+
         edges = [
-            {"source_slug": "a", "target_slug": "b", "weight": 0.8,
-             "signals": {"jaccard": 1.0, "category": 1.0, "coinstall": 0.0}},
-            {"source_slug": "b", "target_slug": "a", "weight": 0.8,
-             "signals": {"jaccard": 1.0, "category": 1.0, "coinstall": 0.0}},
+            {
+                "source_slug": "a",
+                "target_slug": "b",
+                "weight": 0.8,
+                "signals": {"jaccard": 1.0, "category": 1.0, "coinstall": 0.0},
+            },
+            {
+                "source_slug": "b",
+                "target_slug": "a",
+                "weight": 0.8,
+                "signals": {"jaccard": 1.0, "category": 1.0, "coinstall": 0.0},
+            },
         ]
         n = persist_edges(db_session, edges)
         db_session.commit()
@@ -199,6 +228,7 @@ class TestPersistEdges:
         """Re-running the builder must idempotently replace, not duplicate."""
         from app.edge_builder import persist_edges
         from app.models import SkillDerivedEdge
+
         e1 = [{"source_slug": "a", "target_slug": "b", "weight": 0.5, "signals": {}}]
         e2 = [{"source_slug": "a", "target_slug": "b", "weight": 0.9, "signals": {}}]
         persist_edges(db_session, e1)
@@ -212,11 +242,11 @@ class TestPersistEdges:
 
 # ── 5. GET /api/skills/{slug}/graph ─────────────────────────────────────
 
+
 class TestGraphEndpoint:
     def test_graph_returns_declared_and_derived(self, client: TestClient, db_session: Session):
         # Set up: a declares b. a and c share tags. d unrelated.
-        a = make_skill_with_tags(db_session, "a", ["docker", "ci"], category="devops",
-                                  related_skills=["b"])
+        a = make_skill_with_tags(db_session, "a", ["docker", "ci"], category="devops", related_skills=["b"])
         make_skill_with_tags(db_session, "b", ["other"], category="content")
         make_skill_with_tags(db_session, "c", ["docker", "ci"], category="devops")
         make_skill_with_tags(db_session, "d", ["unrelated"], category="x")
@@ -224,6 +254,7 @@ class TestGraphEndpoint:
 
         # Build edges
         from app.edge_builder import build_edges, persist_edges
+
         edges = build_edges(db_session)
         persist_edges(db_session, edges)
         db_session.commit()
@@ -248,6 +279,7 @@ class TestGraphEndpoint:
         db_session.commit()
 
         from app.edge_builder import build_edges, persist_edges
+
         persist_edges(db_session, build_edges(db_session))
         db_session.commit()
 
@@ -264,6 +296,7 @@ class TestGraphEndpoint:
 
 # ── 6. /api/stats trending_pairs ────────────────────────────────────────
 
+
 class TestTrendingPairsInStats:
     def test_stats_returns_trending_pairs(self, client: TestClient, db_session: Session):
         make_skill_with_tags(db_session, "a", ["x", "y"], category="devops")
@@ -271,6 +304,7 @@ class TestTrendingPairsInStats:
         make_skill_with_tags(db_session, "c", ["x"], category="devops")
         db_session.commit()
         from app.edge_builder import build_edges, persist_edges
+
         persist_edges(db_session, build_edges(db_session))
         db_session.commit()
 
@@ -280,14 +314,13 @@ class TestTrendingPairsInStats:
         assert "trending_pairs" in body
         assert isinstance(body["trending_pairs"], list)
 
-    def test_stats_trending_pairs_dedup_undirected_and_sorted(
-        self, client: TestClient, db_session: Session
-    ):
+    def test_stats_trending_pairs_dedup_undirected_and_sorted(self, client: TestClient, db_session: Session):
         make_skill_with_tags(db_session, "a", ["x", "y", "z"], category="devops")
         make_skill_with_tags(db_session, "b", ["x", "y", "z"], category="devops")  # weight ~ 1.0
-        make_skill_with_tags(db_session, "c", ["x", "y"], category="creative")     # lower
+        make_skill_with_tags(db_session, "c", ["x", "y"], category="creative")  # lower
         db_session.commit()
         from app.edge_builder import build_edges, persist_edges
+
         persist_edges(db_session, build_edges(db_session))
         db_session.commit()
 

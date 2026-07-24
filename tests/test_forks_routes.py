@@ -8,6 +8,7 @@ Coverage (per Plan v5.4 §D acceptance):
   - Install token rejected once expired
   - Delete soft-deletes (row stays, visibility=NULL, readme cleared)
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -33,6 +34,7 @@ from app.models import Base, Skill, SkillFork, User
 
 
 # ─────────────────────────── DB Fixtures ────────────────────────────────
+
 
 @pytest.fixture(scope="module")
 def engine_fixture():
@@ -66,6 +68,7 @@ def db_session(engine_fixture) -> Generator[Session, None, None]:
 
 
 # ─────────────────────────── Helpers ─────────────────────────────────────
+
 
 def _make_user(db: Session, *, tier: str | None, status: str | None = "active") -> User:
     uid = uuid4()
@@ -139,10 +142,13 @@ class TestTierGate:
         with patch.dict(os.environ, {"RECIPES_FORKS_DIR": str(tmp_path)}):
             app = _make_app(db_session, api_key_user_id=user.id)
             with TestClient(app) as client:
-                r = client.post("/api/forks/create", json={
-                    "source_slug": "src-1",
-                    "name": "My Pro Fork",
-                })
+                r = client.post(
+                    "/api/forks/create",
+                    json={
+                        "source_slug": "src-1",
+                        "name": "My Pro Fork",
+                    },
+                )
         assert r.status_code in (201, 409), f"Pro should be accepted, got {r.status_code}: {r.text}"
 
     def test_no_tier_blocked_with_402(self, db_session, tmp_path):
@@ -153,10 +159,13 @@ class TestTierGate:
         with patch.dict(os.environ, {"RECIPES_FORKS_DIR": str(tmp_path)}):
             app = _make_app(db_session, api_key_user_id=user.id)
             with TestClient(app) as client:
-                r = client.post("/api/forks/create", json={
-                    "source_slug": "src-2",
-                    "name": "Free Tier Fork",
-                })
+                r = client.post(
+                    "/api/forks/create",
+                    json={
+                        "source_slug": "src-2",
+                        "name": "Free Tier Fork",
+                    },
+                )
         assert r.status_code == 402
 
     def test_inactive_subscription_blocked(self, db_session, tmp_path):
@@ -167,10 +176,13 @@ class TestTierGate:
         with patch.dict(os.environ, {"RECIPES_FORKS_DIR": str(tmp_path)}):
             app = _make_app(db_session, api_key_user_id=user.id)
             with TestClient(app) as client:
-                r = client.post("/api/forks/create", json={
-                    "source_slug": "src-3",
-                    "name": "Cancelled Operator",
-                })
+                r = client.post(
+                    "/api/forks/create",
+                    json={
+                        "source_slug": "src-3",
+                        "name": "Cancelled Operator",
+                    },
+                )
         assert r.status_code == 402
 
 
@@ -183,11 +195,14 @@ class TestCreateFork:
         with patch.dict(os.environ, {"RECIPES_FORKS_DIR": str(tmp_path)}):
             app = _make_app(db_session, api_key_user_id=user.id)
             with TestClient(app) as client:
-                r = client.post("/api/forks/create", json={
-                    "source_slug": "seo-audit-engine",
-                    "name": "My SEO Fork",
-                    "readme": "# my notes",
-                })
+                r = client.post(
+                    "/api/forks/create",
+                    json={
+                        "source_slug": "seo-audit-engine",
+                        "name": "My SEO Fork",
+                        "readme": "# my notes",
+                    },
+                )
         assert r.status_code == 201, r.text
         body = r.json()
         assert body["name"] == "My SEO Fork"
@@ -205,10 +220,13 @@ class TestCreateFork:
         with patch.dict(os.environ, {"RECIPES_FORKS_DIR": str(tmp_path)}):
             app = _make_app(db_session, api_key_user_id=user.id)
             with TestClient(app) as client:
-                r = client.post("/api/forks/create", json={
-                    "source_slug": "src-studio",
-                    "name": "Studio Fork",
-                })
+                r = client.post(
+                    "/api/forks/create",
+                    json={
+                        "source_slug": "src-studio",
+                        "name": "Studio Fork",
+                    },
+                )
         assert r.status_code == 201
 
     def test_unknown_source_returns_404(self, db_session, tmp_path):
@@ -218,10 +236,13 @@ class TestCreateFork:
         with patch.dict(os.environ, {"RECIPES_FORKS_DIR": str(tmp_path)}):
             app = _make_app(db_session, api_key_user_id=user.id)
             with TestClient(app) as client:
-                r = client.post("/api/forks/create", json={
-                    "source_slug": "does-not-exist",
-                    "name": "Phantom",
-                })
+                r = client.post(
+                    "/api/forks/create",
+                    json={
+                        "source_slug": "does-not-exist",
+                        "name": "Phantom",
+                    },
+                )
         assert r.status_code == 404
 
 
@@ -265,6 +286,7 @@ class TestVersionUpload:
         # Verify the file actually landed on disk under the configured root
         # with matching sha256 + size.
         from app.models import ForkVersion
+
         db_session.expire_all()
         v = db_session.query(ForkVersion).filter(ForkVersion.id == UUID(body["id"])).first()
         assert v is not None
@@ -372,14 +394,17 @@ class TestInstallSignedURL:
                 # Generate a token with a forced past timestamp by patching
                 # itsdangerous's time source to ~10 minutes ago at signing.
                 from app import forks_routes
+
                 serializer = forks_routes._make_install_serializer()
                 # Sign with an artificially old timestamp (past TTL).
                 # itsdangerous embeds a timestamp in the token; we monkey-patch
                 # `now` for the signer just for token creation.
-                old_token = serializer.dumps({
-                    "fork_id": str(fork.id),
-                    "version_id": "irrelevant-still-fails-on-sig-timestamp",
-                })
+                old_token = serializer.dumps(
+                    {
+                        "fork_id": str(fork.id),
+                        "version_id": "irrelevant-still-fails-on-sig-timestamp",
+                    }
+                )
                 # Sleep just over 1s and use a max_age=0 path: the simpler
                 # check is to call the verify with a 0-second window.
                 # We exercise _download with a valid token but ttl override:
@@ -439,16 +464,28 @@ class TestList:
         skill = _make_skill(db_session, slug="src-list")
 
         mine_active = SkillFork(
-            id=uuid4(), user_id=user.id, source_skill_id=skill.id,
-            name="A", slug="a", visibility="private",
+            id=uuid4(),
+            user_id=user.id,
+            source_skill_id=skill.id,
+            name="A",
+            slug="a",
+            visibility="private",
         )
         mine_deleted = SkillFork(
-            id=uuid4(), user_id=user.id, source_skill_id=skill.id,
-            name="B", slug="b", visibility="private",
+            id=uuid4(),
+            user_id=user.id,
+            source_skill_id=skill.id,
+            name="B",
+            slug="b",
+            visibility="private",
         )
         not_mine = SkillFork(
-            id=uuid4(), user_id=other.id, source_skill_id=skill.id,
-            name="C", slug="c", visibility="private",
+            id=uuid4(),
+            user_id=other.id,
+            source_skill_id=skill.id,
+            name="C",
+            slug="c",
+            visibility="private",
         )
         db_session.add_all([mine_active, mine_deleted, not_mine])
         db_session.commit()

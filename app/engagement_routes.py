@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.auth_ctx import AuthContext
 from app.database import get_db
+from app.library_service import set_local_like_by_skill
 from app.models import (
     Bundle,
     FollowedBundle,
@@ -110,6 +111,20 @@ def like_track(slug: str, request: Request, db: Session = Depends(get_db)):
         db.add(like)
         db.commit()
 
+    # ponytail_0724: a LOCAL like must also land in the caller's deployable
+    # Liked bundle — that is where GET /api/library reads from, and it is what
+    # makes the skill reconcile onto their agents. Without this the heart wrote
+    # engagement-only state and the skill appeared NOWHERE in the library.
+    # Federated likes deliberately stay engagement-only (we do not host them,
+    # and BundleSkill drives authz.can_install + fleet reconcile).
+    # Done OUTSIDE the `existing is None` branch so it is self-healing for
+    # anyone who liked a skill before this fix shipped.
+    if skill_id is not None:
+        skill_row = db.execute(select(Skill).where(Skill.id == skill_id)).scalar_one_or_none()
+        if skill_row is not None:
+            set_local_like_by_skill(db, owner_id=ctx.user_id, skill=skill_row, liked=True)
+            db.commit()
+
     # Count total likes for this track
     count_q = select(func.count(SkillLike.id))
     if skill_id is not None:
@@ -140,6 +155,16 @@ def unlike_track(slug: str, request: Request, db: Session = Depends(get_db)):
     if existing is not None:
         db.delete(existing)
         db.commit()
+
+    # ponytail_0724: mirror the removal out of the deployable Liked bundle so an
+    # unlike actually removes the skill from the library (and from what
+    # reconcile deploys). Runs unconditionally so it also cleans up a bundle
+    # reference whose SkillLike row was already gone.
+    if skill_id is not None:
+        skill_row = db.execute(select(Skill).where(Skill.id == skill_id)).scalar_one_or_none()
+        if skill_row is not None:
+            set_local_like_by_skill(db, owner_id=ctx.user_id, skill=skill_row, liked=False)
+            db.commit()
 
     # Count remaining likes
     count_q = select(func.count(SkillLike.id))
@@ -251,10 +276,22 @@ def my_library(request: Request, db: Session = Depends(get_db)):
     )
 
     # Owned bundles
+    # ponytail_0724: exclude SYSTEM bundles. `is_base` was already excluded;
+    # `is_liked` must be too — the Liked bundle is a per-user system primitive
+    # (auto-created by ensure_liked_bundle), not a bundle the user composed.
+    # This surfaced when the heart's local-like path started calling
+    # ensure_liked_bundle: the auto-created Liked bundle began appearing in
+    # `owned_bundles`. Same class as the liked_0711-P5 quota-counting fix.
     owned = (
         db.execute(
             select(Bundle)
-            .where(and_(Bundle.bundle_owner == ctx.user_id, Bundle.is_base.is_(False)))
+            .where(
+                and_(
+                    Bundle.bundle_owner == ctx.user_id,
+                    Bundle.is_base.is_(False),
+                    Bundle.is_liked.is_(False),
+                )
+            )
             .order_by(desc(Bundle.updated_at))
         )
         .scalars()

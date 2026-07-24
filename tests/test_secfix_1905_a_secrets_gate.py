@@ -7,10 +7,12 @@ Tests:
   - OAUTH_REDIRECT_BASE missing in prod raises RuntimeError
   - All secrets set → boots cleanly
 """
+
 import pytest
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def make_prod_settings(**overrides):
     """Instantiate Settings with a non-sqlite DATABASE_URL + clean secrets.
@@ -36,6 +38,7 @@ def make_prod_settings(**overrides):
 
 
 # ── PoV commit tests (must FAIL on main, PASS after fix) ──────────────────
+
 
 def test_pov_default_jwt_secret_raises_in_prod():
     """PROOF OF VULNERABILITY: Settings with default JWT_SECRET + postgres URL
@@ -112,6 +115,7 @@ def test_pov_default_heartbeat_pepper_raises_in_prod():
 
 # ── Issue #4 (OAUTH_REDIRECT_BASE required in prod) ──────────────────────
 
+
 def test_pov_missing_oauth_redirect_base_raises_in_prod():
     """PROOF OF VULNERABILITY: empty OAUTH_REDIRECT_BASE in prod must raise."""
     from app.config import Settings
@@ -147,6 +151,7 @@ def test_pov_http_oauth_redirect_base_raises_in_prod():
 
 
 # ── Passing cases (green after fix, AND must also pass before fix) ────────
+
 
 def test_sqlite_env_tolerates_defaults():
     """SQLite (dev) env should NOT raise even with default change-me values."""

@@ -18,6 +18,7 @@ regress either way:
 It also runs the audit against the live tree and asserts it is clean, so the
 SSOT stays honest.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -49,10 +50,7 @@ class TestWindowedMarkerSuppression:
         """A slug whose alias marker landed 2 lines below (ruff wrap) is clean."""
         f = tmp_path / "wrapped.py"
         f.write_text(
-            'TIER_MAP = {\n'
-            '    "cook": "pro",\n'
-            '    "operator": "pro_plus",\n'
-            '}  # legacy alias map\n',
+            'TIER_MAP = {\n    "cook": "pro",\n    "operator": "pro_plus",\n}  # legacy alias map\n',
             encoding="utf-8",
         )
         violations = audit.scan(tmp_path)
@@ -65,10 +63,7 @@ class TestWindowedMarkerSuppression:
         # Marker on the line directly opening the list; both slugs fall within
         # the +/-2 window of it (cook at +1, operator at +2).
         f.write_text(
-            "TIERS = [  # legacy alias map (sunset 2026-06-10)\n"
-            '    "cook",\n'
-            '    "operator",\n'
-            "]\n",
+            'TIERS = [  # legacy alias map (sunset 2026-06-10)\n    "cook",\n    "operator",\n]\n',
             encoding="utf-8",
         )
         assert audit.scan(tmp_path) == []
@@ -79,25 +74,18 @@ class TestRealViolationsStillCaught:
         """The gate must NOT become a no-op — a bare legacy slug still trips."""
         f = tmp_path / "bare.py"
         f.write_text(
-            'DEFAULT_TIER = "operator"\n'
-            'OTHER = "cook"\n',
+            'DEFAULT_TIER = "operator"\nOTHER = "cook"\n',
             encoding="utf-8",
         )
         violations = audit.scan(tmp_path)
         flagged_lines = {ln for _f, ln, _line in violations}
-        assert flagged_lines == {1, 2}, (
-            f"bare legacy slugs were not all flagged: {violations}"
-        )
+        assert flagged_lines == {1, 2}, f"bare legacy slugs were not all flagged: {violations}"
 
     def test_marker_far_away_does_not_suppress(self, audit, tmp_path):
         """A marker >2 lines from the slug must NOT suppress it."""
         f = tmp_path / "far.py"
         f.write_text(
-            "# legacy alias map\n"
-            "x = 1\n"
-            "y = 2\n"
-            "z = 3\n"
-            'DEFAULT = "operator"\n',
+            '# legacy alias map\nx = 1\ny = 2\nz = 3\nDEFAULT = "operator"\n',
             encoding="utf-8",
         )
         violations = audit.scan(tmp_path)
@@ -109,7 +97,6 @@ class TestRealViolationsStillCaught:
 class TestLiveTreeClean:
     def test_repo_passes_audit(self, audit):
         violations = audit.scan(REPO_ROOT)
-        assert violations == [], (
-            "live tree has legacy tier vocab outside the SSOT/alias-map: "
-            + "; ".join(f"{f}:{ln}" for f, ln, _ in violations[:20])
+        assert violations == [], "live tree has legacy tier vocab outside the SSOT/alias-map: " + "; ".join(
+            f"{f}:{ln}" for f, ln, _ in violations[:20]
         )

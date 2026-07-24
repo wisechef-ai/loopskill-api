@@ -8,6 +8,7 @@ Verifies:
 4. The rename script (scripts/maestro_rename_migration.py) is idempotent —
    running it twice produces the same end state with no errors.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -46,11 +47,13 @@ def _make_maestro(db):
 
 # ── Migration / model ───────────────────────────────────────────────────────
 
+
 def test_skill_alias_table_exists(db_session):
     """Base.metadata.create_all() (run by conftest) must create the skill_aliases table."""
     inspector = db_session.bind.dialect.inspector if hasattr(db_session.bind.dialect, "inspector") else None
     # Falling back to the SQLAlchemy inspector via the engine
     from sqlalchemy import inspect
+
     insp = inspect(db_session.bind)
     assert "skill_aliases" in insp.get_table_names()
 
@@ -68,14 +71,17 @@ def test_skill_alias_row_round_trip(db_session):
 
 # ── Routes — 301 redirect path ──────────────────────────────────────────────
 
+
 def test_get_skill_chef_returns_301_when_alias_active(app_and_db):
     client, db = app_and_db
     _make_maestro(db)
-    db.add(SkillAlias(
-        old_slug="chef",
-        new_slug="maestro",
-        expires_at=datetime.now(timezone.utc) + timedelta(days=90),
-    ))
+    db.add(
+        SkillAlias(
+            old_slug="chef",
+            new_slug="maestro",
+            expires_at=datetime.now(timezone.utc) + timedelta(days=90),
+        )
+    )
     db.commit()
 
     resp = client.get("/api/skills/chef", follow_redirects=False)
@@ -88,11 +94,13 @@ def test_get_skill_chef_returns_301_when_alias_active(app_and_db):
 def test_get_skill_chef_returns_404_when_alias_expired(app_and_db):
     client, db = app_and_db
     _make_maestro(db)
-    db.add(SkillAlias(
-        old_slug="chef",
-        new_slug="maestro",
-        expires_at=datetime.now(timezone.utc) - timedelta(days=1),  # expired
-    ))
+    db.add(
+        SkillAlias(
+            old_slug="chef",
+            new_slug="maestro",
+            expires_at=datetime.now(timezone.utc) - timedelta(days=1),  # expired
+        )
+    )
     db.commit()
 
     resp = client.get("/api/skills/chef", follow_redirects=False)
@@ -107,6 +115,7 @@ def test_get_skill_chef_returns_404_when_no_alias(app_and_db):
 
 
 # ── Idempotency of rename script ────────────────────────────────────────────
+
 
 def test_skill_alias_unique_old_slug(db_session):
     """old_slug is the primary key — duplicate inserts raise IntegrityError.

@@ -6,6 +6,7 @@ Covers:
   (c) /x/<slug> redirects to /api/skills/install?slug=<slug>&ref=x
   (d) customer.subscription.created webhook picks up utm_ref from sub metadata
 """
+
 from __future__ import annotations
 
 import json
@@ -24,6 +25,7 @@ from tests.conftest import make_skill
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
+
 
 @pytest.fixture()
 def utm_client(db_session: Session):
@@ -62,6 +64,7 @@ def utm_client(db_session: Session):
 
 def _make_skill_with_version(db: Session, slug: str = "test-utm-skill") -> Skill:
     from app.models import SkillVersion
+
     skill = Skill(
         id=uuid4(),
         slug=slug,
@@ -101,6 +104,7 @@ def _make_user_for_utm(db: Session) -> User:
 
 # ── Test (a): cookie is set when ?ref=li ─────────────────────────────────
 
+
 class TestUTMCookieSet:
     @patch("itsdangerous.URLSafeTimedSerializer.dumps", return_value="fake-token")
     def test_cookie_set_on_valid_ref(self, mock_dumps, utm_client, db_session):
@@ -128,12 +132,11 @@ class TestUTMCookieSet:
                 follow_redirects=False,
             )
             assert resp.status_code == 200
-            assert resp.cookies.get("recipes_utm_ref") == ref, (
-                f"Expected cookie for ref={ref}"
-            )
+            assert resp.cookies.get("recipes_utm_ref") == ref, f"Expected cookie for ref={ref}"
 
 
 # ── Test (b): cookie NOT set when ?ref=evil ───────────────────────────────
+
 
 class TestUTMCookieSilentDrop:
     @patch("itsdangerous.URLSafeTimedSerializer.dumps", return_value="fake-token")
@@ -164,6 +167,7 @@ class TestUTMCookieSilentDrop:
 
 
 # ── Test (c): /x/<slug> redirects to /api/skills/install?...&ref=x ───────
+
 
 class TestPlatformRedirects:
     """marketing_1205 — the /x/, /li/, /ig/, /yt/, /fb/ shortcut redirects.
@@ -210,6 +214,7 @@ class TestPlatformRedirects:
 
 # ── Test (d): webhook handler writes utm_ref from subscription metadata ───
 
+
 class TestWebhookUTMRef:
     """(d) customer.subscription.created picks up utm_ref from sub.metadata."""
 
@@ -230,11 +235,7 @@ class TestWebhookUTMRef:
                     "status": "active",
                     "customer": user.stripe_customer_id or "cus_test",
                     "current_period_end": 9999999999,
-                    "items": {
-                        "data": [
-                            {"price": {"id": "price_pro", "metadata": {"tier": "pro"}}}
-                        ]
-                    },
+                    "items": {"data": [{"price": {"id": "price_pro", "metadata": {"tier": "pro"}}}]},
                     "metadata": sub_meta,
                 }
             },

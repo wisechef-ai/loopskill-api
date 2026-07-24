@@ -10,6 +10,7 @@ R7: public cookbook card summed each member skill's GLOBAL install count, so a
 R2: ?ref creator-handle attribution was silently dropped (allowlist only knew
     platform codes). Now creator handles validate + record.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -131,8 +132,7 @@ def test_top_installed_excludes_archived_skill(middleware_client, db_session):
     slugs = {t["slug"] for t in body["top_installed"]}
 
     assert "archived-skill" not in slugs, (
-        "archived skill's install volume must not surface in the public "
-        "top_installed transparency stat"
+        "archived skill's install volume must not surface in the public top_installed transparency stat"
     )
     assert "live-skill" in slugs
 

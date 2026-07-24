@@ -42,7 +42,7 @@ from uuid import uuid4
 import pytest
 
 from app.liked_service import ensure_liked_bundle
-from app.library_service import liked_library
+from app.library_service import liked_library, set_local_like_by_skill
 from app.models import BundleSkill, SkillLike, User
 from tests.conftest import make_skill
 
@@ -179,3 +179,76 @@ class TestFrozenContractIsNotBroken:
 
         assert "count" not in body
         assert "total" not in body
+
+
+class TestLocalLikeFromTheHeartReachesTheLibrary:
+    """R2 self-audit — the heart's LOCAL path had no destination either.
+
+    The browse/home heart posts to the SLUG route
+    (``POST /api/skills/{slug}/like``) because a federated skill has no local
+    UUID and therefore cannot use the UUID-based ``POST /api/library/like``.
+
+    For a LOCAL catalog skill that same route wrote only engagement state
+    (``SkillLike(skill_id=<uuid>)``), while ``liked_library`` reads the
+    ``BundleSkill`` join. So a user who hearted a local skill saw it appear
+    NOWHERE in their library — the same lying-button bug as the federated case,
+    on the MORE common path.
+
+    Fix: the slug route routes a LOCAL skill into the deployable Liked bundle
+    (its real destination, and what makes it reconcile onto the user's agents),
+    while a FEDERATED like stays engagement-only because we do not host it.
+    """
+
+    def test_liking_a_local_skill_by_slug_puts_it_on_the_deployable_shelf(self, db_session):
+        u = _user(db_session)
+        skill = make_skill(db_session, slug="heart-me", title="Heart Me")
+
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=True)
+
+        shelf = liked_library(db_session, owner_id=u.id)["shelves"]["skills"]
+        assert [r["slug"] for r in shelf] == ["heart-me"]
+        assert shelf[0]["id"] == str(skill.id)
+
+    def test_unliking_removes_it_again(self, db_session):
+        u = _user(db_session)
+        skill = make_skill(db_session, slug="heart-me-2", title="Heart Me 2")
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=True)
+
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=False)
+
+        assert liked_library(db_session, owner_id=u.id)["shelves"]["skills"] == []
+
+    def test_liking_twice_is_idempotent(self, db_session):
+        u = _user(db_session)
+        skill = make_skill(db_session, slug="heart-me-3", title="Heart Me 3")
+
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=True)
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=True)
+
+        assert len(liked_library(db_session, owner_id=u.id)["shelves"]["skills"]) == 1
+
+    def test_unliking_something_never_liked_is_a_no_op(self, db_session):
+        u = _user(db_session)
+        skill = make_skill(db_session, slug="heart-me-4", title="Heart Me 4")
+
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=False)
+
+        assert liked_library(db_session, owner_id=u.id)["shelves"]["skills"] == []
+
+    def test_it_does_not_touch_another_users_bundle(self, db_session):
+        mine = _user(db_session)
+        theirs = _user(db_session)
+        skill = make_skill(db_session, slug="heart-me-5", title="Heart Me 5")
+
+        set_local_like_by_skill(db_session, owner_id=mine.id, skill=skill, liked=True)
+
+        assert liked_library(db_session, owner_id=theirs.id)["shelves"]["skills"] == []
+
+    def test_the_shelf_entry_keeps_the_frozen_shape(self, db_session):
+        u = _user(db_session)
+        skill = make_skill(db_session, slug="heart-me-6", title="Heart Me 6")
+
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=True)
+
+        row = liked_library(db_session, owner_id=u.id)["shelves"]["skills"][0]
+        assert set(row) == {"id", "slug", "title", "liked_at"}

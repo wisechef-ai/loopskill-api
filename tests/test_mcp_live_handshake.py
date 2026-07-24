@@ -95,8 +95,7 @@ def _post_initialized(client: httpx.Client, sid: str) -> None:
         content=json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}),
     )
     assert resp.status_code == 202, (
-        f"notifications/initialized expected 202, got "
-        f"{resp.status_code}: {resp.text}"
+        f"notifications/initialized expected 202, got {resp.status_code}: {resp.text}"
     )
 
 
@@ -124,10 +123,7 @@ def _attempt_get_stream(client: httpx.Client, sid: str) -> int:
             # the body to assert on the message.
             if resp.status_code == 404:
                 body = resp.read().decode("utf-8", errors="replace")
-                pytest.fail(
-                    f"GET stream returned 404 — session-affinity regression. "
-                    f"Body: {body!r}"
-                )
+                pytest.fail(f"GET stream returned 404 — session-affinity regression. Body: {body!r}")
             return resp.status_code
     except httpx.ReadTimeout:
         # Long-lived stream — server held the connection. That's the success
@@ -186,18 +182,14 @@ def test_full_sdk_handshake_survives_get_stream(http_client: httpx.Client) -> No
     # The GET must NOT return 404. Either it streams (httpx ReadTimeout) or
     # it returns 200 — both are acceptable. 404 is the regression signal.
     status = _attempt_get_stream(http_client, sid)
-    assert status != 404, (
-        "GET stream returned 404 — multi-worker session-affinity regression"
-    )
+    assert status != 404, "GET stream returned 404 — multi-worker session-affinity regression"
 
     # The session must remain alive after the GET. tools/list must succeed
     # and return a non-empty tool catalogue.
     payload = _post_tools_list(http_client, sid)
     assert payload.get("error") is None, f"tools/list returned error: {payload}"
     tools = payload.get("result", {}).get("tools", [])
-    assert isinstance(tools, list) and len(tools) > 0, (
-        f"tools/list returned empty catalogue: {payload}"
-    )
+    assert isinstance(tools, list) and len(tools) > 0, f"tools/list returned empty catalogue: {payload}"
     # Sanity check: the canonical recipes tools should be present.
     tool_names = {t["name"] for t in tools}
     expected = {"loopskill_search", "loopskill_install", "loopskill_list_bundle"}

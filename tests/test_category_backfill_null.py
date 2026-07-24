@@ -4,6 +4,7 @@ atomic-habits 2026-07-16 rank-1: category backfill on the 48 uncategorized
 skills. Mirrors the pattern in tests/test_taxonomy_migration.py — replay the
 migration's SQL logic against a fresh SQLite DB and assert on real behavior.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -23,10 +24,7 @@ from app.services.category_infer import (
 
 
 def _load_migration():
-    path = (
-        Path(__file__).parent.parent
-        / "alembic" / "versions" / "f8ade9aa1b68_category_backfill_null.py"
-    )
+    path = Path(__file__).parent.parent / "alembic" / "versions" / "f8ade9aa1b68_category_backfill_null.py"
     spec = importlib.util.spec_from_file_location("category_backfill_null", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -67,6 +65,7 @@ def _mk(session, **kw):
 # classify_category unit tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "title,slug,description,expected",
     [
@@ -75,7 +74,12 @@ def _mk(session, **kw):
         ("Client Reporter", "client-reporter", "Client reporting for agencies", "agency"),
         ("LoopSkill CLI", "loopskill", "Skill marketplace CLI", "dev-tools"),
         ("Super Memory", "super-memory", "Agent memory recall and knowledge graph", "research"),
-        ("Musk 5-Step Algorithm", "musk-5-step-algorithm", "Engineering algorithm for bottlenecks", "productivity"),
+        (
+            "Musk 5-Step Algorithm",
+            "musk-5-step-algorithm",
+            "Engineering algorithm for bottlenecks",
+            "productivity",
+        ),
         ("Ruthless Mentor", "ruthless-mentor", "Stress-test plans and ideas", "productivity"),
         ("Hundred Million Offers", "hundred-million-offers", "Craft irresistible offers", "marketing"),
         ("Hub Search Claude Code", "hub-search-claude-code", "Search the skill hub", "dev-tools"),
@@ -107,13 +111,23 @@ def test_classify_category_never_returns_outside_canonical_set():
 # Migration behavior tests
 # ---------------------------------------------------------------------------
 
+
 def test_migration_backfills_all_null_categories(engine, session):
-    _mk(session, slug="web-scraper-pro", title="Web Scraper Pro",
-        description="Scrape any website", category=None)
-    _mk(session, slug="email-composer", title="Email Composer",
-        description="Draft marketing emails", category=None)
-    _mk(session, slug="already-set", title="Already Categorized",
-        description="n/a", category="ops")
+    _mk(
+        session,
+        slug="web-scraper-pro",
+        title="Web Scraper Pro",
+        description="Scrape any website",
+        category=None,
+    )
+    _mk(
+        session,
+        slug="email-composer",
+        title="Email Composer",
+        description="Draft marketing emails",
+        category=None,
+    )
+    _mk(session, slug="already-set", title="Already Categorized", description="n/a", category="ops")
     _mk(session, slug="no-signal-at-all", title="", description="", category=None)
 
     with engine.begin() as conn:
@@ -122,8 +136,10 @@ def test_migration_backfills_all_null_categories(engine, session):
         ).fetchall()
         for row in rows:
             inferred = _mig.classify_category(
-                title=row.title, description=row.description,
-                slug=row.slug, readme=row.readme,
+                title=row.title,
+                description=row.description,
+                slug=row.slug,
+                readme=row.readme,
             )
             conn.execute(
                 text("UPDATE skills SET category = :cat WHERE id = :id"),
@@ -152,8 +168,10 @@ def test_migration_is_idempotent_on_replay(engine, session):
             ).fetchall()
             for row in rows:
                 inferred = _mig.classify_category(
-                    title=row.title, description=row.description,
-                    slug=row.slug, readme=row.readme,
+                    title=row.title,
+                    description=row.description,
+                    slug=row.slug,
+                    readme=row.readme,
                 )
                 conn.execute(
                     text("UPDATE skills SET category = :cat WHERE id = :id"),

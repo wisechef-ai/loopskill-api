@@ -50,8 +50,7 @@ def test_api_health_is_public_no_key_needed(_db, monkeypatch):
     client = TestClient(app)
     r = client.get("/api/health", follow_redirects=False)  # deliberately no key
     assert r.status_code == 200, (
-        f"/api/health must be public at the middleware seam, "
-        f"got {r.status_code}: {r.text[:200]}"
+        f"/api/health must be public at the middleware seam, got {r.status_code}: {r.text[:200]}"
     )
     body = r.json()
     assert body["status"] == "ok"

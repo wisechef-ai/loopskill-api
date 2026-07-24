@@ -101,6 +101,51 @@ def set_liked_artifact(
     return {"liked": liked, "type": artifact_type, "id": str(artifact_id)}
 
 
+def set_local_like_by_skill(
+    db: Session,
+    *,
+    owner_id: UUID,
+    skill: Skill,
+    liked: bool,
+) -> None:
+    """Mirror a slug-route like of a LOCAL skill into the deployable Liked bundle.
+
+    ponytail_0724 R2 self-audit. The browse/home heart posts to the SLUG route
+    (``POST /api/skills/{slug}/like``) — it must, because a federated skill has
+    no local UUID and so cannot use the UUID-based ``POST /api/library/like``.
+
+    For a LOCAL catalog skill that route previously wrote only engagement state
+    (``SkillLike(skill_id=...)``), while ``liked_library`` reads the
+    ``BundleSkill`` join. Result: hearting a local skill put it NOWHERE the user
+    could see it — the same lying-button bug as the federated case, on the more
+    common path.
+
+    So a local like is ALSO reflected into the caller's Liked bundle, which is
+    the artifact's real destination (and what makes it reconcile onto their
+    agents). Idempotent in both directions. Federated likes deliberately do NOT
+    come through here: we do not host them, and ``BundleSkill`` drives
+    ``authz.can_install`` + fleet reconcile.
+
+    Authorization note: the caller (the slug route) has already resolved the
+    skill from a public catalog lookup. This helper does not widen access — it
+    only adds a reference to the caller's OWN Liked bundle.
+    """
+    bundle = ensure_liked_bundle(db, owner_id)
+    existing = (
+        db.query(BundleSkill)
+        .filter(BundleSkill.bundle_id == bundle.id, BundleSkill.skill_id == skill.id)
+        .first()
+    )
+    if liked and existing is None:
+        db.add(BundleSkill(bundle_id=bundle.id, skill_id=skill.id, source="custom-added"))
+        _touch_bundle_generation(db, bundle.id)
+        db.flush()
+    elif not liked and existing is not None:
+        db.delete(existing)
+        _touch_bundle_generation(db, bundle.id)
+        db.flush()
+
+
 def liked_library(db: Session, *, owner_id: UUID) -> dict:
     """Return the owner's typed liked shelves and the reserved follows shelf.
 

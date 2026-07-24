@@ -7,6 +7,7 @@ Covers DB persistence, API response shape, and edge cases:
 - response capped at 10
 - 404 on unknown slug
 """
+
 from __future__ import annotations
 
 import pytest
@@ -17,6 +18,7 @@ from tests.conftest import make_skill
 
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def two_linked_skills(db_session: Session):
@@ -40,7 +42,9 @@ def public_skill_with_related(db_session: Session):
 def public_skill_linking_internal(db_session: Session):
     """A public skill that lists an internal (non-public) skill — must filter out."""
     a = make_skill(
-        db_session, slug="public-x", title="Public X",
+        db_session,
+        slug="public-x",
+        title="Public X",
         related_skills=["internal-y", "public-z"],
     )
     make_skill(db_session, slug="internal-y", title="Internal Y", is_public=False)
@@ -53,7 +57,9 @@ def public_skill_linking_internal(db_session: Session):
 def skill_with_bad_link(db_session: Session):
     """Lists a slug that doesn't exist in DB — must be silently dropped."""
     a = make_skill(
-        db_session, slug="orphan-host", title="Orphan Host",
+        db_session,
+        slug="orphan-host",
+        title="Orphan Host",
         related_skills=["does-not-exist", "real-target"],
     )
     make_skill(db_session, slug="real-target", title="Real Target")
@@ -65,7 +71,9 @@ def skill_with_bad_link(db_session: Session):
 def self_referencing_skill(db_session: Session):
     """Lists itself + a real link. Self must filter out, real must remain."""
     a = make_skill(
-        db_session, slug="navel", title="Navel",
+        db_session,
+        slug="navel",
+        title="Navel",
         related_skills=["navel", "outward"],
     )
     make_skill(db_session, slug="outward", title="Outward")
@@ -78,7 +86,9 @@ def skill_with_15_related(db_session: Session):
     """15 declared related skills — endpoint must cap at 10."""
     targets = [f"target-{i:02d}" for i in range(15)]
     a = make_skill(
-        db_session, slug="popular", title="Popular",
+        db_session,
+        slug="popular",
+        title="Popular",
         related_skills=targets,
     )
     for t in targets:
@@ -89,12 +99,16 @@ def skill_with_15_related(db_session: Session):
 
 # ── Tests ───────────────────────────────────────────────────────────────────
 
+
 class TestRelatedSkillsPersistence:
     def test_skill_can_have_related_skills_persisted(self, db_session: Session):
         """SKILL frontmatter related_skills round-trips through DB."""
         from app.models import Skill
+
         s = make_skill(
-            db_session, slug="round-trip", title="Round Trip",
+            db_session,
+            slug="round-trip",
+            title="Round Trip",
             related_skills=["a", "b", "c"],
         )
         db_session.commit()
@@ -105,6 +119,7 @@ class TestRelatedSkillsPersistence:
     def test_skill_without_related_defaults_to_empty(self, db_session: Session):
         """A skill with no related_skills column set is `[]` or `None` — never errors."""
         from app.models import Skill
+
         s = make_skill(db_session, slug="lone", title="Lone")
         db_session.commit()
         fetched = db_session.query(Skill).filter_by(slug="lone").one()

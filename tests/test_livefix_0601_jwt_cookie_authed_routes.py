@@ -19,6 +19,7 @@ Contract pinned
 3. Admin routes (api_key_user_id-must-be-None gate) must still 403 a cookie
    user — the cookie is user-scope, never master. No privilege escalation.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -73,6 +74,7 @@ def app_and_data(db_engine, monkeypatch):
     session.commit()
 
     from app.config import settings
+
     monkeypatch.setattr(settings, "API_KEY", "rec_admin_master_xyz_1234", raising=False)
 
     app = build_test_app(db_session=session, monkeypatch=monkeypatch)
@@ -84,6 +86,7 @@ def app_and_data(db_engine, monkeypatch):
 
 def _jwt_for(user) -> str:
     from app.auth import create_jwt
+
     return create_jwt(user)
 
 
@@ -95,9 +98,7 @@ def test_jwt_cookie_authenticates_cookbook_route(app_and_data):
     resp = client.get(f"/api/cookbooks/{cb.id}", cookies={"wr_jwt": _jwt_for(user)})
 
     # Must NOT be the middleware's bare x-api-key rejection.
-    assert "x-api-key" not in resp.text.lower(), (
-        f"JWT-cookie user got the API-key gate error: {resp.text!r}"
-    )
+    assert "x-api-key" not in resp.text.lower(), f"JWT-cookie user got the API-key gate error: {resp.text!r}"
     assert resp.status_code == 200, f"expected 200, got {resp.status_code}: {resp.text!r}"
     body = resp.json()
     assert body["name"] == "My Cookbook"

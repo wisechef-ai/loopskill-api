@@ -1,4 +1,5 @@
 """Recipify keyword classifier — v7 Phase G."""
+
 from __future__ import annotations
 
 import pytest

@@ -6,6 +6,7 @@ The actual LLM call is mocked. We verify:
   - candidates without a runnable test are marked 'rejected'
   - proposal_path is recorded
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -74,6 +75,7 @@ def _mk_candidate(db, skill):
 
 # ── parse_draft ────────────────────────────────────────────────────────
 
+
 def test_parse_draft_recognizes_diff_and_test():
     body = (
         "Patch:\n```diff\n--- a/x.py\n+++ b/x.py\n@@\n-old\n+new\n```\n\n"
@@ -100,6 +102,7 @@ def test_parse_draft_rejects_prose_only():
 
 # ── draft_patch ────────────────────────────────────────────────────────
 
+
 def test_draft_patch_writes_proposal(tmp_path, db_session):
     skill = _mk_skill(db_session)
     _mk_incident(db_session, skill, "a1")
@@ -109,13 +112,9 @@ def test_draft_patch_writes_proposal(tmp_path, db_session):
 
     def fake_llm(prompt: str) -> str:
         captured["prompt"] = prompt
-        return (
-            "```diff\n--- a/x.py\n+++ b/x.py\n+x\n```\n"
-            "```python\ndef test_regression(): pass\n```"
-        )
+        return "```diff\n--- a/x.py\n+++ b/x.py\n+x\n```\n```python\ndef test_regression(): pass\n```"
 
-    result = draft_patch(cand, db=db_session, llm_call=fake_llm,
-                         proposal_dir=tmp_path)
+    result = draft_patch(cand, db=db_session, llm_call=fake_llm, proposal_dir=tmp_path)
     assert result.runnable
     assert cand.proposal_path
     assert Path(cand.proposal_path).exists()
@@ -129,12 +128,10 @@ def test_draft_patch_missing_reports_raises(tmp_path, db_session):
     skill = _mk_skill(db_session)
     cand = _mk_candidate(db_session, skill)
     with pytest.raises(ValueError, match="no incident reports"):
-        draft_patch(cand, db=db_session,
-                    llm_call=lambda p: "x", proposal_dir=tmp_path)
+        draft_patch(cand, db=db_session, llm_call=lambda p: "x", proposal_dir=tmp_path)
 
 
-def test_run_once_promotes_runnable_to_drafted(tmp_path, db_session,
-                                                monkeypatch):
+def test_run_once_promotes_runnable_to_drafted(tmp_path, db_session, monkeypatch):
     skill = _mk_skill(db_session)
     _mk_incident(db_session, skill, "a1")
     cand = _mk_candidate(db_session, skill)
@@ -145,10 +142,7 @@ def test_run_once_promotes_runnable_to_drafted(tmp_path, db_session,
     )
 
     def fake_llm(prompt: str) -> str:
-        return (
-            "```diff\n--- a/x.py\n+++ b/x.py\n+x\n```\n"
-            "```python\ndef test_x(): pass\n```"
-        )
+        return "```diff\n--- a/x.py\n+++ b/x.py\n+x\n```\n```python\ndef test_x(): pass\n```"
 
     summary = run_once(db=db_session, llm_call=fake_llm)
     assert summary["drafted"] == 1
@@ -157,8 +151,7 @@ def test_run_once_promotes_runnable_to_drafted(tmp_path, db_session,
     assert cand.status == "drafted"
 
 
-def test_run_once_rejects_when_no_runnable_test(tmp_path, db_session,
-                                                 monkeypatch):
+def test_run_once_rejects_when_no_runnable_test(tmp_path, db_session, monkeypatch):
     skill = _mk_skill(db_session)
     _mk_incident(db_session, skill, "a1")
     cand = _mk_candidate(db_session, skill)

@@ -14,6 +14,7 @@ Test matrix:
   test 3: pro cbt_token + PRIVATE skill not in cookbook → 404 (no leak)
   test 4: pro cbt_token → /api/admin/* → 403 (middleware path restriction)
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -279,9 +280,7 @@ class TestProCbtTokenPrivateSkillNotInCookbook:
         owner = _make_user(db_session, tier="pro")
         cb = _make_cookbook(db_session, owner.id)
         # Private skill, NOT in the cookbook
-        private_skill = _make_skill(
-            db_session, slug="private-skill-h1", is_public=False, tier="pro"
-        )
+        private_skill = _make_skill(db_session, slug="private-skill-h1", is_public=False, tier="pro")
         _make_skill_version(db_session, private_skill)
         db_session.commit()
 
@@ -295,9 +294,7 @@ class TestProCbtTokenPrivateSkillNotInCookbook:
 
         resp = client.get("/api/skills/install", params={"slug": "private-skill-h1", "mode": "files"})
         # Private skill + cbt_token (not the skill's owner) → 404 (no existence leak)
-        assert resp.status_code == 404, (
-            f"Expected 404 for private skill, got {resp.status_code}: {resp.text}"
-        )
+        assert resp.status_code == 404, f"Expected 404 for private skill, got {resp.status_code}: {resp.text}"
 
 
 # ─────────────────────────── Test 4 ──────────────────────────────────────

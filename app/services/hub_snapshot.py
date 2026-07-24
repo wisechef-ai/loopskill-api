@@ -39,6 +39,7 @@ from app.services.federation import InstallPath
 # here because callers and tests import them from `hub_snapshot`.
 from app.services.hub_repo_path import (  # noqa: F401  (re-export)
     MAX_REPO_PATH_LEN,
+    is_safe_repo_ident,
     is_safe_repo_subpath,
     resolved_repo_path,
 )
@@ -161,7 +162,14 @@ def origin_url_for_row(row: dict[str, Any]) -> str:
     repo = (row.get("repo") or "").strip()
     path = resolved_repo_path(row)
 
-    if upstream in ("skills-sh", "github") and repo:
+    # ponytail_0724 R2: NEVER interpolate an unvalidated repo. A `?`/`#` in the
+    # owner truncates the URL into a query/fragment, so the link we advertise as
+    # "this skill's location" resolves somewhere else entirely; a leading or
+    # doubled slash produces a malformed path. An unsafe repo yields no GitHub
+    # URL at all — we fall through to the name-based docs link or "".
+    repo_ok = is_safe_repo_ident(repo)
+
+    if upstream in ("skills-sh", "github") and repo_ok:
         base = f"https://github.com/{repo}"
         if path:
             base += f"/tree/main/{path}"
@@ -170,7 +178,7 @@ def origin_url_for_row(row: dict[str, Any]) -> str:
         return f"https://clawhub.ai/skills/{identifier}"
     if upstream == "official" and name:
         return f"https://hermes-agent.nousresearch.com/skills/{name}"
-    if repo:
+    if repo_ok:
         return f"https://github.com/{repo}"
     if name:
         return f"https://hermes-agent.nousresearch.com/docs/skills/{name}"

@@ -36,6 +36,7 @@ def engine():
 @pytest.fixture(scope="module")
 def session(engine):
     from sqlalchemy.orm import Session
+
     SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
     sess = SessionLocal()
     yield sess
@@ -70,22 +71,34 @@ def tc(test_app, session):
 
     # Public, non-archived skill with external_resources
     pub = Skill(
-        id=uuid4(), slug="pub-skill", title="Public Skill",
-        category="devops", is_public=True, is_archived=False,
+        id=uuid4(),
+        slug="pub-skill",
+        title="Public Skill",
+        category="devops",
+        is_public=True,
+        is_archived=False,
         external_resources=[{"url": "https://example.com", "label": "Docs"}],
         created_at=datetime.now(timezone.utc),
     )
     # Private skill
     priv = Skill(
-        id=uuid4(), slug="priv-skill", title="Private Skill",
-        category="devops", is_public=False, is_archived=False,
+        id=uuid4(),
+        slug="priv-skill",
+        title="Private Skill",
+        category="devops",
+        is_public=False,
+        is_archived=False,
         external_resources=[{"url": "https://secret.com", "label": "Secret"}],
         created_at=datetime.now(timezone.utc),
     )
     # Archived skill
     arch = Skill(
-        id=uuid4(), slug="arch-skill", title="Archived Skill",
-        category="devops", is_public=True, is_archived=True,
+        id=uuid4(),
+        slug="arch-skill",
+        title="Archived Skill",
+        category="devops",
+        is_public=True,
+        is_archived=True,
         external_resources=[{"url": "https://old.com", "label": "Old"}],
         created_at=datetime.now(timezone.utc),
     )
@@ -113,14 +126,10 @@ def test_missing_slug_returns_404(tc):
 def test_private_skill_returns_404(tc):
     """Private skill should return 404 — no oracle."""
     resp = tc.get("/api/skills/priv-skill/external")
-    assert resp.status_code == 404, (
-        f"Expected 404 for private skill, got {resp.status_code}: {resp.json()}"
-    )
+    assert resp.status_code == 404, f"Expected 404 for private skill, got {resp.status_code}: {resp.json()}"
 
 
 def test_archived_skill_returns_404(tc):
     """Archived skill should return 404 — no oracle."""
     resp = tc.get("/api/skills/arch-skill/external")
-    assert resp.status_code == 404, (
-        f"Expected 404 for archived skill, got {resp.status_code}: {resp.json()}"
-    )
+    assert resp.status_code == 404, f"Expected 404 for archived skill, got {resp.status_code}: {resp.json()}"

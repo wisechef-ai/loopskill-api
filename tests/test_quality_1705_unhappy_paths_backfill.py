@@ -1,4 +1,5 @@
 """tests/test_quality_1705_unhappy_paths_backfill.py — injection script + CI gate."""
+
 from __future__ import annotations
 
 import json
@@ -115,22 +116,33 @@ def db_session(tmp_path):
 def test_backfill_script_writes_entries(db_session, tmp_path, monkeypatch):
     SessionLocal, db_path = db_session
     with SessionLocal() as s:
-        s.add(Skill(
-            id=uuid.uuid4(),
-            slug="test-skill",
-            title="Test",
-            description="Generates X for Y.",
-            readme="---\ntitle: Test\n---\nbody",
-            is_public=True,
-            is_archived=False,
-        ))
+        s.add(
+            Skill(
+                id=uuid.uuid4(),
+                slug="test-skill",
+                title="Test",
+                description="Generates X for Y.",
+                readme="---\ntitle: Test\n---\nbody",
+                is_public=True,
+                is_archived=False,
+            )
+        )
         s.commit()
 
     payload = {
         "test-skill": [
-            {"condition": "cond one is substantial enough here", "recovery": "recov one is substantial enough here"},
-            {"condition": "cond two is substantial enough here", "recovery": "recov two is substantial enough here"},
-            {"condition": "cond three substantial enough here", "recovery": "recov three substantial enough here"},
+            {
+                "condition": "cond one is substantial enough here",
+                "recovery": "recov one is substantial enough here",
+            },
+            {
+                "condition": "cond two is substantial enough here",
+                "recovery": "recov two is substantial enough here",
+            },
+            {
+                "condition": "cond three substantial enough here",
+                "recovery": "recov three substantial enough here",
+            },
         ],
     }
     payload_path = tmp_path / "payload.json"
@@ -142,19 +154,22 @@ def test_backfill_script_writes_entries(db_session, tmp_path, monkeypatch):
             sys.executable,
             str(REPO_ROOT / "scripts" / "quality_1705_unhappy_paths_backfill.py"),
             "--commit",
-            "--payload", str(payload_path),
-            "--db-url", db_url,
+            "--payload",
+            str(payload_path),
+            "--db-url",
+            db_url,
         ],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 0, f"stderr={result.stderr}\nstdout={result.stdout}"
-    summary = json.loads(result.stdout[result.stdout.index("{"):result.stdout.rindex("}") + 1])
+    summary = json.loads(result.stdout[result.stdout.index("{") : result.stdout.rindex("}") + 1])
     assert summary["changed"] == 1
     assert summary["unchanged"] == 0
 
     with SessionLocal() as s:
         readme = s.execute(text("SELECT readme FROM skills WHERE slug='test-skill'")).scalar()
-    fm = yaml.safe_load(readme[3:readme.index("\n---", 3)])
+    fm = yaml.safe_load(readme[3 : readme.index("\n---", 3)])
     assert len(fm["unhappy_paths"]) == 3
     assert all(set(e.keys()) == {"condition", "recovery"} for e in fm["unhappy_paths"])
 
@@ -163,15 +178,17 @@ def test_backfill_script_dry_run_writes_nothing(db_session, tmp_path):
     SessionLocal, db_path = db_session
     original_readme = "---\ntitle: Test\n---\nbody"
     with SessionLocal() as s:
-        s.add(Skill(
-            id=uuid.uuid4(),
-            slug="test-skill",
-            title="Test",
-            description="Generates X.",
-            readme=original_readme,
-            is_public=True,
-            is_archived=False,
-        ))
+        s.add(
+            Skill(
+                id=uuid.uuid4(),
+                slug="test-skill",
+                title="Test",
+                description="Generates X.",
+                readme=original_readme,
+                is_public=True,
+                is_archived=False,
+            )
+        )
         s.commit()
 
     payload = {
@@ -184,10 +201,13 @@ def test_backfill_script_dry_run_writes_nothing(db_session, tmp_path):
         [
             sys.executable,
             str(REPO_ROOT / "scripts" / "quality_1705_unhappy_paths_backfill.py"),
-            "--payload", str(payload_path),
-            "--db-url", f"sqlite:///{db_path}",
+            "--payload",
+            str(payload_path),
+            "--db-url",
+            f"sqlite:///{db_path}",
         ],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 0
     assert "DRY-RUN" in result.stdout
@@ -207,10 +227,13 @@ def test_backfill_script_rejects_bad_payload(db_session, tmp_path):
             sys.executable,
             str(REPO_ROOT / "scripts" / "quality_1705_unhappy_paths_backfill.py"),
             "--commit",
-            "--payload", str(p),
-            "--db-url", f"sqlite:///{db_path}",
+            "--payload",
+            str(p),
+            "--db-url",
+            f"sqlite:///{db_path}",
         ],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode != 0
     assert "needs >=3 entries" in result.stderr
@@ -230,7 +253,8 @@ def test_ci_gate_passes_for_compliant_skill_md(tmp_path):
     )
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "scripts" / "check_skill_md_unhappy_paths.py"), str(skill_md)],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 0
     assert "OK" in result.stdout
@@ -241,7 +265,8 @@ def test_ci_gate_fails_when_missing(tmp_path):
     skill_md.write_text("---\nname: foo\n---\nbody")
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "scripts" / "check_skill_md_unhappy_paths.py"), str(skill_md)],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 1
     assert "needs >=3" in result.stdout
@@ -257,7 +282,8 @@ def test_ci_gate_fails_when_only_two(tmp_path):
     )
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "scripts" / "check_skill_md_unhappy_paths.py"), str(skill_md)],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 1
     assert "have 2" in result.stdout
@@ -268,13 +294,14 @@ def test_ci_gate_fails_on_empty_recovery(tmp_path):
     skill_md.write_text(
         "---\nname: foo\nunhappy_paths:\n"
         "  - condition: c1\n    recovery: r1\n"
-        "  - condition: c2\n    recovery: \"\"\n"
+        '  - condition: c2\n    recovery: ""\n'
         "  - condition: c3\n    recovery: r3\n"
         "---\nbody"
     )
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "scripts" / "check_skill_md_unhappy_paths.py"), str(skill_md)],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 1
 
@@ -284,7 +311,8 @@ def test_ci_gate_fails_on_no_frontmatter(tmp_path):
     skill_md.write_text("just body, no frontmatter")
     result = subprocess.run(
         [sys.executable, str(REPO_ROOT / "scripts" / "check_skill_md_unhappy_paths.py"), str(skill_md)],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 1
     assert "missing YAML frontmatter" in result.stdout

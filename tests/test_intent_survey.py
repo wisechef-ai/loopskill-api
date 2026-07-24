@@ -3,6 +3,7 @@
 POST /api/intent-survey accepts {q1..q5} (anonymous, no email required).
 GET  /api/intent-survey/results returns aggregate counts (admin only).
 """
+
 from __future__ import annotations
 
 from typing import Generator
@@ -26,9 +27,11 @@ def engine_fixture():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
     @event.listens_for(engine, "connect")
     def _set_pragma(conn, _):
         conn.execute("PRAGMA foreign_keys=ON")
+
     Base.metadata.create_all(bind=engine)
     yield engine
     Base.metadata.drop_all(bind=engine)
@@ -54,11 +57,13 @@ def client(db, monkeypatch) -> TestClient:
     from app.intent_survey_routes import router as survey_router
 
     app = FastAPI()
+
     def _override():
         try:
             yield db
         finally:
             pass
+
     app.dependency_overrides[get_db] = _override
     app.include_router(survey_router)
     return TestClient(app)
@@ -66,14 +71,18 @@ def client(db, monkeypatch) -> TestClient:
 
 # ── POST /api/intent-survey ─────────────────────────────────────────────
 
+
 def test_post_full_survey_returns_201(client):
-    resp = client.post("/api/intent-survey", json={
-        "q1": "yes",
-        "q2": "Better onboarding",
-        "q3": "Too expensive without trial",
-        "q4": "agency",
-        "q5": "ada@example.com",
-    })
+    resp = client.post(
+        "/api/intent-survey",
+        json={
+            "q1": "yes",
+            "q2": "Better onboarding",
+            "q3": "Too expensive without trial",
+            "q4": "agency",
+            "q5": "ada@example.com",
+        },
+    )
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["ok"] is True
@@ -99,17 +108,21 @@ def test_post_invalid_q4_value_returns_422(client):
 
 def test_post_truncates_overlong_text(client):
     """q2/q3/q5 are accepted but truncated to a sane upper bound (~2000 chars)."""
-    resp = client.post("/api/intent-survey", json={
-        "q1": "yes",
-        "q2": "x" * 5000,
-        "q4": "solo",
-    })
+    resp = client.post(
+        "/api/intent-survey",
+        json={
+            "q1": "yes",
+            "q2": "x" * 5000,
+            "q4": "solo",
+        },
+    )
     # Either 201 (truncated) or 422 (rejected) is acceptable; what's NOT
     # acceptable is a 500 / silent dump of 5KB into the DB.
     assert resp.status_code in (201, 422)
 
 
 # ── GET /api/intent-survey/results (admin) ──────────────────────────────
+
 
 def test_results_requires_admin_key(client):
     """Without API key header — 403."""

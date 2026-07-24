@@ -17,8 +17,7 @@ from app.seeker import (
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
-def _write_skill(root: Path, slug: str, version: str | None = None,
-                 description: str = "demo") -> Path:
+def _write_skill(root: Path, slug: str, version: str | None = None, description: str = "demo") -> Path:
     skill_dir = root / slug
     skill_dir.mkdir(parents=True, exist_ok=True)
     fm_lines = [f"name: {slug}", f"description: {description}"]

@@ -7,6 +7,7 @@
 
 Plus reachability for master key (admin) and tier=pro_plus.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -122,6 +123,7 @@ def seeded_app(db_engine, monkeypatch):
     session.commit()
 
     from app.config import settings
+
     monkeypatch.setattr(settings, "API_KEY", "rec_admin_master_xyz_1234", raising=False)
     keys["admin"] = settings.API_KEY
 
@@ -219,6 +221,7 @@ def _make_jwt(user_obj):
     same secret + algorithm the API will use to verify it.
     """
     from app.auth import create_jwt
+
     return create_jwt(user_obj)
 
 
@@ -228,6 +231,7 @@ def _resolve_user_for(seeded_app, label):
     app, _keys = seeded_app
     from app.database import get_db
     from app.models import User
+
     db_dep = app.dependency_overrides[get_db]
     db = next(db_dep())
     try:
@@ -300,6 +304,7 @@ def test_free_user_jwt_cookie_does_not_unlock_body(seeded_app):
 
 
 # ─── fix_2005: free-tier skills are public (body visible to everyone) ───
+
 
 def test_free_skill_anon_gets_full_body(seeded_app):
     """A skill with tier='free' must return its body to anonymous callers.

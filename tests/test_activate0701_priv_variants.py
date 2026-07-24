@@ -25,12 +25,15 @@ def test_private_variant_reconcile_serves_fork(db_session):
     from app.models import ForkVersion, Skill, SkillFork, SkillVersion, User
 
     owner = User(email="o@t.com", display_name="O", subscription_tier="pro_plus")
-    db_session.add(owner); db_session.flush()
+    db_session.add(owner)
+    db_session.flush()
 
     upstream = Skill(slug="catalog-skill", title="Catalog", tier="pro")
-    db_session.add(upstream); db_session.flush()
+    db_session.add(upstream)
+    db_session.flush()
     upstream_ver = SkillVersion(skill_id=upstream.id, semver="1.0.0")
-    db_session.add(upstream_ver); db_session.flush()
+    db_session.add(upstream_ver)
+    db_session.flush()
 
     fork = SkillFork(
         source_skill_id=upstream.id,
@@ -38,7 +41,8 @@ def test_private_variant_reconcile_serves_fork(db_session):
         user_id=owner.id,
         name="Org Private Variant",
     )
-    db_session.add(fork); db_session.flush()
+    db_session.add(fork)
+    db_session.flush()
     fork_ver = ForkVersion(
         fork_id=fork.id,
         semver="1.0.0",
@@ -64,13 +68,17 @@ def test_private_variant_voice_routes_to_org(db_session):
     import hashlib
 
     owner = User(email="v@t.com", display_name="V", subscription_tier="pro_plus")
-    db_session.add(owner); db_session.flush()
+    db_session.add(owner)
+    db_session.flush()
     key = APIKey(user_id=owner.id, key_prefix="rec_live_xx", key_hash="h1", is_active=True)
-    db_session.add(key); db_session.flush()
+    db_session.add(key)
+    db_session.flush()
     fleet = Fleet(owner_user_id=owner.id, name="vf", fleet_api_key_hash=hashlib.sha256(b"v").hexdigest())
-    db_session.add(fleet); db_session.flush()
+    db_session.add(fleet)
+    db_session.flush()
     member = FleetMember(fleet_id=fleet.id, host="vh", profile="d", skills_dir="~", api_key_id=key.id)
-    db_session.add(member); db_session.flush()
+    db_session.add(member)
+    db_session.flush()
 
     err = SkillErrorReport(
         member_id=member.id,

@@ -65,13 +65,33 @@ def run_script(stub_bin: Path, extra_args: list[str], tmp_path: Path) -> subproc
 # ---------------------------------------------------------------------------
 
 ISSUES_NO_COMMENTS = [
-    {"number": 100, "title": "[recipe:bug] larry — abc123", "createdAt": "2026-05-22T10:00:00Z", "comments": []},
-    {"number": 101, "title": "[recipe:bug] pr-draft — def456", "createdAt": "2026-05-22T11:00:00Z", "comments": []},
-    {"number": 102, "title": "[recipe:bug] graphify — ghi789", "createdAt": "2026-05-22T12:00:00Z", "comments": []},
+    {
+        "number": 100,
+        "title": "[recipe:bug] larry — abc123",
+        "createdAt": "2026-05-22T10:00:00Z",
+        "comments": [],
+    },
+    {
+        "number": 101,
+        "title": "[recipe:bug] pr-draft — def456",
+        "createdAt": "2026-05-22T11:00:00Z",
+        "comments": [],
+    },
+    {
+        "number": 102,
+        "title": "[recipe:bug] graphify — ghi789",
+        "createdAt": "2026-05-22T12:00:00Z",
+        "comments": [],
+    },
 ]
 
 ISSUES_WITH_COMMENT = [
-    {"number": 200, "title": "[recipe:bug] larry — abc123", "createdAt": "2026-05-22T10:00:00Z", "comments": []},
+    {
+        "number": 200,
+        "title": "[recipe:bug] larry — abc123",
+        "createdAt": "2026-05-22T10:00:00Z",
+        "comments": [],
+    },
     {
         "number": 201,
         "title": "[recipe:bug] pr-draft — has-human",
@@ -84,6 +104,7 @@ ISSUES_WITH_COMMENT = [
 # ---------------------------------------------------------------------------
 # Test 1: --dry-run prints IDs and does NOT call `gh issue close`
 # ---------------------------------------------------------------------------
+
 
 def test_dry_run_no_close_calls(tmp_path: Path) -> None:
     stub_bin = make_stub_gh(tmp_path, ISSUES_NO_COMMENTS)
@@ -107,6 +128,7 @@ def test_dry_run_no_close_calls(tmp_path: Path) -> None:
 # Test 2: issues with non-empty comments are skipped
 # ---------------------------------------------------------------------------
 
+
 def test_skips_issues_with_comments(tmp_path: Path) -> None:
     stub_bin = make_stub_gh(tmp_path, ISSUES_WITH_COMMENT)
     result = run_script(stub_bin, ["--confirm"], tmp_path)
@@ -127,17 +149,17 @@ def test_skips_issues_with_comments(tmp_path: Path) -> None:
 # Test 3: AUTHOR constant is hardcoded to app/github-actions
 # ---------------------------------------------------------------------------
 
+
 def test_author_is_github_actions() -> None:
     """Grep the script source to verify the author filter is hardcoded."""
     source = SCRIPT.read_text()
-    assert "app/github-actions" in source, (
-        "AUTHOR must be hardcoded to 'app/github-actions' in the script"
-    )
+    assert "app/github-actions" in source, "AUTHOR must be hardcoded to 'app/github-actions' in the script"
 
 
 # ---------------------------------------------------------------------------
 # Test 4: --max caps the number of closures
 # ---------------------------------------------------------------------------
+
 
 def test_max_caps_closures(tmp_path: Path) -> None:
     stub_bin = make_stub_gh(tmp_path, ISSUES_NO_COMMENTS)
@@ -161,6 +183,7 @@ def test_max_caps_closures(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Test 5: --dry-run requires no --confirm (mutually exclusive)
 # ---------------------------------------------------------------------------
+
 
 def test_mutual_exclusion(tmp_path: Path) -> None:
     stub_bin = make_stub_gh(tmp_path, ISSUES_NO_COMMENTS)

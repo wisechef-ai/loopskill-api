@@ -4,6 +4,7 @@ TDD structure:
   test_pov_* — proof-of-vulnerability: passes on broken code, shows the exploit.
   test_proxy_failure_fails_closed — regression: fails on broken code, passes after fix.
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,6 +21,7 @@ pytestmark = [pytest.mark.sandbox_linux_only]
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_runner(tmp_path):
     """Return a SandboxRunner with firejail as backend (mocked)."""
@@ -45,9 +47,7 @@ def _run_with_failing_proxy(runner, skill_dir, profile):
         side_effect=RuntimeError("proxy start failed"),
     ):
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(
-                returncode=0, stdout=b"ok\n", stderr=b""
-            )
+            mock_run.return_value = MagicMock(returncode=0, stdout=b"ok\n", stderr=b"")
             with patch("shutil.copytree"), patch("os.chmod"):
                 return runner.run(str(skill_dir), "setup.sh", profile)
 
@@ -56,6 +56,7 @@ def _run_with_failing_proxy(runner, skill_dir, profile):
 # PROOF OF VULNERABILITY (#8) — These tests pass on UNFIXED code and
 # document the original vulnerable behaviour.
 # ---------------------------------------------------------------------------
+
 
 def test_pov_proxy_failure_falls_back_to_unrestricted(tmp_path, caplog):
     """POV #8: Before fix, proxy exception silently falls back to unrestricted.
@@ -76,9 +77,7 @@ def test_pov_proxy_failure_falls_back_to_unrestricted(tmp_path, caplog):
     # After the fix, exit_code becomes -1 and error='proxy_failed'.
     if result.error == "proxy_failed":
         pytest.skip("Fix already applied — PoV no longer demonstrates the bug")
-    assert result.exit_code == 0, (
-        "Pre-fix: expected sandbox to fall back to unrestricted (exit_code 0)"
-    )
+    assert result.exit_code == 0, "Pre-fix: expected sandbox to fall back to unrestricted (exit_code 0)"
     assert any("Falling back" in r.message for r in caplog.records), (
         "Pre-fix: expected 'Falling back' in warning log"
     )
@@ -87,6 +86,7 @@ def test_pov_proxy_failure_falls_back_to_unrestricted(tmp_path, caplog):
 # ---------------------------------------------------------------------------
 # REGRESSION TESTS — Fail on broken code, pass after fix.
 # ---------------------------------------------------------------------------
+
 
 def test_proxy_failure_fails_closed(tmp_path):
     """Issue #8 fix: proxy startup exception → SandboxResult with error='proxy_failed', exit_code=-1."""
@@ -130,9 +130,7 @@ def test_proxy_success_proceeds_normally(tmp_path):
     ):
         with patch.object(runner.__class__, "_stop_domain_proxy_sync"):
             with patch("subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(
-                    returncode=0, stdout=b"ok\n", stderr=b""
-                )
+                mock_run.return_value = MagicMock(returncode=0, stdout=b"ok\n", stderr=b"")
                 with patch("shutil.copytree"), patch("os.chmod"):
                     result = runner.run(str(skill_dir), "setup.sh", profile)
 

@@ -3,6 +3,7 @@
 Seven spec tests (a–g).  All must FAIL against the pre-Phase-2 codebase
 (RED commit), then PASS after the implementation (GREEN commit).
 """
+
 from __future__ import annotations
 
 from uuid import uuid4
@@ -14,6 +15,7 @@ from app.models import Bundle, BundleSkill, Skill, SkillVersion, User
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _make_user(db):
     u = User(id=uuid4(), display_name="Reval", email=f"{uuid4()}@t.co")
@@ -61,6 +63,7 @@ def _caller(user_id):
 
 # ── (a) status block present when outdated skills exist ──────────────────────
 
+
 def test_status_block_present_on_search(db_session):
     """One outdated skill in cookbook → bundle_status with updates_available=1."""
     user = _make_user(db_session)
@@ -86,6 +89,7 @@ def test_status_block_present_on_search(db_session):
 
 # ── (b) status block absent when user has no cookbooks ───────────────────────
 
+
 def test_status_block_omits_when_no_outdated(db_session):
     """Fresh user with no cookbooks → bundle_status field absent."""
     user = _make_user(db_session)
@@ -96,12 +100,11 @@ def test_status_block_omits_when_no_outdated(db_session):
         caller=_caller(user.id),
         db=db_session,
     )
-    assert "bundle_status" not in result, (
-        "bundle_status should be absent when no outdated skills"
-    )
+    assert "bundle_status" not in result, "bundle_status should be absent when no outdated skills"
 
 
 # ── (c) loopskill_sync default is APPLY (dry_run=false) ───────────────────────
+
 
 def test_sync_default_applies(db_session):
     """Calling loopskill_sync without dry_run updates pinned_version in DB."""
@@ -123,12 +126,11 @@ def test_sync_default_applies(db_session):
 
     # Verify DB state
     cs = db_session.query(BundleSkill).filter_by(bundle_id=cb.id).one()
-    assert cs.pinned_version == "1.1", (
-        f"pinned_version should be 1.1, got {cs.pinned_version}"
-    )
+    assert cs.pinned_version == "1.1", f"pinned_version should be 1.1, got {cs.pinned_version}"
 
 
 # ── (d) dry_run returns diff but does NOT write ─────────────────────────────
+
 
 def test_sync_dry_run_returns_diff_no_pull(db_session):
     """dry_run=True returns diff without mutating pinned_version."""
@@ -158,6 +160,7 @@ def test_sync_dry_run_returns_diff_no_pull(db_session):
 
 # ── (e) F2 regression — sync writes pinned, then status reports correctly ───
 
+
 def test_sync_apply_writes_pinned_version(db_session):
     """After applying sync, bundle_status must NOT report the skill as outdated."""
     user = _make_user(db_session)
@@ -182,12 +185,11 @@ def test_sync_apply_writes_pinned_version(db_session):
         caller=_caller(user.id),
         db=db_session,
     )
-    assert "bundle_status" not in result, (
-        "F2: bundle_status should be absent after applying all updates"
-    )
+    assert "bundle_status" not in result, "F2: bundle_status should be absent after applying all updates"
 
 
 # ── (f) cookbook with all-current skills → silent status ────────────────────
+
 
 def test_status_silent_when_no_outdated_skills(db_session):
     """Cookbook exists but all skills are pinned at latest → no status block."""
@@ -203,12 +205,11 @@ def test_status_silent_when_no_outdated_skills(db_session):
         caller=_caller(user.id),
         db=db_session,
     )
-    assert "bundle_status" not in result, (
-        "bundle_status should be absent when all skills are current"
-    )
+    assert "bundle_status" not in result, "bundle_status should be absent when all skills are current"
 
 
 # ── (g) loopskill_sync listed in initialize + dry_run default ──────────────────
+
 
 def test_recipes_sync_tool_listed_in_initialize():
     """tools/list must include loopskill_sync with dry_run=false default."""

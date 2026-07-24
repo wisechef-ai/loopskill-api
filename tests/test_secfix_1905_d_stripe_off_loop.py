@@ -17,6 +17,7 @@ from fastapi.concurrency import run_in_threadpool
 
 # ── Core event-loop non-blocking proof ────────────────────────────────────────
 
+
 def _slow_checkout(event, db, delay=1.0):
     """Simulates a blocking Stripe SDK call (e.g. stripe.Customer.retrieve)."""
     time.sleep(delay)
@@ -73,6 +74,7 @@ async def test_synchronous_call_blocks_event_loop():
 
 
 # ── Webhook route integration test ────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_stripe_webhook_calls_run_in_threadpool():

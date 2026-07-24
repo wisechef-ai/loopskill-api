@@ -7,6 +7,7 @@ R6: discover sort=newest had no tiebreaker — seeded cookbooks sharing one
 S1: /api/skills/search?tier=free computed the tier filter but never applied it,
     returning Pro skills. Now applied.
 """
+
 from __future__ import annotations
 
 import hashlib

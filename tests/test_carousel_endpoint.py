@@ -5,6 +5,7 @@ Covers:
   - date param validation: invalid format → 422
   - missing data: no entries for date → 404
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone, date
@@ -16,6 +17,7 @@ from app.models import CarouselEntry, Skill
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
+
 
 def _make_skill(db, slug="carousel-skill", title="Carousel Skill", category="devops"):
     s = Skill(
@@ -57,6 +59,7 @@ def _today_utc() -> datetime:
 
 # ── Endpoint tests ─────────────────────────────────────────────────────────
 
+
 class TestCarouselToday:
     def test_happy_path_returns_entries(self, client, db_session):
         skill = _make_skill(db_session)
@@ -90,6 +93,7 @@ class TestCarouselToday:
     def test_skill_brief_fields(self, client, db_session):
         """skill object includes category, tier, is_free, vertical."""
         from app.models import Skill
+
         s = Skill(
             id=uuid4(),
             slug="brief-check",
@@ -207,9 +211,7 @@ class TestCarouselPublicAccess:
         with TestClient(test_app, raise_server_exceptions=True) as anon_client:
             resp = anon_client.get("/api/carousel/today")
         # Must be 200 or 404 (no entries), never 401
-        assert resp.status_code != 401, (
-            f"Carousel endpoint blocked anonymous access with 401 — F4 regression"
-        )
+        assert resp.status_code != 401, f"Carousel endpoint blocked anonymous access with 401 — F4 regression"
         assert resp.status_code in (200, 404)
 
     def test_carousel_by_date_no_api_key_not_401(self, db_session):

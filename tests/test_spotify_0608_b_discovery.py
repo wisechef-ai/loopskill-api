@@ -6,6 +6,7 @@ Covers:
   - GET /api/cookbooks/discover (public, ranked, paginated, public-only)
   - GET /api/cookbooks/public/{slug} (public page, 404 on private, ?ref + clone_line)
 """
+
 from __future__ import annotations
 
 import uuid
@@ -115,8 +116,15 @@ def _attach(db, cb, skill, source="custom-added"):
 
 
 def _install(db, skill, api_key_id=None, cookbook_id=None):
-    db.add(InstallEvent(id=uuid.uuid4(), skill_id=skill.id, skill_slug=skill.slug,
-                        api_key_id=api_key_id, bundle_id=cookbook_id))
+    db.add(
+        InstallEvent(
+            id=uuid.uuid4(),
+            skill_id=skill.id,
+            skill_slug=skill.slug,
+            api_key_id=api_key_id,
+            bundle_id=cookbook_id,
+        )
+    )
     db.commit()
 
 
@@ -134,10 +142,10 @@ def test_install_counts_exclude_test_keyed(db):
     db.add_all([organic_key, test_key])
     db.commit()
 
-    _install(db, s, api_key_id=None)            # anon → organic
+    _install(db, s, api_key_id=None)  # anon → organic
     _install(db, s, api_key_id=organic_key.id)  # organic
-    _install(db, s, api_key_id=test_key.id)     # test → excluded
-    _install(db, s, api_key_id=test_key.id)     # test → excluded
+    _install(db, s, api_key_id=test_key.id)  # test → excluded
+    _install(db, s, api_key_id=test_key.id)  # test → excluded
 
     counts = _install_counts_for(db, [s.id])
     total, _7d = counts[s.id]

@@ -112,13 +112,13 @@ def _valid_toml(
 ) -> bytes:
     slug_line = f'\nslug = "{slug}"' if slug else ""
     return (
-        f'[skill]\n'
+        f"[skill]\n"
         f'name = "{name}"\n'
         f'version = "{version}"\n'
         f'description = "{description}"\n'
         f'license = "{license}"\n'
         f'entrypoint = "{entrypoint}"'
-        f'{slug_line}\n'
+        f"{slug_line}\n"
     ).encode()
 
 
@@ -176,8 +176,14 @@ def client_fixture(db_session):
 # ── Canary publish helper ────────────────────────────────────────────────
 
 
-def _publish_canary(client, slug="test-canary-bm25", title="xyzzyplugh-marker",
-                     description="Canary skill for BM25", version="1.0.0", db=None):
+def _publish_canary(
+    client,
+    slug="test-canary-bm25",
+    title="xyzzyplugh-marker",
+    description="Canary skill for BM25",
+    version="1.0.0",
+    db=None,
+):
     """Publish a canary skill via the _publish endpoint.
 
     If *db* is provided, sets tier='free' on the created skill so it
@@ -205,6 +211,7 @@ def _publish_canary(client, slug="test-canary-bm25", title="xyzzyplugh-marker",
     # Set tier so recall can find it (recall filters by tier).
     if resp.status_code == 201 and db is not None:
         from app.models import Skill as _Skill
+
         skill = db.query(_Skill).filter(_Skill.slug == slug).first()
         if skill:
             skill.tier = "free"
@@ -234,9 +241,7 @@ def test_publish_updates_search_within_one_second(client_fixture):
     assert recall_resp.status_code == 200, f"recall failed: {recall_resp.text}"
     data = recall_resp.json()
     slugs = [h["slug"] for h in data["hits"]]
-    assert "test-canary-bm25" in slugs, (
-        f"Canary not in recall results within 1s. Hits: {slugs}"
-    )
+    assert "test-canary-bm25" in slugs, f"Canary not in recall results within 1s. Hits: {slugs}"
 
 
 def test_archive_drops_from_search(client_fixture):
@@ -267,9 +272,7 @@ def test_archive_drops_from_search(client_fixture):
     )
     assert recall_resp2.status_code == 200
     slugs2 = [h["slug"] for h in recall_resp2.json()["hits"]]
-    assert "test-canary-bm25" not in slugs2, (
-        f"Archived skill still in results: {slugs2}"
-    )
+    assert "test-canary-bm25" not in slugs2, f"Archived skill still in results: {slugs2}"
 
 
 def test_admin_reindex_all_no_regression(client_fixture):
@@ -293,9 +296,7 @@ def test_admin_reindex_all_no_regression(client_fixture):
     )
     assert recall_resp.status_code == 200
     slugs = [h["slug"] for h in recall_resp.json()["hits"]]
-    assert "test-canary-bm25" in slugs, (
-        f"Canary lost after reindex-all. Hits: {slugs}"
-    )
+    assert "test-canary-bm25" in slugs, f"Canary lost after reindex-all. Hits: {slugs}"
 
 
 def test_publish_201_response_under_500ms(client_fixture):

@@ -12,6 +12,7 @@ Sprint 4 D1 contract:
   - Pre-existing production columns must NOT be removed or renamed.
   - The alembic_version table must show revision a7f7db696591 as current.
 """
+
 import os
 import sqlite3
 import subprocess
@@ -163,15 +164,11 @@ def upgraded_db():
 
     # Step 1: stamp at baseline (simulates production pre-deploy step)
     r = _run_alembic(["stamp", BASELINE_REV], db_path)
-    assert r.returncode == 0, (
-        f"alembic stamp failed:\nSTDOUT: {r.stdout}\nSTDERR: {r.stderr}"
-    )
+    assert r.returncode == 0, f"alembic stamp failed:\nSTDOUT: {r.stdout}\nSTDERR: {r.stderr}"
 
     # Step 2: upgrade to head
     r = _run_alembic(["upgrade", "head"], db_path)
-    assert r.returncode == 0, (
-        f"alembic upgrade head failed:\nSTDOUT: {r.stdout}\nSTDERR: {r.stderr}"
-    )
+    assert r.returncode == 0, f"alembic upgrade head failed:\nSTDOUT: {r.stdout}\nSTDERR: {r.stderr}"
 
     yield db_path
 
@@ -208,8 +205,15 @@ class TestFreshUpgrade:
         conn = sqlite3.connect(upgraded_db)
         cols = _get_columns(conn, "install_events")
         conn.close()
-        for col in ("id", "skill_id", "skill_slug", "api_key_id", "version_semver",
-                    "client_ip", "created_at"):
+        for col in (
+            "id",
+            "skill_id",
+            "skill_slug",
+            "api_key_id",
+            "version_semver",
+            "client_ip",
+            "created_at",
+        ):
             assert col in cols, f"Column '{col}' missing from install_events"
 
     def test_skills_legacy_columns_intact(self, upgraded_db):
@@ -217,9 +221,21 @@ class TestFreshUpgrade:
         conn = sqlite3.connect(upgraded_db)
         cols = _get_columns(conn, "skills")
         conn.close()
-        for col in ("id", "slug", "title", "description", "category", "readme",
-                    "license", "tier", "is_public", "creator_id", "org_id",
-                    "created_at", "updated_at"):
+        for col in (
+            "id",
+            "slug",
+            "title",
+            "description",
+            "category",
+            "readme",
+            "license",
+            "tier",
+            "is_public",
+            "creator_id",
+            "org_id",
+            "created_at",
+            "updated_at",
+        ):
             assert col in cols, f"Legacy column '{col}' missing from skills"
 
     def test_carousel_entries_legacy_columns_intact(self, upgraded_db):
@@ -240,8 +256,12 @@ class TestFreshUpgrade:
         cols = _get_columns(conn, "telemetry_events")
         conn.close()
         new_cols = (
-            "skill_id", "goal_class", "duration_seconds",
-            "retry_count", "user_intervention", "agent_class_hash",
+            "skill_id",
+            "goal_class",
+            "duration_seconds",
+            "retry_count",
+            "user_intervention",
+            "agent_class_hash",
         )
         for col in new_cols:
             assert col in cols, f"New typed-telemetry column '{col}' missing from telemetry_events"
@@ -290,9 +310,7 @@ class TestFreshUpgrade:
             VALUES ('legacy-uuid-1', 'install', 'some-skill', '{"freeform": "data"}')
         """)
         conn.commit()
-        row = conn.execute(
-            "SELECT payload FROM telemetry_events WHERE id='legacy-uuid-1'"
-        ).fetchone()
+        row = conn.execute("SELECT payload FROM telemetry_events WHERE id='legacy-uuid-1'").fetchone()
         conn.close()
         assert row is not None
         assert row[0] == '{"freeform": "data"}'
@@ -305,9 +323,7 @@ class TestFreshUpgrade:
             VALUES ('skill-uuid-1', 'test-skill', 'Test Skill')
         """)
         conn.commit()
-        row = conn.execute(
-            "SELECT install_count FROM skills WHERE id='skill-uuid-1'"
-        ).fetchone()
+        row = conn.execute("SELECT install_count FROM skills WHERE id='skill-uuid-1'").fetchone()
         conn.close()
         assert row is not None
         assert row[0] == 0 or row[0] is None  # server_default applies at DB level

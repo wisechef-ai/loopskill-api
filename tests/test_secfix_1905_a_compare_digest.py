@@ -7,6 +7,7 @@ instead of == for both:
 
 PoV tests FAIL on main (== is used). Pass after fix.
 """
+
 import ast
 import re
 from pathlib import Path
@@ -23,14 +24,13 @@ MIDDLEWARE_PATH = _MIDDLEWARE_DIR / "api_key.py"
 def _middleware_source() -> str:
     """Concatenate every module in the middleware package."""
     if _MIDDLEWARE_DIR.is_dir():
-        return "\n".join(
-            p.read_text() for p in sorted(_MIDDLEWARE_DIR.glob("*.py"))
-        )
+        return "\n".join(p.read_text() for p in sorted(_MIDDLEWARE_DIR.glob("*.py")))
     # Legacy single-file layout fallback.
     return (_MIDDLEWARE_DIR.parent / "middleware.py").read_text()
 
 
 # ── PoV: verify == is NOT used for secret comparisons (FAILS on main) ────────
+
 
 def test_pov_middleware_does_not_use_equals_for_api_key():
     """PROOF OF VULNERABILITY: middleware.py should NOT use == to compare
@@ -77,6 +77,7 @@ def test_pov_middleware_imports_hmac():
 
 
 # ── Negative: ensure == is NOT used for secret comparisons ────────────────────
+
 
 def test_middleware_no_bare_equals_for_secrets():
     """After fix: no bare == comparison against settings.API_KEY or token_hash.

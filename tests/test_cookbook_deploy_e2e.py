@@ -13,6 +13,7 @@ Happy path:
 This is an integration test that runs against an in-memory SQLite DB and stubs
 the network bits (tarball fetching, GitHub dispatch).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -47,6 +48,7 @@ from app.models import (
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
+
 @pytest.fixture(scope="module")
 def engine():
     e = create_engine(
@@ -71,6 +73,7 @@ def db(engine) -> Session:
 
 
 # ── E2E test ───────────────────────────────────────────────────────────────
+
 
 class TestCookbookClientDeployE2E:
     """Verified happy path: Pro+ cookbook → client agent install."""
@@ -273,9 +276,7 @@ class TestCookbookClientDeployE2E:
             # Pro user with 0 active keys (revoked doesn't count) → should succeed
             r = client.post("/api/api-keys", json={"label": "new-key"})
 
-        assert r.status_code == 200, (
-            f"Expected 200 (revoked key shouldn't count toward cap): {r.text}"
-        )
+        assert r.status_code == 200, f"Expected 200 (revoked key shouldn't count toward cap): {r.text}"
 
 
 # ── Verified path documentation ────────────────────────────────────────────

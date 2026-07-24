@@ -437,7 +437,7 @@ class TestHostileResolvedGithubId:
                 "path": "label",
                 "resolved_github_id": f"{bad_repo}/skills/x",
             }
-            assert hs.resolved_repo_path(row) == "label"
+            assert hs.resolved_repo_path(row) == ""
 
     def test_a_rejected_row_degrades_to_deep_link_not_a_bad_fetch(self):
         """No validated path → not installable, rather than installable-wrongly."""
@@ -465,6 +465,118 @@ class TestHostileResolvedGithubId:
         assert hs.is_safe_repo_subpath(legit) is True
         row = {**self.BASE, "resolved_github_id": f"owner/repo/{legit}"}
         assert hs.resolved_repo_path(row) == legit
+
+
+class TestHostileRepoIdent:
+    """R2 MUST-FIX #1 — ``repo`` is interpolated into the URL, so it is a
+    containment boundary too.
+
+    Reproduced escapes before the fix (``path="safe"`` in every case):
+
+        repo="owner?x/repo" -> https://github.com/owner?x/repo/tree/main/safe
+        repo="owner#x/repo" -> https://github.com/owner#x/repo/tree/main/safe
+
+    Both TRUNCATE the advertised path into a query/fragment, so the browser
+    requests ``github.com/owner`` — not the tree we showed the user.
+    """
+
+    @pytest.mark.parametrize(
+        "hostile_repo",
+        [
+            "owner?x/repo",
+            "owner#x/repo",
+            "owner@evil.example/repo",
+            "owner:8080/repo",
+            "/owner/repo/",
+            "owner//repo",
+            "ow ner/repo",
+            "owner/repo/extra",
+            "owner",
+            "owner/",
+            "/repo",
+            "..//..",
+            "own\ner/repo",
+            "ówner/repo",  # non-ASCII homoglyph vector
+            "owner/-repo",  # leading hyphen
+            "owner/repo.",  # trailing dot
+            "a" * 300 + "/repo",
+        ],
+    )
+    def test_hostile_repo_never_reaches_a_github_url(self, hostile_repo):
+        row = {"source": "skills.sh", "repo": hostile_repo, "path": "safe"}
+        assert hs.is_safe_repo_ident(hostile_repo) is False
+        assert hs.resolved_repo_path(row) == ""
+        # No GitHub URL is minted at all for an unvalidated repo.
+        assert not hs.origin_url_for_row(row).startswith("https://github.com/")
+
+    def test_query_char_cannot_truncate_the_advertised_path(self):
+        row = {"source": "skills.sh", "repo": "owner?x/repo", "path": "safe"}
+        assert "?" not in hs.origin_url_for_row(row)
+
+    def test_an_unsafe_repo_row_is_not_installable(self):
+        row = {"source": "skills.sh", "repo": "owner?x/repo", "path": "safe"}
+        assert hs.install_path_for_row(row) == hs.InstallPath.DEEP_LINK
+
+    @pytest.mark.parametrize(
+        "legit_repo",
+        [
+            "dietrichgebert/ponytail",
+            "ruvnet/ruflo",
+            "pproenca/dot-skills",
+            "github/awesome-copilot",
+            "a.b_c-d/e.f_g-h",
+            "Owner123/Repo456",
+            # Leading-dot repo names are legitimate and LIVE (HTTP 200). An
+            # earlier cut of this rule rejected them and cost 12 real rows.
+            "travisjneuman/.claude",
+        ],
+    )
+    def test_real_repos_are_not_over_rejected(self, legit_repo):
+        assert hs.is_safe_repo_ident(legit_repo) is True
+
+    def test_percent_encoded_traversal_in_a_path_is_rejected(self):
+        """We never decode, so `%2e%2e%2f` must not pass as an opaque component."""
+        row = {
+            "source": "skills.sh",
+            "repo": "owner/repo",
+            "path": "label",
+            "resolved_github_id": "owner/repo/%2e%2e%2fevil",
+        }
+        assert hs.resolved_repo_path(row) == "label"
+
+    @pytest.mark.parametrize("bad", ["a\uff0fb", "a\u202eb", "a\u200db", "a\u00a0b"])
+    def test_non_ascii_confusables_in_a_path_are_rejected(self, bad):
+        """Full-width solidus / bidi override / ZWJ / NBSP are link-spoof vectors."""
+        row = {
+            "source": "skills.sh",
+            "repo": "owner/repo",
+            "path": "label",
+            "resolved_github_id": f"owner/repo/{bad}",
+        }
+        assert hs.resolved_repo_path(row) == "label"
+
+    @pytest.mark.parametrize(
+        "legit_unicode",
+        [
+            # CJK directory names are legitimate and LIVE. An earlier cut
+            # rejected ALL non-ASCII and broke 12 real rows from
+            # vivy-yi/xiaohongshu-skills (200 -> 404 fallback).
+            "skills/01-内容创作/copywriting-skills",
+            "skills/07-营销推广/brand-operation",
+            "skills/análisis/informe",
+            "skills/тест/skill",
+        ],
+    )
+    def test_legitimate_non_ascii_paths_are_preserved(self, legit_unicode):
+        """Reject CONFUSABLES, not every non-ASCII character."""
+        assert hs.is_safe_repo_subpath(legit_unicode) is True
+        row = {
+            "source": "skills.sh",
+            "repo": "owner/repo",
+            "path": "label",
+            "resolved_github_id": f"owner/repo/{legit_unicode}",
+        }
+        assert hs.resolved_repo_path(row) == legit_unicode
 
 
 # ─────────────────────────── Parse + count ─────────────────────────────────

@@ -13,6 +13,7 @@ Acceptance gates covered:
 
 Uses in-memory SQLite + dependency_overrides — no prod DB touched.
 """
+
 from __future__ import annotations
 
 import json
@@ -35,6 +36,7 @@ from app.models import Base, StripeEventId, User
 
 # ── DB fixtures ──────────────────────────────────────────────────────────
 
+
 @pytest.fixture(scope="module")
 def engine_fixture():
     engine = create_engine(
@@ -42,9 +44,11 @@ def engine_fixture():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
     @event.listens_for(engine, "connect")
     def set_sqlite_pragma(conn, _record):
         conn.execute("PRAGMA foreign_keys=ON")
+
     Base.metadata.create_all(bind=engine)
     yield engine
     Base.metadata.drop_all(bind=engine)
@@ -67,6 +71,7 @@ def db(engine_fixture) -> Generator[Session, None, None]:
 
 # ── Settings fixtures ────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def configured_prices(monkeypatch):
     """Test price IDs in settings + subscription_service.TIER_PRICE_IDS.
@@ -75,19 +80,25 @@ def configured_prices(monkeypatch):
     Legacy slugs 'cook', 'operator', 'studio' are accepted via backwards-compat shim.
     """
     from app import subscription_service as ss
+
     monkeypatch.setattr(settings, "STRIPE_PRICE_COOK", "price_test_cook")
     monkeypatch.setattr(settings, "STRIPE_PRICE_STUDIO", "price_test_studio")
     monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "***")
     monkeypatch.setattr(settings, "STRIPE_WEBHOOK_SECRET", "whsec_test_dummy")
     monkeypatch.setattr(settings, "OAUTH_REDIRECT_BASE", "https://recipes.test/")
-    monkeypatch.setattr(ss, "TIER_PRICE_IDS", {
-        "pro": "price_test_cook",
-        "pro_plus": "price_test_studio",  # canonical slugs post-Phase 5
-    })
+    monkeypatch.setattr(
+        ss,
+        "TIER_PRICE_IDS",
+        {
+            "pro": "price_test_cook",
+            "pro_plus": "price_test_studio",  # canonical slugs post-Phase 5
+        },
+    )
     yield
 
 
 # ── App / Client fixtures ────────────────────────────────────────────────
+
 
 def _build_test_app(db: Session) -> FastAPI:
     """Build a FastAPI app with only the routers we need + db override + auth bypass.
@@ -98,11 +109,13 @@ def _build_test_app(db: Session) -> FastAPI:
     from app.creator_routes import router as creator_router
 
     app = FastAPI()
+
     def _override_get_db():
         try:
             yield db
         finally:
             pass
+
     app.dependency_overrides[get_db] = _override_get_db
     app.include_router(checkout_router)
     app.include_router(creator_router)
@@ -129,9 +142,11 @@ def authed_client(db, test_user, configured_prices) -> TestClient:
     from app import auth_routes
 
     app = _build_test_app(db)
+
     # Patch the dependency to return our test user
     def _override_user():
         return test_user
+
     app.dependency_overrides[auth_routes.get_current_user_optional] = _override_user
     return TestClient(app)
 
@@ -140,9 +155,12 @@ def authed_client(db, test_user, configured_prices) -> TestClient:
 def anon_client(db, configured_prices) -> TestClient:
     """TestClient with no authenticated user."""
     from app import auth_routes
+
     app = _build_test_app(db)
+
     def _override_user():
         return None
+
     app.dependency_overrides[auth_routes.get_current_user_optional] = _override_user
     return TestClient(app)
 
@@ -155,13 +173,19 @@ def webhook_client(db, configured_prices) -> TestClient:
 
 # ── Tests: POST /api/checkout/{tier} ─────────────────────────────────────
 
-@pytest.mark.parametrize("url_tier,canonical_tier,expected_price", [
-    ("pro", "pro", "price_test_cook"),         # canonical slug
-    ("pro_plus", "pro_plus", "price_test_studio"),  # canonical slug
-    ("cook", "pro", "price_test_cook"),         # legacy alias → rewrites to 'pro'
-    ("operator", "pro_plus", "price_test_studio"),  # legacy alias → rewrites to 'pro_plus'
-])
-def test_checkout_creates_session_for_authenticated_user(authed_client, url_tier, canonical_tier, expected_price):
+
+@pytest.mark.parametrize(
+    "url_tier,canonical_tier,expected_price",
+    [
+        ("pro", "pro", "price_test_cook"),  # canonical slug
+        ("pro_plus", "pro_plus", "price_test_studio"),  # canonical slug
+        ("cook", "pro", "price_test_cook"),  # legacy alias → rewrites to 'pro'
+        ("operator", "pro_plus", "price_test_studio"),  # legacy alias → rewrites to 'pro_plus'
+    ],
+)
+def test_checkout_creates_session_for_authenticated_user(
+    authed_client, url_tier, canonical_tier, expected_price
+):
     """Gate 1: authenticated POST /api/checkout/{tier} creates a Stripe session.
     Legacy URLs are rewritten to canonical slugs via alias shim.
     """
@@ -171,9 +195,11 @@ def test_checkout_creates_session_for_authenticated_user(authed_client, url_tier
     }
     fake_customer = {"id": f"cus_test_{url_tier}"}
 
-    with patch("stripe.checkout.Session.create", return_value=fake_session) as session_create, \
-         patch("stripe.Customer.create", return_value=fake_customer), \
-         patch("stripe.PromotionCode.list", return_value={"data": []}):
+    with (
+        patch("stripe.checkout.Session.create", return_value=fake_session) as session_create,
+        patch("stripe.Customer.create", return_value=fake_customer),
+        patch("stripe.PromotionCode.list", return_value={"data": []}),
+    ):
         resp = authed_client.post(f"/api/checkout/{url_tier}")
 
     assert resp.status_code == 200, resp.text
@@ -207,6 +233,7 @@ def test_checkout_unknown_tier_returns_400(authed_client):
 
 # ── Tests: POST /api/stripe/webhook signature ────────────────────────────
 
+
 def test_webhook_bad_signature_returns_400(webhook_client):
     """Gate 4: webhook with bad signature returns 400."""
     resp = webhook_client.post(
@@ -218,6 +245,7 @@ def test_webhook_bad_signature_returns_400(webhook_client):
 
 
 # ── Helpers for webhook tests ────────────────────────────────────────────
+
 
 def _post_event(client: TestClient, event: dict):
     payload = json.dumps(event).encode()
@@ -231,6 +259,7 @@ def _post_event(client: TestClient, event: dict):
 
 # ── Tests: subscription lifecycle ────────────────────────────────────────
 
+
 def test_checkout_completed_marks_subscription_active(test_user, db, webhook_client):
     """Gate 5: checkout.session.completed activates user's subscription."""
     sub_id = f"sub_test_{uuid.uuid4().hex[:8]}"
@@ -239,9 +268,13 @@ def test_checkout_completed_marks_subscription_active(test_user, db, webhook_cli
         "id": sub_id,
         "status": "active",
         "current_period_end": period_end,
-        "items": {"data": [{
-            "price": {"id": "price_test_pro_plus", "metadata": {"tier": "pro_plus"}},
-        }]},
+        "items": {
+            "data": [
+                {
+                    "price": {"id": "price_test_pro_plus", "metadata": {"tier": "pro_plus"}},
+                }
+            ]
+        },
         "metadata": {"wiserecipes_user_id": str(test_user.id)},
         "customer": "cus_test_completed",
     }
@@ -249,15 +282,17 @@ def test_checkout_completed_marks_subscription_active(test_user, db, webhook_cli
         "id": f"evt_{uuid.uuid4().hex}",
         "type": "checkout.session.completed",
         "livemode": False,
-        "data": {"object": {
-            "id": "cs_test_completed",
-            "object": "checkout.session",
-            "mode": "subscription",
-            "payment_status": "paid",
-            "customer": "cus_test_completed",
-            "subscription": sub_id,
-            "metadata": {"wiserecipes_user_id": str(test_user.id), "tier": "pro_plus"},
-        }},
+        "data": {
+            "object": {
+                "id": "cs_test_completed",
+                "object": "checkout.session",
+                "mode": "subscription",
+                "payment_status": "paid",
+                "customer": "cus_test_completed",
+                "subscription": sub_id,
+                "metadata": {"wiserecipes_user_id": str(test_user.id), "tier": "pro_plus"},
+            }
+        },
     }
 
     with patch("stripe.Subscription.retrieve", return_value=fake_subscription):
@@ -287,16 +322,22 @@ def test_subscription_updated_syncs_state(test_user, db, webhook_client):
         "id": f"evt_{uuid.uuid4().hex}",
         "type": "customer.subscription.updated",
         "livemode": False,
-        "data": {"object": {
-            "id": sub_id,
-            "status": "past_due",
-            "current_period_end": period_end,
-            "customer": "cus_test_updated",
-            "metadata": {"wiserecipes_user_id": str(test_user.id), "tier": "pro"},
-            "items": {"data": [{
-                "price": {"id": "price_test_cook", "metadata": {"tier": "pro"}},
-            }]},
-        }},
+        "data": {
+            "object": {
+                "id": sub_id,
+                "status": "past_due",
+                "current_period_end": period_end,
+                "customer": "cus_test_updated",
+                "metadata": {"wiserecipes_user_id": str(test_user.id), "tier": "pro"},
+                "items": {
+                    "data": [
+                        {
+                            "price": {"id": "price_test_cook", "metadata": {"tier": "pro"}},
+                        }
+                    ]
+                },
+            }
+        },
     }
     resp = _post_event(webhook_client, event)
     assert resp.status_code == 200
@@ -320,12 +361,14 @@ def test_subscription_deleted_clears_state(test_user, db, webhook_client):
         "id": f"evt_{uuid.uuid4().hex}",
         "type": "customer.subscription.deleted",
         "livemode": False,
-        "data": {"object": {
-            "id": "sub_to_be_deleted",
-            "status": "canceled",
-            "customer": "cus_test_deleted",
-            "metadata": {"wiserecipes_user_id": str(test_user.id)},
-        }},
+        "data": {
+            "object": {
+                "id": "sub_to_be_deleted",
+                "status": "canceled",
+                "customer": "cus_test_deleted",
+                "metadata": {"wiserecipes_user_id": str(test_user.id)},
+            }
+        },
     }
     resp = _post_event(webhook_client, event)
     assert resp.status_code == 200
@@ -339,6 +382,7 @@ def test_subscription_deleted_clears_state(test_user, db, webhook_client):
 
 # ── Tests: idempotency ──────────────────────────────────────────────────
 
+
 def test_webhook_replay_is_no_op(test_user, db, webhook_client):
     """Gate 8: replaying same event_id returns already_processed=True, no side effects."""
     event_id = f"evt_replay_{uuid.uuid4().hex}"
@@ -350,16 +394,22 @@ def test_webhook_replay_is_no_op(test_user, db, webhook_client):
         "id": event_id,
         "type": "customer.subscription.updated",
         "livemode": False,
-        "data": {"object": {
-            "id": "sub_replay",
-            "status": "active",
-            "current_period_end": period_end,
-            "customer": "cus_test_replay",
-            "metadata": {"wiserecipes_user_id": str(test_user.id), "tier": "pro"},
-            "items": {"data": [{
-                "price": {"id": "price_test_cook", "metadata": {"tier": "pro"}},
-            }]},
-        }},
+        "data": {
+            "object": {
+                "id": "sub_replay",
+                "status": "active",
+                "current_period_end": period_end,
+                "customer": "cus_test_replay",
+                "metadata": {"wiserecipes_user_id": str(test_user.id), "tier": "pro"},
+                "items": {
+                    "data": [
+                        {
+                            "price": {"id": "price_test_cook", "metadata": {"tier": "pro"}},
+                        }
+                    ]
+                },
+            }
+        },
     }
 
     resp1 = _post_event(webhook_client, event)
@@ -388,6 +438,7 @@ def test_webhook_replay_is_no_op(test_user, db, webhook_client):
 
 # ── Tests: refund handling ──────────────────────────────────────────────
 
+
 def test_refund_does_not_cancel_subscription(test_user, db, webhook_client):
     """Gate 9: charge.refunded is a no-op for subscription state."""
     test_user.stripe_customer_id = "cus_test_refund"
@@ -400,11 +451,13 @@ def test_refund_does_not_cancel_subscription(test_user, db, webhook_client):
         "id": f"evt_{uuid.uuid4().hex}",
         "type": "charge.refunded",
         "livemode": False,
-        "data": {"object": {
-            "id": "ch_refund_test",
-            "amount_refunded": 50,
-            "customer": "cus_test_refund",
-        }},
+        "data": {
+            "object": {
+                "id": "ch_refund_test",
+                "amount_refunded": 50,
+                "customer": "cus_test_refund",
+            }
+        },
     }
     resp = _post_event(webhook_client, event)
     assert resp.status_code == 200
@@ -417,6 +470,7 @@ def test_refund_does_not_cancel_subscription(test_user, db, webhook_client):
 
 
 # ── Tests: GET /api/billing/me ──────────────────────────────────────────
+
 
 def test_billing_me_returns_subscription_state(test_user, db, authed_client):
     """Sanity: GET /api/billing/me reflects DB state."""
@@ -442,6 +496,7 @@ def test_billing_me_anonymous_returns_401(anon_client):
 
 # ── Backwards-compat shim test ───────────────────────────────────────────
 
+
 def test_legacy_studio_webhook_normalised_to_pro_plus(test_user, db, webhook_client):
     """Gate: incoming webhook with tier='studio' normalises to 'pro_plus' via shim.
 
@@ -453,10 +508,14 @@ def test_legacy_studio_webhook_normalised_to_pro_plus(test_user, db, webhook_cli
         "id": sub_id,
         "status": "active",
         "current_period_end": period_end,
-        "items": {"data": [{
-            # Legacy: price metadata still says 'studio'
-            "price": {"id": "price_test_studio_legacy", "metadata": {"tier": "studio"}},
-        }]},
+        "items": {
+            "data": [
+                {
+                    # Legacy: price metadata still says 'studio'
+                    "price": {"id": "price_test_studio_legacy", "metadata": {"tier": "studio"}},
+                }
+            ]
+        },
         "metadata": {"wiserecipes_user_id": str(test_user.id)},
         "customer": "cus_test_shim",
     }
@@ -464,15 +523,17 @@ def test_legacy_studio_webhook_normalised_to_pro_plus(test_user, db, webhook_cli
         "id": f"evt_{uuid.uuid4().hex}",
         "type": "checkout.session.completed",
         "livemode": False,
-        "data": {"object": {
-            "id": "cs_test_shim",
-            "object": "checkout.session",
-            "mode": "subscription",
-            "payment_status": "paid",
-            "customer": "cus_test_shim",
-            "subscription": sub_id,
-            "metadata": {"wiserecipes_user_id": str(test_user.id), "tier": "studio"},
-        }},
+        "data": {
+            "object": {
+                "id": "cs_test_shim",
+                "object": "checkout.session",
+                "mode": "subscription",
+                "payment_status": "paid",
+                "customer": "cus_test_shim",
+                "subscription": sub_id,
+                "metadata": {"wiserecipes_user_id": str(test_user.id), "tier": "studio"},
+            }
+        },
     }
 
     with patch("stripe.Subscription.retrieve", return_value=fake_subscription):
@@ -485,4 +546,3 @@ def test_legacy_studio_webhook_normalised_to_pro_plus(test_user, db, webhook_cli
     assert user.subscription_tier == "pro_plus", (
         f"Expected 'pro_plus' after shim, got {user.subscription_tier!r}"
     )
-

@@ -35,7 +35,7 @@ def test_install_routes_uses_new_salt() -> None:
 
     src = (Path(__file__).parents[1] / "app" / "install_routes.py").read_text()
     assert 'salt="loopskill-install"' in src, (
-        "install_routes.py does not contain salt=\"loopskill-install\" (Phase 3+4 not implemented)"
+        'install_routes.py does not contain salt="loopskill-install" (Phase 3+4 not implemented)'
     )
 
 
@@ -63,9 +63,7 @@ def test_old_salt_token_still_verifies_via_fallback() -> None:
     from app.install_routes import _verify_signed_token  # type: ignore[attr-defined]
 
     old_signer = URLSafeTimedSerializer(_SECRET, salt=_OLD_SALT)
-    old_token = old_signer.dumps(
-        {"slug": "compat-skill", "version_id": "v1", "mode": "files"}
-    )
+    old_token = old_signer.dumps({"slug": "compat-skill", "version_id": "v1", "mode": "files"})
     # Must not raise — fall-back to old salt
     payload = _verify_signed_token(old_token, secret=_SECRET, max_age=3600)  # compat-test
     assert payload["slug"] == "compat-skill"
@@ -138,9 +136,7 @@ def test_bundle_route_prefix_exists() -> None:
 
     paths = [getattr(r, "path", None) for r in router.routes]
     bundle_paths = [p for p in paths if "/bundles" in p]
-    assert bundle_paths, (
-        f"No /bundles paths in cookbook router — found: {paths}"
-    )
+    assert bundle_paths, f"No /bundles paths in cookbook router — found: {paths}"
 
 
 def test_bundle_deploy_route_prefix_exists() -> None:
@@ -149,9 +145,7 @@ def test_bundle_deploy_route_prefix_exists() -> None:
 
     paths = [getattr(r, "path", None) for r in router.routes]
     bundle_paths = [p for p in paths if "bundle-deploy" in p]
-    assert bundle_paths, (
-        f"No /bundle-deploy paths in deployment router — found: {paths}"
-    )
+    assert bundle_paths, f"No /bundle-deploy paths in deployment router — found: {paths}"
 
 
 def test_old_cookbooks_route_still_in_router() -> None:

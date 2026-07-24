@@ -114,10 +114,10 @@ def _make_app(db_session):
 
 
 class TestInstallEventsEndpoint:
-
     def test_7d_window_returns_7_buckets(self, db_session):
         """window=7d → 7 daily buckets."""
         from app.skill_files_routes import _INSTALL_EVENTS_CACHE
+
         _INSTALL_EVENTS_CACHE.clear()
 
         sk = _make_skill(db_session, slug="ie-7d-q")
@@ -135,6 +135,7 @@ class TestInstallEventsEndpoint:
     def test_30d_window_returns_30_buckets(self, db_session):
         """window=30d → 30 daily buckets."""
         from app.skill_files_routes import _INSTALL_EVENTS_CACHE
+
         _INSTALL_EVENTS_CACHE.clear()
 
         sk = _make_skill(db_session, slug="ie-30d-q")
@@ -152,6 +153,7 @@ class TestInstallEventsEndpoint:
     def test_invalid_window_returns_400(self, db_session):
         """window=60d (invalid) → 400."""
         from app.skill_files_routes import _INSTALL_EVENTS_CACHE
+
         _INSTALL_EVENTS_CACHE.clear()
 
         sk = _make_skill(db_session, slug="ie-bad-window-q")
@@ -165,6 +167,7 @@ class TestInstallEventsEndpoint:
     def test_invalid_window_no_param_defaults_7d(self, db_session):
         """No window param → defaults to 7d."""
         from app.skill_files_routes import _INSTALL_EVENTS_CACHE
+
         _INSTALL_EVENTS_CACHE.clear()
 
         sk = _make_skill(db_session, slug="ie-default-q")
@@ -180,6 +183,7 @@ class TestInstallEventsEndpoint:
     def test_empty_history_zero_buckets(self, db_session):
         """No install events → all bucket counts are 0."""
         from app.skill_files_routes import _INSTALL_EVENTS_CACHE
+
         _INSTALL_EVENTS_CACHE.clear()
 
         sk = _make_skill(db_session, slug="ie-empty-q")
@@ -197,11 +201,12 @@ class TestInstallEventsEndpoint:
     def test_bucket_aggregation_counts(self, db_session):
         """Events in the last 2 days show up in buckets; old event in total_all_time."""
         from app.skill_files_routes import _INSTALL_EVENTS_CACHE
+
         _INSTALL_EVENTS_CACHE.clear()
 
         sk = _make_skill(db_session, slug="ie-counts-q")
-        _make_install_event(db_session, sk, days_ago=0)   # today
-        _make_install_event(db_session, sk, days_ago=0)   # today (2nd)
+        _make_install_event(db_session, sk, days_ago=0)  # today
+        _make_install_event(db_session, sk, days_ago=0)  # today (2nd)
         _make_install_event(db_session, sk, days_ago=40)  # outside 30d window
 
         app = _make_app(db_session)
@@ -214,8 +219,8 @@ class TestInstallEventsEndpoint:
         total_in_window = data["total_in_window"]
         total_all_time = data["total_all_time"]
 
-        assert total_in_window == 2   # only events inside 30d window
-        assert total_all_time == 3    # includes the old event
+        assert total_in_window == 2  # only events inside 30d window
+        assert total_all_time == 3  # includes the old event
 
         # Today's bucket should have count 2
         today_buckets = [b for b in data["buckets"] if b["count"] > 0]
@@ -225,6 +230,7 @@ class TestInstallEventsEndpoint:
     def test_bucket_date_format(self, db_session):
         """Each bucket has a date in ISO-8601 format (YYYY-MM-DD)."""
         from app.skill_files_routes import _INSTALL_EVENTS_CACHE
+
         _INSTALL_EVENTS_CACHE.clear()
 
         sk = _make_skill(db_session, slug="ie-dateformat-q")
@@ -236,6 +242,7 @@ class TestInstallEventsEndpoint:
         assert resp.status_code == 200
         data = resp.json()
         import re
+
         for bucket in data["buckets"]:
             assert re.match(r"^\d{4}-\d{2}-\d{2}$", bucket["date"]), f"Bad date: {bucket['date']}"
 

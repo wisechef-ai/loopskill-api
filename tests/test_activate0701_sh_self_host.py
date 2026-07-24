@@ -38,13 +38,17 @@ def test_no_legacy_strings_on_documented_path():
     # explicitly-noted legacy filename context
     lines = content.split("\n")
     for i, line in enumerate(lines):
-        if "recipes-api" in line and "legacy" not in line.lower() and "filename is legacy" not in line.lower():
-            assert False, f"SELF_HOST.md line {i+1} has legacy 'recipes-api' without legacy note: {line.strip()}"
+        if (
+            "recipes-api" in line
+            and "legacy" not in line.lower()
+            and "filename is legacy" not in line.lower()
+        ):
+            assert False, (
+                f"SELF_HOST.md line {i + 1} has legacy 'recipes-api' without legacy note: {line.strip()}"
+            )
 
 
 def test_readme_mentions_loopskill():
     """README.md must reference LoopSkill (the product name)."""
     content = (REPO_ROOT / "README.md").read_text()
-    assert "LoopSkill" in content or "loopskill" in content.lower(), (
-        "README.md should mention LoopSkill"
-    )
+    assert "LoopSkill" in content or "loopskill" in content.lower(), "README.md should mention LoopSkill"

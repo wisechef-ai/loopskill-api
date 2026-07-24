@@ -127,9 +127,7 @@ class TestIssue5ScopeRed:
 
         result = validate_key("rec_test_scope_user", db_session)
         # Exploit: currently "operator"; should be "user"
-        assert result["scope"] == "user", (
-            f"Expected scope='user' for user API key, got {result['scope']!r}"
-        )
+        assert result["scope"] == "user", f"Expected scope='user' for user API key, got {result['scope']!r}"
 
     def test_red_master_key_must_have_master_scope(self, db_session):
         """RED: master key should get scope='master', not 'operator'."""
@@ -137,9 +135,7 @@ class TestIssue5ScopeRed:
         from app.mcp.auth import validate_key
 
         result = validate_key(settings.API_KEY, db_session)
-        assert result["scope"] == "master", (
-            f"Expected scope='master' for master key, got {result['scope']!r}"
-        )
+        assert result["scope"] == "master", f"Expected scope='master' for master key, got {result['scope']!r}"
 
     def test_red_missing_key_must_return_anonymous_not_unauthorized(self, db_session):
         """RED: no key should return scope='anonymous', not 'unauthorized'."""
@@ -162,9 +158,7 @@ class TestIssue5ScopeRed:
         # Master key test
         result = validate_key(settings.API_KEY, db_session)
         ctx = result.get("auth_ctx")
-        assert isinstance(ctx, AuthContext), (
-            f"Expected AuthContext in validate_key result, got {type(ctx)}"
-        )
+        assert isinstance(ctx, AuthContext), f"Expected AuthContext in validate_key result, got {type(ctx)}"
         assert ctx.scope == "master", f"Master key should produce scope='master', got {ctx.scope!r}"
 
         # Verify _authenticate stamps auth_ctx on the SSE dependency
@@ -184,6 +178,7 @@ class TestIssue5ScopeRed:
 
         request = StarletteRequest(scope, _recv)
         from app.mcp.server import _authenticate
+
         # Drive _authenticate manually with db_session
         result2 = _authenticate(request, db=db_session)
         ctx2 = getattr(request.state, "auth_ctx", None)
@@ -210,62 +205,44 @@ class TestIssue6InstallRed:
 
     def test_red_private_skill_user_ctx_must_return_not_found(self, db_session):
         """RED: user with no access to private skill must get not_found."""
-        _make_skill_with_version(
-            db_session, slug="private-exfil-test", is_public=False
-        )
+        _make_skill_with_version(db_session, slug="private-exfil-test", is_public=False)
         db_session.flush()
 
         wrong_user_ctx = AuthContext(scope="user", user_id=uuid4())
 
         # Before fix: TypeError (no ctx param) or returns tarball_url
         # After fix: returns {"error": "not_found"}
-        out = loopskill_install(
-            db_session, slug="private-exfil-test", ctx=wrong_user_ctx
-        )
+        out = loopskill_install(db_session, slug="private-exfil-test", ctx=wrong_user_ctx)
         assert out.get("error") == "not_found", (
             f"EXPLOIT: private skill returned {out!r} instead of not_found"
         )
 
     def test_red_anonymous_ctx_must_not_install_private_skill(self, db_session):
         """RED: anonymous ctx should also be blocked from private skills."""
-        _make_skill_with_version(
-            db_session, slug="private-anon-test", is_public=False
-        )
+        _make_skill_with_version(db_session, slug="private-anon-test", is_public=False)
         db_session.flush()
 
         anon_ctx = AuthContext.anonymous()
-        out = loopskill_install(
-            db_session, slug="private-anon-test", ctx=anon_ctx
-        )
-        assert out.get("error") == "not_found", (
-            f"EXPLOIT: anonymous got {out!r} instead of not_found"
-        )
+        out = loopskill_install(db_session, slug="private-anon-test", ctx=anon_ctx)
+        assert out.get("error") == "not_found", f"EXPLOIT: anonymous got {out!r} instead of not_found"
 
     def test_red_master_ctx_can_install_private_skill(self, db_session):
         """GREEN (sanity): master scope CAN install private skills."""
-        _make_skill_with_version(
-            db_session, slug="private-master-ok", is_public=False
-        )
+        _make_skill_with_version(db_session, slug="private-master-ok", is_public=False)
         db_session.flush()
 
         master_ctx = AuthContext(scope="master")
         out = loopskill_install(db_session, slug="private-master-ok", ctx=master_ctx)
-        assert "tarball_url" in out, (
-            f"Master should be able to install private skills, got {out!r}"
-        )
+        assert "tarball_url" in out, f"Master should be able to install private skills, got {out!r}"
 
     def test_red_public_skill_user_ctx_succeeds(self, db_session):
         """GREEN (sanity): user ctx CAN install public skills."""
-        _make_skill_with_version(
-            db_session, slug="public-install-ok", is_public=True
-        )
+        _make_skill_with_version(db_session, slug="public-install-ok", is_public=True)
         db_session.flush()
 
         user_ctx = AuthContext(scope="user", user_id=uuid4())
         out = loopskill_install(db_session, slug="public-install-ok", ctx=user_ctx)
-        assert "tarball_url" in out, (
-            f"User should be able to install public skills, got {out!r}"
-        )
+        assert "tarball_url" in out, f"User should be able to install public skills, got {out!r}"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -326,9 +303,7 @@ class TestIssue7RecipifyCrossTenantRed:
             target_cookbook_id=str(cb.id),
             ctx=anon_ctx,
         )
-        assert out.get("error") == "cookbook_forbidden", (
-            f"EXPLOIT: anonymous wrote to cookbook; got {out!r}"
-        )
+        assert out.get("error") == "cookbook_forbidden", f"EXPLOIT: anonymous wrote to cookbook; got {out!r}"
 
     def test_red_owner_can_write_own_cookbook(self, db_session):
         """GREEN (sanity): the legitimate owner CAN write their cookbook."""
@@ -363,9 +338,7 @@ class TestIssue7RecipifyCrossTenantRed:
             target_cookbook_id=str(cb.id),
             ctx=master_ctx,
         )
-        assert out.get("error") != "cookbook_forbidden", (
-            f"Master should write to any cookbook; got {out!r}"
-        )
+        assert out.get("error") != "cookbook_forbidden", f"Master should write to any cookbook; got {out!r}"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -386,20 +359,24 @@ class TestIssue15SyncRed:
     ) -> tuple[Bundle, Skill, SkillVersion, BundleSkill]:
         """Create a cookbook with one outdated pinned skill version."""
         owner_id = uuid4()
-        cookbook = Bundle(
-            id=uuid4(), name="SyncTestCB", bundle_owner=owner_id
-        )
+        cookbook = Bundle(id=uuid4(), name="SyncTestCB", bundle_owner=owner_id)
         db.add(cookbook)
         db.flush()  # flush Cookbook first so FK is satisfied
         skill = make_skill(db, slug=f"sync-skill-{uuid4().hex[:6]}", title="SyncSkill")
         old_ver = SkillVersion(
-            id=uuid4(), skill_id=skill.id, semver=semver_old,
-            checksum_sha256="b" * 64, tarball_size_bytes=512,
+            id=uuid4(),
+            skill_id=skill.id,
+            semver=semver_old,
+            checksum_sha256="b" * 64,
+            tarball_size_bytes=512,
             created_at=datetime.now(timezone.utc),
         )
         new_ver = SkillVersion(
-            id=uuid4(), skill_id=skill.id, semver=semver_new,
-            checksum_sha256="c" * 64, tarball_size_bytes=512,
+            id=uuid4(),
+            skill_id=skill.id,
+            semver=semver_new,
+            checksum_sha256="c" * 64,
+            tarball_size_bytes=512,
             created_at=datetime.now(timezone.utc),
         )
         db.add_all([old_ver, new_ver])
@@ -421,9 +398,7 @@ class TestIssue15SyncRed:
         committed — closing the session without an explicit commit rolls it
         back. This test verifies commit() is called.
         """
-        cookbook, skill, new_ver, cs = self._setup_cookbook_with_outdated_skill(
-            db_session
-        )
+        cookbook, skill, new_ver, cs = self._setup_cookbook_with_outdated_skill(db_session)
         db_session.flush()
 
         commit_calls: list[bool] = []
@@ -457,19 +432,21 @@ class TestIssue15SyncRed:
 
         # Force reload from DB
         db_session.expire_all()
-        updated_cs = db_session.query(BundleSkill).filter(
-            BundleSkill.bundle_id == cookbook.id,
-            BundleSkill.skill_id == skill.id,
-        ).one()
+        updated_cs = (
+            db_session.query(BundleSkill)
+            .filter(
+                BundleSkill.bundle_id == cookbook.id,
+                BundleSkill.skill_id == skill.id,
+            )
+            .one()
+        )
         assert updated_cs.pinned_version == "2.0.0", (
             f"BUG: pinned_version not updated, got {updated_cs.pinned_version!r}"
         )
 
     def test_red_sync_cross_tenant_blocked(self, db_session):
         """RED: user should NOT be able to sync a cookbook they don't own."""
-        cookbook, skill, new_ver, cs = self._setup_cookbook_with_outdated_skill(
-            db_session
-        )
+        cookbook, skill, new_ver, cs = self._setup_cookbook_with_outdated_skill(db_session)
         db_session.flush()
 
         # Different user — not the cookbook owner
@@ -488,9 +465,7 @@ class TestIssue15SyncRed:
 
     def test_red_sync_owner_can_sync_own_cookbook(self, db_session):
         """GREEN (sanity): cookbook owner can sync their own cookbook."""
-        cookbook, skill, new_ver, cs = self._setup_cookbook_with_outdated_skill(
-            db_session
-        )
+        cookbook, skill, new_ver, cs = self._setup_cookbook_with_outdated_skill(db_session)
         db_session.flush()
 
         owner_ctx = AuthContext(scope="user", user_id=cookbook.bundle_owner)
@@ -547,7 +522,7 @@ class TestIssue13CookbookScopedKey:
 
         owner_id = uuid4()
         scoped_cb_id = uuid4()  # key scoped to THIS cookbook
-        other_cb_id = uuid4()   # but trying to write to THIS one
+        other_cb_id = uuid4()  # but trying to write to THIS one
 
         ctx = AuthContext(
             scope="user",
@@ -638,12 +613,8 @@ class TestIssue13CookbookScopedKey:
     def test_end_to_end_scoped_key_blocks_other_cookbook(self, db_session):
         """End-to-end: cookbook-scoped key + wrong cookbook → cookbook_forbidden."""
         owner_id = uuid4()
-        cb_allowed = Bundle(
-            id=uuid4(), name="Allowed CB", bundle_owner=owner_id
-        )
-        cb_other = Bundle(
-            id=uuid4(), name="Other CB", bundle_owner=owner_id
-        )
+        cb_allowed = Bundle(id=uuid4(), name="Allowed CB", bundle_owner=owner_id)
+        cb_other = Bundle(id=uuid4(), name="Other CB", bundle_owner=owner_id)
         db_session.add_all([cb_allowed, cb_other])
         db_session.flush()
 
@@ -712,9 +683,8 @@ class TestAuditPass:
                     f"{tool_name} ({fpath}): missing authz.can_* call AND "
                     f"missing '# Public-scope MCP tool:' comment"
                 )
-        assert not failures, (
-            "AUDIT FAIL — the following MCP tools have no authz gate:\n"
-            + "\n".join(failures)
+        assert not failures, "AUDIT FAIL — the following MCP tools have no authz gate:\n" + "\n".join(
+            failures
         )
 
     def test_authz_can_hits_in_mcp_directory(self):
@@ -727,10 +697,7 @@ class TestAuditPass:
             text=True,
             cwd=self._REPO_ROOT,
         )
-        hits = [
-            line for line in result.stdout.splitlines() if line.strip()
-        ]
-        assert len(hits) >= 4, (
-            f"Expected ≥4 authz.can_* hits in app/mcp/, got {len(hits)}:\n"
-            + "\n".join(hits)
+        hits = [line for line in result.stdout.splitlines() if line.strip()]
+        assert len(hits) >= 4, f"Expected ≥4 authz.can_* hits in app/mcp/, got {len(hits)}:\n" + "\n".join(
+            hits
         )

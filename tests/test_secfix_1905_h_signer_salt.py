@@ -26,9 +26,9 @@ def test_install_serializer_uses_correct_salt() -> None:
     from pathlib import Path
 
     src = (Path(__file__).parents[1] / "app" / "install_routes.py").read_text()
-    assert (
-        'salt="loopskill-install"' in src
-    ), 'install_routes.py does not contain salt="loopskill-install" — Phase 3+4 not applied'
+    assert 'salt="loopskill-install"' in src, (
+        'install_routes.py does not contain salt="loopskill-install" — Phase 3+4 not applied'
+    )
     # The old salt must still be present in the fallback verifier
     assert _OLD_SALT in src, f"Old salt {_OLD_SALT!r} not in install_routes.py — compat fallback missing"
 

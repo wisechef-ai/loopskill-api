@@ -177,7 +177,7 @@ class TestGenerationTokenAdvancesOnChildMutation:
 
         after = _generation(db_session, cb.id)
         assert after > before, (
-            "adding a skill must advance the parent generation token " f"(before={before!r} after={after!r})"
+            f"adding a skill must advance the parent generation token (before={before!r} after={after!r})"
         )
 
     def test_remove_skill_bumps_generation(self, db_session):
@@ -196,8 +196,7 @@ class TestGenerationTokenAdvancesOnChildMutation:
 
         after = _generation(db_session, cb.id)
         assert after > before, (
-            "removing a skill must advance the parent generation token "
-            f"(before={before!r} after={after!r})"
+            f"removing a skill must advance the parent generation token (before={before!r} after={after!r})"
         )
 
     def test_reactivate_existing_skill_bumps_generation(self, db_session):

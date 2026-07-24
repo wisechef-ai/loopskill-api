@@ -61,6 +61,4 @@ def test_anonymous_publish_personality_rejected(pers_client):
         "/api/personalities",
         json={"slug": "x", "title": "x", "system_prompt": "be helpful"},
     )
-    assert res.status_code == 401, (
-        f"anonymous personality publish should 401, got {res.status_code}"
-    )
+    assert res.status_code == 401, f"anonymous personality publish should 401, got {res.status_code}"

@@ -78,10 +78,14 @@ class TestSigninPersistence:
 
         assert first.id == second.id
         # Only one referral row
-        count = db_session.query(Referral).filter(
-            Referral.referrer_user_id == referrer.id,
-            Referral.referred_user_id == new_user.id,
-        ).count()
+        count = (
+            db_session.query(Referral)
+            .filter(
+                Referral.referrer_user_id == referrer.id,
+                Referral.referred_user_id == new_user.id,
+            )
+            .count()
+        )
         assert count == 1
 
     def test_no_self_referral(self, db_session):
@@ -101,7 +105,8 @@ class TestInvoiceAttribution:
 
         referrer = _make_user(db_session, email="ref_pay@test.com", referral_code="PAYM1234")
         new_user = _make_user(
-            db_session, email="pay_new@test.com",
+            db_session,
+            email="pay_new@test.com",
             referred_by=referrer.id,
             subscription_id="sub_test_123",
             subscription_tier="cook",
@@ -121,9 +126,7 @@ class TestInvoiceAttribution:
         db_session.flush()
 
         # Mock Stripe subscription retrieval
-        mock_stripe.Subscription.retrieve.return_value = {
-            "items": {"data": [{"plan": {"amount": 500}}]}
-        }
+        mock_stripe.Subscription.retrieve.return_value = {"items": {"data": [{"plan": {"amount": 500}}]}}
 
         _accrue_referral_on_first_payment(new_user, db_session)
 
@@ -134,9 +137,7 @@ class TestInvoiceAttribution:
         assert referral.converted_at is not None
 
         # Verify payout created
-        payout = db_session.query(CreatorPayout).filter(
-            CreatorPayout.creator_id == referrer.id
-        ).first()
+        payout = db_session.query(CreatorPayout).filter(CreatorPayout.creator_id == referrer.id).first()
         assert payout is not None
         assert payout.creator_share_cents == 250
         assert payout.status == "pending"
@@ -200,6 +201,7 @@ class TestReferralCodeGeneration:
 
     def test_generate_referral_code_base62(self):
         import string
+
         valid = set(string.ascii_letters + string.digits)
         code = generate_referral_code()
         assert all(c in valid for c in code)

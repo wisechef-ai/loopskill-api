@@ -1,4 +1,5 @@
 """POST /api/recipify endpoint — v7 Phase G."""
+
 from __future__ import annotations
 
 from typing import Generator
@@ -174,11 +175,7 @@ def test_rerun_with_same_slug_is_idempotent_and_updated(db_session):
     assert r2.json()["status"] == "updated"
     # Only one CookbookSkill row for the slug.
     skill = db_session.query(Skill).filter(Skill.slug == "scrape-bot").first()
-    rows = (
-        db_session.query(BundleSkill)
-        .filter(BundleSkill.skill_id == skill.id)
-        .all()
-    )
+    rows = db_session.query(BundleSkill).filter(BundleSkill.skill_id == skill.id).all()
     assert len(rows) == 1
 
 

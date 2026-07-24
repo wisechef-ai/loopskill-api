@@ -7,6 +7,7 @@ Acceptance gates from plan §3 / §6:
   - POST with invalid cookbook_id → 404
   - GET /api-keys returns install_count_total + install_count_7d fields
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -27,6 +28,7 @@ from app.models import APIKey, Base, Bundle, User
 
 
 # ── In-memory DB fixture ───────────────────────────────────────────────────
+
 
 @pytest.fixture(scope="module")
 def engine():
@@ -53,6 +55,7 @@ def db(engine) -> Session:
 
 
 # ── Helper factories ───────────────────────────────────────────────────────
+
 
 def _make_user(db: Session, tier: str = "free", status: str = "active") -> User:
     u = User(
@@ -103,6 +106,7 @@ def _make_active_key(db: Session, user: User) -> APIKey:
 
 # ── Test app factory ───────────────────────────────────────────────────────
 
+
 def _make_test_app(db: Session, authed_user: User) -> TestClient:
     """Return a TestClient wired to the given user (no auth middleware needed)."""
     app = FastAPI()
@@ -120,6 +124,7 @@ def _make_test_app(db: Session, authed_user: User) -> TestClient:
 
 
 # ── Free user cap tests ────────────────────────────────────────────────────
+
 
 class TestFreeUserCap:
     def test_create_first_key_succeeds(self, db):
@@ -155,6 +160,7 @@ class TestFreeUserCap:
 
 # ── Pro user cap tests ─────────────────────────────────────────────────────
 
+
 class TestProUserCap:
     def test_pro_user_gets_1_key(self, db):
         """Pro user cap is 1 (same as free)."""
@@ -174,6 +180,7 @@ class TestProUserCap:
 
 
 # ── Pro+ user cap tests ────────────────────────────────────────────────────
+
 
 class TestProPlusUserCap:
     def test_pro_plus_allows_20_keys(self, db):
@@ -200,16 +207,20 @@ class TestProPlusUserCap:
 
 # ── Cookbook scoping tests ─────────────────────────────────────────────────
 
+
 class TestCookbookScoping:
     def test_valid_cookbook_id_persisted(self, db):
         """POST with valid owned cookbook_id creates a scoped key."""
         user = _make_user(db, tier="pro_plus")
         cb = _make_cookbook(db, user)
         client = _make_test_app(db, user)
-        r = client.post("/api/api-keys", json={
-            "label": "client-key",
-            "cookbook_id": str(cb.id),
-        })
+        r = client.post(
+            "/api/api-keys",
+            json={
+                "label": "client-key",
+                "cookbook_id": str(cb.id),
+            },
+        )
         assert r.status_code == 200, r.text
         data = r.json()
         assert data["bundle_id"] == str(cb.id)
@@ -239,6 +250,7 @@ class TestCookbookScoping:
 
 
 # ── GET /api-keys returns install count fields ─────────────────────────────
+
 
 class TestGetApiKeys:
     def test_list_includes_install_count_fields(self, db):
@@ -292,12 +304,14 @@ class TestGetApiKeys:
 
 # ── Stripe Connect 410 Gone tests ─────────────────────────────────────────
 
+
 class TestStripeConnectKilled:
     """Verify that the Stripe Connect endpoints return 410 Gone."""
 
     @pytest.fixture()
     def creator_client(self, db):
         from app.creator_routes import router as creator_router
+
         app = FastAPI()
         app.include_router(creator_router)
 

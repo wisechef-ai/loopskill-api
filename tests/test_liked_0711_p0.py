@@ -36,9 +36,7 @@ def _bundle_app(db: Session, owner_id) -> FastAPI:
         return await call_next(request)
 
     app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[require_cookbook_tier] = lambda: CookbookCtx(
-        user_id=owner_id, tier="pro_plus"
-    )
+    app.dependency_overrides[require_cookbook_tier] = lambda: CookbookCtx(user_id=owner_id, tier="pro_plus")
     app.include_router(bundle_router)
     return app
 
@@ -55,9 +53,7 @@ def test_ensure_liked_bundle_is_idempotent(db_session):
     assert first.is_base is False
     assert first.is_liked is True
     assert (
-        db_session.query(Bundle)
-        .filter(Bundle.bundle_owner == owner_id, Bundle.is_liked.is_(True))
-        .count()
+        db_session.query(Bundle).filter(Bundle.bundle_owner == owner_id, Bundle.is_liked.is_(True)).count()
         == 1
     )
 
@@ -68,10 +64,7 @@ def test_concurrent_first_touch_integrity_race_returns_winner(tmp_path, monkeypa
     Bundle.__table__.create(engine)
     with engine.begin() as connection:
         connection.execute(
-            sa.text(
-                "CREATE UNIQUE INDEX uq_test_liked_owner ON bundles (bundle_owner) "
-                "WHERE is_liked = 1"
-            )
+            sa.text("CREATE UNIQUE INDEX uq_test_liked_owner ON bundles (bundle_owner) WHERE is_liked = 1")
         )
     sessions = sessionmaker(bind=engine)
     winner_session = sessions()
@@ -204,10 +197,7 @@ def test_migration_backfills_idempotently_and_downgrades_without_data_loss():
         )
         context = MigrationContext.configure(connection)
         migration_path = (
-            Path(__file__).parents[1]
-            / "alembic"
-            / "versions"
-            / "liked0711_p0_add_liked_bundle.py"
+            Path(__file__).parents[1] / "alembic" / "versions" / "liked0711_p0_add_liked_bundle.py"
         )
         spec = spec_from_file_location("liked0711_p0_migration", migration_path)
         assert spec is not None and spec.loader is not None
@@ -217,9 +207,7 @@ def test_migration_backfills_idempotently_and_downgrades_without_data_loss():
             migration.upgrade()
             migration.upgrade()
 
-        rows = connection.execute(
-            sa.text("SELECT id, bundle_owner, is_liked FROM bundles")
-        ).mappings().all()
+        rows = connection.execute(sa.text("SELECT id, bundle_owner, is_liked FROM bundles")).mappings().all()
         assert {str(row_id).replace("-", "") for row_id in original_ids}.issubset(
             {str(row["id"]).replace("-", "") for row in rows}
         )

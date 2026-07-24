@@ -4,6 +4,7 @@ Uses the conftest `db_session` fixture + a lightweight auth-injecting middleware
 (mirrors test_liked_0711_p0.py) so the authed engagement routes see a real
 user_id on request.state.auth_ctx.
 """
+
 from __future__ import annotations
 
 from uuid import uuid4
@@ -29,9 +30,7 @@ def _app(db, user_id):
 
     @app.middleware("http")
     async def inject_auth(request: Request, call_next):
-        request.state.auth_ctx = AuthContext(
-            scope="user", user_id=user_id, api_key_id=None, tier="free"
-        )
+        request.state.auth_ctx = AuthContext(scope="user", user_id=user_id, api_key_id=None, tier="free")
         return await call_next(request)
 
     app.dependency_overrides[get_db] = override_get_db
@@ -106,11 +105,7 @@ def test_like_federated_track(db_session):
     assert r.json()["like_count"] == 1
 
     # verify it persisted with federated identity
-    row = (
-        db_session.query(SkillLike)
-        .filter(SkillLike.federated_source == "clawhub")
-        .first()
-    )
+    row = db_session.query(SkillLike).filter(SkillLike.federated_source == "clawhub").first()
     assert row is not None
     assert row.federated_slug == "some-federated-skill"
     assert row.skill_id is None
@@ -149,21 +144,42 @@ def test_discover_engagement_sort_by_followers(db_session):
     """discover?sort=engagement ranks public bundles by follower_count, editorial first."""
     owner = _seed_user(db_session)
     b_low = Bundle(
-        id=uuid4(), name="Low Followers", visibility="public", is_base=False,
-        slug="low-followers", follower_count=2, bundle_owner=owner,
+        id=uuid4(),
+        name="Low Followers",
+        visibility="public",
+        is_base=False,
+        slug="low-followers",
+        follower_count=2,
+        bundle_owner=owner,
     )
     b_high = Bundle(
-        id=uuid4(), name="High Followers", visibility="public", is_base=False,
-        slug="high-followers", follower_count=50, bundle_owner=owner,
+        id=uuid4(),
+        name="High Followers",
+        visibility="public",
+        is_base=False,
+        slug="high-followers",
+        follower_count=50,
+        bundle_owner=owner,
     )
     b_editorial = Bundle(
-        id=uuid4(), name="Editorial Pick", visibility="public", is_base=False,
-        slug="editorial-pick", follower_count=5, is_editorial=True,
-        curated_by="human", bundle_owner=owner,
+        id=uuid4(),
+        name="Editorial Pick",
+        visibility="public",
+        is_base=False,
+        slug="editorial-pick",
+        follower_count=5,
+        is_editorial=True,
+        curated_by="human",
+        bundle_owner=owner,
     )
     b_private = Bundle(
-        id=uuid4(), name="Private", visibility="private", is_base=False,
-        slug="private-one", follower_count=999, bundle_owner=owner,
+        id=uuid4(),
+        name="Private",
+        visibility="private",
+        is_base=False,
+        slug="private-one",
+        follower_count=999,
+        bundle_owner=owner,
     )
     db_session.add_all([b_low, b_high, b_editorial, b_private])
     db_session.commit()
@@ -191,8 +207,13 @@ def test_follower_count_maintained_on_follow(db_session):
     owner = _seed_user(db_session)
     follower = _seed_user(db_session)
     bundle = Bundle(
-        id=uuid4(), name="Followable", visibility="public", is_base=False,
-        slug="followable", follower_count=0, bundle_owner=owner,
+        id=uuid4(),
+        name="Followable",
+        visibility="public",
+        is_base=False,
+        slug="followable",
+        follower_count=0,
+        bundle_owner=owner,
     )
     db_session.add(bundle)
     db_session.commit()
@@ -215,8 +236,12 @@ def test_my_library_aggregates(db_session):
     uid = _seed_user(db_session)
     skill = _seed_skill(db_session, "grok-search")
     owned = Bundle(
-        id=uuid4(), name="My Bundle", visibility="private", is_base=False,
-        slug="my-bundle", bundle_owner=uid,
+        id=uuid4(),
+        name="My Bundle",
+        visibility="private",
+        is_base=False,
+        slug="my-bundle",
+        bundle_owner=uid,
     )
     db_session.add(owned)
     db_session.commit()
@@ -239,6 +264,7 @@ def test_my_library_aggregates(db_session):
 
 def test_valid_skill_kinds_extended():
     from app.models import VALID_SKILL_KINDS
+
     assert "mcp-server" in VALID_SKILL_KINDS
     assert "personality" in VALID_SKILL_KINDS
     assert "skill" in VALID_SKILL_KINDS

@@ -6,6 +6,7 @@ Tests:
   - COOKIES_SECURE=False is OK for sqlite
   - COOKIES_SECURE=True is the default
 """
+
 import re
 from pathlib import Path
 
@@ -42,14 +43,15 @@ def test_auth_routes_uses_cookies_secure_setting():
 def test_config_has_cookies_secure_field():
     """Settings class must define COOKIES_SECURE: bool = True."""
     from app.config import Settings
-    assert hasattr(Settings.model_fields, "__getitem__") or hasattr(Settings, "model_fields"), \
+
+    assert hasattr(Settings.model_fields, "__getitem__") or hasattr(Settings, "model_fields"), (
         "Settings must be a pydantic-settings model"
+    )
     # Check the field exists with default True
     import inspect
+
     src = CONFIG_PATH.read_text()
-    assert "COOKIES_SECURE: bool = True" in src, (
-        "app/config.py must define 'COOKIES_SECURE: bool = True'"
-    )
+    assert "COOKIES_SECURE: bool = True" in src, "app/config.py must define 'COOKIES_SECURE: bool = True'"
 
 
 def test_cookies_secure_false_raises_on_postgres():

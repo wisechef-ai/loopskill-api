@@ -42,7 +42,71 @@ MAX_REPO_PATH_LEN = 512
 # legal, common GitHub paths, and rejecting them regressed 32 real rows from a
 # live 200 to a 404 fallback (measured against ruvnet/ruflo, 2026-07-24).
 # ``@`` cannot introduce a URL authority without ``//``, which is rejected.
-_URL_SYNTAX_CHARS = (":", "?", "#")
+# Non-ASCII characters that are genuinely dangerous in a link we present as a
+# repo location — separator homoglyphs, bidi/direction overrides, and invisible
+# joiners/spaces. We do NOT reject non-ASCII wholesale: CJK directory names are
+# legitimate and real (`skills/01-内容创作/...` in vivy-yi/xiaohongshu-skills is
+# a live 200), and a blanket rule cost 12 such rows in an earlier cut.
+_UNSAFE_UNICODE = frozenset(
+    "\uff0f"  # FULLWIDTH SOLIDUS — looks like '/'
+    "\u2044"  # FRACTION SLASH
+    "\u2215"  # DIVISION SLASH
+    "\uff3c"  # FULLWIDTH REVERSE SOLIDUS
+    "\u2216"  # SET MINUS
+    "\u202a\u202b\u202c\u202d\u202e"  # bidi embedding/override
+    "\u2066\u2067\u2068\u2069"  # bidi isolates
+    "\u200b\u200c\u200d\u2060\ufeff"  # zero-width / invisible joiners
+    "\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008"
+    "\u2009\u200a\u2028\u2029\u202f\u205f\u3000"  # unicode whitespace
+)
+
+# GitHub owner/repo identifier charset. Owners are ASCII alphanumeric with
+# single hyphens; repo names additionally allow ``.`` and ``_``. We validate
+# against a deliberately CONSERVATIVE superset of both: anything outside it is
+# not a repo we are willing to interpolate into a URL.
+_GH_IDENT_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
+
+
+def is_safe_repo_ident(repo: str) -> bool:
+    """True when ``repo`` is a plain ``owner/name`` pair safe to put in a URL.
+
+    R2 review (Codex HIGH #1). Validating only the resolved-ID *suffix* left the
+    ``repo`` field itself unchecked, and ``origin_url_for_row`` interpolates it
+    RAW. Reproduced escapes:
+
+        repo="owner?x/repo"  -> https://github.com/owner?x/repo/tree/main/safe
+        repo="owner#x/repo"  -> https://github.com/owner#x/repo/tree/main/safe
+
+    Both TRUNCATE the intended path — everything after ``?``/``#`` becomes a
+    query/fragment, so the browser requests ``github.com/owner`` and the user
+    lands somewhere other than the tree we advertised. ``/owner/repo/`` also
+    produced a doubled-slash URL because the helper normalised slashes for its
+    comparison while the URL builder did not.
+
+    A row failing this check gets NO path (bare-repo URL) and is degraded to
+    deep-link rather than fetch_origin — fail closed at the COMPLETE URL
+    boundary, not just the suffix.
+    """
+    if not repo or len(repo) > 256:
+        return False
+    parts = repo.split("/")
+    if len(parts) != 2:
+        return False
+    for part in parts:
+        if not part or len(part) > 100:
+            return False
+        # Only the TRAVERSAL forms are dangerous. A leading dot is legitimate
+        # and real: `travisjneuman/.claude` is a live repo (HTTP 200) that this
+        # rule initially rejected, costing 12 rows. A trailing dot/hyphen is
+        # still refused (not valid on GitHub, and a trailing-dot host component
+        # is a normalisation hazard).
+        if part in (".", ".."):
+            return False
+        if part[-1] in ".-" or part[0] == "-":
+            return False
+        if any(ch not in _GH_IDENT_CHARS for ch in part):
+            return False
+    return True
 
 
 def is_safe_repo_subpath(path: str) -> bool:
@@ -68,12 +132,21 @@ def is_safe_repo_subpath(path: str) -> bool:
         return False
     if "\\" in path or "//" in path:
         return False
-    if any(ch in path for ch in _URL_SYNTAX_CHARS):
+    if any(ch in path for ch in (":", "?", "#")):
+        return False
+    # Percent-encoding: we never decode, so `%2e%2e%2f` would pass a naive
+    # component check while a decoding consumer sees `../`. Reject outright —
+    # a legitimate GitHub directory name does not need it (R2 review).
+    if "%" in path:
         return False
     for ch in path:
-        # Control chars and whitespace (incl. newline, tab, NBSP) are never
-        # legitimate in a GitHub path component we mint a URL from.
+        # ASCII control chars and space are never legitimate in a path we mint
+        # a URL from. Above ASCII we reject only the genuinely dangerous set
+        # (separator homoglyphs, bidi overrides, invisible joiners/spaces) —
+        # NOT all non-ASCII, because CJK directory names are real and live.
         if ord(ch) < 0x21 or ord(ch) == 0x7F:
+            return False
+        if ch in _UNSAFE_UNICODE:
             return False
     return all(part not in ("", ".", "..") for part in path.split("/"))
 
@@ -96,17 +169,18 @@ def resolved_repo_path(row: dict[str, Any]) -> str:
     are, and upstream casing is inconsistent.
     """
     flat_path = (row.get("path") or "").strip()
-    repo = (row.get("repo") or "").strip().strip("/")
+    repo = (row.get("repo") or "").strip()
     resolved = row.get("resolved_github_id")
+
+    # R2: an unsafe repo poisons the WHOLE url, not just its suffix — a `?`/`#`
+    # in the owner truncates the path we advertise. Emit no path at all so the
+    # caller degrades to a bare (and still-validated) repo URL / deep-link.
+    if not is_safe_repo_ident(repo):
+        return ""
 
     fallback = flat_path if is_safe_repo_subpath(flat_path) else ""
 
-    if not isinstance(resolved, str) or not repo:
-        return fallback
-    # ``repo`` must itself be a plain two-component GitHub identifier, or the
-    # prefix comparison below is meaningless.
-    repo_parts = repo.split("/")
-    if len(repo_parts) != 2 or not all(repo_parts):
+    if not isinstance(resolved, str):
         return fallback
 
     parts = resolved.strip().strip("/").split("/")

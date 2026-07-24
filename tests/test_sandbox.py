@@ -334,6 +334,7 @@ class TestSandboxRunner(unittest.TestCase):
     def test_macos_no_backend_raises_sandbox_backend_unavailable(self):
         """On macOS with no firejail/bwrap, _detect_backend raises SandboxBackendUnavailable (Phase P)."""
         from app.sandbox.runner import SandboxBackendUnavailable
+
         with patch("shutil.which", return_value=None):
             with patch("platform.system", return_value="Darwin"):
                 with self.assertRaises(SandboxBackendUnavailable) as ctx:
@@ -479,7 +480,8 @@ class TestLaunchSkills(unittest.TestCase):
                 args = profile.to_bwrap_args("/tmp/test", "/skill")
                 found.append(slug)
         self.assertGreaterEqual(
-            len(found), 5,
+            len(found),
+            5,
             f"Expected 5 launch-grade skills, found {len(found)}: {found}",
         )
 
@@ -594,13 +596,34 @@ class TestSandboxIntegration(unittest.TestCase):
         if bwrap:
             # Try a basic bwrap invocation
             import subprocess
+
             try:
                 result = subprocess.run(
-                    [bwrap, "--ro-bind", "/usr", "/usr", "--ro-bind", "/bin", "/bin",
-                     "--ro-bind", "/lib", "/lib", "--ro-bind", "/lib64", "/lib64",
-                     "--proc", "/proc", "--dev", "/dev",
-                     "--die-with-parent", "--", "/bin/echo", "hello"],
-                    capture_output=True, timeout=5,
+                    [
+                        bwrap,
+                        "--ro-bind",
+                        "/usr",
+                        "/usr",
+                        "--ro-bind",
+                        "/bin",
+                        "/bin",
+                        "--ro-bind",
+                        "/lib",
+                        "/lib",
+                        "--ro-bind",
+                        "/lib64",
+                        "/lib64",
+                        "--proc",
+                        "/proc",
+                        "--dev",
+                        "/dev",
+                        "--die-with-parent",
+                        "--",
+                        "/bin/echo",
+                        "hello",
+                    ],
+                    capture_output=True,
+                    timeout=5,
                 )
                 if result.returncode == 0:
                     cls.bwrap_available = True

@@ -99,8 +99,13 @@ def test_build_mcp_server_dispatches_search_tool(db_session):
     from app.mcp.server import build_mcp_server, _tool_definitions
     from tests.conftest import make_skill
 
-    make_skill(db_session, slug="dispatch-skill", title="Dispatch Skill",
-               description="reachable via MCP", category="ops")
+    make_skill(
+        db_session,
+        slug="dispatch-skill",
+        title="Dispatch Skill",
+        description="reachable via MCP",
+        category="ops",
+    )
     db_session.commit()
 
     # Bind every dispatch to the test's db session so commits stay isolated.
@@ -109,18 +114,17 @@ def test_build_mcp_server_dispatches_search_tool(db_session):
     # The Server SDK registers handlers under .request_handlers keyed by the
     # request type. We pull the call_tool handler and drive it directly.
     import mcp.types as types
+
     handler = server.request_handlers[types.CallToolRequest]
     req = types.CallToolRequest(
         method="tools/call",
-        params=types.CallToolRequestParams(
-            name="loopskill_search", arguments={"query": "Dispatch"}
-        ),
+        params=types.CallToolRequestParams(name="loopskill_search", arguments={"query": "Dispatch"}),
     )
-    result = asyncio.get_event_loop().run_until_complete(handler(req)) \
-        if False else asyncio.run(handler(req))
+    result = asyncio.get_event_loop().run_until_complete(handler(req)) if False else asyncio.run(handler(req))
 
     payload_text = result.root.content[0].text  # type: ignore[attr-defined]
     import json as _json
+
     parsed = _json.loads(payload_text)
     assert any(r["slug"] == "dispatch-skill" for r in parsed["results"])
     # Sanity: the static tool catalogue includes every registered tool. The

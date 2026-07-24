@@ -10,6 +10,7 @@ Verifies:
 7. /api/subscriptions/downgrade requires auth (401 anon).
 8. downgrade_pro_plus_to_pro error says 'not_pro_plus' not 'not_operator'.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -30,6 +31,7 @@ from app.models import Base, User
 
 # ── DB fixtures (module-scoped engine, per-test rollback) ────────────────
 
+
 @pytest.fixture(scope="module")
 def engine_fixture():
     engine = create_engine(
@@ -37,9 +39,11 @@ def engine_fixture():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
     @event.listens_for(engine, "connect")
     def _set_pragma(conn, _):
         conn.execute("PRAGMA foreign_keys=ON")
+
     Base.metadata.create_all(bind=engine)
     yield engine
     Base.metadata.drop_all(bind=engine)
@@ -63,15 +67,20 @@ def db(engine_fixture) -> Generator[Session, None, None]:
 def configured_prices(monkeypatch):
     """Test price IDs in settings + subscription_service.TIER_PRICE_IDS (pro/pro_plus canonical)."""
     from app import subscription_service as ss
+
     monkeypatch.setattr(settings, "STRIPE_PRICE_COOK", "price_test_pro_v5")
     monkeypatch.setattr(settings, "STRIPE_PRICE_STUDIO", "price_test_proplus_v5")
     monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "***")
     monkeypatch.setattr(settings, "STRIPE_WEBHOOK_SECRET", "whsec_test_dummy")
     monkeypatch.setattr(settings, "OAUTH_REDIRECT_BASE", "https://recipes.test/")
-    monkeypatch.setattr(ss, "TIER_PRICE_IDS", {
-        "pro": "price_test_pro_v5",
-        "pro_plus": "price_test_proplus_v5",
-    })
+    monkeypatch.setattr(
+        ss,
+        "TIER_PRICE_IDS",
+        {
+            "pro": "price_test_pro_v5",
+            "pro_plus": "price_test_proplus_v5",
+        },
+    )
     yield
 
 
@@ -79,11 +88,13 @@ def _build_test_app(db: Session) -> FastAPI:
     from app.checkout_routes import router as checkout_router
 
     app = FastAPI()
+
     def _override_get_db():
         try:
             yield db
         finally:
             pass
+
     app.dependency_overrides[get_db] = _override_get_db
     app.include_router(checkout_router)
     return app
@@ -128,6 +139,7 @@ def pro_user(db) -> User:
 
 def _client_for(db: Session, user: User | None) -> TestClient:
     from app import auth_routes
+
     app = _build_test_app(db)
     app.dependency_overrides[auth_routes.get_current_user_optional] = lambda: user
     return TestClient(app)
@@ -135,10 +147,12 @@ def _client_for(db: Session, user: User | None) -> TestClient:
 
 # ── Tier rename validation ──────────────────────────────────────────────
 
+
 def test_pro_and_pro_plus_in_price_ids():
     """pro and pro_plus slugs must appear in TIER_PRICE_IDS (canonical slugs post-Phase 5)."""
     import importlib
     from app import subscription_service as ss
+
     ss = importlib.reload(ss)
     assert "pro" in ss.TIER_PRICE_IDS
     assert "pro_plus" in ss.TIER_PRICE_IDS
@@ -162,9 +176,11 @@ def test_legacy_studio_shim_still_accepted_in_checkout(configured_prices, db, pr
     pro_plus_user.stripe_customer_id = "cus_shim_legacy"
     db.commit()
 
-    with patch("stripe.Customer.create", return_value=fake_customer), \
-         patch("stripe.checkout.Session.create", return_value=fake_session), \
-         patch("stripe.PromotionCode.list", return_value={"data": []}):
+    with (
+        patch("stripe.Customer.create", return_value=fake_customer),
+        patch("stripe.checkout.Session.create", return_value=fake_session),
+        patch("stripe.PromotionCode.list", return_value={"data": []}),
+    ):
         result = create_checkout_session(user=pro_plus_user, tier="studio", db=db)
     assert result["tier"] == "pro_plus"  # normalised to canonical
 
@@ -182,9 +198,11 @@ def test_legacy_cook_shim_still_accepted_in_checkout(configured_prices, db, pro_
     pro_user.stripe_customer_id = "cus_shim_cook"
     db.commit()
 
-    with patch("stripe.Customer.create", return_value=fake_customer), \
-         patch("stripe.checkout.Session.create", return_value=fake_session), \
-         patch("stripe.PromotionCode.list", return_value={"data": []}):
+    with (
+        patch("stripe.Customer.create", return_value=fake_customer),
+        patch("stripe.checkout.Session.create", return_value=fake_session),
+        patch("stripe.PromotionCode.list", return_value={"data": []}),
+    ):
         result = create_checkout_session(user=pro_user, tier="cook", db=db)
     assert result["tier"] == "pro"  # normalised to canonical
 
@@ -202,9 +220,11 @@ def test_legacy_operator_shim_still_accepted_in_checkout(configured_prices, db, 
     pro_plus_user.stripe_customer_id = "cus_shim_op"
     db.commit()
 
-    with patch("stripe.Customer.create", return_value=fake_customer), \
-         patch("stripe.checkout.Session.create", return_value=fake_session), \
-         patch("stripe.PromotionCode.list", return_value={"data": []}):
+    with (
+        patch("stripe.Customer.create", return_value=fake_customer),
+        patch("stripe.checkout.Session.create", return_value=fake_session),
+        patch("stripe.PromotionCode.list", return_value={"data": []}),
+    ):
         result = create_checkout_session(user=pro_plus_user, tier="operator", db=db)
     assert result["tier"] == "pro_plus"  # normalised to canonical
 
@@ -212,6 +232,7 @@ def test_legacy_operator_shim_still_accepted_in_checkout(configured_prices, db, 
 def test_operator_restored_in_settings_defaults():
     """Settings.STRIPE_PRICE_OPERATOR field exists (kept for compat)."""
     from app.config import Settings
+
     assert "STRIPE_PRICE_OPERATOR" in Settings.model_fields
     assert "STRIPE_PRICE_STUDIO" in Settings.model_fields  # deprecated alias, kept for compat
 
@@ -223,9 +244,11 @@ def test_pro_checkout_works(configured_prices, db, pro_user):
     fake_customer = {"id": "cus_test_pro_v5"}
     fake_session = {"id": "cs_pro_test", "url": "https://checkout.stripe.com/cs_pro_test"}
 
-    with patch("stripe.Customer.create", return_value=fake_customer), \
-         patch("stripe.checkout.Session.create", return_value=fake_session), \
-         patch("stripe.PromotionCode.list", return_value={"data": []}):
+    with (
+        patch("stripe.Customer.create", return_value=fake_customer),
+        patch("stripe.checkout.Session.create", return_value=fake_session),
+        patch("stripe.PromotionCode.list", return_value={"data": []}),
+    ):
         result = create_checkout_session(user=pro_user, tier="pro", db=db)
     assert result["tier"] == "pro"
     assert result["session_id"] == "cs_pro_test"
@@ -236,9 +259,11 @@ def test_pro_checkout_endpoint_works(configured_prices, db, pro_user):
     client = _client_for(db, pro_user)
     fake_session = {"id": "cs_ep_pro", "url": "https://checkout.stripe.com/cs_ep_pro"}
     fake_customer = {"id": "cus_ep_pro"}
-    with patch("stripe.Customer.create", return_value=fake_customer), \
-         patch("stripe.checkout.Session.create", return_value=fake_session), \
-         patch("stripe.PromotionCode.list", return_value={"data": []}):
+    with (
+        patch("stripe.Customer.create", return_value=fake_customer),
+        patch("stripe.checkout.Session.create", return_value=fake_session),
+        patch("stripe.PromotionCode.list", return_value={"data": []}),
+    ):
         resp = client.post("/api/checkout/pro")
     assert resp.status_code == 200, resp.text
 
@@ -248,14 +273,17 @@ def test_pro_plus_checkout_endpoint_works(configured_prices, db, pro_plus_user):
     client = _client_for(db, pro_plus_user)
     fake_session = {"id": "cs_ep_pp", "url": "https://checkout.stripe.com/cs_ep_pp"}
     fake_customer = {"id": "cus_ep_pp"}
-    with patch("stripe.Customer.create", return_value=fake_customer), \
-         patch("stripe.checkout.Session.create", return_value=fake_session), \
-         patch("stripe.PromotionCode.list", return_value={"data": []}):
+    with (
+        patch("stripe.Customer.create", return_value=fake_customer),
+        patch("stripe.checkout.Session.create", return_value=fake_session),
+        patch("stripe.PromotionCode.list", return_value={"data": []}),
+    ):
         resp = client.post("/api/checkout/pro_plus")
     assert resp.status_code == 200, resp.text
 
 
 # ── Downgrade endpoint ───────────────────────────────────────────────────
+
 
 def test_downgrade_pro_plus_to_pro_calls_stripe_modify(configured_prices, db, pro_plus_user):
     """POST /api/subscriptions/downgrade switches pro_plus→pro with proration."""
@@ -263,15 +291,21 @@ def test_downgrade_pro_plus_to_pro_calls_stripe_modify(configured_prices, db, pr
     fake_modified = {
         "id": pro_plus_user.subscription_id,
         "status": "active",
-        "items": {"data": [{
-            "id": "si_test_001",
-            "price": {"id": "price_test_pro_v5", "metadata": {"tier": "pro"}},
-        }]},
+        "items": {
+            "data": [
+                {
+                    "id": "si_test_001",
+                    "price": {"id": "price_test_pro_v5", "metadata": {"tier": "pro"}},
+                }
+            ]
+        },
     }
     client = _client_for(db, pro_plus_user)
 
-    with patch("stripe.Subscription.retrieve", return_value=fake_sub) as ret_mock, \
-         patch("stripe.Subscription.modify", return_value=fake_modified) as mod_mock:
+    with (
+        patch("stripe.Subscription.retrieve", return_value=fake_sub) as ret_mock,
+        patch("stripe.Subscription.modify", return_value=fake_modified) as mod_mock,
+    ):
         resp = client.post("/api/subscriptions/downgrade")
 
     assert resp.status_code == 200, resp.text

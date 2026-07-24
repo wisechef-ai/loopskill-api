@@ -13,6 +13,7 @@ Targets uncovered branches:
   - CookbookHostMiddleware: exception path, custom-domain stamp
   - RateLimitMiddleware: authenticated bypass, redis→memory fallback, rate-limit exceeded
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -169,6 +170,7 @@ class TestGetRedisHelpers:
     def test_mark_redis_failed_resets_state(self):
         """mark_redis_failed sets _redis_available = None so next call retries (line 186)."""
         import app.middleware as mw
+
         mw._redis_available = True
         mark_redis_failed()
         assert mw._redis_available is None
@@ -176,6 +178,7 @@ class TestGetRedisHelpers:
     def test_backoff_window_returns_none(self):
         """If we're within the retry-backoff window, get_redis returns None (line 167-168)."""
         import app.middleware as mw
+
         original_client = mw._redis_client
         original_avail = mw._redis_available
         original_retry = mw._redis_next_retry_at
@@ -200,6 +203,7 @@ class TestGetRedisHelpers:
         """
         import app.middleware as mw
         from app.config import settings as cfg
+
         original_client = mw._redis_client
         original_avail = mw._redis_available
         original_url = cfg.REDIS_URL
@@ -219,6 +223,7 @@ class TestGetRedisHelpers:
     def test_get_redis_returns_existing_client_when_available(self):
         """If _redis_client is set and _redis_available is True, returns it (line 164-165)."""
         import app.middleware as mw
+
         mock_client = MagicMock()
         original_client = mw._redis_client
         original_avail = mw._redis_available
@@ -235,6 +240,7 @@ class TestGetRedisHelpers:
         """Redis connection error sets _redis_available=False and schedules retry (line 176-180)."""
         import app.middleware as mw
         import redis as redis_lib
+
         original_client = mw._redis_client
         original_avail = mw._redis_available
         original_retry = mw._redis_next_retry_at
@@ -283,6 +289,7 @@ def engine_fixture():
 @pytest.fixture()
 def db_session(engine_fixture):
     from sqlalchemy.orm import sessionmaker
+
     conn = engine_fixture.connect()
     txn = conn.begin()
     Session = sessionmaker(bind=conn)
@@ -290,6 +297,7 @@ def db_session(engine_fixture):
     nested = conn.begin_nested()
 
     from sqlalchemy import event as sa_event
+
     @sa_event.listens_for(session, "after_transaction_end")
     def restart_sp(s, t):
         nonlocal nested
@@ -305,11 +313,11 @@ def db_session(engine_fixture):
 def _build_mw_app(db_session, monkeypatch):
     """Build full test app with APIKeyMiddleware + all routes."""
     from tests._app_factory import build_test_app
+
     return build_test_app(db_session=db_session, monkeypatch=monkeypatch)
 
 
 class TestAPIKeyMiddlewareDispatch:
-
     def test_docs_slash_prefix_passes_through(self, db_session, monkeypatch):
         """GET /docs/something passes through without API key (line 272-273)."""
         app = _build_mw_app(db_session, monkeypatch)
@@ -346,6 +354,7 @@ class TestAPIKeyMiddlewareDispatch:
     def test_public_prefix_with_valid_api_key_stamps_auth_ctx(self, db_session, monkeypatch):
         """Public prefix + valid master key → stamps master auth_ctx (lines 289-297)."""
         from app.config import settings
+
         app = _build_mw_app(db_session, monkeypatch)
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.get("/api/skills/search?q=test", headers={"x-api-key": settings.API_KEY})
@@ -405,6 +414,7 @@ class TestAPIKeyMiddlewareDispatch:
     def test_master_key_passes_through(self, db_session, monkeypatch):
         """Master API key stamps master scope and allows requests (line 519-527)."""
         from app.config import settings
+
         app = _build_mw_app(db_session, monkeypatch)
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.get(
@@ -456,6 +466,7 @@ class TestCbtTokenValidation:
 
     def _build_cbt_app(self, db_session, monkeypatch):
         from tests._app_factory import build_test_app
+
         return build_test_app(db_session=db_session, monkeypatch=monkeypatch)
 
     def _make_cbt_token_and_row(self, db_session, *, allow_public_catalog: bool = False):
@@ -478,7 +489,7 @@ class TestCbtTokenValidation:
         db_session.flush()
 
         prefix = secrets.token_hex(4)  # 8 hex chars
-        rand = secrets.token_hex(16)   # 32 hex chars
+        rand = secrets.token_hex(16)  # 32 hex chars
         plaintext = f"cbt_{prefix}_{rand}"
         key_hash = hashlib.sha256(plaintext.encode()).hexdigest()
 
@@ -513,6 +524,7 @@ class TestCbtTokenValidation:
     def test_cbt_token_invalid_hash_returns_401(self, db_session, monkeypatch):
         """cbt_ token that doesn't match any row → 401 (lines 435-441)."""
         import secrets
+
         app = self._build_cbt_app(db_session, monkeypatch)
         prefix = secrets.token_hex(4)
         rand = secrets.token_hex(16)

@@ -2,6 +2,7 @@
 
 In-memory SQLite + dependency_overrides — no prod DB touched.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -22,6 +23,7 @@ from app.models import APIKey, Base, User
 
 # ── DB fixtures ──────────────────────────────────────────────────────────
 
+
 @pytest.fixture(scope="module")
 def engine_fixture():
     engine = create_engine(
@@ -29,9 +31,11 @@ def engine_fixture():
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+
     @event.listens_for(engine, "connect")
     def _pragma(conn, _record):
         conn.execute("PRAGMA foreign_keys=ON")
+
     Base.metadata.create_all(bind=engine)
     yield engine
     Base.metadata.drop_all(bind=engine)
@@ -70,11 +74,13 @@ def _build_app(db: Session) -> FastAPI:
     from app.checkout_routes import router as checkout_router
 
     app = FastAPI()
+
     def _override_get_db():
         try:
             yield db
         finally:
             pass
+
     app.dependency_overrides[get_db] = _override_get_db
     app.include_router(api_key_router)
     app.include_router(checkout_router)
@@ -84,6 +90,7 @@ def _build_app(db: Session) -> FastAPI:
 @pytest.fixture
 def authed_client(db, test_user) -> TestClient:
     from app import auth_routes
+
     app = _build_app(db)
     app.dependency_overrides[auth_routes.get_current_user_optional] = lambda: test_user
     return TestClient(app)
@@ -92,12 +99,14 @@ def authed_client(db, test_user) -> TestClient:
 @pytest.fixture
 def anon_client(db) -> TestClient:
     from app import auth_routes
+
     app = _build_app(db)
     app.dependency_overrides[auth_routes.get_current_user_optional] = lambda: None
     return TestClient(app)
 
 
 # ── WIS-640: API key CRUD ────────────────────────────────────────────────
+
 
 class TestApiKeysCreate:
     def test_creates_key_returns_plaintext_once(self, authed_client, test_user, db):
@@ -189,6 +198,7 @@ class TestApiKeysRevoke:
 
 # ── WIS-641: Stripe Customer Portal ──────────────────────────────────────
 
+
 class TestPortalSession:
     def test_authed_with_customer_returns_url(self, authed_client, test_user, db, monkeypatch):
         test_user.stripe_customer_id = "cus_test_portal_xyz"
@@ -196,8 +206,10 @@ class TestPortalSession:
         monkeypatch.setattr(settings, "STRIPE_SECRET_KEY", "sk_test_dummy")
         monkeypatch.setattr(settings, "OAUTH_REDIRECT_BASE", "https://recipes.test/")
 
-        with patch("stripe.billing_portal.Session.create",
-                   return_value={"url": "https://billing.stripe.com/p/session/test_xyz"}) as mock:
+        with patch(
+            "stripe.billing_portal.Session.create",
+            return_value={"url": "https://billing.stripe.com/p/session/test_xyz"},
+        ) as mock:
             resp = authed_client.post("/api/billing/portal-session")
 
         assert resp.status_code == 200, resp.text
@@ -218,9 +230,11 @@ class TestPortalSession:
 
 # ── WIS-642: OAuth callback redirect target ──────────────────────────────
 
+
 class TestOAuthRedirectTarget:
     def test_success_redirect_default_targets_library(self):
         from app.auth_routes import _make_success_redirect
+
         resp = _make_success_redirect("dummy.jwt.token")
         assert resp.status_code == 302
         assert resp.headers["location"] == "/library?auth=success"
@@ -230,18 +244,21 @@ class TestOAuthRedirectTarget:
 
     def test_success_redirect_honors_safe_next_url(self):
         from app.auth_routes import _make_success_redirect
+
         resp = _make_success_redirect("jwt", next_url="/api/checkout/cook")
         assert resp.headers["location"].startswith("/api/checkout/cook")
         assert "auth=success" in resp.headers["location"]
 
     def test_success_redirect_rejects_unsafe_next(self):
         from app.auth_routes import _make_success_redirect
+
         # Open redirect attack — external URL must NOT be honored
         resp = _make_success_redirect("jwt", next_url="https://evil.com/phish")
         assert resp.headers["location"] == "/library?auth=success"
 
     def test_success_redirect_rejects_relative_traversal(self):
         from app.auth_routes import _make_success_redirect
+
         resp = _make_success_redirect("jwt", next_url="/etc/passwd")
         assert resp.headers["location"] == "/library?auth=success"
 
@@ -253,6 +270,7 @@ class TestOAuthRedirectTarget:
         of returning to /referrals. Fixed in rev 7.3.
         """
         from app.auth_routes import _make_success_redirect
+
         resp = _make_success_redirect("jwt", next_url="/referrals")
         assert resp.headers["location"].startswith("/referrals")
         assert "auth=success" in resp.headers["location"]
@@ -260,12 +278,14 @@ class TestOAuthRedirectTarget:
     def test_success_redirect_honors_dashboard_next(self):
         """Regression: /dashboard must be in SAFE_NEXT_PREFIXES (rev 7.3)."""
         from app.auth_routes import _make_success_redirect
+
         resp = _make_success_redirect("jwt", next_url="/dashboard")
         assert resp.headers["location"].startswith("/dashboard")
         assert "auth=success" in resp.headers["location"]
 
     def test_error_redirect_targets_signin(self):
         from app.auth_routes import _make_error_redirect
+
         resp = _make_error_redirect("github_error")
         assert resp.status_code == 302
         assert resp.headers["location"] == "/signin?auth=error&reason=github_error"

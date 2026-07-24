@@ -7,12 +7,14 @@ Tests:
   - auth_ctx populated in middleware for master key
   - Middleware wires auth_ctx for user-scope API key
 """
+
 import pytest
 from uuid import uuid4
 from unittest.mock import MagicMock, patch
 
 
 # ── AuthContext unit tests ────────────────────────────────────────────────────
+
 
 def test_auth_context_is_frozen():
     """AuthContext must be a frozen dataclass — mutation raises FrozenInstanceError."""
@@ -80,6 +82,7 @@ def test_auth_context_sandbox_operator_flag():
 
 # ── Middleware wiring tests ───────────────────────────────────────────────────
 
+
 def test_middleware_sets_auth_ctx_for_master_key(client):
     """Middleware must set request.state.auth_ctx with scope='master'
     when the master API key is used.
@@ -125,10 +128,12 @@ def test_middleware_sets_legacy_shims_for_master_key():
 
     @app.get("/test-legacy")
     async def test_legacy(request: Request):
-        return JSONResponse({
-            "api_key_id": str(getattr(request.state, "api_key_id", "MISSING")),
-            "api_key_user_id": str(getattr(request.state, "api_key_user_id", "MISSING")),
-        })
+        return JSONResponse(
+            {
+                "api_key_id": str(getattr(request.state, "api_key_id", "MISSING")),
+                "api_key_user_id": str(getattr(request.state, "api_key_user_id", "MISSING")),
+            }
+        )
 
     with TestClient(app, raise_server_exceptions=False) as c:
         resp = c.get("/test-legacy", headers={"x-api-key": settings.API_KEY})
@@ -143,5 +148,6 @@ def test_middleware_sets_legacy_shims_for_master_key():
 def test_import_from_auth_ctx():
     """Verify the module imports cleanly."""
     from app.auth_ctx import AuthContext, Scope
+
     assert AuthContext is not None
     assert Scope is not None

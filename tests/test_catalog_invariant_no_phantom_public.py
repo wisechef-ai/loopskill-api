@@ -121,34 +121,38 @@ def test_publishing_a_version_resolves_invariant(db_session):
 
 def test_private_skill_with_no_versions_is_not_a_phantom(db_session):
     """A private skill without versions is just an unfinished draft — fine."""
-    db_session.add(Skill(
-        id=uuid4(),
-        slug="private-no-versions",
-        title="x",
-        description="x",
-        category="other",
-        tier="cook",
-        is_public=False,
-        is_archived=False,
-        created_at=datetime.now(timezone.utc),
-    ))
+    db_session.add(
+        Skill(
+            id=uuid4(),
+            slug="private-no-versions",
+            title="x",
+            description="x",
+            category="other",
+            tier="cook",
+            is_public=False,
+            is_archived=False,
+            created_at=datetime.now(timezone.utc),
+        )
+    )
     db_session.flush()
     assert _phantom_query(db_session) == []
 
 
 def test_archived_skill_with_no_versions_is_not_a_phantom(db_session):
     """Archived rows are explicitly excluded from public listings."""
-    db_session.add(Skill(
-        id=uuid4(),
-        slug="archived-no-versions",
-        title="x",
-        description="x",
-        category="other",
-        tier="cook",
-        is_public=True,
-        is_archived=True,
-        archived_at=datetime.now(timezone.utc),
-        created_at=datetime.now(timezone.utc),
-    ))
+    db_session.add(
+        Skill(
+            id=uuid4(),
+            slug="archived-no-versions",
+            title="x",
+            description="x",
+            category="other",
+            tier="cook",
+            is_public=True,
+            is_archived=True,
+            archived_at=datetime.now(timezone.utc),
+            created_at=datetime.now(timezone.utc),
+        )
+    )
     db_session.flush()
     assert _phantom_query(db_session) == []

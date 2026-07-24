@@ -14,26 +14,33 @@ from app.models import Skill
 
 def _seed(db):
     for slug, title, desc in [
-        ("pr-reviewer", "Pull request reviewer",
-         "Reviews GitHub pull requests for bugs and style violations."),
-        ("clean-code", "Clean code",
-         "Disciplined naming and refactor patterns for maintainable software."),
-        ("security-scanner", "Source code security scanner",
-         "Scans a repository for XSS, SQLi, and secret leak patterns."),
+        (
+            "pr-reviewer",
+            "Pull request reviewer",
+            "Reviews GitHub pull requests for bugs and style violations.",
+        ),
+        ("clean-code", "Clean code", "Disciplined naming and refactor patterns for maintainable software."),
+        (
+            "security-scanner",
+            "Source code security scanner",
+            "Scans a repository for XSS, SQLi, and secret leak patterns.",
+        ),
     ]:
-        db.add(Skill(
-            id=uuid4(),
-            slug=slug,
-            title=title,
-            description=desc,
-            category="dev-tools",
-            tier="pro",
-            is_public=True,
-            is_archived=False,
-            related_skills=[],
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        ))
+        db.add(
+            Skill(
+                id=uuid4(),
+                slug=slug,
+                title=title,
+                description=desc,
+                category="dev-tools",
+                tier="pro",
+                is_public=True,
+                is_archived=False,
+                related_skills=[],
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
     db.flush()
 
 
@@ -50,8 +57,10 @@ def test_search_returns_hybrid_keys_on_http(client, db_session):
 
 def test_broad_query_triggers_hybrid_via_http(client, db_session):
     _seed(db_session)
-    broad = ("development coding code review debugging testing github pull "
-             "request refactor tdd planning software engineering")
+    broad = (
+        "development coding code review debugging testing github pull "
+        "request refactor tdd planning software engineering"
+    )
     r = client.get(f"/api/skills/search?q={broad.replace(' ', '%20')}")
     assert r.status_code == 200, r.text
     body = r.json()
@@ -62,11 +71,11 @@ def test_broad_query_triggers_hybrid_via_http(client, db_session):
 
 def test_hybrid_false_param_disables_widening(client, db_session):
     _seed(db_session)
-    broad = ("development coding code review debugging testing github pull "
-             "request refactor tdd planning software engineering")
-    r = client.get(
-        f"/api/skills/search?q={broad.replace(' ', '%20')}&hybrid=false"
+    broad = (
+        "development coding code review debugging testing github pull "
+        "request refactor tdd planning software engineering"
     )
+    r = client.get(f"/api/skills/search?q={broad.replace(' ', '%20')}&hybrid=false")
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["hybrid_augmented"] is False

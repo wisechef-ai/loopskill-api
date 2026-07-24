@@ -5,6 +5,7 @@ models.py so SQLite will create them; tests that depend on them are marked
 xfail if the fields are absent (they should pass once D1 migration has been
 applied, but the model already defines them).
 """
+
 from __future__ import annotations
 
 import math
@@ -18,6 +19,7 @@ from app.models import Skill
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
+
 def _make_skill(**kwargs) -> Skill:
     """Build an unsaved Skill with sensible defaults.
 
@@ -25,6 +27,7 @@ def _make_skill(**kwargs) -> Skill:
     a DB session — we just need an object with the right attributes.
     """
     from types import SimpleNamespace
+
     defaults = dict(
         id=None,
         slug="test-skill",
@@ -47,11 +50,10 @@ TODAY = date(2026, 4, 29)
 
 # ── Scoring unit tests ────────────────────────────────────────────────────
 
+
 class TestRecencyDecay:
     def test_created_today_is_one(self):
-        result = _recency_decay(
-            datetime(2026, 4, 29, tzinfo=timezone.utc), TODAY
-        )
+        result = _recency_decay(datetime(2026, 4, 29, tzinfo=timezone.utc), TODAY)
         assert result == pytest.approx(1.0, abs=1e-9)
 
     def test_created_30d_ago_is_e_minus_1(self):
@@ -105,48 +107,80 @@ class TestScoreFormula:
 
     def test_null_install_count_treated_as_zero(self):
         """install_count=None should behave the same as 0."""
-        skill_none = _make_skill(install_count=None, rating_avg=None, vertical=None,
-                                  created_at=datetime(2026, 4, 29, tzinfo=timezone.utc))
-        skill_zero = _make_skill(install_count=0, rating_avg=None, vertical=None,
-                                  created_at=datetime(2026, 4, 29, tzinfo=timezone.utc))
+        skill_none = _make_skill(
+            install_count=None,
+            rating_avg=None,
+            vertical=None,
+            created_at=datetime(2026, 4, 29, tzinfo=timezone.utc),
+        )
+        skill_zero = _make_skill(
+            install_count=0,
+            rating_avg=None,
+            vertical=None,
+            created_at=datetime(2026, 4, 29, tzinfo=timezone.utc),
+        )
         assert score(skill_none, TODAY) == pytest.approx(score(skill_zero, TODAY))
 
     def test_non_agency_vertical_gets_0_5_coefficient(self):
         """vertical='horizontal' → 0.1 * 0.5, not 0.1 * 1.0."""
-        skill_horiz = _make_skill(vertical="horizontal",
-                                   install_count=0, rating_avg=None,
-                                   created_at=datetime(2026, 4, 29, tzinfo=timezone.utc))
-        skill_none_v = _make_skill(vertical=None,
-                                    install_count=0, rating_avg=None,
-                                    created_at=datetime(2026, 4, 29, tzinfo=timezone.utc))
+        skill_horiz = _make_skill(
+            vertical="horizontal",
+            install_count=0,
+            rating_avg=None,
+            created_at=datetime(2026, 4, 29, tzinfo=timezone.utc),
+        )
+        skill_none_v = _make_skill(
+            vertical=None,
+            install_count=0,
+            rating_avg=None,
+            created_at=datetime(2026, 4, 29, tzinfo=timezone.utc),
+        )
         # Both should give vert_match = 0.05
         assert score(skill_horiz, TODAY) == pytest.approx(score(skill_none_v, TODAY))
 
     def test_agency_vertical_gets_1_0_coefficient(self):
         """vertical='agency' → 0.1 * 1.0 = 0.10, vs non-agency → 0.05."""
-        skill_agency = _make_skill(vertical="agency",
-                                    install_count=0, rating_avg=None,
-                                    created_at=datetime(2026, 4, 29, tzinfo=timezone.utc))
-        skill_other = _make_skill(vertical="other",
-                                   install_count=0, rating_avg=None,
-                                   created_at=datetime(2026, 4, 29, tzinfo=timezone.utc))
+        skill_agency = _make_skill(
+            vertical="agency",
+            install_count=0,
+            rating_avg=None,
+            created_at=datetime(2026, 4, 29, tzinfo=timezone.utc),
+        )
+        skill_other = _make_skill(
+            vertical="other",
+            install_count=0,
+            rating_avg=None,
+            created_at=datetime(2026, 4, 29, tzinfo=timezone.utc),
+        )
         diff = score(skill_agency, TODAY) - score(skill_other, TODAY)
         assert diff == pytest.approx(0.05, abs=1e-9)
 
     def test_rating_default_is_3_0(self):
         """None rating uses 3.0; quality component = 0.2 * 0.6 = 0.12."""
-        skill = _make_skill(rating_avg=None, install_count=0, vertical=None,
-                             created_at=datetime(2026, 4, 29, tzinfo=timezone.utc))
+        skill = _make_skill(
+            rating_avg=None,
+            install_count=0,
+            vertical=None,
+            created_at=datetime(2026, 4, 29, tzinfo=timezone.utc),
+        )
         quality_component = 0.2 * (3.0 / 5.0)
         total = 0.0 + 0.3 + quality_component + 0.05
         assert score(skill, TODAY) == pytest.approx(total, abs=1e-9)
 
     def test_higher_install_count_gives_higher_score(self):
         """Monotonicity: more installs → higher popularity component."""
-        s_low = _make_skill(install_count=10, rating_avg=None, vertical=None,
-                             created_at=datetime(2026, 4, 29, tzinfo=timezone.utc))
-        s_high = _make_skill(install_count=1000, rating_avg=None, vertical=None,
-                              created_at=datetime(2026, 4, 29, tzinfo=timezone.utc))
+        s_low = _make_skill(
+            install_count=10,
+            rating_avg=None,
+            vertical=None,
+            created_at=datetime(2026, 4, 29, tzinfo=timezone.utc),
+        )
+        s_high = _make_skill(
+            install_count=1000,
+            rating_avg=None,
+            vertical=None,
+            created_at=datetime(2026, 4, 29, tzinfo=timezone.utc),
+        )
         assert score(s_high, TODAY) > score(s_low, TODAY)
 
     def test_older_skill_scores_less_than_new(self):
@@ -157,6 +191,7 @@ class TestScoreFormula:
 
 
 # ── Selector unit tests ───────────────────────────────────────────────────
+
 
 class TestSelectTop7:
     """Tests for select_top_7; requires a DB session."""
@@ -257,21 +292,27 @@ class TestF10HasSameCategoryOlder:
 
         # Subject skill (newer)
         subject = Skill(
-            id=uuid4(), slug="f10-subject", title="F10 Subject",
-            category="seo", is_public=True, created_at=newer_dt,
+            id=uuid4(),
+            slug="f10-subject",
+            title="F10 Subject",
+            category="seo",
+            is_public=True,
+            created_at=newer_dt,
         )
         # Peer skill that is NEWER (should NOT count as "older")
         newer_peer = Skill(
-            id=uuid4(), slug="f10-newer-peer", title="F10 Newer Peer",
-            category="seo", is_public=True, created_at=datetime(2026, 5, 1, tzinfo=timezone.utc),
+            id=uuid4(),
+            slug="f10-newer-peer",
+            title="F10 Newer Peer",
+            category="seo",
+            is_public=True,
+            created_at=datetime(2026, 5, 1, tzinfo=timezone.utc),
         )
         db_session.add_all([subject, newer_peer])
         db_session.flush()
 
         result = _has_same_category_older(subject, db_session, TODAY)
-        assert result is False, (
-            "F10 regression: newer same-category skill should NOT count as 'older'"
-        )
+        assert result is False, "F10 regression: newer same-category skill should NOT count as 'older'"
 
     def test_older_same_category_skill_is_counted(self, db_session):
         """A genuinely older same-category skill MUST trigger True."""
@@ -282,12 +323,20 @@ class TestF10HasSameCategoryOlder:
         newer_dt = datetime(2026, 4, 1, tzinfo=timezone.utc)
 
         older_peer = Skill(
-            id=uuid4(), slug="f10-older-peer", title="F10 Older Peer",
-            category="devops-f10", is_public=True, created_at=older_dt,
+            id=uuid4(),
+            slug="f10-older-peer",
+            title="F10 Older Peer",
+            category="devops-f10",
+            is_public=True,
+            created_at=older_dt,
         )
         subject = Skill(
-            id=uuid4(), slug="f10-subject-newer", title="F10 Subject Newer",
-            category="devops-f10", is_public=True, created_at=newer_dt,
+            id=uuid4(),
+            slug="f10-subject-newer",
+            title="F10 Subject Newer",
+            category="devops-f10",
+            is_public=True,
+            created_at=newer_dt,
         )
         db_session.add_all([older_peer, subject])
         db_session.flush()
@@ -309,24 +358,38 @@ class TestF10HasSameCategoryOlder:
 
         # Use SimpleNamespace to bypass SQLAlchemy server_default
         null_peer_ns = SimpleNamespace(
-            id=uuid.uuid4(), slug="f10-null-ns-peer", title="Null Peer NS",
-            category="finance-ns", is_public=True, created_at=None,
+            id=uuid.uuid4(),
+            slug="f10-null-ns-peer",
+            title="Null Peer NS",
+            category="finance-ns",
+            is_public=True,
+            created_at=None,
         )
         subject_ns = SimpleNamespace(
-            id=uuid.uuid4(), slug="f10-null-ns-subject", title="Null Subject NS",
-            category="finance-ns", is_public=True,
+            id=uuid.uuid4(),
+            slug="f10-null-ns-subject",
+            title="Null Subject NS",
+            category="finance-ns",
+            is_public=True,
             created_at=datetime(2026, 3, 1, tzinfo=timezone.utc),
         )
 
         # Add to DB as ORM objects
         from uuid import uuid4
+
         null_peer_orm = Skill(
-            id=uuid4(), slug="f10-null-orm-peer", title="Null Peer ORM",
-            category="finance-ns", is_public=True,
+            id=uuid4(),
+            slug="f10-null-orm-peer",
+            title="Null Peer ORM",
+            category="finance-ns",
+            is_public=True,
         )
         subject_orm = Skill(
-            id=uuid4(), slug="f10-null-orm-subject", title="Null Subject ORM",
-            category="finance-ns", is_public=True,
+            id=uuid4(),
+            slug="f10-null-orm-subject",
+            title="Null Subject ORM",
+            category="finance-ns",
+            is_public=True,
             created_at=datetime(2026, 3, 1, tzinfo=timezone.utc),
         )
         db_session.add_all([null_peer_orm, subject_orm])

@@ -4,6 +4,7 @@ loopskill_0622 Phase 8 — the runnable catalog types pulled into v1.
 Uses a self-contained FastAPI app wired to the in-memory SQLite db_session
 fixture (the shared `client` fixture doesn't mount these new routers).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -84,6 +85,7 @@ VALID_PERSONALITY = {
 
 # ── loop routes ─────────────────────────────────────────────────────────────
 
+
 def test_publish_loop_requires_auth(app_client):
     r = app_client.post("/api/loops", json=VALID_LOOP)
     assert r.status_code == 401
@@ -140,14 +142,13 @@ def test_get_missing_loop_404(app_client):
 
 # ── personality routes ──────────────────────────────────────────────────────
 
+
 def test_publish_personality_requires_auth(app_client):
     assert app_client.post("/api/personalities", json=VALID_PERSONALITY).status_code == 401
 
 
 def test_publish_and_get_personality(app_client):
-    r = app_client.post(
-        "/api/personalities", json=VALID_PERSONALITY, headers={"x-test-auth": "user"}
-    )
+    r = app_client.post("/api/personalities", json=VALID_PERSONALITY, headers={"x-test-auth": "user"})
     assert r.status_code == 201, r.text
     assert r.json()["slug"] == "ruthless-mentor"
 
@@ -164,14 +165,13 @@ def test_personality_missing_system_prompt_rejected(app_client):
 
 
 def test_list_personalities(app_client):
-    app_client.post(
-        "/api/personalities", json=VALID_PERSONALITY, headers={"x-test-auth": "user"}
-    )
+    app_client.post("/api/personalities", json=VALID_PERSONALITY, headers={"x-test-auth": "user"})
     r = app_client.get("/api/personalities")
     assert "ruthless-mentor" in [x["slug"] for x in r.json()]
 
 
 # ── MCP tools (direct, against db_session) ──────────────────────────────────
+
 
 def test_mcp_search_and_get_loop(db_session):
     from app.models import Loop

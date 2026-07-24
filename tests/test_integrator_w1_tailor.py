@@ -126,7 +126,10 @@ class TestRecipesTailor:
 
         ctx = AuthContext(scope="user", user_id=user.id, tier="pro")
         result = loopskill_tailor(
-            db, source_slug=skill.slug, name="My Tailored Fork", ctx=ctx,
+            db,
+            source_slug=skill.slug,
+            name="My Tailored Fork",
+            ctx=ctx,
         )
         assert result["status"] == "forked"
         assert result["source_slug"] == skill.slug

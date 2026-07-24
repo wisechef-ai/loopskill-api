@@ -43,7 +43,9 @@ class TestIsSafeUrl:
     def test_blocks_metadata_hostname(self):
         assert ff.is_safe_url("http://metadata.google.internal/computeMetadata/v1/") is False
 
-    @pytest.mark.parametrize("scheme_url", ["file:///etc/passwd", "ftp://host/x", "gopher://x", "data:text/plain,x"])
+    @pytest.mark.parametrize(
+        "scheme_url", ["file:///etc/passwd", "ftp://host/x", "gopher://x", "data:text/plain,x"]
+    )
     def test_blocks_non_http_schemes(self, scheme_url):
         assert ff.is_safe_url(scheme_url) is False
 
@@ -221,14 +223,32 @@ class TestInstallLeaf:
 class TestLicenseGate:
     @pytest.mark.parametrize(
         "lic",
-        ["MIT", "Apache-2.0", "BSD-3-Clause", "BSD-2-Clause", "ISC", "MPL-2.0", "CC-BY-4.0", "Unlicense", "0BSD"],
+        [
+            "MIT",
+            "Apache-2.0",
+            "BSD-3-Clause",
+            "BSD-2-Clause",
+            "ISC",
+            "MPL-2.0",
+            "CC-BY-4.0",
+            "Unlicense",
+            "0BSD",
+        ],
     )
     def test_redistributable_licenses(self, lic):
         assert ff.is_redistributable(lic) is True
 
     @pytest.mark.parametrize(
         "lic",
-        [None, "", "LicenseRef-Anthropic-Commercial", "Proprietary", "CC-BY-NC-4.0", "GPL-3.0-only", "AGPL-3.0"],
+        [
+            None,
+            "",
+            "LicenseRef-Anthropic-Commercial",
+            "Proprietary",
+            "CC-BY-NC-4.0",
+            "GPL-3.0-only",
+            "AGPL-3.0",
+        ],
     )
     def test_non_redistributable_licenses(self, lic):
         assert ff.is_redistributable(lic) is False

@@ -33,6 +33,7 @@ def _post(client: TestClient, body: dict) -> "httpx.Response":  # noqa: F821
 
 # ── Tests ────────────────────────────────────────────────────────────────
 
+
 class TestTypedTelemetry:
     """Typed mode: typed fields land in dedicated columns."""
 
@@ -40,15 +41,18 @@ class TestTypedTelemetry:
         """Full typed payload → 201 with event_id UUID."""
         make_skill(db_session, slug="agent-rescue")
 
-        resp = _post(client, {
-            "event_type": "task_completed",
-            "skill_slug": "agent-rescue",
-            "goal_class": "client-reporting",
-            "duration_seconds": 42,
-            "retry_count": 0,
-            "user_intervention": False,
-            "agent_class_hash": _VALID_HASH,
-        })
+        resp = _post(
+            client,
+            {
+                "event_type": "task_completed",
+                "skill_slug": "agent-rescue",
+                "goal_class": "client-reporting",
+                "duration_seconds": 42,
+                "retry_count": 0,
+                "user_intervention": False,
+                "agent_class_hash": _VALID_HASH,
+            },
+        )
 
         assert resp.status_code == 201, resp.text
         body = resp.json()
@@ -60,19 +64,23 @@ class TestTypedTelemetry:
         """Typed fields land in dedicated columns, NOT flattened into payload."""
         skill = make_skill(db_session, slug="seo-tool")
 
-        resp = _post(client, {
-            "event_type": "task_completed",
-            "skill_slug": "seo-tool",
-            "goal_class": "seo-audit",
-            "duration_seconds": 120,
-            "retry_count": 2,
-            "user_intervention": True,
-            "agent_class_hash": "deadbeef",
-        })
+        resp = _post(
+            client,
+            {
+                "event_type": "task_completed",
+                "skill_slug": "seo-tool",
+                "goal_class": "seo-audit",
+                "duration_seconds": 120,
+                "retry_count": 2,
+                "user_intervention": True,
+                "agent_class_hash": "deadbeef",
+            },
+        )
         assert resp.status_code == 201
 
         event_id = resp.json()["event_id"]
         from uuid import UUID
+
         ev = db_session.get(TelemetryEvent, UUID(event_id))
 
         assert ev is not None
@@ -88,14 +96,18 @@ class TestTypedTelemetry:
         """skill_slug is resolved to skill_id and both stored."""
         skill = make_skill(db_session, slug="my-skill-resolve")
 
-        resp = _post(client, {
-            "event_type": "install",
-            "skill_slug": "my-skill-resolve",
-            "goal_class": "other",
-        })
+        resp = _post(
+            client,
+            {
+                "event_type": "install",
+                "skill_slug": "my-skill-resolve",
+                "goal_class": "other",
+            },
+        )
         assert resp.status_code == 201
 
         from uuid import UUID
+
         ev = db_session.get(TelemetryEvent, UUID(resp.json()["event_id"]))
         assert ev.skill_slug == "my-skill-resolve"
         assert ev.skill_id == skill.id
@@ -104,14 +116,18 @@ class TestTypedTelemetry:
         """user_intervention=False must be stored as False, not NULL."""
         make_skill(db_session, slug="intervention-skill")
 
-        resp = _post(client, {
-            "event_type": "task_completed",
-            "skill_slug": "intervention-skill",
-            "user_intervention": False,
-        })
+        resp = _post(
+            client,
+            {
+                "event_type": "task_completed",
+                "skill_slug": "intervention-skill",
+                "user_intervention": False,
+            },
+        )
         assert resp.status_code == 201
 
         from uuid import UUID
+
         ev = db_session.get(TelemetryEvent, UUID(resp.json()["event_id"]))
         assert ev.user_intervention is False
 
@@ -119,14 +135,18 @@ class TestTypedTelemetry:
         """duration_seconds=0 is a valid boundary value — must be stored."""
         make_skill(db_session, slug="fast-skill")
 
-        resp = _post(client, {
-            "event_type": "first_use",
-            "skill_slug": "fast-skill",
-            "duration_seconds": 0,
-        })
+        resp = _post(
+            client,
+            {
+                "event_type": "first_use",
+                "skill_slug": "fast-skill",
+                "duration_seconds": 0,
+            },
+        )
         assert resp.status_code == 201
 
         from uuid import UUID
+
         ev = db_session.get(TelemetryEvent, UUID(resp.json()["event_id"]))
         assert ev.duration_seconds == 0
 
@@ -134,17 +154,21 @@ class TestTypedTelemetry:
         """Typed fields + legacy payload dict stored simultaneously."""
         make_skill(db_session, slug="combo-skill")
 
-        resp = _post(client, {
-            "event_type": "task_completed",
-            "skill_slug": "combo-skill",
-            "goal_class": "proposal",
-            "duration_seconds": 30,
-            "payload": {"extra": "data"},
-        })
+        resp = _post(
+            client,
+            {
+                "event_type": "task_completed",
+                "skill_slug": "combo-skill",
+                "goal_class": "proposal",
+                "duration_seconds": 30,
+                "payload": {"extra": "data"},
+            },
+        )
         assert resp.status_code == 201
 
         import json
         from uuid import UUID
+
         ev = db_session.get(TelemetryEvent, UUID(resp.json()["event_id"]))
         assert ev.goal_class == "proposal"
         assert ev.duration_seconds == 30
@@ -154,13 +178,17 @@ class TestTypedTelemetry:
         """When typed fields absent, typed columns are NULL."""
         make_skill(db_session, slug="minimal-skill")
 
-        resp = _post(client, {
-            "event_type": "install",
-            "skill_slug": "minimal-skill",
-        })
+        resp = _post(
+            client,
+            {
+                "event_type": "install",
+                "skill_slug": "minimal-skill",
+            },
+        )
         assert resp.status_code == 201
 
         from uuid import UUID
+
         ev = db_session.get(TelemetryEvent, UUID(resp.json()["event_id"]))
         assert ev.goal_class is None
         assert ev.duration_seconds is None
@@ -172,13 +200,17 @@ class TestTypedTelemetry:
         """event_type field stored correctly in the event row."""
         make_skill(db_session, slug="event-type-skill")
 
-        resp = _post(client, {
-            "event_type": "replaced",
-            "skill_slug": "event-type-skill",
-        })
+        resp = _post(
+            client,
+            {
+                "event_type": "replaced",
+                "skill_slug": "event-type-skill",
+            },
+        )
         assert resp.status_code == 201
 
         from uuid import UUID
+
         ev = db_session.get(TelemetryEvent, UUID(resp.json()["event_id"]))
         assert ev.event_type == "replaced"
 
@@ -196,10 +228,13 @@ class TestF5TelemetrySkillEnumerationOracle:
         make_skill(db_session, slug="private-skill-other", is_public=False)
         db_session.commit()
 
-        resp = _post(client, {
-            "event_type": "install",
-            "skill_slug": "private-skill-other",
-        })
+        resp = _post(
+            client,
+            {
+                "event_type": "install",
+                "skill_slug": "private-skill-other",
+            },
+        )
         # The test client sends the master API key (api_key_user_id=None = admin).
         # Admin always passes. To test non-admin, we need a client without master key.
         # However, since conftest wires admin key, this tests the public=False guard
@@ -212,17 +247,23 @@ class TestF5TelemetrySkillEnumerationOracle:
         make_skill(db_session, slug="admin-private-skill", is_public=False)
         db_session.commit()
 
-        resp = _post(client, {
-            "event_type": "task_completed",
-            "skill_slug": "admin-private-skill",
-        })
+        resp = _post(
+            client,
+            {
+                "event_type": "task_completed",
+                "skill_slug": "admin-private-skill",
+            },
+        )
         # Admin (master key) should succeed
         assert resp.status_code == 201
 
     def test_nonexistent_skill_returns_404(self, client: TestClient, db_session: Session):
         """Non-existent skill always → 404 (regardless of auth)."""
-        resp = _post(client, {
-            "event_type": "install",
-            "skill_slug": "does-not-exist-xyz",
-        })
+        resp = _post(
+            client,
+            {
+                "event_type": "install",
+                "skill_slug": "does-not-exist-xyz",
+            },
+        )
         assert resp.status_code == 404

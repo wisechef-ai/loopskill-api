@@ -15,6 +15,7 @@ Contract under test:
   - Slugs are collision-safe ("/" → "--") and round-trip through resolve().
   - get_adapter() returns every parity adapter; unknown → None.
 """
+
 from __future__ import annotations
 
 from app.services.federation import InstallPath, route_install
@@ -251,7 +252,11 @@ class TestParityRegistry:
         from app.services.federation_install import ORIGIN_FETCHERS
 
         installable_default = {
-            "hermes-hub", "well-known", "browse-sh", "skills-sh", "lobehub",
+            "hermes-hub",
+            "well-known",
+            "browse-sh",
+            "skills-sh",
+            "lobehub",
         }
         # Every fetch-origin source must have an origin fetcher wired.
         for src in installable_default:
@@ -276,8 +281,20 @@ class TestLiveFetchWiring:
         fl._cache.clear()
         catalog = {
             "skills": [
-                {"slug": "a.com/traffic", "name": "traffic", "title": "Traffic", "description": "MPH", "tags": []},
-                {"slug": "b.com/weather", "name": "weather", "title": "Weather", "description": "rain", "tags": []},
+                {
+                    "slug": "a.com/traffic",
+                    "name": "traffic",
+                    "title": "Traffic",
+                    "description": "MPH",
+                    "tags": [],
+                },
+                {
+                    "slug": "b.com/weather",
+                    "name": "weather",
+                    "title": "Weather",
+                    "description": "rain",
+                    "tags": [],
+                },
             ]
         }
         monkeypatch.setattr(fl, "_safe_json_get", lambda *a, **k: catalog)
@@ -290,7 +307,9 @@ class TestLiveFetchWiring:
         from app.services import federation_live as fl
 
         fl._cache.clear()
-        index = {"agents": [{"identifier": "x", "meta": {"title": "X", "description": "puzzle", "tags": ["fun"]}}]}
+        index = {
+            "agents": [{"identifier": "x", "meta": {"title": "X", "description": "puzzle", "tags": ["fun"]}}]
+        }
         monkeypatch.setattr(fl, "_safe_json_get", lambda *a, **k: index)
         assert len(fl.lobehub_fetch("puzzle")) == 1
         assert fl.lobehub_fetch("nomatch") == []
@@ -301,7 +320,9 @@ class TestLiveFetchWiring:
 
         fl._cache.clear()
         monkeypatch.setattr(
-            fl, "_safe_json_get", lambda *a, **k: {"items": [{"slug": "z", "displayName": "Z", "summary": "s"}]}
+            fl,
+            "_safe_json_get",
+            lambda *a, **k: {"items": [{"slug": "z", "displayName": "Z", "summary": "s"}]},
         )
         assert len(fl.clawhub_fetch("z")) == 1
 
@@ -458,13 +479,16 @@ class TestOriginResolvers:
         from app.services import federation_install as fi
 
         fi._cache.clear()
+
         # _safe_json_get is called twice: repo (default_branch), then trees.
         def fake_json(url, **k):
             if "/git/trees/" in url:
-                return {"tree": [
-                    {"path": "dev-toolkit/skills/web-scraping/SKILL.md"},
-                    {"path": "other/SKILL.md"},
-                ]}
+                return {
+                    "tree": [
+                        {"path": "dev-toolkit/skills/web-scraping/SKILL.md"},
+                        {"path": "other/SKILL.md"},
+                    ]
+                }
             return {"default_branch": "master"}  # repo metadata
 
         monkeypatch.setattr(fi, "_safe_json_get", fake_json)

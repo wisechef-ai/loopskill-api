@@ -10,6 +10,7 @@ Security invariants pinned:
 3. private skill → 401/404 without header, regardless of tier (anonymous callers
    must NEVER trip the ``api_key_user_id is None`` admin codepath).
 """
+
 from __future__ import annotations
 
 import uuid
@@ -48,6 +49,7 @@ def _seed_skill(db, *, slug: str, tier: str, is_public: bool = True):
     """Create a minimal Skill row with one version so /install can resolve it."""
     from app.models import Skill, SkillVersion
     from datetime import datetime, timezone
+
     sk = Skill(
         id=uuid.uuid4(),
         slug=slug,
@@ -132,6 +134,4 @@ def test_unknown_slug_install_no_auth_returns_404(middleware_client, db_session)
     resp = middleware_client.get("/api/skills/install?slug=nonexistent-slug-12345")
     # With the route-level enforcement, unknown slugs 404 before reaching the
     # tier check. The critical security property is "never 200".
-    assert resp.status_code == 404, (
-        f"Unknown slug must 404, got {resp.status_code}: {resp.text[:200]}"
-    )
+    assert resp.status_code == 404, f"Unknown slug must 404, got {resp.status_code}: {resp.text[:200]}"

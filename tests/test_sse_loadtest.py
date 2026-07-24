@@ -11,6 +11,7 @@ The contract:
   * The DB connection pool peaks at ≤5 active checkouts during the test —
     the proof that subscribers don't each hold a Postgres slot.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -35,6 +36,7 @@ from tests.test_sse_basic import SSEDriver, _InjectAuthASGI
 
 # ── Pool-checkout instrumentation ────────────────────────────────────────
 
+
 class _PoolMeter:
     """Tracks current and peak SQLAlchemy connection-pool checkouts."""
 
@@ -58,6 +60,7 @@ class _PoolMeter:
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────
+
 
 @pytest.fixture()
 def engine_fixture():
@@ -108,6 +111,7 @@ def _build_app(db: Session, *, api_key_user_id) -> FastAPI:
 
 
 # ── The load test ────────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_n200_first_100_succeed_rest_get_503(db_session, engine_fixture):
@@ -191,6 +195,7 @@ async def test_n200_first_100_succeed_rest_get_503(db_session, engine_fixture):
 
     # Stash numbers for the SUBAGENT_D_OUTPUT.md report.
     import os
+
     os.environ["_SSE_LT_OPEN_S"] = f"{t_open:.3f}"
     os.environ["_SSE_LT_FANOUT_S"] = f"{t_fanout:.4f}"
     os.environ["_SSE_LT_POOL_PEAK"] = str(meter.peak)

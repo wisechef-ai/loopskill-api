@@ -124,9 +124,9 @@ class TestTrendingWindowTransparency:
         r = client.get("/api/skills/trending?period=week")
         assert r.status_code == 200
         body = r.json()
-        assert (
-            body["window"] == "all"
-        ), f"trending should report window=all after widening, got {body.get('window')}"
+        assert body["window"] == "all", (
+            f"trending should report window=all after widening, got {body.get('window')}"
+        )
         assert "old-installer" in [x["slug"] for x in body["results"]]
 
     def test_trending_reports_requested_window_when_fresh(self, client, db_session):

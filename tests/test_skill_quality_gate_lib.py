@@ -61,9 +61,7 @@ def test_scan_text_clean() -> None:
 
 
 def test_scan_text_blocks_uuid() -> None:
-    findings = _scan_text(
-        "SKILL.md", "agent_id = '201ace6b-23d2-45dd-af43-f00a9be1b132'"
-    )
+    findings = _scan_text("SKILL.md", "agent_id = '201ace6b-23d2-45dd-af43-f00a9be1b132'")
     assert any(f.category == "internal_uuid" for f in findings)
 
 
@@ -124,23 +122,24 @@ def test_scan_text_warns_internal_hostname(monkeypatch) -> None:
 
 
 def test_tarball_scan_clean() -> None:
-    tar = _make_tarball({
-        "SKILL.md": "---\nname: clean\n---\n# Use env vars only.\n",
-        "scripts/run.py": "import os\nkey = os.environ['YOUR_API_KEY']\n",
-    })
+    tar = _make_tarball(
+        {
+            "SKILL.md": "---\nname: clean\n---\n# Use env vars only.\n",
+            "scripts/run.py": "import os\nkey = os.environ['YOUR_API_KEY']\n",
+        }
+    )
     findings = scan_tarball_bytes(tar)
     assert findings == [] or all(f["severity"] != "block" for f in findings)
 
 
 def test_tarball_scan_blocks_leaky_uuid() -> None:
-    tar = _make_tarball({
-        "SKILL.md": "agent: 201ace6b-23d2-45dd-af43-f00a9be1b132",
-    })
-    findings = scan_tarball_bytes(tar)
-    assert any(
-        f["category"] == "internal_uuid" and f["severity"] == "block"
-        for f in findings
+    tar = _make_tarball(
+        {
+            "SKILL.md": "agent: 201ace6b-23d2-45dd-af43-f00a9be1b132",
+        }
     )
+    findings = scan_tarball_bytes(tar)
+    assert any(f["category"] == "internal_uuid" and f["severity"] == "block" for f in findings)
 
 
 def test_tarball_scan_blocks_public_ip() -> None:
@@ -169,10 +168,12 @@ def test_tarball_scan_corrupt_returns_empty() -> None:
 
 
 def test_tarball_scan_skips_binaries() -> None:
-    tar = _make_tarball({
-        "SKILL.md": "clean",
-        "assets/logo.png": "168.119.57.68 inside binary should be skipped",
-    })
+    tar = _make_tarball(
+        {
+            "SKILL.md": "clean",
+            "assets/logo.png": "168.119.57.68 inside binary should be skipped",
+        }
+    )
     findings = scan_tarball_bytes(tar)
     # The binary is skipped — no findings for the leaky-looking string in PNG
     assert all(f["file_path"] != "assets/logo.png" for f in findings)

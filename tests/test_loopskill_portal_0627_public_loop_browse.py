@@ -46,9 +46,7 @@ def test_loops_prefix_covers_browse_and_detail():
     path and the slug-detail path."""
     prefixes = tuple(APIKeyMiddleware.PUBLIC_PREFIXES)
     for path in ("/api/loops", "/api/loops/hello-world-loop"):
-        assert any(path.startswith(p) for p in prefixes), (
-            f"{path} is not matched by any public prefix"
-        )
+        assert any(path.startswith(p) for p in prefixes), f"{path} is not matched by any public prefix"
 
 
 # ── 2. route self-enforcement (the protected-writes half) ────────────────────
@@ -96,9 +94,7 @@ def test_anonymous_run_is_rejected_even_though_prefix_is_public(loops_client):
 
 def test_anonymous_rate_is_rejected(loops_client):
     res = loops_client.post("/api/loops/whatever/rate", json={"rating": 5})
-    assert res.status_code == 401, (
-        f"anonymous /rate should 401, got {res.status_code}"
-    )
+    assert res.status_code == 401, f"anonymous /rate should 401, got {res.status_code}"
 
 
 def test_anonymous_publish_is_rejected(loops_client):
@@ -116,6 +112,4 @@ def test_anonymous_publish_is_rejected(loops_client):
             "stopping_criteria": {},
         },
     )
-    assert res.status_code == 401, (
-        f"anonymous publish should 401, got {res.status_code}"
-    )
+    assert res.status_code == 401, f"anonymous publish should 401, got {res.status_code}"

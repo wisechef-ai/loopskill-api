@@ -8,6 +8,7 @@ Phase 5 update: roles now map to 'Pro+' and 'Pro' (canonical).
 Legacy slugs ('studio', 'cook', 'operator') still resolve to correct roles.
 Do NOT rename Discord role names — that's a separate ops task.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -27,9 +28,9 @@ def test_lifespan_noop_without_token(monkeypatch, caplog):
     caplog.set_level(logging.INFO, logger="wiserecipes.discord")
     task = asyncio.run(bot_module.start_bot())
     assert task is None
-    assert any(
-        "disabled" in rec.message.lower() for rec in caplog.records
-    ), "lifespan must log that it skipped startup"
+    assert any("disabled" in rec.message.lower() for rec in caplog.records), (
+        "lifespan must log that it skipped startup"
+    )
 
 
 def test_role_for_user_pro_plus():
@@ -63,9 +64,7 @@ def test_role_for_user_legacy_cook():
 
 
 def test_role_for_user_canceled_falls_back_to_free():
-    user = MagicMock(
-        subscription_tier="pro_plus", subscription_status="canceled"
-    )
+    user = MagicMock(subscription_tier="pro_plus", subscription_status="canceled")
     assert role_for_user(user) == "Free"
 
 

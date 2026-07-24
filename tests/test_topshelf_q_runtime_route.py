@@ -105,7 +105,6 @@ def _make_app(db_session):
 
 
 class TestRuntimeEndpoint:
-
     def test_frontmatter_runtime_key(self, db_session):
         """runtime: python in frontmatter → runtimes=["python"], inferred=False."""
         readme = "---\nruntime: python\n---\n# Skill"
@@ -255,28 +254,33 @@ class TestParseFrontmatterRuntimes:
 
     def test_parse_no_readme(self):
         from app.skill_files_routes import _parse_frontmatter_runtimes
+
         result = _parse_frontmatter_runtimes(None)
         assert result["frontmatter_present"] is False
         assert result["runtimes"] == []
 
     def test_parse_no_frontmatter(self):
         from app.skill_files_routes import _parse_frontmatter_runtimes
+
         result = _parse_frontmatter_runtimes("# Just markdown, no frontmatter")
         assert result["frontmatter_present"] is False
 
     def test_parse_single_runtime(self):
         from app.skill_files_routes import _parse_frontmatter_runtimes
+
         result = _parse_frontmatter_runtimes("---\nruntime: python\n---\n# Skill")
         assert "python" in result["runtimes"]
         assert result["frontmatter_present"] is True
 
     def test_parse_compatible_key(self):
         from app.skill_files_routes import _parse_frontmatter_runtimes
+
         result = _parse_frontmatter_runtimes("---\ncompatible:\n  - node\n  - deno\n---\n# Skill")
         assert "node" in result["runtimes"]
 
     def test_parse_deduplication(self):
         from app.skill_files_routes import _parse_frontmatter_runtimes
+
         # runtime: python + runtimes: [python] → deduped
         result = _parse_frontmatter_runtimes(
             "---\nruntime: python\nruntimes:\n  - python\n  - node\n---\n# Skill"
@@ -285,6 +289,7 @@ class TestParseFrontmatterRuntimes:
 
     def test_infer_runtimes_from_category(self):
         from app.skill_files_routes import _infer_runtimes_from_category
+
         assert _infer_runtimes_from_category("python") == ["python"]
         assert _infer_runtimes_from_category("javascript") == ["node"]
         assert _infer_runtimes_from_category(None) == []

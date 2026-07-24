@@ -3,6 +3,7 @@
 Pins the fix for the lexicographic-max bug: ``max("1.9.0","1.10.0")`` must be
 "1.10.0", not "1.9.0". Tests the pure helpers AND the per-skill DB resolver.
 """
+
 from __future__ import annotations
 
 import uuid

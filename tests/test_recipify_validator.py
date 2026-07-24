@@ -1,4 +1,5 @@
 """Frontmatter validator — v7 Phase G."""
+
 from __future__ import annotations
 
 import pytest
@@ -41,10 +42,10 @@ body"""
 @pytest.mark.parametrize(
     "bad_name",
     [
-        "UpperCase",          # uppercase letters
-        "has spaces",         # whitespace
-        "x" * 65,             # too long
-        "bad!char",           # special chars
+        "UpperCase",  # uppercase letters
+        "has spaces",  # whitespace
+        "x" * 65,  # too long
+        "bad!char",  # special chars
     ],
 )
 def test_bad_slug_format_raises(bad_name):

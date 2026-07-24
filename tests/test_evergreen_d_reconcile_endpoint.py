@@ -121,9 +121,7 @@ class TestReconcileEndpoint:
         owner = _user(db)
         cb = _cookbook(db, owner)
         skill = _skill(db, "ep-add")
-        db.add(
-            BundleSkill(bundle_id=cb.id, skill_id=skill.id, source="overridden", pinned_version="1.0.0")
-        )
+        db.add(BundleSkill(bundle_id=cb.id, skill_id=skill.id, source="overridden", pinned_version="1.0.0"))
         db.commit()
 
         app = _app(db, acting_user_id=owner.id)
@@ -166,9 +164,9 @@ class TestReconcileEndpoint:
                 json={"local": []},
                 headers={"If-None-Match": f'"{gen}"'},
             )
-        assert (
-            r.status_code == 404
-        ), f"non-owner must get 404 (no existence/change-state leak), got {r.status_code}"
+        assert r.status_code == 404, (
+            f"non-owner must get 404 (no existence/change-state leak), got {r.status_code}"
+        )
         assert "304" not in str(r.status_code)
 
     def test_unknown_cookbook_404(self, db):

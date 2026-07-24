@@ -1,4 +1,5 @@
 """loopskill_skillify MCP tool — Phase G round-trip."""
+
 from __future__ import annotations
 
 from typing import Generator
@@ -44,8 +45,13 @@ def db_session() -> Generator[Session, None, None]:
 
 
 def test_mcp_tool_round_trip(db_session):
-    user = User(id=uuid4(), display_name="T", email="m@x.example",
-                subscription_tier="cook", subscription_status="active")
+    user = User(
+        id=uuid4(),
+        display_name="T",
+        email="m@x.example",
+        subscription_tier="cook",
+        subscription_status="active",
+    )
     cb = Bundle(id=uuid4(), name="MCP CB", bundle_owner=user.id)
     db_session.add_all([user, cb])
     db_session.commit()
@@ -64,16 +70,25 @@ def test_mcp_tool_round_trip(db_session):
 
     skill = db_session.query(Skill).filter(Skill.slug == "scrape-bot").first()
     assert skill is not None
-    cs = db_session.query(BundleSkill).filter(
-        BundleSkill.bundle_id == cb.id,
-        BundleSkill.skill_id == skill.id,
-    ).first()
+    cs = (
+        db_session.query(BundleSkill)
+        .filter(
+            BundleSkill.bundle_id == cb.id,
+            BundleSkill.skill_id == skill.id,
+        )
+        .first()
+    )
     assert cs is not None
 
 
 def test_mcp_tool_no_longer_returns_not_implemented(db_session):
-    user = User(id=uuid4(), display_name="T", email="m2@x.example",
-                subscription_tier="cook", subscription_status="active")
+    user = User(
+        id=uuid4(),
+        display_name="T",
+        email="m2@x.example",
+        subscription_tier="cook",
+        subscription_status="active",
+    )
     cb = Bundle(id=uuid4(), name="MCP CB", bundle_owner=user.id)
     db_session.add_all([user, cb])
     db_session.commit()
@@ -90,8 +105,13 @@ def test_mcp_tool_no_longer_returns_not_implemented(db_session):
 
 
 def test_mcp_tool_rejects_bad_frontmatter(db_session):
-    user = User(id=uuid4(), display_name="T", email="m3@x.example",
-                subscription_tier="cook", subscription_status="active")
+    user = User(
+        id=uuid4(),
+        display_name="T",
+        email="m3@x.example",
+        subscription_tier="cook",
+        subscription_status="active",
+    )
     cb = Bundle(id=uuid4(), name="MCP CB", bundle_owner=user.id)
     db_session.add_all([user, cb])
     db_session.commit()

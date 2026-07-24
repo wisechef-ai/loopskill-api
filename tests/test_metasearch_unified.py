@@ -129,9 +129,9 @@ def test_canonical_id_collapses_github_skill_across_sources():
         ),
         raw_row={"stars": 5},
     )
-    assert (
-        via_skills_sh.canonical_id == via_github.canonical_id
-    ), f"cross-source dedupe key must match: {via_skills_sh.canonical_id} != {via_github.canonical_id}"
+    assert via_skills_sh.canonical_id == via_github.canonical_id, (
+        f"cross-source dedupe key must match: {via_skills_sh.canonical_id} != {via_github.canonical_id}"
+    )
 
 
 def test_dedupe_keeps_higher_priority_source_and_max_popularity():

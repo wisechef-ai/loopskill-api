@@ -1,4 +1,5 @@
 """evergreen_0206 Phase G — maintenance-gated conversion ladder."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone

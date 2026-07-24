@@ -21,6 +21,7 @@ from app.utils.client_ip import _real_client_ip, _is_trusted
 
 # ── _is_trusted unit tests ────────────────────────────────────────────────────
 
+
 def test_is_trusted_ip_in_cidr():
     assert _is_trusted("173.245.48.1", ["173.245.48.0/20"]) is True
 
@@ -49,6 +50,7 @@ def test_is_trusted_hostname_not_trusted():
 
 # ── _real_client_ip integration tests ────────────────────────────────────────
 
+
 def _make_request(peer_host: str, cf_ip: str | None = None, xff: str | None = None):
     """Build a minimal mock request."""
     req = MagicMock()
@@ -68,7 +70,7 @@ def _make_request(peer_host: str, cf_ip: str | None = None, xff: str | None = No
 
 
 CF_CIDR = "173.245.48.0/20"
-CF_PEER = "173.245.48.5"    # inside CF_CIDR
+CF_PEER = "173.245.48.5"  # inside CF_CIDR
 UNTRUSTED_PEER = "1.2.3.4"  # outside any trusted CIDR
 
 

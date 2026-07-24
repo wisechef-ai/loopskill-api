@@ -628,9 +628,9 @@ class TestRegressions:
 
         # The plaintext token must NEVER appear in any log record
         for record in caplog.records:
-            assert (
-                secret_token not in record.getMessage()
-            ), f"SECRET TOKEN APPEARED IN LOG: {record.getMessage()}"
+            assert secret_token not in record.getMessage(), (
+                f"SECRET TOKEN APPEARED IN LOG: {record.getMessage()}"
+            )
 
     def test_new_columns_in_model(self):
         """T27: Cookbook model has the new Phase J columns."""

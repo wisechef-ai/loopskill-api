@@ -7,6 +7,7 @@ Covers:
   - hardcoded /home/adam path → auto-fix replaces with ${HOME}
   - bonus: external-promo, internal-infra, agent-discipline, report-back rules
 """
+
 from __future__ import annotations
 
 import sys

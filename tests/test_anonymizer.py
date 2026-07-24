@@ -8,6 +8,7 @@ Tokens come from a committed FAKE fixture (tests/fixtures/anonymizer_tokens.test
 and reloads the module-level token lists so the mechanism is verified without the
 open-source tree carrying any real names/hostnames.
 """
+
 from pathlib import Path
 
 import pytest
@@ -32,17 +33,21 @@ def _load_fake_tokens(monkeypatch):
 
 # ── Helpers ─────────────────────────────────────────────────────────────
 
+
 def _text(result) -> str:
     return result[0]
 
+
 def _findings(result) -> list[Finding]:
     return result[1]
+
 
 def _has_finding(findings: list[Finding], category: str) -> bool:
     return any(f.category == category for f in findings)
 
 
 # ── ADAM_TOKENS ──────────────────────────────────────────────────────────
+
 
 class TestTestuserTokens:
     def test_adam_replaced(self):
@@ -98,6 +103,7 @@ class TestTestuserTokens:
 
 # ── INFRA_REFS ───────────────────────────────────────────────────────────
 
+
 class TestInfraRefs:
     def test_wisechef_agents_replaced(self):
         out, findings = anonymize("Runs on test-agents host.")
@@ -139,6 +145,7 @@ class TestInfraRefs:
 
 # ── PATHS ────────────────────────────────────────────────────────────────
 
+
 class TestPaths:
     def test_home_adam_linux_replaced(self):
         out, findings = anonymize("Config at /home/testuser/.config/app.yaml")
@@ -163,6 +170,7 @@ class TestPaths:
 
 # ── EMAILS ───────────────────────────────────────────────────────────────
 
+
 class TestEmails:
     def test_personal_email_replaced(self):
         out, findings = anonymize("Contact me at user@gmail.com for details.")
@@ -186,6 +194,7 @@ class TestEmails:
 
 
 # ── AGENT_NAMES ──────────────────────────────────────────────────────────
+
 
 class TestAgentNames:
     def test_tori_in_user_context_replaced(self):
@@ -217,12 +226,10 @@ class TestAgentNames:
 
 # ── COMBINED ─────────────────────────────────────────────────────────────
 
+
 class TestCombined:
     def test_all_categories_in_one_text(self):
-        text = (
-            "Testuser built test-agents at /home/testuser/. "
-            "Email: adam@hotmail.com. AgentAlpha runs it."
-        )
+        text = "Testuser built test-agents at /home/testuser/. Email: adam@hotmail.com. AgentAlpha runs it."
         out, findings = anonymize(text, user_facing=True)
         assert "Testuser" not in out
         assert "test-agents" not in out

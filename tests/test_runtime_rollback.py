@@ -50,8 +50,7 @@ def test_teardown_handles_swallows_errors(runtime_dir):
     from runtime.cron.base import CronHandle
 
     bad_service = ServiceHandle(name="x", backend="nonexistent")
-    bad_cron = CronHandle(name="y", backend="nonexistent",
-                          schedule="0 0 * * *", cmd="true")
+    bad_cron = CronHandle(name="y", backend="nonexistent", schedule="0 0 * * *", cmd="true")
 
     torn = rollback.teardown_handles([bad_service], [bad_cron])
     assert torn == {}

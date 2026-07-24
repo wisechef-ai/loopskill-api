@@ -7,6 +7,7 @@ Targets uncovered lines:
   - 186-195: specific version pinning (found / not found)
   - 276-308: download_tarball — expired token, bad signature, no tarball file, success
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -84,6 +85,7 @@ def master_client(db_session, monkeypatch):
 
 def _make_skill(db, slug: str, tier: str = "pro", is_public: bool = True, **kwargs) -> Skill:
     from datetime import datetime, timezone
+
     sk = Skill(
         id=uuid4(),
         slug=slug,
@@ -101,6 +103,7 @@ def _make_skill(db, slug: str, tier: str = "pro", is_public: bool = True, **kwar
 
 def _make_version(db, skill_id, semver: str = "1.0.0", tarball_path: str | None = None) -> SkillVersion:
     from datetime import datetime, timezone
+
     v = SkillVersion(
         id=uuid4(),
         skill_id=skill_id,
@@ -119,7 +122,6 @@ def _make_version(db, skill_id, semver: str = "1.0.0", tarball_path: str | None 
 
 
 class TestInstallSkillCoverage:
-
     def test_slug_at_version_with_existing_version_param(self, master_client, db_session):
         """slug@version parsed but explicit ?version= also set — slug is still split (lines 69-71)."""
         sk = _make_skill(db_session, "versioned-skill")
@@ -131,6 +133,7 @@ class TestInstallSkillCoverage:
     def test_retired_skill_with_alt_redirect(self, master_client, db_session):
         """Retired skill that has a known replacement → 404 with alt URL (line 78)."""
         from app.install_routes import _RETIRED_SKILLS
+
         # Temporarily inject a retirement entry
         old_slugs = dict(_RETIRED_SKILLS)
         _RETIRED_SKILLS["old-retired-skill"] = "https://example.com/new-skill"
@@ -178,8 +181,10 @@ class TestInstallSkillCoverage:
         _make_version(db_session, sk.id, "1.0.0")
 
         # Patch both the count function AND the tier resolver so rate limit applies
-        with patch("app.install_routes._count_today_installs", return_value=9999), \
-             patch("app.install_routes._resolve_caller_tier_for_install", return_value="free"):
+        with (
+            patch("app.install_routes._count_today_installs", return_value=9999),
+            patch("app.install_routes._resolve_caller_tier_for_install", return_value="free"),
+        ):
             app = build_test_app(db_session=db_session, monkeypatch=monkeypatch)
             client = TestClient(app, headers={"x-api-key": settings.API_KEY}, raise_server_exceptions=True)
             resp = client.get("/api/skills/install?slug=ratelimited-skill")
@@ -223,12 +228,14 @@ class TestDownloadTarballCoverage:
     def _get_signed_token(self, slug: str, version_id: str, mode: str = "files") -> str:
         from itsdangerous import URLSafeTimedSerializer
         from app.config import settings
+
         serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="recipes-skill-install")
         return serializer.dumps({"slug": slug, "version_id": version_id, "mode": mode})
 
     def test_expired_token_returns_410(self, master_client, db_session):
         """Expired signed token → 410 Gone (lines 284-285)."""
         from itsdangerous import SignatureExpired
+
         token = self._get_signed_token("x", "y")
         with patch("itsdangerous.TimestampSigner.unsign", side_effect=SignatureExpired("x")):
             resp = master_client.get(f"/api/skills/_download?token={token}")
@@ -256,6 +263,7 @@ class TestDownloadTarballCoverage:
         client = TestClient(app, headers={"x-api-key": settings.API_KEY}, raise_server_exceptions=True)
 
         from itsdangerous import URLSafeTimedSerializer
+
         serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="recipes-skill-install")
         token = serializer.dumps({"slug": sk.slug, "version_id": str(v.id), "mode": "files"})
 
@@ -268,6 +276,7 @@ class TestDownloadTarballCoverage:
 
         def mock_query(model):
             from app.models import SkillVersion as _SV
+
             if model is _SV:
                 mock_q = MagicMock()
                 mock_q.filter.return_value.first.return_value = mock_version
@@ -297,6 +306,7 @@ class TestDownloadTarballCoverage:
             client = TestClient(app, headers={"x-api-key": settings.API_KEY}, raise_server_exceptions=True)
 
             from itsdangerous import URLSafeTimedSerializer
+
             serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="recipes-skill-install")
             token = serializer.dumps({"slug": sk.slug, "version_id": str(v.id), "mode": "files"})
 
@@ -309,6 +319,7 @@ class TestDownloadTarballCoverage:
 
             def mock_query(model):
                 from app.models import SkillVersion as _SV
+
                 if model is _SV:
                     mock_q = MagicMock()
                     mock_q.filter.return_value.first.return_value = mock_version
@@ -321,4 +332,3 @@ class TestDownloadTarballCoverage:
             assert resp.content == b"fake tarball content"
         finally:
             Path(tarball_path).unlink(missing_ok=True)
-

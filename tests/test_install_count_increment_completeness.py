@@ -70,9 +70,7 @@ class TestMcpRecipesInstallBumpsCounter:
     omitted the companion SQL-level ``Skill.install_count += 1`` update.
     """
 
-    def test_mcp_install_increments_counter_from_zero(
-        self, db_session: Session
-    ) -> None:
+    def test_mcp_install_increments_counter_from_zero(self, db_session: Session) -> None:
         from app.auth_ctx import AuthContext
         from app.mcp.tools.install import loopskill_install
 
@@ -85,13 +83,10 @@ class TestMcpRecipesInstallBumpsCounter:
 
         assert "error" not in result, f"Unexpected error: {result}"
         assert _read_count(db_session, "larry") == 1, (
-            "MCP loopskill_install did not bump Skill.install_count — "
-            "see Phase C root-cause analysis."
+            "MCP loopskill_install did not bump Skill.install_count — see Phase C root-cause analysis."
         )
 
-    def test_mcp_install_increments_counter_n_times(
-        self, db_session: Session
-    ) -> None:
+    def test_mcp_install_increments_counter_n_times(self, db_session: Session) -> None:
         from app.auth_ctx import AuthContext
         from app.mcp.tools.install import loopskill_install
 
@@ -109,9 +104,7 @@ class TestMcpRecipesInstallBumpsCounter:
 
         assert _read_count(db_session, "multi-agent-discord-coordination") == 5
 
-    def test_mcp_install_does_not_bump_other_skill(
-        self, db_session: Session
-    ) -> None:
+    def test_mcp_install_does_not_bump_other_skill(self, db_session: Session) -> None:
         from app.auth_ctx import AuthContext
         from app.mcp.tools.install import loopskill_install
 
@@ -126,9 +119,7 @@ class TestMcpRecipesInstallBumpsCounter:
         assert _read_count(db_session, "pr-draft") == 1
         assert _read_count(db_session, "clean-architecture") == 0
 
-    def test_mcp_install_pinned_version_bumps_counter(
-        self, db_session: Session
-    ) -> None:
+    def test_mcp_install_pinned_version_bumps_counter(self, db_session: Session) -> None:
         """Pinned-version path (slug@1.2.3) must also increment the counter."""
         from app.auth_ctx import AuthContext
         from app.mcp.tools.install import loopskill_install
@@ -137,9 +128,7 @@ class TestMcpRecipesInstallBumpsCounter:
         _make_version(db_session, skill, semver="2.1.0")
 
         ctx = AuthContext(scope="master")
-        result = loopskill_install(
-            db_session, slug="code-review@2.1.0", ctx=ctx
-        )
+        result = loopskill_install(db_session, slug="code-review@2.1.0", ctx=ctx)
 
         assert "error" not in result, result
         assert result["version_pinned"] is True
@@ -158,9 +147,7 @@ class TestCookbookInstallPathsPreserveCounter:
     against accidental removal or bypass.
     """
 
-    def test_record_install_event_helper_bumps_counter(
-        self, db_session: Session
-    ) -> None:
+    def test_record_install_event_helper_bumps_counter(self, db_session: Session) -> None:
         from app._skill_helpers import _record_install_event
 
         skill = make_skill(db_session, slug="graphify")
@@ -177,9 +164,7 @@ class TestCookbookInstallPathsPreserveCounter:
 
         assert _read_count(db_session, "graphify") == 1
 
-    def test_record_install_event_n_calls_bumps_n(
-        self, db_session: Session
-    ) -> None:
+    def test_record_install_event_n_calls_bumps_n(self, db_session: Session) -> None:
         from app._skill_helpers import _record_install_event
 
         skill = make_skill(db_session, slug="incident-response")
@@ -254,10 +239,7 @@ class TestProbeFormulaCompatibility:
             or 0
         )
         inst = (
-            db_session.query(func.count())
-            .filter(InstallEvent.skill_slug == "client-reporter")
-            .scalar()
-            or 0
+            db_session.query(func.count()).filter(InstallEvent.skill_slug == "client-reporter").scalar() or 0
         )
         probe_truth = max(tel, inst)  # probe's formula
         actual = _read_count(db_session, "client-reporter")

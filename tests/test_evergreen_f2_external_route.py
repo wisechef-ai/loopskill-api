@@ -141,9 +141,7 @@ class TestGitHubOSSFetch:
 class TestExternalRoute:
     def _patch_live(self, monkeypatch):
         """Wire both adapters to deterministic in-memory fetches."""
-        monkeypatch.setattr(
-            fl, "_load_hermes_catalog", lambda: _parse_hermes_catalog(_HERMES_HTML)
-        )
+        monkeypatch.setattr(fl, "_load_hermes_catalog", lambda: _parse_hermes_catalog(_HERMES_HTML))
 
     def test_toggle_off_by_default_returns_no_external(self, client, db_session, monkeypatch):
         self._patch_live(monkeypatch)
@@ -273,9 +271,7 @@ class TestExternalInstall:
         monkeypatch.setattr(
             fl,
             "_load_hermes_catalog",
-            lambda: [
-                {"slug": "research--arxiv", "title": "arxiv", "license": "MIT", "url": "https://h/x"}
-            ],
+            lambda: [{"slug": "research--arxiv", "title": "arxiv", "license": "MIT", "url": "https://h/x"}],
         )
         # Resolves, but origin SKILL.md is unfetchable → honest 404, never fabricated.
         monkeypatch.setattr(fl, "hermes_origin_skill_md", lambda slug: None)

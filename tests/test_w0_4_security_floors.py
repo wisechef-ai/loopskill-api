@@ -19,6 +19,7 @@ Stripe webhook idempotency (the other W0.4 item) is already shipped + covered by
 tests/test_subscription.py::test_webhook_replay_is_no_op (Gate 8) — not
 re-pinned here.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -47,8 +48,7 @@ class TestInstalledSecurityFloors:
         import idna
 
         assert _ver_tuple(idna.__version__) >= (3, 15), (
-            f"idna {idna.__version__} is below the CVE-2026-45409 patch (3.15) "
-            "— security regression."
+            f"idna {idna.__version__} is below the CVE-2026-45409 patch (3.15) — security regression."
         )
 
     def test_urllib3_at_or_above_patch(self):
@@ -70,8 +70,7 @@ class TestRequirementsCarriesSecurityPins:
             "(W0.4 / PYSEC-2026-161). Restore it."
         )
         assert "idna>=" in req, (
-            "requirements.txt lost its explicit `idna>=` security floor "
-            "(W0.4 / CVE-2026-45409). Restore it."
+            "requirements.txt lost its explicit `idna>=` security floor (W0.4 / CVE-2026-45409). Restore it."
         )
         assert "urllib3>=" in req, (
             "requirements.txt lost its explicit `urllib3>=` security floor "

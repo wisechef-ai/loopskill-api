@@ -13,6 +13,7 @@ After the fix the handler coerces to UUID, so a valid token reaches the
 tarball-on-disk check and returns a clean 404 ("Tarball missing on disk") for a
 seeded skill with no physical tarball — NOT a 500.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -79,8 +80,7 @@ def test_download_with_string_version_id_does_not_500(middleware_client, db_sess
     # The bug produced 500 ('str' has no attribute 'hex'). After the fix, the
     # query resolves the version and we hit the missing-tarball path → 404.
     assert resp.status_code != 500, (
-        f"_download 500'd on a string version_id — UUID coercion regressed. "
-        f"Body: {resp.text[:200]}"
+        f"_download 500'd on a string version_id — UUID coercion regressed. Body: {resp.text[:200]}"
     )
     assert resp.status_code == 404
     assert "missing on disk" in resp.text.lower()

@@ -19,14 +19,16 @@ from app.last_used_tracker import LastUsedTracker
 
 # ── In-memory (no Redis) tests ────────────────────────────────────────────────
 
+
 def test_record_and_drain_updates_db(db_session):
     """record() + drain() should bulk-UPDATE last_used_at in the DB."""
     from app.models import APIKey, User
     from uuid import uuid4 as _u4
 
     # Create a user + API key
-    user = User(id=_u4(), email="tracker@test.com", display_name="Tracker User",
-                created_at=datetime.now(timezone.utc))
+    user = User(
+        id=_u4(), email="tracker@test.com", display_name="Tracker User", created_at=datetime.now(timezone.utc)
+    )
     db_session.add(user)
     db_session.flush()
 
@@ -95,15 +97,30 @@ def test_drain_returns_update_count(db_session):
     """drain() returns the number of rows actually updated."""
     from app.models import APIKey, User
 
-    user = User(id=uuid4(), email="drain2@test.com", display_name="Drain2 User",
-                created_at=datetime.now(timezone.utc))
+    user = User(
+        id=uuid4(), email="drain2@test.com", display_name="Drain2 User", created_at=datetime.now(timezone.utc)
+    )
     db_session.add(user)
     db_session.flush()
 
-    key1 = APIKey(id=uuid4(), key_prefix="rec_drain1", key_hash="dh_drain_1", user_id=user.id, name="k1",
-                  is_active=True, created_at=datetime.now(timezone.utc))
-    key2 = APIKey(id=uuid4(), key_prefix="rec_drain2", key_hash="dh_drain_2", user_id=user.id, name="k2",
-                  is_active=True, created_at=datetime.now(timezone.utc))
+    key1 = APIKey(
+        id=uuid4(),
+        key_prefix="rec_drain1",
+        key_hash="dh_drain_1",
+        user_id=user.id,
+        name="k1",
+        is_active=True,
+        created_at=datetime.now(timezone.utc),
+    )
+    key2 = APIKey(
+        id=uuid4(),
+        key_prefix="rec_drain2",
+        key_hash="dh_drain_2",
+        user_id=user.id,
+        name="k2",
+        is_active=True,
+        created_at=datetime.now(timezone.utc),
+    )
     db_session.add_all([key1, key2])
     db_session.commit()
 
@@ -116,6 +133,7 @@ def test_drain_returns_update_count(db_session):
 
 
 # ── Redis fallback tests ──────────────────────────────────────────────────────
+
 
 def test_redis_unavailable_falls_back_to_memory():
     """When Redis raises on hget, tracker records in _memory_cache."""

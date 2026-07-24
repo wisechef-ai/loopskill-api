@@ -1,7 +1,7 @@
 """Phase F — coverage push for app/sandbox modules.
 
 Targets uncovered areas:
-  - runner.py: firejail run (success + timeout + staging failure), bwrap run, 
+  - runner.py: firejail run (success + timeout + staging failure), bwrap run,
                _start_domain_proxy_sync (port-timeout, bad port),
                _stop_domain_proxy_sync (error handling), _parse_firejail_output,
                _prepare_bwrap_root, _cleanup
@@ -11,6 +11,7 @@ Targets uncovered areas:
   - domain_proxy.py: DomainProxy start/stop, _handle_connect (deny, error, CONNECT OK),
                      _handle_http, _domain_matches, run_domain_proxy
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -41,7 +42,6 @@ pytestmark = [pytest.mark.sandbox_linux_only]
 
 
 class TestDomainMatches:
-
     def test_exact_match(self):
         assert _domain_matches("api.github.com", ["api.github.com"]) is True
 
@@ -67,7 +67,6 @@ class TestDomainMatches:
 
 
 class TestDomainProxy:
-
     @pytest.mark.asyncio
     async def test_start_returns_port(self):
         """DomainProxy.start() returns a valid port number (lines 73-84)."""
@@ -352,7 +351,10 @@ class TestSandboxRunnerExtended:
         skill_dir = self._make_skill_dir()
         profile = SandboxProfile(network_allow=[], timeout_seconds=1)
 
-        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(["firejail"], 1, output=b"partial", stderr=b"")):
+        with patch(
+            "subprocess.run",
+            side_effect=subprocess.TimeoutExpired(["firejail"], 1, output=b"partial", stderr=b""),
+        ):
             with patch("shutil.copytree"):
                 with patch("os.chmod"):
                     result = self.runner.run(skill_dir, "setup.sh", profile)
@@ -427,7 +429,9 @@ class TestSandboxRunnerExtended:
         skill_dir = self._make_skill_dir()
         profile = SandboxProfile(network_allow=[], timeout_seconds=1)
 
-        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(["bwrap"], 1, output=b"", stderr=b"")):
+        with patch(
+            "subprocess.run", side_effect=subprocess.TimeoutExpired(["bwrap"], 1, output=b"", stderr=b"")
+        ):
             result = self.runner.run(skill_dir, "setup.sh", profile)
 
         assert result.timed_out is True
@@ -459,6 +463,7 @@ class TestSandboxRunnerExtended:
                 # select never returns stdout as readable (timeout path)
                 with patch("select.select", return_value=([], [], [])):
                     import time
+
                     with patch("time.monotonic", side_effect=[0.0, 6.0, 6.1]):  # immediate timeout
                         with pytest.raises(SandboxError, match="proxy did not emit port"):
                             SandboxRunner._start_domain_proxy_sync(["test.com"])
@@ -589,6 +594,7 @@ def sandbox_db(engine_f):
 def _make_skill_row(db, slug: str, is_public: bool = True, is_archived: bool = False):
     from datetime import datetime, timezone
     from app.models import Skill
+
     sk = Skill(
         id=uuid4(),
         slug=slug,
@@ -607,6 +613,7 @@ def _make_skill_row(db, slug: str, is_public: bool = True, is_archived: bool = F
 def _make_version_row(db, skill_id, semver: str = "1.0.0", skill_toml: str | None = None):
     from datetime import datetime, timezone
     from app.models import SkillVersion
+
     v = SkillVersion(
         id=uuid4(),
         skill_id=skill_id,
@@ -626,9 +633,9 @@ _MASTER_CTX = AuthContext(scope="master")
 
 
 class TestSandboxRoutesCoverage:
-
     def _client(self, db, auth_ctx=None):
         from app.database import get_db as _get_db
+
         if auth_ctx is None:
             auth_ctx = _MASTER_CTX
         app = _make_sandbox_app(auth_ctx)
@@ -717,7 +724,7 @@ class TestSandboxRoutesCoverage:
 
     def test_run_no_sandbox_block_returns_400(self, sandbox_db):
         """Toml without [sandbox] block → 400 (lines 183-187)."""
-        toml_no_sandbox = "[meta]\nslug = \"x\"\n"
+        toml_no_sandbox = '[meta]\nslug = "x"\n'
         sk = _make_skill_row(sandbox_db, "no-sandbox-block-skill")
         _make_version_row(sandbox_db, sk.id, skill_toml=toml_no_sandbox)
         client = self._client(sandbox_db)

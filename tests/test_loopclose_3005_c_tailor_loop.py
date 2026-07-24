@@ -222,7 +222,11 @@ class TestTailorVersion:
         db.commit()
 
         res = loopskill_tailor_version(
-            db, fork_id=str(fork.id), tarball_base64=base64.b64encode(b"").decode(), semver="1.0.0", ctx=_pro_ctx(user)
+            db,
+            fork_id=str(fork.id),
+            tarball_base64=base64.b64encode(b"").decode(),
+            semver="1.0.0",
+            ctx=_pro_ctx(user),
         )
         assert res["code"] == "empty_tarball"
 
@@ -259,9 +263,13 @@ class TestTailorVersion:
         db.commit()
 
         ctx = _pro_ctx(user)
-        r1 = loopskill_tailor_version(db, fork_id=str(fork.id), tarball_base64=_b64_tarball(), semver="1.0.0", ctx=ctx)
+        r1 = loopskill_tailor_version(
+            db, fork_id=str(fork.id), tarball_base64=_b64_tarball(), semver="1.0.0", ctx=ctx
+        )
         assert r1["status"] == "versioned"
-        r2 = loopskill_tailor_version(db, fork_id=str(fork.id), tarball_base64=_b64_tarball(), semver="1.0.0", ctx=ctx)
+        r2 = loopskill_tailor_version(
+            db, fork_id=str(fork.id), tarball_base64=_b64_tarball(), semver="1.0.0", ctx=ctx
+        )
         assert r2["code"] == "version_exists"
 
     def test_free_tier_rejected(self, db: Session, storage_dirs) -> None:
@@ -273,7 +281,11 @@ class TestTailorVersion:
         db.commit()
 
         res = loopskill_tailor_version(
-            db, fork_id=str(fork.id), tarball_base64=_b64_tarball(), semver="1.0.0", ctx=_pro_ctx(user, "free")
+            db,
+            fork_id=str(fork.id),
+            tarball_base64=_b64_tarball(),
+            semver="1.0.0",
+            ctx=_pro_ctx(user, "free"),
         )
         assert res["code"] == "needs_tier"
 
@@ -281,7 +293,11 @@ class TestTailorVersion:
         from app.mcp.tools.fork_deploy import loopskill_tailor_version
 
         res = loopskill_tailor_version(
-            db, fork_id=str(uuid4()), tarball_base64=_b64_tarball(), semver="1.0.0", ctx=AuthContext(scope="master")
+            db,
+            fork_id=str(uuid4()),
+            tarball_base64=_b64_tarball(),
+            semver="1.0.0",
+            ctx=AuthContext(scope="master"),
         )
         assert res["code"] == "auth_required"
 
@@ -337,7 +353,9 @@ class TestCookbookAttach:
         cb = _make_cookbook(db, user)
         db.commit()
 
-        res = loopskill_bundle_attach(db, fork_id=str(fork.id), target_cookbook_id=str(cb.id), ctx=_pro_ctx(user))
+        res = loopskill_bundle_attach(
+            db, fork_id=str(fork.id), target_cookbook_id=str(cb.id), ctx=_pro_ctx(user)
+        )
         assert res["code"] == "no_versions"
 
     def test_cookbook_not_owned(self, db: Session, storage_dirs) -> None:
@@ -349,7 +367,9 @@ class TestCookbookAttach:
         cb = _make_cookbook(db, owner)  # owned by someone else
         db.commit()
 
-        res = loopskill_bundle_attach(db, fork_id=str(fork.id), target_cookbook_id=str(cb.id), ctx=_pro_ctx(attacker))
+        res = loopskill_bundle_attach(
+            db, fork_id=str(fork.id), target_cookbook_id=str(cb.id), ctx=_pro_ctx(attacker)
+        )
         assert res["code"] == "cookbook_not_found"  # no-oracle
 
     def test_slug_override(self, db: Session, storage_dirs) -> None:
@@ -361,7 +381,11 @@ class TestCookbookAttach:
         db.commit()
 
         res = loopskill_bundle_attach(
-            db, fork_id=str(fork.id), target_cookbook_id=str(cb.id), slug="custom-deployed-slug", ctx=_pro_ctx(user)
+            db,
+            fork_id=str(fork.id),
+            target_cookbook_id=str(cb.id),
+            slug="custom-deployed-slug",
+            ctx=_pro_ctx(user),
         )
         assert res["skill_slug"] == "custom-deployed-slug"
         assert db.query(Skill).filter(Skill.slug == "custom-deployed-slug").first() is not None
@@ -383,9 +407,13 @@ class TestCookbookAttach:
             info.size = len(data)
             t.addfile(info, io.BytesIO(data))
         b64 = base64.b64encode(buf.getvalue()).decode()
-        loopskill_tailor_version(db, fork_id=str(fork.id), tarball_base64=b64, semver="1.0.0", ctx=_pro_ctx(user))
+        loopskill_tailor_version(
+            db, fork_id=str(fork.id), tarball_base64=b64, semver="1.0.0", ctx=_pro_ctx(user)
+        )
 
-        res = loopskill_bundle_attach(db, fork_id=str(fork.id), target_cookbook_id=str(cb.id), ctx=_pro_ctx(user))
+        res = loopskill_bundle_attach(
+            db, fork_id=str(fork.id), target_cookbook_id=str(cb.id), ctx=_pro_ctx(user)
+        )
         assert res["code"] == "no_skill_md_in_tarball"
 
     def test_free_tier_rejected(self, db: Session, storage_dirs) -> None:
@@ -422,7 +450,9 @@ class TestDogfoodRoundTrip:
         fork_id = t["fork_id"]
 
         # 2. version
-        v = loopskill_tailor_version(db, fork_id=fork_id, tarball_base64=_b64_tarball(), semver="2.1.0", ctx=ctx)
+        v = loopskill_tailor_version(
+            db, fork_id=fork_id, tarball_base64=_b64_tarball(), semver="2.1.0", ctx=ctx
+        )
         assert v["status"] == "versioned"
 
         # 3. attach (promote into cookbook)
@@ -506,7 +536,9 @@ class TestMCPDispatch:
         cb = _make_cookbook(db, user)
         db.commit()
         ctx = _pro_ctx(user)
-        loopskill_tailor_version(db, fork_id=str(fork.id), tarball_base64=_b64_tarball(), semver="1.0.0", ctx=ctx)
+        loopskill_tailor_version(
+            db, fork_id=str(fork.id), tarball_base64=_b64_tarball(), semver="1.0.0", ctx=ctx
+        )
 
         caller = {"scope": "user", "user_id": user.id, "api_key_id": None, "auth_ctx": ctx}
         payload = call_tool_sync(

@@ -5,6 +5,7 @@ TDD structure:
   test_pov_*        — proof-of-vulnerability (pre-fix).
   test_*            — regression tests that pass after fix.
 """
+
 from __future__ import annotations
 
 import io
@@ -20,6 +21,7 @@ from app.security_scan import Finding, scan_tarball
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_tarball(members: list[dict]) -> bytes:
     """Build an in-memory .tar.gz from a list of member specs.
@@ -52,10 +54,7 @@ def _make_tarball(members: list[dict]) -> bytes:
 
 
 def _has_critical_path_traversal(findings: list[Finding]) -> bool:
-    return any(
-        f.pattern_class == "path_traversal" and f.severity == "critical"
-        for f in findings
-    )
+    return any(f.pattern_class == "path_traversal" and f.severity == "critical" for f in findings)
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +98,7 @@ def test_pov_symlink_traversal_not_detected():
 # ---------------------------------------------------------------------------
 # REGRESSION TESTS — Pass only after the fix.
 # ---------------------------------------------------------------------------
+
 
 def test_absolute_path_member_raises_critical():
     """Issue #10 fix: member.name starting with '/' → CRITICAL finding."""
@@ -154,12 +154,14 @@ def test_symlink_dotdot_target_raises_critical():
 
 def test_clean_tarball_passes():
     """Baseline: a tarball with only normal relative paths passes clean."""
-    tb = _make_tarball([
-        {"name": "setup.sh", "content": b"#!/bin/bash\necho hello\n"},
-        {"name": "SKILL.md", "content": b"# My Skill\n"},
-        {"name": "scripts/run.sh", "content": b"#!/bin/bash\npython3 main.py\n"},
-        {"name": "references/README.md", "content": b"# Docs\n"},
-    ])
+    tb = _make_tarball(
+        [
+            {"name": "setup.sh", "content": b"#!/bin/bash\necho hello\n"},
+            {"name": "SKILL.md", "content": b"# My Skill\n"},
+            {"name": "scripts/run.sh", "content": b"#!/bin/bash\npython3 main.py\n"},
+            {"name": "references/README.md", "content": b"# Docs\n"},
+        ]
+    )
     findings = scan_tarball(tb, {})
     traversal = [f for f in findings if f.pattern_class == "path_traversal"]
     assert not traversal, f"Unexpected path_traversal findings on clean tarball: {traversal}"
@@ -167,12 +169,14 @@ def test_clean_tarball_passes():
 
 def test_multiple_attack_members_each_gets_finding():
     """Issue #10 fix: each attack variant in one tarball → multiple CRITICAL findings."""
-    tb = _make_tarball([
-        {"name": "../../etc/passwd"},
-        {"name": "/etc/shadow"},
-        {"name": "C:/Windows/foo"},
-        {"name": "scripts/ok.sh", "content": b"echo ok"},  # clean
-    ])
+    tb = _make_tarball(
+        [
+            {"name": "../../etc/passwd"},
+            {"name": "/etc/shadow"},
+            {"name": "C:/Windows/foo"},
+            {"name": "scripts/ok.sh", "content": b"echo ok"},  # clean
+        ]
+    )
     findings = scan_tarball(tb, {})
     critical = [f for f in findings if f.pattern_class == "path_traversal" and f.severity == "critical"]
     assert len(critical) >= 3, f"Expected ≥3 critical findings, got: {critical}"

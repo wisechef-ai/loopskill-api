@@ -7,12 +7,14 @@ Tests:
   - PoV: Google callback same scenario
   - After fix: both callbacks reject missing cookie with 302 error redirect
 """
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 
 # ── App setup ────────────────────────────────────────────────────────────────
+
 
 def make_auth_app():
     """Create a minimal test app with just the auth_routes router."""
@@ -44,6 +46,7 @@ def auth_client(db_session):
 
 # ── PoV: GitHub callback CSRF bypass ─────────────────────────────────────────
 
+
 def test_pov_github_callback_no_cookie_allows_bypass(auth_client):
     """PROOF OF VULNERABILITY: GitHub callback with state= query param but NO
     oauth_state cookie should be rejected.
@@ -70,9 +73,7 @@ def test_pov_github_callback_no_cookie_allows_bypass(auth_client):
         f"Unfixed code skips state check when cookie is missing (CSRF bypass)."
     )
     location = resp.headers.get("location", "")
-    assert "state_mismatch" in location, (
-        f"Expected state_mismatch in redirect location, got: {location!r}"
-    )
+    assert "state_mismatch" in location, f"Expected state_mismatch in redirect location, got: {location!r}"
 
 
 def test_pov_google_callback_no_cookie_allows_bypass(auth_client):
@@ -91,12 +92,11 @@ def test_pov_google_callback_no_cookie_allows_bypass(auth_client):
         f"Unfixed code skips state check when cookie is missing."
     )
     location = resp.headers.get("location", "")
-    assert "state_mismatch" in location, (
-        f"Expected state_mismatch in redirect location, got: {location!r}"
-    )
+    assert "state_mismatch" in location, f"Expected state_mismatch in redirect location, got: {location!r}"
 
 
 # ── Green cases (verifying correct behavior after fix) ────────────────────────
+
 
 def test_github_callback_mismatched_state_redirects_to_error(auth_client):
     """Cookie present but state value does not match → 302 state_mismatch.

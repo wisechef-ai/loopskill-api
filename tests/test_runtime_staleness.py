@@ -127,6 +127,7 @@ def test_fetch_latest_github_handles_404():
 def test_fetch_latest_github_parses_tag():
     class _R:
         status_code = 200
+
         @staticmethod
         def json():
             return {"tag_name": "v1.2.3"}

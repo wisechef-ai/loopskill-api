@@ -13,6 +13,7 @@ Contracts:
 4. tier price_usd matches config/tiers.yaml (the Stripe-coupled SSOT).
 5. proof_point text interpolates {mcp_tools_count} to the live count.
 """
+
 from __future__ import annotations
 
 from app.marketing_routes import (

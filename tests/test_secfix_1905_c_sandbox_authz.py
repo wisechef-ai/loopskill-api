@@ -5,6 +5,7 @@ Acceptance gates:
   - master-scope key → allowed (200 or 4xx from business logic, not 403)
   - user-scope key with is_sandbox_operator=True → allowed
 """
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -23,6 +24,7 @@ pytestmark = [pytest.mark.sandbox_linux_only]
 # Unit tests for can_run_sandbox predicate (authz.py)
 # ---------------------------------------------------------------------------
 
+
 def test_master_scope_can_run_sandbox():
     ctx = AuthContext(scope="master")
     assert can_run_sandbox(ctx) is True
@@ -30,12 +32,14 @@ def test_master_scope_can_run_sandbox():
 
 def test_user_scope_cannot_run_sandbox_by_default():
     from uuid import uuid4
+
     ctx = AuthContext(scope="user", user_id=uuid4())
     assert can_run_sandbox(ctx) is False
 
 
 def test_user_scope_with_is_sandbox_operator_can_run():
     from uuid import uuid4
+
     ctx = AuthContext(scope="user", user_id=uuid4(), is_sandbox_operator=True)
     assert can_run_sandbox(ctx) is True
 
@@ -47,6 +51,7 @@ def test_anonymous_cannot_run_sandbox():
 
 def test_operator_scope_without_flag_cannot_run():
     from uuid import uuid4
+
     ctx = AuthContext(scope="operator", user_id=uuid4(), is_sandbox_operator=False)
     assert can_run_sandbox(ctx) is False
 
@@ -54,6 +59,7 @@ def test_operator_scope_without_flag_cannot_run():
 # ---------------------------------------------------------------------------
 # Integration-style tests via TestClient
 # ---------------------------------------------------------------------------
+
 
 def _make_app_with_auth(auth_ctx: AuthContext) -> FastAPI:
     """Create a minimal FastAPI app that stamps a fixed AuthContext and includes sandbox routes."""
@@ -73,6 +79,7 @@ def _make_app_with_auth(auth_ctx: AuthContext) -> FastAPI:
 
 def _user_ctx(is_sandbox_operator: bool = False) -> AuthContext:
     from uuid import uuid4
+
     return AuthContext(
         scope="user",
         user_id=uuid4(),
@@ -106,7 +113,9 @@ def skill_mock(tmp_path):
     skill.versions = [version]
 
     skill_dir = str(tmp_path / "skill")
-    import os; os.makedirs(skill_dir)
+    import os
+
+    os.makedirs(skill_dir)
     (tmp_path / "skill" / "setup.sh").write_text("#!/bin/bash\necho hi\n")
 
     runner_result = MagicMock()
@@ -119,10 +128,11 @@ def skill_mock(tmp_path):
     runner_result.success = True
     runner_result.error = None
 
-    with patch("app.sandbox.routes.get_db") as mock_get_db, \
-         patch("app.sandbox.routes.get_runner") as mock_get_runner, \
-         patch("app.sandbox.routes._resolve_skill_dir", return_value=skill_dir):
-
+    with (
+        patch("app.sandbox.routes.get_db") as mock_get_db,
+        patch("app.sandbox.routes.get_runner") as mock_get_runner,
+        patch("app.sandbox.routes._resolve_skill_dir", return_value=skill_dir),
+    ):
         mock_db = MagicMock()
         mock_db.query.return_value.options.return_value.filter.return_value.first.return_value = skill
         mock_get_db.return_value = iter([mock_db])
@@ -155,6 +165,4 @@ def test_user_with_sandbox_operator_flag_passes_authz(skill_mock):
     app = _make_app_with_auth(_user_ctx(is_sandbox_operator=True))
     client = TestClient(app, raise_server_exceptions=False)
     status = _post_sandbox_run(client)
-    assert status != 403, (
-        f"Expected is_sandbox_operator=True to bypass authz block, got {status}"
-    )
+    assert status != 403, f"Expected is_sandbox_operator=True to bypass authz block, got {status}"

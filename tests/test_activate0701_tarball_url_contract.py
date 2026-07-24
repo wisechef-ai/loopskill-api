@@ -66,9 +66,7 @@ def test_reconcile_add_rows_carry_signed_tarball_url(
 ) -> None:
     cb, skill = bundle_with_skill
     ctx = AuthContext(scope="user", user_id=owner.id)
-    result = recipes_reconcile(
-        db_session, cookbook_id=str(cb.id), local=[], dry_run=True, ctx=ctx
-    )
+    result = recipes_reconcile(db_session, cookbook_id=str(cb.id), local=[], dry_run=True, ctx=ctx)
     assert "error" not in result, result
     adds = result["diff"]["add"]
     assert len(adds) == 1
@@ -84,9 +82,7 @@ def test_reconcile_update_rows_carry_signed_tarball_url(
     cb, skill = bundle_with_skill
     ctx = AuthContext(scope="user", user_id=owner.id)
     local = [{"slug": skill.slug, "pinned_version": "0.9.0", "sha256": None}]
-    result = recipes_reconcile(
-        db_session, cookbook_id=str(cb.id), local=local, dry_run=True, ctx=ctx
-    )
+    result = recipes_reconcile(db_session, cookbook_id=str(cb.id), local=local, dry_run=True, ctx=ctx)
     updates = result["diff"]["update"]
     assert len(updates) == 1
     assert "tarball_url" in updates[0]
@@ -103,9 +99,7 @@ def test_tarball_url_token_verifies_against_download_salt_chain(
 
     cb, skill = bundle_with_skill
     ctx = AuthContext(scope="user", user_id=owner.id)
-    result = recipes_reconcile(
-        db_session, cookbook_id=str(cb.id), local=[], dry_run=True, ctx=ctx
-    )
+    result = recipes_reconcile(db_session, cookbook_id=str(cb.id), local=[], dry_run=True, ctx=ctx)
     url = result["diff"]["add"][0]["tarball_url"]
     token = parse_qs(urlparse(url).query)["token"][0]
     payload = _verify_signed_token(token, secret=settings.SIGNING_SECRET)

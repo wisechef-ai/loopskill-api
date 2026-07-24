@@ -27,20 +27,25 @@ def _seed_dev_skills(db_session):
     broad multi-keyword query *literally* (so the ILIKE pass returns 0) but DO
     match it semantically via BM25 over title+description+related_skills."""
     skills_data = [
-        ("critical-code-reviewer", "Critical code reviewer",
-         "Rigorous adversarial review of source code with zero tolerance for sloppiness."),
-        ("gh-fix-ci", "GitHub CI fixer",
-         "Diagnose and fix failing PR checks on GitHub Actions."),
-        ("pr-draft", "Pull request drafter",
-         "Generate structured PR descriptions from git diffs."),
-        ("clean-code", "Clean code",
-         "Write readable, maintainable code through disciplined naming."),
-        ("clean-architecture", "Clean architecture",
-         "Structure software around the Dependency Rule."),
-        ("domain-driven-design", "Domain-driven design",
-         "Model software around the business domain using bounded contexts."),
-        ("gitnexus", "GitNexus codebase analysis",
-         "Analyze codebases with GitNexus — index dependencies, call chains."),
+        (
+            "critical-code-reviewer",
+            "Critical code reviewer",
+            "Rigorous adversarial review of source code with zero tolerance for sloppiness.",
+        ),
+        ("gh-fix-ci", "GitHub CI fixer", "Diagnose and fix failing PR checks on GitHub Actions."),
+        ("pr-draft", "Pull request drafter", "Generate structured PR descriptions from git diffs."),
+        ("clean-code", "Clean code", "Write readable, maintainable code through disciplined naming."),
+        ("clean-architecture", "Clean architecture", "Structure software around the Dependency Rule."),
+        (
+            "domain-driven-design",
+            "Domain-driven design",
+            "Model software around the business domain using bounded contexts.",
+        ),
+        (
+            "gitnexus",
+            "GitNexus codebase analysis",
+            "Analyze codebases with GitNexus — index dependencies, call chains.",
+        ),
     ]
     for slug, title, desc in skills_data:
         s = Skill(
@@ -68,13 +73,13 @@ def test_broad_dev_query_was_a_zero_hit_keyword_match(db_session):
     broad query, which is not a realistic agent search scenario.
     """
     _seed_dev_skills(db_session)
-    broad = ("development coding code review debugging testing github pull "
-             "request refactor tdd planning software engineering")
+    broad = (
+        "development coding code review debugging testing github pull "
+        "request refactor tdd planning software engineering"
+    )
     # hybrid=False forces the legacy literal-only behaviour for the comparison.
     out = loopskill_search(db_session, query=broad, hybrid=False)
-    assert out["total"] == 0, (
-        f"reproducer query no longer 0-hit on keyword path — got {out['total']}"
-    )
+    assert out["total"] == 0, f"reproducer query no longer 0-hit on keyword path — got {out['total']}"
     assert out["backend"] == "keyword"
     assert out["hybrid_augmented"] is False
 
@@ -82,8 +87,10 @@ def test_broad_dev_query_was_a_zero_hit_keyword_match(db_session):
 def test_broad_dev_query_returns_hits_via_hybrid_fallback(db_session):
     """Issue #111: the same broad query should return results via hybrid."""
     _seed_dev_skills(db_session)
-    broad = ("development coding code review debugging testing github pull "
-             "request refactor tdd planning software engineering")
+    broad = (
+        "development coding code review debugging testing github pull "
+        "request refactor tdd planning software engineering"
+    )
     out = loopskill_search(db_session, query=broad, hybrid=True, limit=10)
     # With hybrid we should land at least 1 dev skill via BM25.
     assert out["total"] >= 1, f"hybrid fallback returned no results: {out}"

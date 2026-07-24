@@ -1,4 +1,5 @@
 """Tests for carousel cron — daily_carousel_job idempotency and correctness."""
+
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
@@ -50,6 +51,7 @@ def _count_entries(db, target: date) -> int:
 
 
 # ── Cron tests ─────────────────────────────────────────────────────────────
+
 
 class TestDailyCarouselJob:
     def test_inserts_up_to_7_entries(self, db_session):
@@ -184,8 +186,10 @@ class TestDailyCarouselJob:
         entries = (
             db_session.query(CarouselEntry)
             .filter(
-                CarouselEntry.featured_date >= datetime.combine(target, datetime.min.time(), tzinfo=timezone.utc),
-                CarouselEntry.featured_date <= datetime.combine(target, datetime.max.time(), tzinfo=timezone.utc),
+                CarouselEntry.featured_date
+                >= datetime.combine(target, datetime.min.time(), tzinfo=timezone.utc),
+                CarouselEntry.featured_date
+                <= datetime.combine(target, datetime.max.time(), tzinfo=timezone.utc),
             )
             .all()
         )

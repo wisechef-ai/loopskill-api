@@ -183,17 +183,13 @@ def test_fleet_subscribe_idempotent(fleet_db):
     cookbook = _make_cookbook(fleet_db, owner_id=owner)
     cb_id = str(cookbook.id)
 
-    r1 = loopskill_fleet_subscribe(
-        fleet_db, fleet_id=fleet_id, cookbook_id=cb_id, channel="stable", ctx=ctx
-    )
+    r1 = loopskill_fleet_subscribe(fleet_db, fleet_id=fleet_id, cookbook_id=cb_id, channel="stable", ctx=ctx)
     assert r1["fleet_id"] == fleet_id
     assert r1["cookbook_id"] == cb_id
     assert r1["channel"] == "stable"
 
     # Second call must NOT raise and must return same result
-    r2 = loopskill_fleet_subscribe(
-        fleet_db, fleet_id=fleet_id, cookbook_id=cb_id, channel="stable", ctx=ctx
-    )
+    r2 = loopskill_fleet_subscribe(fleet_db, fleet_id=fleet_id, cookbook_id=cb_id, channel="stable", ctx=ctx)
     assert r2["fleet_id"] == fleet_id
     assert r2["cookbook_id"] == cb_id
 
@@ -298,9 +294,7 @@ def test_x_fleet_key_header_grants_install_access(fleet_db):
 
     # The middleware path looks up by sha256 hash
     key_hash = hashlib.sha256(fleet_key.encode()).hexdigest()
-    fleet_row = fleet_db.query(Fleet).filter(
-        Fleet.fleet_api_key_hash == key_hash
-    ).first()
+    fleet_row = fleet_db.query(Fleet).filter(Fleet.fleet_api_key_hash == key_hash).first()
     assert fleet_row is not None, "Fleet row must be queryable by key hash"
 
     # Verify the key prefix is distinct
@@ -431,18 +425,14 @@ def test_fleet_create_forbidden_for_anonymous(fleet_db):
 def test_fleet_subscribe_invalid_fleet_id(fleet_db):
     """loopskill_fleet_subscribe must return error for bad fleet_id."""
     ctx = AuthContext(scope="master")
-    result = loopskill_fleet_subscribe(
-        fleet_db, fleet_id="not-a-uuid", cookbook_id=str(uuid4()), ctx=ctx
-    )
+    result = loopskill_fleet_subscribe(fleet_db, fleet_id="not-a-uuid", cookbook_id=str(uuid4()), ctx=ctx)
     assert result.get("error") == "invalid_fleet_id"
 
 
 def test_fleet_subscribe_not_found(fleet_db):
     """loopskill_fleet_subscribe must return not_found for unknown fleet."""
     ctx = AuthContext(scope="master")
-    result = loopskill_fleet_subscribe(
-        fleet_db, fleet_id=str(uuid4()), cookbook_id=str(uuid4()), ctx=ctx
-    )
+    result = loopskill_fleet_subscribe(fleet_db, fleet_id=str(uuid4()), cookbook_id=str(uuid4()), ctx=ctx)
     assert result.get("error") == "not_found"
 
 

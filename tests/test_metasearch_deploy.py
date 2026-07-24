@@ -115,9 +115,9 @@ def test_pin_creates_servable_skillversion_artifact(db_session, monkeypatch, tmp
     assert ver is not None, "a content-addressed SkillVersion must exist for reconcile"
     import hashlib as _h
 
-    assert (
-        ver.checksum_sha256 == _h.sha256(Path(ver.tarball_path).read_bytes()).hexdigest()
-    ), "checksum must be the TARBALL bytes sha (what reconcile_fetch verifies)"
+    assert ver.checksum_sha256 == _h.sha256(Path(ver.tarball_path).read_bytes()).hexdigest(), (
+        "checksum must be the TARBALL bytes sha (what reconcile_fetch verifies)"
+    )
     assert ver.tarball_path and Path(ver.tarball_path).is_file(), "the tarball must be packed on disk"
     with tarfile.open(ver.tarball_path, "r:gz") as tf:
         member = tf.extractfile("SKILL.md")
@@ -168,9 +168,9 @@ def test_pinned_checksum_matches_reconcile_fetch_verification(db_session, monkey
     )
     tarball_bytes = Path(ver.tarball_path).read_bytes()
     # THIS is exactly what reconcile_fetch computes and compares (reconcile_fetch.py:100)
-    assert (
-        ver.checksum_sha256 == hashlib.sha256(tarball_bytes).hexdigest()
-    ), "checksum MUST be the tarball-bytes sha, or every reconcile fetch rolls back"
+    assert ver.checksum_sha256 == hashlib.sha256(tarball_bytes).hexdigest(), (
+        "checksum MUST be the tarball-bytes sha, or every reconcile fetch rolls back"
+    )
     # and it must NOT be the body sha (the prior bug)
     assert ver.checksum_sha256 != content_sha(body)
 

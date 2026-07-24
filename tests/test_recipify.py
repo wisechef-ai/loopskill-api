@@ -3,6 +3,7 @@
 These tests are written RED-first (before patching app/recipify.py).
 Expected to FAIL against the baseline implementation.
 """
+
 from __future__ import annotations
 
 from typing import Generator
@@ -87,9 +88,7 @@ def test_tier_kwarg_honored_on_create_and_update(db_session):
     )
     assert status2 == "updated"
     db_session.refresh(skill)
-    assert skill.tier == "operator", (
-        f"Expected tier='operator' after update, got {skill.tier!r}"
-    )
+    assert skill.tier == "operator", f"Expected tier='operator' after update, got {skill.tier!r}"
 
 
 # ── Test 2 ───────────────────────────────────────────────────────────────────
@@ -128,9 +127,7 @@ def test_creator_id_set_from_ctx(db_session):
 
     creator = db_session.query(Creator).filter(Creator.id == skill.creator_id).first()
     assert creator is not None, "Creator row must exist"
-    assert creator.user_id == user_id, (
-        f"Creator.user_id must match ctx.user_id, got {creator.user_id!r}"
-    )
+    assert creator.user_id == user_id, f"Creator.user_id must match ctx.user_id, got {creator.user_id!r}"
 
 
 # ── Test 3 ───────────────────────────────────────────────────────────────────
