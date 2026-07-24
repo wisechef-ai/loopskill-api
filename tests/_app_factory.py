@@ -108,6 +108,13 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.loop_routes", "router", ""),  # dual-mount /api/loops + /api/verifiers
     ("app.personality_routes", "router", "/api"),
     ("app.search_routes", "router", "/api"),  # feat/unified-search
+    # ah0724 rank-8 REVENUE/CATALOG — was missing: GET /api/composite-loops
+    # (list) + GET /api/composite-loops/{slug} (detail) live in
+    # composite_loop_routes.py, mounted in app.main.create_app but never
+    # added here, so every test hitting those GETs 404'd through
+    # build_test_app. Only composite_loop_deploy_routes (POST .../deploy)
+    # was present.
+    ("app.composite_loop_routes", "router", ""),  # activate_0701 Phase A2
     ("app.composite_loop_deploy_routes", "router", ""),  # feat/composite-loop-deploy
 ]
 
