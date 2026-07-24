@@ -46,6 +46,13 @@ router = APIRouter()
 
 
 def _composite_loop_to_out(cl: CompositeLoop) -> CompositeLoopOut:
+    # ah0724 rank-1: the DETAIL path already synthesized agent_instructions
+    # via _composite_loop_agent_instructions (see that helper's docstring for
+    # why a stored deploy API can't be self-served by a remote agent) — LIST
+    # just never called it, leaving browse cards dead. Compute it here once
+    # so both LIST and DETAIL share the exact same string (get_composite_loop
+    # below no longer needs to recompute it separately).
+    instr = _composite_loop_agent_instructions(cl)
     return CompositeLoopOut(
         id=cl.id,
         slug=cl.slug,
@@ -62,6 +69,8 @@ def _composite_loop_to_out(cl: CompositeLoop) -> CompositeLoopOut:
         updated_at=cl.updated_at or datetime.now(UTC),
         tags=list(cl.tags or []),
         value_tagline=_composite_loop_value_tagline(cl),
+        agent_instructions=instr,
+        deploy_hint=bool(instr),
     )
 
 
@@ -119,6 +128,7 @@ def get_composite_loop(slug: str, db: Session = Depends(get_db)) -> CompositeLoo
         ],
         agent_instructions=_composite_loop_agent_instructions(cl),
         value_tagline=_composite_loop_value_tagline(cl),
+        deploy_hint=True,
     )
     return CompositeLoopDetailOut(**base)
 

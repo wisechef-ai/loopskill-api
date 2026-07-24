@@ -535,6 +535,20 @@ class CompositeLoopOut(BaseModel):
     # _composite_loop_value_tagline in composite_loop_routes.py); no stored
     # column, no migration.
     value_tagline: str | None = None
+    # ah0724 rank-1 — the same deploy-mechanics agent_instructions text that
+    # DETAIL already carries (below, CompositeLoopDetailOut), now also on
+    # LIST. _composite_loop_agent_instructions was already synthesizing this
+    # for DETAIL; the LIST serializer (_composite_loop_to_out) just wasn't
+    # calling it, so browse cards were dead while DETAIL worked. Computed at
+    # serve time — no stored column, no migration. Moved up from
+    # CompositeLoopDetailOut so both endpoints share one field definition.
+    agent_instructions: str | None = None
+    # ah0724 rank-1 — cheap deploy-affordance signal for LIST consumers
+    # (browse cards, MCP discovery) that don't want to parse the full
+    # agent_instructions prose just to know "can I deploy this from here".
+    # True whenever agent_instructions is non-empty (i.e. always, for any
+    # public non-archived composite loop returned by list_composite_loops).
+    deploy_hint: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -547,14 +561,6 @@ class CompositeLoopDetailOut(CompositeLoopOut):
     budget_usd: float | None = None
     prompt: str = ""
     versions: list[dict] = []
-    # ah0723 rank-1 — distribution=1 bottleneck (dreaming 2026-07-22 maturity
-    # verdict): atomic-habits + dreaming both show install_count=0 LIVE
-    # despite the deploy API + portal CTA shipping (#125, portal e82cb8d).
-    # A remote agent reading this endpoint got a UI-only click-path with no
-    # machine-actionable instructions — mirrors the agent_instructions field
-    # already on skill install (skill_routes.py) and verifier run
-    # (verifier_routes.py). Populated in get_composite_loop().
-    agent_instructions: str | None = None
 
 
 class CompositeLoopPublishIn(BaseModel):
