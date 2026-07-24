@@ -100,9 +100,7 @@ def _resolve_pack(pack_slug: str, db: Session) -> dict:
             )
     else:
         rows = (
-            db.query(Verifier)
-            .filter(Verifier.slug.in_(member_slugs), Verifier.is_archived.is_(False))
-            .all()
+            db.query(Verifier).filter(Verifier.slug.in_(member_slugs), Verifier.is_archived.is_(False)).all()
         )
         by_slug = {v.slug: v for v in rows}
         members = []
