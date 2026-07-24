@@ -51,10 +51,14 @@ _UNSAFE_UNICODE = frozenset(
     "\uff0f"  # FULLWIDTH SOLIDUS — looks like '/'
     "\u2044"  # FRACTION SLASH
     "\u2215"  # DIVISION SLASH
+    "\u29f8"  # BIG SOLIDUS
     "\uff3c"  # FULLWIDTH REVERSE SOLIDUS
     "\u2216"  # SET MINUS
+    "\u29f5"  # REVERSE SOLIDUS OPERATOR
     "\u202a\u202b\u202c\u202d\u202e"  # bidi embedding/override
     "\u2066\u2067\u2068\u2069"  # bidi isolates
+    "\u200e\u200f\u061c"  # LTR/RTL marks, arabic letter mark
+    "\u206a\u206b\u206c\u206d\u206e\u206f"  # deprecated bidi controls
     "\u200b\u200c\u200d\u2060\ufeff"  # zero-width / invisible joiners
     "\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008"
     "\u2009\u200a\u2028\u2029\u202f\u205f\u3000"  # unicode whitespace

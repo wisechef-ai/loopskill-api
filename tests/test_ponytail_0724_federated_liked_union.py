@@ -74,6 +74,13 @@ def _bundle_skill(db, owner_id, skill) -> None:
     db.flush()
 
 
+def _ctx(user_id):
+    """A user-scope AuthContext, as the engagement routes build it."""
+    from app.auth_ctx import AuthContext
+
+    return AuthContext(scope="user", user_id=user_id)
+
+
 class TestFederatedLikesReachTheLibrary:
     """A hearted hub skill must be visible — on `federated_skills`."""
 
@@ -203,7 +210,7 @@ class TestLocalLikeFromTheHeartReachesTheLibrary:
         u = _user(db_session)
         skill = make_skill(db_session, slug="heart-me", title="Heart Me")
 
-        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=True)
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=True, ctx=_ctx(u.id))
 
         shelf = liked_library(db_session, owner_id=u.id)["shelves"]["skills"]
         assert [r["slug"] for r in shelf] == ["heart-me"]
@@ -212,9 +219,9 @@ class TestLocalLikeFromTheHeartReachesTheLibrary:
     def test_unliking_removes_it_again(self, db_session):
         u = _user(db_session)
         skill = make_skill(db_session, slug="heart-me-2", title="Heart Me 2")
-        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=True)
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=True, ctx=_ctx(u.id))
 
-        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=False)
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=False, ctx=_ctx(u.id))
 
         assert liked_library(db_session, owner_id=u.id)["shelves"]["skills"] == []
 
@@ -222,8 +229,8 @@ class TestLocalLikeFromTheHeartReachesTheLibrary:
         u = _user(db_session)
         skill = make_skill(db_session, slug="heart-me-3", title="Heart Me 3")
 
-        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=True)
-        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=True)
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=True, ctx=_ctx(u.id))
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=True, ctx=_ctx(u.id))
 
         assert len(liked_library(db_session, owner_id=u.id)["shelves"]["skills"]) == 1
 
@@ -231,7 +238,7 @@ class TestLocalLikeFromTheHeartReachesTheLibrary:
         u = _user(db_session)
         skill = make_skill(db_session, slug="heart-me-4", title="Heart Me 4")
 
-        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=False)
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=False, ctx=_ctx(u.id))
 
         assert liked_library(db_session, owner_id=u.id)["shelves"]["skills"] == []
 
@@ -240,7 +247,7 @@ class TestLocalLikeFromTheHeartReachesTheLibrary:
         theirs = _user(db_session)
         skill = make_skill(db_session, slug="heart-me-5", title="Heart Me 5")
 
-        set_local_like_by_skill(db_session, owner_id=mine.id, skill=skill, liked=True)
+        set_local_like_by_skill(db_session, owner_id=mine.id, skill=skill, liked=True, ctx=_ctx(mine.id))
 
         assert liked_library(db_session, owner_id=theirs.id)["shelves"]["skills"] == []
 
@@ -248,7 +255,92 @@ class TestLocalLikeFromTheHeartReachesTheLibrary:
         u = _user(db_session)
         skill = make_skill(db_session, slug="heart-me-6", title="Heart Me 6")
 
-        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=True)
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=True, ctx=_ctx(u.id))
 
         row = liked_library(db_session, owner_id=u.id)["shelves"]["skills"][0]
         assert set(row) == {"id", "slug", "title", "liked_at"}
+
+
+class TestLikingCannotEscalatePrivilege:
+    """R3 self-audit — the local-like mirror is an AUTHZ surface.
+
+    ``authz.can_read_skill`` grants access to a private skill when it lives in a
+    bundle the caller OWNS (the loopclose_3005 Phase C bundle-ownership clause):
+
+        BundleSkill.skill_id == skill.id AND Bundle.bundle_owner == ctx.user_id
+
+    The Liked bundle IS owned by the caller. And ``_resolve_track_identity`` in
+    engagement_routes does a BARE slug lookup with no visibility gate — it
+    resolves any Skill row, public or not.
+
+    Chained, that is a privilege escalation: like a private skill you cannot
+    read -> it lands in your Liked bundle -> can_read_skill now returns True ->
+    you can read and INSTALL it. The mirror must therefore refuse to write a
+    skill the caller may not already read, exactly as ``set_liked_artifact``
+    does via its own ``authz.can_read_skill`` gate.
+    """
+
+    def test_a_private_skill_is_not_added_to_a_strangers_liked_bundle(self, db_session):
+        attacker = _user(db_session)
+        private = make_skill(db_session, slug="secret-skill", title="Secret", is_public=False)
+
+        set_local_like_by_skill(
+            db_session,
+            owner_id=attacker.id,
+            skill=private,
+            liked=True,
+            ctx=_ctx(attacker.id),
+        )
+
+        assert liked_library(db_session, owner_id=attacker.id)["shelves"]["skills"] == []
+
+    def test_the_escalation_chain_is_broken(self, db_session):
+        """After the attempted like, the attacker still may not read it."""
+        from app import authz
+
+        attacker = _user(db_session)
+        private = make_skill(db_session, slug="secret-skill-2", title="Secret 2", is_public=False)
+        ctx = _ctx(attacker.id)
+
+        set_local_like_by_skill(db_session, owner_id=attacker.id, skill=private, liked=True, ctx=ctx)
+
+        assert authz.can_read_skill(ctx, private, db=db_session) is False
+
+    def test_a_private_skill_in_a_bundle_you_own_may_be_liked(self, db_session):
+        """The legitimate path: bundle ownership already grants read access
+        (loopclose_3005 Phase C). Skill has no `skill_owner` column."""
+        owner = _user(db_session)
+        private = make_skill(db_session, slug="my-secret", title="Mine", is_public=False)
+        _bundle_skill(db_session, owner.id, private)
+
+        set_local_like_by_skill(db_session, owner_id=owner.id, skill=private, liked=True, ctx=_ctx(owner.id))
+
+        shelf = liked_library(db_session, owner_id=owner.id)["shelves"]["skills"]
+        assert [r["slug"] for r in shelf] == ["my-secret"]
+
+    def test_a_like_with_no_context_fails_closed(self, db_session):
+        """Missing ctx must never be treated as permission."""
+        u = _user(db_session)
+        public = make_skill(db_session, slug="no-ctx", title="No Ctx", is_public=True)
+
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=public, liked=True, ctx=None)
+
+        assert liked_library(db_session, owner_id=u.id)["shelves"]["skills"] == []
+
+    def test_public_skills_are_unaffected(self, db_session):
+        u = _user(db_session)
+        public = make_skill(db_session, slug="public-one", title="Public", is_public=True)
+
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=public, liked=True, ctx=_ctx(u.id))
+
+        assert len(liked_library(db_session, owner_id=u.id)["shelves"]["skills"]) == 1
+
+    def test_unliking_is_never_gated(self, db_session):
+        """Removing a reference from your OWN bundle needs no fresh read gate."""
+        u = _user(db_session)
+        skill = make_skill(db_session, slug="ungate-me", title="Ungate")
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=True, ctx=_ctx(u.id))
+
+        set_local_like_by_skill(db_session, owner_id=u.id, skill=skill, liked=False, ctx=None)
+
+        assert liked_library(db_session, owner_id=u.id)["shelves"]["skills"] == []

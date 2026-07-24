@@ -107,6 +107,7 @@ def set_local_like_by_skill(
     owner_id: UUID,
     skill: Skill,
     liked: bool,
+    ctx: AuthContext | None = None,
 ) -> None:
     """Mirror a slug-route like of a LOCAL skill into the deployable Liked bundle.
 
@@ -126,10 +127,34 @@ def set_local_like_by_skill(
     come through here: we do not host them, and ``BundleSkill`` drives
     ``authz.can_install`` + fleet reconcile.
 
-    Authorization note: the caller (the slug route) has already resolved the
-    skill from a public catalog lookup. This helper does not widen access — it
-    only adds a reference to the caller's OWN Liked bundle.
+    AUTHORIZATION (R3 self-audit — this is a privilege-escalation surface).
+    ``authz.can_read_skill`` grants access to a PRIVATE skill that lives in a
+    bundle the caller owns (the loopclose_3005 Phase C bundle-ownership clause),
+    and the Liked bundle is owned by the caller. Meanwhile the slug route's
+    ``_resolve_track_identity`` does a BARE slug lookup with NO visibility gate.
+    Chained, that would be: like a private skill you cannot read -> it enters
+    your Liked bundle -> ``can_read_skill`` now returns True -> you can read and
+    INSTALL it. So a LIKE is gated on ``authz.can_read_skill`` exactly as
+    ``set_liked_artifact`` gates its own writes. Callers in this path MUST pass
+    ``ctx``; without it we fail closed and write nothing.
+
+    An UNLIKE is never gated — removing a reference from your own bundle cannot
+    widen access — so ``ctx`` may be ``None`` there.
+
+    TRANSACTIONS (R3 MEDIUM #2). This helper only ``flush()``es; the CALLER owns
+    the commit, so the engagement row and this mirror land in ONE transaction
+    (the routes stage both, then commit once). Residual, documented: the
+    pre-existing ``ensure_liked_bundle`` commits when it CREATES a user's Liked
+    bundle — a first-ever like therefore has a commit boundary before the join
+    write. That is idempotent and self-healing (an empty Liked bundle is the
+    steady state for every user anyway, and the next like re-runs the mirror),
+    so it is not worth changing a helper shared by other callers.
     """
+    if liked:
+        if ctx is None or not authz.can_read_skill(ctx, skill, db=db):
+            # Fail closed: no context, or no read access → never write.
+            return
+
     bundle = ensure_liked_bundle(db, owner_id)
     existing = (
         db.query(BundleSkill)
