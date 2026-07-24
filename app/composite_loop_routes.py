@@ -61,6 +61,7 @@ def _composite_loop_to_out(cl: CompositeLoop) -> CompositeLoopOut:
         created_at=cl.created_at or datetime.now(UTC),
         updated_at=cl.updated_at or datetime.now(UTC),
         tags=list(cl.tags or []),
+        value_tagline=_composite_loop_value_tagline(cl),
     )
 
 
@@ -117,6 +118,7 @@ def get_composite_loop(slug: str, db: Session = Depends(get_db)) -> CompositeLoo
             for v in cl.versions
         ],
         agent_instructions=_composite_loop_agent_instructions(cl),
+        value_tagline=_composite_loop_value_tagline(cl),
     )
     return CompositeLoopDetailOut(**base)
 
@@ -132,8 +134,17 @@ def _composite_loop_agent_instructions(cl: CompositeLoop) -> str:
     (skill_routes.py FETCH_ORIGIN, verifier_routes.py post-run) instead of
     inventing a new pattern: tell the calling agent exactly what to relay
     to its human operator to close the loop.
+
+    ah0724 rank-8 REVENUE/CATALOG: prepend a value hook ("Why: ...") ahead
+    of the deploy mechanics so a remote agent relays *why* it's worth
+    running, not just *how*. Every mechanics claim below (portal
+    deep-link, POST path, fleet_id/member_id source, ~30 min sync tick,
+    schedule) is UNCHANGED and remains a public claim surface — do not
+    alter it without re-verifying against the live deploy flow.
     """
+    why = _composite_loop_value_tagline(cl) or f"run '{cl.slug}' as an autonomous loop on your fleet"
     return (
+        f"Why: {why}. "
         f"To run '{cl.slug}' on your own fleet: have your human operator open "
         f"https://app.loopskill.io/loops/view?slug={cl.slug} while signed in, "
         "pick a fleet + agent, and click Deploy — or call "
@@ -144,6 +155,40 @@ def _composite_loop_agent_instructions(cl: CompositeLoop) -> str:
         f"'{cl.schedule}'. No manual copy-paste of skills/config required — "
         "the deploy call materializes the full composition server-side."
     )
+
+
+def _composite_loop_value_tagline(cl: CompositeLoop) -> str | None:
+    """Per-loop converting one-liner for LIST cards + DETAIL.
+
+    ah0724 rank-8 REVENUE/CATALOG: the two live composite loops
+    (atomic-habits, dreaming) both show install_count=0 despite the deploy
+    API + portal CTA shipping — the catalog copy never explained the value
+    in a single scannable sentence. Computed at serve time (no stored
+    column, no migration): a per-slug dict for the flagship loops, with a
+    generic fallback derived from cl.description for any future loop that
+    doesn't have bespoke copy yet. Every string here must accurately
+    describe what the loop does (grounded in description/prompt) — no
+    overclaiming.
+    """
+    taglines: dict[str, str] = {
+        "atomic-habits": (
+            "Ships one verified 1% improvement to your agent every night — "
+            "compounding gains while you sleep, no babysitting."
+        ),
+        "dreaming": (
+            "Your agent's nightly sleep cycle: consolidates the day's "
+            "memories, extracts what mattered, prunes the noise — so "
+            "tomorrow it starts sharper."
+        ),
+    }
+    if cl.slug in taglines:
+        return taglines[cl.slug]
+    if cl.description:
+        # First sentence only — keep the fallback to a single scannable line.
+        first_sentence = cl.description.split(". ")[0].strip()
+        if first_sentence:
+            return first_sentence if first_sentence.endswith(".") else f"{first_sentence}."
+    return None
 
 
 def publish_composite_loop(

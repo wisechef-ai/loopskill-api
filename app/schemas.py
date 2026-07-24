@@ -530,6 +530,11 @@ class CompositeLoopOut(BaseModel):
     # ah0723 rank-8 REVENUE/CATALOG — discovery tags (mirrors SkillOut/loops
     # tags pattern). NULL-safe, defaults to [] when the row has none.
     tags: list[str] = []
+    # ah0724 rank-8 REVENUE/CATALOG — converting one-liner surfaced on LIST
+    # cards + DETAIL. Computed at serve time (see
+    # _composite_loop_value_tagline in composite_loop_routes.py); no stored
+    # column, no migration.
+    value_tagline: str | None = None
 
     model_config = {"from_attributes": True}
 
