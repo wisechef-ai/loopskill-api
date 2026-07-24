@@ -348,10 +348,123 @@ class TestResolvedGithubIdPathTruth:
         assert hs.install_path_for_row(self.PONYTAIL) == hs.InstallPath.FETCH_ORIGIN
 
     def test_mapped_row_persists_the_resolved_path(self):
-        """map_hub_row must store the REAL path so installs resolve too."""
+        """map_hub_row stores the REAL path (display + any future consumer).
+
+        SCOPE NOTE (R1, Codex MUST-FIX #1): this stores the corrected path on
+        the row. It does NOT by itself repair Hub INSTALL resolution — a
+        ``source="hermes-hub"`` row is fetched by
+        ``federation_live.hermes_origin_skill_md``, which derives its raw URL
+        from the SLUG, not from this column. The original commit message
+        overclaimed on that point; this fix repairs the user-facing ORIGIN URL
+        (16,006 rows), and leaves Hub-install resolution unchanged.
+        """
         mapped = hs.map_hub_row(self.PONYTAIL)
         assert mapped["path"] == "skills/ponytail"
         assert mapped["origin_url"].endswith("/tree/main/skills/ponytail")
+
+
+class TestHostileResolvedGithubId:
+    """R1 MUST-FIX #3 — ``resolved_github_id`` is THIRD-PARTY data.
+
+    The Hub snapshot indexes arbitrary public GitHub repos, so these fields are
+    attacker-influenced. The first cut validated only the owner/repo prefix and
+    trusted the rest, so ``owner/repo/../../../evil`` produced
+    ``https://github.com/owner/repo/tree/main/../../../evil`` — a link that
+    escapes the tree it claims to point into.
+    """
+
+    BASE = {"source": "skills.sh", "repo": "owner/repo", "path": "label"}
+
+    def _row(self, resolved):
+        return {**self.BASE, "resolved_github_id": resolved}
+
+    @pytest.mark.parametrize(
+        "hostile",
+        [
+            "owner/repo/../../../evil",
+            "owner/repo/..",
+            "owner/repo/./x",
+            "owner/repo/a/../../../../etc/passwd",
+            "owner/repo/a//b",
+            "owner/repo//",
+            "owner/repo/a\\b",
+            "owner/repo/http:/evil.example",
+            "owner/repo/x?y=1",
+            "owner/repo/x#frag",
+            "owner/repo/a\nb",
+            "owner/repo/a\tb",
+            "owner/repo/ ",
+        ],
+    )
+    def test_hostile_resolved_id_never_reaches_the_url(self, hostile):
+        row = self._row(hostile)
+        path = hs.resolved_repo_path(row)
+        assert path == "label", f"hostile value leaked: {path!r}"
+        assert ".." not in hs.origin_url_for_row(row)
+
+    def test_traversal_specifically_cannot_escape_the_repo_tree(self):
+        row = self._row("owner/repo/../../../evil")
+        assert hs.origin_url_for_row(row) == "https://github.com/owner/repo/tree/main/label"
+
+    def test_overlong_path_is_rejected_so_storage_cannot_truncate_it(self):
+        """A path we accept must fit the String(512) column WHOLE.
+
+        Otherwise ``map_hub_row``'s ``[:512]`` cuts mid-component and stores a
+        different — but still plausible — location than the URL advertises.
+        """
+        row = self._row("owner/repo/" + ("a" * 600))
+        assert hs.resolved_repo_path(row) == "label"
+        assert len(hs.map_hub_row(row)["path"]) <= 512
+
+    def test_path_at_exactly_the_column_limit_is_accepted_whole(self):
+        exact = "a" * 512
+        row = self._row(f"owner/repo/{exact}")
+        assert hs.resolved_repo_path(row) == exact
+        assert hs.map_hub_row(row)["path"] == exact
+
+    def test_a_hostile_flat_label_is_also_rejected(self):
+        """The fallback rung is validated by the SAME predicate."""
+        row = {"source": "skills.sh", "repo": "owner/repo", "path": "../evil"}
+        assert hs.resolved_repo_path(row) == ""
+        assert hs.origin_url_for_row(row) == "https://github.com/owner/repo"
+
+    def test_malformed_repo_field_is_not_a_valid_prefix(self):
+        """``repo`` must be a real ``owner/name`` pair or the guard is moot."""
+        for bad_repo in ("owner", "a/b/c", "/", ""):
+            row = {
+                "source": "skills.sh",
+                "repo": bad_repo,
+                "path": "label",
+                "resolved_github_id": f"{bad_repo}/skills/x",
+            }
+            assert hs.resolved_repo_path(row) == "label"
+
+    def test_a_rejected_row_degrades_to_deep_link_not_a_bad_fetch(self):
+        """No validated path → not installable, rather than installable-wrongly."""
+        row = {"source": "skills.sh", "repo": "owner/repo", "path": "../evil"}
+        assert hs.install_path_for_row(row) == hs.InstallPath.DEEP_LINK
+
+    @pytest.mark.parametrize(
+        "legit",
+        [
+            # npm-scoped dirs are legal + common. An earlier cut of the hardening
+            # rejected '@' and regressed 32 REAL rows (ruvnet/ruflo) from a live
+            # 200 to a 404 fallback. Verified live 2026-07-24:
+            #   /tree/main/v3/@claude-flow/cli/.claude/skills/browser -> 200
+            #   /tree/main/browser                                    -> 404
+            "v3/@claude-flow/cli/.claude/skills/browser",
+            # Dotdirs are legal; only bare '.' / '..' COMPONENTS are traversal.
+            "skills/.experimental/12-factor-app",
+            ".claude/skills/foo",
+            "a.b/c-d_e/f.g",
+            "skills/x",
+        ],
+    )
+    def test_legitimate_unusual_paths_are_not_over_rejected(self, legit):
+        """Fail-closed must not mean fail-useless — real paths must survive."""
+        assert hs.is_safe_repo_subpath(legit) is True
+        row = {**self.BASE, "resolved_github_id": f"owner/repo/{legit}"}
+        assert hs.resolved_repo_path(row) == legit
 
 
 # ─────────────────────────── Parse + count ─────────────────────────────────

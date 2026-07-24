@@ -82,24 +82,22 @@ def test_library_heart_contract_mcp_to_http_and_free_scope(db_session):
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"liked_bundle_id", "shelves", "followed_bundles"}
+    # ponytail_0724: `federated_skills` is an ADDITIVE top-level key carrying
+    # hub / skills.sh / ClawHub likes (which have no local UUID and are NOT
+    # deployable). The P1 brief's only hard rule for this body is "NO
+    # count/total field anywhere" — still asserted below — and it explicitly
+    # anticipates additive keys (`followed_bundles` was emitted empty in P1 "so
+    # the contract is stable"). The per-entry shelf shape is the part that is
+    # frozen, and it is unchanged.
+    assert set(body) == {"liked_bundle_id", "shelves", "followed_bundles", "federated_skills"}
     assert body["followed_bundles"] == []
     assert {key: len(value) for key, value in body["shelves"].items()} == {
         "skills": 1,
         "personalities": 1,
         "loops": 1,
     }
-    # ponytail_0724: the SKILLS shelf is now a union of local Liked-bundle rows
-    # and federated skill_likes, so each skill row additionally carries
-    # ``source`` ("local" or the federation source) and ``federated`` (bool) so
-    # the UI can badge external entries. Personalities and loops are local-only
-    # artifacts and keep the original 4-key shape. Additive change — the
-    # original four keys are still present on every shelf.
-    for shelf_name, shelf in body["shelves"].items():
-        base_keys = {"id", "slug", "title", "liked_at"}
-        expected = (base_keys | {"source", "federated"}) if shelf_name == "skills" else base_keys
-        assert set(shelf[0]) == expected
-        assert base_keys <= set(shelf[0])
+    for shelf in body["shelves"].values():
+        assert set(shelf[0]) == {"id", "slug", "title", "liked_at"}
         assert shelf[0]["liked_at"] is not None
     assert "count" not in str(body).lower()
     assert "total" not in str(body).lower()

@@ -102,62 +102,54 @@ def set_liked_artifact(
 
 
 def liked_library(db: Session, *, owner_id: UUID) -> dict:
-    """Return the owner's typed liked shelves and the reserved follows shelf."""
+    """Return the owner's typed liked shelves and the reserved follows shelf.
+
+    ponytail_0724 R1 (Codex MUST-FIX #2 / #7 / #8). The typed ``shelves``
+    payload is a FROZEN CONTRACT (``docs/briefs/liked_0711-P1.md`` §FROZEN
+    CONTRACT): each entry is exactly ``{id, slug, title, liked_at}`` with a UUID
+    ``id``, and the Liked bundle it serialises is a DEPLOYABLE bundle — the
+    reconcile path pulls it onto the caller's agents.
+
+    An earlier cut of this fix merged federated (hub / skills.sh / ClawHub)
+    likes INTO ``shelves.skills`` with ``id: None``. That was wrong twice over:
+    it broke the pinned shape for every existing consumer, and it implied
+    agents could deploy artifacts we neither host nor vet.
+
+    Federated likes are therefore served on their OWN additive key,
+    ``federated_skills`` — new, so it breaks nothing, and structurally separate,
+    so nothing can mistake a community bookmark for a deployable Liked entry.
+    """
     bundle = ensure_liked_bundle(db, owner_id)
     return {
         "liked_bundle_id": str(bundle.id),
         "shelves": {
-            "skills": _liked_skills_shelf(db, owner_id=owner_id, bundle_id=bundle.id),
+            "skills": _liked_shelf(db, BundleSkill, Skill, "skill_id", bundle.id),
             "personalities": _liked_shelf(db, BundlePersonality, Personality, "personality_id", bundle.id),
             "loops": _liked_shelf(db, BundleCompositeLoop, CompositeLoop, "composite_loop_id", bundle.id),
         },
+        # Additive (ponytail_0724). NOT part of the deployable Liked bundle.
+        "federated_skills": _federated_liked_skills(db, owner_id=owner_id),
         "followed_bundles": _followed_bundles(db, owner_id),
     }
 
 
-def _liked_skills_shelf(db: Session, *, owner_id: UUID, bundle_id: UUID) -> list[dict]:
-    """Serialize the skills shelf as local Liked-bundle rows UNION federated likes.
+def _federated_liked_skills(db: Session, *, owner_id: UUID) -> list[dict]:
+    """Serialize the caller's FEDERATED skill likes (hub / skills.sh / ClawHub).
 
-    ponytail_0724. LoopSkill stores skill likes in two places and only one of
-    them can represent a skill we do not host:
+    ponytail_0724. These live in ``skill_likes`` with ``skill_id IS NULL`` and a
+    ``(federated_source, federated_slug)`` identity — the only representation
+    that can name a skill we do not host. They are deliberately NOT merged into
+    ``shelves.skills``:
 
-    - ``BundleSkill`` (the Liked bundle join) — LOCAL catalog skills only. This
-      join also drives ``authz.can_install`` and fleet reconcile, so we must
-      NEVER write a federated row into it: that would hand out install rights
-      for a skill we neither host nor vet.
-    - ``SkillLike`` — carries ``federated_source`` + ``federated_slug`` for hub /
-      skills.sh / ClawHub tracks (``skill_id`` NULL).
+    - ``shelves.skills`` is the DEPLOYABLE Liked bundle (``BundleSkill``), which
+      also drives ``authz.can_install`` and fleet reconcile. Putting a federated
+      row there would grant install rights for unvetted third-party content.
+    - its entry shape is a frozen contract (``{id, slug, title, liked_at}``,
+      ``id`` a UUID). A federated row has no local UUID.
 
-    Before this fix ``liked_library`` read only the first, so hearting a hub
-    skill wrote a row that the library then dropped — a button that lights up
-    and forgets. Adam's call (2026-07-24): unify on the READ path. No schema
-    change, no authz surface change.
-
-    Local rows recorded in BOTH systems are de-duplicated by ``skill_id`` so a
-    skill liked through either surface appears exactly once. Every row carries
-    ``source`` and ``federated`` so the UI can badge external entries.
+    Rows are newest-last (ascending ``liked_at``) to match the typed shelves'
+    ordering convention, and carry ``source`` so the UI can badge them.
     """
-    rows: list[dict] = []
-
-    local = (
-        db.query(BundleSkill, Skill)
-        .join(Skill, Skill.id == BundleSkill.skill_id)
-        .filter(BundleSkill.bundle_id == bundle_id)
-        .order_by(BundleSkill.added_at.asc())
-        .all()
-    )
-    for join, skill in local:
-        rows.append(
-            {
-                "id": str(skill.id),
-                "slug": skill.slug,
-                "title": skill.title,
-                "liked_at": join.added_at,
-                "source": "local",
-                "federated": False,
-            }
-        )
-
     likes = (
         db.query(SkillLike)
         .filter(
@@ -169,21 +161,15 @@ def _liked_skills_shelf(db: Session, *, owner_id: UUID, bundle_id: UUID) -> list
         .order_by(SkillLike.liked_at.asc())
         .all()
     )
-    for like in likes:
-        rows.append(
-            {
-                # Federated tracks have no local artifact UUID and must not
-                # pretend otherwise — the UI keys them off (source, slug).
-                "id": None,
-                "slug": like.federated_slug,
-                "title": like.federated_slug,
-                "liked_at": like.liked_at,
-                "source": like.federated_source,
-                "federated": True,
-            }
-        )
-
-    return rows
+    return [
+        {
+            "slug": like.federated_slug,
+            "title": like.federated_slug,
+            "source": like.federated_source,
+            "liked_at": like.liked_at,
+        }
+        for like in likes
+    ]
 
 
 def _liked_shelf(

@@ -34,6 +34,15 @@ from typing import TYPE_CHECKING, Any, Callable
 from app.models import FederationHubSkill, FederationIndexCache
 from app.services.federation import InstallPath
 
+# ponytail_0724: repo-path resolution + hostile-input validation live in their
+# own module (keeps this file under the 600-line god-object cap). Re-exported
+# here because callers and tests import them from `hub_snapshot`.
+from app.services.hub_repo_path import (  # noqa: F401  (re-export)
+    MAX_REPO_PATH_LEN,
+    is_safe_repo_subpath,
+    resolved_repo_path,
+)
+
 if TYPE_CHECKING:  # pragma: no cover
     import httpx
     from sqlalchemy.orm import Session
@@ -115,48 +124,6 @@ def dedupe_slugs(slugs: list[str]) -> list[str]:
 
 
 # ─────────────────────────────── Install path mapping ───────────────────
-
-
-def resolved_repo_path(row: dict[str, Any]) -> str:
-    """Return the skill's REAL path inside its repo.
-
-    ponytail_0724 fix. The Hub snapshot carries two path-ish fields and only one
-    of them is the truth:
-
-    - ``path``               — a skill *label* (e.g. ``"ponytail"``). Frequently
-      NOT the directory the skill actually lives in.
-    - ``resolved_github_id`` — ``"<owner>/<repo>/<real/path>"``, the upstream's
-      own resolution (e.g. ``"dietrichgebert/ponytail/skills/ponytail"``).
-
-    Trusting ``path`` minted ``/tree/main/ponytail`` → 404, while the truth was
-    ``/tree/main/skills/ponytail``. That affected 16,006 of 90,605 snapshot rows
-    (17.7% of the corpus, ~80% of the skills.sh subset) — every skill nested in
-    a subdirectory.
-
-    We prefer ``resolved_github_id`` but FAIL CLOSED to the flat ``path`` when
-    it is absent, malformed, or claims a different repo than the row's own
-    ``repo`` (defence against a poisoned upstream row pointing us at a
-    third-party repository). The owner/repo comparison is case-insensitive
-    because GitHub owner names are, and upstream casing is inconsistent.
-    """
-    flat_path = (row.get("path") or "").strip().strip("/")
-    repo = (row.get("repo") or "").strip().strip("/")
-    resolved = row.get("resolved_github_id")
-
-    if not isinstance(resolved, str) or not repo:
-        return flat_path
-
-    parts = resolved.strip().strip("/").split("/")
-    if len(parts) < 3:
-        # "owner/repo" with no path component, or plain garbage → no truth here.
-        return flat_path
-
-    if "/".join(parts[:2]).lower() != repo.lower():
-        # The resolved id belongs to a different repository — do not trust it.
-        return flat_path
-
-    real_path = "/".join(parts[2:]).strip("/")
-    return real_path or flat_path
 
 
 def install_path_for_row(row: dict[str, Any]) -> InstallPath:
