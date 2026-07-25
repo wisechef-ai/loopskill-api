@@ -130,9 +130,18 @@ def create_app() -> FastAPI:
     # browser Origin headers, so the restrictive list does not affect them.
     # The /api/mcp/http StreamableHTTP mount is also subject to this policy;
     # see docs/security/cors.md for the rationale and MCP considerations.
+    #
+    # 2026-07-25: added app.loopskill.io + loopskill.io — the portal's real
+    # API_BASE is https://app.loopskill.io (src/lib/api.ts), NOT the sunset
+    # recipes.wisechef.ai (which 301s to app.loopskill.io). Without these
+    # origins, credentialed browser calls (credentials: 'include') — login,
+    # /api/library, the like/heart POST — silently failed CORS preflight for
+    # every user on the live portal.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
+            "https://app.loopskill.io",
+            "https://loopskill.io",
             "https://recipes.wisechef.ai",
             "https://www.recipes.wisechef.ai",
         ],

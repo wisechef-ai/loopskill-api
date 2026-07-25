@@ -23,6 +23,8 @@ from fastapi.testclient import TestClient
 
 # ── Allowed origins (must match app/main.py) ─────────────────────────────────
 ALLOWED_ORIGINS = [
+    "https://app.loopskill.io",
+    "https://loopskill.io",
     "https://recipes.wisechef.ai",
     "https://www.recipes.wisechef.ai",
 ]
@@ -80,6 +82,41 @@ def test_www_allowed_origin_receives_cors_header():
     assert resp.status_code == 200
     assert ACAO_HEADER in resp.headers, "Expected CORS header for www variant"
     assert resp.headers[ACAO_HEADER] == "https://www.recipes.wisechef.ai"
+
+
+def test_loopskill_io_origin_receives_cors_header():
+    """Regression: app.loopskill.io is the LIVE portal domain (src/lib/api.ts
+    API_BASE). recipes.wisechef.ai was sunset 2026-07-10 (301 -> app.loopskill.io).
+
+    Before this fix, app.loopskill.io was absent from the allow-list, so every
+    credentialed browser call from the live portal (login, /api/library, the
+    like/heart POST) silently failed CORS preflight.
+    """
+    for origin in ("https://app.loopskill.io", "https://loopskill.io"):
+        resp = _client.get("/healthz", headers={"Origin": origin})
+        assert resp.status_code == 200
+        assert ACAO_HEADER in resp.headers, f"Expected CORS header for {origin}"
+        assert resp.headers[ACAO_HEADER] == origin
+
+
+def test_preflight_loopskill_io_origin():
+    """Regression: OPTIONS preflight from the live portal domain must pass.
+
+    The like/heart control sends POST /api/skills/{slug}/like with
+    credentials:'include', which triggers a preflight. Without app.loopskill.io
+    in the allow-list, browsers block the POST before it ever reaches the API.
+    """
+    resp = _client.options(
+        "/healthz",
+        headers={
+            "Origin": "https://app.loopskill.io",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert resp.status_code == 200
+    assert ACAO_HEADER in resp.headers
+    assert resp.headers[ACAO_HEADER] == "https://app.loopskill.io"
 
 
 def test_disallowed_origin_gets_no_cors_header():
