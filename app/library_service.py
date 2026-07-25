@@ -19,6 +19,7 @@ from app.models import (
     FollowedBundle,
     Personality,
     Skill,
+    SkillLike,
     User,
 )
 
@@ -100,8 +101,94 @@ def set_liked_artifact(
     return {"liked": liked, "type": artifact_type, "id": str(artifact_id)}
 
 
+def set_local_like_by_skill(
+    db: Session,
+    *,
+    owner_id: UUID,
+    skill: Skill,
+    liked: bool,
+    ctx: AuthContext | None = None,
+) -> None:
+    """Mirror a slug-route like of a LOCAL skill into the deployable Liked bundle.
+
+    ponytail_0724 R2 self-audit. The browse/home heart posts to the SLUG route
+    (``POST /api/skills/{slug}/like``) — it must, because a federated skill has
+    no local UUID and so cannot use the UUID-based ``POST /api/library/like``.
+
+    For a LOCAL catalog skill that route previously wrote only engagement state
+    (``SkillLike(skill_id=...)``), while ``liked_library`` reads the
+    ``BundleSkill`` join. Result: hearting a local skill put it NOWHERE the user
+    could see it — the same lying-button bug as the federated case, on the more
+    common path.
+
+    So a local like is ALSO reflected into the caller's Liked bundle, which is
+    the artifact's real destination (and what makes it reconcile onto their
+    agents). Idempotent in both directions. Federated likes deliberately do NOT
+    come through here: we do not host them, and ``BundleSkill`` drives
+    ``authz.can_install`` + fleet reconcile.
+
+    AUTHORIZATION (R3 self-audit — this is a privilege-escalation surface).
+    ``authz.can_read_skill`` grants access to a PRIVATE skill that lives in a
+    bundle the caller owns (the loopclose_3005 Phase C bundle-ownership clause),
+    and the Liked bundle is owned by the caller. Meanwhile the slug route's
+    ``_resolve_track_identity`` does a BARE slug lookup with NO visibility gate.
+    Chained, that would be: like a private skill you cannot read -> it enters
+    your Liked bundle -> ``can_read_skill`` now returns True -> you can read and
+    INSTALL it. So a LIKE is gated on ``authz.can_read_skill`` exactly as
+    ``set_liked_artifact`` gates its own writes. Callers in this path MUST pass
+    ``ctx``; without it we fail closed and write nothing.
+
+    An UNLIKE is never gated — removing a reference from your own bundle cannot
+    widen access — so ``ctx`` may be ``None`` there.
+
+    TRANSACTIONS (R3 MEDIUM #2). This helper only ``flush()``es; the CALLER owns
+    the commit, so the engagement row and this mirror land in ONE transaction
+    (the routes stage both, then commit once). Residual, documented: the
+    pre-existing ``ensure_liked_bundle`` commits when it CREATES a user's Liked
+    bundle — a first-ever like therefore has a commit boundary before the join
+    write. That is idempotent and self-healing (an empty Liked bundle is the
+    steady state for every user anyway, and the next like re-runs the mirror),
+    so it is not worth changing a helper shared by other callers.
+    """
+    if liked:
+        if ctx is None or not authz.can_read_skill(ctx, skill, db=db):
+            # Fail closed: no context, or no read access → never write.
+            return
+
+    bundle = ensure_liked_bundle(db, owner_id)
+    existing = (
+        db.query(BundleSkill)
+        .filter(BundleSkill.bundle_id == bundle.id, BundleSkill.skill_id == skill.id)
+        .first()
+    )
+    if liked and existing is None:
+        db.add(BundleSkill(bundle_id=bundle.id, skill_id=skill.id, source="custom-added"))
+        _touch_bundle_generation(db, bundle.id)
+        db.flush()
+    elif not liked and existing is not None:
+        db.delete(existing)
+        _touch_bundle_generation(db, bundle.id)
+        db.flush()
+
+
 def liked_library(db: Session, *, owner_id: UUID) -> dict:
-    """Return the owner's typed liked shelves and the reserved follows shelf."""
+    """Return the owner's typed liked shelves and the reserved follows shelf.
+
+    ponytail_0724 R1 (Codex MUST-FIX #2 / #7 / #8). The typed ``shelves``
+    payload is a FROZEN CONTRACT (``docs/briefs/liked_0711-P1.md`` §FROZEN
+    CONTRACT): each entry is exactly ``{id, slug, title, liked_at}`` with a UUID
+    ``id``, and the Liked bundle it serialises is a DEPLOYABLE bundle — the
+    reconcile path pulls it onto the caller's agents.
+
+    An earlier cut of this fix merged federated (hub / skills.sh / ClawHub)
+    likes INTO ``shelves.skills`` with ``id: None``. That was wrong twice over:
+    it broke the pinned shape for every existing consumer, and it implied
+    agents could deploy artifacts we neither host nor vet.
+
+    Federated likes are therefore served on their OWN additive key,
+    ``federated_skills`` — new, so it breaks nothing, and structurally separate,
+    so nothing can mistake a community bookmark for a deployable Liked entry.
+    """
     bundle = ensure_liked_bundle(db, owner_id)
     return {
         "liked_bundle_id": str(bundle.id),
@@ -110,8 +197,49 @@ def liked_library(db: Session, *, owner_id: UUID) -> dict:
             "personalities": _liked_shelf(db, BundlePersonality, Personality, "personality_id", bundle.id),
             "loops": _liked_shelf(db, BundleCompositeLoop, CompositeLoop, "composite_loop_id", bundle.id),
         },
+        # Additive (ponytail_0724). NOT part of the deployable Liked bundle.
+        "federated_skills": _federated_liked_skills(db, owner_id=owner_id),
         "followed_bundles": _followed_bundles(db, owner_id),
     }
+
+
+def _federated_liked_skills(db: Session, *, owner_id: UUID) -> list[dict]:
+    """Serialize the caller's FEDERATED skill likes (hub / skills.sh / ClawHub).
+
+    ponytail_0724. These live in ``skill_likes`` with ``skill_id IS NULL`` and a
+    ``(federated_source, federated_slug)`` identity — the only representation
+    that can name a skill we do not host. They are deliberately NOT merged into
+    ``shelves.skills``:
+
+    - ``shelves.skills`` is the DEPLOYABLE Liked bundle (``BundleSkill``), which
+      also drives ``authz.can_install`` and fleet reconcile. Putting a federated
+      row there would grant install rights for unvetted third-party content.
+    - its entry shape is a frozen contract (``{id, slug, title, liked_at}``,
+      ``id`` a UUID). A federated row has no local UUID.
+
+    Rows are newest-last (ascending ``liked_at``) to match the typed shelves'
+    ordering convention, and carry ``source`` so the UI can badge them.
+    """
+    likes = (
+        db.query(SkillLike)
+        .filter(
+            SkillLike.user_id == owner_id,
+            SkillLike.skill_id.is_(None),
+            SkillLike.federated_source.isnot(None),
+            SkillLike.federated_slug.isnot(None),
+        )
+        .order_by(SkillLike.liked_at.asc())
+        .all()
+    )
+    return [
+        {
+            "slug": like.federated_slug,
+            "title": like.federated_slug,
+            "source": like.federated_source,
+            "liked_at": like.liked_at,
+        }
+        for like in likes
+    ]
 
 
 def _liked_shelf(

@@ -82,7 +82,14 @@ def test_library_heart_contract_mcp_to_http_and_free_scope(db_session):
 
     assert response.status_code == 200
     body = response.json()
-    assert set(body) == {"liked_bundle_id", "shelves", "followed_bundles"}
+    # ponytail_0724: `federated_skills` is an ADDITIVE top-level key carrying
+    # hub / skills.sh / ClawHub likes (which have no local UUID and are NOT
+    # deployable). The P1 brief's only hard rule for this body is "NO
+    # count/total field anywhere" — still asserted below — and it explicitly
+    # anticipates additive keys (`followed_bundles` was emitted empty in P1 "so
+    # the contract is stable"). The per-entry shelf shape is the part that is
+    # frozen, and it is unchanged.
+    assert set(body) == {"liked_bundle_id", "shelves", "followed_bundles", "federated_skills"}
     assert body["followed_bundles"] == []
     assert {key: len(value) for key, value in body["shelves"].items()} == {
         "skills": 1,

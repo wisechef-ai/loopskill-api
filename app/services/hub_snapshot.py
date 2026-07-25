@@ -34,6 +34,16 @@ from typing import TYPE_CHECKING, Any, Callable
 from app.models import FederationHubSkill, FederationIndexCache
 from app.services.federation import InstallPath
 
+# ponytail_0724: repo-path resolution + hostile-input validation live in their
+# own module (keeps this file under the 600-line god-object cap). Re-exported
+# here because callers and tests import them from `hub_snapshot`.
+from app.services.hub_repo_path import (  # noqa: F401  (re-export)
+    MAX_REPO_PATH_LEN,
+    is_safe_repo_ident,
+    is_safe_repo_subpath,
+    resolved_repo_path,
+)
+
 if TYPE_CHECKING:  # pragma: no cover
     import httpx
     from sqlalchemy.orm import Session
@@ -127,7 +137,7 @@ def install_path_for_row(row: dict[str, Any]) -> InstallPath:
     """
     upstream = normalize_upstream(row.get("source"))
     repo = (row.get("repo") or "").strip()
-    path = (row.get("path") or "").strip()
+    path = resolved_repo_path(row)
 
     if upstream in ("skills-sh", "github") and repo and path:
         return InstallPath.FETCH_ORIGIN
@@ -140,7 +150,8 @@ def install_path_for_row(row: dict[str, Any]) -> InstallPath:
 def origin_url_for_row(row: dict[str, Any]) -> str:
     """Build the origin URL for a Hub snapshot row based on its upstream source.
 
-    - skills.sh / github: github URL from repo + path
+    - skills.sh / github: github URL from repo + REAL path (see
+      ``resolved_repo_path`` — ponytail_0724)
     - clawhub: clawhub.ai/skills/{identifier}
     - official: hermes-agent docs skills/{name}
     - fallback: repo URL or hub docs page
@@ -149,9 +160,16 @@ def origin_url_for_row(row: dict[str, Any]) -> str:
     name = (row.get("name") or "").strip()
     identifier = (row.get("identifier") or "").strip()
     repo = (row.get("repo") or "").strip()
-    path = (row.get("path") or "").strip()
+    path = resolved_repo_path(row)
 
-    if upstream in ("skills-sh", "github") and repo:
+    # ponytail_0724 R2: NEVER interpolate an unvalidated repo. A `?`/`#` in the
+    # owner truncates the URL into a query/fragment, so the link we advertise as
+    # "this skill's location" resolves somewhere else entirely; a leading or
+    # doubled slash produces a malformed path. An unsafe repo yields no GitHub
+    # URL at all — we fall through to the name-based docs link or "".
+    repo_ok = is_safe_repo_ident(repo)
+
+    if upstream in ("skills-sh", "github") and repo_ok:
         base = f"https://github.com/{repo}"
         if path:
             base += f"/tree/main/{path}"
@@ -160,7 +178,7 @@ def origin_url_for_row(row: dict[str, Any]) -> str:
         return f"https://clawhub.ai/skills/{identifier}"
     if upstream == "official" and name:
         return f"https://hermes-agent.nousresearch.com/skills/{name}"
-    if repo:
+    if repo_ok:
         return f"https://github.com/{repo}"
     if name:
         return f"https://hermes-agent.nousresearch.com/docs/skills/{name}"
@@ -193,7 +211,9 @@ def map_hub_row(row: dict[str, Any]) -> dict[str, Any]:
         "extra": row.get("extra") if isinstance(row.get("extra"), dict) else {},
         "duplicate_of": upstream if upstream in _DIRECTLY_INDEXED_UPSTREAM else None,
         "repo": (row.get("repo") or "")[:512],
-        "path": (row.get("path") or "")[:512],
+        # ponytail_0724: store the REAL in-repo path (resolved_github_id truth),
+        # never the flat label — the install resolver reads this column too.
+        "path": resolved_repo_path(row)[:512],
     }
 
 
