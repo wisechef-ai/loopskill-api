@@ -3,21 +3,25 @@
 ## Summary
 
 The API uses a **strict origin allow-list** via Starlette's `CORSMiddleware`.
-Only the two canonical production web origins are permitted to make
+Only the canonical production web origins are permitted to make
 credentialed cross-origin requests from browsers.
 
 ## Allowed Origins
 
 | Origin | Rationale |
 |--------|-----------|
-| `https://recipes.wisechef.ai` | Primary production frontend |
-| `https://www.recipes.wisechef.ai` | www-prefixed variant (same deployment) |
+| `https://app.loopskill.io` | Primary production frontend (LoopSkill-branded portal) |
+| `https://loopskill.io` | Canonical brand default (config.LOOPSKILL_DEFAULT_ORIGIN) |
+| `https://recipes.wisechef.ai` | Legacy frontend (sunset 2026-07-10, 301 → app.loopskill.io) |
+| `https://www.recipes.wisechef.ai` | www-prefixed legacy variant |
 
 ## Policy Settings
 
 ```python
 CORSMiddleware(
     allow_origins=[
+        "https://app.loopskill.io",
+        "https://loopskill.io",
         "https://recipes.wisechef.ai",
         "https://www.recipes.wisechef.ai",
     ],
