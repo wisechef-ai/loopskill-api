@@ -16,6 +16,7 @@ from app.models import (
     BundlePersonality,
     BundleSkill,
     CompositeLoop,
+    FederationHubSkill,
     FollowedBundle,
     Personality,
     Skill,
@@ -219,6 +220,21 @@ def _federated_liked_skills(db: Session, *, owner_id: UUID) -> list[dict]:
 
     Rows are newest-last (ascending ``liked_at``) to match the typed shelves'
     ordering convention, and carry ``source`` so the UI can badge them.
+
+    TITLE RESOLUTION (ponytail_0725 — Adam: "it's in my library with a little
+    changed name"). ``skill_likes`` stores only the federated IDENTITY, never
+    display metadata, so the first cut fell back to ``title = federated_slug``
+    and the library rendered the raw hub id
+    ``skills-sh-dietrichgebert-ponytail-ponytail`` instead of ``ponytail``.
+    The human title already exists in ``federation_hub_skills.title``; we now
+    resolve it with ONE batched lookup (no N+1) and also surface
+    ``description`` + ``origin_url`` so the card can link to the real upstream
+    skill instead of a slug-guess search.
+
+    Resolution FAILS SOFT: a like can name any ``source__slug`` pair (see
+    ``_resolve_track_identity``), including a source we do not snapshot and a
+    row the hub may later drop. An unresolvable row keeps the slug as its title
+    — degraded, never a 500, and never a vanished like.
     """
     likes = (
         db.query(SkillLike)
@@ -231,15 +247,31 @@ def _federated_liked_skills(db: Session, *, owner_id: UUID) -> list[dict]:
         .order_by(SkillLike.liked_at.asc())
         .all()
     )
-    return [
-        {
-            "slug": like.federated_slug,
-            "title": like.federated_slug,
-            "source": like.federated_source,
-            "liked_at": like.liked_at,
-        }
-        for like in likes
-    ]
+    if not likes:
+        return []
+
+    # One query for every liked slug — keep this batched; a per-row lookup here
+    # is an N+1 on a page that renders the user's whole library.
+    slugs = {like.federated_slug for like in likes}
+    hub_rows = db.query(FederationHubSkill).filter(FederationHubSkill.slug.in_(slugs)).all()
+    hub_by_slug = {row.slug: row for row in hub_rows}
+
+    out: list[dict] = []
+    for like in likes:
+        hub = hub_by_slug.get(like.federated_slug)
+        # `title` is NOT NULL but defaults to "" — treat blank as unresolved.
+        title = (hub.title or "").strip() if hub is not None else ""
+        out.append(
+            {
+                "slug": like.federated_slug,
+                "title": title or like.federated_slug,
+                "description": (hub.description if hub is not None else None),
+                "origin_url": (hub.origin_url if hub is not None else None),
+                "source": like.federated_source,
+                "liked_at": like.liked_at,
+            }
+        )
+    return out
 
 
 def _liked_shelf(
