@@ -980,9 +980,7 @@ def get_cookbook(
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id, allow_org_read=True)
     rows = _skills_for(db, cb.id, include_disabled=True)
     fed_rows = _federated_skills_for(db, cb.id, include_disabled=True)
-    hub_by_slug = (
-        resolve_federated_hub_titles(db, (r.federated_slug for r in fed_rows)) if fed_rows else {}
-    )
+    hub_by_slug = resolve_federated_hub_titles(db, (r.federated_slug for r in fed_rows)) if fed_rows else {}
     out = _to_cb_out(cb)
 
     # Codex review MUST-FIX 1 (CONFIRMED): local and federated rows come from

@@ -465,9 +465,7 @@ def test_merged_skills_respect_install_order_across_local_and_federated(db):
 
     p1, p2 = _bypass(cb)
     with p1, p2:
-        out = bundle_routes.get_cookbook(
-            cookbook_id=str(cb.id), request=_GetReq(), db=db, ctx=_ctx(owner)
-        )
+        out = bundle_routes.get_cookbook(cookbook_id=str(cb.id), request=_GetReq(), db=db, ctx=_ctx(owner))
 
     assert [s["slug"] for s in out["skills"]] == [
         "fed-first",
