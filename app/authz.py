@@ -127,6 +127,58 @@ def tier_rank_allows_install(caller_tier: str | None, skill_tier: str | None) ->
     return caller_rank >= skill_rank
 
 
+def can_read_personality(ctx: AuthContext, personality: Any, db: "Session | None" = None) -> bool:
+    """Return True if ctx may read/like the given personality.
+
+    spotify_2607 Phase B. Mirrors can_read_skill's shape at the scale
+    personalities actually need: public personalities are always readable;
+    master scope always readable; the creator (via Creator.user_id) may
+    read/like their own private personality. There is no bundle-ownership
+    clause here (unlike can_read_skill) because personalities are not gated
+    by BundleSkill/authz.can_install — that join only exists for skills.
+    """
+    if getattr(personality, "is_public", True):
+        return True
+    if ctx.scope == "master":
+        return True
+    if ctx.scope == "user" and ctx.user_id is not None and db is not None:
+        from app.models import Creator
+
+        creator_id = getattr(personality, "creator_id", None)
+        if creator_id is not None:
+            owns = (
+                db.query(Creator).filter(Creator.id == creator_id, Creator.user_id == ctx.user_id).first()
+                is not None
+            )
+            if owns:
+                return True
+    return False
+
+
+def can_read_composite_loop(ctx: AuthContext, loop: Any, db: "Session | None" = None) -> bool:
+    """Return True if ctx may read/like the given composite loop.
+
+    spotify_2607 Phase B. Same shape as can_read_personality — CompositeLoop
+    also carries a nullable creator_id -> Creator.user_id ownership chain.
+    """
+    if getattr(loop, "is_public", True):
+        return True
+    if ctx.scope == "master":
+        return True
+    if ctx.scope == "user" and ctx.user_id is not None and db is not None:
+        from app.models import Creator
+
+        creator_id = getattr(loop, "creator_id", None)
+        if creator_id is not None:
+            owns = (
+                db.query(Creator).filter(Creator.id == creator_id, Creator.user_id == ctx.user_id).first()
+                is not None
+            )
+            if owns:
+                return True
+    return False
+
+
 def can_write_cookbook(ctx: AuthContext, cookbook: Any) -> bool:
     """Return True if ctx may write (modify) the given cookbook.
 
