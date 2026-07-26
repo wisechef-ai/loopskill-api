@@ -127,6 +127,44 @@ class TestHubSnapshotIngest:
             assert owner_handle_for_row(row) == "psyb0t", key
             assert origin_url_for_row(row) == ("https://clawhub.ai/psyb0t/skills/ai-pm-prd-suite"), key
 
+    def test_packed_owner_slug_identifier_still_mints_the_deep_link(self) -> None:
+        """Regression: identifier packed as "owner/slug" must use the SLUG half.
+
+        Codex review round 1 caught this: owner_handle_for_row already parses
+        an "owner/slug"-shaped identifier defensively (should upstream ever
+        start shipping that shape), but origin_url_for_row was passing the
+        RAW packed identifier (with the slash still in it) as the slug to
+        clawhub_skill_url. is_safe_token rejects "/", so the row would
+        silently degrade to the browse-page fallback forever, even though the
+        owner AND slug were both fully resolvable from the same string.
+        """
+        row = dict(self.LIVE_ROW, identifier="psyb0t/aigate")
+        assert owner_handle_for_row(row) == "psyb0t"
+        url = origin_url_for_row(row)
+        _assert_never_bare(url)
+        assert url == "https://clawhub.ai/psyb0t/skills/aigate"
+
+    def test_multi_slash_identifier_does_not_extract_a_wrong_slug(self) -> None:
+        """Regression: only the documented "owner/slug" shape (one slash) splits.
+
+        Codex review round 2: ``rpartition("/")`` blindly took the last
+        segment regardless of slash count, so an identifier like
+        ``namespace/owner/aigate`` (NOT the documented shape) would have its
+        last segment extracted as the slug and combined with an inline
+        ``owner`` field to mint a deep link for a row whose identifier does
+        NOT actually match that shape. Now only identifiers with EXACTLY one
+        slash split; multi-slash identifiers are left intact so
+        ``is_safe_token`` rejects them and the row falls through to the
+        browse fallback — the safe failure mode.
+        """
+        row = dict(self.LIVE_ROW, identifier="namespace/owner/aigate", owner="psyb0t")
+        # owner_handle_for_row still extracts "psyb0t" from the inline owner
+        # field — that is correct and intended. But the URL must NOT silently
+        # combine that owner with a slug carved out of a malformed identifier.
+        url = origin_url_for_row(row)
+        _assert_never_bare(url)
+        assert url == CLAWHUB_BROWSE_URL
+
     def test_owner_packed_into_identifier(self) -> None:
         row = dict(self.LIVE_ROW, identifier="psyb0t/aigate")
         assert owner_handle_for_row(row) == "psyb0t"

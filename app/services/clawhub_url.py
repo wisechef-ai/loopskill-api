@@ -52,13 +52,41 @@ CLAWHUB_BROWSE_URL = f"{CLAWHUB_BASE}/skills"
 #: interpolated — same posture as ``hub_repo_path.is_safe_repo_ident``.
 _SAFE_TOKEN = re.compile(r"^[A-Za-z0-9._-]+$")
 
+#: Dot-only tokens are RELATIVE PATH SEGMENTS, not names.
+#:
+#: The charset above intentionally allows ``.`` (real handles and slugs contain
+#: it — ``llama.cpp``, ``next.js``). But a token made ENTIRELY of dots is a
+#: traversal segment: ``clawhub_skill_url("aigate", "..")`` produced
+#: ``https://clawhub.ai/../skills/aigate``, which every HTTP client normalises
+#: to ``https://clawhub.ai/skills/aigate`` — the exact bare form that 307s to
+#: the ``/skills/skills/<slug>`` soft-404 this module exists to prevent.
+#: Verified live 2026-07-26: that URL returns 307 → /skills/skills/aigate.
+#:
+#: So the guard against minting the soft-404 could be bypassed by the very
+#: value it was supposed to reject, and because a soft-404 answers HTTP 200
+#: nothing downstream would ever have noticed. Caught by
+#: ``test_spotify_2607_clawhub_owner_backfill.py`` (spotify_2607/0).
+#:
+#: ``a..b`` stays legal — it is a name containing dots, not a path segment.
+_DOTS_ONLY = re.compile(r"^\.+$")
+
 
 def is_safe_token(value: str | None) -> bool:
-    """True if ``value`` is a plain URL token safe to interpolate into a path."""
+    """True if ``value`` is a plain URL token safe to interpolate into a path.
+
+    Rejects anything that is not ``[A-Za-z0-9._-]+``, anything over 128 chars,
+    and any dot-only token (``.``, ``..``, ``...``) — see ``_DOTS_ONLY``: those
+    are relative path segments that silently rewrite the URL rather than name
+    a resource.
+    """
     if not value:
         return False
     token = value.strip()
-    return bool(token) and len(token) <= 128 and bool(_SAFE_TOKEN.match(token))
+    if not token or len(token) > 128:
+        return False
+    if _DOTS_ONLY.match(token):
+        return False
+    return bool(_SAFE_TOKEN.match(token))
 
 
 def clawhub_skill_url(slug: str | None, owner: str | None = None) -> str:

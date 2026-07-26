@@ -32,7 +32,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from app.models import FederationHubSkill, FederationIndexCache
-from app.services.clawhub_url import clawhub_skill_url, is_safe_token
+from app.services.clawhub_url import clawhub_skill_url
+
+# spotify_2607/0: ClawHub owner resolution + its carry-forward across the
+# delete-and-reinsert ingest live in their own module (this file is at the
+# 600-line god-object threshold). Re-exported so existing importers of
+# `hub_snapshot.owner_handle_for_row` keep working.
+from app.services.hub_owner_carry import (  # noqa: F401
+    apply_resolved_owners,
+    load_resolved_owner_handles,
+    owner_handle_for_row,
+)
 from app.services.federation import InstallPath
 
 # ponytail_0724: repo-path resolution + hostile-input validation live in their
@@ -148,34 +158,6 @@ def install_path_for_row(row: dict[str, Any]) -> InstallPath:
     return InstallPath.DEEP_LINK
 
 
-def owner_handle_for_row(row: dict[str, Any]) -> str | None:
-    """Best-effort ClawHub owner handle from a Hub snapshot row.
-
-    Today's snapshot carries no owner (verified 2026-07-26 against the live
-    index: ``extra`` is empty and 0 of 69,150 clawhub identifiers contain a
-    ``/``), so this returns ``None`` and callers degrade to the browse page.
-
-    It reads the fields upstream would plausibly use IF it ever starts shipping
-    the handle, so this fix upgrades itself the moment that happens instead of
-    silently keeping the fallback. Same posture as ``resolved_repo_path``:
-    prefer a resolved field when present, fail closed when it is not.
-    """
-    for key in ("owner", "owner_handle", "ownerHandle", "handle", "namespace"):
-        value = row.get(key)
-        if isinstance(value, dict):
-            value = value.get("handle")
-        if isinstance(value, str) and is_safe_token(value):
-            return value.strip()
-    # ``owner/slug`` packed into the identifier is the other shape upstream
-    # could adopt; accept it defensively (both halves must be safe tokens).
-    identifier = (row.get("identifier") or "").strip()
-    if identifier.count("/") == 1:
-        owner, _, leaf = identifier.partition("/")
-        if is_safe_token(owner) and is_safe_token(leaf):
-            return owner
-    return None
-
-
 def origin_url_for_row(row: dict[str, Any]) -> str:
     """Build the origin URL for a Hub snapshot row based on its upstream source.
 
@@ -209,10 +191,24 @@ def origin_url_for_row(row: dict[str, Any]) -> str:
     if upstream == "clawhub" and identifier:
         # issue #139: NEVER mint the bare /skills/<slug> form — ClawHub 307s it
         # to /skills/skills/<slug>, a soft-404 that still answers HTTP 200.
-        # Snapshot rows carry no owner handle (verified: `extra` empty, 0 of
-        # 69,150 identifiers contain a "/"), so this degrades to the browse
-        # page; serve-time resolution upgrades it to the exact deep link.
-        return clawhub_skill_url(identifier, owner_handle_for_row(row))
+        # Snapshot rows carry no owner handle today (verified: `extra` empty,
+        # 0 of 69,150 identifiers contain a "/"), so this degrades to the
+        # browse page; serve-time resolution upgrades it to the exact deep
+        # link. IF upstream ever starts shipping identifiers packed as
+        # "owner/slug" (the shape owner_handle_for_row already defends
+        # against), the URL must use the SLUG half, not the packed string —
+        # clawhub_skill_url's is_safe_token rejects "/" and would otherwise
+        # silently degrade a resolvable row to the browse fallback forever.
+        # Only split on the documented "owner/slug" shape (exactly one
+        # slash): a multi-slash identifier like "namespace/owner/slug" is
+        # NOT that shape and must be left intact so is_safe_token rejects
+        # it and the row falls through to the browse fallback rather than
+        # silently extracting a wrong-looking slug.
+        if identifier.count("/") == 1:
+            url_slug = identifier.rpartition("/")[2]
+        else:
+            url_slug = identifier
+        return clawhub_skill_url(url_slug, owner_handle_for_row(row))
     if upstream == "official" and name:
         return f"https://hermes-agent.nousresearch.com/skills/{name}"
     if repo_ok:
@@ -234,6 +230,13 @@ def map_hub_row(row: dict[str, Any]) -> dict[str, Any]:
     """
     upstream = normalize_upstream(row.get("source"))
     install_path = install_path_for_row(row)
+    # Persist the owner when the snapshot itself supplies one. Today it never
+    # does (verified 2026-07-26), so this is normally None and the resolved
+    # value arrives via the backfill / carry-forward path instead. Wiring it
+    # here means the moment upstream starts shipping handles, ingest records
+    # them with zero further work — same self-upgrading posture as
+    # `owner_handle_for_row`.
+    owner_handle = owner_handle_for_row(row) if upstream == "clawhub" else None
     return {
         "slug": "",  # filled after dedupe
         "title": (row.get("name") or row.get("identifier") or "")[:512],
@@ -242,6 +245,7 @@ def map_hub_row(row: dict[str, Any]) -> dict[str, Any]:
         "upstream_source": upstream,
         "identifier": (row.get("identifier") or "")[:512],
         "origin_url": origin_url_for_row(row),
+        "owner_handle": owner_handle,
         "install_path": install_path.value,
         "trust_level": (row.get("trust_level") or "community")[:32],
         "tags": row.get("tags") if isinstance(row.get("tags"), list) else [],
@@ -413,14 +417,32 @@ def bulk_upsert_skills(
     rows: list[dict[str, Any]],
     *,
     batch_size: int = HUB_BATCH_SIZE,
+    preserve_owner_handles: bool = True,
 ) -> int:
     """Bulk-upsert hub skill rows, replacing ALL existing rows atomically.
 
     Strategy: delete all existing FederationHubSkill rows, then insert in batches.
     This is idempotent — running ingest twice produces the same row count.
     Returns the number of rows inserted.
+
+    ``preserve_owner_handles`` (default on) reads the resolved ClawHub owner map
+    BEFORE the delete and re-applies it to the incoming rows. This is what makes
+    the issue-#141 backfill durable: the snapshot has no owner field, so without
+    the carry-forward every nightly reindex would wipe the resolution and hand
+    76% of the federated index back its browse-page fallback. See
+    ``app/services/hub_owner_carry.py``.
     """
     from sqlalchemy import delete
+
+    # MUST read before the delete — afterwards the mapping is gone.
+    resolved = load_resolved_owner_handles(db) if preserve_owner_handles else {}
+    if resolved:
+        upgraded = apply_resolved_owners(rows, resolved)
+        logger.info(
+            "hub snapshot: carried %d resolved clawhub owners forward (%d known)",
+            upgraded,
+            len(resolved),
+        )
 
     # Delete existing rows (the snapshot is the source of truth).
     db.execute(delete(FederationHubSkill))
