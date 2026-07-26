@@ -199,7 +199,15 @@ def origin_url_for_row(row: dict[str, Any]) -> str:
         # against), the URL must use the SLUG half, not the packed string —
         # clawhub_skill_url's is_safe_token rejects "/" and would otherwise
         # silently degrade a resolvable row to the browse fallback forever.
-        url_slug = identifier.rpartition("/")[2] if "/" in identifier else identifier
+        # Only split on the documented "owner/slug" shape (exactly one
+        # slash): a multi-slash identifier like "namespace/owner/slug" is
+        # NOT that shape and must be left intact so is_safe_token rejects
+        # it and the row falls through to the browse fallback rather than
+        # silently extracting a wrong-looking slug.
+        if identifier.count("/") == 1:
+            url_slug = identifier.rpartition("/")[2]
+        else:
+            url_slug = identifier
         return clawhub_skill_url(url_slug, owner_handle_for_row(row))
     if upstream == "official" and name:
         return f"https://hermes-agent.nousresearch.com/skills/{name}"

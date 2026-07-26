@@ -82,17 +82,21 @@ def upgrade() -> None:
         op.add_column(_TABLE, sa.Column(_COLUMN, sa.String(128), nullable=True))
 
     existing_indexes = {i["name"] for i in sa.inspect(bind).get_indexes(_TABLE)}
-    if _INDEX not in existing_indexes:
-        if bind.dialect.name == "postgresql":
-            # CONCURRENTLY requires autocommit — cannot run inside Alembic's
-            # default transaction wrapper (env.py context.begin_transaction()).
-            with op.get_context().autocommit_block():
-                op.execute(
-                    sa.text(f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {_INDEX} ON {_TABLE} ({_COLUMN})")
-                )
-        else:
-            # SQLite (test suite): CONCURRENTLY is a Postgres-only keyword.
-            op.create_index(_INDEX, _TABLE, [_COLUMN])
+    if _INDEX not in existing_indexes and bind.dialect.name == "postgresql":
+        # CONCURRENTLY requires autocommit — cannot run inside Alembic's
+        # default transaction wrapper (env.py context.begin_transaction()).
+        with op.get_context().autocommit_block():
+            # A previously-interrupted CREATE INDEX CONCURRENTLY leaves an
+            # INVALID index in pg_index (Postgres does not roll it back on
+            # failure). Reflection's get_indexes() does NOT expose
+            # indisvalid, so it would look like the index exists and the
+            # guard would skip creation — leaving a permanently-unusable
+            # index in place. Drop any INVALID form first, then (re)create.
+            op.execute(sa.text(f"DROP INDEX CONCURRENTLY IF EXISTS {_INDEX}"))
+            op.execute(sa.text(f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {_INDEX} ON {_TABLE} ({_COLUMN})"))
+    elif _INDEX not in existing_indexes:
+        # SQLite (test suite): CONCURRENTLY is a Postgres-only keyword.
+        op.create_index(_INDEX, _TABLE, [_COLUMN])
 
 
 def downgrade() -> None:

@@ -349,6 +349,14 @@ def main() -> int:
         detail_hits = 0
         unresolved = 0
         demoted = 0
+        # Dirty-row counter reset after every commit, NOT the running total.
+        # Round-2 Codex review caught that `(resolved + demoted) % batch_size`
+        # evaluates on every row including no-op unresolved ones; after any
+        # exact batch boundary it stays at 0 until the next mutation, so every
+        # subsequent no-op row re-flushes/re-commits/re-encodes the owner_map.
+        # A resumed run with many already-fallback rows could do thousands of
+        # empty commits, defeating the batch cadence entirely.
+        dirty_since_commit = 0
 
         for row in rows:
             identifier = (row.identifier or "").strip()
@@ -365,6 +373,7 @@ def main() -> int:
                 row.owner_handle = owner
                 row.origin_url = clawhub_skill_url(identifier, owner)
                 resolved += 1
+                dirty_since_commit += 1
             else:
                 unresolved += 1
                 # CRITICAL: an unresolved row must NOT keep the bare
@@ -385,10 +394,12 @@ def main() -> int:
                 if row.origin_url != fallback:
                     row.origin_url = fallback
                     demoted += 1
+                    dirty_since_commit += 1
 
-            if args.commit and (resolved + demoted) % args.batch_size == 0:
+            if args.commit and dirty_since_commit >= args.batch_size:
                 db.flush()
                 db.commit()
+                dirty_since_commit = 0
                 # Checkpoint on the SAME cadence as the DB commit. Detail-call
                 # resolutions are memoised into owner_map per-row (above) but
                 # were previously only persisted to disk once, at the very end

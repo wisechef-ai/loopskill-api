@@ -144,6 +144,27 @@ class TestHubSnapshotIngest:
         _assert_never_bare(url)
         assert url == "https://clawhub.ai/psyb0t/skills/aigate"
 
+    def test_multi_slash_identifier_does_not_extract_a_wrong_slug(self) -> None:
+        """Regression: only the documented "owner/slug" shape (one slash) splits.
+
+        Codex review round 2: ``rpartition("/")`` blindly took the last
+        segment regardless of slash count, so an identifier like
+        ``namespace/owner/aigate`` (NOT the documented shape) would have its
+        last segment extracted as the slug and combined with an inline
+        ``owner`` field to mint a deep link for a row whose identifier does
+        NOT actually match that shape. Now only identifiers with EXACTLY one
+        slash split; multi-slash identifiers are left intact so
+        ``is_safe_token`` rejects them and the row falls through to the
+        browse fallback — the safe failure mode.
+        """
+        row = dict(self.LIVE_ROW, identifier="namespace/owner/aigate", owner="psyb0t")
+        # owner_handle_for_row still extracts "psyb0t" from the inline owner
+        # field — that is correct and intended. But the URL must NOT silently
+        # combine that owner with a slug carved out of a malformed identifier.
+        url = origin_url_for_row(row)
+        _assert_never_bare(url)
+        assert url == CLAWHUB_BROWSE_URL
+
     def test_owner_packed_into_identifier(self) -> None:
         row = dict(self.LIVE_ROW, identifier="psyb0t/aigate")
         assert owner_handle_for_row(row) == "psyb0t"
