@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from app.models import FederationHubSkill, FederationIndexCache
-from app.services.clawhub_url import clawhub_skill_url, is_safe_token
+from app.services.clawhub_url import clawhub_skill_url
 
 # spotify_2607/0: ClawHub owner resolution + its carry-forward across the
 # delete-and-reinsert ingest live in their own module (this file is at the
