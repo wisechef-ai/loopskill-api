@@ -514,7 +514,9 @@ def get_external_skills(
       - ``sources=hermes-hub``     → only Hermes Hub queried + returned.
       - ``sources=hermes-hub,github-oss`` → both queried, merged, second-class.
     """
+    from app.config import settings
     from app.services import federation_cache as fcache
+    from app.services.external_fanout import run_external_fanout
     from app.services.federation import ExternalSkill, LIVE_SOURCES, merge_search, route_install
     from app.services.federation_adapters import get_adapter
     from app.services.federation_live import LIVE_FETCH
@@ -529,6 +531,29 @@ def get_external_skills(
 
     per_source: dict[str, dict] = {}
     all_external = []  # list[ExternalSkill] from enabled sources, in source order
+    degraded_sources: list[str] = []
+
+    # spotify2607fix_2 (HIGH-severity perf fix, tori sp2607fix-2): the PRIOR
+    # shape of this route walked LIVE_SOURCES serially, calling
+    # adapter.search() one source at a time for any non-empty query with no
+    # per-source timeout of its own — measured live at 131s (q=docker) to
+    # never-returns (q=humanizer, >180s) across the 7 federated registries.
+    # The empty-query cached-first-page path (below, unchanged) was already
+    # fast and correct and is NOT touched by this fix.
+    #
+    # Fix: a FIRST pass classifies each source as either "served from the
+    # persistent cache" (empty query / no cache miss -- identical to before) or
+    # "needs a live fetch" (non-empty query, admin refresh, or first-boot
+    # before the reindex cron ran). Every source needing a live fetch is
+    # queried CONCURRENTLY, under a hard per-source deadline
+    # (settings.EXTERNAL_FANOUT_PER_SOURCE_DEADLINE_S), via
+    # app.services.external_fanout.run_external_fanout -- so the total
+    # wall-clock is bounded by the slowest INDIVIDUAL source, never the sum
+    # across sources. A source that misses its deadline (or errors) is
+    # reported in the additive `degraded_sources` key and simply omitted from
+    # `all_external` -- partial results, never a hung/500 response.
+    live_pending: list[tuple[str, object]] = []  # (source_id, adapter)
+    live_context: dict[str, dict] = {}  # source_id -> {is_enabled, existing, existing_indexed, has_query}
 
     for source_id in LIVE_SOURCES:
         is_enabled = source_id in enabled
@@ -571,65 +596,17 @@ def get_external_skills(
                         all_external.extend(found)
 
             if not served_from_cache:
-                # Live, limited adapter search (query present / admin refresh /
-                # first boot before the cron cached anything).
+                # Needs a live fetch — queue it for the CONCURRENT fan-out
+                # below instead of fetching inline/serially here.
                 fetch = LIVE_FETCH.get(source_id)
                 adapter = get_adapter(source_id, fetch=fetch)
-                try:
-                    found = adapter.search(q or "", limit=limit) if adapter else []
-                # Rationale: one bad source must never 500 the whole route.
-                except Exception:  # noqa: BLE001
-                    logger.warning("external source '%s' search failed", source_id, exc_info=True)
-                    found = []
-                installable = [s for s in found if route_install(s).allowed]
-                block["indexed"] = len(found)
-                block["installable"] = len(installable)
-                if is_enabled:
-                    all_external.extend(found)
-                # superset_0606 Phase E — cache-write guard (decision #7 fix).
-                #
-                # The shipped behaviour wrote EVERY empty-query enabled search
-                # back to the canonical cache. But an enabled toggle browse is
-                # capped at ``limit`` (e.g. 50), so it would OVERWRITE the
-                # reindex cron's real deep-walked counts (clawhub 69k, skills-sh
-                # 20k) with the capped value — silently destroying the giants'
-                # numbers. The portal's own 130-page build did exactly this.
-                #
-                # The canonical count is OWNED by the reindex cron (full walk).
-                # The route may only:
-                #   (a) write when force_refresh (admin explicit refresh), OR
-                #   (b) SEED a source that has no cache row yet (first boot,
-                #       before the cron's first run) — and even then never
-                #       downgrade. ``found`` being exactly ``limit`` long means
-                #       the result is truncated → a floor, never the real total.
-                is_capped = len(found) >= limit
-                may_seed = existing_indexed is None and not is_capped
-                if force_refresh or (may_seed and not has_query):
-                    try:
-                        fcache.write_source_cache(
-                            db,
-                            source_id,
-                            indexed_count=block["indexed"],
-                            installable_count=block["installable"],
-                            first_page=[s.to_dict() for s in found[:20]],
-                            ttl_seconds=fcache.TTL_HOURLY,
-                        )
-                        cached = fcache.read_source_cache(db, source_id)
-                        if cached:
-                            block["walked_at"] = cached["walked_at"]
-                            block["stale"] = cached["stale"]
-                    except Exception:  # noqa: BLE001
-                        logger.warning("federation cache write failed for %s", source_id, exc_info=True)
-                elif existing is not None:
-                    # Surface the canonical cached totals even on a live query —
-                    # the capped live result is never the real indexed total.
-                    block["indexed"] = existing_indexed
-                    block["installable"] = existing.get("installable")
-                    block["walked_at"] = existing.get("walked_at")
-                    block["stale"] = existing.get("stale")
-                    # spotify_1507 Phase C2: surface deduped count + freshness.
-                    block["deduped_indexed"] = existing.get("deduped_indexed")
-                    block["snapshot_generated_at"] = existing.get("snapshot_generated_at")
+                live_pending.append((source_id, adapter))
+                live_context[source_id] = {
+                    "is_enabled": is_enabled,
+                    "existing": existing,
+                    "existing_indexed": existing_indexed,
+                    "has_query": has_query,
+                }
         else:
             # NOT enabled: read the honest cached block from the persistent
             # store ONLY — NEVER an inline walk or network call (decision #7).
@@ -647,6 +624,101 @@ def get_external_skills(
                 block["deduped_indexed"] = cached.get("deduped_indexed")
                 block["snapshot_generated_at"] = cached.get("snapshot_generated_at")
         per_source[source_id] = block
+
+    # The concurrent fan-out: every source needing a live fetch runs in
+    # PARALLEL under a hard per-source deadline, so the wall-clock for this
+    # whole block is bounded by the slowest single source (plus scheduling
+    # slack) — never the sum across sources.
+    if live_pending:
+        fanout_results = run_external_fanout(
+            live_pending,
+            query=q or "",
+            limit=limit,
+            per_source_deadline_s=settings.EXTERNAL_FANOUT_PER_SOURCE_DEADLINE_S,
+        )
+        for source_id, adapter in live_pending:
+            ctx = live_context[source_id]
+            is_enabled = ctx["is_enabled"]
+            existing = ctx["existing"]
+            existing_indexed = ctx["existing_indexed"]
+            has_query = ctx["has_query"]
+            block = per_source[source_id]
+
+            result = fanout_results.get(source_id)
+            if result is None or not result.ok:
+                # Timed out or errored — degrade this source for THIS request;
+                # the other sources' results still stand (partial results,
+                # never total failure). Fall back to the persistent cache's
+                # honest counts when available, same as the not-enabled path,
+                # rather than reporting a fabricated indexed=0.
+                degraded_sources.append(source_id)
+                logger.warning(
+                    "external route: source '%s' degraded (%s)",
+                    source_id,
+                    result.reason if result is not None else "no_result",
+                )
+                if existing is not None:
+                    block["indexed"] = existing_indexed
+                    block["installable"] = existing.get("installable")
+                    block["walked_at"] = existing.get("walked_at")
+                    block["stale"] = existing.get("stale")
+                    block["deduped_indexed"] = existing.get("deduped_indexed")
+                    block["snapshot_generated_at"] = existing.get("snapshot_generated_at")
+                continue
+
+            found = result.skills
+            installable = [s for s in found if route_install(s).allowed]
+            block["indexed"] = len(found)
+            block["installable"] = len(installable)
+            if is_enabled:
+                all_external.extend(found)
+            # superset_0606 Phase E — cache-write guard (decision #7 fix).
+            #
+            # The shipped behaviour wrote EVERY empty-query enabled search
+            # back to the canonical cache. But an enabled toggle browse is
+            # capped at ``limit`` (e.g. 50), so it would OVERWRITE the
+            # reindex cron's real deep-walked counts (clawhub 69k, skills-sh
+            # 20k) with the capped value — silently destroying the giants'
+            # numbers. The portal's own 130-page build did exactly this.
+            #
+            # The canonical count is OWNED by the reindex cron (full walk).
+            # The route may only:
+            #   (a) write when force_refresh (admin explicit refresh), OR
+            #   (b) SEED a source that has no cache row yet (first boot,
+            #       before the cron's first run) — and even then never
+            #       downgrade. ``found`` being exactly ``limit`` long means
+            #       the result is truncated → a floor, never the real total.
+            is_capped = len(found) >= limit
+            may_seed = existing_indexed is None and not is_capped
+            if force_refresh or (may_seed and not has_query):
+                try:
+                    fcache.write_source_cache(
+                        db,
+                        source_id,
+                        indexed_count=block["indexed"],
+                        installable_count=block["installable"],
+                        first_page=[s.to_dict() for s in found[:20]],
+                        ttl_seconds=fcache.TTL_HOURLY,
+                    )
+                    cached = fcache.read_source_cache(db, source_id)
+                    if cached:
+                        block["walked_at"] = cached["walked_at"]
+                        block["stale"] = cached["stale"]
+                # Rationale: a cache-write failure (e.g. transient DB hiccup)
+                # must never break the search response — the live result
+                # computed above is still returned; only the cache write is lost.
+                except Exception:  # noqa: BLE001
+                    logger.warning("federation cache write failed for %s", source_id, exc_info=True)
+            elif existing is not None:
+                # Surface the canonical cached totals even on a live query —
+                # the capped live result is never the real indexed total.
+                block["indexed"] = existing_indexed
+                block["installable"] = existing.get("installable")
+                block["walked_at"] = existing.get("walked_at")
+                block["stale"] = existing.get("stale")
+                # spotify_1507 Phase C2: surface deduped count + freshness.
+                block["deduped_indexed"] = existing.get("deduped_indexed")
+                block["snapshot_generated_at"] = existing.get("snapshot_generated_at")
 
     # The isolation wall: internal=[] (this surface is external-only); the toggle
     # is "on" iff at least one source is enabled. merge_search enforces that no
@@ -699,6 +771,11 @@ def get_external_skills(
             "per_source": per_source,
             "refreshed": force_refresh,
             "disclaimer": "External skills are community-contributed, as-is, and not quality-gated.",
+            # spotify2607fix_2 — additive key, ADDED never removed/renamed. Honest
+            # per-request degradation report: sources that timed out or errored
+            # during the live fan-out for THIS request (empty when the whole
+            # response was cache-served, or when every live source succeeded).
+            "degraded_sources": degraded_sources,
         }
     )
     return payload
