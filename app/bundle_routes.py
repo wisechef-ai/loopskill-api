@@ -49,6 +49,7 @@ from app.services.bundle_external import (
     is_external_skill,
     resolve_external_install,
 )
+from app.services.federated_titles import federated_title_for, resolve_federated_hub_titles
 from app.tier_labels import bundle_limit
 
 logger = logging.getLogger(__name__)
@@ -275,6 +276,15 @@ class CookbookSkillOut(BaseModel):
     related_skills: list[str] = []  # declared related-skill edges (graph view)
     pinned: bool = False  # convenience flag: pinned_version is not None
     corrections_absorbed: int = 0  # best-effort field-feedback counter (0 = none)
+    # sp2607fix-1 — additive discriminator fields (see _skills_for's L6
+    # supersession fix). A federated BundleSkill row (skill_id NULL,
+    # federated_source/federated_slug set — spotify_2607 Phase A) names
+    # content this repo does not host: no Skill row exists, so it can never
+    # be mistaken for a vetted/hosted entry. Defaults preserve the LOCAL
+    # skill shape byte-for-byte (additive-only per AGENTS.md contract rule).
+    federated: bool = False
+    federated_source: str | None = None
+    provenance: str = "vetted"  # "vetted" (hosted/local) | "community" (federated)
 
 
 class CookbookOut(BaseModel):
@@ -347,6 +357,69 @@ def _skills_for(
     # portal_0610 J2 — emit in Composer order (install_order), ties by added_at.
     q = q.order_by(BundleSkill.install_order.asc(), BundleSkill.added_at.asc())
     return q.all()
+
+
+def _federated_skills_for(db: Session, cookbook_id: UUID, include_disabled: bool = True) -> list[BundleSkill]:
+    """Sibling to ``_skills_for``: the FEDERATED half ``_skills_for``'s INNER
+    JOIN structurally cannot return.
+
+    sp2607fix-1 (CRITICAL bug fix). ``_skills_for``'s ``JOIN Skill ON
+    Skill.id == BundleSkill.skill_id`` silently drops every ``BundleSkill``
+    row with ``skill_id IS NULL`` — the shape ``set_federated_like_in_bundle``
+    (app/library_service.py) writes for a liked federated skill (spotify_2607
+    Phase A / L6 supersession, see the docstring on ``BundleSkill`` in
+    app/models.py). ``app/library_service.py::_liked_skill_shelf`` already
+    solved this exact read problem correctly for ``GET /api/library`` — this
+    is the same fix, applied to the bundle-detail / install read paths that
+    ``_skills_for`` feeds (GET /api/cookbooks/{id} and POST .../install),
+    which is what makes ``_skills_for`` alone the wrong place to patch (it
+    has non-federated-aware callers too — discover cards, manifest, sync —
+    that this fix intentionally leaves untouched pending a follow-up).
+
+    Returns raw ``BundleSkill`` rows (no ``Skill`` join is possible — there is
+    no local ``Skill`` row for a federated identity). Callers resolve a human
+    title via ``app.services.federated_titles`` exactly like
+    ``_liked_skill_shelf`` does, rather than re-deriving a second resolver.
+    """
+    q = db.query(BundleSkill).filter(
+        BundleSkill.bundle_id == cookbook_id,
+        BundleSkill.skill_id.is_(None),
+        BundleSkill.federated_source.isnot(None),
+        BundleSkill.federated_slug.isnot(None),
+    )
+    if not include_disabled:
+        q = q.filter(BundleSkill.source != "disabled")
+    q = q.order_by(BundleSkill.install_order.asc(), BundleSkill.added_at.asc())
+    return q.all()
+
+
+def _federated_cookbook_skill_out(join: BundleSkill, title: str) -> dict:
+    """Render a federated ``BundleSkill`` row in the ``CookbookSkillOut`` shape.
+
+    Every key a LOCAL skill entry carries is present here too (with a
+    fail-safe default — there is no ``Skill`` row to read them from), plus
+    the two new discriminator keys (``federated``, ``provenance``) so a
+    federated row can never be mistaken for a vetted/hosted skill in the
+    payload (task requirement: no authz gate applies here — there is no
+    ``Skill`` row for ``authz.can_install`` to check — so the discriminator
+    is how a consumer tells the two apart instead).
+    """
+    return CookbookSkillOut(
+        slug=join.federated_slug,
+        source=join.source,
+        pinned_version=join.pinned_version,
+        added_at=join.added_at,
+        title=title,
+        skill_variant=None,
+        is_public=None,
+        parent_skill_slug=None,
+        related_skills=[],
+        pinned=join.pinned_version is not None,
+        corrections_absorbed=0,
+        federated=True,
+        federated_source=join.federated_source,
+        provenance="community",
+    ).model_dump(mode="json")
 
 
 def _public_bundle_skill_out(skill: Skill) -> dict:
@@ -895,7 +968,14 @@ def get_cookbook(
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
-    """Return a single cookbook by ID, including its skill list."""
+    """Return a single cookbook by ID, including its skill list.
+
+    sp2607fix-1: the ``skills`` list additionally carries FEDERATED entries
+    (``BundleSkill`` rows with ``skill_id`` NULL — spotify_2607 Phase A liked
+    federated skills). Local entries are byte-identical to before (additive
+    keys only, see ``CookbookSkillOut``); federated entries are appended
+    after them in their own deterministic (install_order, added_at) order.
+    """
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id, allow_org_read=True)
     rows = _skills_for(db, cb.id, include_disabled=True)
@@ -916,6 +996,15 @@ def get_cookbook(
         ).model_dump(mode="json")
         for cs, skill in rows
     ]
+    fed_rows = _federated_skills_for(db, cb.id, include_disabled=True)
+    if fed_rows:
+        hub_by_slug = resolve_federated_hub_titles(db, (r.federated_slug for r in fed_rows))
+        out["skills"].extend(
+            _federated_cookbook_skill_out(
+                join, federated_title_for(hub_by_slug.get(join.federated_slug), join.federated_slug)
+            )
+            for join in fed_rows
+        )
     # portal_0610 J6 — living-object signals (the bundle is alive, not a static
     # list). All honest, organic-only counts; the frontend renders what's present.
     out["signals"] = _cookbook_signals(db, cb, out["skills"])
@@ -1379,7 +1468,17 @@ def install_cookbook(
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
-    """Idempotent: re-running returns the same payload. Disabled skills are skipped."""
+    """Idempotent: re-running returns the same payload. Disabled skills are skipped.
+
+    sp2607fix-1: federated ``BundleSkill`` rows (liked federated skills,
+    spotify_2607 Phase A) are now included in ``skills_payload`` and counted
+    in ``community`` (never ``vetted`` — see the discriminator fields on
+    each entry). No authz gate applies to them (there is no local ``Skill``
+    row for ``authz.can_install``/``tier_rank_allows_install`` to check —
+    Phase A's docstring on ``set_federated_like_in_bundle`` names the
+    federated identity itself as the trust boundary), so they are never
+    tier-gated or skipped the way local/external skills can be.
+    """
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
     rows = _skills_for(db, cb.id, include_disabled=False)
@@ -1459,6 +1558,21 @@ def install_cookbook(
     if installed_skills:
         db.commit()
 
+    # sp2607fix-1 — federated liked-bundle entries (BundleSkill rows with
+    # skill_id NULL). These append AFTER the local/external skills above so
+    # the pre-existing skills_payload prefix (and its provenance_id-stamped
+    # indices) is untouched byte-for-byte. Never tier-gated (see docstring):
+    # a federated row has no local Skill/tier to check.
+    fed_rows = _federated_skills_for(db, cb.id, include_disabled=False)
+    if fed_rows:
+        hub_by_slug = resolve_federated_hub_titles(db, (r.federated_slug for r in fed_rows))
+        for join in fed_rows:
+            skills_payload.append(
+                _federated_cookbook_skill_out(
+                    join, federated_title_for(hub_by_slug.get(join.federated_slug), join.federated_slug)
+                )
+            )
+
     # spotify_2607 Phase C — mixed-bundle install: personalities + composite
     # loops emit in the SAME payload as skills. Additive keys only (the
     # ponytail_0724 lesson) — `skills` above is untouched byte-for-byte;
@@ -1505,12 +1619,13 @@ def install_cookbook(
             }
         )
 
-    # §0b — vetted vs community split. Only skills carry a federated/external
+    # §0b — vetted vs community split. Skills carry federated/external
     # identity today (personalities and composite loops have no federation
     # adapter); an external skill's descriptor is tagged "external": True by
-    # install_descriptor_for. Everything else in the emitted payload is
-    # first-party / vetted.
-    community_count = sum(1 for entry in skills_payload if entry.get("external"))
+    # install_descriptor_for, and a federated liked-bundle entry is tagged
+    # "federated": True by _federated_cookbook_skill_out (sp2607fix-1).
+    # Everything else in the emitted payload is first-party / vetted.
+    community_count = sum(1 for entry in skills_payload if entry.get("external") or entry.get("federated"))
     vetted_count = len(skills_payload) - community_count + len(personalities_payload) + len(loops_payload)
 
     return {

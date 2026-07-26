@@ -16,13 +16,13 @@ from app.models import (
     BundlePersonality,
     BundleSkill,
     CompositeLoop,
-    FederationHubSkill,
     FollowedBundle,
     Personality,
     Skill,
     SkillLike,
     User,
 )
+from app.services.federated_titles import federated_title_for, resolve_federated_hub_titles
 
 if TYPE_CHECKING:
     from app.auth_ctx import AuthContext
@@ -339,17 +339,13 @@ def _liked_skill_shelf(db: Session, bundle_id: UUID) -> list[dict[str, str | dat
         .all()
     )
     if fed_rows:
-        slugs = {r.federated_slug for r in fed_rows}
-        hub_rows = db.query(FederationHubSkill).filter(FederationHubSkill.slug.in_(slugs)).all()
-        hub_by_slug = {row.slug: row for row in hub_rows}
+        hub_by_slug = resolve_federated_hub_titles(db, (r.federated_slug for r in fed_rows))
         for join in fed_rows:
-            hub = hub_by_slug.get(join.federated_slug)
-            title = (hub.title or "").strip() if hub is not None else ""
             out.append(
                 {
                     "id": str(join.id),
                     "slug": join.federated_slug,
-                    "title": title or join.federated_slug,
+                    "title": federated_title_for(hub_by_slug.get(join.federated_slug), join.federated_slug),
                     "liked_at": join.added_at,
                 }
             )
@@ -404,15 +400,12 @@ def _federated_liked_skills(db: Session, *, owner_id: UUID) -> list[dict]:
 
     # One query for every liked slug — keep this batched; a per-row lookup here
     # is an N+1 on a page that renders the user's whole library.
-    slugs = {like.federated_slug for like in likes}
-    hub_rows = db.query(FederationHubSkill).filter(FederationHubSkill.slug.in_(slugs)).all()
-    hub_by_slug = {row.slug: row for row in hub_rows}
+    hub_by_slug = resolve_federated_hub_titles(db, (like.federated_slug for like in likes))
 
     out: list[dict] = []
     for like in likes:
         hub = hub_by_slug.get(like.federated_slug)
-        # `title` is NOT NULL but defaults to "" — treat blank as unresolved.
-        title = (hub.title or "").strip() if hub is not None else ""
+        title = federated_title_for(hub, like.federated_slug)
         # spotify_2607 Phase B (§0b): provenance badging. A federated like is
         # community/unvetted by construction — we do not host it and it never
         # passed the publish scan. The trust_level column on
