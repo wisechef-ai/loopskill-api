@@ -417,7 +417,9 @@ def test_skills_key_byte_identical_after_mixed_install(db):
 
     p1, p2 = _bypass(cb)
     with p1, p2:
-        baseline = bundle_routes.install_cookbook(cookbook_id=str(cb.id), request=_Req(), db=db, ctx=_ctx(owner))
+        baseline = bundle_routes.install_cookbook(
+            cookbook_id=str(cb.id), request=_Req(), db=db, ctx=_ctx(owner)
+        )
 
     def _strip_provenance(skills):
         return [{k: v for k, v in entry.items() if k != "provenance_id"} for entry in skills]
@@ -442,15 +444,19 @@ def test_skills_key_byte_identical_after_mixed_install(db):
     # easier for clients to code against than a conditionally-appearing key,
     # and it costs nothing: the pre-existing `skills` key (asserted above) is
     # untouched either way.
-    assert set(baseline.keys()) == set(after.keys()) == {
-        "cookbook_id",
-        "name",
-        "skills",
-        "personalities",
-        "loops",
-        "vetted",
-        "community",
-    }
+    assert (
+        set(baseline.keys())
+        == set(after.keys())
+        == {
+            "cookbook_id",
+            "name",
+            "skills",
+            "personalities",
+            "loops",
+            "vetted",
+            "community",
+        }
+    )
 
 
 # ── tier gating: over-tier artifacts of EVERY type are skipped ─────────────
@@ -527,7 +533,6 @@ def test_vetted_community_counts_reflect_external_skills(db):
     """§0b — the install payload must separate vetted from community/federated
     counts so a fleet operator can see what they're pulling."""
     from app import bundle_routes
-    from app.services.bundle_external import materialize_external_skill
 
     owner = _mk_user(db)
     cb = _mk_cookbook(db, owner)
@@ -536,12 +541,6 @@ def test_vetted_community_counts_reflect_external_skills(db):
     db.commit()
     db.add(BundleSkill(bundle_id=cb.id, skill_id=s.id, source="custom-added"))
     db.commit()
-
-    with patch(
-        "app.services.bundle_external.materialize_external_skill",
-        return_value=None,
-    ):
-        pass  # placeholder to keep import used; real external add below via direct row
 
     # Materialize a federated pointer skill directly (mirrors what
     # materialize_external_skill actually writes) rather than hitting the
