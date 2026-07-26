@@ -564,3 +564,86 @@ def test_vetted_community_counts_reflect_external_skills(db):
 
     assert out["community"] == 1
     assert out["vetted"] == 1
+
+
+def test_multi_artifact_install_payload_is_deterministic_and_byte_identical(db):
+    """Codex R2 finding (nondeterministic ordering): a bundle with MULTIPLE
+    personalities and MULTIPLE loops must emit them in a stable order across
+    repeat installs, and the full personalities+loops payload must be
+    byte-identical on re-run. The single-artifact
+    test_skills_key_byte_identical_after_mixed_install cannot catch ordering
+    drift because a 1-element list is always "ordered".
+
+    Deterministic order is added_at ASC (mirrors _skills_for's contract at
+    bundle_routes.py:348). Ties (same added_at microsecond) break by the
+    artifact's UUID, which is stable per-row.
+
+    NOTE (bug-class 7, green-on-SQLite): SQLite returns rows in rowid/insertion
+    order even WITHOUT order_by, so this test passes on SQLite regardless of
+    the fix. The order_by clauses in bundle_routes.py are required for
+    PostgreSQL (prod), which does NOT guarantee row order without ORDER BY.
+    This test still proves the byte-identical-on-re-run contract on SQLite;
+    the fix itself is the prod protection.
+
+    We set added_at EXPLICITLY (descending insertion order, reversed from the
+    slug sort) rather than sleeping — a time.sleep would advance the wall clock
+    and make the sibling test_skills_key_byte_identical_after_mixed_install
+    flaky (its signed-token timestamp would straddle a second boundary).
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from app import bundle_routes
+
+    owner = _mk_user(db)
+    cb = _mk_cookbook(db, owner)
+
+    base = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    # Insert in REVERSE of the expected emit order, with explicit descending
+    # added_at. If order_by is absent, SQLite returns insertion order
+    # (gamma, beta, alpha); if present, it returns added_at-ASC (alpha, beta,
+    # gamma). Either way the byte-identical-on-re-run contract holds; the
+    # order assertion below documents the intended contract.
+    for i, slug in enumerate(["gamma-persona", "beta-persona", "alpha-persona"]):
+        p = _mk_personality(db, slug)
+        db.add(
+            BundlePersonality(
+                bundle_id=cb.id,
+                personality_id=p.id,
+                added_at=base - timedelta(seconds=i),
+            )
+        )
+        db.commit()
+    for i, slug in enumerate(["gamma-loop", "beta-loop", "alpha-loop"]):
+        cl = _mk_loop(db, slug)
+        db.add(
+            BundleCompositeLoop(
+                bundle_id=cb.id,
+                composite_loop_id=cl.id,
+                added_at=base - timedelta(seconds=i),
+            )
+        )
+        db.commit()
+
+    p1, p2 = _bypass(cb)
+    with p1, p2:
+        first = bundle_routes.install_cookbook(cookbook_id=str(cb.id), request=_Req(), db=db, ctx=_ctx(owner))
+    with p1, p2:
+        second = bundle_routes.install_cookbook(
+            cookbook_id=str(cb.id), request=_Req(), db=db, ctx=_ctx(owner)
+        )
+
+    first_p = [row["slug"] for row in first["personalities"]]
+    second_p = [row["slug"] for row in second["personalities"]]
+    first_l = [row["slug"] for row in first["loops"]]
+    second_l = [row["slug"] for row in second["loops"]]
+
+    # Deterministic order = added_at ascending = alpha, beta, gamma here
+    # (we inserted gamma-first with the LATEST added_at).
+    assert first_p == ["alpha-persona", "beta-persona", "gamma-persona"], (
+        f"personalities not in added_at-asc order: {first_p}"
+    )
+    assert first_l == ["alpha-loop", "beta-loop", "gamma-loop"], f"loops not in added_at-asc order: {first_l}"
+    # Byte-identical on re-run (the contract the byte-identical test pins for
+    # skills, extended to the new artifact arrays).
+    assert first_p == second_p, f"personalities order drifted on re-run: {first_p} vs {second_p}"
+    assert first_l == second_l, f"loops order drifted on re-run: {first_l} vs {second_l}"

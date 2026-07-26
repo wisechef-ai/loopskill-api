@@ -1464,10 +1464,15 @@ def install_cookbook(
     # ponytail_0724 lesson) — `skills` above is untouched byte-for-byte;
     # personalities/loops/vetted/community are new keys appended below.
     personalities_payload: list[dict] = []
+    # Deterministic order (mirrors _skills_for's order_by contract): added_at
+    # ascending, then personality_id as a stable tiebreaker. Without this the
+    # install payload's `personalities` array is nondeterministic under SQL
+    # for bundles with >1 personality, breaking byte-identical re-runs.
     for bp, personality in (
         db.query(BundlePersonality, Personality)
         .join(Personality, Personality.id == BundlePersonality.personality_id)
         .filter(BundlePersonality.bundle_id == cb.id)
+        .order_by(BundlePersonality.added_at.asc(), BundlePersonality.personality_id.asc())
         .all()
     ):
         if not tier_rank_allows_install(owner_tier, getattr(personality, "tier", None)):
@@ -1481,10 +1486,13 @@ def install_cookbook(
         )
 
     loops_payload: list[dict] = []
+    # Deterministic order (mirrors _skills_for + the personalities query above):
+    # added_at ascending, then composite_loop_id as a stable tiebreaker.
     for bl, loop in (
         db.query(BundleCompositeLoop, CompositeLoop)
         .join(CompositeLoop, CompositeLoop.id == BundleCompositeLoop.composite_loop_id)
         .filter(BundleCompositeLoop.bundle_id == cb.id)
+        .order_by(BundleCompositeLoop.added_at.asc(), BundleCompositeLoop.composite_loop_id.asc())
         .all()
     ):
         if not tier_rank_allows_install(owner_tier, getattr(loop, "tier", None)):
