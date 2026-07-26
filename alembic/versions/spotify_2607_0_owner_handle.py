@@ -59,7 +59,19 @@ _INDEX = "ix_federation_hub_skills_owner_handle"
 
 
 def upgrade() -> None:
-    """Add the nullable, indexed owner_handle column."""
+    """Add the nullable, indexed owner_handle column.
+
+    Index creation uses CONCURRENTLY on Postgres to avoid holding a
+    write-blocking SHARE lock on ``federation_hub_skills`` for the duration
+    of the build. That table gets a full DELETE+re-INSERT from the nightly
+    03:00 ``federation_reindex`` cron; a plain (non-concurrent)
+    ``CREATE INDEX`` would block that job's writes — and any live serve-path
+    reads that touch the table mid-migration — for as long as the index
+    build takes. CONCURRENTLY cannot run inside a transaction block, so this
+    drops out of Alembic's default transactional DDL via
+    ``autocommit_block()`` for just this statement; the column add stays
+    transactional.
+    """
     bind = op.get_bind()
     existing = {c["name"] for c in sa.inspect(bind).get_columns(_TABLE)}
 
@@ -71,7 +83,16 @@ def upgrade() -> None:
 
     existing_indexes = {i["name"] for i in sa.inspect(bind).get_indexes(_TABLE)}
     if _INDEX not in existing_indexes:
-        op.create_index(_INDEX, _TABLE, [_COLUMN])
+        if bind.dialect.name == "postgresql":
+            # CONCURRENTLY requires autocommit — cannot run inside Alembic's
+            # default transaction wrapper (env.py context.begin_transaction()).
+            with op.get_context().autocommit_block():
+                op.execute(
+                    sa.text(f"CREATE INDEX CONCURRENTLY IF NOT EXISTS {_INDEX} ON {_TABLE} ({_COLUMN})")
+                )
+        else:
+            # SQLite (test suite): CONCURRENTLY is a Postgres-only keyword.
+            op.create_index(_INDEX, _TABLE, [_COLUMN])
 
 
 def downgrade() -> None:

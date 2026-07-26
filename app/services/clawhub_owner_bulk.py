@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import time
 import urllib.error
 import urllib.parse
@@ -153,14 +154,25 @@ DEFAULT_SEED_TERMS: tuple[str, ...] = (
 #: failure is invisible otherwise.
 _RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 _RETRY_BACKOFF_SECONDS = 3.0
+#: Jitter fraction applied to the retry backoff. Fixed-delay retries with up
+#: to MAX_TAIL_WORKERS=16 concurrent threads would otherwise all wake and
+#: retry in the same instant after a shared rate-limit event — a
+#: self-inflicted thundering herd against the same upstream that just told us
+#: to back off. random.uniform(1 - _RETRY_JITTER, 1 + _RETRY_JITTER) spreads
+#: those 16 retries across a ~1.5s window instead of one point in time.
+_RETRY_JITTER = 0.25
 
 
 def _get_json(url: str, timeout: int = DEFAULT_TIMEOUT, retries: int = 1) -> Any:
     """Fetch and parse JSON. Returns ``None`` on ANY unrecoverable failure.
 
-    Retries once on a transient status (see ``_RETRY_STATUSES``) with a short
-    backoff. Deliberately swallows everything else: this is best-effort
-    enrichment feeding a resumable backfill. A transport hiccup must leave a row
+    Retries once on a transient status (see ``_RETRY_STATUSES``) with a short,
+    jittered backoff — plain fixed-delay retries would have every one of
+    ``resolve_tail_parallel``'s up-to-16 worker threads wake and retry at the
+    exact same instant after a shared 429/5xx, which is a self-inflicted
+    thundering herd against the same upstream that just asked us to back off.
+    Deliberately swallows everything else: this is best-effort enrichment
+    feeding a resumable backfill. A transport hiccup must leave a row
     unresolved (and so retried on the next run), never abort the sweep or
     propagate an exception into a request path.
     """
@@ -173,8 +185,9 @@ def _get_json(url: str, timeout: int = DEFAULT_TIMEOUT, retries: int = 1) -> Any
         except urllib.error.HTTPError as exc:
             if exc.code in _RETRY_STATUSES and attempt < retries:
                 attempt += 1
-                logger.info("clawhub %s on %s — retry %d/%d", exc.code, url, attempt, retries)
-                time.sleep(_RETRY_BACKOFF_SECONDS)
+                delay = _RETRY_BACKOFF_SECONDS * random.uniform(1 - _RETRY_JITTER, 1 + _RETRY_JITTER)
+                logger.info("clawhub %s on %s — retry %d/%d in %.2fs", exc.code, url, attempt, retries, delay)
+                time.sleep(delay)
                 continue
             logger.warning("clawhub bulk fetch failed for %s: %s", url, exc)
             return None
@@ -183,7 +196,8 @@ def _get_json(url: str, timeout: int = DEFAULT_TIMEOUT, retries: int = 1) -> Any
         except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
             if attempt < retries:
                 attempt += 1
-                time.sleep(_RETRY_BACKOFF_SECONDS)
+                delay = _RETRY_BACKOFF_SECONDS * random.uniform(1 - _RETRY_JITTER, 1 + _RETRY_JITTER)
+                time.sleep(delay)
                 continue
             logger.warning("clawhub bulk fetch failed for %s: %s", url, exc)
             return None

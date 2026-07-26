@@ -191,10 +191,16 @@ def origin_url_for_row(row: dict[str, Any]) -> str:
     if upstream == "clawhub" and identifier:
         # issue #139: NEVER mint the bare /skills/<slug> form — ClawHub 307s it
         # to /skills/skills/<slug>, a soft-404 that still answers HTTP 200.
-        # Snapshot rows carry no owner handle (verified: `extra` empty, 0 of
-        # 69,150 identifiers contain a "/"), so this degrades to the browse
-        # page; serve-time resolution upgrades it to the exact deep link.
-        return clawhub_skill_url(identifier, owner_handle_for_row(row))
+        # Snapshot rows carry no owner handle today (verified: `extra` empty,
+        # 0 of 69,150 identifiers contain a "/"), so this degrades to the
+        # browse page; serve-time resolution upgrades it to the exact deep
+        # link. IF upstream ever starts shipping identifiers packed as
+        # "owner/slug" (the shape owner_handle_for_row already defends
+        # against), the URL must use the SLUG half, not the packed string —
+        # clawhub_skill_url's is_safe_token rejects "/" and would otherwise
+        # silently degrade a resolvable row to the browse fallback forever.
+        url_slug = identifier.rpartition("/")[2] if "/" in identifier else identifier
+        return clawhub_skill_url(url_slug, owner_handle_for_row(row))
     if upstream == "official" and name:
         return f"https://hermes-agent.nousresearch.com/skills/{name}"
     if repo_ok:

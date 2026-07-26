@@ -389,6 +389,17 @@ def main() -> int:
             if args.commit and (resolved + demoted) % args.batch_size == 0:
                 db.flush()
                 db.commit()
+                # Checkpoint on the SAME cadence as the DB commit. Detail-call
+                # resolutions are memoised into owner_map per-row (above) but
+                # were previously only persisted to disk once, at the very end
+                # of this loop — so a crash mid-apply lost every detail-call
+                # hit made since the run started, exactly the failure this
+                # checkpoint exists to prevent (see commit 29c3d6e). The DB
+                # commit already makes already-applied rows durable; this
+                # makes the in-memory resolutions for NOT-YET-applied rows
+                # durable too, so a resumed run doesn't re-pay for them.
+                if not args.no_cache:
+                    save_cache(cache_path, owner_map)
                 logger.info(
                     "  committed %d resolved / %d demoted (detail calls: %d)",
                     resolved,

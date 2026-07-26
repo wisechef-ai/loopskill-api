@@ -127,6 +127,23 @@ class TestHubSnapshotIngest:
             assert owner_handle_for_row(row) == "psyb0t", key
             assert origin_url_for_row(row) == ("https://clawhub.ai/psyb0t/skills/ai-pm-prd-suite"), key
 
+    def test_packed_owner_slug_identifier_still_mints_the_deep_link(self) -> None:
+        """Regression: identifier packed as "owner/slug" must use the SLUG half.
+
+        Codex review round 1 caught this: owner_handle_for_row already parses
+        an "owner/slug"-shaped identifier defensively (should upstream ever
+        start shipping that shape), but origin_url_for_row was passing the
+        RAW packed identifier (with the slash still in it) as the slug to
+        clawhub_skill_url. is_safe_token rejects "/", so the row would
+        silently degrade to the browse-page fallback forever, even though the
+        owner AND slug were both fully resolvable from the same string.
+        """
+        row = dict(self.LIVE_ROW, identifier="psyb0t/aigate")
+        assert owner_handle_for_row(row) == "psyb0t"
+        url = origin_url_for_row(row)
+        _assert_never_bare(url)
+        assert url == "https://clawhub.ai/psyb0t/skills/aigate"
+
     def test_owner_packed_into_identifier(self) -> None:
         row = dict(self.LIVE_ROW, identifier="psyb0t/aigate")
         assert owner_handle_for_row(row) == "psyb0t"
