@@ -74,13 +74,74 @@ DEFAULT_TIMEOUT = 45
 #: chosen for RECALL, not precision: a term that matches many slugs is doing its
 #: job. Cheap to extend; each term costs one request.
 DEFAULT_SEED_TERMS: tuple[str, ...] = (
-    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m",
-    "n", "o", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z",
-    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
-    "skill", "agent", "ai", "api", "code", "data", "dev", "app",
-    "web", "auto", "tool", "gpt", "claude", "mcp", "search", "test",
-    "git", "cloud", "db", "sql", "chat", "bot", "image", "video",
-    "text", "file", "doc", "task", "work", "team", "user", "admin",
+    "a",
+    "b",
+    "c",
+    "d",
+    "e",
+    "f",
+    "g",
+    "h",
+    "i",
+    "j",
+    "k",
+    "l",
+    "m",
+    "n",
+    "o",
+    "p",
+    "q",
+    "r",
+    "s",
+    "t",
+    "u",
+    "v",
+    "w",
+    "x",
+    "y",
+    "z",
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "skill",
+    "agent",
+    "ai",
+    "api",
+    "code",
+    "data",
+    "dev",
+    "app",
+    "web",
+    "auto",
+    "tool",
+    "gpt",
+    "claude",
+    "mcp",
+    "search",
+    "test",
+    "git",
+    "cloud",
+    "db",
+    "sql",
+    "chat",
+    "bot",
+    "image",
+    "video",
+    "text",
+    "file",
+    "doc",
+    "task",
+    "work",
+    "team",
+    "user",
+    "admin",
 )
 
 
@@ -112,9 +173,7 @@ def _get_json(url: str, timeout: int = DEFAULT_TIMEOUT, retries: int = 1) -> Any
         except urllib.error.HTTPError as exc:
             if exc.code in _RETRY_STATUSES and attempt < retries:
                 attempt += 1
-                logger.info(
-                    "clawhub %s on %s — retry %d/%d", exc.code, url, attempt, retries
-                )
+                logger.info("clawhub %s on %s — retry %d/%d", exc.code, url, attempt, retries)
                 time.sleep(_RETRY_BACKOFF_SECONDS)
                 continue
             logger.warning("clawhub bulk fetch failed for %s: %s", url, exc)
@@ -348,9 +407,7 @@ def resolve_tail_parallel(
             if progress and done % progress_every == 0:
                 progress(done, len(wanted), len(resolved))
 
-    logger.info(
-        "parallel tail: %d/%d resolved with %d workers", len(resolved), len(wanted), workers
-    )
+    logger.info("parallel tail: %d/%d resolved with %d workers", len(resolved), len(wanted), workers)
     return resolved
 
 

@@ -61,15 +61,15 @@ class TestRecord:
     @pytest.mark.parametrize(
         "slug,handle",
         [
-            ("ok", "bad/owner"),      # path traversal into the URL
-            ("ok", "a?x=1"),          # query injection
-            ("ok", "a#frag"),         # fragment injection
+            ("ok", "bad/owner"),  # path traversal into the URL
+            ("ok", "a?x=1"),  # query injection
+            ("ok", "a#frag"),  # fragment injection
             ("ok", "has space"),
             ("ok", ""),
             ("ok", None),
             ("bad/slug", "alice"),
             (None, "alice"),
-            ("ok", "x" * 200),        # exceeds the is_safe_token ceiling
+            ("ok", "x" * 200),  # exceeds the is_safe_token ceiling
         ],
     )
     def test_rejects_unsafe(self, slug: Any, handle: Any) -> None:
@@ -112,8 +112,11 @@ class TestOwnersFromFeed:
     def test_parses_packed_owner_slug_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
         payload = {
             "entries": [
-                {"id": "@alipay/alipay-wallet", "title": "alipay-wallet",
-                 "publisher": {"id": "alipay", "trust": "official"}},
+                {
+                    "id": "@alipay/alipay-wallet",
+                    "title": "alipay-wallet",
+                    "publisher": {"id": "alipay", "trust": "official"},
+                },
             ]
         }
         monkeypatch.setattr("app.services.clawhub_owner_bulk._get_json", lambda *a, **k: payload)
@@ -270,11 +273,7 @@ class TestOwnerHandleSurvivesReindex:
         bulk_upsert_skills(seeded_db, self._snapshot_rows())
         seeded_db.commit()
 
-        row = (
-            seeded_db.query(FederationHubSkill)
-            .filter(FederationHubSkill.identifier == "aigate")
-            .one()
-        )
+        row = seeded_db.query(FederationHubSkill).filter(FederationHubSkill.identifier == "aigate").one()
         assert row.owner_handle == "psyb0t", "reindex destroyed the resolved owner"
         assert row.origin_url == "https://clawhub.ai/psyb0t/skills/aigate"
         assert not row.origin_url.startswith(BARE_FORM)
@@ -292,11 +291,7 @@ class TestOwnerHandleSurvivesReindex:
         bulk_upsert_skills(seeded_db, self._snapshot_rows(), preserve_owner_handles=False)
         seeded_db.commit()
 
-        row = (
-            seeded_db.query(FederationHubSkill)
-            .filter(FederationHubSkill.identifier == "aigate")
-            .one()
-        )
+        row = seeded_db.query(FederationHubSkill).filter(FederationHubSkill.identifier == "aigate").one()
         assert row.owner_handle is None
         assert row.origin_url == CLAWHUB_BROWSE_URL
 
@@ -364,19 +359,19 @@ class TestTokensFromIdentifiers:
 
 
 class TestTargetedOwnerSweep:
-    def test_resolves_wanted_slugs_and_stops_when_empty(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_resolves_wanted_slugs_and_stops_when_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from app.services import clawhub_owner_bulk as mod
 
         calls: list[str] = []
 
         def _fake(url: str, **k: Any) -> dict[str, Any]:
             calls.append(url)
-            return {"results": [
-                {"slug": "openclaw-a", "ownerHandle": "oc"},
-                {"slug": "openclaw-b", "ownerHandle": "oc"},
-            ]}
+            return {
+                "results": [
+                    {"slug": "openclaw-a", "ownerHandle": "oc"},
+                    {"slug": "openclaw-b", "ownerHandle": "oc"},
+                ]
+            }
 
         monkeypatch.setattr(mod, "_get_json", _fake)
         out = mod.targeted_owner_sweep({"openclaw-a", "openclaw-b"}, delay=0)
@@ -414,13 +409,12 @@ class TestTargetedOwnerSweep:
         out = mod.targeted_owner_sweep({"a-1", "b-2"}, max_terms=3, delay=0)
         assert out == {}, "a dead upstream must yield nothing, not raise"
 
-    def test_never_records_unsafe_owner_from_upstream(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_never_records_unsafe_owner_from_upstream(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from app.services import clawhub_owner_bulk as mod
 
         monkeypatch.setattr(
-            mod, "_get_json",
+            mod,
+            "_get_json",
             lambda *a, **k: {"results": [{"slug": "evil-1", "ownerHandle": ".."}]},
         )
         out = mod.targeted_owner_sweep({"evil-1"}, delay=0)
@@ -464,9 +458,7 @@ class TestResolveTailParallel:
         out = mod.resolve_tail_parallel(list(mapping), workers=4)
         assert out == mapping
 
-    def test_unresolvable_slugs_are_absent_not_guessed(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_unresolvable_slugs_are_absent_not_guessed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Absent => caller demotes to the browse fallback, a WORKING link.
         # Inventing a handle would mint a confident 404 instead.
         from app.services import clawhub_owner_bulk as mod
@@ -494,34 +486,27 @@ class TestResolveTailParallel:
         from app.services import clawhub_owner_bulk as mod
 
         monkeypatch.setattr(
-            mod, "_get_json",
+            mod,
+            "_get_json",
             lambda *a, **k: {"results": [{"slug": "x", "ownerHandle": ".."}]},
         )
         assert mod.resolve_tail_parallel(["x"], workers=2) == {}
 
-    def test_hostile_slugs_never_reach_the_network(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_hostile_slugs_never_reach_the_network(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from app.services import clawhub_owner_bulk as mod
 
         called: list[str] = []
-        monkeypatch.setattr(
-            mod, "_get_json", lambda url, **k: (called.append(url), {"results": []})[1]
-        )
+        monkeypatch.setattr(mod, "_get_json", lambda url, **k: (called.append(url), {"results": []})[1])
         assert mod.resolve_tail_parallel(["../../etc/passwd", "a b", ".."], workers=2) == {}
         assert called == []
 
-    def test_upstream_outage_yields_nothing_and_does_not_raise(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_upstream_outage_yields_nothing_and_does_not_raise(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from app.services import clawhub_owner_bulk as mod
 
         monkeypatch.setattr(mod, "_get_json", lambda *a, **k: None)
         assert mod.resolve_tail_parallel(["a", "b", "c"], workers=3) == {}
 
-    def test_one_failure_does_not_abort_the_batch(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_one_failure_does_not_abort_the_batch(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """A single bad slug must not lose the other 19,999 results."""
         from app.services import clawhub_owner_bulk as mod
 
@@ -551,9 +536,7 @@ class TestResolveTailParallel:
         from app.services import clawhub_owner_bulk as mod
 
         called: list[str] = []
-        monkeypatch.setattr(
-            mod, "_get_json", lambda url, **k: (called.append(url), None)[1]
-        )
+        monkeypatch.setattr(mod, "_get_json", lambda url, **k: (called.append(url), None)[1])
         assert mod.resolve_tail_parallel([], workers=4) == {}
         assert called == []
 
@@ -582,9 +565,14 @@ class TestTransientRetry:
                 raise urllib.error.HTTPError("u", 503, "Service Unavailable", {}, None)  # type: ignore[arg-type]
 
             class _R:
-                def __enter__(self_inner): return self_inner
-                def __exit__(self_inner, *a): return False
-                def read(self_inner): return b'{"results": []}'
+                def __enter__(self_inner):
+                    return self_inner
+
+                def __exit__(self_inner, *a):
+                    return False
+
+                def read(self_inner):
+                    return b'{"results": []}'
 
             return _R()
 
@@ -793,11 +781,11 @@ class TestAcceptanceGateIsReachable:
     @pytest.mark.parametrize(
         "slug,owner",
         [
-            ("aigate", "psyb0t"),   # fully resolved
-            ("aigate", None),       # unresolved -> browse fallback
-            ("aigate", ".."),       # hostile owner -> browse fallback
-            (None, "psyb0t"),       # missing identifier -> browse fallback
-            ("bad/slug", "psyb0t"), # hostile slug -> browse fallback
+            ("aigate", "psyb0t"),  # fully resolved
+            ("aigate", None),  # unresolved -> browse fallback
+            ("aigate", ".."),  # hostile owner -> browse fallback
+            (None, "psyb0t"),  # missing identifier -> browse fallback
+            ("bad/slug", "psyb0t"),  # hostile slug -> browse fallback
         ],
     )
     def test_no_reachable_output_trips_the_gate(self, slug: Any, owner: Any) -> None:

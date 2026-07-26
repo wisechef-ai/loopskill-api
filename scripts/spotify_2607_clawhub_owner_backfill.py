@@ -51,6 +51,7 @@ USAGE
     python3 scripts/spotify_2607_clawhub_owner_backfill.py --commit \
         --max-detail-calls 5000 --batch-size 500
 """
+
 from __future__ import annotations
 
 import argparse
@@ -239,7 +240,11 @@ def main() -> int:
             pre = sum(1 for w in wanted if w in owner_map)
             logger.info(
                 "resumed %d cached pairs from %s (covers %d/%d wanted, %.1f%%)",
-                len(owner_map), cache_path, pre, len(wanted), pre / max(len(wanted), 1) * 100,
+                len(owner_map),
+                cache_path,
+                pre,
+                len(wanted),
+                pre / max(len(wanted), 1) * 100,
             )
 
         # ── 1. Generic bulk harvest ───────────────────────────────────────
@@ -256,7 +261,10 @@ def main() -> int:
         covered = sum(1 for w in wanted if w in owner_map)
         logger.info(
             "stage 1 done: %d pairs, covering %d/%d wanted (%.1f%%)",
-            len(owner_map), covered, len(wanted), covered / max(len(wanted), 1) * 100,
+            len(owner_map),
+            covered,
+            len(wanted),
+            covered / max(len(wanted), 1) * 100,
         )
 
         # ── 2. Targeted sweep on what is still missing ────────────────────
@@ -265,11 +273,15 @@ def main() -> int:
         # Terms derived from the unresolved slugs themselves resolve ~300 rows
         # per call vs 1 per detail call.
         if not args.skip_targeted:
+
             def _tprogress(term: str, added: int, total: int, remaining: int) -> None:
                 if added or remaining % 5000 == 0:
                     logger.info(
                         "  target term=%-16s +%-4d map=%-6d remaining=%d",
-                        term, added, total, remaining,
+                        term,
+                        added,
+                        total,
+                        remaining,
                     )
 
             logger.info("stage 2/4: targeted sweep (max %d terms)...", args.max_terms)
@@ -284,7 +296,10 @@ def main() -> int:
             covered = sum(1 for w in wanted if w in owner_map)
             logger.info(
                 "stage 2 done: %d pairs, covering %d/%d wanted (%.1f%%)",
-                len(owner_map), covered, len(wanted), covered / max(len(wanted), 1) * 100,
+                len(owner_map),
+                covered,
+                len(wanted),
+                covered / max(len(wanted), 1) * 100,
             )
 
         # ── 3. Parallel tail: resolve what the sweeps could not ───────────
@@ -297,28 +312,34 @@ def main() -> int:
             if still:
                 logger.info(
                     "stage 3/4: parallel tail (%d slugs, %d workers, chunk %d)...",
-                    len(still), args.tail_workers, args.tail_chunk,
+                    len(still),
+                    args.tail_workers,
+                    args.tail_chunk,
                 )
                 # Chunked so an interruption costs MINUTES of upstream work, not
                 # the whole tail. The 2026-07-26 reboot killed a single 78-minute
                 # in-memory run and discarded all of it.
                 for start in range(0, len(still), args.tail_chunk):
                     chunk = still[start : start + args.tail_chunk]
-                    owner_map.update(
-                        resolve_tail_parallel(chunk, workers=args.tail_workers)
-                    )
+                    owner_map.update(resolve_tail_parallel(chunk, workers=args.tail_workers))
                     if not args.no_cache:
                         save_cache(cache_path, owner_map)
                     done = min(start + len(chunk), len(still))
                     cov = sum(1 for w in wanted if w in owner_map)
                     logger.info(
                         "  tail %d/%d  coverage %d/%d (%.1f%%)",
-                        done, len(still), cov, len(wanted), cov / max(len(wanted), 1) * 100,
+                        done,
+                        len(still),
+                        cov,
+                        len(wanted),
+                        cov / max(len(wanted), 1) * 100,
                     )
                 covered = sum(1 for w in wanted if w in owner_map)
                 logger.info(
                     "stage 3 done: covering %d/%d wanted (%.1f%%)",
-                    covered, len(wanted), covered / max(len(wanted), 1) * 100,
+                    covered,
+                    len(wanted),
+                    covered / max(len(wanted), 1) * 100,
                 )
 
         # ── 4. Apply ──────────────────────────────────────────────────────
@@ -370,7 +391,9 @@ def main() -> int:
                 db.commit()
                 logger.info(
                     "  committed %d resolved / %d demoted (detail calls: %d)",
-                    resolved, demoted, detail_calls,
+                    resolved,
+                    demoted,
+                    detail_calls,
                 )
 
         if args.commit:
@@ -383,7 +406,12 @@ def main() -> int:
             save_cache(cache_path, owner_map)
 
         logger.info("─" * 60)
-        logger.info("resolved   : %d / %d (%.1f%%)  -> owner-scoped deep link", resolved, len(rows), resolved / max(len(rows), 1) * 100)
+        logger.info(
+            "resolved   : %d / %d (%.1f%%)  -> owner-scoped deep link",
+            resolved,
+            len(rows),
+            resolved / max(len(rows), 1) * 100,
+        )
         logger.info("  from sweeps: %d", resolved - detail_hits)
         logger.info("  from detail: %d (%d calls, cap %d)", detail_hits, detail_calls, args.max_detail_calls)
         logger.info("unresolved : %d  -> browse-page fallback (a WORKING link)", unresolved)

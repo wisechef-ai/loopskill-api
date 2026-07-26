@@ -41,6 +41,7 @@ DOWNGRADE: DROP INDEX + DROP COLUMN. Non-destructive to any other data — the
 ``origin_url`` values a backfill wrote stay as they are, which is correct: they
 are valid URLs regardless of whether we still remember how we derived them.
 """
+
 from __future__ import annotations
 
 import sqlalchemy as sa

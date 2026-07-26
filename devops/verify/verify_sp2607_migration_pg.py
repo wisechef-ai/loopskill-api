@@ -19,6 +19,7 @@ SCRUBBER DODGE (documented in the golazo skill): never let a literal
 `user:pass@host` appear in tool input. The password is assembled by
 concatenation here and the URL is built with URL.create, which percent-encodes.
 """
+
 from __future__ import annotations
 
 import os
@@ -72,7 +73,10 @@ def alembic(*args: str) -> subprocess.CompletedProcess:
     env = dict(os.environ, WR_DATABASE_URL=DB_URL)
     return subprocess.run(
         [sys.executable, "-m", "alembic", *args],
-        cwd=REPO, env=env, capture_output=True, text=True,
+        cwd=REPO,
+        env=env,
+        capture_output=True,
+        text=True,
     )
 
 
@@ -89,10 +93,12 @@ def main() -> int:
         for stmt in PRIOR_DDL.strip().split(";"):
             if stmt.strip():
                 c.execute(text(stmt))
-        c.execute(text("""
+        c.execute(
+            text("""
             INSERT INTO federation_hub_skills (slug, title, upstream_source, identifier, origin_url)
             VALUES ('clawhub-aigate','aigate','clawhub','aigate','https://clawhub.ai/skills')
-        """))
+        """)
+        )
 
     print(f"2. stamping prior head {PRIOR_HEAD}")
     r = alembic("stamp", PRIOR_HEAD)
@@ -116,7 +122,9 @@ def main() -> int:
     print("   ok: nullable column + index present")
 
     with engine.connect() as c:
-        v = c.execute(text("SELECT owner_handle FROM federation_hub_skills WHERE identifier='aigate'")).scalar()
+        v = c.execute(
+            text("SELECT owner_handle FROM federation_hub_skills WHERE identifier='aigate'")
+        ).scalar()
     if v is not None:
         fail(f"pre-existing row should be NULL, got {v!r}")
     print("   ok: pre-existing row survived with NULL owner_handle")
@@ -133,16 +141,18 @@ def main() -> int:
 
     print("5. writing a resolved handle + repaired url")
     with engine.begin() as c:
-        c.execute(text("""
+        c.execute(
+            text("""
             UPDATE federation_hub_skills
                SET owner_handle='psyb0t',
                    origin_url='https://clawhub.ai/psyb0t/skills/aigate'
              WHERE identifier='aigate'
-        """))
+        """)
+        )
     with engine.connect() as c:
-        row = c.execute(text(
-            "SELECT owner_handle, origin_url FROM federation_hub_skills WHERE identifier='aigate'"
-        )).one()
+        row = c.execute(
+            text("SELECT owner_handle, origin_url FROM federation_hub_skills WHERE identifier='aigate'")
+        ).one()
     if row[0] != "psyb0t" or not row[1].startswith("https://clawhub.ai/psyb0t/skills/"):
         fail(f"resolved row wrong: {row}")
     print("   ok: deep link persisted")
@@ -159,7 +169,9 @@ def main() -> int:
     if "ix_federation_hub_skills_owner_handle" in idx:
         fail("downgrade left the index behind")
     with engine.connect() as c:
-        url = c.execute(text("SELECT origin_url FROM federation_hub_skills WHERE identifier='aigate'")).scalar()
+        url = c.execute(
+            text("SELECT origin_url FROM federation_hub_skills WHERE identifier='aigate'")
+        ).scalar()
     if url != "https://clawhub.ai/psyb0t/skills/aigate":
         fail(f"downgrade destroyed the repaired origin_url: {url!r}")
     print("   ok: column+index dropped, repaired origin_url preserved")
