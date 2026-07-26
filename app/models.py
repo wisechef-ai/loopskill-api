@@ -1959,6 +1959,13 @@ class FederationHubSkill(Base):
     upstream_source = Column(String(64), nullable=True)  # clawhub|skills-sh|github|official|…
     identifier = Column(String(512), nullable=True)  # the Hub's raw identifier
     origin_url = Column(Text, nullable=True)
+    # spotify_2607/0: the resolved ClawHub owner handle, persisted so the
+    # owner-scoped deep link (`/<owner>/skills/<slug>`) survives at rest rather
+    # than costing one upstream lookup per render. NULL is a valid state — it
+    # means "not resolved (yet, or ever)", and `clawhub_skill_url()` degrades to
+    # the ClawHub browse page, which is a working link. See issue #139/#141 and
+    # the sp2607_0_owner_handle migration for why nullable is load-bearing.
+    owner_handle = Column(String(128), nullable=True, index=True)
     install_path = Column(String(32), nullable=False, default="deep_link")
     trust_level = Column(String(32), nullable=True)  # community|trusted|builtin
     tags = Column(JSON, nullable=True)  # list[str]
