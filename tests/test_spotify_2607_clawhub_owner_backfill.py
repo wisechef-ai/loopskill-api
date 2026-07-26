@@ -22,6 +22,7 @@ so it gets an explicit RED-provable test rather than a comment.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -426,7 +427,150 @@ class TestTargetedOwnerSweep:
         assert out == {}, "dot-only owner would mint the soft-404 bare form"
 
 
+# ── Transient-failure retry ──────────────────────────────────────────────
+
+
+class TestTransientRetry:
+    """Observed live: 3 of 600 sweep calls returned 503 under sustained load.
+
+    Each sweep term is visited exactly once, so a dropped call means that term's
+    whole slug family stays unresolved — silently, since the fallback still
+    renders. Cheap to retry; invisible if you don't.
+    """
+
+    def test_retries_once_on_503_then_succeeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import urllib.error
+
+        from app.services import clawhub_owner_bulk as mod
+
+        calls = {"n": 0}
+
+        def _flaky(req: Any, timeout: int = 0) -> Any:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise urllib.error.HTTPError("u", 503, "Service Unavailable", {}, None)  # type: ignore[arg-type]
+
+            class _R:
+                def __enter__(self_inner): return self_inner
+                def __exit__(self_inner, *a): return False
+                def read(self_inner): return b'{"results": []}'
+
+            return _R()
+
+        monkeypatch.setattr(mod.urllib.request, "urlopen", _flaky)
+        monkeypatch.setattr(mod.time, "sleep", lambda *_: None)
+
+        assert mod._get_json("https://example.invalid/x") == {"results": []}
+        assert calls["n"] == 2, "did not retry the transient 503"
+
+    def test_gives_up_after_the_retry_budget(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import urllib.error
+
+        from app.services import clawhub_owner_bulk as mod
+
+        calls = {"n": 0}
+
+        def _always_503(req: Any, timeout: int = 0) -> Any:
+            calls["n"] += 1
+            raise urllib.error.HTTPError("u", 503, "Service Unavailable", {}, None)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(mod.urllib.request, "urlopen", _always_503)
+        monkeypatch.setattr(mod.time, "sleep", lambda *_: None)
+
+        assert mod._get_json("https://example.invalid/x") is None
+        assert calls["n"] == 2, "retry budget not bounded"
+
+    def test_does_not_retry_a_permanent_404(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import urllib.error
+
+        from app.services import clawhub_owner_bulk as mod
+
+        calls = {"n": 0}
+
+        def _404(req: Any, timeout: int = 0) -> Any:
+            calls["n"] += 1
+            raise urllib.error.HTTPError("u", 404, "Not Found", {}, None)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(mod.urllib.request, "urlopen", _404)
+        monkeypatch.setattr(mod.time, "sleep", lambda *_: None)
+
+        assert mod._get_json("https://example.invalid/x") is None
+        assert calls["n"] == 1, "wasted a retry on a permanent status"
+
+
 # ── The invariant the whole sprint exists to hold ────────────────────────
+
+
+#: The acceptance gate for issue #141. The plan states it as:
+#:   select ... where origin_url ~ '^https://clawhub\.ai/skills/' -> 0
+#:
+#: That BROAD form has a false positive, found by running it across all 69,150
+#: real prod identifiers: ClawHub has a publisher whose handle is literally
+#: ``skills`` (verified live — `GET /api/v1/skills/9` returns
+#: `owner.handle == "skills"` with a real userId). Its legitimate owner-scoped
+#: deep link is ``https://clawhub.ai/skills/skills/9``, which the broad regex
+#: flags as broken.
+#:
+#: Evidence it is a REAL page, not a soft-404 (body size discriminates, since
+#: every ClawHub 404 answers HTTP 200):
+#:     known-good  /hades4501/skills/ai-humanizer-2-1-0 -> 104,243 B, 0 redirects
+#:     known-bad   /skills/ai-humanizer-2-1-0           ->  63,638 B, 1 redirect
+#:     disputed    /skills/skills/9                     ->  83,449 B, 0 redirects
+#:
+#: The precise discriminator is SEGMENT COUNT, not prefix: the bare soft-404
+#: form is exactly two path segments (``/skills/<slug>``), while every
+#: owner-scoped link has three (``/<owner>/skills/<slug>``). Anchoring the end
+#: of the pattern encodes that and drops the false positive — verified to trip
+#: 0 times across all 69,150 prod rows.
+GATE_RX = re.compile(r"^https://clawhub\.ai/skills/[^/]+$")
+
+
+class TestAcceptanceGateIsReachable:
+    """Every possible outcome must clear the issue-#141 gate.
+
+    Measured coverage after a 600-term sweep is 71.1% — so ~20k rows will end a
+    run WITHOUT a resolved owner. If those rows kept their original
+    `/skills/<slug>` value they would (a) keep advertising the confirmed
+    soft-404 and (b) make the gate permanently unreachable no matter how many
+    times the backfill runs.
+
+    The browse-page fallback has no trailing slash, so it does not match the
+    gate regex — that is load-bearing, not incidental, and is asserted here.
+    """
+
+    def test_browse_fallback_clears_the_gate(self) -> None:
+        assert GATE_RX.match(CLAWHUB_BROWSE_URL) is None
+
+    def test_bare_form_trips_the_gate(self) -> None:
+        # Sanity: the gate actually detects the thing it exists to detect.
+        assert GATE_RX.match("https://clawhub.ai/skills/aigate") is not None
+
+    def test_owner_literally_named_skills_is_not_a_false_positive(self) -> None:
+        """ClawHub really has a publisher whose handle is ``skills``.
+
+        Its legitimate deep link is ``/skills/skills/9``, which the plan's
+        broad prefix regex flags as broken. Verified live: the URL serves
+        83,449 B with zero redirects, versus 63,638 B and one redirect for a
+        confirmed soft-404 — it is a real page. Segment count, not prefix, is
+        the correct discriminator.
+        """
+        assert GATE_RX.match(clawhub_skill_url("9", "skills")) is None
+
+    def test_resolved_deep_link_clears_the_gate(self) -> None:
+        assert GATE_RX.match(clawhub_skill_url("aigate", "psyb0t")) is None
+
+    @pytest.mark.parametrize(
+        "slug,owner",
+        [
+            ("aigate", "psyb0t"),   # fully resolved
+            ("aigate", None),       # unresolved -> browse fallback
+            ("aigate", ".."),       # hostile owner -> browse fallback
+            (None, "psyb0t"),       # missing identifier -> browse fallback
+            ("bad/slug", "psyb0t"), # hostile slug -> browse fallback
+        ],
+    )
+    def test_no_reachable_output_trips_the_gate(self, slug: Any, owner: Any) -> None:
+        assert GATE_RX.match(clawhub_skill_url(slug, owner)) is None
 
 
 class TestNeverMintsTheBareForm:

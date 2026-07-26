@@ -195,47 +195,64 @@ def main() -> int:
         detail_calls = 0
         detail_hits = 0
         unresolved = 0
+        demoted = 0
 
         for row in rows:
             identifier = (row.identifier or "").strip()
-            if not identifier:
-                unresolved += 1
-                continue
+            owner = owner_map.get(identifier) if identifier else None
 
-            owner = owner_map.get(identifier)
-
-            if owner is None and detail_calls < args.max_detail_calls:
+            if identifier and owner is None and detail_calls < args.max_detail_calls:
                 detail_calls += 1
                 owner = resolve_owner_via_detail(identifier)
                 if owner:
                     detail_hits += 1
                     owner_map[identifier] = owner  # memoise for duplicate identifiers
 
-            if not owner or not is_safe_token(owner):
+            if owner and is_safe_token(owner):
+                row.owner_handle = owner
+                row.origin_url = clawhub_skill_url(identifier, owner)
+                resolved += 1
+            else:
                 unresolved += 1
-                continue
+                # CRITICAL: an unresolved row must NOT keep the bare
+                # `/skills/<slug>` form. That is the confirmed soft-404 (307 ->
+                # /skills/skills/<slug>) this whole issue is about — leaving it
+                # in place would keep advertising a dead link AND would make the
+                # acceptance gate ("zero rows match ^https://clawhub\.ai/skills/")
+                # permanently unreachable.
+                #
+                # Demote it to the browse page instead: less precise, but it
+                # actually renders. `clawhub_skill_url` with no owner returns
+                # exactly that, and the browse URL has no trailing slash so it
+                # does not match the gate's regex.
+                #
+                # owner_handle stays NULL, so the next run retries this row —
+                # the demotion is a safe floor, not a terminal state.
+                fallback = clawhub_skill_url(identifier or None, None)
+                if row.origin_url != fallback:
+                    row.origin_url = fallback
+                    demoted += 1
 
-            new_url = clawhub_skill_url(identifier, owner)
-            row.owner_handle = owner
-            row.origin_url = new_url
-            resolved += 1
-
-            if args.commit and resolved % args.batch_size == 0:
+            if args.commit and (resolved + demoted) % args.batch_size == 0:
                 db.flush()
                 db.commit()
-                logger.info("  committed %d rows (detail calls used: %d)", resolved, detail_calls)
+                logger.info(
+                    "  committed %d resolved / %d demoted (detail calls: %d)",
+                    resolved, demoted, detail_calls,
+                )
 
         if args.commit:
             db.commit()
 
         logger.info("─" * 60)
-        logger.info("resolved   : %d / %d (%.1f%%)", resolved, len(rows), resolved / max(len(rows), 1) * 100)
+        logger.info("resolved   : %d / %d (%.1f%%)  -> owner-scoped deep link", resolved, len(rows), resolved / max(len(rows), 1) * 100)
         logger.info("  from sweeps: %d", resolved - detail_hits)
         logger.info("  from detail: %d (%d calls, cap %d)", detail_hits, detail_calls, args.max_detail_calls)
-        logger.info("unresolved : %d  (keep browse-page fallback — a WORKING link)", unresolved)
+        logger.info("unresolved : %d  -> browse-page fallback (a WORKING link)", unresolved)
+        logger.info("  demoted off the soft-404 bare form this run: %d", demoted)
         logger.info("mode       : %s", "COMMITTED" if args.commit else "DRY RUN (no writes)")
         if unresolved:
-            logger.info("re-run to continue; the script is resumable and idempotent")
+            logger.info("re-run to resolve more; the script is resumable and idempotent")
 
     return 0
 

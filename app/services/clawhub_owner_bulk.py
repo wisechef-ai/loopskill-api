@@ -84,26 +84,53 @@ DEFAULT_SEED_TERMS: tuple[str, ...] = (
 )
 
 
-def _get_json(url: str, timeout: int = DEFAULT_TIMEOUT) -> Any:
-    """Fetch and parse JSON. Returns ``None`` on ANY failure.
+#: Transient upstream statuses worth one retry. Observed live during a 600-term
+#: sweep: ClawHub returned sporadic 503s (3 of 600 calls) under sustained load.
+#: Without a retry those terms are silently lost — and because the sweep only
+#: visits each term once, a lost term means its whole slug family stays
+#: unresolved and quietly falls back to the browse page. Cheap to retry, and the
+#: failure is invisible otherwise.
+_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+_RETRY_BACKOFF_SECONDS = 3.0
 
-    Deliberately swallows everything: this is best-effort enrichment feeding a
-    resumable backfill. A transport hiccup must leave a row unresolved (and so
-    retried on the next run), never abort the sweep or propagate an exception
-    into a request path.
+
+def _get_json(url: str, timeout: int = DEFAULT_TIMEOUT, retries: int = 1) -> Any:
+    """Fetch and parse JSON. Returns ``None`` on ANY unrecoverable failure.
+
+    Retries once on a transient status (see ``_RETRY_STATUSES``) with a short
+    backoff. Deliberately swallows everything else: this is best-effort
+    enrichment feeding a resumable backfill. A transport hiccup must leave a row
+    unresolved (and so retried on the next run), never abort the sweep or
+    propagate an exception into a request path.
     """
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "loopskill-backfill/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
-            return json.loads(resp.read().decode("utf-8"))
-    # Rationale: best-effort upstream enrichment — any failure must degrade to
-    # "unresolved" so the backfill stays resumable, never raise into the caller.
-    except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
-        logger.warning("clawhub bulk fetch failed for %s: %s", url, exc)
-        return None
-    except Exception:  # noqa: BLE001
-        logger.warning("clawhub bulk fetch raised unexpectedly for %s", url, exc_info=True)
-        return None
+    attempt = 0
+    while True:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "loopskill-backfill/1.0"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            if exc.code in _RETRY_STATUSES and attempt < retries:
+                attempt += 1
+                logger.info(
+                    "clawhub %s on %s — retry %d/%d", exc.code, url, attempt, retries
+                )
+                time.sleep(_RETRY_BACKOFF_SECONDS)
+                continue
+            logger.warning("clawhub bulk fetch failed for %s: %s", url, exc)
+            return None
+        # Rationale: best-effort upstream enrichment — any failure must degrade to
+        # "unresolved" so the backfill stays resumable, never raise into the caller.
+        except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+            if attempt < retries:
+                attempt += 1
+                time.sleep(_RETRY_BACKOFF_SECONDS)
+                continue
+            logger.warning("clawhub bulk fetch failed for %s: %s", url, exc)
+            return None
+        except Exception:  # noqa: BLE001
+            logger.warning("clawhub bulk fetch raised unexpectedly for %s", url, exc_info=True)
+            return None
 
 
 def _record(out: dict[str, str], slug: Any, handle: Any) -> bool:
