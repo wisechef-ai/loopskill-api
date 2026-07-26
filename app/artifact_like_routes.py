@@ -217,9 +217,7 @@ def like_composite_loop_alias(slug: str, request: Request, db: Session = Depends
 
 
 @router.delete("/api/composite-loops/{slug}/like", response_model=LikeResponse)
-def unlike_composite_loop_alias(
-    slug: str, request: Request, db: Session = Depends(get_db)
-) -> LikeResponse:
+def unlike_composite_loop_alias(slug: str, request: Request, db: Session = Depends(get_db)) -> LikeResponse:
     return unlike_loop(slug, request, db)
 
 
@@ -269,7 +267,15 @@ def _bundle_or_404(db: Session, slug: str) -> Bundle:
     return b
 
 
-@router.post("/api/bundles/{slug}/like", response_model=BundleLikeResponse)
+# Bundle like (= follow) routes are mounted on BOTH surfaces (/api/bundles
+# and /api/cookbooks) to satisfy the repo-wide dual-surface symmetry gate
+# (test_loopskill_bundle_surface_symmetry). Bundle is the primary vocabulary;
+# cookbook is retained as a backward-compat alias — same shape as
+# follow_routes.py and bundle_routes.py.
+_bundle_like = APIRouter()
+
+
+@_bundle_like.post("/{slug}/like", response_model=BundleLikeResponse)
 def like_bundle(slug: str, request: Request, db: Session = Depends(get_db)) -> BundleLikeResponse:
     """Like a bundle by slug.
 
@@ -301,12 +307,10 @@ def like_bundle(slug: str, request: Request, db: Session = Depends(get_db)) -> B
             db.rollback()
     _resync_follower_count(db, b.id)
     db.refresh(b)
-    return BundleLikeResponse(
-        liked=True, bundle_id=str(b.id), follower_count=b.follower_count or 0
-    )
+    return BundleLikeResponse(liked=True, bundle_id=str(b.id), follower_count=b.follower_count or 0)
 
 
-@router.delete("/api/bundles/{slug}/like", response_model=BundleLikeResponse)
+@_bundle_like.delete("/{slug}/like", response_model=BundleLikeResponse)
 def unlike_bundle(slug: str, request: Request, db: Session = Depends(get_db)) -> BundleLikeResponse:
     """Unlike a bundle by slug (removes the follow)."""
     ctx = _require_user(request)
@@ -319,9 +323,7 @@ def unlike_bundle(slug: str, request: Request, db: Session = Depends(get_db)) ->
     db.commit()
     _resync_follower_count(db, b.id)
     db.refresh(b)
-    return BundleLikeResponse(
-        liked=False, bundle_id=str(b.id), follower_count=b.follower_count or 0
-    )
+    return BundleLikeResponse(liked=False, bundle_id=str(b.id), follower_count=b.follower_count or 0)
 
 
 def _resync_follower_count(db: Session, bundle_id: UUID) -> None:
@@ -335,12 +337,16 @@ def _resync_follower_count(db: Session, bundle_id: UUID) -> None:
     from sqlalchemy import func as _func
 
     count = (
-        db.query(_func.count(FollowedBundle.id))
-        .filter(FollowedBundle.bundle_id == bundle_id)
-        .scalar()
-        or 0
+        db.query(_func.count(FollowedBundle.id)).filter(FollowedBundle.bundle_id == bundle_id).scalar() or 0
     )
     db.query(Bundle).filter(Bundle.id == bundle_id).update(
         {"follower_count": count}, synchronize_session=False
     )
     db.commit()
+
+
+# Dual-mount: /api/bundles is the primary surface, /api/cookbooks is the
+# backward-compat alias. Both must expose the like verb or the surface-
+# symmetry gate (test_loopskill_bundle_surface_symmetry) regresses.
+router.include_router(_bundle_like, prefix="/api/bundles", tags=["bundles"])
+router.include_router(_bundle_like, prefix="/api/cookbooks", tags=["cookbooks"])  # compat-alias

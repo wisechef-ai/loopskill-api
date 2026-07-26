@@ -213,7 +213,7 @@ def liked_library(db: Session, *, owner_id: UUID) -> dict:
     spotify_2607 Phase B (§0b): ``federated_skills`` entries now carry a
     ``provenance`` field (``"community"`` for federated/unvetted content,
     ``"vetted"`` for local catalog entries that passed the publish scan). This
-    is the additive badging the premortem demanded — a fleet operator pulling
+    is the additive badging the premortem demanded — a fleet manager pulling
     the Liked bundle can tell apart vetted and community content at a glance.
     The frozen shelf shape (``{id, slug, title, liked_at}``) is unchanged.
     """

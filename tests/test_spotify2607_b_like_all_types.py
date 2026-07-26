@@ -48,9 +48,7 @@ def _app(db: Session, user_id) -> FastAPI:
 
     @app.middleware("http")
     async def inject_auth(request: Request, call_next):
-        request.state.auth_ctx = AuthContext(
-            scope="user", user_id=user_id, api_key_id=None, tier="free"
-        )
+        request.state.auth_ctx = AuthContext(scope="user", user_id=user_id, api_key_id=None, tier="free")
         return await call_next(request)
 
     app.dependency_overrides[get_db] = override_get_db
@@ -64,9 +62,7 @@ def _app(db: Session, user_id) -> FastAPI:
 
 def _seed_user(db: Session, tier: str = "free") -> tuple[User, object]:
     uid = uuid4()
-    u = User(
-        id=uid, email=f"user-{uid.hex[:8]}@test.com", display_name="Test", subscription_tier=tier
-    )
+    u = User(id=uid, email=f"user-{uid.hex[:8]}@test.com", display_name="Test", subscription_tier=tier)
     db.add(u)
     db.commit()
     return u, uid
@@ -80,9 +76,7 @@ def _seed_skill(db: Session, slug: str = "memory") -> Skill:
 
 
 def _seed_personality(db: Session, slug: str = "helpful-soul") -> Personality:
-    p = Personality(
-        slug=slug, title=slug, system_prompt="Be helpful.", tier="free", is_public=True
-    )
+    p = Personality(slug=slug, title=slug, system_prompt="Be helpful.", tier="free", is_public=True)
     db.add(p)
     db.commit()
     return p
@@ -286,6 +280,30 @@ def test_bundle_like_round_trip(db_session):
     assert b.follower_count == 0
 
 
+def test_bundle_like_cookbook_compat_alias(db_session):
+    """The /api/cookbooks/{slug}/like alias must work identically.
+
+    Repo-wide dual-surface symmetry gate
+    (test_loopskill_bundle_surface_symmetry) requires every /api/bundles/*
+    route to have a /api/cookbooks/* twin. This test pins that the like verb
+    is reachable on both surfaces and behaves the same.
+    """
+    owner, owner_id = _seed_user(db_session)
+    follower, follower_id = _seed_user(db_session)
+    _seed_bundle(db_session, owner_id, "aliased-bundle")
+    client = TestClient(_app(db_session, follower_id))
+
+    # Like via the cookbook compat alias.
+    r = client.post("/api/cookbooks/aliased-bundle/like")
+    assert r.status_code == 200, r.text
+    assert r.json()["liked"] is True
+
+    # Unlike via the cookbook compat alias too.
+    r2 = client.delete("/api/cookbooks/aliased-bundle/like")
+    assert r2.status_code == 200
+    assert r2.json()["liked"] is False
+
+
 def test_bundle_like_rejects_own_bundle(db_session):
     owner, owner_id = _seed_user(db_session)
     _seed_bundle(db_session, owner_id, "my-own")
@@ -298,7 +316,11 @@ def test_bundle_like_rejects_private_bundle(db_session):
     owner, owner_id = _seed_user(db_session)
     follower, follower_id = _seed_user(db_session)
     b = Bundle(
-        id=uuid4(), name="priv", slug="private-bundle", visibility="private", is_base=False,
+        id=uuid4(),
+        name="priv",
+        slug="private-bundle",
+        visibility="private",
+        is_base=False,
         bundle_owner=owner_id,
     )
     db_session.add(b)
@@ -384,9 +406,7 @@ def test_liking_bundle_does_not_cascade(db_session):
     # assert THAT directly against the follower's Liked bundle if one exists,
     # and fail loudly if a Liked bundle was unexpectedly created.)
     liked = (
-        db_session.query(Bundle)
-        .filter(Bundle.bundle_owner == follower_id, Bundle.is_liked.is_(True))
-        .first()
+        db_session.query(Bundle).filter(Bundle.bundle_owner == follower_id, Bundle.is_liked.is_(True)).first()
     )
     member_join_counts = (
         (
@@ -395,16 +415,12 @@ def test_liking_bundle_does_not_cascade(db_session):
             else 0
         ),
         (
-            db_session.query(BundlePersonality)
-            .filter(BundlePersonality.bundle_id == liked.id)
-            .count()
+            db_session.query(BundlePersonality).filter(BundlePersonality.bundle_id == liked.id).count()
             if liked is not None
             else 0
         ),
         (
-            db_session.query(BundleCompositeLoop)
-            .filter(BundleCompositeLoop.bundle_id == liked.id)
-            .count()
+            db_session.query(BundleCompositeLoop).filter(BundleCompositeLoop.bundle_id == liked.id).count()
             if liked is not None
             else 0
         ),
@@ -452,9 +468,7 @@ def test_library_populated_after_liking_all_types(db_session):
 def test_private_personality_like_forbidden(db_session):
     owner, owner_id = _seed_user(db_session)
     other, other_id = _seed_user(db_session)
-    p = Personality(
-        slug="secret-soul", title="secret", system_prompt="x", is_public=False, tier="free"
-    )
+    p = Personality(slug="secret-soul", title="secret", system_prompt="x", is_public=False, tier="free")
     db_session.add(p)
     db_session.commit()
     client = TestClient(_app(db_session, other_id))
@@ -462,14 +476,11 @@ def test_private_personality_like_forbidden(db_session):
     assert r.status_code == 403
     # Nothing landed in the Liked bundle.
     liked = (
-        db_session.query(Bundle)
-        .filter(Bundle.bundle_owner == other_id, Bundle.is_liked.is_(True))
-        .first()
+        db_session.query(Bundle).filter(Bundle.bundle_owner == other_id, Bundle.is_liked.is_(True)).first()
     )
     if liked is not None:
         assert (
-            db_session.query(BundlePersonality).filter(BundlePersonality.bundle_id == liked.id).count()
-            == 0
+            db_session.query(BundlePersonality).filter(BundlePersonality.bundle_id == liked.id).count() == 0
         )
 
 
@@ -478,9 +489,7 @@ def test_private_personality_like_forbidden(db_session):
 
 def test_tier_gate_blocks_over_tier_personality(db_session):
     owner, owner_id = _seed_user(db_session, tier="free")
-    p = Personality(
-        slug="pro-soul", title="pro", system_prompt="x", is_public=True, tier="pro"
-    )
+    p = Personality(slug="pro-soul", title="pro", system_prompt="x", is_public=True, tier="pro")
     db_session.add(p)
     db_session.commit()
     client = TestClient(_app(db_session, owner_id))
@@ -490,9 +499,7 @@ def test_tier_gate_blocks_over_tier_personality(db_session):
 
 
 def test_tier_gate_allows_master(db_session):
-    p = Personality(
-        slug="pro-soul-2", title="pro", system_prompt="x", is_public=True, tier="pro"
-    )
+    p = Personality(slug="pro-soul-2", title="pro", system_prompt="x", is_public=True, tier="pro")
     db_session.add(p)
     db_session.commit()
     uid = uuid4()
@@ -506,9 +513,7 @@ def test_tier_gate_allows_master(db_session):
 
     @app.middleware("http")
     async def inject_auth(request: Request, call_next):
-        request.state.auth_ctx = AuthContext(
-            scope="master", user_id=uid, api_key_id=None, tier="pro_plus"
-        )
+        request.state.auth_ctx = AuthContext(scope="master", user_id=uid, api_key_id=None, tier="pro_plus")
         return await call_next(request)
 
     app.dependency_overrides[get_db] = override_get_db
@@ -534,9 +539,7 @@ def test_federated_like_carries_provenance_badge(db_session):
             trust_level="community",
         )
     )
-    db_session.add(
-        SkillLike(user_id=uid, federated_source="clawhub", federated_slug="some-fed-skill")
-    )
+    db_session.add(SkillLike(user_id=uid, federated_source="clawhub", federated_slug="some-fed-skill"))
     db_session.commit()
 
     client = TestClient(_app(db_session, uid))
