@@ -147,9 +147,7 @@ def can_read_personality(ctx: AuthContext, personality: Any, db: "Session | None
         creator_id = getattr(personality, "creator_id", None)
         if creator_id is not None:
             owns = (
-                db.query(Creator)
-                .filter(Creator.id == creator_id, Creator.user_id == ctx.user_id)
-                .first()
+                db.query(Creator).filter(Creator.id == creator_id, Creator.user_id == ctx.user_id).first()
                 is not None
             )
             if owns:
@@ -173,9 +171,7 @@ def can_read_composite_loop(ctx: AuthContext, loop: Any, db: "Session | None" = 
         creator_id = getattr(loop, "creator_id", None)
         if creator_id is not None:
             owns = (
-                db.query(Creator)
-                .filter(Creator.id == creator_id, Creator.user_id == ctx.user_id)
-                .first()
+                db.query(Creator).filter(Creator.id == creator_id, Creator.user_id == ctx.user_id).first()
                 is not None
             )
             if owns:
