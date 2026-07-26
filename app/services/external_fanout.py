@@ -73,7 +73,9 @@ def _cache_key(source_id: str, query: str, limit: int) -> str:
     return f"extroute:{source_id}:{q_norm}:{limit}"
 
 
-def _query_one(source_id: str, adapter: "SourceAdapter | None", query: str, limit: int) -> ExternalFanoutResult:
+def _query_one(
+    source_id: str, adapter: "SourceAdapter | None", query: str, limit: int
+) -> ExternalFanoutResult:
     """Query one adapter, cached by ``(source_id, normalized query, limit)``.
 
     Reuses ``federation_live``'s existing module-level TTL cache (``fl._cache``)
