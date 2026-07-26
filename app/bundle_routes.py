@@ -33,7 +33,17 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app import config
 from app.database import get_db
-from app.models import Bundle, BundleSkill, Skill, SkillVersion, User
+from app.models import (
+    Bundle,
+    BundleCompositeLoop,
+    BundlePersonality,
+    BundleSkill,
+    CompositeLoop,
+    Personality,
+    Skill,
+    SkillVersion,
+    User,
+)
 from app.services.bundle_external import (
     install_descriptor_for,
     is_external_skill,
@@ -1045,6 +1055,147 @@ def remove_skill_from_cookbook(
     return {"cookbook_id": str(cb.id), "slug": slug, "source": "disabled", "deleted": True}
 
 
+# ── spotify_2607 Phase C — mixed bundles: personality + composite-loop
+# mutations, mirroring the skill add/remove routes above. BundlePersonality
+# and BundleCompositeLoop already existed with prod rows (models.py:2513/
+# 2540) — reconcile writes them (fleet_write.py) and the read path already
+# serves them (_artifacts_for / liked_library). This closes the ONLY gap:
+# there was no HTTP write surface, so a human/portal caller could never add
+# one to a bundle directly. No new tables. ─────────────────────────────────
+
+
+@_h.post("/{cookbook_id}/personalities/{slug}", status_code=201)  # compat-alias
+def add_personality_to_cookbook(
+    cookbook_id: str,
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """Add a personality to the specified cookbook. Idempotent."""
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+
+    personality = db.query(Personality).filter(Personality.slug == slug).first()
+    if personality is None:
+        raise HTTPException(status_code=404, detail="personality_not_found")
+
+    existing = (
+        db.query(BundlePersonality)
+        .filter(
+            BundlePersonality.bundle_id == cb.id,
+            BundlePersonality.personality_id == personality.id,
+        )
+        .first()
+    )
+    if existing is not None:
+        return {"cookbook_id": str(cb.id), "slug": slug, "added": False}
+
+    db.add(BundlePersonality(bundle_id=cb.id, personality_id=personality.id))
+    _touch_bundle_generation(db, cb.id)
+    db.commit()
+    return {"cookbook_id": str(cb.id), "slug": slug, "added": True}
+
+
+@_h.delete("/{cookbook_id}/personalities/{slug}")  # compat-alias
+def remove_personality_from_cookbook(
+    cookbook_id: str,
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """Remove a personality from the specified cookbook."""
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+
+    personality = db.query(Personality).filter(Personality.slug == slug).first()
+    if personality is None:
+        raise HTTPException(status_code=404, detail="personality_not_found")
+
+    bp = (
+        db.query(BundlePersonality)
+        .filter(
+            BundlePersonality.bundle_id == cb.id,
+            BundlePersonality.personality_id == personality.id,
+        )
+        .first()
+    )
+    if bp is None:
+        raise HTTPException(status_code=404, detail="personality_not_in_cookbook")
+
+    db.delete(bp)
+    _touch_bundle_generation(db, cb.id)
+    db.commit()
+    return {"cookbook_id": str(cb.id), "slug": slug, "deleted": True}
+
+
+@_h.post("/{cookbook_id}/loops/{slug}", status_code=201)  # compat-alias
+def add_loop_to_cookbook(
+    cookbook_id: str,
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """Add a composite loop to the specified cookbook. Idempotent."""
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+
+    loop = db.query(CompositeLoop).filter(CompositeLoop.slug == slug).first()
+    if loop is None:
+        raise HTTPException(status_code=404, detail="loop_not_found")
+
+    existing = (
+        db.query(BundleCompositeLoop)
+        .filter(
+            BundleCompositeLoop.bundle_id == cb.id,
+            BundleCompositeLoop.composite_loop_id == loop.id,
+        )
+        .first()
+    )
+    if existing is not None:
+        return {"cookbook_id": str(cb.id), "slug": slug, "added": False}
+
+    db.add(BundleCompositeLoop(bundle_id=cb.id, composite_loop_id=loop.id))
+    _touch_bundle_generation(db, cb.id)
+    db.commit()
+    return {"cookbook_id": str(cb.id), "slug": slug, "added": True}
+
+
+@_h.delete("/{cookbook_id}/loops/{slug}")  # compat-alias
+def remove_loop_from_cookbook(
+    cookbook_id: str,
+    slug: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """Remove a composite loop from the specified cookbook."""
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+
+    loop = db.query(CompositeLoop).filter(CompositeLoop.slug == slug).first()
+    if loop is None:
+        raise HTTPException(status_code=404, detail="loop_not_found")
+
+    bl = (
+        db.query(BundleCompositeLoop)
+        .filter(
+            BundleCompositeLoop.bundle_id == cb.id,
+            BundleCompositeLoop.composite_loop_id == loop.id,
+        )
+        .first()
+    )
+    if bl is None:
+        raise HTTPException(status_code=404, detail="loop_not_in_cookbook")
+
+    db.delete(bl)
+    _touch_bundle_generation(db, cb.id)
+    db.commit()
+    return {"cookbook_id": str(cb.id), "slug": slug, "deleted": True}
+
+
 # ── portal_0610 J2 — Composer mutations: visibility, version-pin, reorder ────
 
 
@@ -1308,10 +1459,68 @@ def install_cookbook(
     if installed_skills:
         db.commit()
 
+    # spotify_2607 Phase C — mixed-bundle install: personalities + composite
+    # loops emit in the SAME payload as skills. Additive keys only (the
+    # ponytail_0724 lesson) — `skills` above is untouched byte-for-byte;
+    # personalities/loops/vetted/community are new keys appended below.
+    personalities_payload: list[dict] = []
+    # Deterministic order (mirrors _skills_for's order_by contract): added_at
+    # ascending, then personality_id as a stable tiebreaker. Without this the
+    # install payload's `personalities` array is nondeterministic under SQL
+    # for bundles with >1 personality, breaking byte-identical re-runs.
+    for bp, personality in (
+        db.query(BundlePersonality, Personality)
+        .join(Personality, Personality.id == BundlePersonality.personality_id)
+        .filter(BundlePersonality.bundle_id == cb.id)
+        .order_by(BundlePersonality.added_at.asc(), BundlePersonality.personality_id.asc())
+        .all()
+    ):
+        if not tier_rank_allows_install(owner_tier, getattr(personality, "tier", None)):
+            continue
+        personalities_payload.append(
+            {
+                "slug": personality.slug,
+                "title": personality.title,
+                "pinned_version": bp.pinned_version,
+            }
+        )
+
+    loops_payload: list[dict] = []
+    # Deterministic order (mirrors _skills_for + the personalities query above):
+    # added_at ascending, then composite_loop_id as a stable tiebreaker.
+    for bl, loop in (
+        db.query(BundleCompositeLoop, CompositeLoop)
+        .join(CompositeLoop, CompositeLoop.id == BundleCompositeLoop.composite_loop_id)
+        .filter(BundleCompositeLoop.bundle_id == cb.id)
+        .order_by(BundleCompositeLoop.added_at.asc(), BundleCompositeLoop.composite_loop_id.asc())
+        .all()
+    ):
+        if not tier_rank_allows_install(owner_tier, getattr(loop, "tier", None)):
+            continue
+        loops_payload.append(
+            {
+                "slug": loop.slug,
+                "title": loop.title,
+                "pinned_version": bl.pinned_version,
+            }
+        )
+
+    # §0b — vetted vs community split. Only skills carry a federated/external
+    # identity today (personalities and composite loops have no federation
+    # adapter); an external skill's descriptor is tagged "external": True by
+    # install_descriptor_for. Everything else in the emitted payload is
+    # first-party / vetted.
+    community_count = sum(1 for entry in skills_payload if entry.get("external"))
+    vetted_count = len(skills_payload) - community_count + len(personalities_payload) + len(loops_payload)
+
     return {
         "cookbook_id": str(cb.id),
         "name": cb.name,
         "skills": skills_payload,
+        "personalities": personalities_payload,
+        "loops": loops_payload,
+        "vetted": vetted_count,
+        "community": community_count,
     }
 
 
