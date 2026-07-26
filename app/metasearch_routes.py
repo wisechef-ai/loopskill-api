@@ -216,7 +216,9 @@ def metasearch(
     return payload
 
 
-def _install_command_matrix(source: str, origin_url: str | None, preview_only: bool) -> dict:
+def _install_command_matrix(
+    source: str, origin_url: str | None, preview_only: bool, slug: str | None = None
+) -> dict:
     """Per-agent templated install commands (§6 / P3b fallback path) for the
     ad-hoc / single-agent visitor. The LoopSkill fleet-deploy motion (P3) is the
     real action for operators; this is the copy-paste teaser for everyone else.
@@ -224,11 +226,18 @@ def _install_command_matrix(source: str, origin_url: str | None, preview_only: b
 
     Council finding 2: every interpolated value is shlex.quote'd so a slug with
     shell metacharacters cannot become command injection when the line is pasted.
+
+    issue #139: the install target is the resolved SLUG, passed in explicitly.
+    It used to be recovered by string-splitting ``origin_url`` on "/", which
+    only ever worked because the URL happened to end in the slug — a coupling
+    that silently produced a wrong command the moment the URL shape changed
+    (owner-scoped deep link, or the browse-page fallback). Derive identity from
+    identity, never from a display URL.
     """
     origin = origin_url or ""
     if preview_only:
         # ClawHub: user installs from ClawHub's own origin (we never rehost).
-        leaf = origin.rsplit("/", 1)[-1]
+        leaf = (slug or "").rsplit("/", 1)[-1] or origin.rsplit("/", 1)[-1]
         return {
             "clawhub": f"clawhub install {shlex.quote(leaf)}" if leaf else "",
             "note": "Community source — install from origin; not fleet-deployable in v1.",
@@ -310,7 +319,9 @@ def metasearch_install(
     if not resolved.resolved:
         raise HTTPException(status_code=404, detail={"resolved": False, "reason": resolved.reason})
     out = resolved.to_dict()
-    out["commands"] = _install_command_matrix(resolved.source, resolved.origin_url, resolved.preview_only)
+    out["commands"] = _install_command_matrix(
+        resolved.source, resolved.origin_url, resolved.preview_only, resolved.slug
+    )
     return out
 
 

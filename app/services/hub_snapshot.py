@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from app.models import FederationHubSkill, FederationIndexCache
+from app.services.clawhub_url import clawhub_skill_url, is_safe_token
 from app.services.federation import InstallPath
 
 # ponytail_0724: repo-path resolution + hostile-input validation live in their
@@ -147,12 +148,43 @@ def install_path_for_row(row: dict[str, Any]) -> InstallPath:
     return InstallPath.DEEP_LINK
 
 
+def owner_handle_for_row(row: dict[str, Any]) -> str | None:
+    """Best-effort ClawHub owner handle from a Hub snapshot row.
+
+    Today's snapshot carries no owner (verified 2026-07-26 against the live
+    index: ``extra`` is empty and 0 of 69,150 clawhub identifiers contain a
+    ``/``), so this returns ``None`` and callers degrade to the browse page.
+
+    It reads the fields upstream would plausibly use IF it ever starts shipping
+    the handle, so this fix upgrades itself the moment that happens instead of
+    silently keeping the fallback. Same posture as ``resolved_repo_path``:
+    prefer a resolved field when present, fail closed when it is not.
+    """
+    for key in ("owner", "owner_handle", "ownerHandle", "handle", "namespace"):
+        value = row.get(key)
+        if isinstance(value, dict):
+            value = value.get("handle")
+        if isinstance(value, str) and is_safe_token(value):
+            return value.strip()
+    # ``owner/slug`` packed into the identifier is the other shape upstream
+    # could adopt; accept it defensively (both halves must be safe tokens).
+    identifier = (row.get("identifier") or "").strip()
+    if identifier.count("/") == 1:
+        owner, _, leaf = identifier.partition("/")
+        if is_safe_token(owner) and is_safe_token(leaf):
+            return owner
+    return None
+
+
 def origin_url_for_row(row: dict[str, Any]) -> str:
     """Build the origin URL for a Hub snapshot row based on its upstream source.
 
     - skills.sh / github: github URL from repo + REAL path (see
       ``resolved_repo_path`` — ponytail_0724)
-    - clawhub: clawhub.ai/skills/{identifier}
+    - clawhub: owner-scoped deep link when the owner is known, else the
+      ClawHub browse page (issue #139 — the bare ``/skills/{identifier}``
+      form 307s to a soft-404). Snapshot rows carry no owner handle, so
+      ingest emits the browse fallback and serve-time resolution upgrades it.
     - official: hermes-agent docs skills/{name}
     - fallback: repo URL or hub docs page
     """
@@ -175,7 +207,12 @@ def origin_url_for_row(row: dict[str, Any]) -> str:
             base += f"/tree/main/{path}"
         return base
     if upstream == "clawhub" and identifier:
-        return f"https://clawhub.ai/skills/{identifier}"
+        # issue #139: NEVER mint the bare /skills/<slug> form — ClawHub 307s it
+        # to /skills/skills/<slug>, a soft-404 that still answers HTTP 200.
+        # Snapshot rows carry no owner handle (verified: `extra` empty, 0 of
+        # 69,150 identifiers contain a "/"), so this degrades to the browse
+        # page; serve-time resolution upgrades it to the exact deep link.
+        return clawhub_skill_url(identifier, owner_handle_for_row(row))
     if upstream == "official" and name:
         return f"https://hermes-agent.nousresearch.com/skills/{name}"
     if repo_ok:

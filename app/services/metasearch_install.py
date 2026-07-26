@@ -32,6 +32,7 @@ import logging
 import re
 from dataclasses import dataclass
 
+from app.services import clawhub_url
 from app.services.federation_install import get_origin_fetcher
 
 logger = logging.getLogger(__name__)
@@ -143,6 +144,11 @@ def resolve_clawhub_preview(slug: str) -> ResolvedInstall:
     if not isinstance(skill, dict):
         # Some responses return the skill at the top level.
         skill = data if isinstance(data, dict) else None
+    # issue #139: the detail payload we ALREADY fetched carries owner.handle,
+    # so the owner-scoped deep link costs no extra round trip here. Never mint
+    # the bare /skills/<slug> form — it 307s to a soft-404 that answers 200.
+    owner = clawhub_url.owner_from_detail_payload(data)
+    origin_url = clawhub_url.clawhub_skill_url(real_slug, owner)
     # Council finding 3: accept ONLY the documented inline SKILL.md body field
     # (``description``), not summary/metadata — a summary is not a SKILL.md and
     # must NOT be presented as a preview. A valid SKILL.md begins with YAML
@@ -154,14 +160,14 @@ def resolve_clawhub_preview(slug: str) -> ResolvedInstall:
             "clawhub",
             slug,
             reason="no_inline_skill_md",
-            origin_url=f"https://clawhub.ai/skills/{real_slug}",
+            origin_url=origin_url,
         )
     return ResolvedInstall(
         resolved=True,
         source="clawhub",
         slug=slug,
         body=_clip(body),
-        origin_url=f"https://clawhub.ai/skills/{real_slug}",
+        origin_url=origin_url,
         preview_only=True,
         reason="clawhub_inline_preview",
     )

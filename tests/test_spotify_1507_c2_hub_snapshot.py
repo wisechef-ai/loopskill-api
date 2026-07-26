@@ -253,9 +253,21 @@ class TestOriginUrl:
         assert "tree/main/skill" in url
 
     def test_clawhub_url(self):
+        """issue #139: the bare /skills/<slug> form is a soft-404.
+
+        This assertion previously pinned the BUG — it required the exact URL
+        ClawHub 307-redirects to /skills/skills/<slug> (a client-rendered "not
+        found" that still answers HTTP 200). Snapshot rows carry no owner
+        handle, so ingest now fails safe to the browse page; when an owner IS
+        known the URL is owner-scoped. See tests/test_clawhub_owner_scoped_url.py.
+        """
         row = {"source": "clawhub", "identifier": "my-skill", "name": "My"}
         url = hs.origin_url_for_row(row)
-        assert "clawhub.ai/skills/my-skill" in url
+        assert url == "https://clawhub.ai/skills"
+        assert "clawhub.ai/skills/my-skill" not in url
+
+        owned = hs.origin_url_for_row({**row, "owner": "psyb0t"})
+        assert owned == "https://clawhub.ai/psyb0t/skills/my-skill"
 
     def test_official_url(self):
         row = {"source": "official", "name": "hermes-markdown"}
