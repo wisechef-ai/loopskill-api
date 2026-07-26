@@ -14,7 +14,7 @@ from __future__ import annotations
 import time
 
 import app.services.federation_live as fl
-from app.services.external_fanout import ExternalFanoutResult, run_external_fanout
+from app.services.external_fanout import run_external_fanout
 from app.services.federation import ExternalSkill, InstallPath
 
 
