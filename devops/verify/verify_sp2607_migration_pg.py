@@ -29,7 +29,7 @@ from pathlib import Path
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import URL
 
-REPO = Path(__file__).resolve().parent
+REPO = Path(__file__).resolve().parent.parent.parent
 PRIOR_HEAD = "ah0723_composite_loop_tags"
 NEW_HEAD = "sp2607_0_owner_handle"
 
