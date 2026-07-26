@@ -123,11 +123,30 @@ def test_list_cookbooks_includes_visibility(vis_client):
     assert rows, "expected at least one cookbook"
     row = next(r for r in rows if r["name"] == "List Visibility Test")
     assert row.get("visibility") == "private"
+    assert row.get("slug") == "list-visibility-test"
+
+
+def test_rename_response_includes_visibility_and_slug(vis_client):
+    """PATCH /api/cookbooks/{id} (rename) also goes through _to_cb_out —
+    its response must carry both new fields too, not just create/list/get."""
+    created = _create(vis_client, "Rename Visibility Test")
+    renamed = vis_client.patch(
+        f"/api/cookbooks/{created['id']}",
+        json={"name": "Renamed Visibility Test"},
+    )
+    assert renamed.status_code == 200, renamed.text
+    body = renamed.json()
+    assert body.get("name") == "Renamed Visibility Test"
+    assert body.get("visibility") == "private"
+    assert body.get("slug") == "rename-visibility-test"
 
 
 def test_create_response_created_field_shape_unchanged(vis_client):
     """Additive-only: every pre-existing key on the create response must
-    still be present and correctly typed (no reshape of a pinned contract)."""
+    still be present (no reshape of a pinned contract). This asserts
+    presence, not type — the pre-existing fields' types are exercised by
+    the older test_bundle_slug_on_create.py suite; this test's job is only
+    to prove the additive change didn't remove or rename a key."""
     created = _create(vis_client, "Contract Shape Test")
     for key in ("id", "name", "description", "is_base", "parent_bundle_id", "bundle_owner", "created_at"):
         assert key in created, f"pre-existing key {key!r} missing — additive change broke the contract"
