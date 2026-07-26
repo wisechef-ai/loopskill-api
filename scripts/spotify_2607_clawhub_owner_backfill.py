@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import argparse
 import configparser
+import json
 import logging
 import os
 import sys
@@ -79,6 +80,52 @@ def get_db_url() -> str:
     cfg = configparser.ConfigParser()
     cfg.read(REPO_ROOT / "alembic.ini")
     return cfg["alembic"]["sqlalchemy.url"]
+
+
+#: Durable checkpoint for the resolved owner map.
+#:
+#: LEARNED THE HARD WAY 2026-07-26: an earlier measurement run cached the map in
+#: ``/tmp`` and a host reboot wiped it, discarding ~78 minutes of upstream API
+#: work. ``/tmp`` is cleared on boot on this host — never put expensive,
+#: slow-to-recompute state there.
+#:
+#: The database is still the real source of resumability (``owner_handle`` is
+#: persisted per row, so a re-run only queries rows that are still NULL). This
+#: file is a second, cheaper layer: it lets a DRY RUN — which writes nothing to
+#: the DB by definition — resume instead of re-sweeping from scratch, and it
+#: means an interrupted --commit run does not re-pay for slugs it already
+#: resolved but had not yet flushed.
+DEFAULT_CACHE_PATH = Path.home() / ".hermes" / "state" / "clawhub-owner-map.json"
+
+
+def load_cache(path: Path) -> dict[str, str]:
+    """Load a previously-checkpointed owner map. Never fatal."""
+    try:
+        if path.exists():
+            data = json.loads(path.read_text())
+            if isinstance(data, dict):
+                return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str)}
+    # Rationale: the cache is an optimisation, not a source of truth — a corrupt
+    # or unreadable file must degrade to "start fresh", never abort the backfill.
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("owner-map cache unreadable at %s (%s) — starting fresh", path, exc)
+    return {}
+
+
+def save_cache(path: Path, owner_map: dict[str, str]) -> None:
+    """Checkpoint the owner map atomically. Never fatal."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Write-then-rename so a crash mid-write cannot leave a truncated file
+        # that the next run would read as an empty/partial map.
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(owner_map))
+        tmp.replace(path)
+        logger.info("checkpointed %d owner pairs -> %s", len(owner_map), path)
+    # Rationale: checkpointing is best-effort; a read-only or full disk must not
+    # destroy an otherwise-successful backfill run.
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not checkpoint owner map to %s: %s", path, exc)
 
 
 def main() -> int:
@@ -116,6 +163,24 @@ def main() -> int:
         default=10,
         help="concurrency for the tail (default 10, hard cap 16). Measured ~20x "
         "faster than serial; kept modest because this is a third-party API.",
+    )
+    parser.add_argument(
+        "--tail-chunk",
+        type=int,
+        default=2000,
+        help="checkpoint the owner map every N tail slugs (default 2000, ~1 min of "
+        "work). Bounds how much upstream effort a crash can discard.",
+    )
+    parser.add_argument(
+        "--cache-path",
+        default=str(DEFAULT_CACHE_PATH),
+        help=f"durable owner-map checkpoint (default {DEFAULT_CACHE_PATH}). "
+        "NEVER put this in /tmp — it is wiped on reboot.",
+    )
+    parser.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="ignore and do not write the checkpoint; re-sweep everything from scratch.",
     )
     parser.add_argument(
         "--limit-rows",
@@ -165,12 +230,29 @@ def main() -> int:
 
         wanted = {(r.identifier or "").strip() for r in rows if (r.identifier or "").strip()}
 
+        # Durable checkpoint: resume instead of re-paying for upstream calls we
+        # have already made. See DEFAULT_CACHE_PATH — a /tmp cache cost ~78 min
+        # of API work to a host reboot on 2026-07-26.
+        cache_path = Path(args.cache_path).expanduser()
+        owner_map: dict[str, str] = {} if args.no_cache else load_cache(cache_path)
+        if owner_map:
+            pre = sum(1 for w in wanted if w in owner_map)
+            logger.info(
+                "resumed %d cached pairs from %s (covers %d/%d wanted, %.1f%%)",
+                len(owner_map), cache_path, pre, len(wanted), pre / max(len(wanted), 1) * 100,
+            )
+
         # ── 1. Generic bulk harvest ───────────────────────────────────────
         def _progress(term: str, added: int, cumulative: int) -> None:
             logger.info("  seed  term=%-10s +%-4d unique=%d", term, added, cumulative)
 
-        logger.info("stage 1/3: generic bulk map (feed=%s)...", not args.skip_feed)
-        owner_map = build_owner_map(use_feed=not args.skip_feed, progress=_progress)
+        if sum(1 for w in wanted if w in owner_map) >= len(wanted):
+            logger.info("stage 1/4: SKIPPED — cache already covers every wanted slug")
+        else:
+            logger.info("stage 1/4: generic bulk map (feed=%s)...", not args.skip_feed)
+            owner_map.update(build_owner_map(use_feed=not args.skip_feed, progress=_progress))
+            if not args.no_cache:
+                save_cache(cache_path, owner_map)
         covered = sum(1 for w in wanted if w in owner_map)
         logger.info(
             "stage 1 done: %d pairs, covering %d/%d wanted (%.1f%%)",
@@ -190,13 +272,15 @@ def main() -> int:
                         term, added, total, remaining,
                     )
 
-            logger.info("stage 2/3: targeted sweep (max %d terms)...", args.max_terms)
+            logger.info("stage 2/4: targeted sweep (max %d terms)...", args.max_terms)
             owner_map = targeted_owner_sweep(
                 wanted=wanted,
                 known=owner_map,
                 max_terms=args.max_terms,
                 progress=_tprogress,
             )
+            if not args.no_cache:
+                save_cache(cache_path, owner_map)
             covered = sum(1 for w in wanted if w in owner_map)
             logger.info(
                 "stage 2 done: %d pairs, covering %d/%d wanted (%.1f%%)",
@@ -211,15 +295,26 @@ def main() -> int:
         if not args.skip_tail:
             still = sorted(w for w in wanted if w not in owner_map)
             if still:
-                def _lprogress(done: int, total: int, res: int) -> None:
-                    logger.info("  tail %d/%d resolved=%d", done, total, res)
-
-                logger.info("stage 3/4: parallel tail (%d slugs, %d workers)...", len(still), args.tail_workers)
-                owner_map.update(
-                    resolve_tail_parallel(
-                        still, workers=args.tail_workers, progress=_lprogress, progress_every=1000
-                    )
+                logger.info(
+                    "stage 3/4: parallel tail (%d slugs, %d workers, chunk %d)...",
+                    len(still), args.tail_workers, args.tail_chunk,
                 )
+                # Chunked so an interruption costs MINUTES of upstream work, not
+                # the whole tail. The 2026-07-26 reboot killed a single 78-minute
+                # in-memory run and discarded all of it.
+                for start in range(0, len(still), args.tail_chunk):
+                    chunk = still[start : start + args.tail_chunk]
+                    owner_map.update(
+                        resolve_tail_parallel(chunk, workers=args.tail_workers)
+                    )
+                    if not args.no_cache:
+                        save_cache(cache_path, owner_map)
+                    done = min(start + len(chunk), len(still))
+                    cov = sum(1 for w in wanted if w in owner_map)
+                    logger.info(
+                        "  tail %d/%d  coverage %d/%d (%.1f%%)",
+                        done, len(still), cov, len(wanted), cov / max(len(wanted), 1) * 100,
+                    )
                 covered = sum(1 for w in wanted if w in owner_map)
                 logger.info(
                     "stage 3 done: covering %d/%d wanted (%.1f%%)",
@@ -280,6 +375,12 @@ def main() -> int:
 
         if args.commit:
             db.commit()
+
+        # Final checkpoint: detail-call resolutions discovered during apply are
+        # the most expensive pairs in the map (one upstream call each) — losing
+        # them to a crash would be the worst possible trade.
+        if not args.no_cache:
+            save_cache(cache_path, owner_map)
 
         logger.info("─" * 60)
         logger.info("resolved   : %d / %d (%.1f%%)  -> owner-scoped deep link", resolved, len(rows), resolved / max(len(rows), 1) * 100)

@@ -629,6 +629,106 @@ class TestTransientRetry:
         assert calls["n"] == 1, "wasted a retry on a permanent status"
 
 
+# ── Durable checkpointing (reboot resilience) ────────────────────────────
+
+
+class TestOwnerMapCheckpoint:
+    """Expensive upstream work must survive a crash or reboot.
+
+    LEARNED THE HARD WAY 2026-07-26: a measurement run cached the resolved owner
+    map in /tmp. The host rebooted mid-run and /tmp was wiped, discarding ~78
+    minutes of third-party API calls. The DB is the real resumability layer
+    (owner_handle persists per row), but a DRY RUN writes nothing to the DB by
+    definition, so without a file checkpoint every dry run re-pays full price.
+    """
+
+    def _mod(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "sp2607_backfill",
+            str(
+                __import__("pathlib").Path(__file__).resolve().parent.parent
+                / "scripts"
+                / "spotify_2607_clawhub_owner_backfill.py"
+            ),
+        )
+        assert spec and spec.loader
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_roundtrip(self, tmp_path: Any) -> None:
+        mod = self._mod()
+        p = tmp_path / "map.json"
+        mod.save_cache(p, {"a": "ann", "b": "bob"})
+        assert mod.load_cache(p) == {"a": "ann", "b": "bob"}
+
+    def test_missing_file_is_empty_not_an_error(self, tmp_path: Any) -> None:
+        mod = self._mod()
+        assert mod.load_cache(tmp_path / "nope.json") == {}
+
+    def test_corrupt_file_degrades_to_empty(self, tmp_path: Any) -> None:
+        # A truncated/corrupt cache must mean "start fresh", never abort a run.
+        mod = self._mod()
+        p = tmp_path / "bad.json"
+        p.write_text("{not json at all")
+        assert mod.load_cache(p) == {}
+
+    def test_non_dict_payload_degrades_to_empty(self, tmp_path: Any) -> None:
+        mod = self._mod()
+        p = tmp_path / "list.json"
+        p.write_text("[1, 2, 3]")
+        assert mod.load_cache(p) == {}
+
+    def test_non_string_entries_are_dropped(self, tmp_path: Any) -> None:
+        mod = self._mod()
+        p = tmp_path / "mixed.json"
+        p.write_text('{"good": "owner", "bad": 42, "worse": null}')
+        assert mod.load_cache(p) == {"good": "owner"}
+
+    def test_save_is_atomic_no_partial_file_on_crash(self, tmp_path: Any) -> None:
+        """Write-then-rename: a crash mid-write must not truncate a good cache.
+
+        Without the temp+replace pattern, an interrupted write leaves a partial
+        file that the next run reads as an empty map — silently discarding the
+        very work the checkpoint exists to protect.
+        """
+        mod = self._mod()
+        p = tmp_path / "map.json"
+        mod.save_cache(p, {"a": "ann"})
+
+        original = p.read_text()
+        # Simulate a crash during the NEXT save by making replace() blow up.
+        import pathlib
+
+        real_replace = pathlib.Path.replace
+
+        def _boom(self_p, target):  # type: ignore[no-untyped-def]
+            raise OSError("simulated crash mid-write")
+
+        pathlib.Path.replace = _boom  # type: ignore[method-assign]
+        try:
+            mod.save_cache(p, {"a": "ann", "b": "bob"})  # must NOT raise
+        finally:
+            pathlib.Path.replace = real_replace  # type: ignore[method-assign]
+
+        # The previously-good cache is still intact and readable.
+        assert p.read_text() == original
+        assert mod.load_cache(p) == {"a": "ann"}
+
+    def test_unwritable_path_does_not_raise(self, tmp_path: Any) -> None:
+        # A full or read-only disk must not destroy an otherwise-good run.
+        mod = self._mod()
+        mod.save_cache(tmp_path / "no" / "such" / "dir" / "x.json", {"a": "b"})
+
+    def test_default_cache_path_is_not_in_tmp(self) -> None:
+        """The whole point. /tmp is wiped on reboot on this host."""
+        mod = self._mod()
+        assert "/tmp" not in str(mod.DEFAULT_CACHE_PATH)
+        assert ".hermes" in str(mod.DEFAULT_CACHE_PATH)
+
+
 # ── The invariant the whole sprint exists to hold ────────────────────────
 
 
