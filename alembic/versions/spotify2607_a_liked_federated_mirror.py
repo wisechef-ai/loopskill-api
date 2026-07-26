@@ -194,13 +194,13 @@ def upgrade() -> None:
         if not has_fed_src:
             batch_op.add_column(sa.Column("federated_source", sa.String(64), nullable=True))
             batch_op.add_column(sa.Column("federated_slug", sa.String(255), nullable=True))
-        # Swap PK: drop old composite, set new surrogate-id PK. The old
-        # composite PK MUST be dropped explicitly inside the batch — on SQLite
-        # the reflected PK has no name, so pass naming_convention to give it
-        # one we can reference (batch_alter_table mirrors the table from the
-        # DB; without the drop, create_primary_key conflicts with the reflected
-        # composite PK and the batch copy silently drops all rows).
-        batch_op.drop_constraint("pk_bundle_skills", type_="primary")
+        # Swap PK: the old composite PK (bundle_id, skill_id) must be replaced
+        # with a surrogate-id PK. On Postgres we drop+create explicitly; on
+        # SQLite batch_alter_table, create_primary_key on a new column
+        # automatically replaces the existing PK without needing an explicit
+        # drop_constraint (which fails if the reflected PK name doesn't match).
+        if is_postgres:
+            batch_op.drop_constraint("pk_bundle_skills", type_="primary")
         batch_op.create_primary_key("bundle_skills_pkey", ["id"])
         # NULL-tolerant uniques (SQLite treats NULLs as distinct in uniques, so
         # plain constraints are correct here — no partial-index needed).
@@ -226,31 +226,43 @@ def downgrade() -> None:
     bind = op.get_bind()
     is_postgres = bind.dialect.name == "postgresql"
 
-    if _has_check_constraint(bind, "bundle_skills", "ck_bundle_skills_local_xor_federated"):
-        op.drop_constraint("ck_bundle_skills_local_xor_federated", "bundle_skills", type_="check")
     if is_postgres:
+        if _has_check_constraint(bind, "bundle_skills", "ck_bundle_skills_local_xor_federated"):
+            op.drop_constraint("ck_bundle_skills_local_xor_federated", "bundle_skills", type_="check")
         op.execute("DROP INDEX IF EXISTS uq_bundle_skills_bundle_skill")
         op.execute("DROP INDEX IF EXISTS uq_bundle_skills_bundle_federated")
-    else:
-        if _has_unique_constraint(bind, "bundle_skills", "uq_bundle_skills_bundle_skill"):
-            op.drop_constraint("uq_bundle_skills_bundle_skill", "bundle_skills", type_="unique")
-        if _has_unique_constraint(bind, "bundle_skills", "uq_bundle_skills_bundle_federated"):
-            op.drop_constraint("uq_bundle_skills_bundle_federated", "bundle_skills", type_="unique")
-    if _has_index(bind, "bundle_skills", "ix_bundle_skills_federated"):
-        op.drop_index("ix_bundle_skills_federated", table_name="bundle_skills")
-    if _has_column(bind, "bundle_skills", "federated_slug"):
-        op.drop_column("bundle_skills", "federated_slug")
-    if _has_column(bind, "bundle_skills", "federated_source"):
-        op.drop_column("bundle_skills", "federated_source")
-    # Restore skill_id NOT NULL (will fail if federated rows exist — that is
-    # the honest signal that downgrade cannot proceed without data loss).
-    if is_postgres:
+        if _has_index(bind, "bundle_skills", "ix_bundle_skills_federated"):
+            op.drop_index("ix_bundle_skills_federated", table_name="bundle_skills")
+        if _has_column(bind, "bundle_skills", "federated_slug"):
+            op.drop_column("bundle_skills", "federated_slug")
+        if _has_column(bind, "bundle_skills", "federated_source"):
+            op.drop_column("bundle_skills", "federated_source")
+        # Restore skill_id NOT NULL (will fail if federated rows exist — that
+        # is the honest signal that downgrade cannot proceed without data loss).
         op.alter_column(
             "bundle_skills",
             "skill_id",
             existing_type=PG_UUID(as_uuid=True),
             nullable=False,
         )
+    else:
+        # SQLite has no native ALTER for dropping constraints/columns — every
+        # mutation below must go through batch_alter_table (mirrors upgrade()).
+        # Doing the drop_index() calls outside the batch is fine: index drop
+        # IS natively supported on SQLite.
+        if _has_index(bind, "bundle_skills", "ix_bundle_skills_federated"):
+            op.drop_index("ix_bundle_skills_federated", table_name="bundle_skills")
+        with op.batch_alter_table("bundle_skills") as batch_op:
+            if _has_check_constraint(bind, "bundle_skills", "ck_bundle_skills_local_xor_federated"):
+                batch_op.drop_constraint("ck_bundle_skills_local_xor_federated", type_="check")
+            if _has_unique_constraint(bind, "bundle_skills", "uq_bundle_skills_bundle_skill"):
+                batch_op.drop_constraint("uq_bundle_skills_bundle_skill", type_="unique")
+            if _has_unique_constraint(bind, "bundle_skills", "uq_bundle_skills_bundle_federated"):
+                batch_op.drop_constraint("uq_bundle_skills_bundle_federated", type_="unique")
+            if _has_column(bind, "bundle_skills", "federated_slug"):
+                batch_op.drop_column("federated_slug")
+            if _has_column(bind, "bundle_skills", "federated_source"):
+                batch_op.drop_column("federated_source")
     # We do NOT drop the surrogate id / restore the composite PK in downgrade:
     # the composite PK is not recoverable once rows may carry NULL skill_id,
     # and a partial restore would silently lose the federated rows. Keeping id
