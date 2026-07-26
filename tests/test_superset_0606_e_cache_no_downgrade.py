@@ -15,13 +15,50 @@ Phase E fix (decision #7, enforced here):
     the REAL cached totals, not the capped live ones.
 
 All offline — adapter walks injected via LIVE_FETCH; cache is the real SQLite table.
+
+OFFLINE GUARANTEE, RE-ESTABLISHED (sp2607fix-2, 2026-07-26)
+-----------------------------------------------------------
+The "All offline" claim above was silently broken by PR #142
+(``fix(federation): repair 69,150 dead ClawHub deep links``). That PR made
+``ClawHubAdapter._map`` call ``clawhub_url.resolve_owner(slug)`` — a LIVE
+``GET clawhub.ai/api/search`` — **once per mapped row**. So a 50-row injected
+fetch fired 50 real network requests despite ``LIVE_FETCH`` being stubbed, and
+this "offline" file took **220s** (measured on pristine origin/main 8adee9f)
+instead of ~20s. It still PASSED, so nobody noticed: a latent N+1 that only
+ever showed up as slowness.
+
+sp2607fix-2 added a per-source deadline to the fan-out. That deadline did not
+CAUSE a failure — it EXPOSED this one, by correctly refusing to wait 3.7
+minutes for a source. The right fix is to restore this file's offline
+guarantee (every other clawhub test already stubs ``resolve_owner`` — see
+tests/test_clawhub_owner_scoped_url.py), not to weaken the deadline.
+
+Tracked as a production N+1 in its own right: ``_map``'s per-row owner lookup
+is a real cold-path cost on live ClawHub queries too (measured 59.05s cold vs
+0.34s warm against prod).
 """
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.services import federation_cache as fcache
+
+
+@pytest.fixture(autouse=True)
+def _stub_clawhub_owner_resolution(monkeypatch):
+    """Keep this module genuinely offline (see the OFFLINE GUARANTEE note above).
+
+    ``ClawHubAdapter._map`` resolves an owner handle per row via a live HTTP
+    call. These tests inject synthetic rows and care only about COUNTS and
+    cache-write behaviour — never about the deep-link URL — so a deterministic
+    stub is both faithful and orders of magnitude faster. Autouse so no future
+    test in this file can silently re-acquire a network dependency.
+    """
+    from app.services import clawhub_url
+
+    monkeypatch.setattr(clawhub_url, "resolve_owner", lambda _slug: "test-owner")
 
 
 def _client(db_session, monkeypatch):
