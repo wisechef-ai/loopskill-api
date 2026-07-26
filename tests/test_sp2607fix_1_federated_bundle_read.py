@@ -428,3 +428,93 @@ def test_install_payload_skills_key_byte_identical_for_local_only_bundle(db):
     assert out["community"] == 0
     # sanity: JSON-serializable, no drift in field ORDER-independent content
     json.dumps(entry, sort_keys=True)
+
+
+# ── Codex adversarial-review follow-ups (2026-07-26) ───────────────────────
+# The mandatory review gate returned REQUEST_CHANGES with 6 MUST-FIX. Each was
+# adjudicated against the code; 3 confirmed, 3 rejected with evidence (see the
+# PR thread). These pin the two CONFIRMED defects that would break a consumer.
+
+
+def test_merged_skills_respect_install_order_across_local_and_federated(db):
+    """Codex MUST-FIX 1: ordering must be GLOBAL, not local-block-then-federated.
+
+    Local and federated rows come from two separate queries. Appending one
+    block after the other emits a federated row with a LOWER install_order
+    AFTER a local row with a higher one — silently breaking the Composer
+    ordering contract (portal_0610 J2). Interleave the install_orders so a
+    naive append is provably wrong.
+    """
+    from app import bundle_routes
+
+    owner = _mk_user(db)
+    cb = _mk_cookbook(db, owner)
+
+    # Deliberately interleaved: fed(0) local(1) fed(2) local(3).
+    fed_a = _mk_federated_bundle_skill(db, cb, "hermes-hub", "fed-first")
+    fed_a.install_order = 0
+    local_b = _mk_skill(db, "local-second")
+    bs_b = BundleSkill(bundle_id=cb.id, skill_id=local_b.id, source="custom-added", install_order=1)
+    db.add(bs_b)
+    fed_c = _mk_federated_bundle_skill(db, cb, "hermes-hub", "fed-third")
+    fed_c.install_order = 2
+    local_d = _mk_skill(db, "local-fourth")
+    bs_d = BundleSkill(bundle_id=cb.id, skill_id=local_d.id, source="custom-added", install_order=3)
+    db.add(bs_d)
+    db.commit()
+
+    p1, p2 = _bypass(cb)
+    with p1, p2:
+        out = bundle_routes.get_cookbook(
+            cookbook_id=str(cb.id), request=_GetReq(), db=db, ctx=_ctx(owner)
+        )
+
+    assert [s["slug"] for s in out["skills"]] == [
+        "fed-first",
+        "local-second",
+        "fed-third",
+        "local-fourth",
+    ], f"install_order not honoured across the local/federated merge: {[s['slug'] for s in out['skills']]}"
+
+
+def test_federated_install_entry_uses_the_install_descriptor_shape(db):
+    """Codex MUST-FIX 3: install entries are DESCRIPTORS, not detail objects.
+
+    `skills_payload` entries carry {slug, version, tarball_url,
+    checksum_sha256}. Appending a detail-shaped dict made the list
+    heterogeneous — a consumer iterating it to fetch tarballs would hit an
+    entry with no `tarball_url` KEY AT ALL and KeyError. A federated skill is
+    DEEP_LINK-only, so those fields must be present-and-None, never absent.
+    """
+    from app import bundle_routes
+
+    owner = _mk_user(db)
+    cb = _mk_cookbook(db, owner)
+    local = _mk_skill(db, "local-installable")
+    db.add(SkillVersion(id=uuid.uuid4(), skill_id=local.id, semver="1.0.0", checksum_sha256="b" * 64))
+    db.commit()
+    db.add(BundleSkill(bundle_id=cb.id, skill_id=local.id, source="custom-added"))
+    _mk_federated_bundle_skill(db, cb, "hermes-hub", "fed-deeplink-only")
+    db.commit()
+
+    p1, p2 = _bypass(cb)
+    with p1, p2:
+        out = bundle_routes.install_cookbook(
+            cookbook_id=str(cb.id), request=_PostReq(), db=db, ctx=_ctx(owner)
+        )
+
+    fed = next(s for s in out["skills"] if s["slug"] == "fed-deeplink-only")
+    # The install-descriptor keys must be PRESENT (uniform key set), not absent.
+    for key in ("version", "tarball_url", "checksum_sha256"):
+        assert key in fed, (
+            f"federated install entry is missing descriptor key {key!r} — a consumer "
+            f"iterating `skills` for tarballs would KeyError. Entry: {fed}"
+        )
+        assert fed[key] is None, f"{key} must be None for unhosted federated content, got {fed[key]!r}"
+    # And it must still be identifiable as community content.
+    assert fed["federated"] is True
+    assert fed["provenance"] == "community"
+
+    # A naive installer's exact loop must not explode on the mixed list.
+    installable = [s for s in out["skills"] if s.get("tarball_url")]
+    assert [s["slug"] for s in installable] == ["local-installable"]

@@ -979,32 +979,54 @@ def get_cookbook(
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id, allow_org_read=True)
     rows = _skills_for(db, cb.id, include_disabled=True)
+    fed_rows = _federated_skills_for(db, cb.id, include_disabled=True)
+    hub_by_slug = (
+        resolve_federated_hub_titles(db, (r.federated_slug for r in fed_rows)) if fed_rows else {}
+    )
     out = _to_cb_out(cb)
-    out["skills"] = [
-        CookbookSkillOut(
-            slug=skill.slug,
-            source=cs.source,
-            pinned_version=cs.pinned_version,
-            added_at=cs.added_at,
-            title=skill.title,
-            skill_variant=getattr(skill, "skill_variant", None),
-            is_public=bool(skill.is_public),
-            parent_skill_slug=getattr(skill, "parent_skill_slug", None),
-            related_skills=_as_slug_list(getattr(skill, "related_skills", None)),
-            pinned=cs.pinned_version is not None,
-            corrections_absorbed=_corrections_absorbed_count(db, skill.slug),
-        ).model_dump(mode="json")
+
+    # Codex review MUST-FIX 1 (CONFIRMED): local and federated rows come from
+    # two SEPARATE queries, each ordered internally by (install_order,
+    # added_at). Emitting one block after the other would place a federated
+    # row with a LOWER install_order AFTER a local row with a higher one,
+    # silently breaking the Composer ordering contract (portal_0610 J2) that
+    # _skills_for's own `.order_by()` exists to honour. Decorate each entry
+    # with the SAME sort key both partitions were ordered by and merge on it.
+    # `str(id)` is the final tiebreak so the order is TOTAL and stable — two
+    # rows can legitimately share both install_order and added_at.
+    def _sort_key(join: BundleSkill) -> tuple[int, object, str]:
+        return (join.install_order or 0, join.added_at, str(join.id))
+
+    decorated: list[tuple[tuple[int, object, str], dict]] = [
+        (
+            _sort_key(cs),
+            CookbookSkillOut(
+                slug=skill.slug,
+                source=cs.source,
+                pinned_version=cs.pinned_version,
+                added_at=cs.added_at,
+                title=skill.title,
+                skill_variant=getattr(skill, "skill_variant", None),
+                is_public=bool(skill.is_public),
+                parent_skill_slug=getattr(skill, "parent_skill_slug", None),
+                related_skills=_as_slug_list(getattr(skill, "related_skills", None)),
+                pinned=cs.pinned_version is not None,
+                corrections_absorbed=_corrections_absorbed_count(db, skill.slug),
+            ).model_dump(mode="json"),
+        )
         for cs, skill in rows
     ]
-    fed_rows = _federated_skills_for(db, cb.id, include_disabled=True)
-    if fed_rows:
-        hub_by_slug = resolve_federated_hub_titles(db, (r.federated_slug for r in fed_rows))
-        out["skills"].extend(
+    decorated.extend(
+        (
+            _sort_key(join),
             _federated_cookbook_skill_out(
                 join, federated_title_for(hub_by_slug.get(join.federated_slug), join.federated_slug)
-            )
-            for join in fed_rows
+            ),
         )
+        for join in fed_rows
+    )
+    decorated.sort(key=lambda pair: pair[0])
+    out["skills"] = [entry for _key, entry in decorated]
     # portal_0610 J6 — living-object signals (the bundle is alive, not a static
     # list). All honest, organic-only counts; the frontend renders what's present.
     out["signals"] = _cookbook_signals(db, cb, out["skills"])
@@ -1563,14 +1585,37 @@ def install_cookbook(
     # the pre-existing skills_payload prefix (and its provenance_id-stamped
     # indices) is untouched byte-for-byte. Never tier-gated (see docstring):
     # a federated row has no local Skill/tier to check.
+    #
+    # Codex review MUST-FIX 3 (CONFIRMED): `skills_payload` entries are
+    # INSTALL DESCRIPTORS ({slug, version, tarball_url, checksum_sha256,
+    # provenance_id}) — NOT the detail-page shape `_federated_cookbook_skill_out`
+    # produces. Appending a detail-shaped dict made `skills` heterogeneous, so
+    # a consumer iterating it to download tarballs would hit an entry with no
+    # `tarball_url` key at all. A federated skill is DEEP_LINK-only: we do not
+    # host it, so there IS no tarball to hand out. Emit it in the descriptor
+    # shape with those fields explicitly None, plus `origin_url` (where the
+    # caller actually gets it) and the federated/provenance discriminators.
+    # An installer that checks `tarball_url` now correctly skips it instead of
+    # KeyError-ing, and one that understands federation follows origin_url.
     fed_rows = _federated_skills_for(db, cb.id, include_disabled=False)
     if fed_rows:
         hub_by_slug = resolve_federated_hub_titles(db, (r.federated_slug for r in fed_rows))
         for join in fed_rows:
+            hub = hub_by_slug.get(join.federated_slug)
             skills_payload.append(
-                _federated_cookbook_skill_out(
-                    join, federated_title_for(hub_by_slug.get(join.federated_slug), join.federated_slug)
-                )
+                {
+                    "slug": join.federated_slug,
+                    # Not hosted here — there is no version/tarball/checksum to
+                    # serve. Explicit None keeps the descriptor key set uniform.
+                    "version": None,
+                    "tarball_url": None,
+                    "checksum_sha256": None,
+                    "title": federated_title_for(hub, join.federated_slug),
+                    "origin_url": getattr(hub, "origin_url", None),
+                    "federated": True,
+                    "federated_source": join.federated_source,
+                    "provenance": "community",
+                }
             )
 
     # spotify_2607 Phase C — mixed-bundle install: personalities + composite
