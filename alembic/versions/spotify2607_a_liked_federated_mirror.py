@@ -29,6 +29,7 @@ DB already at this schema. Postgres-only SQL is used for the partial unique
 indexes (NULL semantics) and is guarded by a dialect check so SQLite
 self-host / CI still passes.
 """
+
 from __future__ import annotations
 
 from typing import Sequence, Union
@@ -116,7 +117,10 @@ def upgrade() -> None:
             )
         bind.execute(sa.text("UPDATE bundle_skills SET id = gen_random_uuid() WHERE id IS NULL"))
         op.alter_column(
-            "bundle_skills", "id", existing_type=uuid_type, nullable=False,
+            "bundle_skills",
+            "id",
+            existing_type=uuid_type,
+            nullable=False,
             server_default=sa.text("gen_random_uuid()"),
         )
         # Drop the legacy composite PK (named pk_cookbook_skills on prod — the
@@ -182,7 +186,9 @@ def upgrade() -> None:
     _naming = {"pk": "pk_%(table_name)s"}
     with op.batch_alter_table("bundle_skills", naming_convention=_naming) as batch_op:
         # Promote id to NOT NULL with a server default for future ORM inserts.
-        batch_op.alter_column("id", existing_type=sa.String(36), nullable=False, server_default=sqlite_uuid_default)
+        batch_op.alter_column(
+            "id", existing_type=sa.String(36), nullable=False, server_default=sqlite_uuid_default
+        )
         # skill_id becomes nullable (federated rows carry NULL here).
         batch_op.alter_column("skill_id", existing_type=sa.String(36), nullable=True)
         if not has_fed_src:
@@ -199,9 +205,7 @@ def upgrade() -> None:
         # NULL-tolerant uniques (SQLite treats NULLs as distinct in uniques, so
         # plain constraints are correct here — no partial-index needed).
         if not _has_unique_constraint(bind, "bundle_skills", "uq_bundle_skills_bundle_skill"):
-            batch_op.create_unique_constraint(
-                "uq_bundle_skills_bundle_skill", ["bundle_id", "skill_id"]
-            )
+            batch_op.create_unique_constraint("uq_bundle_skills_bundle_skill", ["bundle_id", "skill_id"])
         if not _has_unique_constraint(bind, "bundle_skills", "uq_bundle_skills_bundle_federated"):
             batch_op.create_unique_constraint(
                 "uq_bundle_skills_bundle_federated",
@@ -215,9 +219,7 @@ def upgrade() -> None:
             )
 
     if not _has_index(bind, "bundle_skills", "ix_bundle_skills_federated"):
-        op.create_index(
-            "ix_bundle_skills_federated", "bundle_skills", ["federated_source", "federated_slug"]
-        )
+        op.create_index("ix_bundle_skills_federated", "bundle_skills", ["federated_source", "federated_slug"])
 
 
 def downgrade() -> None:
@@ -225,21 +227,15 @@ def downgrade() -> None:
     is_postgres = bind.dialect.name == "postgresql"
 
     if _has_check_constraint(bind, "bundle_skills", "ck_bundle_skills_local_xor_federated"):
-        op.drop_constraint(
-            "ck_bundle_skills_local_xor_federated", "bundle_skills", type_="check"
-        )
+        op.drop_constraint("ck_bundle_skills_local_xor_federated", "bundle_skills", type_="check")
     if is_postgres:
         op.execute("DROP INDEX IF EXISTS uq_bundle_skills_bundle_skill")
         op.execute("DROP INDEX IF EXISTS uq_bundle_skills_bundle_federated")
     else:
         if _has_unique_constraint(bind, "bundle_skills", "uq_bundle_skills_bundle_skill"):
             op.drop_constraint("uq_bundle_skills_bundle_skill", "bundle_skills", type_="unique")
-        if _has_unique_constraint(
-            bind, "bundle_skills", "uq_bundle_skills_bundle_federated"
-        ):
-            op.drop_constraint(
-                "uq_bundle_skills_bundle_federated", "bundle_skills", type_="unique"
-            )
+        if _has_unique_constraint(bind, "bundle_skills", "uq_bundle_skills_bundle_federated"):
+            op.drop_constraint("uq_bundle_skills_bundle_federated", "bundle_skills", type_="unique")
     if _has_index(bind, "bundle_skills", "ix_bundle_skills_federated"):
         op.drop_index("ix_bundle_skills_federated", table_name="bundle_skills")
     if _has_column(bind, "bundle_skills", "federated_slug"):

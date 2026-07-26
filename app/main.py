@@ -166,7 +166,9 @@ def create_app() -> FastAPI:
     async def _liked_bundle_not_publishable_handler(
         _request: Request, exc: LikedBundleNotPublishableError
     ) -> JSONResponse:
-        return JSONResponse(status_code=422, content={"detail": str(exc), "reason": "liked_bundle_is_private"})
+        return JSONResponse(
+            status_code=422, content={"detail": str(exc), "reason": "liked_bundle_is_private"}
+        )
 
     app.include_router(router)
     app.include_router(utm_router)  # marketing_1205: /x/<slug>, /li/<slug> etc.

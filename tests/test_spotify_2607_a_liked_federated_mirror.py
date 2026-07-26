@@ -29,6 +29,7 @@ This module covers the mandatory acceptance gates:
   - PATCH /api/cookbooks/<liked_id>/visibility → 4xx (Liked stays private)
   - Backfill idempotency + Adam's 2 orphaned likes placement
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -259,13 +260,21 @@ class TestUnlikeIsAtomic:
         u = _user(db_session)
         # Seed both sides
         set_federated_like_in_bundle(
-            db_session, owner_id=u.id, federated_source="hermes-hub",
-            federated_slug="atomic-test", liked=True,
+            db_session,
+            owner_id=u.id,
+            federated_source="hermes-hub",
+            federated_slug="atomic-test",
+            liked=True,
         )
-        db_session.add(SkillLike(
-            id=uuid4(), user_id=u.id, skill_id=None,
-            federated_source="hermes-hub", federated_slug="atomic-test",
-        ))
+        db_session.add(
+            SkillLike(
+                id=uuid4(),
+                user_id=u.id,
+                skill_id=None,
+                federated_source="hermes-hub",
+                federated_slug="atomic-test",
+            )
+        )
         db_session.commit()
 
         # Stage both deletes (simulating the unlike handler's pre-commit work)
@@ -277,24 +286,39 @@ class TestUnlikeIsAtomic:
             SkillLike.federated_source == "hermes-hub",
             SkillLike.federated_slug == "atomic-test",
         ).delete()
-        _mirror(db_session, owner_id=u.id, federated_source="hermes-hub",
-                federated_slug="atomic-test", liked=False)
+        _mirror(
+            db_session,
+            owner_id=u.id,
+            federated_source="hermes-hub",
+            federated_slug="atomic-test",
+            liked=False,
+        )
         db_session.flush()
         # Rollback as if the commit failed / the process died mid-flow.
         db_session.rollback()
 
         # Both sides MUST still be present — the transaction was atomic.
-        assert db_session.query(SkillLike).filter(
-            SkillLike.user_id == u.id,
-            SkillLike.federated_source == "hermes-hub",
-            SkillLike.federated_slug == "atomic-test",
-        ).count() == 1
+        assert (
+            db_session.query(SkillLike)
+            .filter(
+                SkillLike.user_id == u.id,
+                SkillLike.federated_source == "hermes-hub",
+                SkillLike.federated_slug == "atomic-test",
+            )
+            .count()
+            == 1
+        )
         bundle = ensure_liked_bundle(db_session, u.id)
-        assert db_session.query(BundleSkill).filter(
-            BundleSkill.bundle_id == bundle.id,
-            BundleSkill.federated_source == "hermes-hub",
-            BundleSkill.federated_slug == "atomic-test",
-        ).count() == 1
+        assert (
+            db_session.query(BundleSkill)
+            .filter(
+                BundleSkill.bundle_id == bundle.id,
+                BundleSkill.federated_source == "hermes-hub",
+                BundleSkill.federated_slug == "atomic-test",
+            )
+            .count()
+            == 1
+        )
 
 
 # ── 4. Liked bundle cannot be published (§0a privacy guard) ─────────────
@@ -326,7 +350,10 @@ class TestLikedBundleStaysPrivate:
     def test_regular_bundle_is_unaffected(self, db_session):
         u = _user(db_session)
         regular = Bundle(
-            id=uuid4(), name="Regular", bundle_owner=u.id, visibility="private",
+            id=uuid4(),
+            name="Regular",
+            bundle_owner=u.id,
+            visibility="private",
         )
         db_session.add(regular)
         db_session.flush()
@@ -342,58 +369,92 @@ class TestIdempotencyAndSelfHeal:
         u = _user(db_session)
         for _ in range(2):
             set_federated_like_in_bundle(
-                db_session, owner_id=u.id, federated_source="hermes-hub",
-                federated_slug="idem-test", liked=True,
+                db_session,
+                owner_id=u.id,
+                federated_source="hermes-hub",
+                federated_slug="idem-test",
+                liked=True,
             )
         db_session.commit()
         bundle = ensure_liked_bundle(db_session, u.id)
-        assert db_session.query(BundleSkill).filter(
-            BundleSkill.bundle_id == bundle.id,
-            BundleSkill.federated_source == "hermes-hub",
-            BundleSkill.federated_slug == "idem-test",
-        ).count() == 1
+        assert (
+            db_session.query(BundleSkill)
+            .filter(
+                BundleSkill.bundle_id == bundle.id,
+                BundleSkill.federated_source == "hermes-hub",
+                BundleSkill.federated_slug == "idem-test",
+            )
+            .count()
+            == 1
+        )
 
     def test_self_heal_on_re_like(self, db_session):
         """A pre-existing skill_likes row (created before this shipped) must
         repair on the next like — the mirror runs even when the like exists.
         """
         u = _user(db_session)
-        db_session.add(SkillLike(
-            id=uuid4(), user_id=u.id, skill_id=None,
-            federated_source="hermes-hub", federated_slug="orphan-like",
-        ))
+        db_session.add(
+            SkillLike(
+                id=uuid4(),
+                user_id=u.id,
+                skill_id=None,
+                federated_source="hermes-hub",
+                federated_slug="orphan-like",
+            )
+        )
         db_session.commit()
         # No BundleSkill row yet (the orphan).
         bundle = ensure_liked_bundle(db_session, u.id)
-        assert db_session.query(BundleSkill).filter(
-            BundleSkill.bundle_id == bundle.id,
-            BundleSkill.federated_source == "hermes-hub",
-            BundleSkill.federated_slug == "orphan-like",
-        ).count() == 0
+        assert (
+            db_session.query(BundleSkill)
+            .filter(
+                BundleSkill.bundle_id == bundle.id,
+                BundleSkill.federated_source == "hermes-hub",
+                BundleSkill.federated_slug == "orphan-like",
+            )
+            .count()
+            == 0
+        )
 
         # Re-like via the mirror — self-heals.
         set_federated_like_in_bundle(
-            db_session, owner_id=u.id, federated_source="hermes-hub",
-            federated_slug="orphan-like", liked=True,
+            db_session,
+            owner_id=u.id,
+            federated_source="hermes-hub",
+            federated_slug="orphan-like",
+            liked=True,
         )
         db_session.commit()
-        assert db_session.query(BundleSkill).filter(
-            BundleSkill.bundle_id == bundle.id,
-            BundleSkill.federated_source == "hermes-hub",
-            BundleSkill.federated_slug == "orphan-like",
-        ).count() == 1
+        assert (
+            db_session.query(BundleSkill)
+            .filter(
+                BundleSkill.bundle_id == bundle.id,
+                BundleSkill.federated_source == "hermes-hub",
+                BundleSkill.federated_slug == "orphan-like",
+            )
+            .count()
+            == 1
+        )
 
     def test_unlike_when_already_unliked_is_a_noop(self, db_session):
         u = _user(db_session)
         set_federated_like_in_bundle(
-            db_session, owner_id=u.id, federated_source="hermes-hub",
-            federated_slug="never-liked", liked=False,
+            db_session,
+            owner_id=u.id,
+            federated_source="hermes-hub",
+            federated_slug="never-liked",
+            liked=False,
         )
         db_session.commit()
         bundle = ensure_liked_bundle(db_session, u.id)
-        assert db_session.query(BundleSkill).filter(
-            BundleSkill.bundle_id == bundle.id,
-        ).count() == 0
+        assert (
+            db_session.query(BundleSkill)
+            .filter(
+                BundleSkill.bundle_id == bundle.id,
+            )
+            .count()
+            == 0
+        )
 
 
 # ── 6. Cross-user isolation ─────────────────────────────────────────────
@@ -404,11 +465,19 @@ class TestCrossUserIsolation:
         mine = _user(db_session)
         theirs = _user(db_session)
         set_federated_like_in_bundle(
-            db_session, owner_id=mine.id, federated_source="hermes-hub",
-            federated_slug="mine-only", liked=True,
+            db_session,
+            owner_id=mine.id,
+            federated_source="hermes-hub",
+            federated_slug="mine-only",
+            liked=True,
         )
         db_session.commit()
         their_bundle = ensure_liked_bundle(db_session, theirs.id)
-        assert db_session.query(BundleSkill).filter(
-            BundleSkill.bundle_id == their_bundle.id,
-        ).count() == 0
+        assert (
+            db_session.query(BundleSkill)
+            .filter(
+                BundleSkill.bundle_id == their_bundle.id,
+            )
+            .count()
+            == 0
+        )

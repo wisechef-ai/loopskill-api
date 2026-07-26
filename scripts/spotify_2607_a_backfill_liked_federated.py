@@ -28,6 +28,7 @@ Runs against whatever DATABASE_URL points at. DO NOT point this at prod without
 --commit AND a confirmed prod backup. The acceptance gate runs it against a
 local/test DB only.
 """
+
 from __future__ import annotations
 
 import argparse
