@@ -427,6 +427,137 @@ class TestTargetedOwnerSweep:
         assert out == {}, "dot-only owner would mint the soft-404 bare form"
 
 
+# ── Parallel tail resolution (the 99% chase) ─────────────────────────────
+
+
+class TestResolveTailParallel:
+    """Concurrency is the only lever left once the slug families are exhausted.
+
+    Measured live 2026-07-26: exact-slug search and the detail endpoint BOTH
+    yield ~1.0 resolutions per call on the long tail, so the endpoint is not the
+    bottleneck — serialisation is. Throughput measured on a 24-slug sample:
+
+        workers=1   4.01 s/call
+        workers=6   0.46 s/call
+        workers=12  0.20 s/call   (zero failures at every level)
+
+    ~20x, i.e. a ~20k tail drops from ~22 hours to ~35 minutes.
+    """
+
+    def _stub(self, mapping: dict[str, str]):
+        def _fake(url: str, **k: Any) -> dict[str, Any]:
+            import urllib.parse as up
+
+            q = up.parse_qs(up.urlparse(url).query).get("q", [""])[0]
+            owner = mapping.get(q)
+            if owner is None:
+                return {"results": []}
+            return {"results": [{"slug": q, "ownerHandle": owner}]}
+
+        return _fake
+
+    def test_resolves_every_known_slug(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from app.services import clawhub_owner_bulk as mod
+
+        mapping = {f"slug-{i}": f"owner{i}" for i in range(25)}
+        monkeypatch.setattr(mod, "_get_json", self._stub(mapping))
+        out = mod.resolve_tail_parallel(list(mapping), workers=4)
+        assert out == mapping
+
+    def test_unresolvable_slugs_are_absent_not_guessed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Absent => caller demotes to the browse fallback, a WORKING link.
+        # Inventing a handle would mint a confident 404 instead.
+        from app.services import clawhub_owner_bulk as mod
+
+        monkeypatch.setattr(mod, "_get_json", self._stub({"known-a": "ann"}))
+        out = mod.resolve_tail_parallel(["known-a", "ghost-b"], workers=2)
+        assert out == {"known-a": "ann"}
+
+    def test_requires_an_exact_slug_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A near-miss row must NOT be attributed to the slug we asked for.
+
+        Search is fuzzy: querying `paystack` also returns `paystack-payments`.
+        Accepting the first row would assign the wrong owner and mint a deep
+        link to somebody else's page — a wrong answer is worse than none.
+        """
+        from app.services import clawhub_owner_bulk as mod
+
+        def _fuzzy(url: str, **k: Any) -> dict[str, Any]:
+            return {"results": [{"slug": "something-else", "ownerHandle": "wrong"}]}
+
+        monkeypatch.setattr(mod, "_get_json", _fuzzy)
+        assert mod.resolve_tail_parallel(["wanted"], workers=2) == {}
+
+    def test_rejects_unsafe_owner_from_upstream(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from app.services import clawhub_owner_bulk as mod
+
+        monkeypatch.setattr(
+            mod, "_get_json",
+            lambda *a, **k: {"results": [{"slug": "x", "ownerHandle": ".."}]},
+        )
+        assert mod.resolve_tail_parallel(["x"], workers=2) == {}
+
+    def test_hostile_slugs_never_reach_the_network(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services import clawhub_owner_bulk as mod
+
+        called: list[str] = []
+        monkeypatch.setattr(
+            mod, "_get_json", lambda url, **k: (called.append(url), {"results": []})[1]
+        )
+        assert mod.resolve_tail_parallel(["../../etc/passwd", "a b", ".."], workers=2) == {}
+        assert called == []
+
+    def test_upstream_outage_yields_nothing_and_does_not_raise(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.services import clawhub_owner_bulk as mod
+
+        monkeypatch.setattr(mod, "_get_json", lambda *a, **k: None)
+        assert mod.resolve_tail_parallel(["a", "b", "c"], workers=3) == {}
+
+    def test_one_failure_does_not_abort_the_batch(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A single bad slug must not lose the other 19,999 results."""
+        from app.services import clawhub_owner_bulk as mod
+
+        def _one_explodes(url: str, **k: Any) -> Any:
+            if "boom" in url:
+                return None
+            import urllib.parse as up
+
+            q = up.parse_qs(up.urlparse(url).query).get("q", [""])[0]
+            return {"results": [{"slug": q, "ownerHandle": "ok"}]}
+
+        monkeypatch.setattr(mod, "_get_json", _one_explodes)
+        out = mod.resolve_tail_parallel(["good-1", "boom", "good-2"], workers=3)
+        assert out == {"good-1": "ok", "good-2": "ok"}
+
+    def test_worker_count_is_clamped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Never let a caller point an unbounded thread pool at someone else's API."""
+        from app.services import clawhub_owner_bulk as mod
+
+        monkeypatch.setattr(mod, "_get_json", self._stub({"a": "x"}))
+        # Absurd values must not raise or spawn thousands of threads.
+        assert mod.resolve_tail_parallel(["a"], workers=99999) == {"a": "x"}
+        assert mod.resolve_tail_parallel(["a"], workers=0) == {"a": "x"}
+        assert mod.MAX_TAIL_WORKERS <= 16
+
+    def test_empty_input_makes_no_calls(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from app.services import clawhub_owner_bulk as mod
+
+        called: list[str] = []
+        monkeypatch.setattr(
+            mod, "_get_json", lambda url, **k: (called.append(url), None)[1]
+        )
+        assert mod.resolve_tail_parallel([], workers=4) == {}
+        assert called == []
+
+
 # ── Transient-failure retry ──────────────────────────────────────────────
 
 

@@ -105,6 +105,19 @@ def main() -> int:
         help="term budget for the targeted sweep (default 1500, ~3.5s each)",
     )
     parser.add_argument(
+        "--skip-tail",
+        action="store_true",
+        help="skip the parallel per-slug tail (stage 3). Coverage stops at whatever "
+        "the sweeps reached (~71%% measured); remaining rows get the browse fallback.",
+    )
+    parser.add_argument(
+        "--tail-workers",
+        type=int,
+        default=10,
+        help="concurrency for the tail (default 10, hard cap 16). Measured ~20x "
+        "faster than serial; kept modest because this is a third-party API.",
+    )
+    parser.add_argument(
         "--limit-rows",
         type=int,
         default=0,
@@ -121,6 +134,7 @@ def main() -> int:
     from app.services.clawhub_owner_bulk import (
         build_owner_map,
         resolve_owner_via_detail,
+        resolve_tail_parallel,
         targeted_owner_sweep,
     )
     from app.services.clawhub_url import clawhub_skill_url, is_safe_token
@@ -189,8 +203,31 @@ def main() -> int:
                 len(owner_map), covered, len(wanted), covered / max(len(wanted), 1) * 100,
             )
 
-        # ── 3. Apply, spending detail calls only on the remainder ─────────
-        logger.info("stage 3/3: applying (detail-call cap %d)...", args.max_detail_calls)
+        # ── 3. Parallel tail: resolve what the sweeps could not ───────────
+        # Measured: once the large same-prefix families are exhausted, both
+        # exact-slug search and the detail endpoint yield ~1.0 resolutions per
+        # call — the endpoint is not the bottleneck, serialisation is. At 10
+        # workers a ~20k tail takes ~35 min instead of ~22 h.
+        if not args.skip_tail:
+            still = sorted(w for w in wanted if w not in owner_map)
+            if still:
+                def _lprogress(done: int, total: int, res: int) -> None:
+                    logger.info("  tail %d/%d resolved=%d", done, total, res)
+
+                logger.info("stage 3/4: parallel tail (%d slugs, %d workers)...", len(still), args.tail_workers)
+                owner_map.update(
+                    resolve_tail_parallel(
+                        still, workers=args.tail_workers, progress=_lprogress, progress_every=1000
+                    )
+                )
+                covered = sum(1 for w in wanted if w in owner_map)
+                logger.info(
+                    "stage 3 done: covering %d/%d wanted (%.1f%%)",
+                    covered, len(wanted), covered / max(len(wanted), 1) * 100,
+                )
+
+        # ── 4. Apply ──────────────────────────────────────────────────────
+        logger.info("stage 4/4: applying (detail-call cap %d)...", args.max_detail_calls)
         resolved = 0
         detail_calls = 0
         detail_hits = 0
