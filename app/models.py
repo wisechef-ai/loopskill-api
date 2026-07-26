@@ -28,11 +28,25 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import DeclarativeBase, relationship
+from sqlalchemy.orm import DeclarativeBase, relationship, validates
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class LikedBundleNotPublishableError(ValueError):
+    """spotify_2607 Phase A (§0a) — a Liked bundle may never leave 'private'.
+
+    The Liked bundle is a Spotify-style auto-created SYSTEM collection.
+    Publishing a user's entire saved-likes set is a privacy incident, not a
+    feature (Spotify shipped a version of this mistake and it reached the
+    press — plan §0a). Raised by ``Bundle._reject_liked_bundle_publish``
+    (an ORM-level ``@validates`` hook) so EVERY write path is protected, not
+    just one route — a bare-metal script, an MCP tool, or a future route can
+    never accidentally publish someone's Liked bundle. ``app/bundle_routes.py``
+    catches this and turns it into a 4xx with an explanatory body.
+    """
 
 
 # ── Users & Auth ─────────────────────────────────────────────────────────
@@ -900,6 +914,29 @@ class Bundle(Base):
     # spotify_0608 Ph G — verified-maintainer badge.
     is_verified = Column(Boolean, nullable=False, default=False, server_default="0")
 
+    @validates("visibility")
+    def _reject_liked_bundle_publish(self, _key: str, value: str) -> str:
+        """spotify_2607 Phase A (§0a) — the Liked bundle can never be published.
+
+        ORM-level guard so EVERY write path is protected (not just one route):
+        a direct model mutation, a future MCP tool, or a maintenance script
+        all go through ``Column.__set__`` -> this hook. ``self.is_liked`` is
+        already loaded on any row fetched via ``ensure_liked_bundle`` /
+        ``_resolve_owned_cookbook`` before a caller ever reaches ``.visibility
+        = ...``, so the check sees the correct flag regardless of attribute
+        assignment order at construction time (``ensure_liked_bundle`` sets
+        both ``is_liked`` and ``visibility='private'`` in the SAME
+        constructor call, which never round-trips through this hook with a
+        stale ``is_liked``).
+        """
+        if getattr(self, "is_liked", False) and value != "private":
+            raise LikedBundleNotPublishableError(
+                "The Liked bundle is a private system collection and cannot be published. "
+                "Publishing your entire saved-likes set would leak everything you've ever "
+                "hearted — add the skills you want to share to a regular bundle instead."
+            )
+        return value
+
     # activate_0701/TEN: tenant boundary for bundles. NULL = personal scope
     # (backward compat). Set when created by an org member or inherited at
     # fleet subscribe time. Gates cross-org bundle access in fleet subscriptions.
@@ -1011,7 +1048,7 @@ class SkillFavourite(Base):
 
 
 class BundleSkill(Base):
-    """Provenance row linking a skill to a Bundle.
+    """Provenance row linking a skill (local OR federated) to a Bundle.
 
     source enum: 'forked' | 'custom-added' | 'overridden' | 'disabled'
     - forked         = inherited from base, auto-updates on rebase
@@ -1020,16 +1057,46 @@ class BundleSkill(Base):
     - disabled       = customer removed it from their Bundle
 
     Renamed from CookbookSkill (cookbook_skills table) in Phase 3+4.  # compat-alias
+
+    spotify_2607 Phase A — L6 supersession (plan §0b). Until this sprint a row
+    here ALWAYS named a local ``Skill`` (``skill_id`` was part of the composite
+    primary key, so it could never be NULL). That made the deployable Liked
+    bundle silently exclude every federated like — 76% of the catalog is
+    federated, so a Liked bundle that drops 3-in-4 saves is worse than useless
+    (Adam, 2026-07-26). Decision #3 in the plan KNOWINGLY overrides the
+    ponytail_0724 L6 lock ("BundleSkill drives authz.can_install; a federated
+    row there implies installing unvetted content") — that lock is superseded
+    BY DECISION, not silently loosened; see plan §0b for the three risk
+    mitigations Phase B/C build on top of this (badging, vetted/community
+    install-payload split, provenance ledger entry).
+    Schema-wise this needed:
+      - a surrogate ``id`` primary key (skill_id can no longer be part of the
+        PK if it is nullable — Postgres forbids NULL in PK columns)
+      - ``skill_id`` becomes nullable
+      - ``federated_source`` / ``federated_slug`` — nullable, together the
+        stable federated identity (same pair shape as ``SkillLike``)
+      - a CHECK constraint enforcing exactly one identity is set (XOR,
+        mirrors ``ck_bundle_deployments_skill_xor_fork``)
+      - two NULL-tolerant UniqueConstraints (mirrors ``SkillLike``'s own
+        local/federated pair) so "one row per local skill per bundle" and
+        "one row per federated track per bundle" are both enforced without a
+        NULL-in-unique-index false negative.
     """
 
     __tablename__ = "bundle_skills"
 
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     bundle_id = Column(
-        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="CASCADE"), primary_key=True, nullable=False
+        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # Local skill reference (NULL for federated-only tracks — spotify_2607 A).
     skill_id = Column(
-        UUID(as_uuid=True), ForeignKey("skills.id", ondelete="CASCADE"), primary_key=True, nullable=False
+        UUID(as_uuid=True), ForeignKey("skills.id", ondelete="CASCADE"), nullable=True, index=True
     )
+    # Federated track identity (NULL for local skills). Together with
+    # skill_id, exactly one identity must be set — see CheckConstraint below.
+    federated_source = Column(String(64), nullable=True)
+    federated_slug = Column(String(255), nullable=True)
     source = Column(String(20), nullable=False)
     pinned_version = Column(String(50), nullable=True)
     # spotify_1507 Ph B — explicit pin-vs-track choice per bundle entry (the
@@ -1049,6 +1116,15 @@ class BundleSkill(Base):
     __table_args__ = (
         Index("ix_bundle_skills_source", "source"),
         Index("ix_bundle_skills_order", "bundle_id", "install_order"),
+        Index("ix_bundle_skills_federated", "federated_source", "federated_slug"),
+        UniqueConstraint("bundle_id", "skill_id", name="uq_bundle_skills_bundle_skill"),
+        UniqueConstraint(
+            "bundle_id", "federated_source", "federated_slug", name="uq_bundle_skills_bundle_federated"
+        ),
+        CheckConstraint(
+            "(skill_id IS NOT NULL) <> (federated_source IS NOT NULL AND federated_slug IS NOT NULL)",
+            name="ck_bundle_skills_local_xor_federated",
+        ),
     )
 
 

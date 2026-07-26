@@ -144,9 +144,7 @@ def set_local_like_by_skill(
 
     So a local like is ALSO reflected into the caller's Liked bundle, which is
     the artifact's real destination (and what makes it reconcile onto their
-    agents). Idempotent in both directions. Federated likes deliberately do NOT
-    come through here: we do not host them, and ``BundleSkill`` drives
-    ``authz.can_install`` + fleet reconcile.
+    agents). Idempotent in both directions.
 
     AUTHORIZATION (R3 self-audit — this is a privilege-escalation surface).
     ``authz.can_read_skill`` grants access to a PRIVATE skill that lives in a
@@ -192,6 +190,61 @@ def set_local_like_by_skill(
         db.flush()
 
 
+def set_federated_like_in_bundle(
+    db: Session,
+    *,
+    owner_id: UUID,
+    federated_source: str,
+    federated_slug: str,
+    liked: bool,
+) -> None:
+    """Mirror a slug-route like of a FEDERATED skill into the deployable Liked bundle.
+
+    spotify_2607 Phase A — L6 SUPERSESSION (plan §0b). The ponytail_0724 lock
+    kept federated likes out of ``BundleSkill`` because that join drives
+    ``authz.can_install`` and fleet reconcile. Decision #3 KNOWINGLY OVERRIDES
+    that: 76% of the catalog is federated, and a Liked bundle that silently
+    drops 3-in-4 saves is worse than useless. The override is RECORDED, not
+    silent — Phase B/C ship the risk-reductions (badging, vetted/community
+    install-payload split) that make it defensible.
+
+    No authz gate: a federated like names a track we do not host, so
+    ``authz.can_read_skill`` cannot apply (there is no ``Skill`` row). The
+    federated identity is the trust boundary — it is a bookmark to upstream
+    content, not a grant of access to hosted content. Phase B adds badging.
+
+    Idempotent, self-healing, and transactionally staged (flush-only) so the
+    caller's single commit covers both ``skill_likes`` and this mirror — the
+    same atomicity contract as ``set_local_like_by_skill``.
+    """
+    bundle = ensure_liked_bundle(db, owner_id)
+    existing = (
+        db.query(BundleSkill)
+        .filter(
+            BundleSkill.bundle_id == bundle.id,
+            BundleSkill.federated_source == federated_source,
+            BundleSkill.federated_slug == federated_slug,
+        )
+        .first()
+    )
+    if liked and existing is None:
+        db.add(
+            BundleSkill(
+                bundle_id=bundle.id,
+                skill_id=None,
+                federated_source=federated_source,
+                federated_slug=federated_slug,
+                source="custom-added",
+            )
+        )
+        _touch_bundle_generation(db, bundle.id)
+        db.flush()
+    elif not liked and existing is not None:
+        db.delete(existing)
+        _touch_bundle_generation(db, bundle.id)
+        db.flush()
+
+
 def liked_library(db: Session, *, owner_id: UUID) -> dict:
     """Return the owner's typed liked shelves and the reserved follows shelf.
 
@@ -201,10 +254,15 @@ def liked_library(db: Session, *, owner_id: UUID) -> dict:
     ``id``, and the Liked bundle it serialises is a DEPLOYABLE bundle — the
     reconcile path pulls it onto the caller's agents.
 
-    An earlier cut of this fix merged federated (hub / skills.sh / ClawHub)
-    likes INTO ``shelves.skills`` with ``id: None``. That was wrong twice over:
-    it broke the pinned shape for every existing consumer, and it implied
-    agents could deploy artifacts we neither host nor vet.
+    spotify_2607 Phase A — L6 supersession (plan §0b). A federated like NOW
+    also lands in the deployable Liked bundle (``BundleSkill`` with
+    ``skill_id=NULL`` + ``federated_source``/``federated_slug`` set). Those rows
+    are surfaced on the skills shelf too, so ``"install skills from my liked
+    bundle"`` works for the 76% of the catalog that is federated. They carry
+    ``source`` so Phase B can badge them as community/unvetted. The frozen
+    per-entry shape is preserved: a federated row's ``id`` is its surrogate
+    ``BundleSkill.id`` (a real UUID, never None) and its ``slug`` is the
+    federated slug — so no consumer's type assumption breaks.
 
     Federated likes are therefore served on their OWN additive key,
     ``federated_skills`` — new, so it breaks nothing, and structurally separate,
@@ -216,19 +274,86 @@ def liked_library(db: Session, *, owner_id: UUID) -> dict:
     is the additive badging the premortem demanded — a fleet manager pulling
     the Liked bundle can tell apart vetted and community content at a glance.
     The frozen shelf shape (``{id, slug, title, liked_at}``) is unchanged.
+
+    The legacy ``federated_skills`` top-level key is RETAINED for now (it reads
+    ``skill_likes`` directly) so nothing that already consumes it breaks at the
+    same moment the deployable mirror ships. It is the deletion-pass candidate
+    (plan §3 Phase A step 1): once every consumer reads the deployable shelf,
+    the separate key retires.
     """
     bundle = ensure_liked_bundle(db, owner_id)
     return {
         "liked_bundle_id": str(bundle.id),
         "shelves": {
-            "skills": _liked_shelf(db, BundleSkill, Skill, "skill_id", bundle.id),
+            "skills": _liked_skill_shelf(db, bundle.id),
             "personalities": _liked_shelf(db, BundlePersonality, Personality, "personality_id", bundle.id),
             "loops": _liked_shelf(db, BundleCompositeLoop, CompositeLoop, "composite_loop_id", bundle.id),
         },
-        # Additive (ponytail_0724). NOT part of the deployable Liked bundle.
+        # Additive (ponytail_0724). Retained through spotify_2607 Phase A as a
+        # read of skill_likes; slated for retirement once the deployable shelf
+        # is the single source of truth (plan §3 Phase A deletion pass).
         "federated_skills": _federated_liked_skills(db, owner_id=owner_id),
         "followed_bundles": _followed_bundles(db, owner_id),
     }
+
+
+def _liked_skill_shelf(db: Session, bundle_id: UUID) -> list[dict[str, str | datetime | None]]:
+    """Serialize the deployable Liked-bundle skill shelf.
+
+    LOCAL rows (``skill_id`` set) join ``Skill`` exactly as before. FEDERATED
+    rows (``skill_id`` NULL, ``federated_source``/``federated_slug`` set —
+    spotify_2607 Phase A) are resolved via the hub snapshot for a human title,
+    falling back to the federated slug (same fail-soft contract as
+    ``_federated_liked_skills``). Both are returned in ``added_at`` order so the
+    shelf stays stable across a backfill.
+
+    The frozen per-entry shape ``{id, slug, title, liked_at}`` is preserved:
+    a federated row's ``id`` is its ``BundleSkill.id`` surrogate UUID.
+    """
+    local_rows = (
+        db.query(BundleSkill, Skill)
+        .join(Skill, Skill.id == BundleSkill.skill_id)
+        .filter(BundleSkill.bundle_id == bundle_id, BundleSkill.skill_id.isnot(None))
+        .order_by(BundleSkill.added_at.asc())
+        .all()
+    )
+    out: list[dict[str, str | datetime | None]] = [
+        {
+            "id": str(artifact.id),
+            "slug": artifact.slug,
+            "title": artifact.title,
+            "liked_at": join.added_at,
+        }
+        for join, artifact in local_rows
+    ]
+
+    fed_rows = (
+        db.query(BundleSkill)
+        .filter(
+            BundleSkill.bundle_id == bundle_id,
+            BundleSkill.skill_id.is_(None),
+            BundleSkill.federated_source.isnot(None),
+            BundleSkill.federated_slug.isnot(None),
+        )
+        .order_by(BundleSkill.added_at.asc())
+        .all()
+    )
+    if fed_rows:
+        slugs = {r.federated_slug for r in fed_rows}
+        hub_rows = db.query(FederationHubSkill).filter(FederationHubSkill.slug.in_(slugs)).all()
+        hub_by_slug = {row.slug: row for row in hub_rows}
+        for join in fed_rows:
+            hub = hub_by_slug.get(join.federated_slug)
+            title = (hub.title or "").strip() if hub is not None else ""
+            out.append(
+                {
+                    "id": str(join.id),
+                    "slug": join.federated_slug,
+                    "title": title or join.federated_slug,
+                    "liked_at": join.added_at,
+                }
+            )
+    return out
 
 
 def _federated_liked_skills(db: Session, *, owner_id: UUID) -> list[dict]:
