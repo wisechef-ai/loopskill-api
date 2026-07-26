@@ -306,6 +306,17 @@ class CookbookOut(BaseModel):
     parent_bundle_id: str | None = None
     bundle_owner: str | None = None
     created_at: datetime | None = None
+    # spotify_2607 Phase D dependency: additive fields so the OWNER-facing
+    # routes (list + detail) carry current visibility/slug the same way the
+    # PUBLIC-facing serializer (_to_public_out) already does. Without these,
+    # a portal Visibility toggle re-fetching GET /api/cookbooks/{id} after a
+    # PATCH .../visibility has no way to render current state — it silently
+    # defaults to "Private" even for a bundle the owner already made public.
+    # Purely additive: every pre-existing key is unchanged (see
+    # test_spotify2607_d_cookbook_out_visibility.py::
+    # test_create_response_created_field_shape_unchanged).
+    visibility: str | None = None
+    slug: str | None = None
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -525,6 +536,8 @@ def _to_cb_out(cb: Bundle) -> dict:
         parent_bundle_id=str(cb.parent_bundle_id) if cb.parent_bundle_id else None,
         bundle_owner=str(cb.bundle_owner) if cb.bundle_owner else None,
         created_at=cb.created_at,
+        visibility=cb.visibility,
+        slug=cb.slug,
     ).model_dump(mode="json")
 
 
