@@ -123,7 +123,7 @@ def _query_one(
     admin ``?refresh=1`` must actually re-touch the upstream: without this the
     route could serve a TTL-cached result and then write it into the PERSISTENT
     source cache as if freshly walked, quietly defeating the one mechanism an
-    operator has to force a real refresh.
+    admin caller has to force a real refresh.
 
     ``deadline_at`` (Codex review MUST-FIX 1) is a ``time.monotonic()`` instant
     after which this worker's result is STALE — the request that spawned it has

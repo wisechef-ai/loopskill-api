@@ -647,7 +647,7 @@ def get_external_skills(
             # query cache. Without this the route could serve a TTL-cached
             # result and then write it into the PERSISTENT source cache as if
             # freshly walked — silently defeating the only mechanism an
-            # operator has to force a real upstream re-read.
+            # admin caller has to force a real upstream re-read.
             force_refresh=force_refresh,
         )
         for source_id, adapter in live_pending:
