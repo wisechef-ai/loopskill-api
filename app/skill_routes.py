@@ -643,6 +643,12 @@ def get_external_skills(
             query=q or "",
             limit=limit,
             per_source_deadline_s=settings.EXTERNAL_FANOUT_PER_SOURCE_DEADLINE_S,
+            # Codex review MUST-FIX 3: an admin ?refresh=1 must BYPASS the
+            # query cache. Without this the route could serve a TTL-cached
+            # result and then write it into the PERSISTENT source cache as if
+            # freshly walked — silently defeating the only mechanism an
+            # operator has to force a real upstream re-read.
+            force_refresh=force_refresh,
         )
         for source_id, adapter in live_pending:
             ctx = live_context[source_id]
@@ -672,6 +678,19 @@ def get_external_skills(
                     block["stale"] = existing.get("stale")
                     block["deduped_indexed"] = existing.get("deduped_indexed")
                     block["snapshot_generated_at"] = existing.get("snapshot_generated_at")
+                else:
+                    # Codex review MUST-FIX 4 (CONFIRMED): the OLD code turned an
+                    # adapter exception into `found = []` and therefore ALWAYS
+                    # set indexed/installable to 0. Falling through with the
+                    # initialised `None` would CHANGE a pre-existing response
+                    # value, not merely add `degraded_sources` — breaking the
+                    # additive-only contract this PR claims. A source with no
+                    # persistent cache row keeps the historical 0/0 so every
+                    # existing consumer sees exactly what it saw before; the new
+                    # `degraded_sources` key is how a NEW consumer tells "really
+                    # empty" from "we could not reach it".
+                    block["indexed"] = 0
+                    block["installable"] = 0
                 continue
 
             found = result.skills

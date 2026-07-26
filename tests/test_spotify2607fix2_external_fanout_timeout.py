@@ -199,7 +199,13 @@ class TestExternalRouteFanoutIntegration(_ClearsCache):
             fl,
             "_load_hermes_catalog",
             lambda: [
-                {"slug": "research--fast", "title": "fast", "description": "d", "url": "https://h/y", "license": "MIT"}
+                {
+                    "slug": "research--fast",
+                    "title": "fast",
+                    "description": "d",
+                    "url": "https://h/y",
+                    "license": "MIT",
+                }
             ],
         )
         # Wire THREE sources slow (well-known, lobehub, browse-sh all default to
@@ -211,9 +217,7 @@ class TestExternalRouteFanoutIntegration(_ClearsCache):
         monkeypatch.setitem(fl.LIVE_FETCH, "browse-sh", slow_fetch)
 
         t0 = time.monotonic()
-        r = client.get(
-            "/api/skills/external?sources=hermes-hub,well-known,lobehub,browse-sh&q=fast&limit=20"
-        )
+        r = client.get("/api/skills/external?sources=hermes-hub,well-known,lobehub,browse-sh&q=fast&limit=20")
         elapsed = time.monotonic() - t0
         assert r.status_code == 200
         # A SERIAL walk of 3 slow (4.0s) sources would take >=12s; concurrent
@@ -240,20 +244,34 @@ class TestExternalRouteFanoutIntegration(_ClearsCache):
         monkeypatch.setattr(
             fl,
             "_load_hermes_catalog",
-            lambda: [{"slug": "research--x", "title": "x", "description": "d", "url": "https://h/x", "license": "MIT"}],
+            lambda: [
+                {
+                    "slug": "research--x",
+                    "title": "x",
+                    "description": "d",
+                    "url": "https://h/x",
+                    "license": "MIT",
+                }
+            ],
         )
-        fcache.write_source_cache(db_session, "hermes-hub", indexed_count=1, installable_count=1, first_page=[
-            {
-                "slug": "research--x",
-                "title": "x",
-                "source": "hermes-hub",
-                "install_path": "fetch_origin",
-                "origin_url": "https://h/x",
-                "license": "MIT",
-                "redistributable": True,
-                "description": "d",
-            }
-        ])
+        fcache.write_source_cache(
+            db_session,
+            "hermes-hub",
+            indexed_count=1,
+            installable_count=1,
+            first_page=[
+                {
+                    "slug": "research--x",
+                    "title": "x",
+                    "source": "hermes-hub",
+                    "install_path": "fetch_origin",
+                    "origin_url": "https://h/x",
+                    "license": "MIT",
+                    "redistributable": True,
+                    "description": "d",
+                }
+            ],
+        )
 
         # Even if a sibling live source would hang, empty-q must never reach
         # the fan-out at all for an already-cached source.
@@ -271,3 +289,124 @@ class TestExternalRouteFanoutIntegration(_ClearsCache):
         body = r.json()
         assert len(body["external"]) == 1
         assert body["external"][0]["slug"] == "research--x"
+
+
+# ── Codex adversarial-review follow-ups (2026-07-26) ────────────────────────
+# The mandatory review gate returned REQUEST_CHANGES with 4 MUST-FIX. All four
+# were CONFIRMED against the code and fixed. These pin them.
+
+
+class TestCodexReviewFixes(_ClearsCache):
+    def test_late_worker_does_not_poison_the_shared_cache(self):
+        """MUST-FIX 1: a worker that misses the deadline must NOT write to the
+        shared TTL cache.
+
+        Tearing down the executor without waiting does not stop a RUNNING
+        thread. Without a deadline guard the straggler eventually calls
+        ``fl._cache.put()``, so the NEXT request gets its stale rows as a
+        "cache hit" — and an older slow result can overwrite a newer fast one
+        for the same key (last-writer-wins across overlapping requests). A slow
+        upstream would poison a fast one.
+        """
+        from app.services.external_fanout import _cache_key
+
+        started = []
+
+        def _slow(_q, _lim):
+            started.append(1)
+            time.sleep(0.9)
+            return [_skill("late-row")]
+
+        res = run_external_fanout(
+            [("slowsrc", _FakeAdapter(_slow))],
+            query="q",
+            limit=10,
+            per_source_deadline_s=0.1,
+        )
+        assert res["slowsrc"].ok is False
+        assert res["slowsrc"].reason in {"timeout", "saturated"}
+
+        # Let the straggler finish and attempt its (now-forbidden) cache write.
+        time.sleep(1.4)
+        assert started, "precondition: the worker actually ran"
+        assert fl._cache.get(_cache_key("slowsrc", "q", 10), fl._SEARCH_TTL_S) is None, (
+            "a late worker wrote its stale result into the shared cache — the next "
+            "request would serve it as a cache hit"
+        )
+
+    def test_fanout_uses_one_shared_bounded_pool_not_one_per_request(self):
+        """MUST-FIX 2: repeated fan-outs must not accumulate executors/threads.
+
+        A per-request executor let every timed-out request abandon up to 7 live
+        threads (cancelling futures only stops work that never STARTED).
+        Response bounded, resource use unbounded. Assert a single shared pool
+        identity across calls, and that live thread count does not grow per call.
+        """
+        import threading
+
+        from app.services import external_fanout as ef
+
+        ef.run_external_fanout(
+            [("a", _FakeAdapter(lambda q, lim: [_skill("x")]))],
+            query="q1",
+            limit=5,
+            per_source_deadline_s=1.0,
+        )
+        pool_first = ef._shared_pool()
+        threads_after_first = threading.active_count()
+
+        for i in range(6):
+            ef.run_external_fanout(
+                [("a", _FakeAdapter(lambda q, lim: [_skill("x")]))],
+                query=f"q{i}",
+                limit=5,
+                per_source_deadline_s=1.0,
+            )
+
+        assert ef._shared_pool() is pool_first, "a new executor was created per request"
+        assert threading.active_count() <= threads_after_first + ef._MAX_WORKERS, (
+            "thread count grew per request — the pool is not actually shared/bounded"
+        )
+
+    def test_force_refresh_bypasses_the_query_cache(self):
+        """MUST-FIX 3: an admin ?refresh=1 must re-touch the upstream.
+
+        Without this the route serves a TTL-cached result and then writes it to
+        the PERSISTENT source cache as if freshly walked — defeating the only
+        mechanism an operator has to force a real refresh.
+        """
+        calls = []
+
+        def _count(_q, _lim):
+            calls.append(1)
+            return [_skill("row")]
+
+        ad = _FakeAdapter(_count)
+        run_external_fanout([("s", ad)], query="q", limit=5, per_source_deadline_s=2.0)
+        assert len(calls) == 1
+
+        # Same query again: served from cache, adapter NOT re-entered.
+        run_external_fanout([("s", ad)], query="q", limit=5, per_source_deadline_s=2.0)
+        assert len(calls) == 1, "second identical call should have hit the cache"
+
+        # force_refresh must go back to the adapter.
+        run_external_fanout([("s", ad)], query="q", limit=5, per_source_deadline_s=2.0, force_refresh=True)
+        assert len(calls) == 2, "force_refresh did NOT bypass the query cache"
+
+    def test_adapter_receives_the_same_normalized_query_used_for_the_cache_key(self):
+        """SHOULD-FIX (accepted): key normalisation and execution must agree.
+
+        The key lowercased/collapsed whitespace while the ADAPTER got the raw
+        string, so '  Docker  ' and 'docker' shared a cache entry despite
+        potentially producing different upstream results.
+        """
+        seen = []
+
+        def _capture(q, _lim):
+            seen.append(q)
+            return [_skill("row")]
+
+        run_external_fanout(
+            [("s", _FakeAdapter(_capture))], query="  Docker  ", limit=5, per_source_deadline_s=2.0
+        )
+        assert seen == ["docker"], f"adapter got the un-normalized query: {seen!r}"
