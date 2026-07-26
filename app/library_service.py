@@ -70,11 +70,31 @@ def set_liked_artifact(
         raise LikedArtifactNotFoundError
 
     # authz gate (secfix_1905-B: every mutation surface carries an authz.can_* call).
-    # Liking a skill requires read-access to it; unliking never needs a fresh read
-    # (you are only removing a reference from your own bundle).
-    if ctx is not None and liked and artifact_type == "skill":
-        if not authz.can_read_skill(ctx, artifact, db=db):
-            raise LikedArtifactForbiddenError
+    # Liking requires read-access to the artifact; unliking never needs a fresh
+    # read (you are only removing a reference from your own bundle).
+    #
+    # spotify_2607 Phase B — the gate was previously skill-only, which left
+    # personalities and loops un-gated (a caller could like a PRIVATE
+    # personality/loop they cannot read, then read+install it via the Liked
+    # bundle join — the exact privilege-escalation shape secfix_1905-B closed
+    # for skills). can_read_personality / can_read_composite_loop (authz.py)
+    # close the same hole for the two runnable types. Tier gating
+    # (tier_rank_allows_install) is enforced by the caller in
+    # artifact_like_routes._enforce_tier_gate, NOT here, because the typed
+    # /api/library/like path is a library mutation, not an install — and
+    # personalities/loops do not today carry a tier column that maps cleanly
+    # onto TIER_RANK (they default to NULL = free). The slug routes in
+    # artifact_like_routes apply the tier gate explicitly.
+    if ctx is not None and liked:
+        if artifact_type == "skill":
+            if not authz.can_read_skill(ctx, artifact, db=db):
+                raise LikedArtifactForbiddenError
+        elif artifact_type == "personality":
+            if not authz.can_read_personality(ctx, artifact, db=db):
+                raise LikedArtifactForbiddenError
+        elif artifact_type == "loop":
+            if not authz.can_read_composite_loop(ctx, artifact, db=db):
+                raise LikedArtifactForbiddenError
 
     existing = (
         db.query(join_model)
@@ -189,6 +209,13 @@ def liked_library(db: Session, *, owner_id: UUID) -> dict:
     Federated likes are therefore served on their OWN additive key,
     ``federated_skills`` — new, so it breaks nothing, and structurally separate,
     so nothing can mistake a community bookmark for a deployable Liked entry.
+
+    spotify_2607 Phase B (§0b): ``federated_skills`` entries now carry a
+    ``provenance`` field (``"community"`` for federated/unvetted content,
+    ``"vetted"`` for local catalog entries that passed the publish scan). This
+    is the additive badging the premortem demanded — a fleet operator pulling
+    the Liked bundle can tell apart vetted and community content at a glance.
+    The frozen shelf shape (``{id, slug, title, liked_at}``) is unchanged.
     """
     bundle = ensure_liked_bundle(db, owner_id)
     return {
@@ -261,6 +288,15 @@ def _federated_liked_skills(db: Session, *, owner_id: UUID) -> list[dict]:
         hub = hub_by_slug.get(like.federated_slug)
         # `title` is NOT NULL but defaults to "" — treat blank as unresolved.
         title = (hub.title or "").strip() if hub is not None else ""
+        # spotify_2607 Phase B (§0b): provenance badging. A federated like is
+        # community/unvetted by construction — we do not host it and it never
+        # passed the publish scan. The trust_level column on
+        # federation_hub_skills (when present) refines this, but the badge
+        # vocabulary a consumer cares about is binary: did LoopSkill vet this
+        # or not? Federated -> "community"; a local skill that earned its way
+        # into the deployable Liked bundle -> "vetted" (never appears here).
+        trust = getattr(hub, "trust_level", None) if hub is not None else None
+        provenance = "vetted" if trust == "trusted" else "community"
         out.append(
             {
                 "slug": like.federated_slug,
@@ -268,6 +304,9 @@ def _federated_liked_skills(db: Session, *, owner_id: UUID) -> list[dict]:
                 "description": (hub.description if hub is not None else None),
                 "origin_url": (hub.origin_url if hub is not None else None),
                 "source": like.federated_source,
+                # §0b additive badge — distinguishes vetted catalog content
+                # from community/unvetted federated bookmarks.
+                "provenance": provenance,
                 "liked_at": like.liked_at,
             }
         )
