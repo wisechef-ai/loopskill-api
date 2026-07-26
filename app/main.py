@@ -3,8 +3,9 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.access_routes import router as access_router  # Phase E: access split
 from app.admin_routes import router as admin_router
@@ -152,6 +153,22 @@ def create_app() -> FastAPI:
     app.add_middleware(RateLimitMiddleware, max_requests=settings.RATE_LIMIT_PER_MINUTE)
     app.add_middleware(APIKeyMiddleware)
     app.add_middleware(CookbookHostMiddleware)
+
+    # spotify_2607 Phase A (§0a) — the Liked bundle is a private SYSTEM
+    # collection that can never be published. The guard lives at the ORM
+    # layer (Bundle._reject_liked_bundle_publish, an @validates hook) so it
+    # protects EVERY write path, not just PATCH /visibility — this handler
+    # just turns that model-layer raise into a well-formed 422 instead of a
+    # bare 500 for the HTTP surface.
+    from app.models import LikedBundleNotPublishableError
+
+    @app.exception_handler(LikedBundleNotPublishableError)
+    async def _liked_bundle_not_publishable_handler(
+        _request: Request, exc: LikedBundleNotPublishableError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=422, content={"detail": str(exc), "reason": "liked_bundle_is_private"}
+        )
 
     app.include_router(router)
     app.include_router(utm_router)  # marketing_1205: /x/<slug>, /li/<slug> etc.
