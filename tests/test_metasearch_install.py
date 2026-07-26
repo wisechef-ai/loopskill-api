@@ -48,7 +48,7 @@ def test_github_tap_resolves(monkeypatch):
     monkeypatch.setattr(
         mi,
         "get_origin_fetcher",
-        lambda src: (lambda slug: ("https://raw.githubusercontent.com/x/y/main/z/SKILL.md", "# tap body")),
+        lambda src: lambda slug: ("https://raw.githubusercontent.com/x/y/main/z/SKILL.md", "# tap body"),
     )
     r = resolve_install("github-anthropic:anthropic--skill")
     assert r.resolved is True
@@ -73,14 +73,14 @@ def test_origin_outage_fails_closed_not_raises(monkeypatch):
 
 
 def test_unresolvable_ref_fails_closed(monkeypatch):
-    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: (lambda slug: None))
+    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: lambda slug: None)
     r = resolve_install("well-known:host--skill")
     assert r.resolved is False
     assert r.reason == "unresolvable"
 
 
 def test_empty_body_fails_closed(monkeypatch):
-    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: (lambda slug: ("https://x/SKILL.md", "   ")))
+    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: lambda slug: ("https://x/SKILL.md", "   "))
     r = resolve_install("skills-sh:o--r--s")
     assert r.resolved is False
     assert r.reason == "empty_body"
@@ -104,7 +104,11 @@ def test_clawhub_preview_from_own_api_not_rehosted(monkeypatch):
     assert r.preview_only is True, "ClawHub must be preview-only (never rehosted)"
     assert "# body" in r.body
     assert r.reason == "clawhub_inline_preview"
-    assert "clawhub.ai/skills/humanizer" in r.origin_url
+    # issue #139: this fixture carries no owner, so the URL degrades to the
+    # browse page. It must NEVER be the bare /skills/<slug> form — that 307s to
+    # /skills/skills/<slug>, a soft-404 that still answers HTTP 200.
+    assert r.origin_url == "https://clawhub.ai/skills"
+    assert "clawhub.ai/skills/humanizer" not in r.origin_url
 
 
 def test_clawhub_never_calls_origin_fetcher(monkeypatch):
@@ -136,7 +140,7 @@ def test_resolved_install_to_dict():
 
 def test_large_body_is_clipped(monkeypatch):
     big = "#" * (300 * 1024)
-    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: (lambda slug: ("https://x/SKILL.md", big)))
+    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: lambda slug: ("https://x/SKILL.md", big))
     r = resolve_install("skills-sh:o--r--s")
     assert r.resolved is True
     assert len(r.body.encode("utf-8")) <= 256 * 1024

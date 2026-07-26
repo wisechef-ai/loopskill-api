@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from app.services import clawhub_url
 from app.services.federation import ExternalSkill, InstallPath, SourceAdapter
 from app.services.federation_fetch import is_redistributable as _canonical_is_redistributable
 
@@ -377,13 +378,17 @@ class ClawHubAdapter(SourceAdapter):
 
     def _map(self, row: dict[str, Any]) -> ExternalSkill:
         slug = row.get("slug") or row.get("displayName", "")
+        # issue #139: the bare /skills/<slug> form is a soft-404 (307 ->
+        # /skills/skills/<slug>, still HTTP 200). Resolve the owner so the deep
+        # link — the ENTIRE deliverable for a DEEP_LINK source — actually works.
+        owner = row.get("ownerHandle") or clawhub_url.resolve_owner(str(slug))
         return ExternalSkill(
             slug=str(slug).replace("/", "--"),
             title=row.get("displayName") or str(slug),
             source=self.source_id,
             # decision #6: DEEP_LINK only — never rehost ClawHavoc-exposed content.
             install_path=InstallPath.DEEP_LINK,
-            origin_url=f"https://clawhub.ai/skills/{slug}",
+            origin_url=clawhub_url.clawhub_skill_url(str(slug), owner),
             license=None,
             redistributable=False,
             description=row.get("summary", ""),

@@ -176,6 +176,16 @@ key -> 403). Wired into the delegated dispatch chain. 9 RED-proofed tests incl.
 the KEYSTONE test_ingest_makes_assign_succeed: declare_loop + ping => preflight
 passes => assign creates a real placement at epoch 1 (the exact chain that was
 inert). No schema, no migration.
+
+0.9.33 - ClawHub origin_url is owner-scoped (issue #139). ClawHub skill pages
+    live at /<ownerHandle>/skills/<slug>; the bare /skills/<slug> form we minted
+    307-redirects to /skills/skills/<slug>, a soft-404 that still answers HTTP
+    200 (SPA shell). Measured 69,150 of 90,605 federated rows (76.3%) advertising
+    a dead deep link — and ClawHub is deep_link-only by policy, so the link IS
+    the deliverable. New app/services/clawhub_url.py centralises URL building +
+    a cached owner resolver; all four mint sites route through it. Ingest cannot
+    resolve 69k owners inline (snapshot carries no handle) so it fails safe to
+    the browse page. Verified against prod /api/healthz 0.9.32 before bumping.
 """
 
-__version__ = "0.9.32"
+__version__ = "0.9.33"
