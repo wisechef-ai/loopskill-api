@@ -47,7 +47,6 @@ pin the absence of cascade with ``test_liking_bundle_does_not_cascade``.
 
 from __future__ import annotations
 
-from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -161,12 +160,21 @@ def _do_like_personality(db: Session, ctx: AuthContext, p: Personality, *, liked
 
 
 def _personality_like_count(db: Session, p: Personality) -> int:
-    """Count how many users have this personality in their Liked bundle."""
+    """Count how many users have this personality in their Liked bundle.
+
+    The like is the typed liked-bundle join written by
+    ``library_service.set_liked_artifact`` — it lands on the user's single
+    Liked bundle (``Bundle.is_liked == True``). Counting ALL
+    ``BundlePersonality`` rows would also pick up curated / base / ordinary
+    bundles that happen to declare the personality as a member, inflating the
+    number (Codex review, PR #144). Scope the join to Liked bundles only.
+    """
     from app.models import BundlePersonality
 
     return (
         db.query(BundlePersonality)
-        .filter(BundlePersonality.personality_id == p.id)
+        .join(Bundle, BundlePersonality.bundle_id == Bundle.id)
+        .filter(BundlePersonality.personality_id == p.id, Bundle.is_liked.is_(True))
         .count()
     )
 
@@ -232,11 +240,18 @@ def _do_like_loop(db: Session, ctx: AuthContext, cl: CompositeLoop, *, liked: bo
 
 
 def _loop_like_count(db: Session, cl: CompositeLoop) -> int:
+    """Count how many users have this loop in their Liked bundle.
+
+    Same scoping as ``_personality_like_count``: count only joins against the
+    user's Liked bundle (``Bundle.is_liked == True``), not every bundle that
+    happens to declare the loop as a member (Codex review, PR #144).
+    """
     from app.models import BundleCompositeLoop
 
     return (
         db.query(BundleCompositeLoop)
-        .filter(BundleCompositeLoop.composite_loop_id == cl.id)
+        .join(Bundle, BundleCompositeLoop.bundle_id == Bundle.id)
+        .filter(BundleCompositeLoop.composite_loop_id == cl.id, Bundle.is_liked.is_(True))
         .count()
     )
 

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -155,6 +154,78 @@ def test_personality_like_404_when_missing(db_session):
     assert r.status_code == 404
 
 
+def test_personality_like_count_excludes_ordinary_bundle_members(db_session):
+    """Like count must count only Liked-bundle joins, not bundle membership.
+
+    Regression pin (Codex review, PR #144, HIGH finding): the prior
+    implementation of ``_personality_like_count`` counted every
+    ``BundlePersonality`` row for the personality — including rows in curated
+    / base / ordinary bundles that merely DECLARE the personality as a member.
+    A personality placed in N ordinary bundles would report N+likes even with
+    zero likes. The fix scopes the count to the user's Liked bundle
+    (``Bundle.is_liked == True``); this test pins that scoping by placing the
+    personality in a non-Liked bundle and asserting the like count stays at
+    exactly the number of Likes.
+    """
+    owner, owner_id = _seed_user(db_session)
+    liker, liker_id = _seed_user(db_session)
+    p = _seed_personality(db_session, "counted-soul")
+
+    # Place the personality in an ORDINARY (non-Liked) bundle as the owner.
+    ordinary = Bundle(
+        id=uuid4(),
+        name="ordinary",
+        slug=None,
+        visibility="private",
+        is_base=False,
+        is_liked=False,
+        bundle_owner=owner_id,
+    )
+    db_session.add(ordinary)
+    db_session.commit()
+    db_session.add(BundlePersonality(bundle_id=ordinary.id, personality_id=p.id))
+    db_session.commit()
+
+    # One like from the liker. Pre-fix this returned 2 (the ordinary bundle
+    # membership + the like); post-fix it returns 1.
+    client = TestClient(_app(db_session, liker_id))
+    r = client.post("/api/personalities/counted-soul/like")
+    assert r.status_code == 200, r.text
+    assert r.json()["like_count"] == 1, (
+        "like_count must count only Liked-bundle joins, not ordinary bundle "
+        "membership (Codex review, PR #144 HIGH finding)"
+    )
+
+
+def test_loop_like_count_excludes_ordinary_bundle_members(db_session):
+    """Same regression pin as the personality variant, for composite loops."""
+    owner, owner_id = _seed_user(db_session)
+    liker, liker_id = _seed_user(db_session)
+    cl = _seed_loop(db_session, "counted-loop")
+
+    ordinary = Bundle(
+        id=uuid4(),
+        name="ordinary-loop",
+        slug=None,
+        visibility="private",
+        is_base=False,
+        is_liked=False,
+        bundle_owner=owner_id,
+    )
+    db_session.add(ordinary)
+    db_session.commit()
+    db_session.add(BundleCompositeLoop(bundle_id=ordinary.id, composite_loop_id=cl.id))
+    db_session.commit()
+
+    client = TestClient(_app(db_session, liker_id))
+    r = client.post("/api/loops/counted-loop/like")
+    assert r.status_code == 200, r.text
+    assert r.json()["like_count"] == 1, (
+        "like_count must count only Liked-bundle joins, not ordinary bundle "
+        "membership (Codex review, PR #144 HIGH finding)"
+    )
+
+
 # ── Round-trip: composite loop ────────────────────────────────────────────
 
 
@@ -171,6 +242,16 @@ def test_loop_like_round_trip(db_session):
     # Alias prefix works too
     r_alias = client.post("/api/composite-loops/dreaming/like")
     assert r_alias.status_code == 200
+
+    # DELETE alias must also work (Codex review, PR #144: cover the alias
+    # DELETE path so a client using the /api/composite-loops/ vocabulary can
+    # unlike as well as like).
+    r_alias_del = client.delete("/api/composite-loops/dreaming/like")
+    assert r_alias_del.status_code == 200
+    assert r_alias_del.json()["liked"] is False
+
+    # Re-like via the alias POST so the canonical DELETE below has a row.
+    assert client.post("/api/composite-loops/dreaming/like").status_code == 200
 
     r3 = client.delete("/api/loops/dreaming/like")
     assert r3.status_code == 200
@@ -291,25 +372,47 @@ def test_liking_bundle_does_not_cascade(db_session):
         == 1
     )
     # ...but the follower's Liked bundle has ZERO of the bundle's members.
-    # (The follower's Liked bundle is lazily created on first like; it doesn't
-    # exist yet because they only followed, never liked a member directly.)
+    # Liking a bundle is a FollowedBundle write only — it MUST NOT create or
+    # mutate the follower's Liked bundle, and it MUST NOT cascade likes onto
+    # the bundle's member skill/personality/loop. Spotify shipped
+    # cascade-by-accident and reverted; this test pins the absence of cascade.
+    #
+    # (Codex review, PR #144: the prior form gated the member-join assertions
+    # on `if liked is not None`, which silently passed when the cascade
+    # regression happened to not create the Liked bundle at all. The
+    # invariant we actually care about is the absence of member joins, so we
+    # assert THAT directly against the follower's Liked bundle if one exists,
+    # and fail loudly if a Liked bundle was unexpectedly created.)
     liked = (
         db_session.query(Bundle)
         .filter(Bundle.bundle_owner == follower_id, Bundle.is_liked.is_(True))
         .first()
     )
-    if liked is not None:  # defensive — should not exist
-        assert db_session.query(BundleSkill).filter(BundleSkill.bundle_id == liked.id).count() == 0
-        assert (
-            db_session.query(BundlePersonality).filter(BundlePersonality.bundle_id == liked.id).count()
-            == 0
-        )
-        assert (
+    member_join_counts = (
+        (
+            db_session.query(BundleSkill).filter(BundleSkill.bundle_id == liked.id).count()
+            if liked is not None
+            else 0
+        ),
+        (
+            db_session.query(BundlePersonality)
+            .filter(BundlePersonality.bundle_id == liked.id)
+            .count()
+            if liked is not None
+            else 0
+        ),
+        (
             db_session.query(BundleCompositeLoop)
             .filter(BundleCompositeLoop.bundle_id == liked.id)
             .count()
-            == 0
-        )
+            if liked is not None
+            else 0
+        ),
+    )
+    assert member_join_counts == (0, 0, 0), (
+        f"cascade regression: following the bundle wrote member likes into the "
+        f"follower's Liked bundle (skill/personality/loop = {member_join_counts})"
+    )
 
 
 # ── GET /api/library populates all shelves + followed bundles ─────────────
@@ -318,10 +421,10 @@ def test_liking_bundle_does_not_cascade(db_session):
 def test_library_populated_after_liking_all_types(db_session):
     owner, owner_id = _seed_user(db_session)
     _, other_id = _seed_user(db_session)
-    skill = _seed_skill(db_session, "lib-skill")
-    p = _seed_personality(db_session, "lib-p")
-    cl = _seed_loop(db_session, "lib-loop")
-    b = _seed_bundle(db_session, other_id, "lib-bundle")
+    _seed_skill(db_session, "lib-skill")
+    _seed_personality(db_session, "lib-p")
+    _seed_loop(db_session, "lib-loop")
+    _seed_bundle(db_session, other_id, "lib-bundle")
 
     client = TestClient(_app(db_session, owner_id))
     assert client.post("/api/skills/lib-skill/like").status_code == 200
