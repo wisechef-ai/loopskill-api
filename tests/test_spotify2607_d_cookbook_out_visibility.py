@@ -150,3 +150,124 @@ def test_create_response_created_field_shape_unchanged(vis_client):
     created = _create(vis_client, "Contract Shape Test")
     for key in ("id", "name", "description", "is_base", "parent_bundle_id", "bundle_owner", "created_at"):
         assert key in created, f"pre-existing key {key!r} missing — additive change broke the contract"
+
+
+# ── Codex adversarial-review follow-ups (PR #146, 2026-07-26) ───────────────
+# Two MUST-FIX/SHOULD-FIX findings from the mandatory codex review gate were
+# ACCEPTED after live adjudication. These tests pin them.
+#
+# Finding 3 (MUST-FIX, confirmed): PATCH /visibility mints a slug for a
+#   legacy slug-less bundle via _ensure_bundle_slug, but the response body
+#   discards it — so a client that just published cannot render the share URL
+#   without a second round-trip. That directly undercuts Phase D's own
+#   acceptance gate ("share link surfaced immediately on publish").
+#
+# Finding 4 (SHOULD-FIX, accepted): `slug` is genuinely nullable for rows
+#   created before slug-on-create. Only freshly-created rows (which get a
+#   server default) were covered, so the None branch was untested.
+
+
+def test_visibility_patch_returns_slug_for_share_url(vis_client):
+    """PATCH .../visibility {public} must return the slug in the SAME response.
+
+    Codex review finding 3. The route already calls _ensure_bundle_slug() on
+    publish, so the slug exists server-side at return time — withholding it
+    forces a gratuitous second GET before the UI can show a share link.
+    """
+    created = _create(vis_client, "Share Url Publish Test")
+    patch = vis_client.patch(
+        f"/api/cookbooks/{created['id']}/visibility",
+        json={"visibility": "public"},
+    )
+    assert patch.status_code == 200, patch.text
+    body = patch.json()
+    assert body.get("visibility") == "public"
+    assert body.get("slug") == "share-url-publish-test", (
+        "PATCH /visibility withheld the slug it had just ensured — the client "
+        "cannot surface a share link without a second round-trip"
+    )
+
+
+def test_visibility_patch_backfills_and_returns_slug_for_legacy_null_slug(
+    vis_client, db_session
+):
+    """A LEGACY bundle with slug=None must get one minted AND returned.
+
+    Codex review findings 3+4 together: the nullable-slug branch. Simulates a
+    row created before slug-on-create by nulling the slug directly, then
+    publishing it — the exact path a pre-existing private bundle takes.
+    """
+    from app.models import Bundle
+
+    created = _create(vis_client, "Legacy Null Slug Test")
+    cb = db_session.query(Bundle).filter(Bundle.id == uuid.UUID(created["id"])).one()
+    cb.slug = None
+    db_session.flush()
+
+    detail = vis_client.get(f"/api/cookbooks/{created['id']}")
+    assert detail.status_code == 200, detail.text
+    assert detail.json().get("slug") is None, "precondition: legacy row has no slug"
+
+    patch = vis_client.patch(
+        f"/api/cookbooks/{created['id']}/visibility",
+        json={"visibility": "public"},
+    )
+    assert patch.status_code == 200, patch.text
+    body = patch.json()
+    assert body.get("visibility") == "public"
+    assert body.get("slug"), (
+        "publishing a legacy slug-less bundle minted a slug server-side but "
+        "did not return it — the share link stays unrenderable"
+    )
+
+    # And the detail GET must agree with what PATCH just reported.
+    after = vis_client.get(f"/api/cookbooks/{created['id']}")
+    assert after.status_code == 200, after.text
+    assert after.json().get("slug") == body["slug"]
+
+
+def test_detail_and_list_tolerate_null_slug(vis_client, db_session):
+    """A null ``slug`` must serialize as null on BOTH read routes, never 500.
+
+    Codex finding 4 (nullability). Adjudication note: the finding claimed BOTH
+    new fields are nullable. Only ``slug`` is —
+    ``Bundle.slug = Column(..., nullable=True)`` (models.py) and the docstring
+    there says "NULL for private/unpublished bundles (most rows)".
+    ``Bundle.visibility`` is ``nullable=False, server_default='private'``, so a
+    null visibility is unrepresentable: attempting it raises
+    ``IntegrityError: NOT NULL constraint failed: bundles.visibility``
+    (verified). The DB schema is the guarantee for that half of the finding,
+    so this test pins the branch that CAN actually occur rather than asserting
+    an impossible state.
+    """
+    from app.models import Bundle
+
+    created = _create(vis_client, "Null Slug Tolerance Test")
+    cb = db_session.query(Bundle).filter(Bundle.id == uuid.UUID(created["id"])).one()
+    cb.slug = None
+    db_session.flush()
+
+    detail = vis_client.get(f"/api/cookbooks/{created['id']}")
+    assert detail.status_code == 200, detail.text
+    body = detail.json()
+    assert body.get("slug") is None
+    assert body.get("visibility") == "private"
+
+    listing = vis_client.get("/api/cookbooks")
+    assert listing.status_code == 200, listing.text
+    row = next(c for c in listing.json()["cookbooks"] if c["id"] == created["id"])
+    assert row.get("slug") is None
+    assert row.get("visibility") == "private"
+
+
+def test_visibility_is_not_nullable_by_schema(db_session):
+    """Pin the schema guarantee that makes a null-visibility test impossible.
+
+    Documents the adjudication of Codex finding 4 in executable form: if a
+    future migration ever makes ``visibility`` nullable, this test flips red
+    and the serializer's null-handling must be revisited.
+    """
+    from app.models import Bundle
+
+    assert Bundle.__table__.c.visibility.nullable is False
+    assert Bundle.__table__.c.slug.nullable is True

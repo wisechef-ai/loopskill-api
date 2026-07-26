@@ -1373,7 +1373,14 @@ def set_cookbook_visibility(
         _ensure_bundle_slug(db, cb)
     _touch_bundle_generation(db, cb.id)
     db.commit()
-    return {"cookbook_id": str(cb.id), "visibility": vis}
+    # spotify_2607 Phase D (codex review PR #146, finding 3): return the slug
+    # in the SAME response. Publishing a legacy slug-less bundle mints one
+    # above via _ensure_bundle_slug, so it exists server-side at this point —
+    # withholding it forced the client into a gratuitous second GET before it
+    # could render the share link, which defeats Phase D's own acceptance gate
+    # ("share link surfaced immediately on publish"). Additive key: the
+    # pre-existing cookbook_id/visibility pair is unchanged.
+    return {"cookbook_id": str(cb.id), "visibility": vis, "slug": cb.slug}
 
 
 class SkillPinIn(BaseModel):
