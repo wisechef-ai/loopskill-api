@@ -221,6 +221,17 @@ class Settings(BaseSettings):
     # key path so the JWKS-serving code path never touches private material.
     MESH_JWKS_DIR: str = ""
 
+    # spotify2607fix_2 — per-source deadline (seconds) for the LEGACY
+    # /api/skills/external route's live (non-empty-query) federated fan-out.
+    # Sources are queried CONCURRENTLY (app/services/metasearch_fanout.fan_out);
+    # this deadline bounds each source individually, so the whole-gather
+    # wall-clock is bounded by the slowest source, not the sum across sources.
+    # A source exceeding this is abandoned and reported in `degraded_sources` —
+    # partial results, never a hung/500 response. Configurable via
+    # WR_EXTERNAL_FANOUT_PER_SOURCE_DEADLINE_S; default mirrors the metasearch
+    # route's tuned budget (see metasearch_fanout._PER_SOURCE_DEADLINE_S notes).
+    EXTERNAL_FANOUT_PER_SOURCE_DEADLINE_S: float = 2.5
+
     model_config = {"env_file": ".env", "env_prefix": "WR_", "extra": "ignore"}
 
     @model_validator(mode="after")
