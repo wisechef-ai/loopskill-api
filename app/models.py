@@ -1122,7 +1122,8 @@ class BundleSkill(Base):
             "bundle_id", "federated_source", "federated_slug", name="uq_bundle_skills_bundle_federated"
         ),
         CheckConstraint(
-            "(skill_id IS NOT NULL) <> (federated_source IS NOT NULL AND federated_slug IS NOT NULL)",
+            "(skill_id IS NOT NULL AND federated_source IS NULL AND federated_slug IS NULL)"
+            " OR (skill_id IS NULL AND federated_source IS NOT NULL AND federated_slug IS NOT NULL)",
             name="ck_bundle_skills_local_xor_federated",
         ),
     )

@@ -150,8 +150,12 @@ def upgrade() -> None:
             op.create_check_constraint(
                 "ck_bundle_skills_local_xor_federated",
                 "bundle_skills",
-                "(skill_id IS NOT NULL) <> "
-                "(federated_source IS NOT NULL AND federated_slug IS NOT NULL)",
+                # Explicit valid states, NOT a loose XOR. A bare XOR
+                # ``(skill_id IS NOT NULL) <> (fed IS NOT NULL)`` incorrectly
+                # passes a row that has skill_id + only ONE of source/slug set
+                # (a malformed hybrid). Enumerate the two legal states instead.
+                "(skill_id IS NOT NULL AND federated_source IS NULL AND federated_slug IS NULL) "
+                "OR (skill_id IS NULL AND federated_source IS NOT NULL AND federated_slug IS NOT NULL)",
             )
         return
 
@@ -172,7 +176,11 @@ def upgrade() -> None:
     else:
         bind.execute(sa.text(f"UPDATE bundle_skills SET id = {sqlite_uuid_default.text} WHERE id IS NULL"))
 
-    with op.batch_alter_table("bundle_skills") as batch_op:
+    # naming_convention so the reflected composite PK gets a deterministic
+    # name (``pk_bundle_skills``) that drop_constraint can reference inside
+    # the batch. Without this SQLite PKs are unnamed and un-droppable.
+    _naming = {"pk": "pk_%(table_name)s"}
+    with op.batch_alter_table("bundle_skills", naming_convention=_naming) as batch_op:
         # Promote id to NOT NULL with a server default for future ORM inserts.
         batch_op.alter_column("id", existing_type=sa.String(36), nullable=False, server_default=sqlite_uuid_default)
         # skill_id becomes nullable (federated rows carry NULL here).
@@ -180,7 +188,13 @@ def upgrade() -> None:
         if not has_fed_src:
             batch_op.add_column(sa.Column("federated_source", sa.String(64), nullable=True))
             batch_op.add_column(sa.Column("federated_slug", sa.String(255), nullable=True))
-        # Swap PK: drop old composite, set new surrogate-id PK.
+        # Swap PK: drop old composite, set new surrogate-id PK. The old
+        # composite PK MUST be dropped explicitly inside the batch — on SQLite
+        # the reflected PK has no name, so pass naming_convention to give it
+        # one we can reference (batch_alter_table mirrors the table from the
+        # DB; without the drop, create_primary_key conflicts with the reflected
+        # composite PK and the batch copy silently drops all rows).
+        batch_op.drop_constraint("pk_bundle_skills", type_="primary")
         batch_op.create_primary_key("bundle_skills_pkey", ["id"])
         # NULL-tolerant uniques (SQLite treats NULLs as distinct in uniques, so
         # plain constraints are correct here — no partial-index needed).
@@ -196,8 +210,8 @@ def upgrade() -> None:
         if not _has_check_constraint(bind, "bundle_skills", "ck_bundle_skills_local_xor_federated"):
             batch_op.create_check_constraint(
                 "ck_bundle_skills_local_xor_federated",
-                "(skill_id IS NOT NULL) <> "
-                "(federated_source IS NOT NULL AND federated_slug IS NOT NULL)",
+                "(skill_id IS NOT NULL AND federated_source IS NULL AND federated_slug IS NULL) "
+                "OR (skill_id IS NULL AND federated_source IS NOT NULL AND federated_slug IS NOT NULL)",
             )
 
     if not _has_index(bind, "bundle_skills", "ix_bundle_skills_federated"):
