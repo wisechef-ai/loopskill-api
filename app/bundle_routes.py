@@ -285,6 +285,17 @@ class CookbookSkillOut(BaseModel):
     federated: bool = False
     federated_source: str | None = None
     provenance: str = "vetted"  # "vetted" (hosted/local) | "community" (federated)
+    # sp2607fix-3 — the resolved upstream URL for a federated row.
+    #
+    # The INSTALL payload already emits `origin_url` (bundle_routes.py, the
+    # federated descriptor block) because an installer must know where to
+    # actually fetch content this repo does not host. Bundle DETAIL resolved
+    # the very same hub object (for the title) but dropped the URL, so the
+    # portal had no upstream link to render and had to fall back to a
+    # /browse?q=<slug> search — a second-best link for a URL we already knew.
+    # Two surfaces reading one hub row must not disagree about what it says.
+    # None for local skills (they have a first-party detail page instead).
+    origin_url: str | None = None
 
 
 class CookbookOut(BaseModel):
@@ -393,7 +404,7 @@ def _federated_skills_for(db: Session, cookbook_id: UUID, include_disabled: bool
     return q.all()
 
 
-def _federated_cookbook_skill_out(join: BundleSkill, title: str) -> dict:
+def _federated_cookbook_skill_out(join: BundleSkill, title: str, origin_url: str | None = None) -> dict:
     """Render a federated ``BundleSkill`` row in the ``CookbookSkillOut`` shape.
 
     Every key a LOCAL skill entry carries is present here too (with a
@@ -403,6 +414,12 @@ def _federated_cookbook_skill_out(join: BundleSkill, title: str) -> dict:
     payload (task requirement: no authz gate applies here — there is no
     ``Skill`` row for ``authz.can_install`` to check — so the discriminator
     is how a consumer tells the two apart instead).
+
+    ``origin_url`` (sp2607fix-3) is the resolved upstream link, taken from the
+    SAME hub row the title is resolved from, so detail and install cannot
+    disagree about where a federated entry actually lives. ``None`` when the
+    hub row is unresolvable — callers must fail soft, never render a guessed
+    URL.
     """
     return CookbookSkillOut(
         slug=join.federated_slug,
@@ -419,6 +436,7 @@ def _federated_cookbook_skill_out(join: BundleSkill, title: str) -> dict:
         federated=True,
         federated_source=join.federated_source,
         provenance="community",
+        origin_url=origin_url,
     ).model_dump(mode="json")
 
 
@@ -1022,7 +1040,11 @@ def get_cookbook(
         (
             _sort_key(join),
             _federated_cookbook_skill_out(
-                join, federated_title_for(hub_by_slug.get(join.federated_slug), join.federated_slug)
+                join,
+                federated_title_for(hub_by_slug.get(join.federated_slug), join.federated_slug),
+                # Same hub row the title comes from — one lookup, two fields,
+                # so detail and install can never disagree (sp2607fix-3).
+                getattr(hub_by_slug.get(join.federated_slug), "origin_url", None),
             ),
         )
         for join in fed_rows
