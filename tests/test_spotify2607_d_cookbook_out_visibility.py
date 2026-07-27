@@ -25,6 +25,7 @@ RED-proof: before the fix, `resp.json().get("visibility")` is None for both
 routes even after PATCHing to "public" — these tests fail on main. Fix adds
 the two fields; tests go green.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -188,9 +189,7 @@ def test_visibility_patch_returns_slug_for_share_url(vis_client):
     )
 
 
-def test_visibility_patch_backfills_and_returns_slug_for_legacy_null_slug(
-    vis_client, db_session
-):
+def test_visibility_patch_backfills_and_returns_slug_for_legacy_null_slug(vis_client, db_session):
     """A LEGACY bundle with slug=None must get one minted AND returned.
 
     Codex review findings 3+4 together: the nullable-slug branch. Simulates a
@@ -271,3 +270,48 @@ def test_visibility_is_not_nullable_by_schema(db_session):
 
     assert Bundle.__table__.c.visibility.nullable is False
     assert Bundle.__table__.c.slug.nullable is True
+
+
+def test_cbt_share_token_holder_does_not_see_visibility_or_slug(vis_client, db_session):
+    """Codex R2 MUST-FIX: a share-token reader is NOT the owner.
+
+    This overturned my own R1 rejection. I had probed PRODUCTION with a real
+    cbt_ token, seen both fields absent, and concluded the detail route does not
+    serialize through ``_to_cb_out``. It does (line ~909) — the fields were
+    absent because PROD DOES NOT HAVE THIS PR. Probing the deployed system to
+    disprove a claim about UNDEPLOYED code proves nothing.
+
+    ``_enforce_cbt_scope_for_cookbook_route`` explicitly permits GET on the
+    scoped bundle for scope='read', so a share-token recipient reaches this
+    route. Handing them the owner's publication state and the bundle's
+    persistent public slug is disclosure this PR would have introduced.
+    Owner-authenticated reads keep both fields.
+    """
+    from app import bundle_routes
+
+    created = _create(vis_client, "Cbt Scope Test")
+
+    # Owner read: both fields present (the whole point of the PR).
+    owner_body = vis_client.get(f"/api/cookbooks/{created['id']}").json()
+    assert owner_body.get("visibility") == "private"
+    assert owner_body.get("slug") == "cbt-scope-test"
+
+    # Share-token read: same route, same bundle, fields withheld.
+    orig = bundle_routes._enforce_cbt_scope_for_cookbook_route
+
+    def _as_share_token(request, cookbook_id):
+        request.state.cookbook_token_scope = "read"
+
+    bundle_routes._enforce_cbt_scope_for_cookbook_route = _as_share_token
+    try:
+        cbt_body = vis_client.get(f"/api/cookbooks/{created['id']}").json()
+    finally:
+        bundle_routes._enforce_cbt_scope_for_cookbook_route = orig
+
+    assert cbt_body.get("id") == created["id"], "the share-token read must still work"
+    assert cbt_body.get("visibility") is None, (
+        "a cbt_ share-token holder must not learn the owner's publication state"
+    )
+    assert cbt_body.get("slug") is None, (
+        "a cbt_ share-token holder must not learn the bundle's persistent public slug"
+    )

@@ -1011,6 +1011,18 @@ def get_cookbook(
     fed_rows = _federated_skills_for(db, cb.id, include_disabled=True)
     hub_by_slug = resolve_federated_hub_titles(db, (r.federated_slug for r in fed_rows)) if fed_rows else {}
     out = _to_cb_out(cb)
+    # Codex R2 MUST-FIX (CONFIRMED, and it overturned my own R1 rejection):
+    # `_to_cb_out` now carries `visibility` + `slug`, and this route is
+    # reachable by a cbt_ SHARE-TOKEN holder — `_enforce_cbt_scope_for_cookbook_route`
+    # explicitly permits GET on the scoped bundle for scope='read'. That
+    # recipient is NOT the owner, so handing them the owner's publication
+    # state and the bundle's persistent public slug is an unintended
+    # disclosure introduced by this PR. The owner surfaces (list, create,
+    # rename, and an owner-authenticated detail read) still get both fields —
+    # only the share-token reader is withheld from.
+    if getattr(request.state, "cookbook_token_scope", None) is not None:
+        out.pop("visibility", None)
+        out.pop("slug", None)
 
     # Codex review MUST-FIX 1 (CONFIRMED): local and federated rows come from
     # two SEPARATE queries, each ordered internally by (install_order,
