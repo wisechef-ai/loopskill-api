@@ -683,6 +683,20 @@ def get_external_skills(
                     # empty" from "we could not reach it".
                     block["indexed"] = 0
                     block["installable"] = 0
+                # Codex R2 MUST-FIX 2 (CONFIRMED — my R1 claim of "OLD behaviour
+                # EXACTLY" was an overclaim). This early `continue` also skips
+                # the persistent cache-WRITE block below, so a degraded source
+                # no longer writes 0/0 into `federation_index_cache` the way an
+                # adapter exception under `force_refresh` previously would.
+                #
+                # That divergence is INTENTIONAL and is the safer contract:
+                # writing 0 for a source we could not REACH is precisely the
+                # cache-poisoning failure superset_0606 decision #7 exists to
+                # prevent (a capped/failed live read overwriting the reindex
+                # cron's real deep-walked counts — clawhub 69k, skills-sh 20k).
+                # An unreachable source must leave the canonical count ALONE.
+                # Stated here rather than left implicit, and pinned by
+                # test_degraded_source_does_not_write_zero_to_persistent_cache.
                 continue
 
             found = result.skills
