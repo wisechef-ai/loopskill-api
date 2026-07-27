@@ -973,8 +973,12 @@ def get_cookbook(
     sp2607fix-1: the ``skills`` list additionally carries FEDERATED entries
     (``BundleSkill`` rows with ``skill_id`` NULL — spotify_2607 Phase A liked
     federated skills). Local entries are byte-identical to before (additive
-    keys only, see ``CookbookSkillOut``); federated entries are appended
-    after them in their own deterministic (install_order, added_at) order.
+    keys only, see ``CookbookSkillOut``); local and federated entries are then
+    MERGED and globally re-sorted on the shared ``(install_order, added_at,
+    id)`` key, so a federated row with a lower install_order correctly precedes
+    a local row with a higher one (Codex R2 NIT — this docstring previously
+    said federated entries were "appended after" the local block, which
+    described the pre-fix behaviour, not the code below).
     """
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id, allow_org_read=True)
@@ -1608,6 +1612,15 @@ def install_cookbook(
                     "version": None,
                     "tarball_url": None,
                     "checksum_sha256": None,
+                    # Codex R2 SHOULD-FIX (CONFIRMED): the LOCAL descriptor
+                    # carries `source` (bundle_routes.py:1552, `cs.source` — the
+                    # BundleSkill provenance enum: forked/custom-added/
+                    # overridden/disabled). Omitting it here left the list
+                    # heterogeneous for any consumer using `entry["source"]` —
+                    # the exact bug MUST-FIX 3 fixed for tarball_url, one field
+                    # over. A federated row HAS a real BundleSkill.source, so
+                    # emit it rather than None.
+                    "source": join.source,
                     "title": federated_title_for(hub, join.federated_slug),
                     "origin_url": getattr(hub, "origin_url", None),
                     "federated": True,
@@ -1666,7 +1679,10 @@ def install_cookbook(
     # identity today (personalities and composite loops have no federation
     # adapter); an external skill's descriptor is tagged "external": True by
     # install_descriptor_for, and a federated liked-bundle entry is tagged
-    # "federated": True by _federated_cookbook_skill_out (sp2607fix-1).
+    # "federated": True by the INLINE install-descriptor construction above
+    # (Codex R2 NIT — this comment previously credited
+    # _federated_cookbook_skill_out, which is the DETAIL-route serializer;
+    # install deliberately builds its own descriptor shape, see MUST-FIX 3).
     # Everything else in the emitted payload is first-party / vetted.
     community_count = sum(1 for entry in skills_payload if entry.get("external") or entry.get("federated"))
     vetted_count = len(skills_payload) - community_count + len(personalities_payload) + len(loops_payload)

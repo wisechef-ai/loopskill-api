@@ -516,3 +516,39 @@ def test_federated_install_entry_uses_the_install_descriptor_shape(db):
     # A naive installer's exact loop must not explode on the mixed list.
     installable = [s for s in out["skills"] if s.get("tarball_url")]
     assert [s["slug"] for s in installable] == ["local-installable"]
+
+
+def test_federated_install_entry_carries_source_like_local_entries(db):
+    """Codex R2 SHOULD-FIX: the LOCAL install descriptor carries `source`
+    (bundle_routes.py, `cs.source` — the BundleSkill provenance enum). Omitting
+    it from the federated entry left the list heterogeneous for any consumer
+    using `entry["source"]` — the same bug MUST-FIX 3 fixed for tarball_url,
+    one field over. A federated row HAS a real BundleSkill.source.
+    """
+    from app import bundle_routes
+
+    owner = _mk_user(db)
+    cb = _mk_cookbook(db, owner)
+    local = _mk_skill(db, "local-with-source")
+    db.add(SkillVersion(id=uuid.uuid4(), skill_id=local.id, semver="1.0.0", checksum_sha256="c" * 64))
+    db.commit()
+    db.add(BundleSkill(bundle_id=cb.id, skill_id=local.id, source="custom-added"))
+    _mk_federated_bundle_skill(db, cb, "hermes-hub", "fed-with-source")
+    db.commit()
+
+    p1, p2 = _bypass(cb)
+    with p1, p2:
+        out = bundle_routes.install_cookbook(
+            cookbook_id=str(cb.id), request=_PostReq(), db=db, ctx=_ctx(owner)
+        )
+
+    # EVERY entry must carry `source` — uniform key set across the collection.
+    for entry in out["skills"]:
+        assert "source" in entry, (
+            f"install entry missing 'source' — a consumer using entry['source'] "
+            f"would KeyError on the heterogeneous list. Entry: {entry}"
+        )
+    fed = next(s for s in out["skills"] if s["slug"] == "fed-with-source")
+    assert fed["source"] == "custom-added", (
+        f"federated entry must report its real BundleSkill.source, got {fed['source']!r}"
+    )
