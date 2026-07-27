@@ -410,3 +410,112 @@ class TestCodexReviewFixes(_ClearsCache):
             [("s", _FakeAdapter(_capture))], query="  Docker  ", limit=5, per_source_deadline_s=2.0
         )
         assert seen == ["docker"], f"adapter got the un-normalized query: {seen!r}"
+
+
+class TestCodexR2Fixes(_ClearsCache):
+    """R2 convergence round — 2 MUST-FIX, both confirmed against the code."""
+
+    def setup_method(self, m):
+        super().setup_method(m)
+        import app.services.external_fanout as ef
+
+        ef._inflight = 0
+
+    def test_admission_control_bounds_the_queue_not_just_the_threads(self):
+        """R2 MUST-FIX 1: capping THREADS does not cap the QUEUE.
+
+        ThreadPoolExecutor's work queue is a queue.SimpleQueue -- unbounded by
+        construction (it takes no maxsize). The R1 shared-pool fix bounded
+        concurrent WORK but every concurrent request could still pile all its
+        sources into that queue before its own deadline fired. Admission
+        control refuses beyond _MAX_INFLIGHT and reports `saturated` instead of
+        growing a backlog it could never drain in time.
+        """
+        import app.services.external_fanout as ef
+
+        ef._inflight = ef._MAX_INFLIGHT  # simulate a saturated process
+        try:
+            res = ef.run_external_fanout(
+                [("a", _FakeAdapter(lambda q, lim: [_skill("x")]))],
+                query="q",
+                limit=5,
+                per_source_deadline_s=2.0,
+            )
+        finally:
+            ef._inflight = 0
+
+        assert res["a"].ok is False
+        assert res["a"].reason == "saturated", (
+            f"a source refused admission must be reported saturated, got {res['a'].reason!r}"
+        )
+
+    def test_admission_slots_are_released_after_completion(self):
+        """A leaked slot would permanently shrink capacity. The release runs
+        from a done-callback so even a straggler that outlives the request
+        frees its slot when it finally finishes."""
+        import time as _t
+
+        import app.services.external_fanout as ef
+
+        for i in range(6):
+            ef.run_external_fanout(
+                [("a", _FakeAdapter(lambda q, lim: [_skill("x")]))],
+                query=f"q{i}",
+                limit=5,
+                per_source_deadline_s=2.0,
+            )
+        _t.sleep(0.3)  # let done-callbacks drain
+        assert ef._inflight == 0, f"admission slots leaked: _inflight={ef._inflight}"
+
+    def test_straggler_releases_its_admission_slot(self):
+        """A source abandoned at the deadline still frees its slot later."""
+        import time as _t
+
+        import app.services.external_fanout as ef
+
+        def _slow(_q, _lim):
+            _t.sleep(0.8)
+            return [_skill("late")]
+
+        res = ef.run_external_fanout(
+            [("slow", _FakeAdapter(_slow))],
+            query="q",
+            limit=5,
+            per_source_deadline_s=0.1,
+        )
+        assert res["slow"].ok is False
+        _t.sleep(1.3)  # straggler finishes, callback fires
+        assert ef._inflight == 0, (
+            f"an abandoned straggler leaked its admission slot: _inflight={ef._inflight}"
+        )
+
+    def test_degraded_source_does_not_write_zero_to_persistent_cache(self, client, db_session, monkeypatch):
+        """R2 MUST-FIX 2: my R1 'OLD behaviour EXACTLY' claim was an overclaim.
+
+        The degraded branch's early `continue` skips the persistent cache-WRITE
+        block, so a degraded source no longer writes 0/0 into
+        federation_index_cache the way a failed force_refresh previously would.
+        That divergence is INTENTIONAL and safer: writing 0 for a source we
+        could not REACH is exactly the cache-poisoning superset_0606 decision #7
+        exists to prevent. This pins it so it can never silently regress back.
+        """
+        from app.services import federation_cache as fcache
+
+        fcache.write_source_cache(db_session, "clawhub", indexed_count=69_280, installable_count=0)
+
+        def hangs(_q):
+            time.sleep(5.0)
+            return []
+
+        monkeypatch.setitem(fl.LIVE_FETCH, "clawhub", hangs)
+        r = client.get("/api/skills/external?sources=clawhub&limit=20&q=docker")
+        assert r.status_code == 200
+        body = r.json()
+        assert "clawhub" in body.get("degraded_sources", []), "the hung source must be reported degraded"
+
+        cached = fcache.read_source_cache(db_session, "clawhub")
+        assert cached is not None, "the canonical cache row must survive a degraded read"
+        assert cached["indexed"] == 69_280, (
+            f"a degraded source overwrote the cron's real count with {cached['indexed']} "
+            "— this is the decision #7 cache-poisoning failure"
+        )

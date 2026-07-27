@@ -67,6 +67,37 @@ _MAX_WORKERS = 8
 _pool_lock = threading.Lock()
 _pool: "concurrent.futures.ThreadPoolExecutor | None" = None
 
+# Codex R2 MUST-FIX 1: capping THREADS does not cap the QUEUE.
+# ThreadPoolExecutor's work queue is a `queue.SimpleQueue` — unbounded by
+# construction (it takes no maxsize). So the R1 fix bounded concurrent upstream
+# WORK but every concurrent request could still submit all of its sources into
+# that queue before its own deadline fired, letting the backlog grow without
+# limit under a burst. Admission control closes it: a request may only submit
+# while total outstanding submissions are under this ceiling; anything it cannot
+# admit is reported `saturated` — the SAME honest degradation a queued-and-
+# cancelled source already produced, just decided before the queue grows instead
+# of after. Sized as a small multiple of the worker count: enough slack for
+# normal bursts, hard-stops a pathological one.
+_MAX_INFLIGHT = _MAX_WORKERS * 4
+_inflight_lock = threading.Lock()
+_inflight = 0
+
+
+def _try_admit() -> bool:
+    """Reserve one submission slot. False when the pool is saturated."""
+    global _inflight
+    with _inflight_lock:
+        if _inflight >= _MAX_INFLIGHT:
+            return False
+        _inflight += 1
+        return True
+
+
+def _release_admission() -> None:
+    global _inflight
+    with _inflight_lock:
+        _inflight = max(0, _inflight - 1)
+
 
 def _shared_pool() -> concurrent.futures.ThreadPoolExecutor:
     global _pool
@@ -199,6 +230,16 @@ def run_external_fanout(
     process instead of growing linearly with concurrent requests. When the pool
     is saturated a queued source is reported ``reason="saturated"`` — honest
     degradation, and a signal worth alerting on rather than a silent stall.
+
+    Codex R2 MUST-FIX 1 (CONFIRMED): capping THREADS does not cap the QUEUE.
+    ``ThreadPoolExecutor``'s work queue is a ``queue.SimpleQueue``, unbounded by
+    construction, so concurrent requests could still pile submissions into it
+    faster than ``_MAX_WORKERS`` drains them. ``_try_admit`` applies admission
+    control BEFORE ``submit``: a source that cannot get a slot is reported
+    ``saturated`` immediately rather than queued behind a backlog it would
+    never clear inside its own deadline. Every admitted slot is released by a
+    done-callback, so a straggler that outlives the request still frees its slot
+    when it finally finishes.
     """
     results: dict[str, ExternalFanoutResult] = {}
     if not pending:
@@ -207,8 +248,15 @@ def run_external_fanout(
     overall_deadline_s = per_source_deadline_s + 0.25  # parallel; small scheduling slack
     deadline_at = time.monotonic() + overall_deadline_s
     pool = _shared_pool()
-    futures = {
-        pool.submit(
+    futures = {}
+    for src, adapter in pending:
+        if not _try_admit():
+            # Backlog ceiling reached — degrade this source NOW instead of
+            # growing an unbounded queue it could not drain in time anyway.
+            logger.warning("external fan-out source '%s' not admitted (saturated)", src)
+            results[src] = ExternalFanoutResult(src, [], ok=False, reason="saturated")
+            continue
+        fut = pool.submit(
             _query_one,
             src,
             adapter,
@@ -216,9 +264,15 @@ def run_external_fanout(
             limit,
             force_refresh=force_refresh,
             deadline_at=deadline_at,
-        ): src
-        for src, adapter in pending
-    }
+        )
+        # Release on completion NO MATTER the outcome (success, exception, or a
+        # straggler finishing long after this request returned). Attaching the
+        # callback to the future — rather than releasing in this function's
+        # finally — is what makes the accounting correct for abandoned work.
+        fut.add_done_callback(lambda _f: _release_admission())
+        futures[fut] = src
+    if not futures:
+        return results
     still_pending = set(futures)
     try:
         for fut in concurrent.futures.as_completed(futures, timeout=overall_deadline_s):
