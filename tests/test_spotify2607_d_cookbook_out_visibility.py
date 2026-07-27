@@ -214,9 +214,13 @@ def test_visibility_patch_backfills_and_returns_slug_for_legacy_null_slug(vis_cl
     assert patch.status_code == 200, patch.text
     body = patch.json()
     assert body.get("visibility") == "public"
-    assert body.get("slug"), (
-        "publishing a legacy slug-less bundle minted a slug server-side but "
-        "did not return it — the share link stays unrenderable"
+    # Codex R3 SHOULD-FIX: assert the DETERMINISTIC slug, not merely truthiness.
+    # A non-empty check would pass on a wrong-but-present value (a uuid, another
+    # bundle's slug, a stale cached one). _ensure_bundle_slug derives from the
+    # name, so the expected value is knowable — pin it.
+    assert body.get("slug") == "legacy-null-slug-test", (
+        "publishing a legacy slug-less bundle must mint AND return the "
+        f"name-derived slug; got {body.get('slug')!r}"
     )
 
     # And the detail GET must agree with what PATCH just reported.
