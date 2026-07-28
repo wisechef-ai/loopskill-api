@@ -186,6 +186,15 @@ inert). No schema, no migration.
     a cached owner resolver; all four mint sites route through it. Ingest cannot
     resolve 69k owners inline (snapshot carries no handle) so it fails safe to
     the browse page. Verified against prod /api/healthz 0.9.32 before bumping.
+
+0.9.34 - feat/loops-value-taglines: value_tagline + agent_instructions +
+    deploy_hint on the /api/loops (Verifier) surface. The composite-loop
+    surface shipped these serve-time copy fields (PRs #135, #136) but the 10
+    starter loops on /api/loops never got them — every browse card was dead
+    copy. Mirrors the composite pattern exactly (no DB column, no migration):
+    per-slug bespoke taglines ≤12 words for all 10 starter loops + generic
+    fallbacks for future user-published verifiers. Verified against prod
+    /api/healthz 0.9.33 before bumping.
 """
 
-__version__ = "0.9.33"
+__version__ = "0.9.34"

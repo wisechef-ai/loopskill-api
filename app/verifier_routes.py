@@ -56,6 +56,10 @@ def _verifier_to_out(verifier: Verifier) -> VerifierOut:
     # so browse cards rendered authorless even when a creator was attached.
     creator_name = getattr(verifier.creator, "name", None) if verifier.creator else None
     creator_handle = getattr(verifier.creator, "handle", None) if verifier.creator else None
+    # feat/loops-value-taglines — compute catalog copy once here so both LIST
+    # and DETAIL share the exact same string (mirrors the CompositeLoop pattern
+    # in composite_loop_routes._composite_loop_to_out, PR #135 + #136).
+    instr = _verifier_agent_instructions(verifier)
     return VerifierOut(
         id=verifier.id,
         slug=verifier.slug,
@@ -75,9 +79,168 @@ def _verifier_to_out(verifier: Verifier) -> VerifierOut:
         tool_allowlist=verifier.tool_allowlist or [],
         rating_avg=verifier.rating_avg,
         tags=verifier.tags or [],
+        value_tagline=_verifier_value_tagline(verifier),
+        agent_instructions=instr,
+        deploy_hint=bool(instr),
         created_at=verifier.created_at or datetime.now(UTC),
         updated_at=verifier.updated_at or datetime.now(UTC),
     )
+
+
+# ── Catalog copy helpers (serve-time, no stored column) ──────────────────────
+# feat/loops-value-taglines. Mirrors the CompositeLoop pattern
+# (_composite_loop_value_tagline / _composite_loop_agent_instructions in
+# composite_loop_routes.py, PRs #135 + #136). Every value here is grounded in
+# the loop's published description/safety contract — no overclaiming. The
+# per-slug tagline dict carries bespoke copy for the 10 starter loops (the only
+# Verifier rows on the live catalog); a generic first-sentence fallback handles
+# any future user-published verifier that doesn't have bespoke copy yet.
+
+_VERIFIER_VALUE_TAGLINES: dict[str, str] = {
+    "repo-steward-loop": ("Wake to a triaged repo: Dependabot merged, everything else commented."),
+    "pr-review-loop": ("Every PR gets a structured bugs/perf/style review before humans look."),
+    "daily-briefing-loop": ("Your sources summarized into a ready-to-read briefing every morning."),
+    "test-green-loop": ("Hand it red tests; it stops when the suite is green."),
+    "lint-clean-loop": ("Keeps a codebase's lint gate green: fixes every violation."),
+    "hello-world-loop": ("The 30-second proof a loop runs: passed=true, no setup."),
+    "changelog-from-commits-loop": ("Turn a commit range into a grouped, readable CHANGELOG."),
+    "doc-coverage-loop": ("Drive a module to full docstring coverage — an AST proves it."),
+    "json-schema-validate-loop": ("Drive a data file until it validates against its schema."),
+    "secret-scan-loop": ("Block the 'pushed an API key' incident: scan until clean."),
+}
+
+_VERIFIER_AGENT_INSTRUCTIONS: dict[str, str] = {
+    "repo-steward-loop": (
+        "Set the REPOS env var to your space-separated owner/repo list "
+        "and run on a ~30 min cron. Success is repo-steward-report.txt "
+        "whose first line is NOTHING_TO_DO (idle cycle, ~zero cost) or "
+        "ACTIONS: with one bullet per action taken. Watch the allowlist: "
+        "it can only read, comment, and merge green Dependabot PRs — it "
+        "will never push code, close issues, or merge a human-authored PR."
+    ),
+    "pr-review-loop": (
+        "Point it at an open PR (set PR_NUMBER) and it posts one "
+        "structured comment covering ## Bugs, ## Performance, ## Style, "
+        "then exits. Success is a non-empty comment verified via "
+        "`gh pr view --json comments`. Watch for PRs with huge diffs — "
+        "the 10-turn ceiling means it summarizes rather than line-by-line "
+        "reviewing beyond a few hundred lines."
+    ),
+    "daily-briefing-loop": (
+        "Populate the SOURCES env var with RSS/URLs; the loop fetches "
+        "each, extracts the top item, summarizes in ≤2 sentences, and "
+        "writes /tmp/briefing.md. Success is a briefing file with >3 "
+        "lines, verified before exit. The $0.10 budget + 5-turn ceiling "
+        "make it safe to schedule as a 30-min cron without babysitting."
+    ),
+    "test-green-loop": (
+        "Stage a failing test alongside the code under test; the loop "
+        "runs pytest, reads each failure, makes the smallest change "
+        "toward green, and re-runs. Success is exit 0 from the suite. "
+        "Watch for flaky tests masquerading as real failures, and for "
+        "agents that try to skip/delete tests to pass — the system "
+        "prompt forbids it but verify the diff."
+    ),
+    "lint-clean-loop": (
+        "Run it in a repo with `ruff` installed; it applies fixes until "
+        "`ruff check .` exits 0. Success is a zero-violation lint run. "
+        "If ruff is absent the loop no-ops to exit 0 (demo-safe), so "
+        "confirm ruff is present if you need a real gate. Watch for "
+        "auto-fixes that silence a violation with an inline ignore "
+        "rather than fixing the root cause."
+    ),
+    "hello-world-loop": (
+        "This is a smoke test, not a production loop. POST "
+        "/api/loops/hello-world-loop/run with an empty body; it writes "
+        "hello.txt and greps it back in a single turn. Success is "
+        "passed=true with confinement 'bounded' (or 'sandboxed' if a "
+        "firejail/bwrap backend is installed). Use it to confirm a "
+        "fresh self-host registry actually executes loops before "
+        "deploying anything real."
+    ),
+    "changelog-from-commits-loop": (
+        "Run it in a git repo with a commit range available; it reads "
+        "the log, groups changes into Added/Changed/Fixed/Removed, and "
+        "writes CHANGELOG.md. Success is the file existing with ≥3 "
+        "non-blank lines, verified before exit. Watch for commits with "
+        "uninformative messages ('fix', 'wip') — the loop summarizes "
+        "what's there, so feed it a meaningful range (tags or SHAs)."
+    ),
+    "doc-coverage-loop": (
+        "Stage target.py (the module to document); the loop runs an AST "
+        "checker, adds a concise docstring to every undocumented public "
+        "def/class, and re-checks until coverage is complete. Success "
+        "is the AST check finding zero undocumented public symbols. It "
+        "correctly skips underscore-prefixed private symbols — don't "
+        "expect those documented."
+    ),
+    "json-schema-validate-loop": (
+        "Stage both schema.json and data.json; the loop reads the "
+        "required keys + type map, transforms data.json to conform, and "
+        "re-validates until exit 0. Success is the validator passing. "
+        "The schema dialect is intentionally minimal (required + types) "
+        "— for full JSON Schema draft-07 features, swap the "
+        "verification_script for a `jsonschema`-based check."
+    ),
+    "secret-scan-loop": (
+        "Run it in a working tree before commit/publish; it greps for "
+        "AWS keys, private-key headers, and generic "
+        "api_key=/secret=/token= assignments with long values. Success "
+        "(exit 0) means no high-signal secret patterns found. For each "
+        "hit the loop moves the value to an env var or gitignored .env "
+        "and replaces the literal with a reference — watch that the "
+        "replacement keeps the code functional, not just scan-clean."
+    ),
+}
+
+
+def _verifier_value_tagline(verifier: Verifier) -> str | None:
+    """Per-loop converting one-liner for LIST cards + DETAIL.
+
+    feat/loops-value-taglines. Mirrors
+    composite_loop_routes._composite_loop_value_tagline (PR #135): a
+    per-slug dict for the flagship loops with a generic fallback (first
+    sentence of description) for any future user-published verifier.
+    Every string must accurately describe what the loop does — grounded
+    in description/safety contract, no overclaiming.
+    """
+    bespoke = _VERIFIER_VALUE_TAGLINES.get(verifier.slug)
+    if bespoke is not None:
+        return bespoke
+    if verifier.description:
+        first_sentence = verifier.description.split(". ")[0].strip()
+        if first_sentence:
+            return first_sentence if first_sentence.endswith(".") else f"{first_sentence}."
+    return None
+
+
+def _verifier_agent_instructions(verifier: Verifier) -> str:
+    """Practical run guidance for the agent that will RUN this loop.
+
+    feat/loops-value-taglines. Distinct from the post-run
+    `agent_instructions` on VerifierRunOut (that one tells a caller how
+    to INSTALL after a passed run); this one tells a catalog browser how
+    to RUN the loop and what success looks like, before they ever call
+    it. Per-slug bespoke copy for the 10 starter loops; a generic
+    fallback derived from the success_condition for any future
+    user-published verifier so the field is never empty on a runnable
+    artifact.
+    """
+    bespoke = _VERIFIER_AGENT_INSTRUCTIONS.get(verifier.slug)
+    if bespoke is not None:
+        return bespoke
+    # Generic fallback: surface the objective success condition so an
+    # agent always knows the verdict shape, even without bespoke copy.
+    if verifier.success_condition:
+        return (
+            f"Success is verified when: {verifier.success_condition} "
+            f"Run it via POST /api/loops/{verifier.slug}/run (the "
+            "registry executes the verification_script under the loop's "
+            "bounds and returns an objective pass/fail)."
+        )
+    # No success_condition is not expected (it's NOT NULL on publish),
+    # but fail safe rather than raise in the serializer.
+    return f"Run via POST /api/loops/{verifier.slug}/run."
 
 
 # ── Handler functions (prefix-agnostic) ─────────────────────────────────────
