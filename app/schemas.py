@@ -357,6 +357,24 @@ class VerifierOut(BaseModel):
     # atomic_habits_0719 rank-8 REVENUE/CATALOG — discovery tags for topic/tag
     # search on app.loopskill.io. NULL-safe (defaults to []).
     tags: list[str] = []
+    # feat/loops-value-taglines — catalog copy, serve-time computed (no stored
+    # column, no migration). Mirrors the CompositeLoopOut.value_tagline pattern
+    # (PR #135) so the /api/loops browse surface carries the same converting
+    # one-liner the /api/composite-loops surface does. VerifierDetailOut
+    # inherits this automatically. Computed by
+    # verifier_routes._verifier_value_tagline(v).
+    value_tagline: str | None = None
+    # Same pattern, sibling field — practical "what to expect / what success
+    # looks like / what to watch for" guidance for the agent that will RUN this
+    # loop. Computed by verifier_routes._verifier_agent_instructions(v). Keep
+    # field semantics identical to CompositeLoopOut.agent_instructions (string,
+    # non-null when the loop is runnable, always present for a Verifier since
+    # every Verifier has a verification_script).
+    agent_instructions: str | None = None
+    # Convenience flag for UIs/agents: True whenever agent_instructions is
+    # non-empty (mirrors CompositeLoopOut.deploy_hint). Cheaply answers "can I
+    # get deploy guidance for this loop?" without parsing the string.
+    deploy_hint: bool = False
     created_at: datetime
     updated_at: datetime
 
