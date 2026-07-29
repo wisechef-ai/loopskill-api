@@ -306,6 +306,11 @@ class CookbookOut(BaseModel):
     parent_bundle_id: str | None = None
     bundle_owner: str | None = None
     created_at: datetime | None = None
+    # spotify_2607 Phase D: additive owner-facing fields, mirroring the
+    # public serializer (_to_public_out). See
+    # tests/test_spotify2607_d_cookbook_out_visibility.py for rationale.
+    visibility: str | None = None
+    slug: str | None = None
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -525,6 +530,8 @@ def _to_cb_out(cb: Bundle) -> dict:
         parent_bundle_id=str(cb.parent_bundle_id) if cb.parent_bundle_id else None,
         bundle_owner=str(cb.bundle_owner) if cb.bundle_owner else None,
         created_at=cb.created_at,
+        visibility=cb.visibility,
+        slug=cb.slug,
     ).model_dump(mode="json")
 
 
@@ -1004,6 +1011,18 @@ def get_cookbook(
     fed_rows = _federated_skills_for(db, cb.id, include_disabled=True)
     hub_by_slug = resolve_federated_hub_titles(db, (r.federated_slug for r in fed_rows)) if fed_rows else {}
     out = _to_cb_out(cb)
+    # Codex R2 MUST-FIX (CONFIRMED, and it overturned my own R1 rejection):
+    # `_to_cb_out` now carries `visibility` + `slug`, and this route is
+    # reachable by a cbt_ SHARE-TOKEN holder — `_enforce_cbt_scope_for_cookbook_route`
+    # explicitly permits GET on the scoped bundle for scope='read'. That
+    # recipient is NOT the owner, so handing them the owner's publication
+    # state and the bundle's persistent public slug is an unintended
+    # disclosure introduced by this PR. The owner surfaces (list, create,
+    # rename, and an owner-authenticated detail read) still get both fields —
+    # only the share-token reader is withheld from.
+    if getattr(request.state, "cookbook_token_scope", None) is not None:
+        out.pop("visibility", None)
+        out.pop("slug", None)
 
     # Codex review MUST-FIX 1 (CONFIRMED): local and federated rows come from
     # two SEPARATE queries, each ordered internally by (install_order,
@@ -1366,7 +1385,14 @@ def set_cookbook_visibility(
         _ensure_bundle_slug(db, cb)
     _touch_bundle_generation(db, cb.id)
     db.commit()
-    return {"cookbook_id": str(cb.id), "visibility": vis}
+    # spotify_2607 Phase D (codex review PR #146, finding 3): return the slug
+    # in the SAME response. Publishing a legacy slug-less bundle mints one
+    # above via _ensure_bundle_slug, so it exists server-side at this point —
+    # withholding it forced the client into a gratuitous second GET before it
+    # could render the share link, which defeats Phase D's own acceptance gate
+    # ("share link surfaced immediately on publish"). Additive key: the
+    # pre-existing cookbook_id/visibility pair is unchanged.
+    return {"cookbook_id": str(cb.id), "visibility": vis, "slug": cb.slug}
 
 
 class SkillPinIn(BaseModel):
