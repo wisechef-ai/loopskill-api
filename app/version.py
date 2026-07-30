@@ -220,6 +220,16 @@ inert). No schema, no migration.
     keeps working unchanged as a fallback. Pure env-var resolution change,
     no schema, no migration. Verified against prod /api/healthz 0.9.35
     before bumping.
+
+0.9.37 - fix(issue-155): Skill.title no longer lands title-less. Extracted
+    the backfill script's derivation logic into app/skill_title.py (shared,
+    tested) and wired it into the publish path: a NEW skill whose manifest
+    name equals its slug now gets a derived title instead of title==slug;
+    a REPUBLISH of an existing skill no longer regresses a good editorial
+    title back to a slug-shaped value just because that publish's manifest
+    name happens to equal the slug (a live bug in the pre-fix re-sync
+    block). Two RED-proofed regression tests. No schema, no migration.
+    Verified against prod /api/healthz 0.9.36 before bumping.
 """
 
-__version__ = "0.9.36"
+__version__ = "0.9.37"
