@@ -35,6 +35,7 @@ from sqlalchemy.orm import Session, joinedload
 from app._skill_helpers import _install_counts_for, _skill_to_out
 from app.database import get_db
 from app.models import Skill, TelemetryEvent
+from app.services.clawhub_owner_prime import prime_clawhub_owner_cache
 from app.services.metasearch import merge_unified, unify_curated, unify_external
 from app.services.metasearch_card_contract import RenderContractMeta, apply_card_contract
 from app.services.metasearch_fanout import DEFAULT_FANOUT_SOURCES, fan_out
@@ -144,6 +145,14 @@ def metasearch(
         (its own session)."""
         curated_rows = _curated_candidates(compute_db, q, _CURATED_CAP)
         curated = [unify_curated(r) for r in curated_rows]
+        # issue #148: prime the ClawHub owner cache from the persisted snapshot
+        # BEFORE fanning out. ClawHubAdapter._map resolves an owner handle per
+        # row, and an unseeded lookup is a live upstream GET — up to N sequential
+        # HTTP calls for an N-row page (measured >90s cold on prod vs 0.62s for
+        # every other source combined). This is one DB query on the request
+        # thread; the fan-out's worker threads then hit a warm process-local dict
+        # instead of the network, so no db session has to be threaded into them.
+        prime_clawhub_owner_cache(compute_db)
         fanout = fan_out(q or "", sources=DEFAULT_FANOUT_SOURCES)
         external = [unify_external(skill, raw_row=raw) for skill, raw in fanout.pairs]
         result = merge_unified(
