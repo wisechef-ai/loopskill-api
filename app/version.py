@@ -195,6 +195,19 @@ inert). No schema, no migration.
     per-slug bespoke taglines ≤12 words for all 10 starter loops + generic
     fallbacks for future user-published verifiers. Verified against prod
     /api/healthz 0.9.33 before bumping.
+
+0.9.35 - fix(issue-157 Phase 1): removed "cookbook" from every MCP tool
+    description and inputSchema property description an agent reads on
+    every tool listing (26 violations across 4 registry modules — bundle
+    install/list/sync/skillify, share tokens, fleet subscribe/sync/list,
+    tailor attach/handoff, streaming install/pick/compose, feedback
+    config). Pure copy change, zero behaviour change: the wire-contract
+    field name `cookbook_id` and the live route
+    `/api/cookbooks/{id}/install` are intentionally left alone (schema-
+    breaking renames are Phase 3/4 per the issue's phasing, tracked
+    separately). This is Phase 1 of 5 from issue #157 — the words agents
+    and users actually read, for ~5% of the total work. Verified against
+    prod /api/healthz 0.9.34 before bumping.
 """
 
-__version__ = "0.9.34"
+__version__ = "0.9.35"
