@@ -527,6 +527,14 @@ def get_external_skills(
     # A source is "enabled" only if it is BOTH live and explicitly requested.
     enabled = [s for s in LIVE_SOURCES if s in requested]
 
+    # issue #148: prime the ClawHub owner cache before any adapter runs. Only
+    # worth the query when clawhub is actually in play — ClawHubAdapter._map is
+    # the sole consumer, and an unprimed lookup is a live upstream GET per row.
+    if "clawhub" in requested:
+        from app.services.clawhub_owner_prime import prime_clawhub_owner_cache
+
+        prime_clawhub_owner_cache(db)
+
     per_source: dict[str, dict] = {}
     all_external = []  # list[ExternalSkill] from enabled sources, in source order
 

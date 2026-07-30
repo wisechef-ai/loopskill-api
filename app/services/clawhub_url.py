@@ -161,3 +161,42 @@ def resolve_owner(slug: str | None) -> str | None:
     if len(_OWNER_CACHE) < _OWNER_CACHE_MAX:
         _OWNER_CACHE[key] = owner
     return owner
+
+
+def prime_owner_cache(resolved: dict[str, str]) -> int:
+    """Seed :data:`_OWNER_CACHE` from a persisted ``identifier -> owner`` map.
+
+    Issue #148. ``resolve_owner`` above issues ONE live
+    ``GET clawhub.ai/api/search`` per uncached slug, and ``ClawHubAdapter._map``
+    calls it once per row — so a 50-row search page fires up to 50 sequential
+    upstream requests. Measured on live prod: cold ClawHub 59s (2026-07-26),
+    re-measured 2026-07-30 at >90s (timeout), against 0.62s for all six other
+    sources COMBINED. Warm it is 0.34s, so the upstream is healthy — the
+    per-row fetch pattern is the defect.
+
+    ``FederationHubSkill.owner_handle`` already persists this mapping (populated
+    by the sp2607_0 backfill) and ``hub_owner_carry.load_resolved_owner_handles``
+    already reads it in ONE query — but only the ingest path used it. This lets a
+    request thread (which HAS a db session) pre-seed the process-local cache, so
+    the adapter's per-row lookups become dict hits instead of HTTP calls.
+
+    Deliberately does NOT overwrite existing entries: a live-resolved value (and
+    a negative result, cached as ``None``) is at least as fresh as the snapshot.
+
+    Returns the number of entries actually added, for logging/telemetry.
+    """
+    added = 0
+    for identifier, owner in resolved.items():
+        if len(_OWNER_CACHE) >= _OWNER_CACHE_MAX:
+            break
+        if not is_safe_token(identifier) or not is_safe_token(owner):
+            # Re-validate at the boundary. load_resolved_owner_handles already
+            # validates on the way out of the DB, but this function is public and
+            # must not trust its caller to have done so — an unsafe handle
+            # interpolated into a published URL is exactly the bug #139 fixed.
+            continue
+        key = identifier.strip()
+        if key not in _OWNER_CACHE:
+            _OWNER_CACHE[key] = owner.strip()
+            added += 1
+    return added
