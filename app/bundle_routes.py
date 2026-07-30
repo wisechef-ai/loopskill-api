@@ -908,6 +908,30 @@ def list_cookbooks(
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
     """List the caller's cookbooks: owned + (org-scoped-bundle-reads) org bundles."""
+    # Defence-in-depth (issue #147). A cbt_ share token is scoped to exactly ONE
+    # bundle by construction, so "list all my bundles" has no coherent answer for
+    # it. Today APIKeyMiddleware already 403s cbt_ tokens before this handler runs
+    # — its `_cbt_prefixes` are ("/api/cookbooks/", "/api/bundles/") WITH the
+    # trailing slash, and this collection route's path has no trailing segment, so
+    # it never matches. That means this guard is unreachable in the current
+    # configuration and is deliberately belt-and-braces.
+    #
+    # Why it is still worth having: this is the only cookbook route in this module
+    # that does not enforce scope itself (every other one calls
+    # _enforce_cbt_scope_for_cookbook_route). If that middleware prefix rule is
+    # ever loosened — e.g. someone drops the trailing slash to catch
+    # "/api/bundles" too — this handler FAILS OPEN rather than closed: with
+    # ctx.user_id=None the filter degrades to `Bundle.bundle_owner == None` and
+    # ensure_liked_bundle(db, None) is called with a null owner.
+    #
+    # Rejecting on ctx.cbt_cookbook_id (rather than retrofitting the per-resource
+    # helper) matches how _resolve_owned_cookbook already treats that field as the
+    # "caller is scoped to one bundle" authority signal, and avoids dragging in the
+    # helper's `scope == "read" allows GET` branch, which on a COLLECTION route
+    # would silently permit a scoped read of every bundle — the opposite of intent.
+    if ctx.cbt_cookbook_id is not None:
+        raise HTTPException(status_code=403, detail="Share tokens cannot list cookbooks")
+
     if ctx.is_master:
         return {"cookbooks": []}
 
