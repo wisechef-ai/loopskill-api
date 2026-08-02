@@ -31,10 +31,12 @@ from app.config import settings
 from app.database import get_db
 from app.liked_service import ensure_liked_bundle
 from app.referral import (
+    LEGACY_REFERRAL_COOKIE_NAME,
     REFERRAL_COOKIE_MAX_AGE,
     REFERRAL_COOKIE_NAME,
     ensure_referral_code,
     process_referral_cookie,
+    resolve_referral_cookie,
 )
 from app.tier_labels import _is_paid_tier, _is_pro_plus_tier, bundle_limit
 
@@ -182,7 +184,7 @@ async def github_callback(
         ensure_liked_bundle(db, user.id)
         # WIS-660: capture referral attribution + give every user their own code.
         try:
-            ref_code = request.cookies.get(REFERRAL_COOKIE_NAME)
+            ref_code = resolve_referral_cookie(request)
             if ref_code:
                 process_referral_cookie(db, user, ref_code)
             ensure_referral_code(user, db)
@@ -195,8 +197,9 @@ async def github_callback(
         resp = _make_success_redirect(jwt_token, next_url=next_url)
         if next_url:
             resp.delete_cookie("oauth_next", path="/")
-        # Clear the referral cookie once we've persisted it; safe to drop.
+        # Clear both referral cookie names once we've persisted attribution.
         resp.delete_cookie(REFERRAL_COOKIE_NAME, path="/")
+        resp.delete_cookie(LEGACY_REFERRAL_COOKIE_NAME, path="/")
         return resp
     except AuthError as e:
         logger.error(f"GitHub auth failed: {e}")
@@ -266,7 +269,7 @@ async def google_callback(
         ensure_liked_bundle(db, user.id)
         # WIS-660: capture referral attribution + give every user their own code.
         try:
-            ref_code = request.cookies.get(REFERRAL_COOKIE_NAME)
+            ref_code = resolve_referral_cookie(request)
             if ref_code:
                 process_referral_cookie(db, user, ref_code)
             ensure_referral_code(user, db)
@@ -280,6 +283,7 @@ async def google_callback(
         if next_url:
             resp.delete_cookie("oauth_next", path="/")
         resp.delete_cookie(REFERRAL_COOKIE_NAME, path="/")
+        resp.delete_cookie(LEGACY_REFERRAL_COOKIE_NAME, path="/")
         return resp
     except AuthError as e:
         logger.error(f"Google auth failed: {e}")

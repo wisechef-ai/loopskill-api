@@ -22,13 +22,18 @@ USER_AGENT = "recipes-cli/1.0 (+https://github.com/wisechef-ai/recipes-skill)"
 
 
 def _get_api_key() -> str:
+    # qa0208-w3 dual-accept: LOOPSKILL_API_KEY is canonical, RECIPES_API_KEY
+    # is accepted as a fallback so existing installs keep working unchanged.
+    key = os.environ.get("LOOPSKILL_API_KEY", "").strip()
+    if key:
+        return key
     key = os.environ.get("RECIPES_API_KEY", "").strip()
     if key:
         return key
     if SECRET_FALLBACK.exists():
         return SECRET_FALLBACK.read_text().strip()
     print(
-        "Error: RECIPES_API_KEY not set and "
+        "Error: LOOPSKILL_API_KEY (or legacy RECIPES_API_KEY) not set and "
         f"{SECRET_FALLBACK} not found.\n"
         "Set the env var or create the fallback file.",
         file=sys.stderr,

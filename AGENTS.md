@@ -255,3 +255,25 @@ Shipped phases (all additive, one PR per phase):
   `app/mcp/dispatch_chain.py` (NOT to `server.py._dispatch` — the 600-line gate).
 
 Plan-doc: `obsidian-vault/projects/recipes/plans/2026-07-16-fleetos-1607-execution-plan.md`.
+
+---
+
+## Legacy identifier deprecation windows (qa0208-w3)
+
+The API lane of the cookbook→bundle / recipes→loopskill coordinated migration
+(qa0208) added DUAL-ACCEPT aliases for every wire identifier that still had a
+live legacy form: new canonical value is written/preferred, the legacy value
+is accepted as a documented fallback so no existing client breaks. This
+mirrors the install-URL salt pattern already established in
+`app/install_routes.py` (`loopskill-install` tried first, `recipes-skill-install`
+fallback — see "Cookbook share-tokens" above).
+
+| Identifier | Canonical | Legacy fallback | Where the fallback lives |
+|---|---|---|---|
+| API route prefix | `/api/bundles/*` | `/api/cookbooks/*` | `app/bundle_routes.py` (`router.include_router` dual-mount), same for `bundle_deployment_routes.py` and `bundle_wellknown_routes.py`. cbt_ token path-scoping in `app/middleware/api_key.py` allow-lists both prefixes; `_publish` stays 403 on both. Pre-existing; regression-pinned by `tests/test_loopskill_bundle_surface_symmetry.py` and `tests/test_qa0208_dualaccept.py`. |
+| Referral cookie | `loopskill_ref` | `recipes_ref` | `app/referral.py:resolve_referral_cookie()` reads canonical first, falls back to legacy; `app/auth_routes.py` OAuth callbacks call the resolver and delete BOTH cookie names on success. |
+| Agent/CLI env var | `LOOPSKILL_API_KEY` | `RECIPES_API_KEY` | `tools/recipes_cli.py:_get_api_key()` and `recipes/recipes-cookbook-reconcile/scripts/_reconcile_lib/reconcile_cli.py:main()` — both check canonical env var first, fall back to legacy, never fail if only the legacy var is set. |
+| Stripe customer/subscription/account metadata user key | `metadata.loopskill_user_id` | `metadata.wiserecipes_user_id` | `app/subscription_service.py` (`create_customer`, `create_checkout_session`, `downgrade_to_pro`) and `app/stripe_service.py` (`create_connect_account`) dual-WRITE both keys on every Stripe object creation/update. `app/subscription_service.py:_user_from_subscription_metadata()` reads canonical first, falls back to legacy — required so in-flight Stripe objects created before the rename (which only carry the legacy key) still resolve to a user on webhook delivery. |
+| API key prefix | `lsk_` | `rec_` | `app/middleware/api_key.py` (`USER_KEY_PREFIXES = ("rec_", "lsk_")`, used by `_auth_ctx_from_api_key` and `APIKeyMiddleware.dispatch`) and `app/mcp/auth.py:validate_key`. **Minting still issues `rec_live_` keys** (`app/api_key_routes.py:KEY_PREFIX`) — switching the mint default is a separate follow-up, deliberately out of scope here because display truncation and prefix-format tests (`test_5b_backend.py`, `test_mcp_fleet.py`, etc.) currently assume `rec_live_`. This entry only widens the READ/validate path. |
+
+All five are regression-pinned in `tests/test_qa0208_dualaccept.py`.

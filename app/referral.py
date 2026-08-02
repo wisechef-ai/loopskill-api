@@ -105,5 +105,20 @@ def process_referral_cookie(
     return referral
 
 
-REFERRAL_COOKIE_NAME = "recipes_ref"
+# qa0208-w3 dual-accept: loopskill_ref is canonical (written going forward);
+# recipes_ref is accepted as a read-only fallback so referral links minted
+# before the rename still attribute correctly. See AGENTS.md "Legacy
+# identifier deprecation windows" for the full dual-accept inventory.
+REFERRAL_COOKIE_NAME = "loopskill_ref"
+LEGACY_REFERRAL_COOKIE_NAME = "recipes_ref"  # compat-alias — read fallback only
 REFERRAL_COOKIE_MAX_AGE = 2592000  # 30 days
+
+
+def resolve_referral_cookie(request) -> str | None:
+    """Read the referral code cookie, preferring the canonical name.
+
+    Tries ``loopskill_ref`` first (canonical, written by ``_stamp_referral_cookie``);
+    falls back to the legacy ``recipes_ref`` cookie so referral links minted
+    before the qa0208-w3 rename still attribute correctly.
+    """
+    return request.cookies.get(REFERRAL_COOKIE_NAME) or request.cookies.get(LEGACY_REFERRAL_COOKIE_NAME)

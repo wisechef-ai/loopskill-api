@@ -1,7 +1,8 @@
 """APIKeyMiddleware + key validation helpers.
 
-Handles x-api-key header validation: master key, rec_ user keys,
-cbt_ share tokens (cookbook routes), and rec_fleet_ fleet keys.
+Handles x-api-key header validation: master key, user keys (lsk_ canonical /
+rec_ legacy — see app.middleware.key_prefixes for the qa0208-w3 dual-accept
+doctrine), cbt_ share tokens (bundle routes), and rec_fleet_ fleet keys.
 
 NOTE: get_redis and mark_redis_failed live in app.middleware.__init__
 so test patches via patch("app.middleware.get_redis") work correctly.
@@ -22,13 +23,11 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
 from app.middleware._public_paths import PUBLIC_PREFIXES as _PUBLIC_PREFIXES
+from app.middleware.key_prefixes import API_KEY_PREFIX, FLEET_KEY_PREFIX  # noqa: F401 — compat re-export
+from app.middleware.key_prefixes import LOOPSKILL_KEY_PREFIX, USER_KEY_PREFIXES  # noqa: F401
 
 logger = logging.getLogger("wiserecipes.middleware")
 
-
-API_KEY_PREFIX = "rec_"
-API_KEY_LENGTH = 36  # rec_ (4) + 32 hex chars
-FLEET_KEY_PREFIX = "rec_fleet_"  # Phase E: fleet API keys (distinct from rec_live_, cbt_)
 
 # Shared Redis client (lazy init)
 _redis_client = None
@@ -153,7 +152,7 @@ def _auth_ctx_from_api_key(request) -> "AuthContext | None":
     from app.auth_ctx import AuthContext
 
     key = request.headers.get("x-api-key")
-    if not key or not key.startswith(API_KEY_PREFIX):
+    if not key or not key.startswith(USER_KEY_PREFIXES):
         # No key, or a cbt_ share token (handled only on bundle routes) —
         # nothing to resolve here.
         return None
@@ -505,10 +504,10 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             finally:
                 db.close()
 
-        if not key.startswith(API_KEY_PREFIX):
+        if not key.startswith(USER_KEY_PREFIXES):
             return JSONResponse(
                 status_code=401,
-                content={"detail": f"API key must start with '{API_KEY_PREFIX}'"},
+                content={"detail": f"API key must start with '{API_KEY_PREFIX}' or '{LOOPSKILL_KEY_PREFIX}'"},
             )
 
         # Phase E: rec_fleet_* — fleet-scoped API keys. Ordered AFTER cbt_* and

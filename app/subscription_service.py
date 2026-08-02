@@ -160,8 +160,11 @@ def get_or_create_customer(user: User, db: Session) -> str:
     customer = stripe.Customer.create(
         email=user.email or None,
         name=user.display_name or None,
+        # qa0208-w3 dual-accept: loopskill_user_id is canonical; wiserecipes_user_id
+        # kept for legacy readers/exports. See AGENTS.md dual-accept table.
         metadata={
-            "wiserecipes_user_id": str(user.id),
+            "loopskill_user_id": str(user.id),
+            "wiserecipes_user_id": str(user.id),  # compat-alias
             "platform": "wiserecipes",
         },
         idempotency_key=f"customer_create_{user.id}",
@@ -275,13 +278,17 @@ def create_checkout_session(
         customer_update={"address": "auto", "name": "auto"},
         billing_address_collection="required",
         metadata={
-            "wiserecipes_user_id": str(user.id),
+            # qa0208-w3 dual-accept: loopskill_user_id canonical; wiserecipes_user_id
+            # kept so in-flight webhook events signed before the rename still resolve.
+            "loopskill_user_id": str(user.id),
+            "wiserecipes_user_id": str(user.id),  # compat-alias
             "tier": tier,
             **({"utm_ref": utm_ref} if utm_ref else {}),
         },
         subscription_data={
             "metadata": {
-                "wiserecipes_user_id": str(user.id),
+                "loopskill_user_id": str(user.id),
+                "wiserecipes_user_id": str(user.id),  # compat-alias
                 "tier": tier,
                 **({"utm_ref": utm_ref} if utm_ref else {}),
             },
@@ -335,11 +342,14 @@ def record_event_or_skip(event: dict, db: Session) -> bool:
 
 
 def _user_from_subscription_metadata(sub_or_session: dict, db: Session) -> User | None:
-    """Resolve user via metadata.wiserecipes_user_id, falling back to customer match."""
+    """Resolve user via metadata.loopskill_user_id, falling back to the legacy
+    metadata.wiserecipes_user_id key (qa0208-w3 dual-accept — in-flight Stripe
+    objects created before the rename only carry the legacy key), then to
+    customer match."""
     from uuid import UUID
 
     md = sub_or_session.get("metadata") or {}
-    uid = md.get("wiserecipes_user_id")
+    uid = md.get("loopskill_user_id") or md.get("wiserecipes_user_id")  # compat-alias fallback
     if uid:
         try:
             user_uuid = UUID(str(uid))
@@ -567,7 +577,12 @@ def downgrade_pro_plus_to_pro(user: User, db: Session) -> dict[str, Any]:
         user.subscription_id,
         items=[{"id": item_id, "price": pro_price}],
         proration_behavior="create_prorations",
-        metadata={"wiserecipes_user_id": str(user.id), "tier": "pro"},
+        # qa0208-w3 dual-accept: write both canonical + legacy metadata keys.
+        metadata={
+            "loopskill_user_id": str(user.id),
+            "wiserecipes_user_id": str(user.id),  # compat-alias
+            "tier": "pro",
+        },
     )
     user.subscription_tier = "pro"
     db.commit()

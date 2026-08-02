@@ -87,9 +87,7 @@ def reconcile_once(
     generation = lock.get("generation", "")
     local = lock.get("skills", [])
 
-    status, body = _post_reconcile(
-        api_base, cookbook_id, generation, local, api_key, opener=opener
-    )
+    status, body = _post_reconcile(api_base, cookbook_id, generation, local, api_key, opener=opener)
 
     if status == 304:
         return {"status": "up_to_date", "generation": generation, "applied": [], "removed": []}
@@ -158,12 +156,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--skills-dir", required=True, type=Path, help="Live skills dir to keep evergreen.")
     parser.add_argument("--lockfile", required=True, type=Path, help="recipes-lock.json path.")
     parser.add_argument("--prune", action="store_true", help="Allow REMOVE (uninstall dropped skills).")
-    parser.add_argument("--api-key", default=None, help="x-api-key (else env RECIPES_API_KEY).")
+    parser.add_argument(
+        "--api-key",
+        default=None,
+        help="x-api-key (else env LOOPSKILL_API_KEY, falling back to legacy RECIPES_API_KEY).",
+    )
     args = parser.parse_args(argv)
 
-    api_key = args.api_key or os.environ.get("RECIPES_API_KEY", "")
+    # qa0208-w3 dual-accept: LOOPSKILL_API_KEY is canonical; RECIPES_API_KEY
+    # is accepted as a fallback so existing cron lines keep working unchanged.
+    api_key = args.api_key or os.environ.get("LOOPSKILL_API_KEY", "") or os.environ.get("RECIPES_API_KEY", "")
     if not api_key:
-        print("recipes-reconcile: no API key (pass --api-key or set RECIPES_API_KEY)", file=sys.stderr)
+        print(
+            "recipes-reconcile: no API key (pass --api-key or set LOOPSKILL_API_KEY / RECIPES_API_KEY)",
+            file=sys.stderr,
+        )
         return 2
 
     try:

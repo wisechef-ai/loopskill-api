@@ -22,6 +22,9 @@ logger = logging.getLogger("wiserecipes.middleware")
 
 
 API_KEY_PREFIX = "rec_"
+# qa0208-w3 dual-accept: see app/middleware/api_key.py module docstring.
+LOOPSKILL_KEY_PREFIX = "lsk_"
+USER_KEY_PREFIXES: tuple[str, ...] = (API_KEY_PREFIX, LOOPSKILL_KEY_PREFIX)
 API_KEY_LENGTH = 36  # rec_ (4) + 32 hex chars
 FLEET_KEY_PREFIX = "rec_fleet_"  # Phase E: fleet API keys (distinct from rec_live_, cbt_)
 
@@ -77,14 +80,23 @@ from app.middleware.api_key import (  # noqa: E402
     _auth_ctx_from_api_key,
     _auth_ctx_from_jwt_cookie,
     APIKeyMiddleware,
+    LOOPSKILL_KEY_PREFIX as _LOOPSKILL_KEY_PREFIX,
+    USER_KEY_PREFIXES as _USER_KEY_PREFIXES,
 )
 from app.middleware.bundle_routing import CookbookHostMiddleware  # noqa: E402  # compat-alias
 from app.middleware.rate_limit import RateLimitMiddleware  # noqa: E402
+
+# Re-bind so the module-level names win over the api_key.py duplicates above
+# (both modules define the same constants; api_key.py is the source of truth).
+LOOPSKILL_KEY_PREFIX = _LOOPSKILL_KEY_PREFIX
+USER_KEY_PREFIXES = _USER_KEY_PREFIXES
 
 __all__ = [
     "API_KEY_PREFIX",
     "API_KEY_LENGTH",
     "FLEET_KEY_PREFIX",
+    "LOOPSKILL_KEY_PREFIX",
+    "USER_KEY_PREFIXES",
     "_redis_client",
     "_redis_available",
     "_redis_next_retry_at",
