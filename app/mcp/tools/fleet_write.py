@@ -38,6 +38,76 @@ from app.models import (
 logger = logging.getLogger(__name__)
 
 
+def _bulk_declare_junction(
+    db: Session,
+    bundle_id: UUID,
+    items: list[dict[str, Any]],
+    *,
+    entity_model: Any,
+    junction_model: Any,
+    junction_fk_name: str,
+    extra_field: tuple[str, str] | None = None,
+    static_kwargs: dict[str, Any] | None = None,
+) -> int:
+    """Batch-resolve entities by slug + batch-check existing junction rows,
+    then insert any missing junction rows.
+
+    Replaces the per-item N+1 pattern (one Skill/Connector/CompositeLoop/
+    Personality lookup by slug + one BundleSkill/BundleConnector/... existence
+    check, both issued inside the loop) with one IN-query for the entities and
+    one IN-query for existing junction rows — same batched-lookup pattern as
+    ``_install_counts_for`` / ``search_skills`` (Issue #19). Used by all four
+    ``loopskill_bundle_deploy`` sections (skills, connectors, composite_loops,
+    personalities), which shared the identical anti-pattern (qa0208/A-075..078).
+
+    ``extra_field`` is an optional ``(item_dict_key, junction_kwarg_name)`` pair
+    for the one per-item extra column (``pinned_version`` for skills,
+    ``pinned_semver`` for connectors; composite_loops/personalities have none).
+    ``static_kwargs`` are extra constructor kwargs identical for every inserted
+    row (e.g. ``BundleSkill.source="declared"``), preserving pre-refactor
+    behavior exactly.
+
+    Returns the count of newly-added junction rows.
+    """
+    slugs = {it.get("slug") for it in items if it.get("slug")}
+    if not slugs:
+        return 0
+    entities_by_slug = {e.slug: e for e in db.query(entity_model).filter(entity_model.slug.in_(slugs)).all()}
+    entity_ids = [e.id for e in entities_by_slug.values()]
+    fk_col = getattr(junction_model, junction_fk_name)
+    existing_ids: set = set()
+    if entity_ids:
+        existing_ids = {
+            getattr(row, junction_fk_name)
+            for row in (
+                db.query(junction_model)
+                .filter(junction_model.bundle_id == bundle_id, fk_col.in_(entity_ids))
+                .all()
+            )
+        }
+
+    added = 0
+    for it in items:
+        slug = it.get("slug")
+        if not slug:
+            continue
+        entity = entities_by_slug.get(slug)
+        if entity is None:
+            continue
+        if entity.id in existing_ids:
+            continue
+        kwargs: dict[str, Any] = {"bundle_id": bundle_id, junction_fk_name: entity.id}
+        if extra_field is not None:
+            src_key, kw_name = extra_field
+            kwargs[kw_name] = it.get(src_key)
+        if static_kwargs:
+            kwargs.update(static_kwargs)
+        db.add(junction_model(**kwargs))
+        existing_ids.add(entity.id)  # avoid double-insert if the caller passed a dup slug
+        added += 1
+    return added
+
+
 def loopskill_bundle_deploy(
     db: Session,
     bundle_id: str,
@@ -70,103 +140,49 @@ def loopskill_bundle_deploy(
     added = {"skills": 0, "connectors": 0, "composite_loops": 0, "personalities": 0}
 
     if skills:
-        for s in skills:
-            slug = s.get("slug")
-            if not slug:
-                continue
-            skill = db.query(Skill).filter(Skill.slug == slug).first()
-            if skill is None:
-                continue
-            existing = (
-                db.query(BundleSkill)
-                .filter(BundleSkill.bundle_id == bundle.id, BundleSkill.skill_id == skill.id)
-                .first()
-            )
-            if existing is None:
-                db.add(
-                    BundleSkill(
-                        bundle_id=bundle.id,
-                        skill_id=skill.id,
-                        pinned_version=s.get("pinned_version"),
-                        source="declared",
-                    )
-                )
-                added["skills"] += 1
+        added["skills"] = _bulk_declare_junction(
+            db,
+            bundle.id,
+            skills,
+            entity_model=Skill,
+            junction_model=BundleSkill,
+            junction_fk_name="skill_id",
+            extra_field=("pinned_version", "pinned_version"),
+            static_kwargs={"source": "declared"},
+        )
 
     if connectors:
-        for c in connectors:
-            slug = c.get("slug")
-            if not slug:
-                continue
-            conn = db.query(Connector).filter(Connector.slug == slug).first()
-            if conn is None:
-                continue
-            existing = (
-                db.query(BundleConnector)
-                .filter(BundleConnector.bundle_id == bundle.id, BundleConnector.connector_id == conn.id)
-                .first()
-            )
-            if existing is None:
-                db.add(
-                    BundleConnector(
-                        bundle_id=bundle.id,
-                        connector_id=conn.id,
-                        pinned_semver=c.get("pinned_semver"),
-                    )
-                )
-                added["connectors"] += 1
+        added["connectors"] = _bulk_declare_junction(
+            db,
+            bundle.id,
+            connectors,
+            entity_model=Connector,
+            junction_model=BundleConnector,
+            junction_fk_name="connector_id",
+            extra_field=("pinned_semver", "pinned_semver"),
+        )
 
     if composite_loops:
-        for cl in composite_loops:
-            slug = cl.get("slug")
-            if not slug:
-                continue
-            loop = db.query(CompositeLoop).filter(CompositeLoop.slug == slug).first()
-            if loop is None:
-                continue
-            existing = (
-                db.query(BundleCompositeLoop)
-                .filter(
-                    BundleCompositeLoop.bundle_id == bundle.id,
-                    BundleCompositeLoop.composite_loop_id == loop.id,
-                )
-                .first()
-            )
-            if existing is None:
-                db.add(
-                    BundleCompositeLoop(
-                        bundle_id=bundle.id,
-                        composite_loop_id=loop.id,
-                    )
-                )
-                added["composite_loops"] += 1
+        added["composite_loops"] = _bulk_declare_junction(
+            db,
+            bundle.id,
+            composite_loops,
+            entity_model=CompositeLoop,
+            junction_model=BundleCompositeLoop,
+            junction_fk_name="composite_loop_id",
+        )
 
     if personalities:
         from app.models import Personality
 
-        for p in personalities:
-            slug = p.get("slug")
-            if not slug:
-                continue
-            pers = db.query(Personality).filter(Personality.slug == slug).first()
-            if pers is None:
-                continue
-            existing = (
-                db.query(BundlePersonality)
-                .filter(
-                    BundlePersonality.bundle_id == bundle.id,
-                    BundlePersonality.personality_id == pers.id,
-                )
-                .first()
-            )
-            if existing is None:
-                db.add(
-                    BundlePersonality(
-                        bundle_id=bundle.id,
-                        personality_id=pers.id,
-                    )
-                )
-                added["personalities"] += 1
+        added["personalities"] = _bulk_declare_junction(
+            db,
+            bundle.id,
+            personalities,
+            entity_model=Personality,
+            junction_model=BundlePersonality,
+            junction_fk_name="personality_id",
+        )
 
     db.commit()
 

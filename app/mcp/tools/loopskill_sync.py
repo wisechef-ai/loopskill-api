@@ -170,8 +170,14 @@ def _build_install_urls(db: Session, outdated: list[dict[str, Any]]) -> list[dic
     public_origin = config.public_origin()
 
     urls: list[dict[str, str]] = []
+    # Batched skill fetch (was N+1: one SELECT per row). One IN-query + dict
+    # lookup, same pattern as _install_counts_for / search_skills (Issue #19).
+    skill_ids = {o["skill_id"] for o in outdated if o.get("skill_id")}
+    skills_by_id = (
+        {s.id: s for s in db.query(Skill).filter(Skill.id.in_(skill_ids)).all()} if skill_ids else {}
+    )
     for o in outdated:
-        skill = db.query(Skill).filter(Skill.id == o["skill_id"]).first()
+        skill = skills_by_id.get(o["skill_id"])
         if not skill or not skill.versions:
             continue
         latest = skill.versions[0]
