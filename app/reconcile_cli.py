@@ -19,7 +19,7 @@ Intelligence is server-side; this client only pulls + atomically swaps. It uses
 the agent's own x-api-key (env RECIPES_API_KEY) — no inbound auth.
 
 Usage (what the cron line runs):
-  recipes-reconcile --cookbook <uuid> --api https://recipes.wisechef.ai \\
+  python -m app.reconcile_cli --cookbook <uuid> --api https://app.loopskill.io \\
       --skills-dir ~/.hermes/skills --lockfile ~/.hermes/recipes-lock.json
 """
 
