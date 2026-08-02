@@ -20,7 +20,11 @@ app/
 │                              can_write_cookbook(ctx, cookbook)
 │                              can_run_sandbox(ctx)
 │                              can_call_admin_mcp_tool(ctx)
-├── middleware.py            APIKeyMiddleware → populates request.state.auth_ctx
+├── middleware/               APIKeyMiddleware → populates request.state.auth_ctx
+│   ├── api_key.py            APIKeyMiddleware.dispatch, rec_/cbt_/rec_fleet_ key validation
+│   ├── bundle_routing.py     cbt_ token path-scoping (cookbook routes only)
+│   ├── rate_limit.py         RateLimitMiddleware
+│   └── _token_auth.py        Shared JWT/master-key comparison helpers
 ├── models.py                SQLAlchemy ORM models
 ├── schemas.py               Pydantic request/response schemas
 │
@@ -48,9 +52,10 @@ app/
 │   ├── server.py            StreamableHTTP + stdio MCP server
 │   ├── auth.py              MCP-specific key validation → AuthContext
 │   └── tools/               One module per MCP tool
-│       ├── install.py       recipes_install
-│       ├── recipify.py      recipes_recipify
-│       ├── recipes_sync.py  recipes_sync
+│       ├── install.py          loopskill_install
+│       ├── recipify.py         loopskill_skillify
+│       ├── loopskill_sync.py   loopskill_sync
+│       ├── bundle_install.py   loopskill_bundle_install
 │       └── …
 │
 │   — Sandbox —
@@ -107,33 +112,38 @@ pytest --cov=app --cov-fail-under=85   # with coverage gate
 ## Linting (matches CI)
 
 ```bash
-pre-commit run --all-files
+ruff check app/ && ruff format --check app/    # matches ci.yml's lint job
+bandit -r app/ -lll                            # matches lint.yml's bandit gate (HIGH only)
+pip-audit -r requirements.txt                  # matches lint.yml's pip-audit gate
 ```
 
-Hooks:
-| Hook | What it checks |
-|------|----------------|
-| `ruff --fix` | Import order, unused vars, BLE001 (blanket except), D103 (docstrings) |
-| `ruff-format` | Code style |
-| `bandit -r app/ -ll` | Security (severity ≥ MEDIUM) |
-| `mypy --strict` | Type safety on 4 modules: auth_ctx, authz, middleware, utils/ |
-| `actionlint` | GitHub Actions workflow syntax |
-| `yamllint` | YAML in config/ |
+`pre-commit run --all-files` runs a broader local hook set (below) but only
+`ruff --fix`/`ruff-format` and `bandit -lll` are actually wired into CI today.
+
+Hooks (local `pre-commit install`, NOT all enforced in CI — see CI workflows table):
+| Hook | What it checks | Enforced in CI? |
+|------|----------------|------------------|
+| `ruff --fix` | Import order, unused vars, BLE001 (blanket except), D103 (docstrings) | Yes — `ci.yml` lint job |
+| `ruff-format` | Code style | Yes — `ci.yml` lint job |
+| `bandit -lll` | Security (severity = HIGH only) | Yes — `lint.yml` |
+| `mypy --strict` | Type safety on 2 modules: `app/auth_ctx.py`, `app/authz.py` | No — local pre-commit only |
+| `actionlint` | GitHub Actions workflow syntax | No — local pre-commit only |
+| `yamllint` | YAML in config/ | No — local pre-commit only |
 
 ## CI workflows
 
 | File | Triggers | What it does |
 |------|----------|--------------|
-| `.github/workflows/ci.yml` | push/PR to main | pytest, alembic validate, coverage ≥85% |
-| `.github/workflows/lint.yml` | push/PR to main | pre-commit run --all-files + pip-audit + safety |
-| `.github/workflows/deploy.yml` | push to main (after CI green) | rsync + systemd restart |
+| `.github/workflows/ci.yml` | push/PR to main | `ruff check` + `ruff format --check`, pytest + coverage ≥80%, gitleaks secret scan |
+| `.github/workflows/lint.yml` | push/PR to main | `bandit -r app/ -lll` (HIGH only) + `pip-audit` |
+| `.github/workflows/deploy.yml` | push to main (after CI green) | self-hosted runner: git pull + pip install + alembic upgrade + systemd restart + public verification |
 
 ## Key rules for agents
 
 1. **No new logic in Phase-G scope** — hygiene only (docstrings, comments, toolchain).
 2. **`except Exception:` requires `# Rationale: <reason>` on the preceding line** — enforced by BLE001 + Rationale convention. If you add a new blanket catch, justify it inline.
-3. **mypy --strict scope is ONLY**: `app/auth_ctx.py`, `app/authz.py`, `app/middleware.py`, `app/utils/`. Broader mypy errors → file a tracking issue, don't expand scope.
-4. **Before editing a god node** (APIKeyMiddleware.dispatch, validate_key, recipes_install, SandboxRunner.run, scan_tarball) run `gitnexus_impact` and confirm blast radius.
+3. **mypy --strict scope is ONLY**: `app/auth_ctx.py`, `app/authz.py`. Broader mypy errors → file a tracking issue, don't expand scope. (Note: this scope is enforced only via local pre-commit — it is not wired into any CI workflow.)
+4. **Before editing a god node** (APIKeyMiddleware.dispatch, validate_key, loopskill_install, SandboxRunner.run, scan_tarball) run `gitnexus_impact` and confirm blast radius.
 5. **One PR per phase**. Never modify `.coveragerc` or coverage CI step — that's Phase F's domain.
 6. **Production deploy target**: your own host (see deploy.yml). This is open-core — self-host anywhere.
 
@@ -152,14 +162,14 @@ Share tokens (`cbt_<8hex>_<32hex>`) let a recipient install the skills of one sp
 
 Scope vocabulary: `{read, edit, install}`. Default for new tokens is `install` (server-side `DEFAULT 'install'`, see migration `d8c8a3f721ec_cookbook_share_install_scope.py`). Existing tokens keep their stored scope — no auto-upgrade.
 
-MCP entry point: `app/mcp/tools/cookbook_install.py:recipes_cookbook_install(db, ctx, cookbook_id=None, slug=None)`. cbt_token callers may omit `cookbook_id` (defaults to `ctx.cookbook_scope`). Single-skill payload mirrors `recipes_install`; bulk payload mirrors `POST /api/cookbooks/{id}/install`.
+MCP entry point: `app/mcp/tools/bundle_install.py:loopskill_bundle_install(db, ctx, cookbook_id=None, slug=None)`. cbt_token callers may omit `cookbook_id` (defaults to `ctx.cookbook_scope`). Single-skill payload mirrors `loopskill_install`; bulk payload mirrors `POST /api/cookbooks/{id}/install`.
 
 **When adding a new cookbook route, you MUST:**
 1. Call `_enforce_cbt_scope_for_cookbook_route(request, cookbook_id)` to gate scope.
 2. Use `_resolve_owned_cookbook(db, ctx, cookbook_id)` for ownership (handles the cbt_ branch).
 3. Pass `db=db` to any `authz.can_read_skill` / `authz.can_install` call.
 
-**Salt-parity discipline:** any new signed-URL producer (cookbook install URL, single-skill install URL, future variants) MUST use salt `recipes-skill-install` so it verifies against `install_routes._download`. Add it to the regression suite in `test_secfix_1905_d_cookbook_install_url.py`. Don't ship a salt-drifting signer.
+**Salt-parity discipline:** the canonical salt is `loopskill-install`. `app/install_routes.py:_verify_signed_token` tries `loopskill-install` FIRST; the legacy salt `recipes-skill-install` is accepted only as a compat fallback for pre-rename in-flight URLs still circulating when this rolled out. All producers now sign with `loopskill-install` — any new signed-URL producer (cookbook install URL, single-skill install URL, future variants) MUST use salt `loopskill-install` so it verifies against `install_routes._download`. Add it to the regression suite in `test_secfix_1905_d_cookbook_install_url.py`. Don't ship a salt-drifting signer, and don't sign with the legacy salt — it exists only so the verifier keeps accepting URLs minted before the cutover.
 
 ---
 
@@ -174,7 +184,7 @@ Every install transport returns a `provenance_id` — a RANDOM, server-stored op
 2. Return `provenance_id` in the response envelope. In BULK envelopes it rides PER-SKILL under `skills[]`, never cookbook-top-level (R4 contract).
 3. `attribution='attributed'` when you fetched a real body (you know skill+version); `attribution='unattributed'` for honest deep-link / non-fetch installs (no body → no deeper attribution). A TRANSIENT fetch failure is NOT unattributed — it stays a hard error and never reaches the recorder.
 
-**Feedback routing is provenance-deterministic.** `recipes_feedback` and `recipes_report_skill_error` accept `provenance_id`; the server resolves it to the EXACT cookbook the install came from and routes the issue to that cookbook's configured curator repo (`route_targets_for_provenance`). The old "first cookbook the user owns with a repo set" guess is DELETED — without a `provenance_id`, routing falls back to the default repo (no guessing). PAT path is live; GitHub App is a distinct future substream (`mode='github_app'` raises until registered).
+**Feedback routing is provenance-deterministic.** `loopskill_feedback` and `loopskill_report_skill_error` accept `provenance_id`; the server resolves it to the EXACT cookbook the install came from and routes the issue to that cookbook's configured curator repo (`route_targets_for_provenance`). The old "first cookbook the user owns with a repo set" guess is DELETED — without a `provenance_id`, routing falls back to the default repo (no guessing). PAT path is live; GitHub App is a distinct future substream (`mode='github_app'` raises until registered).
 
 
 ---

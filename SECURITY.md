@@ -43,8 +43,12 @@ finding's real impact:
   skill on every push.
 - **Sandboxed skill execution.** Skill install scripts run under `firejail`
   or `bwrap` with an allow-listed egress proxy (`app/sandbox/`).
-- **Static analysis in CI.** `bandit` (severity ≥ medium), `pip-audit`, and
-  `safety` run on every PR via `.github/workflows/lint.yml`.
+- **Static analysis in CI.** `.github/workflows/ci.yml` runs `ruff check` +
+  `ruff format --check` on every PR. `.github/workflows/lint.yml` runs
+  `bandit -r app/ -lll` (HIGH severity only) and `pip-audit` on every PR.
+  Broader `bandit -ll` (MEDIUM+, 20 known findings) and `safety` are not
+  currently gated in CI — see `lint.yml`'s header comment for the tracked
+  follow-up.
 
 ## Branch protection
 

@@ -191,7 +191,7 @@ def reconcile_once(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="recipes-reconcile", description=__doc__)
     parser.add_argument("--cookbook", required=True, help="Bundle UUID to reconcile.")
-    parser.add_argument("--api", default="https://recipes.wisechef.ai", help="Recipes API base.")
+    parser.add_argument("--api", default="https://app.loopskill.io", help="LoopSkill API base.")
     parser.add_argument("--skills-dir", required=True, type=Path, help="Live skills dir to keep evergreen.")
     parser.add_argument("--lockfile", required=True, type=Path, help="recipes-lock.json path.")
     parser.add_argument("--prune", action="store_true", help="Allow REMOVE (uninstall dropped skills).")

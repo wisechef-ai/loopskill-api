@@ -1,7 +1,9 @@
 """Phase 3+4 bundle-vocabulary MCP tools (new canonical names).
 
 Extracted here to keep registry.py under the 600-line god-object guard.
-The compat aliases (recipes_*/cookbook_*) remain in registry.py.  # compat-alias
+
+lsrename_0713: primary names are ``loopskill_*``; there is no back-compat
+alias layer — do NOT add ``recipes_*``/``cookbook_*`` entries here.
 """
 
 from __future__ import annotations

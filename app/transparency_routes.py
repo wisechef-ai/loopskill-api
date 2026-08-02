@@ -166,7 +166,7 @@ def _compute_median_issue_resolution_h() -> float | None:
         return None
     cutoff = datetime.now(UTC) - timedelta(days=30)
     q = (
-        "repo:wisechef-ai/recipes-api"
+        "repo:wisechef-ai/loopskill-api"
         " is:issue is:closed label:agent-reported"
         f" closed:>{cutoff.strftime('%Y-%m-%d')}"
     )

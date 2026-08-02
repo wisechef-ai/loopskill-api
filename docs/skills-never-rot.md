@@ -18,21 +18,19 @@ your agent broken.**
 # 1. Get your API key at loopskill.io → settings → API keys
 export RECIPES_API_KEY=rec_li...n  # TODO(rename): env var still uses legacy name for prod compatibility
 
-# 2. Install the reconcile client (it's a free skill in the catalog)
-#    Your agent can do this itself via the MCP tool, or:
-#    fetch the recipes-cookbook-reconcile bundle and run its installer:
-bash scripts/install.sh --cookbook <YOUR_BUNDLE_UUID>
+# 2. Install LoopSkill itself (self-hosted; skip if you already have an
+#    instance running):
+#    curl -fsSL loopskill.io/install | sh
+#    (or, from a clone of this repo: ./install.sh)
 
-# 3. That's it. The installer auto-detected your host (Hermes/Codex/Claude),
-#    wired a 30-minute reconcile cron, and wrote a lockfile.
-#    Your skills are now evergreen.
+# 3. Run one reconcile cycle by hand — see "watch it work" below.
 ```
 
 Want to *watch* it work before trusting a cron? Run one sync by hand (free tier
 includes one):
 
 ```bash
-scripts/recipes-reconcile \
+python -m app.reconcile_cli \
   --cookbook <YOUR_BUNDLE_UUID> \
   --api https://loopskill.io \
   --skills-dir ~/.hermes/skills \
