@@ -1,0 +1,19 @@
+"""User-API-key prefix vocabulary (qa0208-w3 dual-accept).
+
+Canonical prefix is ``lsk_`` (loopskill); ``rec_`` is the legacy prefix,
+accepted indefinitely as a fallback. Minting still issues ``rec_live_`` keys
+(see app/api_key_routes.py KEY_PREFIX) — switching the mint default is a
+separate follow-up (non-trivial: display truncation + prefix regexes in tests
+assume ``rec_live_``). The READ/validate path is widened here so any future
+``lsk_``-minted key (or a manually reissued one) works identically to a
+``rec_`` key today.
+
+Any code path that checks "does this look like a user key" should test against
+``USER_KEY_PREFIXES``, not the single ``API_KEY_PREFIX`` constant.
+"""
+
+API_KEY_PREFIX = "rec_"  # legacy, accepted as fallback
+LOOPSKILL_KEY_PREFIX = "lsk_"  # canonical
+USER_KEY_PREFIXES: tuple[str, ...] = (API_KEY_PREFIX, LOOPSKILL_KEY_PREFIX)
+API_KEY_LENGTH = 36  # rec_ (4) + 32 hex chars
+FLEET_KEY_PREFIX = "rec_fleet_"  # Phase E: fleet API keys (distinct from rec_live_, cbt_)
