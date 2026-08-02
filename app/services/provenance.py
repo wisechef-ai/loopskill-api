@@ -52,7 +52,7 @@ ATTR_ATTRIBUTED = "attributed"
 ATTR_UNATTRIBUTED = "unattributed"
 
 # Default repo for feedback when no creator/bundle routing resolves.
-DEFAULT_FEEDBACK_REPO = "wisechef-ai/recipes-api"
+DEFAULT_FEEDBACK_REPO = "wisechef-ai/loopskill-api"
 
 
 @dataclass(frozen=True)

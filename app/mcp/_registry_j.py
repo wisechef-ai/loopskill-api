@@ -1,8 +1,9 @@
 """Phase J tool definitions — split out to keep registry.py under 600 lines.
 
-Post loopskill rename: primary names are ``loopskill_*``; ``recipes_*`` compat
-aliases are generated automatically via ``_alias_map.LOOPSKILL_TO_RECIPES`` in
-``registry._tool_definitions()`` — do NOT add them manually here.
+lsrename_0713: primary names are ``loopskill_*``; there is no back-compat
+alias layer — it was dropped in this sprint. A caller sending an old
+``recipes_*`` name gets ``unknown tool`` (see ``app/mcp/server.py:_dispatch``
+and ``app/mcp/_alias_map.py``). Do NOT add ``recipes_*`` entries here.
 """
 
 from __future__ import annotations

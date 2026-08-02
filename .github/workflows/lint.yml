@@ -1,0 +1,80 @@
+name: Lint & Security
+
+# Static-analysis gate for the open-source LoopSkill repo. Runs on the same
+# GitHub-hosted runners as ci.yml so forks/PRs get identical signal.
+#
+# Gates enforced here (each verified green locally before this workflow was
+# added — see qa0208 Lane 3 PR body for the verification tails):
+#   - ruff check          (already covered by ci.yml's lint job; re-asserted
+#                           here so this workflow is a complete gate on its own)
+#   - ruff format --check (ditto)
+#   - bandit -r app/ -lll (HIGH severity only — confirmed 0 findings locally.
+#                           NOTE: `-ll` (MEDIUM+) currently has 20 known
+#                           MEDIUM findings in app/ and is NOT gated here;
+#                           tracked as a follow-up per the same ratchet
+#                           pattern .pre-commit-config.yaml already documents
+#                           for its own bandit hook)
+#   - pip-audit            (dependency vulnerability scan against
+#                           requirements.txt — 0 known vulnerabilities as of
+#                           this workflow's introduction)
+#
+# Documented-but-not-yet-enforced (do NOT assume these run in CI):
+#   - pre-commit run --all-files as a whole (mypy --strict, actionlint,
+#     yamllint hooks are configured in .pre-commit-config.yaml but are NOT
+#     wired into any CI workflow — they only run locally via
+#     `pre-commit install`)
+#   - bandit -ll (MEDIUM+ severity) — 20 known MEDIUM findings in app/,
+#     not yet triaged/fixed; only the HIGH-only threshold is gated above
+#   - safety — no license/config for this repo; not run anywhere
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: ruff (check + format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff
+      - name: ruff check
+        run: ruff check app/
+      - name: ruff format --check
+        run: ruff format --check app/
+
+  bandit:
+    name: bandit (severity >= high)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install bandit
+        run: pip install bandit
+      - name: bandit -r app/ -lll
+        run: bandit -r app/ -lll
+
+  pip-audit:
+    name: pip-audit (dependency vulnerabilities)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install pip-audit
+        run: pip install pip-audit
+      - name: pip-audit -r requirements.txt
+        run: pip-audit -r requirements.txt

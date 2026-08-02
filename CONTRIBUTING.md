@@ -27,9 +27,11 @@ to the production host and restarts the API service. There is no staging branch.
    test will be sent back.
 3. **Run the suite locally.** `pytest -q`. The full suite must be green
    before you open the PR — CI enforces it (see below).
-4. **Lint.** `pre-commit run --all-files` — matches the CI `lint` job
-   (`ruff`, `ruff-format`, `bandit`, `mypy --strict` on the auth modules,
-   `actionlint`, `yamllint`).
+4. **Lint.** `ruff check app/ && ruff format --check app/` — matches the CI
+   `lint (ruff)` job. `bandit -r app/ -lll` and `pip-audit -r requirements.txt`
+   match the CI `lint.yml` gates. `pre-commit run --all-files` runs a broader
+   local hook set (`mypy --strict` on the auth modules, `actionlint`,
+   `yamllint`) that is not currently wired into CI — see `AGENTS.md`.
 5. **Open the PR.** Fill in the PR template. One logical change per PR.
 6. **Wait for CI green**, then squash-merge. `delete_branch_on_merge` is on
    — the branch cleans itself up.
@@ -40,10 +42,11 @@ to the production host and restarts the API service. There is no staging branch.
 
 | Job | What it enforces |
 |-----|------------------|
-| `pytest + coverage gate` | Full `tests/` suite green **and** line coverage ≥ the `--cov-fail-under` threshold. The threshold is a **ratchet** — raise it when coverage rises, never lower it. |
-| `Quality gate self-test` | `scripts/skill_quality_gate.py` still blocks a leaky skill and passes a clean one. |
-| `lint` | `pre-commit` + `pip-audit` + `safety`. |
-| `Self-leak check` | Informational scan of `scripts/` for leaked credentials. |
+| `lint (ruff)` (`ci.yml`) | `ruff check` and `ruff format --check` on `app/`. |
+| `pytest + coverage` (`ci.yml`) | Full `tests/` suite green **and** line coverage ≥ the `--cov-fail-under` threshold. The threshold is a **ratchet** — raise it when coverage rises, never lower it. |
+| `secret scan (gitleaks)` (`ci.yml`) | Working-tree scan for leaked credentials via `.gitleaks.toml`. |
+| `bandit` (`lint.yml`) | `bandit -r app/ -lll` — HIGH severity only. MEDIUM findings exist and are not yet gated (see `lint.yml` header). |
+| `pip-audit` (`lint.yml`) | Dependency vulnerability scan against `requirements.txt`. |
 
 A hung test fails fast: the pytest job has a 20-minute cap and a 120s
 per-test `pytest-timeout`.
@@ -54,11 +57,11 @@ per-test `pytest-timeout`.
   `ci(...)`, `refactor(...)`.
 - **`except Exception:` needs a reason.** Put `# Rationale: <why>` on the
   line above — `ruff` BLE001 + this convention is enforced.
-- **`mypy --strict` scope is fixed**: `app/auth_ctx.py`, `app/authz.py`,
-  `app/middleware.py`, `app/utils/`. A broader mypy error → file a tracking
-  issue, don't widen the scope in your PR.
+- **`mypy --strict` scope is fixed**: `app/auth_ctx.py`, `app/authz.py`.
+  A broader mypy error → file a tracking issue, don't widen the scope in
+  your PR. (Enforced only via local pre-commit — not wired into CI.)
 - **God nodes.** Before editing `APIKeyMiddleware.dispatch`, `validate_key`,
-  `recipes_install`, `SandboxRunner.run`, or `scan_tarball`, understand the
+  `loopskill_install`, `SandboxRunner.run`, or `scan_tarball`, understand the
   blast radius first — these are reviewed by `CODEOWNERS`.
 - **Tier slugs are a contract.** Canonical DB slugs are `free`, `pro`, `pro_plus`.
   Legacy aliases `cook`/`operator`/`studio` are accepted as 30-day read aliases
