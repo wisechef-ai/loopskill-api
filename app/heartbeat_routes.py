@@ -13,6 +13,7 @@ device — by construction, not policy.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
 from datetime import date
 
@@ -65,7 +66,7 @@ def post_heartbeat(payload: HeartbeatPayload, db: Session = Depends(get_db)):
 
 def _require_admin(request: Request) -> None:
     key = request.headers.get("x-api-key")
-    if not key or key != settings.API_KEY:
+    if not key or not hmac.compare_digest(key, settings.API_KEY):
         raise HTTPException(status_code=401, detail="admin_key_required")
 
 

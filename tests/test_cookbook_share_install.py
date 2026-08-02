@@ -556,8 +556,10 @@ class TestMcpCookbookInstallErrorContract:
     def test_mcp_bulk_payload_skill_url_uses_install_salt(self, db_session):
         """Salt-parity regression — bulk-install tarball URLs MUST verify against
         install_routes._download. If a future refactor drifts the salt away from
-        'recipes-skill-install', every cbt_-token bulk install starts returning
-        URLs that 403 on download (the original secfix_1905/I-followup class of bug).
+        the canonical 'loopskill-install' salt, every cbt_-token bulk install
+        starts returning URLs that 403 on download unless caught by the
+        verifier's legacy-salt fallback (qa0208/A-047 — do not rely on the
+        fallback, it exists only for pre-rename in-flight URLs).
         """
         from itsdangerous import URLSafeTimedSerializer
         from urllib.parse import parse_qs, urlsplit
@@ -580,7 +582,7 @@ class TestMcpCookbookInstallErrorContract:
 
         # Verifier with the production salt: MUST decode cleanly. Any other salt
         # would raise BadSignature → URL would 403 in production.
-        verifier = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="recipes-skill-install")
+        verifier = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="loopskill-install")
         payload = verifier.loads(token, max_age=3600)
         assert payload["slug"] == "ahe"
         assert payload["mode"] == "install"
