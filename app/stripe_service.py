@@ -40,8 +40,11 @@ def create_connect_account(user: User) -> str:
             type="express",
             country="PL",  # Default EU (Poland); creators can change in onboarding
             email=user.email or "",
+            # qa0208-w3 dual-accept: loopskill_user_id canonical; wiserecipes_user_id
+            # kept for legacy readers/exports. See AGENTS.md dual-accept table.
             metadata={
-                "wiserecipes_user_id": str(user.id),
+                "loopskill_user_id": str(user.id),
+                "wiserecipes_user_id": str(user.id),  # compat-alias
                 "platform": "wiserecipes",
             },
             capabilities={

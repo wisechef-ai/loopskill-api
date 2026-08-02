@@ -47,7 +47,8 @@ def validate_key(key: str | None, db: Session) -> dict[str, Any]:
     if key.startswith("sub_"):
         raise NotImplementedError("phase-C")
 
-    if not key.startswith("rec_"):
+    # qa0208-w3 dual-accept: lsk_ (canonical) accepted alongside legacy rec_.
+    if not (key.startswith("rec_") or key.startswith("lsk_")):
         ctx = AuthContext.anonymous()
         return {
             "scope": "unauthorized",

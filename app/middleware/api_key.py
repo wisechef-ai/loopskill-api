@@ -3,6 +3,14 @@
 Handles x-api-key header validation: master key, rec_ user keys,
 cbt_ share tokens (cookbook routes), and rec_fleet_ fleet keys.
 
+qa0208-w3 dual-accept: ``lsk_`` (loopskill) is accepted alongside the legacy
+``rec_`` prefix wherever a user key is validated. Minting still issues
+``rec_live_`` keys (see app/api_key_routes.py) — switching the mint default
+is a separate follow-up (non-trivial: display truncation + prefix regexes
+in tests assume ``rec_live_``). This module only widens the READ/validate
+path so any future ``lsk_``-minted key (or a manually reissued one) works
+identically to a ``rec_`` key today.
+
 NOTE: get_redis and mark_redis_failed live in app.middleware.__init__
 so test patches via patch("app.middleware.get_redis") work correctly.
 """
@@ -27,6 +35,13 @@ logger = logging.getLogger("wiserecipes.middleware")
 
 
 API_KEY_PREFIX = "rec_"
+# qa0208-w3 dual-accept: canonical prefix is lsk_ (loopskill); rec_ is the
+# legacy prefix, accepted indefinitely as a fallback (minting still issues
+# rec_live_ — see api_key_routes.py KEY_PREFIX). Any code path that checks
+# "does this look like a user key" should test against USER_KEY_PREFIXES,
+# not the single API_KEY_PREFIX constant.
+LOOPSKILL_KEY_PREFIX = "lsk_"
+USER_KEY_PREFIXES: tuple[str, ...] = (API_KEY_PREFIX, LOOPSKILL_KEY_PREFIX)
 API_KEY_LENGTH = 36  # rec_ (4) + 32 hex chars
 FLEET_KEY_PREFIX = "rec_fleet_"  # Phase E: fleet API keys (distinct from rec_live_, cbt_)
 
@@ -153,7 +168,7 @@ def _auth_ctx_from_api_key(request) -> "AuthContext | None":
     from app.auth_ctx import AuthContext
 
     key = request.headers.get("x-api-key")
-    if not key or not key.startswith(API_KEY_PREFIX):
+    if not key or not key.startswith(USER_KEY_PREFIXES):
         # No key, or a cbt_ share token (handled only on bundle routes) —
         # nothing to resolve here.
         return None
@@ -505,10 +520,10 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             finally:
                 db.close()
 
-        if not key.startswith(API_KEY_PREFIX):
+        if not key.startswith(USER_KEY_PREFIXES):
             return JSONResponse(
                 status_code=401,
-                content={"detail": f"API key must start with '{API_KEY_PREFIX}'"},
+                content={"detail": f"API key must start with '{API_KEY_PREFIX}' or '{LOOPSKILL_KEY_PREFIX}'"},
             )
 
         # Phase E: rec_fleet_* — fleet-scoped API keys. Ordered AFTER cbt_* and
