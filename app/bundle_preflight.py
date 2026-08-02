@@ -96,9 +96,7 @@ def _load_recipes(db: Session, rows: list[BundleDeployment]) -> list[dict]:
     # lookup, same pattern as _install_counts_for / search_skills (Issue #19).
     skill_ids = {row.skill_id for row in rows if row.skill_id}
     skills_by_id = (
-        {s.id: s for s in db.query(Skill).filter(Skill.id.in_(skill_ids)).all()}
-        if skill_ids
-        else {}
+        {s.id: s for s in db.query(Skill).filter(Skill.id.in_(skill_ids)).all()} if skill_ids else {}
     )
     for row in rows:
         if not row.skill_id:

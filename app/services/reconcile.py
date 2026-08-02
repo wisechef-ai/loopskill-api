@@ -270,7 +270,10 @@ def _attach_tarball_urls(db: Session, plan: ReconcilePlan) -> None:
     # One IN-query + dict lookup, same pattern as _install_counts_for /
     # search_skills (Issue #19). Called on every /30min agent poll cycle.
     all_slugs = {
-        row.get("slug") for section in (plan.add, plan.update, plan.drift) for row in section if row.get("slug")
+        row.get("slug")
+        for section in (plan.add, plan.update, plan.drift)
+        for row in section
+        if row.get("slug")
     }
     skills_by_slug = (
         {s.slug: s for s in db.query(Skill).filter(Skill.slug.in_(all_slugs)).all()} if all_slugs else {}
