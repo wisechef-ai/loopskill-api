@@ -21,7 +21,7 @@ This module adds the two missing MCP tools and the bridge between the tables:
     ``write_cookbook_skill``, AND mints a ``SkillVersion`` from the same tarball
     so ``loopskill_bundle_install`` can resolve an installable version. Because
     the promoted unit is a real ``Skill`` row, the install URL is signed with the
-    canonical ``recipes-skill-install`` salt automatically (salt parity free) —
+    canonical ``loopskill-install`` salt automatically (salt parity free) —
     a tailored fork now installs byte-identically to any catalog skill.
 
 Result: tailor → tailor_version → cookbook_attach → cookbook_install is a
@@ -312,7 +312,7 @@ def loopskill_bundle_attach(
     is_public=False) linked into the target cookbook via write_cookbook_skill,
     AND mints a SkillVersion from the same tarball so loopskill_bundle_install
     can resolve an installable version. The promoted skill installs with the
-    canonical recipes-skill-install salt automatically (it's a real Skill row).
+    canonical loopskill-install salt automatically (it's a real Skill row).
 
     Args:
         fork_id: the caller's fork to deploy.

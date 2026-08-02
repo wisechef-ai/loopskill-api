@@ -439,7 +439,8 @@ class TestDogfoodRoundTrip:
 
     def test_salt_parity(self, db: Session, storage_dirs) -> None:
         """The promoted skill's install token verifies under the canonical
-        recipes-skill-install salt (same salt install_routes._download uses)."""
+        loopskill-install salt (same salt install_routes._download uses as
+        its primary salt; qa0208/A-047)."""
         from itsdangerous import URLSafeTimedSerializer
         from urllib.parse import parse_qs, urlparse
 
@@ -461,7 +462,7 @@ class TestDogfoodRoundTrip:
 
         token = parse_qs(urlparse(inst["tarball_url"]).query)["token"][0]
         # Verifies ONLY under the canonical salt — drift would raise BadSignature.
-        serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="recipes-skill-install")
+        serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="loopskill-install")
         payload = serializer.loads(token, max_age=300)
         assert payload["slug"] == a["skill_slug"]
         assert payload["mode"] == "install"

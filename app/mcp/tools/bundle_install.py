@@ -38,20 +38,22 @@ from app.models import Bundle, BundleSkill, Skill, SkillVersion
 def _make_install_url(skill_slug: str, version_id: UUID, version_semver: str) -> str:
     """DRY copy of bundle_routes._make_install_url so the MCP path uses the
     same salt + URL shape as the HTTP path. Salt MUST stay
-    'recipes-skill-install' to verify against
-    install_routes._download — see secfix_1905/I-followup. The verifier
-    accepts both 'loopskill-install' and 'recipes-skill-install', and the
-    salt-parity tests (test_cookbook_share_install,
-    test_loopclose_3005_c_tailor_loop) pin this path to the latter.
+    'loopskill-install' (Phase 3+4 canonical salt) to match every other
+    producer — install_routes.py, bundle_routes.py, services/reconcile.py,
+    mcp/tools/loopskill_sync.py, mcp/tools/install.py. The verifier
+    (install_routes._verify_signed_token) tries 'loopskill-install' first and
+    falls back to the legacy 'recipes-skill-install' salt only for old
+    in-flight URLs signed before the Phase 3+4 rename — new producers must
+    not target the fallback.
 
     Why duplicated: bundle_routes is FastAPI-route-shaped (HTTPException,
     Depends, Response) and pulling it in here would drag a fastapi import
     into a pure-MCP module. The two-line URL builder is small enough to
     duplicate; salt/secret are both centralised in settings so drift is
     bounded. Salt-parity regression test
-    (test_secfix_1905_d_cookbook_install_url) covers the equality.
+    (tests/test_install_url_salt_consistency.py) covers the equality.
     """
-    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="recipes-skill-install")
+    serializer = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="loopskill-install")
     token = serializer.dumps({"slug": skill_slug, "version_id": str(version_id), "mode": "install"})
     public_origin = config.public_origin()
     return public_origin.rstrip("/") + "/api/skills/_download?token=" + token

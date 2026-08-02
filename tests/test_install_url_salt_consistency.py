@@ -8,6 +8,10 @@ Three producers that drifted in the original incident are pinned here:
   - bundle_routes._make_install_url
   - mcp/tools/install
   - mcp/tools/loopskill_sync._build_install_urls
+
+A fourth producer, mcp/tools/bundle_install._make_install_url, drifted off
+canonical in a later incident (qa0208/A-047 — it kept signing with the OLD
+salt, masked only by the verifier's compat fallback) and is pinned here too.
 """
 
 from __future__ import annotations
@@ -76,6 +80,22 @@ def test_mcp_recipes_sync_uses_canonical_salt() -> None:
     assert f'salt="{INSTALL_SALT}"' in src, (
         "mcp.tools.loopskill_sync._build_install_urls drifted off the canonical "
         "install salt. Every loopskill_sync install URL would silently break."
+    )
+
+
+def test_mcp_bundle_install_tool_uses_canonical_salt() -> None:
+    """Regression for qa0208/A-047 (P0): mcp/tools/bundle_install._make_install_url
+    signed with the OLD salt ('recipes-skill-install') instead of the canonical
+    'loopskill-install' salt used by every sibling producer. It only worked
+    because install_routes._verify_signed_token's compat fallback masked the
+    drift — new producers must target the canonical salt, not the fallback.
+    """
+    from app.mcp.tools.bundle_install import _make_install_url
+
+    src = inspect.getsource(_make_install_url)
+    assert f'salt="{INSTALL_SALT}"' in src, (
+        "mcp.tools.bundle_install._make_install_url drifted off the canonical "
+        "install salt (qa0208/A-047)."
     )
 
 

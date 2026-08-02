@@ -13,6 +13,7 @@ Endpoints:
   POST /api/stripe/webhook       — Stripe webhook handler
 """
 
+import hmac
 import logging
 import secrets
 from datetime import UTC, datetime
@@ -398,9 +399,11 @@ def vat_moss_report(
     db: Session = Depends(get_db),
 ):
     """Generate a VAT MOSS report for the current period (admin endpoint)."""
-    # Basic auth check: require master API key
+    # Basic auth check: require master API key — constant-time (hmac.compare_digest)
+    # to avoid a timing side-channel on the master key, matching the house style in
+    # middleware/api_key.py, mcp/auth.py, and mcp/streaming.py.
     api_key = _get_api_key(request)
-    if api_key != settings.API_KEY:
+    if not api_key or not hmac.compare_digest(api_key, settings.API_KEY):
         raise HTTPException(status_code=403, detail="Admin access required")
 
     # Aggregate payouts by country for the current month
@@ -426,8 +429,9 @@ def run_payouts(
     db: Session = Depends(get_db),
 ):
     """Trigger monthly payout calculation. Requires admin API key."""
+    # Constant-time comparison — this gates real Stripe payout execution.
     api_key = _get_api_key(request)
-    if api_key != settings.API_KEY:
+    if not api_key or not hmac.compare_digest(api_key, settings.API_KEY):
         raise HTTPException(status_code=403, detail="Admin access required")
 
     try:

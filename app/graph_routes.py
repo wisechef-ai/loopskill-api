@@ -11,6 +11,7 @@ API key inline because the middleware exempted the prefix.
 
 from __future__ import annotations
 
+import hmac
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -88,7 +89,7 @@ def _require_master(request: Request) -> None:
     must come from a curator.
     """
     key = request.headers.get("x-api-key")
-    if not key or key != settings.API_KEY:
+    if not key or not hmac.compare_digest(key, settings.API_KEY):
         raise HTTPException(status_code=401, detail="master API key required")
 
 

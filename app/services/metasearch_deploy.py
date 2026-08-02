@@ -240,7 +240,17 @@ def pin_external_for_deploy(db: "Session", source: str, slug: str) -> PinResult:
 
         flag_modified(skill, "external_resources")
     except Exception:  # noqa: BLE001
-        pass
+        # Rationale: flag_modified() can only fail if the ORM attribute
+        # instrumentation is missing/misconfigured for this mapped class —
+        # a programmer error, not a data condition. If it fails, the JSON
+        # mutation above is silently NOT persisted (db.add/flush below will
+        # write the row but SQLAlchemy may not detect the in-place dict
+        # change), so we must surface it instead of swallowing it silently.
+        logger.warning(
+            "flag_modified(external_resources) failed for skill %s — pin metadata may not persist to the DB",
+            getattr(skill, "slug", "<unknown>"),
+            exc_info=True,
+        )
     db.add(skill)
     db.flush()
 

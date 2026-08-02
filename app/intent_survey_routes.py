@@ -6,6 +6,7 @@ GET  /api/intent-survey/results    — admin-gated (x-api-key), aggregate counts
 
 from __future__ import annotations
 
+import hmac
 import logging
 from typing import Literal
 from uuid import uuid4
@@ -52,7 +53,7 @@ def submit_intent_survey(payload: IntentSurveyIn, db: Session = Depends(get_db))
 
 
 def _require_admin(x_api_key: str | None = Header(default=None, alias="x-api-key")) -> None:
-    if not x_api_key or x_api_key != settings.API_KEY:
+    if not x_api_key or not hmac.compare_digest(x_api_key, settings.API_KEY):
         raise HTTPException(status_code=403, detail="admin_only")
 
 
