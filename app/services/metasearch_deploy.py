@@ -247,8 +247,7 @@ def pin_external_for_deploy(db: "Session", source: str, slug: str) -> PinResult:
         # write the row but SQLAlchemy may not detect the in-place dict
         # change), so we must surface it instead of swallowing it silently.
         logger.warning(
-            "flag_modified(external_resources) failed for skill %s — pin metadata "
-            "may not persist to the DB",
+            "flag_modified(external_resources) failed for skill %s — pin metadata may not persist to the DB",
             getattr(skill, "slug", "<unknown>"),
             exc_info=True,
         )
