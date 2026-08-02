@@ -266,12 +266,22 @@ def _attach_tarball_urls(db: Session, plan: ReconcilePlan) -> None:
 
     public_origin = config.public_origin()
 
+    # Batched skill fetch (was N+1: one SELECT per row across 3 sections).
+    # One IN-query + dict lookup, same pattern as _install_counts_for /
+    # search_skills (Issue #19). Called on every /30min agent poll cycle.
+    all_slugs = {
+        row.get("slug") for section in (plan.add, plan.update, plan.drift) for row in section if row.get("slug")
+    }
+    skills_by_slug = (
+        {s.slug: s for s in db.query(Skill).filter(Skill.slug.in_(all_slugs)).all()} if all_slugs else {}
+    )
+
     for section in (plan.add, plan.update, plan.drift):
         for row in section:
             slug = row.get("slug")
             if not slug:
                 continue
-            skill = db.query(Skill).filter(Skill.slug == slug).first()
+            skill = skills_by_slug.get(slug)
             if skill is None:
                 continue
             target_semver = row.get("version") or row.get("to")
@@ -449,10 +459,18 @@ def recipes_reconcile(
     # bump the generation token. The agent-side application (pull + atomic swap)
     # is Phase D; here we only persist the server's desired-state bookkeeping.
     mutated = False
+    # Batched skill fetch (was N+1: one SELECT per row). One IN-query + dict
+    # lookup, same pattern as _install_counts_for / search_skills (Issue #19).
+    update_slugs = {upd["slug"] for upd in plan.update if upd.get("slug")}
+    skills_by_slug = (
+        {s.slug: s for s in db.query(Skill).filter(Skill.slug.in_(update_slugs)).all()}
+        if update_slugs
+        else {}
+    )
     for upd in plan.update:
         slug = upd["slug"]
         to_version = upd["to"]
-        skill = db.query(Skill).filter(Skill.slug == slug).first()
+        skill = skills_by_slug.get(slug)
         if skill is None:
             continue
         db.query(BundleSkill).filter(

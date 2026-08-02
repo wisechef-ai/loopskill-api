@@ -292,10 +292,18 @@ async def apply_cookbook(
 
     job_id = uuid.uuid4()
     cookbook_annotation = f"cookbook:{cb.id}"
+    # Batched skill fetch (was N+1: one SELECT per row). One IN-query + dict
+    # lookup, same pattern as _install_counts_for / search_skills (Issue #19).
+    skill_ids = {row.skill_id for row in rows if row.skill_id}
+    skills_by_id = (
+        {s.id: s for s in db.query(Skill).filter(Skill.id.in_(skill_ids)).all()}
+        if skill_ids
+        else {}
+    )
     for row in rows:
         if not row.skill_id:
             continue
-        skill = db.query(Skill).filter(Skill.id == row.skill_id).first()
+        skill = skills_by_id.get(row.skill_id)
         if not skill:
             continue
         ev = InstallEvent(
@@ -390,13 +398,21 @@ async def cookbook_deploy_manifest(
         .all()
     )
     skills = []
+    # Batched skill fetch (was N+1: one SELECT per row). One IN-query + dict
+    # lookup, same pattern as _install_counts_for / search_skills (Issue #19).
+    skill_ids = {row.skill_id for row in rows if row.skill_id}
+    skills_by_id = (
+        {s.id: s for s in db.query(Skill).filter(Skill.id.in_(skill_ids)).all()}
+        if skill_ids
+        else {}
+    )
     for row in rows:
         entry = {
             "version_pin": row.version_pin,
             "install_order": row.install_order,
         }
         if row.skill_id:
-            skill = db.query(Skill).filter(Skill.id == row.skill_id).first()
+            skill = skills_by_id.get(row.skill_id)
             if skill:
                 entry["skill"] = {"id": str(skill.id), "slug": skill.slug, "title": skill.title}
         if row.fork_id:

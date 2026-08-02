@@ -92,10 +92,18 @@ def _load_recipes(db: Session, rows: list[BundleDeployment]) -> list[dict]:
     checks treat them as no-op.
     """
     out: list[dict] = []
+    # Batched skill fetch (was N+1: one SELECT per row). One IN-query + dict
+    # lookup, same pattern as _install_counts_for / search_skills (Issue #19).
+    skill_ids = {row.skill_id for row in rows if row.skill_id}
+    skills_by_id = (
+        {s.id: s for s in db.query(Skill).filter(Skill.id.in_(skill_ids)).all()}
+        if skill_ids
+        else {}
+    )
     for row in rows:
         if not row.skill_id:
             continue
-        skill = db.query(Skill).filter(Skill.id == row.skill_id).first()
+        skill = skills_by_id.get(row.skill_id)
         if not skill:
             continue
         recipe = _parse_recipe_blob_for_skill(db, skill)
