@@ -95,7 +95,7 @@ def _sign_tarball(priv_key: Ed25519PrivateKey, tarball_bytes: bytes) -> bytes:
 
 def _valid_toml(name: str, slug: str, version="1.0.0") -> bytes:
     return (
-        f'[skill]\n'
+        f"[skill]\n"
         f'name = "{name}"\n'
         f'version = "{version}"\n'
         f'description = "A test skill"\n'
@@ -210,6 +210,4 @@ class TestIssue155RepublishDoesNotRegressGoodTitle:
 
         assert resp.status_code == 201, resp.text
         db_session.refresh(skill)
-        assert skill.title == "AudioCraft", (
-            f"good title regressed to slug-shaped value: {skill.title!r}"
-        )
+        assert skill.title == "AudioCraft", f"good title regressed to slug-shaped value: {skill.title!r}"
