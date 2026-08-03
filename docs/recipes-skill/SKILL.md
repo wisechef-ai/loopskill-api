@@ -81,7 +81,7 @@ handler — but new integrations should use the canonical names below.
 | `loopskill_tailor_version` | Upload a new version tarball to one of your forks (base64-encoded). Mints a fork version and advances the latest pointer. Step 2 of the tailor loop. Pro tier or above |
 | `loopskill_bundle_attach` | Deploy a tailored fork's latest version into one of your bundles — promotes it into a private catalog skill + installable version, so it installs byte-identically to any catalog skill via `loopskill_bundle_install`. Step 3 of the tailor loop. Pro tier or above |
 
-The tailor loop closes end-to-end: `loopskill_tailor` → `loopskill_tailor_version` → `loopskill_bundle_attach` → `loopskill_bundle_install`. A tailored fork becomes a real, installable bundle skill with no separate deploy path.
+The tailor loop closes end-to-end: `loopskill_tailor` → `loopskill_tailor_version` → `loopskill_bundle_attach` → `loopskill_bundle_install`. A tailored fork becomes a real, installable bundle skill with no separate publish step.
 
 ### Diagnostics
 

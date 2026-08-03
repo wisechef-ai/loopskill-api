@@ -16,12 +16,24 @@ pip install -r requirements.txt
 
 # Set required env vars (see wiserecipes-api.env.example for the full list — the filename is legacy, env var names still use WR_*/RECIPES_* prefix for prod compatibility)
 # TODO(rename): env var still uses legacy name for prod compatibility — see issue #63
+#
+# EVERY server setting is read with the WR_ prefix (app/config.py sets
+# env_prefix="WR_", and alembic/env.py reads WR_DATABASE_URL). Exporting a bare
+# name such as DATABASE_URL does NOT fail loudly — it falls through to the
+# default in alembic.ini and migrates a database you never named.
 export WR_API_KEY="your-master-key"
 export WR_JWT_SECRET="your-jwt-secret"
 export WR_SIGNING_SECRET="your-signing-secret"
 export WR_HEARTBEAT_PEPPER="your-pepper"
 export WR_OAUTH_REDIRECT_BASE="https://your-domain.example.com"
-export DATABASE_URL="postgresql://user@localhost/loopskill"
+export WR_DATABASE_URL="postgresql://user@localhost/loopskill"
+
+# GitHub OAuth. Step 2 mints your owner key from a signed-in session, and the
+# only way to sign in is GitHub — so without these two you get to step 2 and
+# stop. Create them at https://github.com/settings/developers → "New OAuth App";
+# set the callback URL to $WR_OAUTH_REDIRECT_BASE/api/auth/github/callback.
+export WR_GITHUB_CLIENT_ID="Ov23li..."
+export WR_GITHUB_CLIENT_SECRET="..."
 
 # Run migrations
 alembic upgrade head
@@ -30,35 +42,84 @@ alembic upgrade head
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-### 2. Create an account + fleet
+### 2. Get an owner key
+
+Three different keys appear in this guide. Mixing them up is the most common
+way step 3 fails with a 403, so name them once:
+
+| Key | Where it comes from | What it may do |
+|---|---|---|
+| **master** — `$WR_API_KEY` | the env var you exported in step 1 | everything server-side, but it is **not** a user, so it cannot own a bundle |
+| **owner** — `rec_live_…` | minted below, for your signed-in account | create bundles + fleets, declare + place loops |
+| **member** — `rec_live_…` | returned once by step 5 | reconcile, read its own loop assignments, post telemetry |
+
+Sign in first — the key mint is a session route, not an API-key route:
 
 ```bash
-# Create a user (or sign in via GitHub OAuth at /api/auth/github/login)
-# Then create a fleet via MCP or HTTP:
+# Browser: https://your-host/api/auth/github/login  (needs WR_OAUTH_REDIRECT_BASE
+# from step 1 to point at this host). Then, with that session cookie:
+curl -X POST https://your-host/api/api-keys \
+  -b "$COOKIE_JAR" \
+  -H "Content-Type: application/json" \
+  -d '{"label": "self-host owner key"}'
+# → {"key": "rec_live_…"}  — returned ONCE. This is rec_live_OWNER_KEY below.
+```
+
+Free and Pro accounts may hold **one** active key at a time; a second mint
+returns 403 `key_cap_exceeded`. Revoke with `DELETE /api/api-keys/{key_id}`.
+
+### 3. Create a bundle and put a skill in it
+
+A bundle is the unit of desired state — the fleet subscribes to *it*, not to
+loose skills. Nothing later in this guide works without its UUID.
+
+```bash
+# Bundles are born PRIVATE. The master key cannot do this: a bundle needs an
+# owner, so use the owner key from step 2.
+curl -X POST https://your-host/api/bundles \
+  -H "x-api-key: rec_live_OWNER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-stack", "description": "what my agents run"}'
+# → {"id": "<bundle-uuid>", ...}  — this is <bundle-uuid> everywhere below.
+
+# Add a skill by slug (any slug from GET /api/skills/search?q=…)
+curl -X POST https://your-host/api/bundles/<bundle-uuid>/skills \
+  -H "x-api-key: rec_live_OWNER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"slug": "hub-search-claude-code"}'
+
+# Sanity check — this is what a member will converge to:
+curl -s https://your-host/api/bundles/<bundle-uuid>/manifest \
+  -H "x-api-key: rec_live_OWNER_KEY"
+```
+
+### 4. Create a fleet and subscribe it to the bundle
+
+```bash
 curl -X POST https://your-host/api/fleets \
-  -H "x-api-key: rec_live_YOUR_KEY" \
+  -H "x-api-key: rec_live_OWNER_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name": "my-fleet"}'
-# Returns fleet_key ONCE — save it.
+# → returns fleet_id and fleet_key ONCE — save both.
 
-# Subscribe the fleet to a bundle (cookbook) on a channel
-curl -X POST https://your-host/api/fleets/{fleet_id}/subscribe \
-  -H "x-api-key: rec_live_YOUR_KEY" \
+# Subscribe the fleet to the bundle on a channel
+curl -X POST https://your-host/api/fleets/<fleet_id>/subscribe \
+  -H "x-api-key: rec_live_OWNER_KEY" \
   -H "Content-Type: application/json" \
   -d '{"cookbook_id": "<bundle-uuid>", "channel": "canary"}'
 ```
 
-### 3. Enroll an agent as a fleet member
+### 5. Enroll an agent as a fleet member
 
 ```bash
-curl -X POST https://your-host/api/fleets/{fleet_id}/members \
-  -H "x-api-key: rec_live_YOUR_KEY" \
+curl -X POST https://your-host/api/fleets/<fleet_id>/members \
+  -H "x-api-key: rec_live_OWNER_KEY" \
   -H "Content-Type: application/json" \
   -d '{"host": "my-agent-host", "profile": "default", "skills_dir": "~/.loopskill/skills"}'
 # Returns the member's dedicated API key ONCE — save it.
 ```
 
-### 4. Set up the agent-side sync loop
+### 6. Set up the agent-side sync loop
 
 On the agent host, install the sync script:
 
@@ -86,7 +147,7 @@ python -m app.reconcile_cli \
   --gateway-restart-cmd "systemctl --user restart hermes-gateway"
 ```
 
-### 5. Set up a 30-minute cron
+### 7. Set up a 30-minute cron
 
 ```bash
 # crontab -e
@@ -100,7 +161,7 @@ python -m app.reconcile_cli \
   >> ~/.loopskill/sync.log 2>&1
 ```
 
-### 6. Report outcomes (Phase T — batched sync-report)
+### 8. Report outcomes (Phase T — batched sync-report)
 
 The sync-report collector batches loop runs, skill errors, and cron health
 into ONE POST per cycle:
@@ -117,16 +178,16 @@ scripts/loopskill-emit-run.sh <loop_slug> <outcome> [accepted] [cost_usd] [durat
 `scripts/install-loop-apply.sh` (see **Running loops**, below) places both of
 these for you.
 
-### 7. Verify the loop is working
+### 9. Verify the loop is working
 
 ```bash
 # Check fleet health:
 curl https://your-host/api/fleets \
-  -H "x-api-key: rec_live_YOUR_KEY"
+  -H "x-api-key: rec_live_OWNER_KEY"
 
 # Check voice inbox:
-curl https://your-host/api/fleets/{fleet_id}/voice-inbox \
-  -H "x-api-key: rec_live_YOUR_KEY"
+curl https://your-host/api/fleets/<fleet_id>/voice-inbox \
+  -H "x-api-key: rec_live_OWNER_KEY"
 
 # Check healthz:
 curl https://your-host/api/healthz
@@ -134,8 +195,8 @@ curl https://your-host/api/healthz
 
 ## Running loops
 
-Everything above deploys **skills**. This section deploys **loops** — the
-scheduled agent jobs that actually do work. It is the same GitOps shape: you
+Everything above converges **skills** onto a member. This section adds
+**loops** — the scheduled agent jobs that actually do work. It is the same GitOps shape: you
 declare desired state server-side, the agent pulls and converges.
 
 The whole chain, and the file that owns each hop:
@@ -158,13 +219,13 @@ The whole chain, and the file that owns each hop:
 > `install-loop-apply.sh` will refuse them rather than install a cron that can
 > never converge. Hops 1–3 and 6–8 are host-agnostic.
 
-### 8. Install the loop-apply + collector crons
+### 10. Install the loop-apply + collector crons
 
 One command, on the agent host, from a clone of this repo. Idempotent — running
 it twice replaces its own cron block rather than adding a second one.
 
 ```bash
-# The MEMBER key from step 3 — loop assignments are a member surface;
+# The MEMBER key from step 5 — loop assignments are a member surface;
 # a fleet/bundle key gets a 403 here.
 export RECIPES_API_KEY="rec_live_MEMBER_KEY"
 
@@ -181,7 +242,7 @@ Preview without writing anything:
 bash scripts/install-loop-apply.sh --api https://your-host --dry-run
 ```
 
-### 9. Declare a loop and place it on the member
+### 11. Declare a loop and place it on the member
 
 Both are MCP tools on the fleet-manager surface, called with the **owner** key
 (the member key cannot declare or place — that is deliberate). Point any MCP
@@ -232,7 +293,7 @@ prompt never calls `loopskill-emit-run.sh`, the loop will run forever and report
 nothing — this is the single most common way a loop looks healthy and is not
 measured. Put the emit line in the prompt when you declare the loop.
 
-### 10. Watch it converge
+### 12. Watch it converge
 
 ```bash
 # What the server thinks this member should be running:
@@ -266,7 +327,7 @@ for j in jobs:
 EOF
 ```
 
-### 11. Watch a run land
+### 13. Watch a run land
 
 After the cron fires, the loop's own emit call leaves a record in the spool; the
 collector drains it on its next cycle.
@@ -284,7 +345,7 @@ loop must not die because its telemetry could not be written. The collector is
 the only component that talks to `/api/sync-report`, and it exits 0 on network
 failure and retries next cycle.
 
-### 12. Move or retire a loop
+### 14. Move or retire a loop
 
 ```jsonc
 // evacuate — remove the placement; the next loop-apply deletes the local cron
