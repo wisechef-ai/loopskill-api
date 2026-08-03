@@ -139,9 +139,9 @@ def compute_monthly_payouts(
             rate = settings.PAYOUT_RATE_FOUNDER_BONUS
 
         # Gross revenue attribution: each install attributed a share of subscription revenue
-        # For now: flat rate per install (€2.00 per install as placeholder)
+        # For now: flat rate per install ($2.00 per install as placeholder)
         # TODO: wire real subscription_attribution_ratio when billing is live
-        REVENUE_PER_INSTALL_CENTS = 200  # €2.00
+        REVENUE_PER_INSTALL_CENTS = 200  # $2.00
 
         gross_cents = row.install_count * REVENUE_PER_INSTALL_CENTS
         creator_share_cents = round(gross_cents * rate)
@@ -165,7 +165,7 @@ def compute_monthly_payouts(
     payouts = []
     for creator_id, data in creator_totals.items():
         if data["total_creator_share_cents"] < 100:
-            # Skip sub-€1 payouts (Stripe minimum)
+            # Skip sub-$1 payouts (Stripe minimum)
             logger.info(
                 f"Skipping payout for {data['display_name']}: {data['total_creator_share_cents']} cents below minimum"
             )
