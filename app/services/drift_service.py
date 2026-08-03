@@ -43,6 +43,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import Bundle, BundleLock, BundleSkill, Skill, SkillVersion
+from app.services import artifact_resolution
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +135,7 @@ def _resolve_entry_snapshot(
     slug = skill.slug if skill else str(bs.skill_id)
 
     version_row: SkillVersion | None = None
+    skipped_unresolvable: list[str] = []
     if bs.pin_mode == "pin" and bs.pinned_version:
         version_row = (
             db.query(SkillVersion)
@@ -153,18 +155,59 @@ def _resolve_entry_snapshot(
 
         candidates = db.query(SkillVersion).filter(SkillVersion.skill_id == bs.skill_id).all()
         if candidates:
-            version_row = max(candidates, key=lambda v: (semver_key(v.semver), str(v.id)))
+            ordered = sorted(candidates, key=lambda v: (semver_key(v.semver), str(v.id)), reverse=True)
+            # converge_0208 P1b — walk DOWN to the newest version that can
+            # actually be installed, instead of freezing a head whose artifact
+            # was lost.
+            #
+            # Found by running P1's own backfill against prod: two bundles could
+            # not mint because llm-wiki-hermes 2.1.0 pointed at the dead
+            # /storage/skills mount while 1.0.1 sat healthy on disk. Refusing a
+            # whole bundle over an orphaned DB row punishes the bundle owner for
+            # a storage migration they did not perform.
+            #
+            # This is safe for 'track' precisely because 'track' promises "the
+            # head", not "these exact bytes" — and it is deliberately NOT applied
+            # to a 'pin' (handled above), where sliding would make pinning
+            # meaningless. If NOTHING resolves, version_row stays the head and
+            # the caller's resolvability check refuses loudly, as before.
+            for cand in ordered:
+                if (
+                    artifact_resolution.unresolvable_reason(
+                        db,
+                        skill=skill,
+                        semver=cand.semver,
+                        version_row=cand,
+                        federated_source=bs.federated_source,
+                    )
+                    is None
+                ):
+                    version_row = cand
+                    break
+                skipped_unresolvable.append(cand.semver)
+            if version_row is None:
+                # Nothing installable — keep the head so the refusal names the
+                # version a human would expect to see.
+                version_row = ordered[0]
+                skipped_unresolvable = []
 
     version = version_row.semver if version_row else (bs.pinned_version or "unknown")
     content_hash = version_row.checksum_sha256 if version_row else None
+    entry: dict[str, Any] = {
+        "slug": slug,
+        "version": version,
+        "content_hash": content_hash,
+        "source": "local",
+        "pin_mode": bs.pin_mode or "track",
+    }
+    if skipped_unresolvable:
+        # P1b — the degradation is RECORDED, never silent. A reader of the lock
+        # (or of the backfill report) can see that a newer version exists but
+        # could not be installed, instead of quietly getting older bytes than
+        # the catalog advertises.
+        entry["skipped_unresolvable"] = skipped_unresolvable
     return (
-        {
-            "slug": slug,
-            "version": version,
-            "content_hash": content_hash,
-            "source": "local",
-            "pin_mode": bs.pin_mode or "track",
-        },
+        entry,
         skill,
         version_row,
     )
