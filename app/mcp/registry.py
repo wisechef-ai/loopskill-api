@@ -151,11 +151,6 @@ def _core_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="loopskill_carousel_today",
-            description="Today's curated carousel of skills.",
-            inputSchema={"type": "object"},
-        ),
-        types.Tool(
             name="loopskill_subskill_resolve",
             description="Phase C stub — resolve a sub-skill key to a scope.",
             inputSchema={"type": "object"},

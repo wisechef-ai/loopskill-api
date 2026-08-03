@@ -16,7 +16,6 @@ from uuid import uuid4
 import pytest
 
 from app.mcp.tools import (
-    loopskill_carousel_today,
     loopskill_doctor,
     loopskill_install,
     loopskill_list_bundle,
@@ -26,7 +25,6 @@ from app.mcp.tools import (
     loopskill_subskill_resolve,
 )
 from app.models import (
-    CarouselEntry,
     Bundle,
     BundleSkill,
     Skill,
@@ -149,29 +147,6 @@ def test_subrecipe_resolve_reports_pro_plus(db_session):
     The stub will be replaced with real sub-key validation logic in Phase C.
     """
     assert loopskill_subskill_resolve(db_session) == {"scope": "pro_plus"}
-
-
-# ── loopskill_carousel_today ──────────────────────────────────────────────────
-
-def test_carousel_today_returns_entries_for_utc_today(db_session):
-    today = datetime.now(timezone.utc)
-    skill = make_skill(db_session, slug="carousel-skill", title="Carousel Skill",
-                       description="…", category="ops")
-    db_session.add(CarouselEntry(
-        id=uuid4(),
-        featured_date=today,
-        slot=1,
-        position=0,
-        skill_id=skill.id,
-        role="new-capability",
-        tagline="hello",
-        score=8.0,
-    ))
-    db_session.commit()
-
-    out = loopskill_carousel_today(db_session)
-    assert out["date"] == today.date().isoformat()
-    assert any(e["skill"]["slug"] == "carousel-skill" for e in out["entries"])
 
 
 # ── loopskill_doctor ──────────────────────────────────────────────────────────
