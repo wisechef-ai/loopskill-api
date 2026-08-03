@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """audit_cookbook_cap.py — Cookbook-cap SSOT enforcement (loopclose_3005 Phase A).
 
-The cookbook cap (Pro=10, Pro+=200, free=0) has exactly ONE home:
+The PRIVATE-bundle cap (free=2, Pro=50, Pro+=200; public bundles are unlimited
+on every tier — autopilot_0308 M1 / D-011) has exactly ONE home:
 ``config/tiers.yaml`` (key ``cookbook_limit`` per tier), read everywhere via
 ``app.tier_labels.cookbook_limit()``. Before this gate there were four
 conflicting sources of the number (cookbook_routes ``>= 1``, auth_routes inline

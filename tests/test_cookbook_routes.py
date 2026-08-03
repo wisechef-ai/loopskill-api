@@ -173,44 +173,48 @@ class TestTierGates:
         assert body["bundle_owner"] == str(user.id)
         assert body["is_base"] is False
 
-    def test_pro_tier_allows_up_to_ten(self, db_session):
-        """Pro cap is 10 (loopclose_3005 SSOT). Cookbooks 1-10 succeed."""
+    def test_pro_tier_allows_up_to_fifty(self, db_session):
+        """Pro cap is 50 private bundles (autopilot_0308 M1 / D-004). 1-50 succeed."""
         user = _make_user(db_session, tier="pro")
+        # Seed 48 directly (fast) so the next two POSTs are the 49th and 50th.
+        for i in range(48):
+            db_session.add(Bundle(id=uuid4(), name=f"seed{i}", bundle_owner=user.id))
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
         with TestClient(app) as client:
-            for i in range(10):
+            for i in range(2):
                 r = client.post("/api/cookbooks", json={"name": f"CB{i}"})
-                assert r.status_code == 201, f"cookbook {i + 1} should succeed: {r.text}"
+                assert r.status_code == 201, f"cookbook {49 + i} should succeed: {r.text}"
 
-    def test_pro_tier_eleventh_cookbook_blocked_with_403(self, db_session):
-        """The 11th Pro cookbook is rejected with max_cookbooks=10 (SSOT)."""
+    def test_pro_tier_fifty_first_cookbook_blocked_with_403(self, db_session):
+        """The 51st Pro cookbook is rejected with max_cookbooks=50 (SSOT)."""
         user = _make_user(db_session, tier="pro")
+        for i in range(49):
+            db_session.add(Bundle(id=uuid4(), name=f"seed{i}", bundle_owner=user.id))
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
         with TestClient(app) as client:
-            for i in range(10):
-                assert client.post("/api/cookbooks", json={"name": f"CB{i}"}).status_code == 201
-            r11 = client.post("/api/cookbooks", json={"name": "Eleventh"})
-        assert r11.status_code == 403
-        detail = r11.json()["detail"]
+            assert client.post("/api/cookbooks", json={"name": "Fiftieth"}).status_code == 201
+            r51 = client.post("/api/cookbooks", json={"name": "FiftyFirst"})
+        assert r51.status_code == 403
+        detail = r51.json()["detail"]
         assert detail["reason"] == "pro_tier_limit"
-        assert detail["max_cookbooks"] == 10
+        assert detail["max_cookbooks"] == 50
 
-    def test_cook_legacy_alias_shares_pro_cap_of_ten(self, db_session):
-        """Legacy 'cook' slug resolves to Pro → same 10 cap (403 on 11th)."""
+    def test_cook_legacy_alias_shares_pro_cap_of_fifty(self, db_session):
+        """Legacy 'cook' slug resolves to Pro → same 50 cap (403 on the 51st)."""
         user = _make_user(db_session, tier="cook")
+        for i in range(50):
+            db_session.add(Bundle(id=uuid4(), name=f"seed{i}", bundle_owner=user.id))
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=user.id)
         with TestClient(app) as client:
-            for i in range(10):
-                assert client.post("/api/cookbooks", json={"name": f"CB{i}"}).status_code == 201
-            r11 = client.post("/api/cookbooks", json={"name": "Eleventh"})
-        assert r11.status_code == 403
-        assert r11.json()["detail"]["max_cookbooks"] == 10
+            r51 = client.post("/api/cookbooks", json={"name": "FiftyFirst"})
+        assert r51.status_code == 403
+        assert r51.json()["detail"]["max_cookbooks"] == 50
 
     def test_pro_plus_capped_at_two_hundred(self, db_session):
         """Pro+ cap is 200 (loopclose_3005 SSOT) — NOT unlimited.

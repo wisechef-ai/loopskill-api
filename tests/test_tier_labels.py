@@ -193,17 +193,18 @@ class TestCookbookLimitSSOT:
         tl = _reload_tier_labels()
         assert tl.bundle_limit("free") == 2
 
-    def test_pro_is_ten(self):
+    def test_pro_is_fifty(self):
+        # autopilot_0308 M1 / D-004: Pro private-bundle cap 10 → 50 (price unchanged).
         tl = _reload_tier_labels()
-        assert tl.bundle_limit("pro") == 10
+        assert tl.bundle_limit("pro") == 50
 
     def test_pro_plus_is_two_hundred(self):
         tl = _reload_tier_labels()
         assert tl.bundle_limit("pro_plus") == 200
 
-    def test_legacy_cook_resolves_to_pro_ten(self):
+    def test_legacy_cook_resolves_to_pro_fifty(self):
         tl = _reload_tier_labels()
-        assert tl.bundle_limit("cook") == 10
+        assert tl.bundle_limit("cook") == 50
 
     def test_legacy_operator_resolves_to_pro_plus_two_hundred(self):
         tl = _reload_tier_labels()

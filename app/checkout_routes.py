@@ -26,7 +26,7 @@ from app.subscription_service import (
     create_checkout_session,
     downgrade_pro_plus_to_pro,
 )
-from app.tier_labels import bundle_limit
+from app.services.bundle_quota import quota_status
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["checkout"])
@@ -228,6 +228,7 @@ async def billing_me(
                 _RECONCILE_COOLDOWN_S - (now - last),
             )
 
+    _quota = quota_status(db, user.id, user.subscription_tier)
     return {
         "user_id": str(user.id),
         "email": user.email,
@@ -235,10 +236,15 @@ async def billing_me(
         "subscription_id": user.subscription_id,
         "subscription_status": user.subscription_status,
         "subscription_tier": user.subscription_tier,
-        # cookbook_limit — SSOT in config/tiers.yaml via tier_labels.bundle_limit()
-        # (loopclose_3005 Phase X finishes Phase A's UI half). The portal library
-        # page interpolates this live so cap copy never drifts from the cap code.
-        "cookbook_limit": bundle_limit(user.subscription_tier),
+        # cookbook_limit — SSOT in config/tiers.yaml, read through the SAME
+        # helper the create route enforces with (app.services.bundle_quota), so
+        # the portal library page can never render a cap the API does not hold
+        # the user to. Only PRIVATE bundles are metered (D-011); the additive
+        # max_private_bundles / private_bundles_used keys say so out loud while
+        # cookbook_limit stays for existing portal readers (dual-accept).
+        "cookbook_limit": _quota["limit"],  # compat-alias
+        "max_private_bundles": _quota["limit"],
+        "private_bundles_used": _quota["used"],
         "subscription_current_period_end": (
             user.subscription_current_period_end.isoformat() if user.subscription_current_period_end else None
         ),

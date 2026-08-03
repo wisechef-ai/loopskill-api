@@ -69,7 +69,7 @@ from app.services.bundle_external import (
     known_external_source,
     materialize_external_skill,
 )
-from app.tier_labels import bundle_limit
+from app.services.bundle_quota import quota_status
 
 logger = logging.getLogger(__name__)
 
@@ -400,9 +400,12 @@ def loopskill_compose_bundle_from_links(
     becomes the membership of a freshly-created cookbook owned by ``ctx.user_id``.
 
     Requires user scope (master/anonymous/cbt cannot own a composed cookbook).
-    Honors the tier cookbook cap. Returns the new cookbook + its skill list +
-    the one-line clone instruction (the cookbook is private by default; the
-    owner publishes it to make it discoverable).
+    Honors the tier PRIVATE-bundle cap — the same helper the REST create route
+    uses, so the two surfaces can never enforce different numbers. Public
+    bundles are unlimited on every tier (D-011), so they never block a compose.
+    Returns the new cookbook + its skill list + the one-line clone instruction
+    (the cookbook is private by default; the owner publishes it to make it
+    discoverable — which also frees the slot it just consumed).
     """
     if ctx is None or ctx.scope != "user" or ctx.user_id is None:
         raise CookbookInstallError(
@@ -416,16 +419,18 @@ def loopskill_compose_bundle_from_links(
     if len(links) > 25:
         raise CookbookInstallError("too_many_links", "compose accepts at most 25 links per call.", status=422)
 
-    # Tier bundle cap (free=1, pro=10, pro+=200; None=unlimited).
-    limit = bundle_limit(ctx.tier)
-    if limit is not None:
-        existing = db.query(Bundle).filter(Bundle.bundle_owner == ctx.user_id).count()  # compat-alias
-        if existing >= limit:
-            raise CookbookInstallError(
-                "cookbook_limit",
-                f"cookbook limit reached for tier '{ctx.tier}' (max {limit}). Upgrade to compose more.",
-                status=403,
-            )
+    # Tier PRIVATE-bundle cap (free=2, pro=50, pro+=200; None=unlimited), metered
+    # by the shared helper the REST create route uses. D-011: public bundles are
+    # unlimited on every tier, so only not-public bundles are counted here.
+    quota = quota_status(db, ctx.user_id, ctx.tier)
+    if quota["blocked"]:
+        raise CookbookInstallError(
+            "cookbook_limit",  # compat-alias — wire-visible error code
+            f"private bundle limit reached for tier '{ctx.tier}' "
+            f"({quota['used']}/{quota['limit']}). Publishing a bundle frees its slot "
+            f"(public bundles are unlimited); or upgrade to compose more.",
+            status=403,
+        )
 
     # Resolve every link, collecting per-link errors but failing the call only
     # if NOTHING resolved (partial success is the useful behavior — one dead
