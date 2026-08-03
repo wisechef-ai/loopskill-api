@@ -1,7 +1,7 @@
 """converge_0208 P1 — record existing pin INTENT in bundle_skills.pin_mode.
 
 Revision ID: c0208_p1_pin_intent
-Revises: a2ed83d0e3b6
+Revises: c0208p3_skillver_status
 Create Date: 2026-08-03
 
 ``bundle_skills.pin_mode`` arrived with the spotify_1507 bundle lock and the
@@ -40,7 +40,9 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "c0208_p1_pin_intent"
-down_revision: str | Sequence[str] | None = "a2ed83d0e3b6"
+# Chained after converge_0208 P3 (merged first) rather than branching from
+# a2ed83d0e3b6 alongside it — single head, no merge revision needed.
+down_revision: str | Sequence[str] | None = "c0208p3_skillver_status"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
