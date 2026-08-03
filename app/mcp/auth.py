@@ -74,11 +74,19 @@ def validate_key(key: str | None, db: Session) -> dict[str, Any]:
         .first()
     )
     if api_key_obj:
+        # Resolve org membership the SAME way the REST path does
+        # (app.middleware.api_key._resolve_org_membership) — otherwise
+        # org-scoped features silently fail closed over MCP (Lane C #4).
+        from app.middleware.api_key import _resolve_org_membership
+
+        org_id, is_org_owner = _resolve_org_membership(db, api_key_obj.user_id)
         ctx = AuthContext(
             scope="user",
             user_id=api_key_obj.user_id,
             api_key_id=api_key_obj.id,
             bundle_scope=api_key_obj.bundle_id,  # None if not scoped  # compat-alias
+            org_id=org_id,
+            is_org_owner=is_org_owner,
         )
         return {
             "scope": "user",
