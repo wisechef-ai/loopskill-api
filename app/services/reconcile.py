@@ -43,11 +43,14 @@ from app.models import (
     Skill,
     SkillVersion,
 )
+from app.services.drift_service import UNDECLARED_SOURCES
 
 # Sources that mean "this skill is NOT part of the declared desired state".
 # A removed skill is soft-deleted via source='disabled' (no removed_at column —
-# reconcile-contract §1). Anything else is declared.
-_UNDECLARED_SOURCES = {"disabled"}
+# reconcile-contract §1). Anything else is declared. converge_0208 P1: the
+# filter now runs where the desired state is resolved — one definition, aliased
+# here so the contract stays greppable from the engine that documents it.
+_UNDECLARED_SOURCES = UNDECLARED_SOURCES
 
 
 @dataclass(frozen=True)
@@ -82,41 +85,53 @@ class ReconcilePlan:
 
 
 def _declared_skills(db: Session, cookbook_id: UUID) -> dict[str, dict[str, Any]]:
-    """Return {slug: {skill_id, pinned_version, latest_semver, latest_sha256}}
-    for every skill the cookbook DECLARES (source != disabled).
+    """Return {slug: {skill_id, target_version, target_sha256, latest_semver}}
+    for every skill the bundle DECLARES, resolved THROUGH THE BUNDLE LOCK.
+
+    converge_0208 P1. This function used to resolve the install target itself,
+    off the membership row: the pin if the row carried one, else the latest
+    published version. That made it a second, disagreeing resolver —
+    ``drift_service`` decides on ``pin_mode`` ('track' follows the head, 'pin'
+    freezes), while this ignored the column entirely and read any non-NULL pin
+    column as a pin. Live bundle ``tori-core`` carries 'track' rows whose pin
+    column holds residue written by this module's own apply path, so reconcile
+    targeted versions whose tarballs had been moved off ``/storage/skills`` —
+    HTTP 404, rollback, repeat every 30 minutes, 1,295 times.
+
+    There is now exactly one resolver: ``drift_service.resolve_bundle_entries``,
+    reached through the lock.
     """
-    # portal_0610 B2 — SEMANTIC latest per skill, not lexicographic
-    # func.max(semver). Fetch the declared rows, then resolve each skill's
-    # latest version semantically in Python.
+    from app.services.bundle_lock_sync import locked_entries_for_reconcile
     from app.services.semver import latest_semver_for_skills
 
-    rows = (
-        db.query(
-            BundleSkill.skill_id,
-            Skill.slug,
-            BundleSkill.pinned_version,
-            BundleSkill.source,
-        )
-        .join(Skill, Skill.id == BundleSkill.skill_id)
-        .filter(BundleSkill.bundle_id == cookbook_id)  # compat-alias
-        .all()
-    )
+    entries = locked_entries_for_reconcile(db, cookbook_id)
+    if not entries:
+        return {}
 
-    latest_by_skill = latest_semver_for_skills(db, {r.skill_id for r in rows})
+    # The lock also freezes federated tracks (source != 'local'), which this
+    # engine has never declared — it resolves local Skill rows only. Filtering
+    # on "is there a Skill with this slug" reproduces the previous inner join
+    # exactly, so the lock adds no rows the agents did not already receive.
+    slugs = [e.get("slug") for e in entries if e.get("slug")]
+    skills_by_slug = {s.slug: s for s in db.query(Skill).filter(Skill.slug.in_(slugs)).all()}
+    latest_by_skill = latest_semver_for_skills(db, {s.id for s in skills_by_slug.values()})
 
     declared: dict[str, dict[str, Any]] = {}
-    for r in rows:
-        if r.source in _UNDECLARED_SOURCES:
+    for entry in entries:
+        slug = entry.get("slug")
+        skill = skills_by_slug.get(slug)
+        if skill is None:
             continue
-        latest_semver = latest_by_skill.get(r.skill_id)
-        # The "target" version is the pin if set, else the latest published.
-        target = r.pinned_version or latest_semver
-        declared[r.slug] = {
-            "skill_id": r.skill_id,
-            "slug": r.slug,
-            "pinned_version": r.pinned_version,
-            "target_version": target,
-            "latest_semver": latest_semver,
+        declared[slug] = {
+            "skill_id": skill.id,
+            "slug": slug,
+            # Reported, not resolved: what the membership row happens to say.
+            "pin_mode": entry.get("pin_mode", "track"),
+            "target_version": entry.get("version"),
+            # Straight off the lock — the frozen content hash IS the promise
+            # that two members installing this revision get the same bytes.
+            "target_sha256": entry.get("content_hash"),
+            "latest_semver": latest_by_skill.get(skill.id),
         }
     return declared
 
@@ -156,7 +171,11 @@ def compute_reconcile_plan(
 
     for slug, d in declared.items():
         target = d["target_version"]
-        target_sha = _sha_for(db, d["skill_id"], target)
+        # The lock froze the content hash at resolution time; that frozen value
+        # is what makes two members byte-identical. Re-derive from the version
+        # row only when the lock carried no hash (a version published without a
+        # checksum), so behaviour is unchanged for those rows.
+        target_sha = d.get("target_sha256") or _sha_for(db, d["skill_id"], target)
         ls = local_by_slug.get(slug)
 
         if ls is None:

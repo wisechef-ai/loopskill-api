@@ -168,17 +168,29 @@ def test_mint_refuses_dead_tarball_path_and_names_the_slug(db_session):
     assert db_session.query(BundleLock).filter(BundleLock.bundle_id == bundle.id).count() == 0
 
 
-def test_mint_refuses_when_the_resolved_version_row_is_missing(db_session):
-    from app.services.drift_service import LockMintError, mint_bundle_lock
+def test_unpublished_skill_is_skipped_not_refused(db_session, live_tarball):
+    """A never-published member is a draft, not a broken artifact.
 
-    skill = _skill(db_session, "no-versions-at-all", [])
-    bundle = _bundle(db_session, name="empty-versions")
-    _declare(db_session, bundle, skill)
+    Refusing it would ban "add the skill, then publish its first version".
+    Skipping it also removes a guaranteed rollback: reconcile used to emit an
+    add row with version=None, which carries no signed tarball_url, and the
+    client rolls back the ENTIRE apply when a row is missing one.
+    """
+    from app.services.drift_service import mint_bundle_lock
+    from app.services.reconcile import compute_reconcile_plan
+
+    draft = _skill(db_session, "no-versions-at-all", [])
+    published = _skill(db_session, "already-published", [("1.0.0", "h1", live_tarball)])
+    bundle = _bundle(db_session, name="half-drafted")
+    _declare(db_session, bundle, draft)
+    _declare(db_session, bundle, published)
     db_session.commit()
 
-    with pytest.raises(LockMintError) as exc:
-        mint_bundle_lock(db_session, bundle)
-    assert "no-versions-at-all" in str(exc.value)
+    lock = mint_bundle_lock(db_session, bundle)
+    assert [e["slug"] for e in lock.locked_entries] == ["already-published"]
+
+    plan = compute_reconcile_plan(db_session, bundle.id, local=[])
+    assert [a["slug"] for a in plan.add] == ["already-published"]
 
 
 def test_resolvability_probe_is_injectable(db_session, monkeypatch):
@@ -527,16 +539,33 @@ def test_two_members_resolve_byte_identical_targets(db_session, live_tarball):
 # ── 6. the gate: reconcile never resolves off pinned_version ───────────────
 
 
-def test_reconcile_module_never_resolves_from_pinned_version():
-    """Gate: ``pinned_version`` may be READ for reporting/diffing, never used
-    as the resolution target."""
-    import pathlib
+def test_reconcile_declared_skills_never_reads_pinned_version():
+    """Gate: the resolution function must not touch ``pinned_version`` at all.
 
-    import app.services.reconcile as rc
+    Asserted over the AST rather than the raw text so prose in a docstring
+    (which is exactly where the old behaviour is documented) cannot trip it,
+    and so a rename of the local variable cannot smuggle the read back in.
+    """
+    import ast
+    import inspect
 
-    src = pathlib.Path(rc.__file__).read_text()
-    assert "r.pinned_version or latest_semver" not in src
-    assert "pinned_version or latest" not in src
+    from app.services import reconcile as rc
+
+    tree = ast.parse(inspect.getsource(rc._declared_skills))
+    reads = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and node.attr == "pinned_version"
+    ]
+    assert reads == [], "_declared_skills must resolve through the lock, not the pin column"
+
+    # ...and it resolves through the lock instead.
+    called = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert "locked_entries_for_reconcile" in called
 
 
 # ── 7. semantic-latest parity between the two former resolvers ─────────────
