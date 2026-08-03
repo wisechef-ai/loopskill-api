@@ -72,6 +72,22 @@ Wire keys: `cookbook_limit` and the 403 detail `{"reason": "pro_tier_limit",
 (dual-accept). The visibility-qualified names `max_private_bundles` /
 `private_bundles_used` are additive alongside them.
 
+## Tier ladder — 3 public, 1 data-layer-only (autopilot_0308 M2, D-003)
+
+| DB slug    | Public tier? | Notes |
+|------------|--------------|-------|
+| `free`     | yes          | |
+| `pro`      | yes          | $9.95/mo, unchanged (D-004) |
+| Enterprise | yes          | contact form, no price object, no `db_slug` — a sales conversation (hub D-005), not a meter |
+| `pro_plus` | **no**       | data-layer only; see `docs/taxonomy.md` for the full rationale |
+
+`pro_plus` is off the public ladder but is **not deleted** — it stays a
+live `db_slug` for the D-010 migration window and for Enterprise contracts
+(assigned manually, never via self-serve checkout). Full detail, including
+why dropping it would be a data-loss migration, lives in
+`docs/taxonomy.md`. This entry exists so a future rename/cleanup pass hits
+this file's grep before touching that enum value.
+
 ## Dead legacy to DROP (not rename)
 
 | Item | Action |
