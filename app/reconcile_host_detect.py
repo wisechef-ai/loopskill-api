@@ -143,9 +143,9 @@ def loop_apply_cron_template(
     create on assign, update on change, remove on undeploy.
 
     ``key_file`` renders the member key as a ``$(cat …)`` read rather than an
-    inlined literal: a crontab is world-listable to its owner's every process
-    and shows up in ``ps``. The reconcile-path installer inlines its key; that
-    is a wart, not a precedent to copy.
+    inlined literal: a crontab is readable by every process its owner runs, and
+    an inlined key shows up in ``ps`` on every fire. The reconcile-path
+    installer inlines its key; that is a wart, not a precedent to copy.
 
     Raises ValueError for any host kind loop-apply cannot actually serve. A
     rendered-but-inert cron is the failure mode this sprint exists to stop:
