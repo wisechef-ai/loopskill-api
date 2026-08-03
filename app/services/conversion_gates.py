@@ -2,8 +2,9 @@
 
 The paid axis is MAINTENANCE, not ACCESS (decision #1). The ladder:
 
-  FREE  → one cookbook + exactly ONE manual sync (the taste). Watch a cookbook
-          self-heal + auto-recover once. Then the ceiling is felt.
+  FREE  → a couple of PRIVATE bundles (unlimited public ones — D-011) + exactly
+          ONE manual sync (the taste). Watch a bundle self-heal + auto-recover
+          once. Then the ceiling is felt.
   PRO   → scheduled/cron auto-reconcile (the daemon). Skills never rot, hands-off.
   PRO+  → fleet reconcile across N agents + channels. The control plane.
 
@@ -18,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.tier_labels import _is_paid_tier, _is_pro_plus_tier
+from app.tier_labels import _is_paid_tier, _is_pro_plus_tier, bundle_limit
 
 
 @dataclass(frozen=True)
@@ -82,17 +83,41 @@ def gate_fleet(tier: str | None) -> GateOutcome:
 
 
 def gate_cookbook_create(tier: str | None, current_count: int, limit: int | None) -> GateOutcome:
-    """Creating a cookbook is allowed up to the tier's SSOT limit.
+    """Creating a bundle is allowed up to the tier's SSOT limit.
 
-    evergreen_0206 Phase G OPENS free creation: free=1 (SSOT, Phase A). The hard
-    401 'paid tier required' wall is removed for cookbook creation — free users
-    may create up to their limit; the count-cap (not a tier wall) enforces it.
+    evergreen_0206 Phase G OPENS free creation: the hard 401 'paid tier
+    required' wall is removed for bundle creation — free users may create up to
+    their limit; the count-cap (not a tier wall) enforces it.
+
+    ``current_count`` is the number of METERED bundles, i.e. everything the user
+    owns that is not ``visibility='public'`` (autopilot_0308 M1, D-011: public
+    bundles are unlimited on every tier). Do not pass a raw owned-bundle count —
+    call :func:`gate_bundle_create`, or count via
+    ``app.services.bundle_quota.count_metered_bundles``, which is the one
+    implementation of that predicate.
     """
     if limit is not None and current_count >= limit:
         return GateOutcome(
             allowed=False,
             http_status=403,
-            reason=f"cookbook_limit reached ({current_count}/{limit})",
+            # `cookbook_limit` is the wire-visible code (MCP error code, portal
+            # copy) — kept verbatim; only the human half of the string gained
+            # the visibility qualifier that was missing.
+            reason=f"cookbook_limit reached ({current_count}/{limit} private bundles; public are unlimited)",
             upgrade_to="pro" if not _is_paid_tier(tier) else "pro_plus",
         )
-    return GateOutcome(allowed=True, http_status=200, reason="within cookbook limit")
+    return GateOutcome(allowed=True, http_status=200, reason="within private bundle limit")
+
+
+def gate_bundle_create(db, user_id, tier: str | None) -> GateOutcome:
+    """DB-aware :func:`gate_cookbook_create` — counts the user's metered bundles.
+
+    The convenience form for callers that hold a session: it takes the count
+    from ``app.services.bundle_quota`` so the conversion ladder meters exactly
+    what the REST and MCP enforcers meter.
+    """
+    from app.services.bundle_quota import count_metered_bundles
+
+    return gate_cookbook_create(
+        tier, current_count=count_metered_bundles(db, user_id), limit=bundle_limit(tier)
+    )

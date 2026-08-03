@@ -38,7 +38,8 @@ from app.referral import (
     process_referral_cookie,
     resolve_referral_cookie,
 )
-from app.tier_labels import _is_paid_tier, _is_pro_plus_tier, bundle_limit
+from app.services.bundle_quota import quota_status
+from app.tier_labels import _is_paid_tier, _is_pro_plus_tier
 
 logger = logging.getLogger(__name__)
 
@@ -335,6 +336,7 @@ async def get_me(
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
+    _quota = quota_status(db, user.id, user.subscription_tier)
     return {
         "id": str(user.id),
         "email": user.email,
@@ -362,10 +364,16 @@ async def get_me(
                 "operator": None,  # legacy alias → pro_plus
                 "studio": None,  # legacy alias → pro_plus
             }.get(user.subscription_tier, 5),
-            # cookbook_limit — SSOT in config/tiers.yaml (loopclose_3005 Phase A).
-            # Read via tier_labels.bundle_limit() so this never drifts from the
-            # number bundle_routes.py enforces. Handles legacy slugs.
-            "cookbook_limit": bundle_limit(user.subscription_tier),
+            # cookbook_limit — SSOT in config/tiers.yaml, read through the SAME
+            # helper bundle_routes.py enforces with (app.services.bundle_quota),
+            # so a tier-conditional UI can never show a cap the API does not
+            # hold the user to. Only PRIVATE bundles are metered (D-011: public
+            # bundles are unlimited on every tier); the additive
+            # max_private_bundles / private_bundles_used keys say so, while
+            # cookbook_limit stays for existing readers (dual-accept).
+            "cookbook_limit": _quota["limit"],  # compat-alias
+            "max_private_bundles": _quota["limit"],
+            "private_bundles_used": _quota["used"],
             "cookbook_skill_cap": {
                 "free": 0,
                 "pro": 25,

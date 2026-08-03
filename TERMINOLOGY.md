@@ -40,6 +40,38 @@
 | pkg `wisechef-recipes` | `loopskill` | npm / pypi |
 | `recipes_*` MCP tools | neutral verbs (install/search/publish/deploy/sync/…) | 24 tool modules |
 
+## Bundle visibility and what `bundle_limit` actually meters
+
+`Bundle.visibility` has **three** values, not two:
+
+| Value | Meaning | Metered against `bundle_limit`? |
+|---|---|---|
+| `private` | visible only to the owner. The default for every new bundle. | **yes** |
+| `team` | shared with the owner's org/team, not published | **yes** |
+| `public` | published to the community; discoverable, installable by anyone | **no — unlimited on every tier, including Free** |
+
+`bundle_limit` in `config/tiers.yaml` (Free 2 · Pro 50 · Pro+ 200) is a
+**private-bundle cap**, never a total-bundle cap. Public bundles are free and
+unlimited on every tier: free community curation is a growth lever, so
+publishing must never cost the curator a slot. Flipping a bundle
+private→public frees its slot immediately, in the same request cycle.
+
+`team` is metered because it is not community curation — and because metering
+only `private` would be a one-click cap bypass (flip everything to `team` and
+own unlimited quasi-private bundles).
+
+**One implementation:** `app/services/bundle_quota.py`
+(`count_metered_bundles` / `quota_status`). Every enforcer (REST
+`POST /api/cookbooks`, MCP `loopskill_compose_bundle_from_links`) and every
+display surface (`/api/billing/me`, `/api/auth/me`) reads it, so the number a
+user is shown is the number they are held to. Do not write a second
+owner-bundle count query.
+
+Wire keys: `cookbook_limit` and the 403 detail `{"reason": "pro_tier_limit",
+"max_cookbooks": N}` are **legacy external contract** — kept verbatim
+(dual-accept). The visibility-qualified names `max_private_bundles` /
+`private_bundles_used` are additive alongside them.
+
 ## Dead legacy to DROP (not rename)
 
 | Item | Action |

@@ -15,15 +15,27 @@ tiers:
     price_id_env: null
     accent_color: "#6B7280"
     badge: Free
-    # Cookbook cap SSOT (loopclose_3005 Phase A; free 0→1 in evergreen_0206
-    # Phase A — the on-ramp taste, decision #10). The ONLY source of this
-    # number — cookbook_routes.py, auth_routes.py, checkout_routes.py read it
-    # via tier_labels.cookbook_limit(). null = unlimited (reserved for a future
+    # PRIVATE-bundle cap SSOT (loopclose_3005 Phase A; free 0→1 in
+    # evergreen_0206 Phase A — the on-ramp taste, decision #10). The ONLY
+    # source of this number — bundle_routes.py, mcp/tools/bundle_stream.py,
+    # auth_routes.py and checkout_routes.py all read it via
+    # tier_labels.bundle_limit() and count against it via
+    # services/bundle_quota.py. null = unlimited (reserved for a future
     # contact-us tier; no current tier is unlimited).
+    #
+    # WHAT IS METERED (autopilot_0308 M1, decision D-011): bundles whose
+    # visibility is NOT 'public' — i.e. 'private' and 'team'. PUBLIC bundles
+    # are UNLIMITED on every tier, including Free: free community curation is
+    # a growth lever, so publishing a bundle must never cost the curator a
+    # slot. Publishing an existing private bundle frees its slot immediately.
+    # 'team' is metered because it is not community curation, and metering
+    # only 'private' would be a one-click cap bypass.
+    #
     # liked_0711 (Adam 2026-07-12): 1→2. Every user now auto-gets a system
-    # "Liked" bundle (is_liked=true) which counts toward this owner-bundle cap,
-    # so free=1 left zero room to create even one real bundle. free=2 = the
-    # auto-Liked bundle + one real editable bundle.
+    # "Liked" bundle (is_liked=true, always private) which counts toward this
+    # cap, so free=1 left zero room to create even one real bundle. free=2 =
+    # the auto-Liked bundle + one real editable private bundle (+ unlimited
+    # public ones).
     bundle_limit: 2
 
   pro:
@@ -41,7 +53,11 @@ tiers:
     stripe_nickname: "Pro $9.95/mo"
     accent_color: "#3B82F6"
     badge: Pro
-    bundle_limit: 10
+    # autopilot_0308 M1, decision D-004: 10 → 50 private bundles. The PRICE IS
+    # UNCHANGED at $9.95 — D-004 moves the ceiling, not the bill. Public
+    # bundles remain unlimited here as on every tier (D-011); see the free
+    # block above for the full metering rule.
+    bundle_limit: 50
 
   pro_plus:
     db_slug: pro_plus
@@ -55,4 +71,5 @@ tiers:
     stripe_nickname: "Pro+ $100/mo"
     accent_color: "#D4A017"
     badge: Pro+
+    # Private bundles only (D-011); public bundles are unlimited.
     bundle_limit: 200

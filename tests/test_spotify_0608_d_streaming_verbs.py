@@ -444,9 +444,12 @@ def test_compose_rejects_too_many_links(db):
 
 
 def test_compose_honors_tier_cookbook_cap(db):
-    # free tier = 1 cookbook; create one, then composing a 2nd must 403.
+    # free tier = 2 PRIVATE cookbooks (autopilot_0308 M1 / D-011: public ones
+    # are unlimited, so the public `z-stack` source below does NOT fill a slot).
+    # Fill both private slots, then composing a 3rd must 403.
     owner = _mk_user(db, tier="free")
     _mk_cookbook(db, owner, "existing", visibility="private")
+    _mk_cookbook(db, owner, "existing-2", visibility="private")
     s1 = _mk_skill(db, "z")
     src = _mk_cookbook(db, owner, "z-stack")
     _attach(db, src, s1)

@@ -13,8 +13,9 @@ Legacy slugs 'cook'/'operator' accepted via _is_paid_tier/_is_pro_plus_tier shim
 
 Tier gate: middleware stamps api_key_user_id on request.state. The static master
 key bypasses tier checks. Free / no-tier users receive 401 on create. The
-per-tier cookbook cap is the SSOT in config/tiers.yaml (read via
-tier_labels.cookbook_limit); a 403 fires when a user is at their tier's limit.
+per-tier PRIVATE-bundle cap is the SSOT in config/tiers.yaml, metered by
+services.bundle_quota (PUBLIC bundles are unlimited on every tier, D-011); a
+403 fires when a user is at their tier's limit.
 """
 
 from __future__ import annotations
@@ -49,8 +50,8 @@ from app.services.bundle_external import (
     is_external_skill,
     resolve_external_install,
 )
+from app.services.bundle_quota import quota_status
 from app.services.federated_titles import federated_title_for, resolve_federated_hub_titles
-from app.tier_labels import bundle_limit
 
 logger = logging.getLogger(__name__)
 _h = APIRouter(tags=["bundles"])  # Phase 3+4: handlers registered prefix-free; combined below
@@ -866,7 +867,14 @@ def create_cookbook(
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
-    """Create a new cookbook for the authenticated user."""
+    """Create a new bundle. It is born **private**; publish it with
+    `PATCH /api/cookbooks/{id}/visibility`.
+
+    Your tier cap (Free 2, Pro 50, Pro+ 200) meters **private** and `team`
+    bundles only. **Public bundles are unlimited on every tier, including
+    Free** — publishing costs you nothing and frees the slot immediately.
+    403 `{"reason": "pro_tier_limit"}` once the private cap is reached.
+    """
     if ctx.is_master:
         raise HTTPException(status_code=400, detail="master key cannot create user-owned cookbooks")
 
@@ -874,17 +882,20 @@ def create_cookbook(
     if not name:
         raise HTTPException(status_code=422, detail="invalid_name")
 
-    # Cookbook cap — SSOT in config/tiers.yaml via tier_labels.bundle_limit().
-    # None = unlimited (reserved; no current tier). free=1 (evergreen_0206 Phase
-    # G on-ramp), Pro=10, Pro+=200.
-    limit = bundle_limit(ctx.tier)
-    if limit is not None:
-        existing = db.query(Bundle).filter(Bundle.bundle_owner == ctx.user_id).count()  # compat-alias
-        if existing >= limit:
-            raise HTTPException(
-                status_code=403,
-                detail={"reason": "pro_tier_limit", "max_cookbooks": limit},
-            )
+    # Private-bundle cap. services.bundle_quota is the ONE metering
+    # implementation (the MCP compose verb reads it too, so REST and MCP can
+    # never enforce different numbers); the rule and its rationale live there.
+    quota = quota_status(db, ctx.user_id, ctx.tier)
+    if quota["blocked"]:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "reason": "pro_tier_limit",
+                "max_cookbooks": quota["limit"],  # compat-alias — legacy key, kept
+                "max_private_bundles": quota["limit"],
+                "private_bundles_used": quota["used"],
+            },
+        )
 
     cb = Bundle(
         id=uuid4(),

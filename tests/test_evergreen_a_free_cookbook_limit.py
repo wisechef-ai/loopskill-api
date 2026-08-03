@@ -32,15 +32,16 @@ class TestFreeCookbookLimitSSOT:
         """A user with no tier set is treated as free → 2 cookbooks."""
         assert bundle_limit(None) == 2
 
-    def test_pro_unchanged(self):
-        assert bundle_limit("pro") == 10
+    def test_pro_is_fifty(self):
+        # autopilot_0308 M1 / D-004: 10 → 50 private bundles. Price unchanged.
+        assert bundle_limit("pro") == 50
 
     def test_pro_plus_unchanged(self):
         assert bundle_limit("pro_plus") == 200
 
     def test_legacy_aliases_unchanged(self):
         """30-day legacy aliases still resolve (remove after 2026-06-10)."""
-        assert bundle_limit("cook") == 10
+        assert bundle_limit("cook") == 50
         assert bundle_limit("operator") == 200
 
 

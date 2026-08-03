@@ -287,13 +287,14 @@ def test_no_stripe_customer_id_no_call(db):
 
 @pytest.mark.parametrize(
     "tier,expected_limit",
-    [("pro", 10), ("pro_plus", 200), (None, 2)],
+    [("pro", 50), ("pro_plus", 200), (None, 2)],
 )
 def test_billing_me_returns_cookbook_limit_from_ssot(db, tier, expected_limit):
     """Phase X: /api/billing/me must expose cookbook_limit read from the
     config/tiers.yaml SSOT so the portal library copy never drifts. Free
-    (tier=None) → 2 (liked_0711: auto Liked bundle + 1 real), Pro → 10,
-    Pro+ → 200."""
+    (tier=None) → 2 (liked_0711: auto Liked bundle + 1 real), Pro → 50
+    (autopilot_0308 M1 / D-004: 10 → 50), Pro+ → 200. The number is a
+    PRIVATE-bundle cap — public bundles are unlimited (D-011)."""
     from app.checkout_routes import _reconcile_last_attempt
 
     kwargs = {}
