@@ -34,7 +34,6 @@ from app.database import get_db
 from app.models import Creator, Skill, SkillVersion
 from app.security_scan import scan_tarball
 from app.skill_title import resolve_title_for_new_skill, resolve_title_for_republish
-from app.sync_fanout import emit_cookbook_event
 
 logger = logging.getLogger(__name__)
 
