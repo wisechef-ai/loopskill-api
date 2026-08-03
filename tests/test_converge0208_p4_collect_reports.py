@@ -58,6 +58,19 @@ class TestKeyResolution:
         monkeypatch.setenv("RECIPES_API_KEY", "rec_live_fallback")
         assert collector.member_key() == "rec_live_fallback"
 
+    def test_falls_back_to_the_key_file_the_installer_writes(self, collector, tmp_path):
+        """install-loop-apply.sh writes ~/.hermes/loopskill/member.key at 0600.
+
+        Without this fallback the collector cron the installer wires runs with
+        no key at all, prints "no member key — skipping" every 30 minutes, and
+        the loop path dies silently at hop 7 on every host that does not happen
+        to have Tori's enrollment secrets file.
+        """
+        keyfile = tmp_path / ".hermes" / "loopskill" / "member.key"
+        keyfile.parent.mkdir(parents=True)
+        keyfile.write_text("rec_live_from_keyfile")
+        assert collector.member_key() == "rec_live_from_keyfile"
+
     def test_falls_back_to_the_enrollment_secrets_file(self, collector, tmp_path):
         import base64
 
