@@ -122,10 +122,10 @@ def create_transfer(
 ) -> stripe.Transfer | None:
     """Create a transfer to a connected account.
 
-    amount_cents: amount in cents (e.g., 5000 = €50.00)
+    amount_cents: amount in cents (e.g., 5000 = $50.00)
     """
     if amount_cents < 100:
-        # Stripe minimum transfer is typically ~$0.50 / €0.50
+        # Stripe minimum transfer is typically ~$0.50
         logger.warning(f"Transfer amount {amount_cents} cents is below minimum, skipping")
         return None
 

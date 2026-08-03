@@ -75,7 +75,9 @@ def calculate_vat(
     """Calculate VAT MOSS for a digital service sale.
 
     Args:
-        gross_amount_cents: The total amount in cents (e.g., 4999 = €49.99)
+        gross_amount_cents: The total amount in cents, in the platform's billing
+            currency (USD) (e.g., 4999 = $49.99). VAT is calculated using the
+            buyer's EU country rate regardless of billing currency.
         buyer_country_code: ISO 3166-1 alpha-2 country code
         is_b2b: Whether this is a B2B transaction
         vat_number: EU VAT number (for B2B reverse charge validation)
