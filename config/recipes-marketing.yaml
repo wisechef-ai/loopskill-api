@@ -47,6 +47,14 @@ counts:
 # (e.g. {pro_skills}, {skills_total}, {free_skills}). This keeps catalog
 # numbers in marketing copy drift-proof — never hardcode a count in a bullet,
 # use the placeholder so it tracks the DB. Unknown tokens are left verbatim.
+#
+# autopilot_0308 M2 / D-003: the public ladder is exactly 3 tiers — Free
+# (no card here; unchanged from pre-M2), Pro, and Enterprise. `pro_plus` is
+# intentionally NOT listed below: it stays a fully live db_slug in
+# config/tiers.yaml (public: false there) for the migration window (D-010)
+# and Enterprise contracts, but it is a data-layer concept now, not a
+# marketing card. Do not re-add a `pro_plus:` block here — that would put
+# it back in front of new customers, which is exactly what D-003 removes.
 tiers:
   pro:
     display_name: Pro
@@ -57,16 +65,20 @@ tiers:
       - Cross-vendor (Claude Code, Cursor, Cline, OpenClaw, Hermes, Windsurf)
       - Per-key install visibility
       - Cancel anytime
-  pro_plus:
-    display_name: Pro+
-    price_usd: 100
+  # Enterprise is a sales conversation, not an automated meter (hub D-005) —
+  # `contact_only: true` and `price_usd: null` mean "no Stripe price object,
+  # ever." Existing Enterprise-shaped customers are assigned the `pro_plus`
+  # db_slug directly (never self-serve checkout); this card is the honest
+  # public face of that arrangement.
+  enterprise:
+    display_name: Enterprise
+    price_usd: null
+    contact_only: true
+    cta: Contact us
     bullets:
-      - Everything in Pro (every paid skill included — no skill-tier paywall)
-      - "Up to {pro_plus_cookbooks} cookbooks (vs {pro_cookbooks} on Pro)"
-      - Deploy cookbooks to your clients' agents
-      - Per-cookbook scoped API keys (up to 20)
-      - Private org-only catalog
-      - Priority skill review
+      - Everything in Pro, negotiated for your organization
+      - Custom fleet-scale deployment and contract terms
+      - Dedicated onboarding and a direct line to the team
 
 # ── MCP TOOLS — what the recipes_mcp_server exposes ─────────────────────────
 # ⚠️ drift_0604: mcp_tools + rest_endpoints below are now LIVE-OVERLAID in
