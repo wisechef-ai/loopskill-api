@@ -69,6 +69,7 @@ from pathlib import Path
 
 from app.reconcile_host_detect import (
     collect_reports_cron_template,
+    detect_hosts,
     loop_apply_cron_template,
     select_host,
 )
@@ -76,6 +77,11 @@ from app.reconcile_host_detect import (
 api_base, prefer, interval, jobs_file, repo_root = sys.argv[1:6]
 host = select_host(prefer=prefer or None)
 if host is None:
+    # select_host returns None both for "nothing detected" and for "--host X
+    # not detected"; say which, or the reader has to read the source to know.
+    detected = [h.kind for h in detect_hosts()]
+    if prefer:
+        sys.exit(f"install-loop-apply.sh: --host {prefer} not detected (found: {detected or 'none'})")
     sys.exit("install-loop-apply.sh: no agent host detected under $HOME")
 
 host_root = host.skills_dir.parent

@@ -213,6 +213,18 @@ class TestInstallerBehaviour:
         assert r.returncode != 0
         assert not spool.exists() or "app.loop_apply_cli" not in spool.read_text()
 
+    def test_missing_preferred_host_says_which_one(self, tmp_path):
+        """`select_host` returns None both for "nothing detected" and for
+        "--host X not detected". The user should not have to read the source."""
+        home = tmp_path / "home"
+        (home / ".hermes" / "skills").mkdir(parents=True)
+        bin_dir = tmp_path / "bin"
+        self._fake_crontab(bin_dir, tmp_path / "crontab.txt")
+
+        r = self._run(home, bin_dir, "--host", "codex")
+        assert r.returncode != 0
+        assert "codex" in r.stderr and "hermes" in r.stderr
+
     def test_dry_run_prints_the_cron_without_installing_it(self, tmp_path):
         home = tmp_path / "home"
         (home / ".hermes" / "skills").mkdir(parents=True)
