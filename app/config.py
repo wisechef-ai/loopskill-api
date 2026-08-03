@@ -102,8 +102,8 @@ class Settings(BaseSettings):
 
     # Stripe Subscription price IDs.
     # Canonical env var names (RCP-INCIDENT-2026-05-11 Phase 6, 2026-05-11):
-    #   WR_STRIPE_PRICE_PRO        (€20/mo)
-    #   WR_STRIPE_PRICE_PRO_PLUS   (€100/mo)
+    #   WR_STRIPE_PRICE_PRO        ($9.95/mo)
+    #   WR_STRIPE_PRICE_PRO_PLUS   ($100/mo)
     # CANONICAL FIELDS DEFAULT TO "" so an unset .env value doesn't get masked
     # by a stale-default constant. If the canonical env var is empty,
     # _load_tier_price_ids() falls back to price_id_env_legacy
