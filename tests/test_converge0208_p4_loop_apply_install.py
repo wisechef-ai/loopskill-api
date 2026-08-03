@@ -73,6 +73,20 @@ class TestLoopApplyCronTemplate:
         tpl = loop_apply_cron_template(_hermes(tmp_path), api_base="https://x")
         assert LOOP_APPLY_CRON_MARKER in tpl
 
+    def test_member_key_is_read_from_a_file_not_inlined(self, tmp_path):
+        """A crontab is listable by every process this user owns, and the
+        command line shows up in `ps`. The reconcile-path installer inlines
+        its key; that is a wart, not a precedent."""
+        keyfile = tmp_path / ".hermes" / "loopskill" / "member.key"
+        tpl = loop_apply_cron_template(_hermes(tmp_path), api_base="https://x", key_file=keyfile)
+        assert f'RECIPES_API_KEY="$(cat {keyfile})"' in tpl
+
+    def test_pythonpath_is_rendered_when_given(self, tmp_path):
+        tpl = loop_apply_cron_template(
+            _hermes(tmp_path), api_base="https://x", pythonpath=tmp_path / "repo"
+        )
+        assert f"PYTHONPATH={tmp_path / 'repo'}" in tpl
+
     def test_non_hermes_host_is_refused_not_faked(self, tmp_path):
         """loop_apply writes the Hermes jobs.json format and only that.
 
@@ -82,6 +96,29 @@ class TestLoopApplyCronTemplate:
         with pytest.raises(ValueError) as exc:
             loop_apply_cron_template(_codex(tmp_path), api_base="https://x")
         assert "hermes" in str(exc.value).lower()
+
+
+class TestCollectReportsCronTemplate:
+    """Without the drain, a fired loop's record never leaves the agent."""
+
+    def test_renders_the_collector_cron(self, tmp_path):
+        from app.reconcile_host_detect import collect_reports_cron_template
+
+        script = tmp_path / ".hermes" / "scripts" / "loopskill-collect-reports.py"
+        tpl = collect_reports_cron_template(_hermes(tmp_path), script_path=script)
+        assert str(script) in tpl
+        assert "*/30 * * * *" in tpl
+
+    def test_carries_the_idempotency_marker(self, tmp_path):
+        from app.reconcile_host_detect import (
+            COLLECT_REPORTS_CRON_MARKER,
+            collect_reports_cron_template,
+        )
+
+        tpl = collect_reports_cron_template(
+            _hermes(tmp_path), script_path=tmp_path / "loopskill-collect-reports.py"
+        )
+        assert COLLECT_REPORTS_CRON_MARKER in tpl
 
 
 class TestInstallerScript:
@@ -200,3 +237,19 @@ class TestInstallerBehaviour:
         emitter = home / ".hermes" / "scripts" / "loopskill-emit-run.sh"
         assert emitter.is_file(), "installer must place the emitter where loops can call it"
         assert os.access(emitter, os.X_OK)
+        collector = home / ".hermes" / "scripts" / "loopskill-collect-reports.py"
+        assert collector.is_file(), "without the drain, telemetry never leaves the host"
+
+    def test_member_key_lands_in_a_private_file_not_the_crontab(self, tmp_path):
+        home = tmp_path / "home"
+        (home / ".hermes" / "skills").mkdir(parents=True)
+        bin_dir = tmp_path / "bin"
+        spool = tmp_path / "crontab.txt"
+        self._fake_crontab(bin_dir, spool)
+
+        r = self._run(home, bin_dir, "--api", "https://app.loopskill.io")
+        assert r.returncode == 0, r.stdout + r.stderr
+        keyfile = home / ".hermes" / "loopskill" / "member.key"
+        assert keyfile.read_text() == "rec_live_fake"
+        assert oct(keyfile.stat().st_mode & 0o777) == "0o600"
+        assert "rec_live_fake" not in spool.read_text(), "secret leaked into the crontab"
