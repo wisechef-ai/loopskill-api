@@ -31,9 +31,8 @@ from app._creator_helpers import _resolve_or_create_creator
 from app.auth_ctx import AuthContext
 from app.config import settings
 from app.database import get_db
-from app.models import BundleSkill, Creator, Skill, SkillVersion
+from app.models import Creator, Skill, SkillVersion
 from app.security_scan import scan_tarball
-from app.sync_fanout import emit_cookbook_event
 
 logger = logging.getLogger(__name__)
 
@@ -493,55 +492,16 @@ async def publish_skill(
     db.refresh(skill_obj)
     db.refresh(version_row)
 
-    # Phase 0 (activate_0701) live-prod fix: advance the generation token of
-    # every bundle that DECLARES this skill, or the reconcile 304 fast-path
-    # (keyed on Bundle.updated_at) hides the new version from polling agents
-    # forever. Publish IS a desired-state change for those bundles.
-    from app.services.reconcile import bump_declaring_bundles
+    # ── 10a–11. Propagate the new head to the rest of the system ─────────
+    # Generation token + bundle-lock re-mint (correctness, shares this
+    # transaction), then BM25 reindex and the Phase-D live fan-out
+    # (best-effort). See app/services/publish_side_effects.py for why each
+    # step exists and which ones are allowed to fail.
+    from app.services import publish_side_effects
 
-    bump_declaring_bundles(db, skill_obj.id)
-    db.commit()
-
-    # ── 10a. BM25 reindex (Phase 4) ──────────────────────────────────────
-    # Embeddings deferred to v7.2; BM25-only per Adam directive 2026-05-07.
-    # Synchronous — to_tsvector is <10ms in postgres.
-    try:
-        from app.search_index import reindex_bm25
-
-        reindex_bm25(skill_obj.slug, db)
-    # Rationale: BM25 reindex is non-critical at publish time; failure → log and continue
-    except Exception:  # noqa: BLE001
-        logger.exception("BM25 reindex failed for %s (non-fatal)", skill_obj.slug)
-
-    # ── 11. Live-sync fan-out (Phase D) ─────────────────────────────────
-    # Notify every bundle that has this skill (and isn't disabled). On
-    # Postgres this goes via pg_notify so all processes receive it; on
-    # SQLite tests it publishes directly to the in-process subscribers.
-    try:
-        cookbook_ids = [
-            str(cs.bundle_id)
-            for cs in db.query(BundleSkill)
-            .filter(
-                BundleSkill.skill_id == skill_obj.id,
-                BundleSkill.source != "disabled",
-            )
-            .all()
-        ]
-        if cookbook_ids:
-            await emit_cookbook_event(
-                db,
-                cookbook_ids,
-                {
-                    "slug": skill_obj.slug,
-                    "version": semver,
-                    "action": "version_published",
-                    "skill_id": str(skill_obj.id),
-                },
-            )
-            db.commit()
-    # Rationale: fanout is non-critical at publish time; any error → log and return response
-    except Exception:  # noqa: BLE001
-        logger.exception("phase-D fan-out failed for %s@%s (non-fatal)", slug, semver)
+    publish_side_effects.propagate_desired_state(db, skill_obj)
+    publish_side_effects.reindex_search(db, skill_obj)
+    await publish_side_effects.fan_out_version_published(db, skill_obj, semver)
 
     return PublishResponse(
         skill_id=str(skill_obj.id),

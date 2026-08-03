@@ -50,6 +50,7 @@ from app.services.bundle_external import (
     is_external_skill,
     resolve_external_install,
 )
+from app.services.bundle_lock_sync import sync_bundle_lock
 from app.services.bundle_quota import quota_status
 from app.services.federated_titles import federated_title_for, resolve_federated_hub_titles
 
@@ -1161,6 +1162,7 @@ def add_skill_to_cookbook(
     if existing is not None:
         existing.source = source
         _touch_bundle_generation(db, cb.id)
+        sync_bundle_lock(db, cb, created_by=ctx.user_id)
         db.commit()
         return {
             "cookbook_id": str(cb.id),
@@ -1199,6 +1201,7 @@ def add_skill_to_cookbook(
     )
     db.add(cs)
     _touch_bundle_generation(db, cb.id)
+    sync_bundle_lock(db, cb, created_by=ctx.user_id)
     db.commit()
     db.refresh(cs)
     return {
@@ -1240,6 +1243,7 @@ def remove_skill_from_cookbook(
 
     cs.source = "disabled"
     _touch_bundle_generation(db, cb.id)
+    sync_bundle_lock(db, cb, created_by=ctx.user_id)
     db.commit()
     return {"cookbook_id": str(cb.id), "slug": slug, "source": "disabled", "deleted": True}
 
@@ -1489,7 +1493,16 @@ def set_skill_pin(
             )
         cs.source = "overridden"  # provenance: explicitly version-pinned
     cs.pinned_version = pin
+    # converge_0208 P1 — record the OWNER'S INTENT in the column the resolver
+    # reads. This route has written `pinned_version` since portal_0610 but never
+    # `pin_mode`, so the spotify_1507 lock resolver — which decides on pin_mode —
+    # saw every deliberate pin as 'track' and served the head instead. Setting
+    # both together is what makes a pin mean anything; leaving them apart is
+    # also how 'track' rows accumulated the residual pins that then read as
+    # pins to reconcile.
+    cs.pin_mode = "pin" if pin is not None else "track"
     _touch_bundle_generation(db, cb.id)
+    sync_bundle_lock(db, cb, created_by=ctx.user_id)
     db.commit()
     return {"cookbook_id": str(cb.id), "slug": slug, "pinned_version": pin, "pinned": pin is not None}
 

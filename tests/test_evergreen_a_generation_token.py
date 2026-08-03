@@ -19,6 +19,8 @@ RED until Phase A wires `_touch_cookbook_generation(db, cb)` into all three.
 
 from __future__ import annotations
 
+import pathlib
+import tempfile
 from typing import Generator
 from uuid import uuid4
 
@@ -97,12 +99,19 @@ def _make_skill(db: Session, slug: str, *, with_version: bool = True) -> Skill:
     db.add(s)
     db.flush()
     if with_version:
+        # converge_0208 P1: a bundle mutation now mints a bundle-lock, and
+        # minting refuses an entry whose tarball_path dangles. This fixture used
+        # a fictional /tmp/<slug>.tar.gz, so the version has to actually exist
+        # on disk for the add/remove routes under test to get as far as the
+        # generation-token write they are asserting.
+        tarball = pathlib.Path(tempfile.gettempdir()) / f"gen-token-{slug}.tar.gz"
+        tarball.write_bytes(b"\x1f\x8b\x08\x00fixture")
         db.add(
             SkillVersion(
                 id=uuid4(),
                 skill_id=s.id,
                 semver="0.1.0",
-                tarball_path=f"/tmp/{slug}.tar.gz",
+                tarball_path=str(tarball),
                 tarball_size_bytes=42,
                 checksum_sha256="a" * 64,
             )

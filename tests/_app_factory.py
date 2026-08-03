@@ -200,6 +200,12 @@ def build_test_app(
 
     _mount_all_routers(app)
 
+    # Same domain-exception → HTTP mapping create_app installs, so a service
+    # that raises a domain error 409s/422s here exactly as it does in prod.
+    from app.error_handlers import register_exception_handlers
+
+    register_exception_handlers(app)
+
     def _override_get_db():
         yield db_session
 
