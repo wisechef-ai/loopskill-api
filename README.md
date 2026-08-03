@@ -1,7 +1,7 @@
 # LoopSkill
 
-**Open-core, self-hostable registry for AI agents — and the only one where loops actually RUN.**
-Browse, install, and deploy **skills · bundles · loops · personalities**. Zero signup to self-host.
+**Open-core, self-hostable registry for AI agents. Loops don't just get listed — they run.**
+Browse, install and converge **skills · bundles · loops · personalities**. Zero signup to self-host.
 
 <p>
   <a href="https://github.com/wisechef-ai/loopskill-api/actions/workflows/ci.yml"><img src="https://github.com/wisechef-ai/loopskill-api/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -71,7 +71,7 @@ Four first-class, pullable artifact types:
 | Artifact | What it is |
 |----------|------------|
 | **skill** | One capability — a `SKILL.md` + optional scripts/refs. |
-| **bundle** | A curated set you deploy + sync to a whole fleet at once. |
+| **bundle** | A curated set a whole fleet subscribes to and converges on. |
 | **loop** | A safety-bounded autonomous agent loop — the part no other registry has. |
 | **personality** | A deployable persona (system prompt + config). |
 
@@ -94,7 +94,7 @@ never sees the server's own credentials — and returns an objective `passed: tr
 `confinement` level it achieved (`sandboxed` when a firejail/bwrap backend is present, else `bounded`
 POSIX rlimits, which run everywhere including the zero-config Docker image).
 
-The starter catalog ships **9 vetted loops** — `hello-world`, `test-green` (TDD), `lint-clean`,
+The starter catalog ships **10 vetted loops** — `hello-world`, `test-green` (TDD), `lint-clean`,
 `secret-scan`, `doc-coverage`, `changelog-from-commits`, `json-schema-validate`, and more. Each
 verification is **non-vacuous**: it passes on good input and *fails* on bad (the secret-scan loop
 catches a planted AWS key; the doc-coverage loop catches a missing docstring).
@@ -103,6 +103,25 @@ catches a planted AWS key; the doc-coverage loop catches a missing docstring).
 > layer — bringing your own LLM to drive a loop's `system_prompt` within the bounds — is a clean
 > pluggable seam on the roadmap (`mode=agent` currently returns `501`). The contract is enforced; the
 > driver is yours.
+
+### Two limits of the scheduled-loop path, stated up front
+
+`POST /api/loops/{slug}/run` above is synchronous and works anywhere. Putting a
+loop on a *fleet member* so it fires on a schedule is a second path, and it has
+two constraints worth knowing before you build on it:
+
+1. **A loop reports nothing unless its own prompt says to.** Telemetry exists
+   only because the loop's prompt calls `scripts/loopskill-emit-run.sh`. Nothing
+   else observes a fire — not the scheduler, not the server. Omit that line and
+   the loop runs forever while every dashboard shows zero. This is the reason
+   `loop_runs` sat at 1 for a year.
+2. **Cron materialization is Hermes-only.** `app/loop_apply.py` writes the Hermes
+   scheduler's `~/.hermes/cron/jobs.json`, and nothing else speaks that format
+   yet. On Codex, Claude or OpenCode hosts `scripts/install-loop-apply.sh`
+   refuses rather than installing a cron that can never converge. The skill path
+   is cross-vendor; the scheduled-loop path is not.
+
+Both are covered end to end in [docs/SELF_HOST.md](docs/SELF_HOST.md#running-loops).
 
 ---
 
@@ -189,7 +208,7 @@ uvicorn app.main:app --reload --port 8201
 > [firejail](https://firejail.wordpress.com/) or [bubblewrap](https://github.com/containers/bubblewrap).
 > Where neither is functional (macOS, hardened containers), the loop runner falls back to **bounded**
 > mode — POSIX rlimits + scrubbed env + isolated workspace — so loops still run; the response declares
-> which `confinement` level it achieved. Multi-tenant operators set `WR_LOOP_RUN_REQUIRE_SANDBOX=true`
+> which `confinement` level it achieved. Multi-tenant fleet owners set `WR_LOOP_RUN_REQUIRE_SANDBOX=true`
 > to refuse bounded-mode execution and require a real kernel sandbox.
 
 Contributor guide for AI agents: [AGENTS.md](./AGENTS.md).
