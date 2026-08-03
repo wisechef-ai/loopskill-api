@@ -85,6 +85,15 @@ class Rule:
         return True
 
 
+# The disclosure M4 requires on every loop surface is the negation of the claim
+# ("telemetry is NOT automatic", "the loop path does NOT run on every host"). A
+# gate that cannot tell the two apart punishes exactly the sentence it exists to
+# force people to write — the first version of this file flagged its own
+# required disclosure. Only the prose rules take this guard; the two
+# bundle-deployment rules stay strict, because the honest denial there
+# ("LoopSkill never pushes") does not contain the verb-object shape they match.
+_DENIAL = r"\bnot\b|\bn't\b|\bnever\b|\bno longer\b|\bonly\b|\bwithout\b"
+
 RULES: tuple[Rule, ...] = (
     Rule(
         id="bundle-deployment",
@@ -146,6 +155,7 @@ RULES: tuple[Rule, ...] = (
             "Convergence is a 30-minute poll (docs/SELF_HOST.md step 5). Nothing is "
             "pushed and nothing is real-time. Say the interval instead of an adjective."
         ),
+        unless=_DENIAL,
     ),
     Rule(
         id="loops-on-any-host",
@@ -157,6 +167,7 @@ RULES: tuple[Rule, ...] = (
             "Codex/Claude/OpenCode hosts rather than installing a cron that can never "
             "converge. The SKILL path is cross-vendor; the LOOP path is not."
         ),
+        unless=_DENIAL,
     ),
     Rule(
         id="automatic-telemetry",
@@ -170,6 +181,7 @@ RULES: tuple[Rule, ...] = (
             "scripts/loopskill-emit-run.sh. Nothing else observes a fire. That is the "
             "structural reason loop_runs sat at 1 for a year (/tmp/ISSUES-p4.md)."
         ),
+        unless=_DENIAL,
     ),
 )
 

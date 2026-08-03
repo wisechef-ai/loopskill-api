@@ -120,8 +120,14 @@ class TestEachRuleStaysSilentOnTheTruth:
             "The agent syncs on a 30-minute poll.",
             # The SKILL path really is cross-vendor.
             "Skills install the same way into any MCP-capable agent.",
-            # Telemetry, described honestly.
+            # Telemetry, described honestly. The first version of this gate
+            # flagged the exact disclosure M4 requires — a rule that punishes
+            # the honest sentence trains people to write the dishonest one.
             "Telemetry lands only when the loop's prompt calls the emitter.",
+            "Telemetry is NOT automatic.",
+            "Loop telemetry is never collected automatically.",
+            "Sync is not instant — the agent polls every 30 minutes.",
+            "Loops do not run on every agent; the scheduled path is Hermes-only.",
             # A tailored fork attaching into a bundle is a real, working path.
             "Deploy a tailored fork's latest version into one of your bundles.",
         ],
@@ -173,6 +179,26 @@ class TestSelfHostGuideIsRunnable:
         assert bare == [], (
             "docs/SELF_HOST.md exports Settings field(s) without the WR_ prefix, so the "
             f"app and alembic never see them: {bare}"
+        )
+
+    def test_settings_a_documented_step_depends_on_are_exported(self):
+        """A step that cannot be completed is worse than a step that is missing.
+
+        Step 2 mints the owner key from a signed-in session, and the only sign-in
+        route is GitHub OAuth — which needs ``WR_GITHUB_CLIENT_ID`` and
+        ``WR_GITHUB_CLIENT_SECRET``. Neither appeared anywhere in the guide, so a
+        stranger following it verbatim reached step 2 and stopped.
+        """
+        text = SELF_HOST.read_text(encoding="utf-8")
+        if "auth/github" not in text:
+            pytest.skip("the guide no longer routes sign-in through GitHub OAuth")
+        exported = set(_EXPORT_RE.findall(text))
+        missing = sorted(
+            {"WR_GITHUB_CLIENT_ID", "WR_GITHUB_CLIENT_SECRET"} - exported
+        )
+        assert missing == [], (
+            "docs/SELF_HOST.md tells the reader to sign in via GitHub OAuth but never "
+            f"has them set: {missing}"
         )
 
     def test_the_guide_says_where_the_api_key_comes_from(self):

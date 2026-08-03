@@ -28,6 +28,13 @@ export WR_HEARTBEAT_PEPPER="your-pepper"
 export WR_OAUTH_REDIRECT_BASE="https://your-domain.example.com"
 export WR_DATABASE_URL="postgresql://user@localhost/loopskill"
 
+# GitHub OAuth. Step 2 mints your owner key from a signed-in session, and the
+# only way to sign in is GitHub — so without these two you get to step 2 and
+# stop. Create them at https://github.com/settings/developers → "New OAuth App";
+# set the callback URL to $WR_OAUTH_REDIRECT_BASE/api/auth/github/callback.
+export WR_GITHUB_CLIENT_ID="Ov23li..."
+export WR_GITHUB_CLIENT_SECRET="..."
+
 # Run migrations
 alembic upgrade head
 
