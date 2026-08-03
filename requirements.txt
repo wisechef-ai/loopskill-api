@@ -1,6 +1,6 @@
 # Recipes API runtime + test dependencies (Sprint 4 baseline)
 fastapi>=0.115.0,<0.137.0
-uvicorn[standard]>=0.51.0
+uvicorn[standard]>=0.52.0
 sqlalchemy>=2.0.51
 alembic>=1.18.5
 cachetools>=7.1.4
