@@ -148,7 +148,7 @@ def test_dry_run_output_contains_audit_fields(configured_prices, db_session, fiv
     """DoD: dry-run output must show, per user, id/email/tier/stripe sub id/prices."""
     from scripts.migrate_pro_plus_to_pro import main
 
-    rc = main([])
+    rc = main([], db=db_session)
     out = capsys.readouterr().out
     assert rc == 0
     assert "DRY RUN" in out
@@ -167,7 +167,7 @@ def test_dry_run_default_writes_nothing(configured_prices, db_session, five_pro_
     from scripts.migrate_pro_plus_to_pro import main
 
     with patch("stripe.Subscription.retrieve") as ret_mock, patch("stripe.Subscription.modify") as mod_mock:
-        rc = main([])
+        rc = main([], db=db_session)
 
     assert rc == 0
     ret_mock.assert_not_called()
@@ -184,7 +184,7 @@ def test_execute_flag_alone_is_not_enough_without_confirmation(
     from scripts.migrate_pro_plus_to_pro import main
 
     with patch("stripe.Subscription.retrieve") as ret_mock, patch("stripe.Subscription.modify") as mod_mock:
-        rc = main(["--execute"], confirm_reader=lambda _prompt: "yes")
+        rc = main(["--execute"], confirm_reader=lambda _prompt: "yes", db=db_session)
 
     assert rc != 0
     ret_mock.assert_not_called()
@@ -208,10 +208,11 @@ def test_execute_with_correct_confirmation_migrates_all(
     def fake_modify(sub_id, **_kw):
         return _fake_modified(sub_id)
 
-    with patch("stripe.Subscription.retrieve", side_effect=fake_retrieve) as ret_mock, patch(
-        "stripe.Subscription.modify", side_effect=fake_modify
-    ) as mod_mock:
-        rc = main(["--execute"], confirm_reader=lambda _prompt: "MIGRATE 5 USERS")
+    with (
+        patch("stripe.Subscription.retrieve", side_effect=fake_retrieve) as ret_mock,
+        patch("stripe.Subscription.modify", side_effect=fake_modify) as mod_mock,
+    ):
+        rc = main(["--execute"], confirm_reader=lambda _prompt: "MIGRATE 5 USERS", db=db_session)
 
     assert rc == 0
     assert ret_mock.call_count == 5
@@ -239,10 +240,12 @@ def test_execute_never_calls_price_deactivation(configured_prices, db_session, f
     """Premortem #1: the pro_plus Stripe PRICE must never be archived/deactivated."""
     from scripts.migrate_pro_plus_to_pro import main
 
-    with patch("stripe.Subscription.retrieve", side_effect=lambda sid, **_kw: _fake_sub(sid)), patch(
-        "stripe.Subscription.modify", side_effect=lambda sid, **_kw: _fake_modified(sid)
-    ), patch("stripe.Price.modify") as price_mod_mock:
-        main(["--execute"], confirm_reader=lambda _prompt: "MIGRATE 5 USERS")
+    with (
+        patch("stripe.Subscription.retrieve", side_effect=lambda sid, **_kw: _fake_sub(sid)),
+        patch("stripe.Subscription.modify", side_effect=lambda sid, **_kw: _fake_modified(sid)),
+        patch("stripe.Price.modify") as price_mod_mock,
+    ):
+        main(["--execute"], confirm_reader=lambda _prompt: "MIGRATE 5 USERS", db=db_session)
 
     price_mod_mock.assert_not_called()
 
@@ -253,16 +256,17 @@ def test_execute_never_calls_price_deactivation(configured_prices, db_session, f
 def test_rerun_after_full_migration_is_a_noop(configured_prices, db_session, five_pro_plus_users):
     from scripts.migrate_pro_plus_to_pro import main
 
-    with patch("stripe.Subscription.retrieve", side_effect=lambda sid, **_kw: _fake_sub(sid)), patch(
-        "stripe.Subscription.modify", side_effect=lambda sid, **_kw: _fake_modified(sid)
+    with (
+        patch("stripe.Subscription.retrieve", side_effect=lambda sid, **_kw: _fake_sub(sid)),
+        patch("stripe.Subscription.modify", side_effect=lambda sid, **_kw: _fake_modified(sid)),
     ):
-        main(["--execute"], confirm_reader=lambda _prompt: "MIGRATE 5 USERS")
+        main(["--execute"], confirm_reader=lambda _prompt: "MIGRATE 5 USERS", db=db_session)
 
     def _boom(_prompt):
         raise AssertionError("confirmation should never be requested when nothing is pending")
 
     with patch("stripe.Subscription.retrieve") as ret_mock, patch("stripe.Subscription.modify") as mod_mock:
-        rc = main(["--execute"], confirm_reader=_boom)
+        rc = main(["--execute"], confirm_reader=_boom, db=db_session)
 
     assert rc == 0
     ret_mock.assert_not_called()
@@ -287,10 +291,11 @@ def test_partial_failure_then_rerun_completes_only_the_pending_user(
             raise Exception("stripe_down")
         return _fake_modified(sub_id)
 
-    with patch("stripe.Subscription.retrieve", side_effect=fake_retrieve), patch(
-        "stripe.Subscription.modify", side_effect=fake_modify_first_pass
+    with (
+        patch("stripe.Subscription.retrieve", side_effect=fake_retrieve),
+        patch("stripe.Subscription.modify", side_effect=fake_modify_first_pass),
     ):
-        rc1 = main(["--execute"], confirm_reader=lambda _prompt: "MIGRATE 5 USERS")
+        rc1 = main(["--execute"], confirm_reader=lambda _prompt: "MIGRATE 5 USERS", db=db_session)
     assert rc1 != 0  # one failure surfaces as a non-zero exit
 
     for u in five_pro_plus_users:
@@ -300,10 +305,11 @@ def test_partial_failure_then_rerun_completes_only_the_pending_user(
     assert [u.id for u in still_pending] == [failing_user.id]
     assert len(migrated_already) == 4
 
-    with patch("stripe.Subscription.retrieve", side_effect=fake_retrieve) as ret_mock, patch(
-        "stripe.Subscription.modify", side_effect=lambda sid, **_kw: _fake_modified(sid)
-    ) as mod_mock:
-        rc2 = main(["--execute"], confirm_reader=lambda _prompt: "MIGRATE 1 USERS")
+    with (
+        patch("stripe.Subscription.retrieve", side_effect=fake_retrieve) as ret_mock,
+        patch("stripe.Subscription.modify", side_effect=lambda sid, **_kw: _fake_modified(sid)) as mod_mock,
+    ):
+        rc2 = main(["--execute"], confirm_reader=lambda _prompt: "MIGRATE 1 USERS", db=db_session)
 
     assert rc2 == 0
     assert ret_mock.call_count == 1
@@ -329,7 +335,7 @@ def test_fails_closed_when_affected_set_changes_after_confirmation(
         return "MIGRATE 5 USERS"
 
     with patch("stripe.Subscription.retrieve") as ret_mock, patch("stripe.Subscription.modify") as mod_mock:
-        rc = main(["--execute"], confirm_reader=confirm_and_race)
+        rc = main(["--execute"], confirm_reader=confirm_and_race, db=db_session)
 
     assert rc != 0
     ret_mock.assert_not_called()
