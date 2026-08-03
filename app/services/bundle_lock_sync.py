@@ -51,9 +51,7 @@ logger = logging.getLogger(__name__)
 
 def _mint(db: Session, bundle: Bundle, entries: list[dict], lock_hash: str, created_by) -> BundleLock:
     """Append a new immutable revision. Never mutates an existing row."""
-    prev_max = (
-        db.query(func.max(BundleLock.revision)).filter(BundleLock.bundle_id == bundle.id).scalar()
-    )
+    prev_max = db.query(func.max(BundleLock.revision)).filter(BundleLock.bundle_id == bundle.id).scalar()
     lock = BundleLock(
         bundle_id=bundle.id,
         revision=(prev_max or 0) + 1,
