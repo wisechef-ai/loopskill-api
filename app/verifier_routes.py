@@ -252,6 +252,7 @@ def _verifier_agent_instructions(verifier: Verifier) -> str:
 def list_verifiers(
     q: str | None = Query(None, description="keyword search over title/description"),
     category: str | None = Query(None),
+    tag: str | None = Query(None, description="filter to verifiers carrying this discovery tag"),
     limit: int = Query(100, le=200),
     db: Session = Depends(get_db),
 ) -> list[VerifierOut]:
@@ -267,6 +268,14 @@ def list_verifiers(
         like = f"%{q}%"
         query = query.filter(or_(Verifier.title.ilike(like), Verifier.description.ilike(like)))
     rows = query.order_by(Verifier.install_count.desc()).limit(limit).all()
+    # atomic_habits_0803 rank-1 — mirrors composite_loop_routes.list_composite_loops
+    # (ah0723 rank-8): tag filter applied in Python, not SQL, for the same reason
+    # (a handful of rows, keeps the fix scoped to catalog metadata with zero new
+    # SQL surface). The portal chip row (browse.astro:579-600) already sends this
+    # param on both /api/loops and /api/verifiers — it was silently ignored before
+    # this fix (verified 2026-08-03: ?tag=zzznope returned the full unfiltered set).
+    if tag:
+        rows = [r for r in rows if tag in (r.tags or [])]
     return [_verifier_to_out(v) for v in rows]
 
 
