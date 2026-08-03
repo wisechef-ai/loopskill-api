@@ -12,6 +12,8 @@ from typing import Any
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
+from app import authz
+from app.auth_ctx import AuthContext
 from app.models import Loop, Personality
 
 
@@ -52,11 +54,18 @@ def loopskill_search_loops(
     return {"results": results, "total": len(results)}
 
 
-def loopskill_get_loop(db: Session, slug: str) -> dict[str, Any]:
-    """Pull a loop's full safety-bounded contract by slug."""
-    # Public-scope MCP tool: returns a published loop's public contract by slug; archived rows 404, no private data exposed.
+def loopskill_get_loop(db: Session, slug: str, ctx: AuthContext | None = None) -> dict[str, Any]:
+    """Pull a loop's full safety-bounded contract by slug.
+
+    Authz gated: a private (is_public=False) loop's contract (system_prompt,
+    verification_script, ...) is only readable by its creator or master —
+    gated via authz.can_read_verifier. Unauthorized/nonexistent/archived all
+    return the same not-found shape (no existence oracle).
+    """
     r = db.query(Loop).options(joinedload(Loop.versions)).filter(Loop.slug == slug).first()
     if r is None or r.is_archived:
+        return {"error": "loop not found", "slug": slug, "status": 404}
+    if not authz.can_read_verifier(ctx or AuthContext.anonymous(), r, db=db):
         return {"error": "loop not found", "slug": slug, "status": 404}
     return {
         "slug": r.slug,
@@ -112,9 +121,14 @@ def loopskill_search_personalities(
     return {"results": results, "total": len(results)}
 
 
-def loopskill_get_personality(db: Session, slug: str) -> dict[str, Any]:
-    """Pull a personality's system prompt + config by slug."""
-    # Public-scope MCP tool: returns a published personality's public config by slug; archived rows 404, no private data exposed.
+def loopskill_get_personality(db: Session, slug: str, ctx: AuthContext | None = None) -> dict[str, Any]:
+    """Pull a personality's system prompt + config by slug.
+
+    Authz gated: a private (is_public=False) personality's system_prompt +
+    config are only readable by its creator or master — gated via
+    authz.can_read_personality. Unauthorized/nonexistent/archived all return
+    the same not-found shape (no existence oracle).
+    """
     r = (
         db.query(Personality)
         .options(joinedload(Personality.versions))
@@ -122,6 +136,8 @@ def loopskill_get_personality(db: Session, slug: str) -> dict[str, Any]:
         .first()
     )
     if r is None or r.is_archived:
+        return {"error": "personality not found", "slug": slug, "status": 404}
+    if not authz.can_read_personality(ctx or AuthContext.anonymous(), r, db=db):
         return {"error": "personality not found", "slug": slug, "status": 404}
     return {
         "slug": r.slug,

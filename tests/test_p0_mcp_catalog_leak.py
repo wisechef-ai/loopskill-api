@@ -224,3 +224,42 @@ class TestPrivateCompositeLoopLeak:
             "loopskill_get_composite_loop", {"slug": cl.slug}, caller=_ATTACKER_CALLER, db=db_session
         )
         assert out.get("prompt") == "public prompt", f"Public composite loop should be readable; got {out!r}"
+
+
+class TestCompositeLoopPublishRequiresAuth:
+    """Secondary finding from the same audit pass: dispatch_composite_loop /
+    loopskill_publish_composite_loop never received ctx at all — the
+    docstring claimed "validated via _dispatch ctx check" but no such check
+    existed anywhere in the call chain, so ANY anonymous MCP caller could
+    create new catalog rows. Fixed alongside the read-leak fix in the same
+    file/commit (composite_loop_catalog.py). These are GREEN regression
+    tests locking the fix in, not a separate RED-proofed deliverable.
+    """
+
+    _PUBLISH_ARGS = {
+        "slug": "unauth-publish-attempt",
+        "title": "Should Not Publish",
+        "schedule": "1h",
+        "verifier_slug": "does-not-exist",
+        "prompt": "x",
+    }
+
+    def test_anonymous_cannot_publish_composite_loop(self, db_session):
+        anon_caller = {
+            "scope": "anonymous",
+            "user_id": None,
+            "api_key_id": None,
+            "auth_ctx": AuthContext.anonymous(),
+        }
+        out = call_tool_sync(
+            "loopskill_publish_composite_loop", dict(self._PUBLISH_ARGS), caller=anon_caller, db=db_session
+        )
+        assert out.get("error") in ("auth_required", "forbidden"), (
+            f"EXPLOIT: anonymous caller published a composite loop; got {out!r}"
+        )
+        assert (
+            db_session.query(CompositeLoop)
+            .filter(CompositeLoop.slug == self._PUBLISH_ARGS["slug"])
+            .first()
+            is None
+        ), "EXPLOIT: composite loop row was created for an unauthenticated publish attempt"

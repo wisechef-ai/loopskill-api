@@ -16,6 +16,8 @@ from typing import Any
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
+from app import authz
+from app.auth_ctx import AuthContext
 from app.models import CompositeLoop
 from app.services.composite_loop_validation import (
     CompositeLoopValidationError,
@@ -59,9 +61,15 @@ def loopskill_search_composite_loops(
     return {"results": results, "total": len(results)}
 
 
-def loopskill_get_composite_loop(db: Session, slug: str) -> dict[str, Any]:
-    """Pull a composite loop's full composition by slug."""
-    # Public-scope MCP tool: returns a published composite loop's public composition by slug; archived rows 404, no private data exposed.
+def loopskill_get_composite_loop(db: Session, slug: str, ctx: AuthContext | None = None) -> dict[str, Any]:
+    """Pull a composite loop's full composition by slug.
+
+    Authz gated: a private (is_public=False) composite loop's composition
+    (skills/connectors/subagents_config/driving prompt — connectors can
+    carry credentials) is only readable by its creator or master — gated
+    via authz.can_read_composite_loop. Unauthorized/nonexistent/archived
+    all return the same not-found shape (no existence oracle).
+    """
     r = (
         db.query(CompositeLoop)
         .options(joinedload(CompositeLoop.versions))
@@ -69,6 +77,8 @@ def loopskill_get_composite_loop(db: Session, slug: str) -> dict[str, Any]:
         .first()
     )
     if r is None or r.is_archived:
+        return {"error": "composite loop not found", "slug": slug, "status": 404}
+    if not authz.can_read_composite_loop(ctx or AuthContext.anonymous(), r, db=db):
         return {"error": "composite loop not found", "slug": slug, "status": 404}
     return {
         "slug": r.slug,
@@ -92,6 +102,7 @@ def loopskill_get_composite_loop(db: Session, slug: str) -> dict[str, Any]:
 def loopskill_publish_composite_loop(
     db: Session,
     *,
+    ctx: AuthContext | None = None,
     slug: str,
     title: str,
     schedule: str,
@@ -106,10 +117,21 @@ def loopskill_publish_composite_loop(
     state_seed: dict[str, Any] | None = None,
     budget_usd: float | None = None,
 ) -> dict[str, Any]:
-    """Publish a composite loop via MCP. Validates the full manifest server-side."""
-    # Auth-gated MCP tool: publish requires an authed caller; validated via _dispatch ctx check.
+    """Publish a composite loop via MCP. Validates the full manifest server-side.
+
+    Auth gated: mirrors POST /api/composite-loops (app/composite_loop_routes.py)
+    — requires an authenticated ctx with scope 'user' or 'master'. Previously
+    this tool carried a comment claiming a ctx check happened in _dispatch,
+    but _dispatch never passed ctx to this tool at all, so ANY anonymous MCP
+    caller could publish a new catalog entry.
+    """
     from datetime import UTC, datetime
     from uuid import uuid4
+
+    if ctx is None or ctx.scope in (None, "anonymous"):
+        return {"error": "auth_required", "status": 401}
+    if ctx.scope not in ("user", "master"):
+        return {"error": "forbidden", "status": 403}
 
     if db.query(CompositeLoop).filter(CompositeLoop.slug == slug).first() is not None:
         return {"error": "slug exists", "slug": slug, "status": 409}
@@ -151,7 +173,9 @@ def loopskill_publish_composite_loop(
     return loopskill_get_composite_loop(db, cl.slug)
 
 
-def dispatch_composite_loop(name: str, db: Session, args: dict[str, Any]) -> Any:
+def dispatch_composite_loop(
+    name: str, db: Session, args: dict[str, Any], ctx: AuthContext | None = None
+) -> Any:
     """Dispatch the three Phase A2 composite-loop MCP tools.
 
     Returns _NOT_HANDLED if the tool name is not a composite-loop tool.
@@ -160,6 +184,7 @@ def dispatch_composite_loop(name: str, db: Session, args: dict[str, Any]) -> Any
     if name == "loopskill_publish_composite_loop":
         return loopskill_publish_composite_loop(
             db,
+            ctx=ctx,
             slug=args["slug"],
             title=args["title"],
             schedule=args["schedule"],
@@ -175,7 +200,7 @@ def dispatch_composite_loop(name: str, db: Session, args: dict[str, Any]) -> Any
             budget_usd=args.get("budget_usd"),
         )
     if name == "loopskill_get_composite_loop":
-        return loopskill_get_composite_loop(db, slug=args["slug"])
+        return loopskill_get_composite_loop(db, slug=args["slug"], ctx=ctx)
     if name == "loopskill_search_composite_loops":
         return loopskill_search_composite_loops(
             db,

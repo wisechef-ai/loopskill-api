@@ -155,6 +155,31 @@ def can_read_personality(ctx: AuthContext, personality: Any, db: "Session | None
     return False
 
 
+def can_read_verifier(ctx: AuthContext, verifier: Any, db: "Session | None" = None) -> bool:
+    """Return True if ctx may read/pull the given verifier (aka Loop).
+
+    Same shape as can_read_personality/can_read_composite_loop — Verifier
+    (``app.models.Loop`` is a compat-alias for ``app.models.Verifier``) also
+    carries a nullable creator_id -> Creator.user_id ownership chain.
+    """
+    if getattr(verifier, "is_public", True):
+        return True
+    if ctx.scope == "master":
+        return True
+    if ctx.scope == "user" and ctx.user_id is not None and db is not None:
+        from app.models import Creator
+
+        creator_id = getattr(verifier, "creator_id", None)
+        if creator_id is not None:
+            owns = (
+                db.query(Creator).filter(Creator.id == creator_id, Creator.user_id == ctx.user_id).first()
+                is not None
+            )
+            if owns:
+                return True
+    return False
+
+
 def can_read_composite_loop(ctx: AuthContext, loop: Any, db: "Session | None" = None) -> bool:
     """Return True if ctx may read/like the given composite loop.
 
