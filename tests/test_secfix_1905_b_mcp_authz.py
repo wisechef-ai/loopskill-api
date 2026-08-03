@@ -701,17 +701,22 @@ class TestAuditPass:
             yield fname.replace(".py", ""), fpath, lines
 
     def test_every_tool_has_authz_or_public_comment(self):
-        """Every app/mcp/tools/*.py must have authz.can_* call OR public-scope comment."""
+        """Every app/mcp/tools/*.py must have authz.can_* call OR public-scope comment.
+
+        Strengthened (P0/converge_0208): for a tool that queries an
+        owner-column model (Bundle, BundleSkill, FleetMember, ...), the
+        marker comment ALONE is no longer sufficient — see
+        tests/_mcp_authz_audit.py::audit_tool_file for the full rule and the
+        gate-gaming incident (list_cookbook.py) that motivated it.
+        """
+        from tests._mcp_authz_audit import audit_tool_file
+
         failures = []
         for tool_name, fpath, lines in self._iter_tool_files():
             source = "".join(lines)
-            has_authz_call = "authz.can_" in source
-            has_public_comment = "# Public-scope MCP tool:" in source
-            if not has_authz_call and not has_public_comment:
-                failures.append(
-                    f"{tool_name} ({fpath}): missing authz.can_* call AND "
-                    f"missing '# Public-scope MCP tool:' comment"
-                )
+            reason = audit_tool_file(os.path.basename(fpath), source)
+            if reason is not None:
+                failures.append(f"{tool_name} ({fpath}): {reason}")
         assert not failures, (
             "AUDIT FAIL — the following MCP tools have no authz gate:\n"
             + "\n".join(failures)
