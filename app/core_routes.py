@@ -93,8 +93,8 @@ def post_telemetry(
     # RCP-13: keep the denormalised Skill.install_count counter in sync with
     # telemetry. The trending endpoint and live API responses compute counts
     # directly from telemetry/install_events, but Skill.install_count is the
-    # popularity scoring input used by the carousel selector and by any future
-    # ORDER BY popularity queries. Increment atomically (SQL-level expression,
+    # popularity scoring input used by any future ORDER BY popularity queries.
+    # Increment atomically (SQL-level expression,
     # not a Python read-modify-write) so concurrent installs cannot lose
     # writes. Same DB transaction as the telemetry insert — either both land
     # or neither does.

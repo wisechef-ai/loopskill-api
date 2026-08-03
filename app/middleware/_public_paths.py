@@ -11,7 +11,6 @@ appear for BOTH surfaces so neither 401s where the other is open.
 
 # Prefixes whose requests skip API-key auth entirely (public read surfaces).
 PUBLIC_PREFIXES: tuple[str, ...] = (
-    "/api/carousel/",
     "/api/bootcamp",  # bootcamp_0607 — curated install curricula, public discovery (list + detail)
     "/api/skills/search",
     "/api/skills/trending",

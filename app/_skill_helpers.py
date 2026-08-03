@@ -450,9 +450,9 @@ def _record_install_event(
 
     # spotify_0608 Ph B (§4.2 install-count integrity): the InstallEvent row is
     # ALWAYS written (audit/provenance), but the denormalized Skill.install_count
-    # — which feeds the carousel popularity term and other public-ranking surfaces
-    # — is bumped ONLY for organic installs. A test/CI/internal key (is_test=true)
-    # records the event but does NOT inflate the public counter. Anonymous installs
+    # — which feeds public-ranking surfaces such as trending — is bumped ONLY
+    # for organic installs. A test/CI/internal key (is_test=true) records the
+    # event but does NOT inflate the public counter. Anonymous installs
     # (no key) are organic and DO bump.
     if api_key_id is not None:
         is_test = db.query(APIKey.is_test).filter(APIKey.id == api_key_id).scalar()

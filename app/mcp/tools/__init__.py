@@ -4,7 +4,6 @@ Each tool is a plain async function ``(db: Session, **args) -> dict`` so the
 same callable serves the SSE transport, the stdio transport, and unit tests.
 """
 
-from app.mcp.tools.carousel_today import loopskill_carousel_today
 from app.mcp.tools.configure_feedback import loopskill_configure_feedback
 from app.mcp.tools.bundle_install import (
     CookbookInstallError,
@@ -67,7 +66,6 @@ __all__ = [
     "loopskill_list_bundle",
     "loopskill_recall",
     "loopskill_skillify",
-    "loopskill_carousel_today",
     "loopskill_subskill_resolve",
     "loopskill_doctor",
     "loopskill_seeker",

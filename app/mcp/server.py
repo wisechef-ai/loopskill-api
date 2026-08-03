@@ -61,7 +61,6 @@ from app.mcp.tools.composite_loop_catalog import (
 from app.mcp.tools.like import dispatch_library as _dispatch_library
 from app.mcp.dispatch_chain import DISPATCH_NOT_HANDLED, run_dispatch_chain
 from app.mcp.tools import (
-    loopskill_carousel_today,
     loopskill_configure_feedback,
     loopskill_doctor,
     loopskill_feedback,
@@ -236,8 +235,6 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
         return _tool_ns.get("loopskill_recall", loopskill_recall)(db, **args)
     if name == "loopskill_skillify":
         return _tool_ns.get("loopskill_skillify", loopskill_skillify)(db, ctx=ctx, **args)
-    if name == "loopskill_carousel_today":
-        return _tool_ns.get("loopskill_carousel_today", loopskill_carousel_today)(db)
     if name == "loopskill_subskill_resolve":
         return _tool_ns.get("loopskill_subskill_resolve", loopskill_subskill_resolve)(db, **args)
     if name == "loopskill_doctor":

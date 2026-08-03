@@ -82,7 +82,6 @@ Once connected, your agent gets these tools — no extra configuration:
 | `loopskill_list_bundle` | List all bundles (and their skills) you have access to |
 | `loopskill_recall` | Recall the full content of a previously installed skill |
 | `loopskill_recipify` | Classify + validate a skill before publishing |
-| `loopskill_carousel_today` | Get today's editorially curated skill picks |
 | `loopskill_doctor` | Diagnose issues with installed skills |
 | `loopskill_seeker` | Find related skills and dependency edges |
 | `loopskill_subrecipe_resolve` | Resolve nested skill dependencies |

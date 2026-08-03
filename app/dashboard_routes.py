@@ -1,8 +1,11 @@
 """Phase C (loopskill_activate_0701) — fleet dashboard API endpoint.
 
 Serves the aggregated data the web pane needs: per-member drift status,
-failed crons count, voice inbox count, cost-per-accepted-change from rollups.
-The portal renders this; the API serves JSON.
+failed crons count, voice inbox count, cost/accepted-change totals from
+rollups. The portal renders this; the API serves JSON.
+
+D-019: the derived cost_per_accepted_change ratio is deliberately NOT
+surfaced here — see the comment above the rollup query below.
 
 GET /api/fleets/{fleet_id}/dashboard
 """
@@ -131,7 +134,13 @@ def get_fleet_dashboard(
             or 0
         )
 
-    # Cost-per-accepted-change from rollups
+    # Aggregate cost/accepted-change totals from rollups. D-019: the derived
+    # cost_per_accepted_change ratio is NOT surfaced — cost_usd and
+    # accepted_changes arrive verbatim from the customer's own agent host via
+    # POST /api/sync-report with zero server-side verification (no tick_id
+    # dedupe, no stale_epoch filter), so a client can fabricate an arbitrary
+    # ratio. The rollup query and table are untouched for a future
+    # server-corroborated (option B) version.
     rollup_row = (
         db.query(
             func.sum(LoopRunDailyRollup.cost_usd_total).label("total_cost"),
@@ -143,7 +152,6 @@ def get_fleet_dashboard(
     )
     total_cost = float(rollup_row.total_cost or 0)
     total_accepted = int(rollup_row.total_accepted or 0)
-    cost_per_accepted = total_cost / total_accepted if total_accepted > 0 else None
 
     # spotify_1507 Ph F — Ralph-loop detector: members stuck re-running the same
     # loop with zero accepted_change. Surfaced on the pane so a fleet owner sees a
@@ -164,7 +172,6 @@ def get_fleet_dashboard(
             for m in members
         ],
         "voice": voice_counts,
-        "cost_per_accepted_change": cost_per_accepted,
         "total_cost_usd": total_cost,
         "total_accepted_changes": total_accepted,
         "total_runs": int(rollup_row.total_runs or 0),

@@ -62,7 +62,6 @@ handler — but new integrations should use the canonical names below.
 | `loopskill_bundle_install` | Install all skills from a bundle (bulk) or one skill by slug; cbt_token callers may omit `cookbook_id` |
 | `loopskill_list_bundle` | List the caller's bundle and its skill provenance rows |
 | `loopskill_recall` | Hybrid (vector + BM25) skill recall ranked for the caller's tier |
-| `loopskill_carousel_today` | Today's curated carousel of skills |
 
 ### Bundle management
 

@@ -63,7 +63,7 @@ and the test fixtures across `tests/`.
 | `copywriting`        | `content`        |                                                    |
 | `video`              | `content`        |                                                    |
 | `image`              | `content`        |                                                    |
-| `seo`                | `marketing`      | tests/test_carousel_scoring.py uses this           |
+| `seo`                | `marketing`      |                                                    |
 | `ads`                | `marketing`      |                                                    |
 | `growth`             | `marketing`      |                                                    |
 | `email`              | `marketing`      | when used in marketing context                     |

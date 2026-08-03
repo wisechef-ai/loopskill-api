@@ -51,9 +51,6 @@ class TestLoopskillNamesRegistered:
     def test_loopskill_skillify_registered(self) -> None:
         assert "loopskill_skillify" in _tool_names()
 
-    def test_loopskill_carousel_today_registered(self) -> None:
-        assert "loopskill_carousel_today" in _tool_names()
-
     def test_loopskill_feedback_registered(self) -> None:
         assert "loopskill_feedback" in _tool_names()
 

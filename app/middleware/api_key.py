@@ -227,7 +227,7 @@ def mark_redis_failed():
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
     """Validate x-api-key header. Exempt /docs, /openapi.json, /healthz, /,
-    auth endpoints (JWT-based), Stripe webhooks, and public carousel endpoints."""
+    auth endpoints (JWT-based), Stripe webhooks, and other public read surfaces."""
 
     EXEMPT_PATHS = {
         "/docs",
@@ -267,11 +267,12 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     WEBHOOK_PATHS = {
         "/api/stripe/webhook",
     }
-    # Public endpoints — no API key required (F4: carousel is unauthenticated;
-    # G2: search/trending must be discoverable by agents before they have a key,
-    # per LarryBrain spec §4.1; skill detail is public so agents can read SKILL.md
-    # before deciding whether to subscribe — matches LarryBrain catalog browsing UX;
-    # _download uses HMAC-signed token in the URL, no API key needed)
+    # Public endpoints — no API key required (G2: search/trending must be
+    # discoverable by agents before they have a key, per LarryBrain spec §4.1;
+    # skill detail is public so agents can read SKILL.md before deciding
+    # whether to subscribe — matches LarryBrain catalog browsing UX;
+    # _download uses HMAC-signed token in the URL, no API key needed).
+    #
     # Public (no-auth) read surfaces — see app/middleware/_public_paths.py
     # (extracted to keep this module under the 600-line god-object cap).
     PUBLIC_PREFIXES = _PUBLIC_PREFIXES

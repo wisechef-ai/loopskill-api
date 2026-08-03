@@ -69,7 +69,6 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.skill_files_routes", "router", "/api"),
     ("app.admin_routes", "router", ""),
     ("app.auth_routes", "router", ""),
-    ("app.carousel.routes", "router", "/api"),
     ("app.sandbox.routes", "router", ""),
     ("app.creator_routes", "router", ""),
     ("app.publisher_routes", "router", ""),

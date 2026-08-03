@@ -30,7 +30,6 @@ LEGACY_WAIVER = {
     "app/bundle_routes.py",
     "app/skill_routes.py",
     "app/graph_extension.py",
-    "app/schemas.py",  # 611 lines after feat/loops-value-taglines added VerifierOut catalog-copy fields
 }
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

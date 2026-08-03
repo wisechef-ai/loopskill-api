@@ -107,13 +107,12 @@ def db_session(engine_fixture) -> Generator[Session, None, None]:
 def client(db_session: Session):
     """TestClient wired to the in-memory SQLite session.
 
-    Uses a minimal FastAPI app that includes only the carousel router and the
-    main routes router, skipping creator_routes / publisher_routes which drag
-    in stripe/jwt dependencies that aren't always installed in the test env.
+    Uses a minimal FastAPI app that includes only the main routes router,
+    skipping creator_routes / publisher_routes which drag in stripe/jwt
+    dependencies that aren't always installed in the test env.
     """
     from app.config import settings
     from app.database import get_db
-    from app.carousel.routes import router as carousel_router
 
     from fastapi import FastAPI
 
@@ -125,8 +124,6 @@ def client(db_session: Session):
         finally:
             pass
 
-    test_app.include_router(carousel_router, prefix="/api")
-
     # bootcamp_0607: curated install curricula
     try:
         from app.bootcamp_routes import router as bootcamp_router
@@ -135,7 +132,7 @@ def client(db_session: Session):
     except Exception:
         pass
 
-    # Also include core routes (skills, telemetry, carousel legacy) if importable
+    # Also include core routes (skills, telemetry) if importable
     try:
         from app.routes import router as core_router
 
