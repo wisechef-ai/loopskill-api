@@ -243,7 +243,7 @@ def resolve_bundle_entries(db: Session, bundle_id, *, strict: bool = False) -> l
                 raise LockMintError(
                     bundle_name=bundle_name,
                     slug=entry["slug"],
-                    version=entry["version"] if version_row is not None else None,
+                    version=entry["version"],
                     reason=reason,
                 )
         entries.append(entry)
