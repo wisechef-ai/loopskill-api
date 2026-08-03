@@ -308,10 +308,23 @@ class SkillVersion(Base):
     # version selection (Phase C). canary=latest any · stable=latest promoted ·
     # frozen=no movement.
     promoted_to_stable_at = Column(DateTime(timezone=True), nullable=True)
+    # converge_0208 P3 — 'ok' (default) or 'unresolvable'. Set by
+    # scripts/repair_dead_skill_version_paths.py when a tarball_path is
+    # confirmed dead and no artifact exists for THIS exact version (never
+    # repointed at a different version's bytes). Mint/reconcile must refuse
+    # an 'unresolvable' version loudly rather than silently install nothing.
+    resolution_status = Column(String(16), nullable=False, default="ok", server_default="ok")
+    resolution_note = Column(Text, nullable=True)
 
     skill = relationship("Skill", back_populates="versions")
 
-    __table_args__ = (UniqueConstraint("skill_id", "semver", name="uq_skill_version"),)
+    __table_args__ = (
+        UniqueConstraint("skill_id", "semver", name="uq_skill_version"),
+        CheckConstraint(
+            "resolution_status IN ('ok', 'unresolvable')",
+            name="ck_skill_versions_resolution_status",
+        ),
+    )
 
 
 # ── Events ──────────────────────────────────────────────────────────────
