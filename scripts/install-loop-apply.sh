@@ -103,6 +103,7 @@ collect_cron = collect_reports_cron_template(
     script_path=host_root / "scripts" / "loopskill-collect-reports.py",
     python_bin=sys.executable,
     interval_minutes=int(interval),
+    key_file=host_root / "loopskill" / "member.key",
 )
 
 print(host.kind)

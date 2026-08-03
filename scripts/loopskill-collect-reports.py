@@ -20,7 +20,9 @@ Errors print to stdout for the cron log and retry on the next cycle.
 Member key resolution, in order:
   1. ``$LOOPSKILL_MEMBER_KEY``
   2. ``$RECIPES_API_KEY``
-  3. ``$LOOPSKILL_SECRETS`` / ``~/.hermes/secrets/loopskill_tori.json`` —
+  3. ``$LOOPSKILL_MEMBER_KEY_FILE`` / ``~/.hermes/loopskill/member.key`` — the
+     0600 file ``install-loop-apply.sh`` writes
+  4. ``$LOOPSKILL_SECRETS`` / ``~/.hermes/secrets/loopskill_tori.json`` —
      ``member_api_key_plain_b64``
 
 Paths are overridable by environment so this works on hosts that are not Hermes:
@@ -42,6 +44,9 @@ API = os.environ.get("LOOPSKILL_API", "https://app.loopskill.io")
 HERMES = Path.home() / ".hermes"
 
 SECRETS = Path(os.environ.get("LOOPSKILL_SECRETS", HERMES / "secrets" / "loopskill_tori.json"))
+KEY_FILE = Path(
+    os.environ.get("LOOPSKILL_MEMBER_KEY_FILE", HERMES / "loopskill" / "member.key")
+)
 OUTBOX = Path(os.environ.get("LOOPSKILL_OUTBOX", HERMES / "loopskill" / "outbox"))
 SENT = OUTBOX / ".sent"
 CRON_STATE = Path(os.environ.get("LOOPSKILL_CRON_STATE", HERMES / "cron" / "jobs.json"))
@@ -62,6 +67,12 @@ def member_key() -> str | None:
         val = os.environ.get(var)
         if val:
             return val
+    try:
+        key = KEY_FILE.read_text().strip()
+        if key:
+            return key
+    except OSError:
+        pass
     try:
         d = json.loads(SECRETS.read_text())
         b64 = d.get("member_api_key_plain_b64")

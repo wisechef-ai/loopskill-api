@@ -182,6 +182,7 @@ def collect_reports_cron_template(
     *,
     python_bin: str = "python3",
     interval_minutes: int = 30,
+    key_file: Path | None = None,
 ) -> str:
     """Render the cron line that DRAINS the loop-run spool to the server.
 
@@ -189,10 +190,16 @@ def collect_reports_cron_template(
     calls ``loopskill-emit-run.sh``, the record lands in
     ``~/.hermes/loopskill/outbox/`` — and stays there. The collector is the only
     thing that turns a spool file into a ``LoopRun`` row.
+
+    ``key_file`` is passed by path, not by value, for the same reason as in
+    :func:`loop_apply_cron_template`. The collector also reads that path on its
+    own as a fallback, so the cron works either way — this makes the dependency
+    visible in ``crontab -l`` instead of implicit in the script's defaults.
     """
+    env = f"LOOPSKILL_MEMBER_KEY_FILE={key_file} " if key_file is not None else ""
     return (
         f"# loopskill sync-report collector (activate_0701 Phase T) — {host.kind} host\n"
         f"# every {interval_minutes}m: batch the loop-run spool + cron health into\n"
         f"# ONE POST /api/sync-report. Exits 0 on network failure; retries next cycle.\n"
-        f"*/{interval_minutes} * * * * {python_bin} {script_path}\n"
+        f"*/{interval_minutes} * * * * {env}{python_bin} {script_path}\n"
     )

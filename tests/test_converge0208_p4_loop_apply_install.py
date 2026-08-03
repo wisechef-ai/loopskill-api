@@ -120,6 +120,18 @@ class TestCollectReportsCronTemplate:
         )
         assert COLLECT_REPORTS_CRON_MARKER in tpl
 
+    def test_points_the_collector_at_the_key_file(self, tmp_path):
+        """A collector cron with no key resolves nothing and drains nothing."""
+        from app.reconcile_host_detect import collect_reports_cron_template
+
+        keyfile = tmp_path / ".hermes" / "loopskill" / "member.key"
+        tpl = collect_reports_cron_template(
+            _hermes(tmp_path),
+            script_path=tmp_path / "loopskill-collect-reports.py",
+            key_file=keyfile,
+        )
+        assert f"LOOPSKILL_MEMBER_KEY_FILE={keyfile}" in tpl
+
 
 class TestInstallerScript:
     def test_installer_exists_and_is_executable(self):
