@@ -404,6 +404,19 @@ def test_skills_key_byte_identical_after_mixed_install(db):
     OTHER field (slug/version/tarball_url/checksum_sha256/source) — the
     fields that actually identify "what would install" — must match
     exactly, in the same order.
+
+    The tarball_url's signed-token TIMESTAMP+SIGNATURE are normalized for the
+    same reason (converge_0208): the token is an itsdangerous
+    URLSafeTimedSerializer value shaped `.<payload>.<timestamp>.<signature>`,
+    re-minted on every call. Only the payload identifies WHICH artifact would
+    install; the trailing two segments are wall-clock-derived. Comparing them
+    literally made this test fail whenever the two install_cookbook() calls
+    straddled a second boundary — a real intermittent CI red with no defect
+    behind it (observed on PR #171, which does not touch this code path).
+    The sibling test test_cookbook_install_order_stable_across_calls even
+    documents avoiding time.sleep() to keep THIS test green; that coupling is
+    the smell. Normalizing the volatile segments removes the shared-fate
+    dependency, and the payload segment still pins the artifact identity.
     """
     from app import bundle_routes
 
@@ -421,10 +434,28 @@ def test_skills_key_byte_identical_after_mixed_install(db):
             cookbook_id=str(cb.id), request=_Req(), db=db, ctx=_ctx(owner)
         )
 
-    def _strip_provenance(skills):
-        return [{k: v for k, v in entry.items() if k != "provenance_id"} for entry in skills]
+    def _normalize_volatile(skills):
+        """Drop provenance_id; normalize the signed token's volatile segments.
 
-    baseline_skills_json = json.dumps(_strip_provenance(baseline["skills"]), sort_keys=True)
+        An itsdangerous URLSafeTimedSerializer token is `<payload>.<ts>.<sig>`.
+        The payload encodes WHICH artifact the URL grants; ts+sig are minted
+        from the wall clock on every call. Keep the payload (real contract),
+        replace the last two segments with a sentinel (pure time noise).
+        """
+        out = []
+        for entry in skills:
+            e = {k: v for k, v in entry.items() if k != "provenance_id"}
+            url = e.get("tarball_url")
+            if isinstance(url, str) and "token=" in url:
+                head, _, tok = url.partition("token=")
+                parts = tok.split(".")
+                if len(parts) >= 3:
+                    # Rebuild with everything up to the payload, then a sentinel.
+                    e["tarball_url"] = f"{head}token={'.'.join(parts[:-2])}.<TS>.<SIG>"
+            out.append(e)
+        return out
+
+    baseline_skills_json = json.dumps(_normalize_volatile(baseline["skills"]), sort_keys=True)
 
     p = _mk_personality(db, "byte-identical-persona")
     db.add(BundlePersonality(bundle_id=cb.id, personality_id=p.id))
@@ -434,7 +465,7 @@ def test_skills_key_byte_identical_after_mixed_install(db):
 
     with p1, p2:
         after = bundle_routes.install_cookbook(cookbook_id=str(cb.id), request=_Req(), db=db, ctx=_ctx(owner))
-    after_skills_json = json.dumps(_strip_provenance(after["skills"]), sort_keys=True)
+    after_skills_json = json.dumps(_normalize_volatile(after["skills"]), sort_keys=True)
 
     assert baseline_skills_json == after_skills_json, (
         f"skills key drifted:\nBASELINE: {baseline_skills_json}\nAFTER:    {after_skills_json}"
