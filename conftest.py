@@ -8,6 +8,7 @@ Sets WR_DATABASE_URL to sqlite so that:
 This must live at the repo root (not inside tests/) so it is executed BEFORE
 pytest begins collecting or importing test modules.
 """
+
 import platform
 import os
 
@@ -50,3 +51,21 @@ def pytest_collection_modifyitems(config, items):
         if item.get_closest_marker("sandbox_linux_only"):
             item.add_marker(skip_marker)
 
+
+@pytest.fixture(autouse=True)
+def _block_outbound_network(request, monkeypatch):
+    """Fail fast on any non-loopback network call made from a test.
+
+    See tests/net_guard.py for the full incident write-up. Short version: the
+    ``/api/skills/external`` tests were silently reaching clawhub.ai once per
+    result row, so when that upstream slowed down the CI job hung for hours
+    instead of failing. A hermetic suite cannot depend on third-party uptime.
+
+    Loopback is still allowed -- some tests bind a real uvicorn server on
+    127.0.0.1. Opt out of the guard with ``@pytest.mark.network``.
+    """
+    if request.node.get_closest_marker("network"):
+        return
+    from tests import net_guard
+
+    net_guard.install(monkeypatch)

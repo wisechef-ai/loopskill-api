@@ -63,7 +63,15 @@ def test_external_install_is_public_no_api_key(mw_client, monkeypatch):
     assert body["content"] == "# arxiv\nbody"
 
 
-def test_external_install_unknown_source_404_not_401(mw_client):
-    """An unknown source 404s (honest) rather than 401 — proves the prefix is public."""
+def test_external_install_unknown_source_404_not_401(mw_client, monkeypatch):
+    """An unknown source 404s (honest) rather than 401 — proves the prefix is public.
+
+    The lobehub index is stubbed empty so the assertion measures the AUTH
+    behaviour it is named for. Previously this test reached the real
+    lobehub index over the network, which made an auth assertion silently
+    depend on a third party being up (and returned 503, not 404, when it
+    was not) — see the conftest outbound-network guard.
+    """
+    monkeypatch.setattr(fl, "_load_lobehub_index", list)
     resp = mw_client.get("/api/skills/external/lobehub/x/install")
     assert resp.status_code == 404

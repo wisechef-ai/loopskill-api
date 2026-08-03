@@ -33,6 +33,11 @@ jobs:
   test:
     name: pytest + coverage
     runs-on: ubuntu-latest
+    # Backstop for a hung suite. Without this a blocked test rides GitHub's
+    # 6h default; on 2026-08-03 five Dependabot PRs sat in_progress for hours
+    # with no signal. Per-test timeout lives in pyproject.toml; this is the
+    # job-level belt to that braces.
+    timeout-minutes: 20
     env:
       WR_DATABASE_URL: "sqlite:///:memory:"
       DATABASE_URL: "sqlite:///:memory:"
