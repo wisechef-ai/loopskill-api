@@ -159,14 +159,14 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             db, query=args.get("query"), category=args.get("category"), limit=int(args.get("limit", 50))
         )
     if name in ("loopskill_get_verifier", "loopskill_get_loop"):
-        return loopskill_get_loop(db, slug=args["slug"])
+        return loopskill_get_loop(db, slug=args["slug"], ctx=ctx)
     if name == "loopskill_search_personalities":
         return loopskill_search_personalities(
             db, query=args.get("query"), category=args.get("category"), limit=int(args.get("limit", 50))
         )
     if name == "loopskill_get_personality":
-        return loopskill_get_personality(db, slug=args["slug"])
-    _cl_result = _dispatch_composite_loop(name, db, args)
+        return loopskill_get_personality(db, slug=args["slug"], ctx=ctx)
+    _cl_result = _dispatch_composite_loop(name, db, args, ctx)
     if _cl_result is not _NOT_HANDLED:  # type: ignore[comparison-overlap]
         return _cl_result
     # ── activate_0701 Phase B: connector publish ──────────────────────────
@@ -228,7 +228,7 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
     if name == "loopskill_list_bundle":
         return _tool_ns.get("loopskill_list_bundle", loopskill_list_bundle)(
             db,
-            user_id=caller.get("user_id"),
+            ctx=ctx,
             cookbook_id=args.get("cookbook_id"),
         )
     if name == "loopskill_recall":
