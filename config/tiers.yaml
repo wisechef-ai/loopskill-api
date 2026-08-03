@@ -62,6 +62,17 @@ tiers:
   pro_plus:
     db_slug: pro_plus
     display_name: Pro+
+    # autopilot_0308 M2, D-003: public ladder is exactly 3 tiers (Free / Pro /
+    # Enterprise-on-demand). `public: false` removes pro_plus from
+    # /pricing, the tier picker, and marketing copy WITHOUT dropping the
+    # db_slug — it stays fully functional in the data layer for (a) the
+    # migration window (D-010: 5 live users migrate to pro via
+    # scripts/migrate_pro_plus_to_pro.py, script-only, not auto-run) and
+    # (b) Enterprise contracts afterwards, which sit on this slug rather
+    # than a new one (hub D-005: Enterprise is a sales conversation, not a
+    # self-serve price). Dropping this block, or the db_slug, is the
+    # data-loss migration premortem risk #2 warns against — don't.
+    public: false
     price_usd: 100
     # Canonical env var (RCP-INCIDENT-2026-05-11 Phase 6). The resolver
     # in app/subscription_service.py also accepts the legacy

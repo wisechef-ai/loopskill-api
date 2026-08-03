@@ -7,16 +7,50 @@ SKILL.md files. Anything that disagrees with this file is a bug.
 
 ## Tiers
 
-| DB slug    | Display label | Stripe price env var           | Monthly price |
-|------------|---------------|--------------------------------|---------------|
-| `free`     | Free          | —                              | €0            |
-| `pro`      | Pro           | `WR_STRIPE_PRICE_PRO`          | €20           |
-| `pro_plus` | Pro+          | `WR_STRIPE_PRICE_PRO_PLUS`     | €100          |
+Currency is **USD**, never EUR (hub D-018 #3 — a prior version of this table
+was wrong on both counts).
+
+| DB slug    | Display label | Public (D-003)? | Stripe price env var           | Monthly price |
+|------------|---------------|------------------|---------------------------------|---------------|
+| `free`     | Free          | yes              | —                                | $0            |
+| `pro`      | Pro           | yes              | `WR_STRIPE_PRICE_PRO`            | $9.95         |
+| `pro_plus` | Pro+          | **no**           | `WR_STRIPE_PRICE_PRO_PLUS`       | $100          |
 
 These three slugs (`free`, `pro`, `pro_plus`) are the **canonical tier vocabulary**
 across the DB, API responses, SKILL.md frontmatter, and all tests.
 The authoritative metadata (display names, badge colours, price IDs) lives in
 `config/tiers.yaml` — edit only that file to change display labels or Stripe mappings.
+
+### Public ladder = exactly 3 (autopilot_0308 M2, D-003)
+
+`/pricing`, the tier picker, and all marketing copy show exactly **Free /
+Pro / Enterprise**. `pro_plus` is **not** one of the three — it carries
+`public: false` in `config/tiers.yaml` and is deliberately absent from
+`config/recipes-marketing.yaml`'s `tiers:` block.
+
+**`pro_plus` is NOT deleted. Do not delete it.** It stays a fully valid,
+resolvable `db_slug` — `tier_labels.display_label()` and `bundle_limit()`
+both keep working for it, and `subscription_tier='pro_plus'` remains a
+perfectly normal value in the `users` table (it's a plain `String(32)`
+column, not a DB enum, so there is no schema constraint to even relax).
+Two reasons it has to stay live:
+
+1. **The migration window (D-010).** 5 live accounts were on `pro_plus`
+   when the ladder simplified. They migrate to `pro` via
+   `scripts/migrate_pro_plus_to_pro.py` (dry-run by default; a human types
+   a confirmation to `--execute`) — not instantly, and the row is `pro_plus`
+   right up until that script actually runs each user.
+2. **Enterprise contracts, indefinitely.** Enterprise (hub D-005: "anything
+   above Pro is a sales conversation, not an automated meter") has no
+   Stripe price object and no self-serve checkout — it is a contact form.
+   There is no `enterprise` `db_slug` and none should ever be created for
+   this purpose. An Enterprise-shaped customer is assigned the `pro_plus`
+   `db_slug` directly by whoever closes that sales conversation.
+
+**Do not "clean up" the `pro_plus` block in `config/tiers.yaml` or the
+`pro_plus` value in the DB.** Dropping a `db_slug` with live rows on it is a
+data-loss migration (autopilot_0308 premortem risk #2, L4×I10=40) — the fix
+here was to hide it from *presentation*, which needed zero schema changes.
 
 > **Legacy alias sunset — 2026-06-10:** The names `cook` (→ `pro`),
 > `operator` (→ `pro_plus`), and `studio` (→ `pro_plus`) are accepted as
