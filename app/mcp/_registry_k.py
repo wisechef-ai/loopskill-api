@@ -14,10 +14,10 @@ def _share_tools() -> list[types.Tool]:
         types.Tool(
             name="loopskill_share_create",
             description=(
-                "Create a new share token for a cookbook. Returns the plaintext "
+                "Create a new share token for a bundle. Returns the plaintext "
                 "token (shown exactly once), prefix, scope, name, id, created_at, "
                 "and config_blocks (Hermes YAML + Claude Desktop JSON snippets). "
-                "Requires can_write_cookbook."
+                "Requires bundle-write permission."
             ),
             inputSchema={
                 "type": "object",
@@ -36,9 +36,9 @@ def _share_tools() -> list[types.Tool]:
         types.Tool(
             name="loopskill_share_list",
             description=(
-                "List share tokens for a cookbook (metadata only, no plaintext). "
+                "List share tokens for a bundle (metadata only, no plaintext). "
                 "Returns {tokens: [{id, prefix, name, scope, is_active, created_at, "
-                "last_used_at}]}. Requires can_write_cookbook."
+                "last_used_at}]}. Requires bundle-write permission."
             ),
             inputSchema={
                 "type": "object",
@@ -50,7 +50,7 @@ def _share_tools() -> list[types.Tool]:
             name="loopskill_share_revoke",
             description=(
                 "Soft-delete (deactivate) a share token immediately. "
-                "Returns {revoked: true, token_id}. Requires can_write_cookbook."
+                "Returns {revoked: true, token_id}. Requires bundle-write permission."
             ),
             inputSchema={
                 "type": "object",
@@ -67,7 +67,7 @@ def _share_tools() -> list[types.Tool]:
                 "Rotate a share token: deactivate the old token and create a new "
                 "one with the same name and scope. Returns new_token, new_prefix, "
                 "old_token_id, new_token_id, and config_blocks. "
-                "Requires can_write_cookbook."
+                "Requires bundle-write permission."
             ),
             inputSchema={
                 "type": "object",
@@ -99,7 +99,7 @@ def _fleet_tools() -> list[types.Tool]:
         types.Tool(
             name="loopskill_fleet_subscribe",
             description=(
-                "Subscribe a cookbook to a fleet on a given channel (stable, canary, frozen). Idempotent."
+                "Subscribe a bundle to a fleet on a given channel (stable, canary, frozen). Idempotent."
             ),
             inputSchema={
                 "type": "object",
@@ -118,8 +118,8 @@ def _fleet_tools() -> list[types.Tool]:
         types.Tool(
             name="loopskill_fleet_sync",
             description=(
-                "Synchronise all cookbooks subscribed to the fleet. Aggregates "
-                "per-cookbook sync results. Pass dry_run=true to preview."
+                "Synchronise all bundles subscribed to the fleet. Aggregates "
+                "per-bundle sync results. Pass dry_run=true to preview."
             ),
             inputSchema={
                 "type": "object",
@@ -136,7 +136,7 @@ def _fleet_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="loopskill_fleet_list",
-            description="List all fleets owned by the caller with their cookbook subscriptions.",
+            description="List all fleets owned by the caller with their bundle subscriptions.",
             inputSchema={"type": "object", "properties": {}},
         ),
     ]
@@ -274,11 +274,11 @@ def _tailor_tools() -> list[types.Tool]:
             name="loopskill_bundle_attach",
             description=(
                 "Deploy a tailored fork's latest version into one of your "
-                "cookbooks. Promotes the fork into a private catalog skill linked "
-                "to the cookbook and mints an installable version, so it installs "
+                "bundles. Promotes the fork into a private catalog skill linked "
+                "to the bundle and mints an installable version, so it installs "
                 "byte-identically to any catalog skill via loopskill_bundle_install. "
                 "Step 3 of the tailor loop. Pro tier or above; you must own the "
-                "cookbook."
+                "bundle."
             ),
             inputSchema={
                 "type": "object",
@@ -290,7 +290,7 @@ def _tailor_tools() -> list[types.Tool]:
                     },
                     "target_cookbook_id": {
                         "type": "string",
-                        "description": "UUID of the cookbook to attach the promoted skill to (you must own it).",
+                        "description": "UUID of the bundle to attach the promoted skill to (you must own it).",
                     },
                     "slug": {
                         "type": "string",
@@ -306,10 +306,10 @@ def _tailor_tools() -> list[types.Tool]:
         types.Tool(
             name="loopskill_bundle_handoff",
             description=(
-                "Transfer OR fork a cookbook to a new owner preserving tailored skills. "
+                "Transfer OR fork a bundle to a new owner preserving tailored skills. "
                 "Only the current owner or master may act. Provide new_owner_user_id OR "
                 "new_owner_email. mode='transfer': ownership swaps in-place. "
-                "mode='fork': new cookbook with parent lineage + custom-added skills."
+                "mode='fork': new bundle with parent lineage + custom-added skills."
             ),
             inputSchema={
                 "type": "object",
@@ -317,7 +317,7 @@ def _tailor_tools() -> list[types.Tool]:
                 "properties": {
                     "cookbook_id": {
                         "type": "string",
-                        "description": "UUID of the cookbook to hand off.",
+                        "description": "UUID of the bundle to hand off.",
                     },
                     "new_owner_user_id": {
                         "type": "string",

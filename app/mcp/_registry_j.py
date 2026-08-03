@@ -17,7 +17,7 @@ def _phase_j_tools() -> list[types.Tool]:
         types.Tool(
             name="loopskill_configure_feedback",
             description=(
-                "Configure per-cookbook feedback routing to the user's own GitHub repo. "
+                "Configure per-bundle feedback routing to the user's own GitHub repo. "
                 "Pro/Pro+ only. Pass repo='owner/name', mode='pat', and a fine-grained "
                 "GitHub PAT with issues:write to route feedback issues to your repo. "
                 "Pass repo=None to clear and revert to default (wisechef-ai/loopskill-api)."
@@ -49,7 +49,7 @@ def _phase_j_tools() -> list[types.Tool]:
                     },
                     "cookbook_id": {
                         "type": "string",
-                        "description": "UUID of the cookbook to configure. Defaults to caller's personal cookbook.",
+                        "description": "UUID of the bundle to configure. Defaults to caller's personal bundle.",
                     },
                 },
             },

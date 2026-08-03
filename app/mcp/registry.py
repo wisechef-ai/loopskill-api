@@ -58,9 +58,9 @@ def _core_tools() -> list[types.Tool]:
         types.Tool(
             name="loopskill_bundle_install",
             description=(
-                "Install all skills from a cookbook (bulk) or one skill by slug. "
+                "Install all skills from a bundle (bulk) or one skill by slug. "
                 "cbt_token callers may omit cookbook_id — it defaults to the "
-                "token's scoped cookbook. user/master callers must pass "
+                "token's scoped bundle. user/master callers must pass "
                 "cookbook_id. The single-skill payload mirrors loopskill_install; "
                 "the bulk payload mirrors POST /api/cookbooks/{id}/install."
             ),
@@ -78,7 +78,7 @@ def _core_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": (
                             "Optional single-skill filter. Omit to bulk-install "
-                            "every active skill in the cookbook."
+                            "every active skill in the bundle."
                         ),
                     },
                 },
@@ -86,7 +86,7 @@ def _core_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="loopskill_list_bundle",
-            description="List the caller's cookbook and its skill provenance rows.",
+            description="List the caller's bundle and its skill provenance rows.",
             inputSchema={
                 "type": "object",
                 "properties": {"cookbook_id": {"type": "string"}},
@@ -116,10 +116,10 @@ def _core_tools() -> list[types.Tool]:
         types.Tool(
             name="loopskill_skillify",
             description=(
-                "Convert a SKILL.md draft into a CookbookSkill row: validates "
+                "Convert a SKILL.md draft into a BundleSkill row: validates "
                 "YAML frontmatter, classifies the category, infers related "
                 "skills via embedding cosine, writes the skill to the caller's "
-                "cookbook."
+                "bundle."
             ),
             inputSchema={
                 "type": "object",
@@ -181,7 +181,7 @@ def _core_tools() -> list[types.Tool]:
         types.Tool(
             name="loopskill_sync",
             description=(
-                "Synchronise a cookbook's skills to their latest published "
+                "Synchronise a bundle's skills to their latest published "
                 "versions. By default (dry_run=false) this APplies updates "
                 "immediately. Pass dry_run=true to preview the diff without "
                 "mutating state."
@@ -192,7 +192,7 @@ def _core_tools() -> list[types.Tool]:
                 "properties": {
                     "cookbook_id": {
                         "type": "string",
-                        "description": "UUID of the cookbook to synchronise.",
+                        "description": "UUID of the bundle to synchronise.",
                     },
                     "dry_run": {
                         "type": "boolean",

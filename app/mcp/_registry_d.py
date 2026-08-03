@@ -18,13 +18,13 @@ def _phase_d_tools() -> list[types.Tool]:
         types.Tool(
             name="loopskill_install_from_bundle",
             description=(
-                "Install every skill in a PUBLIC cookbook from one link. The "
-                "'streaming' install verb — pass a cookbook link "
+                "Install every skill in a PUBLIC bundle from one link. The "
+                "'streaming' install verb — pass a bundle link "
                 "(bundle://<slug>, bundle:<slug>, or a bare slug) and get "
                 "every skill's install line in one call. Anonymous-reachable: a "
-                "public cookbook's skills stream to anyone, like a public "
+                "public bundle's skills stream to anyone, like a public "
                 "playlist's tracks. This is the one-line clone the public "
-                "cookbook page surfaces."
+                "bundle page surfaces."
             ),
             inputSchema={
                 "type": "object",
@@ -33,7 +33,7 @@ def _phase_d_tools() -> list[types.Tool]:
                     "link": {
                         "type": "string",
                         "description": (
-                            "Public cookbook link: bundle://<slug>, "
+                            "Public bundle link: bundle://<slug>, "
                             "bundle:<slug>, or a bare slug. A trailing "
                             "?ref=<creator> is tolerated and stripped."
                         ),
@@ -44,12 +44,12 @@ def _phase_d_tools() -> list[types.Tool]:
         types.Tool(
             name="loopskill_pick_best_from_bundle",
             description=(
-                "Pick the single best skill from a PUBLIC cookbook for a stated "
-                "need. The 'streaming' choose verb — pass a cookbook link and an "
+                "Pick the single best skill from a PUBLIC bundle for a stated "
+                "need. The 'streaming' choose verb — pass a bundle link and an "
                 "optional 'need' description; returns the best-matching skill "
                 "(keyword relevance, then real 7d/total installs) plus its "
                 "install line, and the full ranked list. With no 'need', ranks "
-                "the whole cookbook by installs."
+                "the whole bundle by installs."
             ),
             inputSchema={
                 "type": "object",
@@ -57,7 +57,7 @@ def _phase_d_tools() -> list[types.Tool]:
                 "properties": {
                     "link": {
                         "type": "string",
-                        "description": "Public cookbook link (bundle://<slug> / bundle:<slug> / bare slug).",
+                        "description": "Public bundle link (bundle://<slug> / bundle:<slug> / bare slug).",
                     },
                     "need": {
                         "type": "string",
@@ -69,14 +69,14 @@ def _phase_d_tools() -> list[types.Tool]:
         types.Tool(
             name="loopskill_compose_bundle_from_links",
             description=(
-                "Compose a NEW cookbook (owned by you) from N links in one call. "
+                "Compose a NEW bundle (owned by you) from N links in one call. "
                 "The 'streaming' compose verb — each link can be a public "
-                "cookbook (bundle://<slug> → all its skills), an internal "
+                "bundle (bundle://<slug> → all its skills), an internal "
                 "catalogue skill (skill://<slug>), or an external federated "
                 "skill (<source>:<slug>, e.g. clawhub:web-scraper). The "
-                "de-duplicated union becomes a new private cookbook you own; "
+                "de-duplicated union becomes a new private bundle you own; "
                 "publish it to get a shareable bundle:// link. Requires an "
-                "authenticated user; honors your tier's cookbook cap."
+                "authenticated user; honors your tier's bundle cap."
             ),
             inputSchema={
                 "type": "object",
@@ -85,11 +85,11 @@ def _phase_d_tools() -> list[types.Tool]:
                     "links": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "1–25 links to compose from (cookbook / skill / external).",
+                        "description": "1–25 links to compose from (bundle / skill / external).",
                     },
                     "name": {
                         "type": "string",
-                        "description": "Optional name for the new cookbook (default auto-generated).",
+                        "description": "Optional name for the new bundle (default auto-generated).",
                     },
                 },
             },
