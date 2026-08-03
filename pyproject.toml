@@ -35,6 +35,15 @@ strict = true
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
+# A hung test must fail, not stall the job. Incident 2026-08-03: five
+# Dependabot PRs (#165-#169) sat with `pytest + coverage` in_progress for
+# hours because a test blocked on a slow third-party HTTP call. pytest-timeout
+# was already installed in CI but never configured, so nothing ever tripped.
+# 120s is ~2x the slowest legitimate test (the metasearch reconcile load
+# harness paces ~60s of simulated polling by design).
+timeout = 120
+timeout_method = "thread"
 markers = [
     "sandbox_linux_only: sandbox tests that require Linux (firejail/bwrap); skipped on macOS/darwin",
+    "network: test is a genuine integration probe and may reach the public internet (exempt from the conftest outbound-network guard; non-hermetic, should not gate a merge)",
 ]
