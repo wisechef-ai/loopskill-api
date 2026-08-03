@@ -14,11 +14,13 @@ gap.
 
 from __future__ import annotations
 
+import hashlib
 from uuid import uuid4
 
 from app.auth_ctx import AuthContext
+from app.mcp.auth import validate_key
 from app.mcp.server import call_tool_sync
-from app.models import Bundle, BundleSkill, User
+from app.models import APIKey, Bundle, BundleSkill, Org, OrgMembership, User
 from tests.conftest import make_skill
 
 
@@ -123,3 +125,111 @@ class TestCrossTenantBundleReadViaMcpListBundle:
         )
         assert out.get("cookbook") is not None, f"Master should read any bundle; got {out!r}"
         assert out["cookbook"]["id"] == str(bundle.id)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Lane C finding 4 — MCP never resolves org_id, so org-scoped features
+# silently FAIL CLOSED over MCP. app/mcp/auth.py::validate_key must resolve
+# org membership the same way app/middleware/api_key.py does for REST.
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def _mk_org(db, name="acme-p0"):
+    org = Org(id=uuid4(), name=name, slug=f"{name}-{uuid4().hex[:6]}", api_key_hash="")
+    db.add(org)
+    db.flush()
+    return org
+
+
+def _mk_org_membership(db, org, user, *, role="member"):
+    m = OrgMembership(id=uuid4(), org_id=org.id, user_id=user.id, role=role)
+    db.add(m)
+    db.flush()
+    return m
+
+
+def _mk_api_key(db, user, key_value) -> APIKey:
+    key = APIKey(
+        id=uuid4(),
+        user_id=user.id,
+        key_prefix=key_value[:8],
+        key_hash=hashlib.sha256(key_value.encode()).hexdigest(),
+        name="test-key",
+        is_active=True,
+    )
+    db.add(key)
+    db.flush()
+    return key
+
+
+class TestMcpAuthResolvesOrgMembership:
+    """RED: validate_key never resolves org_id — org-scoped MCP reads fail
+    closed even for legitimate org members. GREEN: wired the same
+    _resolve_org_membership resolver the REST path uses.
+    """
+
+    def _org_bundle_setup(self, db):
+        owner = _make_user(db, "org-owner-p0@example.com")
+        member = _make_user(db, "org-member-p0@example.com")
+        org = _mk_org(db)
+        _mk_org_membership(db, org, owner, role="owner")
+        _mk_org_membership(db, org, member, role="member")
+        bundle = Bundle(id=uuid4(), name="Org Bundle", bundle_owner=owner.id, org_id=org.id)
+        db.add(bundle)
+        db.commit()
+        return owner, member, org, bundle
+
+    def test_red_validate_key_resolves_org_id_for_member(self, db_session):
+        """RED: the AuthContext returned for a real user API key must carry
+        the resolved org_id, exactly like the REST auth path does."""
+        owner, member, org, _bundle = self._org_bundle_setup(db_session)
+        key_value = f"lsk_org_member_{uuid4().hex[:12]}"
+        _mk_api_key(db_session, member, key_value)
+        db_session.commit()
+
+        result = validate_key(key_value, db_session)
+        ctx = result["auth_ctx"]
+        assert ctx.org_id == org.id, (
+            f"BUG: MCP auth never resolves org_id — org-scoped reads silently "
+            f"fail closed. Got ctx.org_id={ctx.org_id!r}, expected {org.id!r}"
+        )
+
+    def test_red_org_member_reads_org_bundle_over_mcp(self, db_session):
+        """RED: an org member must be able to read an org-scoped bundle over
+        MCP, exactly like GET /api/cookbooks/{id} allows over REST."""
+        owner, member, org, bundle = self._org_bundle_setup(db_session)
+        key_value = f"lsk_org_member2_{uuid4().hex[:12]}"
+        _mk_api_key(db_session, member, key_value)
+        db_session.commit()
+
+        caller = validate_key(key_value, db_session)
+        out = call_tool_sync(
+            "loopskill_list_bundle",
+            {"cookbook_id": str(bundle.id)},
+            caller=caller,
+            db=db_session,
+        )
+        assert out.get("cookbook") is not None, (
+            f"BUG: org member could not read org-scoped bundle over MCP "
+            f"(org_id never resolved); got {out!r}"
+        )
+        assert out["cookbook"]["id"] == str(bundle.id)
+
+    def test_non_member_cannot_read_org_bundle_over_mcp(self, db_session):
+        """Sanity: a user with NO org membership must still 404 on the org bundle."""
+        owner, member, org, bundle = self._org_bundle_setup(db_session)
+        outsider = _make_user(db_session, "outsider-p0@example.com")
+        key_value = f"lsk_outsider_{uuid4().hex[:12]}"
+        _mk_api_key(db_session, outsider, key_value)
+        db_session.commit()
+
+        caller = validate_key(key_value, db_session)
+        out = call_tool_sync(
+            "loopskill_list_bundle",
+            {"cookbook_id": str(bundle.id)},
+            caller=caller,
+            db=db_session,
+        )
+        assert out.get("cookbook") is None, (
+            f"EXPLOIT: non-org-member read an org-scoped bundle over MCP; got {out!r}"
+        )
