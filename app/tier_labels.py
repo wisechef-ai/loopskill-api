@@ -87,6 +87,27 @@ def bundle_limit(tier: str | None) -> int | None:
 cookbook_limit = bundle_limit
 
 
+def is_public_tier(tier: str | None) -> bool:
+    """Return False only for a tier explicitly flagged `public: false` in the SSOT.
+
+    autopilot_0308 M2 / D-003: the public ladder is exactly 3 tiers (Free /
+    Pro / Enterprise-on-demand). pro_plus carries `public: false` in
+    config/tiers.yaml so it drops out of /pricing and marketing copy while
+    staying a fully valid, resolvable db_slug (bundle_limit(), display_label()
+    keep working) for the migration window and Enterprise contracts.
+
+    Defaults to True (public) for an unknown/None tier — presentation should
+    fail open, never silently hide a real tier because of a lookup typo.
+    """
+    if not tier:
+        return True
+    canonical = _canonical(tier)
+    tier_cfg = _tiers().get(canonical)
+    if tier_cfg is None:
+        return True
+    return tier_cfg.get("public", True) is not False
+
+
 def _is_paid_tier(tier: str | None) -> bool:
     """Return True if tier is any paid tier (pro, pro_plus, or legacy slugs).
 

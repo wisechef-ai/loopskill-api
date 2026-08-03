@@ -74,6 +74,10 @@
             {"type": "integer", "minimum": 0},
             {"type": "null"}
           ]
+        },
+        "public": {
+          "type": "boolean",
+          "description": "autopilot_0308 M2 / D-003: whether this tier appears on /pricing, the tier picker, and marketing copy. Defaults to true (public) when absent — a tier is only hidden by explicitly setting false. The db_slug and all data-layer behavior stay fully functional regardless of this flag; it is presentation-only."
         }
       },
       "if": {
