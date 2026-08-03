@@ -228,7 +228,7 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
     if name == "loopskill_list_bundle":
         return _tool_ns.get("loopskill_list_bundle", loopskill_list_bundle)(
             db,
-            user_id=caller.get("user_id"),
+            ctx=ctx,
             cookbook_id=args.get("cookbook_id"),
         )
     if name == "loopskill_recall":

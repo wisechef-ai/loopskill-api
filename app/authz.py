@@ -204,6 +204,39 @@ def can_write_cookbook(ctx: AuthContext, cookbook: Any) -> bool:
     return False
 
 
+def can_read_cookbook(ctx: AuthContext, cookbook: Any, *, allow_org_read: bool = False) -> bool:
+    """Return True if ctx may read the given cookbook (bundle).
+
+    Mirrors app.bundle_routes._resolve_owned_cookbook's ownership rules so
+    REST and MCP agree on who may read a given bundle:
+    - Bundle-scoped key/token: only the one bundle it is scoped to
+    - Master scope: always allowed
+    - User scope: allowed if ctx.user_id == cookbook.bundle_owner
+    - allow_org_read=True and ctx.org_id matches cookbook.org_id: allowed
+      (mirrors the REST detail route's ``allow_org_read=True`` clause)
+    - All other cases: False
+    """
+    if ctx.bundle_scope is not None and ctx.bundle_scope != cookbook.id:  # compat-alias
+        return False
+
+    if ctx.scope == "master":
+        return True
+    if (
+        ctx.scope == "user"
+        and ctx.user_id is not None
+        and ctx.user_id == cookbook.bundle_owner  # compat-alias
+    ):
+        return True
+    if (
+        allow_org_read
+        and ctx.org_id is not None
+        and getattr(cookbook, "org_id", None) is not None
+        and ctx.org_id == cookbook.org_id
+    ):
+        return True
+    return False
+
+
 def can_reconcile_cookbook(ctx: AuthContext, cookbook: Any, db: "Session | None" = None) -> bool:
     """Return whether a caller may read a bundle's desired state for deploy.
 

@@ -12,6 +12,8 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app import authz
+from app.auth_ctx import AuthContext
 from app.models import Bundle, BundleSkill, Skill
 
 
@@ -28,18 +30,32 @@ def _coerce_uuid(value: Any) -> UUID | None:
 
 def loopskill_list_bundle(
     db: Session,
+    *,
+    ctx: AuthContext | None = None,
     user_id: Any | None = None,
     cookbook_id: str | None = None,
 ) -> dict[str, Any]:
-    """Return the caller's cookbook and skill provenance rows."""
-    # Public-scope MCP tool: caller's own bundle; list_cookbook filters by caller's user_id from auth context.  # compat-alias
+    """Return a cookbook and its skill provenance rows.
+
+    Authz gated: this tool is NOT public-scope — with an explicit
+    cookbook_id it can return another user's private bundle contents
+    (owner id, name, full skill list + pinned versions), so a real
+    ownership check is required, not a comment. Gated via
+    authz.can_read_cookbook — the SAME ownership/org predicate the REST
+    bundle-detail route uses (app.bundle_routes._resolve_owned_cookbook,
+    allow_org_read=True) — so MCP and REST agree on who may read a bundle.
+    Unauthorized/nonexistent both return cookbook_not_found (no existence
+    oracle), mirroring the REST route's docstring contract.
+    """
     cookbook = None
     if cookbook_id:
         cb_uuid = _coerce_uuid(cookbook_id)
-        if cb_uuid is not None:
-            cookbook = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
-    elif user_id is not None:
-        owner = _coerce_uuid(user_id)
+        cb = db.query(Bundle).filter(Bundle.id == cb_uuid).first() if cb_uuid is not None else None
+        if cb is None or ctx is None or not authz.can_read_cookbook(ctx, cb, allow_org_read=True):
+            return {"error": "cookbook_not_found", "status": 404}
+        cookbook = cb
+    else:
+        owner = _coerce_uuid(user_id) if user_id is not None else (ctx.user_id if ctx is not None else None)
         if owner is not None:
             cookbook = (
                 db.query(Bundle)
