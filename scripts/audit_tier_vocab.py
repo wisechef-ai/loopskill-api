@@ -113,6 +113,8 @@ INLINE_ALLOWLIST_MARKERS: tuple[str, ...] = (
     "operator outcome",  # prose: the operator's outcome, human role
     "operator runs",  # prose: 'evacuate the operator runs', human role
     "master-appointed operator",  # auth-scope prose, not tier
+    "operator-facing",  # prose compound: docs/schedules aimed at the human, not tier
+    "operator-configured",  # config provenance: set by the human, not a tier value
     # Scope literals in auth_ctx.py (operator is a Scope, not a tier)
     "Scope = Literal",
     # Studio as a feature label (buckets/windows runtime) not a tier name

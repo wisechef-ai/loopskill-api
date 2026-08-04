@@ -80,3 +80,35 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     # routes don't already expose. There is no write verb on this path.
     "/api/search",
 )
+
+
+# Exact paths that skip API-key auth entirely.
+# Moved here from ``api_key.py`` (mesh_0408 T0-D) for the same reason
+# PUBLIC_PREFIXES was: adding the two mesh discovery endpoints pushed that
+# module to 603 lines, over the NEVER-waived 600-line cap. Pure data, so it
+# belongs on this config surface rather than in middleware behavior.
+EXEMPT_PATHS: frozenset[str] = frozenset({
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+    "/healthz",
+    "/",
+    "/api/healthz",
+    "/api/health",  # spotify_1507 Ph0: public liveness status (no auth, no DB)
+    "/api/health/transparency",  # Stream 0: public transparency scorecard
+    # loopclose_3005 Phase B — canonical /skill serve (the install front-door
+    # printed on the hero + every integrations card). MUST be public so an
+    # agent can curl the meta-skill before it has a key. Serves the clean
+    # in-repo SKILL.md as text/plain; no PII. (app/skill_serve_routes.py)
+    "/skill",
+    "/skill/",
+    "/SKILL.md",
+    # fleetos_1607 T — fleet-control-plane SKILL.md (public GET-only doc).
+    "/fleet/skill",
+    "/fleet/skill/",
+    "/fleet/SKILL.md",
+    # mesh_0408 T0-D — mesh credential discovery (spec §9, §9.1).
+    # Unauthenticated BY DESIGN: verification must need no credential.
+    "/.well-known/jwks.json",
+    "/.well-known/oauth-authorization-server",
+})
