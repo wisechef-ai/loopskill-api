@@ -231,10 +231,18 @@ def list_members(
             member_id
             for (member_id, provides) in db.query(
                 FleetMemberLiveness.member_id, FleetMemberLiveness.provides
-            ).filter(FleetMemberLiveness.member_id.in_(db.query(FleetMember.id).filter(FleetMember.fleet_id == fleet.id)))
+            ).filter(
+                FleetMemberLiveness.member_id.in_(
+                    db.query(FleetMember.id).filter(FleetMember.fleet_id == fleet.id)
+                )
+            )
             if isinstance(provides, dict) and provides.get("a2a")
         }
-        q = q.filter(FleetMember.id.in_(a2a_member_ids)) if a2a_member_ids else q.filter(FleetMember.id.is_(None))
+        q = (
+            q.filter(FleetMember.id.in_(a2a_member_ids))
+            if a2a_member_ids
+            else q.filter(FleetMember.id.is_(None))
+        )
 
     if after:
         try:
