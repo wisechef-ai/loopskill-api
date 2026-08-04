@@ -249,6 +249,10 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         "/fleet/skill",
         "/fleet/skill/",
         "/fleet/SKILL.md",
+        # mesh_0408 T0-D — mesh credential discovery (spec §9, §9.1).
+        # Unauthenticated BY DESIGN: verification must need no credential.
+        "/.well-known/jwks.json",
+        "/.well-known/oauth-authorization-server",
     }
     # Prefixes for paths that use JWT auth instead of API key
     JWT_AUTH_PREFIXES = (

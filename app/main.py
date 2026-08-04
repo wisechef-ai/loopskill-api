@@ -43,6 +43,8 @@ from app.mcp.server import (
 from app.mcp.server import (
     run_streamable_http,
 )
+from app.mesh_routes import router as mesh_router  # mesh_0408 T0-D
+from app.mesh_wellknown_routes import router as mesh_wellknown_router  # mesh_0408 T0-D
 from app.middleware import APIKeyMiddleware, CookbookHostMiddleware, RateLimitMiddleware
 from app.publisher_routes import router as publisher_router
 from app.recall_routes import router as recall_router
@@ -198,6 +200,11 @@ def create_app() -> FastAPI:
     # specific /public/{slug}/.well-known/... paths are matched (FastAPI is
     # first-match; the generic /public/{slug} lives on cookbook_router).
     app.include_router(cookbook_wellknown_router, tags=["cookbooks", "well-known"])
+    # mesh_0408 T0-D — /.well-known/jwks.json + /.well-known/oauth-authorization-server
+    # (root-level, unauthenticated). Registered here too so ordering relative
+    # to any future generic /.well-known/{path} catch-all stays explicit.
+    app.include_router(mesh_wellknown_router, tags=["mesh", "well-known"])
+    app.include_router(mesh_router, tags=["mesh"])
     app.include_router(graph_router, tags=["graph"])
     app.include_router(cookbook_deploy_router, tags=["cookbook-deploy"])
     app.include_router(heartbeat_router, tags=["heartbeat"])
