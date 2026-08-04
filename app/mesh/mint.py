@@ -46,7 +46,6 @@ from sqlalchemy.orm import Session
 from app.mesh.constants import (
     ADMIN_AUD,
     CLAIM_NS,
-    CLASS_MESH_ADMIN,
     CLASS_MESH_DIRECTORY,
     CLASS_MESH_EXEC,
     CLASS_TTL_SECONDS,

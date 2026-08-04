@@ -77,9 +77,13 @@ def mint_mesh_credential(
             detail={"error": "mesh_tenant_unassigned", "fleet_id": exc.fleet_id},
         ) from exc
     except MeshMintRaceError as exc:
-        raise HTTPException(status_code=400, detail={"error": "mesh_mint_failed", "reason": exc.reason}) from exc
+        raise HTTPException(
+            status_code=400, detail={"error": "mesh_mint_failed", "reason": exc.reason}
+        ) from exc
     except MeshKeyRingError as exc:
-        raise HTTPException(status_code=503, detail={"error": "mesh_signing_unavailable", "reason": str(exc)}) from exc
+        raise HTTPException(
+            status_code=503, detail={"error": "mesh_signing_unavailable", "reason": str(exc)}
+        ) from exc
 
     return {
         "token": minted.token,

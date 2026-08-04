@@ -49,7 +49,6 @@ at the crypto layer, not a runtime leak.
 
 from __future__ import annotations
 
-import os
 import stat
 from dataclasses import dataclass
 from pathlib import Path
@@ -94,9 +93,7 @@ def generate_keypair() -> tuple[bytes, bytes]:
     """
     private_key = Ed25519PrivateKey.generate()
     public_key = private_key.public_key()
-    private_pem = private_key.private_bytes(
-        Encoding.PEM, PrivateFormat.PKCS8, NoEncryption()
-    )
+    private_pem = private_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
     public_pem = public_key.public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
     return private_pem, public_pem
 
