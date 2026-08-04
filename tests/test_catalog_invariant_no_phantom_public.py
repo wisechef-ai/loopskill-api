@@ -23,15 +23,22 @@ from app.models import Skill, SkillVersion
 
 
 def _phantom_query(db_session):
-    """Return list of (id, slug) for any phantom public skill rows."""
+    """Return list of (id, slug) for any phantom public skill rows.
+
+    mesh0408 T0-A: the Postgres run caught this. ``s.is_public = 1`` /
+    ``s.is_archived = 0`` relies on SQLite's loose boolean-as-integer
+    typing; Postgres has a real ``boolean`` column type and rejects
+    ``boolean = integer`` outright (``UndefinedFunction``). ``TRUE`` /
+    ``FALSE`` SQL literals are portable across both dialects.
+    """
     rows = db_session.execute(
         text(
             """
             SELECT s.id, s.slug
             FROM skills s
             LEFT JOIN skill_versions v ON v.skill_id = s.id
-            WHERE s.is_public = 1
-              AND s.is_archived = 0
+            WHERE s.is_public = TRUE
+              AND s.is_archived = FALSE
             GROUP BY s.id, s.slug
             HAVING COUNT(v.id) = 0
             """

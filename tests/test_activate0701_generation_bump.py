@@ -66,9 +66,17 @@ def test_publish_bumps_declaring_bundle_generation(db_session: Session, owner: U
     skill, cb = _mk_skill_bundle(db_session, owner)
     # Backdate the generation (SQLite func.now() is second-resolution — a
     # sleep-based test would be flaky; an explicit past timestamp is not).
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
-    before = datetime.utcnow() - timedelta(hours=1)
+    # mesh0408 T0-A: the Postgres run caught this. Bundle.updated_at is a
+    # DateTime(timezone=True) column. Postgres returns genuinely
+    # timezone-aware datetimes for it; SQLite has no native tz type and
+    # silently hands back naive datetimes, so the original
+    # datetime.utcnow() (naive) comparison worked there by accident.
+    # Postgres raised `TypeError: can't compare offset-naive and
+    # offset-aware datetimes`. Use an aware `before` so the comparison is
+    # valid — and correct — on both engines.
+    before = datetime.now(timezone.utc) - timedelta(hours=1)
     db_session.query(Bundle).filter(Bundle.id == cb.id).update(
         {"updated_at": before}, synchronize_session=False
     )
@@ -79,7 +87,13 @@ def test_publish_bumps_declaring_bundle_generation(db_session: Session, owner: U
     db_session.refresh(cb)
 
     assert cb.updated_at is not None
-    assert cb.updated_at > before, (
+    updated_at = cb.updated_at
+    if updated_at.tzinfo is None:
+        # SQLite hands back a naive datetime for a tz-aware column; treat
+        # it as UTC (matches how it was written) so the comparison below
+        # is meaningful on both engines rather than raising TypeError.
+        updated_at = updated_at.replace(tzinfo=timezone.utc)
+    assert updated_at > before, (
         "generation must advance so the 304 fast-path breaks and the agent "
         "sees the new version on its next poll"
     )

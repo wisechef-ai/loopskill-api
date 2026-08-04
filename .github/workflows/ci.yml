@@ -31,16 +31,47 @@ jobs:
         run: ruff format --check app/
 
   test:
-    name: pytest + coverage
+    name: pytest + coverage (${{ matrix.engine }})
     runs-on: ubuntu-latest
     # Backstop for a hung suite. Without this a blocked test rides GitHub's
     # 6h default; on 2026-08-03 five Dependabot PRs sat in_progress for hours
     # with no signal. Per-test timeout lives in pyproject.toml; this is the
     # job-level belt to that braces.
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [sqlite, postgres]
+    # mesh0408 T0-A: Postgres service container so the suite runs against
+    # BOTH engines. Production is Postgres; SQLite alone never exercised
+    # CHECK constraints or other dialect-specific behaviour. postgres:17
+    # matches docker-compose.prod.yml (verified 2026-08-04). The container
+    # starts unconditionally on both matrix legs (GitHub Actions service
+    # containers can't be conditionally skipped per-matrix-value without
+    # duplicating the job) — the sqlite leg simply never connects to it.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: loopskill
+          POSTGRES_PASSWORD: loopskill
+          POSTGRES_DB: loopskill_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       WR_DATABASE_URL: "sqlite:///:memory:"
-      DATABASE_URL: "sqlite:///:memory:"
+      # DATABASE_URL drives tests/conftest.py's engine selection (see
+      # _test_database_url()). WR_DATABASE_URL stays sqlite even on the
+      # postgres leg so app.config.Settings' production-secrets gate is
+      # never triggered by the test job — only the test suite's own engine
+      # switches, matching the "app boots on sqlite defaults, tests can
+      # point elsewhere" contract already documented in conftest.py.
+      DATABASE_URL: ${{ matrix.engine == 'postgres' && 'postgresql://loopskill:loopskill@localhost:5432/loopskill_test' || 'sqlite:///:memory:' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v7

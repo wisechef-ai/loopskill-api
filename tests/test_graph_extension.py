@@ -92,15 +92,22 @@ def _ensure_incident_reports_table(db: Session) -> None:
     The sibling B.1 task ships a different schema (skill_id FK, error_signature,
     env_fingerprint, agent_fp_anon, ...). For graph-extension derivation tests
     we use a slug+signature shape, so drop any existing table and recreate.
+
+    mesh0408 T0-A: the Postgres run caught this. ``DATETIME`` is a SQLite
+    type alias; SQLite accepted the raw SQL silently, but Postgres raised
+    ``UndefinedObject: type "datetime" does not exist`` — Postgres's
+    equivalent is ``TIMESTAMP``. Branch on dialect so the same raw-SQL
+    helper works against both test engines.
     """
+    ts_type = "TIMESTAMP" if db.get_bind().dialect.name == "postgresql" else "DATETIME"
     db.execute(text("DROP TABLE IF EXISTS incident_reports"))
     db.execute(text(
-        """
+        f"""
         CREATE TABLE incident_reports (
             id VARCHAR(36) PRIMARY KEY,
             skill_slug VARCHAR(255),
             signature VARCHAR(255),
-            occurred_at DATETIME
+            occurred_at {ts_type}
         )
         """
     ))
