@@ -37,15 +37,24 @@ from app.models import Base, Skill
 def _test_database_url() -> str:
     """Resolve which engine the test suite should run against.
 
-    Priority: TEST_DATABASE_URL (test-specific override) > DATABASE_URL /
-    WR_DATABASE_URL (same vars app.config.Settings reads, so CI can set one
-    var and have both the app and the tests agree on the engine) > SQLite
-    in-memory (unchanged default for local `pytest`).
+    Priority: TEST_DATABASE_URL (test-specific override) > DATABASE_URL (what
+    a CI job sets to point everything at one engine) > SQLite in-memory
+    (unchanged default for local `pytest`).
+
+    ``WR_DATABASE_URL`` is deliberately NOT consulted. The repo-root
+    ``conftest.py`` force-sets it to ``sqlite:///./test_dev.db`` — an
+    ON-DISK file — purely so ``app.config.Settings`` constructs without
+    tripping the production-secrets guard. Honouring it here pointed the
+    whole suite at that single shared file, so under ``pytest -n auto``
+    every xdist worker raced on the same tables (52 failures / 206 errors,
+    mostly "relation does not exist" and cross-test data bleed). The
+    session engine must stay per-worker-isolated, which in-memory SQLite
+    gives for free. CI sets DATABASE_URL, which is read above, so nothing
+    is lost by ignoring WR_DATABASE_URL.
     """
     return (
         os.environ.get("TEST_DATABASE_URL")
         or os.environ.get("DATABASE_URL")
-        or os.environ.get("WR_DATABASE_URL")
         or "sqlite:///:memory:"
     )
 
