@@ -18,6 +18,20 @@ Design contract (Adam 2026-07-17, subscriber framing):
     moves are monotonic (see LoopPlacement CAS docstring).
   * Atomic: jobs.json is rewritten via tempfile + os.replace (a half-written
     file crashes every cron on the host). Same discipline as reconcile_client.
+  * **`script` is DELETED, permanently, by lock #14 (mesh_0408 plan §0).**
+    ``manifest_to_job`` therefore force-sets ``"script": None`` on every job
+    it writes (line ~149 below) — there is no code path in this module that
+    could ever carry a script through. See mesh_0408 §2.7 / T1-B′ for why
+    that makes 14 of LoopSkill's own 15 `loopskill-*` crons NON-migratable:
+    they carry a `script` (either a pure deterministic watchdog, or a
+    pre-script that collects data and feeds it into the agent prompt), and
+    running them through this module would silently strip that script,
+    breaking them while reporting a clean "created"/"updated" apply. Only
+    `loopskill-soak-daily` — the one prompt-only job — can pass through this
+    module without losing behavior. Verified live 2026-08-04 against
+    `~/.hermes/cron/jobs.json`; pinned by
+    `tests/test_mesh0408_t1b_soak_daily_migration.py::test_soak_daily_is_the_only_migratable_loopskill_cron`
+    so a future re-check is a test failure, not a rediscovery.
 
 Pure functions + injected IO so the module is unit-testable without a live
 scheduler; the ~/.hermes/scripts/loopskill-sync.sh cron calls apply_assignments
