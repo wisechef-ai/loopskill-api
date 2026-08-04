@@ -14,7 +14,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from app.models import Bundle, Personality, Skill, Verifier
+from app.models import Bundle, Connector, Personality, Skill, Verifier
 from tests._app_factory import build_test_app
 
 
@@ -133,6 +133,23 @@ def _seed_personality(
     return p
 
 
+def _seed_connector(
+    db, slug="tdd-connector", title="TDD Connector", is_public=True, is_archived=False
+) -> Connector:
+    c = Connector(
+        id=uuid4(),
+        slug=slug,
+        title=title,
+        description="A TDD-flavored MCP connector config fragment.",
+        connector_type="http",
+        is_public=is_public,
+        is_archived=is_archived,
+    )
+    db.add(c)
+    db.flush()
+    return c
+
+
 # ── (b) anonymous request returns 200 (pins public-prefix registration) ────
 
 
@@ -189,6 +206,20 @@ def test_only_public_personality_returned(search_client, db_session):
     assert "tdd-archived-persona" not in slugs
 
 
+def test_only_public_connector_returned(search_client, db_session):
+    """connectors group (mesh0408 T1-D): mirrors the personality/loop visibility gate."""
+    _seed_connector(db_session, slug="tdd-public-connector", is_public=True)
+    _seed_connector(db_session, slug="tdd-private-connector", is_public=False)
+    _seed_connector(db_session, slug="tdd-archived-connector", is_public=True, is_archived=True)
+
+    res = search_client.get("/api/search", params={"q": "tdd"})
+    assert res.status_code == 200
+    slugs = [x["slug"] for x in res.json()["connectors"]]
+    assert "tdd-public-connector" in slugs
+    assert "tdd-private-connector" not in slugs
+    assert "tdd-archived-connector" not in slugs
+
+
 # ── (d) grouped shape contract: all four keys always present, lists ────────
 
 
@@ -198,8 +229,8 @@ def test_grouped_shape_contract_on_zero_results(search_client):
     res = search_client.get("/api/search", params={"q": "zzz-no-such-match-zzz"})
     assert res.status_code == 200
     body = res.json()
-    assert set(body.keys()) >= {"query", "skills", "loops", "bundles", "personalities"}
-    for group in ("skills", "loops", "bundles", "personalities"):
+    assert set(body.keys()) >= {"query", "skills", "loops", "bundles", "personalities", "connectors"}
+    for group in ("skills", "loops", "bundles", "personalities", "connectors"):
         assert isinstance(body[group], list)
         assert body[group] == []
     assert body["query"] == "zzz-no-such-match-zzz"
@@ -210,16 +241,18 @@ def test_grouped_shape_contract_with_results(search_client, db_session):
     _seed_verifier(db_session)
     _seed_bundle(db_session)
     _seed_personality(db_session)
+    _seed_connector(db_session)
 
     res = search_client.get("/api/search", params={"q": "tdd"})
     body = res.json()
-    assert set(body.keys()) >= {"query", "skills", "loops", "bundles", "personalities"}
-    for group in ("skills", "loops", "bundles", "personalities"):
+    assert set(body.keys()) >= {"query", "skills", "loops", "bundles", "personalities", "connectors"}
+    for group in ("skills", "loops", "bundles", "personalities", "connectors"):
         assert isinstance(body[group], list)
     assert len(body["skills"]) >= 1
     assert len(body["loops"]) >= 1
     assert len(body["bundles"]) >= 1
     assert len(body["personalities"]) >= 1
+    assert len(body["connectors"]) >= 1
 
     # spot-check the per-type extras contract
     skill_card = body["skills"][0]
@@ -233,6 +266,20 @@ def test_grouped_shape_contract_with_results(search_client, db_session):
 
     persona_card = body["personalities"][0]
     assert {"slug", "title", "description", "category", "tier"} <= set(persona_card.keys())
+
+    connector_card = body["connectors"][0]
+    assert {"slug", "title", "description", "connector_type"} <= set(connector_card.keys())
+
+
+def test_connectors_key_well_formed_when_table_empty(search_client):
+    """T1-D scope note: an empty connectors table is a CORRECT response — the
+    gate is that the key exists and is a well-formed list, not that it is
+    non-empty. T1-C (sister phase) populates rows separately."""
+    res = search_client.get("/api/search", params={"q": "tdd"})
+    assert res.status_code == 200
+    body = res.json()
+    assert "connectors" in body
+    assert body["connectors"] == []
 
 
 # ── (e) q shorter than 2 chars -> 422 (documented choice) ───────────────────

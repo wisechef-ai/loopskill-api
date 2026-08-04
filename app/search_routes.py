@@ -1,7 +1,8 @@
-"""Unified anonymous search across skills, loops, bundles, and personalities.
+"""Unified anonymous search across skills, loops, bundles, personalities, and
+connectors.
 
 feat/unified-search: GET /api/search?q=<text>&limit=<per-group> — one call that
-searches all four catalog types and returns them grouped by type ("Spotify-style"
+searches all five catalog types and returns them grouped by type ("Spotify-style"
 search: type your query once, get back sections). Anonymous — registered in the
 APIKeyMiddleware public-prefix allow-list (see app/middleware/_public_paths.py)
 the same way the existing per-type public routes are.
@@ -16,6 +17,14 @@ NOTE on personalities: Personality DOES have a public-visibility model
 (is_public / is_archived, same shape as Skill/Verifier) and a public browse
 route (GET /api/personalities), so this group is populated — it is NOT one of
 the "no public model, return []" cases.
+
+NOTE on connectors (mesh0408 T1-D): Connector has the same is_public/
+is_archived shape and a public browse route (GET /api/connectors). The
+underlying table can legitimately be EMPTY (T1-C, a sister phase, populates
+rows separately) — an empty connectors list is a correct response, not a
+defect. verifiers-as-a-distinct-type and composite_loops have NO group here;
+that is a recorded gap (hub.md §3 open question), not an omission to silently
+patch over.
 """
 
 from __future__ import annotations
@@ -26,6 +35,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.services.unified_search import (
     search_bundles_group,
+    search_connectors_group,
     search_loops_group,
     search_personalities_group,
     search_skills_group,
@@ -58,9 +68,10 @@ def unified_search(
     ),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Search skills, loops, bundles, and personalities in one anonymous call.
+    """Search skills, loops, bundles, personalities, and connectors in one
+    anonymous call.
 
-    Response shape (all four keys always present, always lists — never null,
+    Response shape (all five keys always present, always lists — never null,
     never invented data for an empty group):
 
         {
@@ -69,10 +80,11 @@ def unified_search(
             "loops": [{"slug", "title", "description", "max_turns", "tool_count", "run_count"}, ...],
             "bundles": [{"slug", "name", "description", "skill_count"}, ...],
             "personalities": [{"slug", "title", "description", "category", "tier"}, ...],
+            "connectors": [{"slug", "title", "description", "connector_type"}, ...],
         }
 
-    Worst case is 4 small SELECT queries (skills, loops, bundles, personalities)
-    plus one small grouped aggregate for bundle skill_count — see
+    Worst case is 5 small SELECT queries (skills, loops, bundles, personalities,
+    connectors) plus one small grouped aggregate for bundle skill_count — see
     app/services/unified_search.py for the per-type query + ordering detail.
     """
     return {
@@ -81,4 +93,5 @@ def unified_search(
         "loops": search_loops_group(db, q, limit),
         "bundles": search_bundles_group(db, q, limit),
         "personalities": search_personalities_group(db, q, limit),
+        "connectors": search_connectors_group(db, q, limit),
     }
