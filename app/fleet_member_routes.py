@@ -197,11 +197,18 @@ def list_members(
     db: Session = Depends(get_db),
     limit: int = Query(default=_DEFAULT_LIMIT, ge=1, le=_MAX_LIMIT),
     after: str | None = Query(default=None),
+    a2a_only: bool = Query(default=False),
 ) -> dict[str, Any]:
     """Keyset-paginated list of a fleet's active members.
 
     Order: (created_at, id) ascending. `last_event_at` is fetched in ONE
     grouped query across the page's member ids (no N+1).
+
+    mesh_0408 T3-A.2: `?a2a_only=true` narrows the page to members that have
+    registered an A2A endpoint via `FleetMemberLiveness.provides["a2a"]` —
+    the SAME field `GET /api/orgs/{org_id}/a2a-directory` reads (see
+    app/mesh_discovery_routes.py). No parallel directory table; this filter
+    is a read-side narrowing of the existing membership + liveness rows.
     """
     ctx = resolve_fleet_ctx(request, db)
     fleet = _resolve_owned_fleet(db, ctx, fleet_id)
@@ -211,6 +218,31 @@ def list_members(
         .filter(FleetMember.fleet_id == fleet.id, FleetMember.is_active == True)  # noqa: E712
         .order_by(FleetMember.created_at.asc(), FleetMember.id.asc())
     )
+    if a2a_only:
+        from app.models import FleetMemberLiveness
+
+        # Deliberately NOT a JSON-path SQL predicate (`provides['a2a']`) —
+        # SQLite and Postgres serialize/compare JSON differently enough that
+        # a portable filter here would need per-dialect branching for one
+        # boolean check. The fleet member-count ceiling (TIER_KEY_CAPS: 200
+        # for pro/pro_plus) keeps this an in-memory id-set filter cheap and
+        # correct on both engines rather than DB-specific and fragile.
+        a2a_member_ids = {
+            member_id
+            for (member_id, provides) in db.query(
+                FleetMemberLiveness.member_id, FleetMemberLiveness.provides
+            ).filter(
+                FleetMemberLiveness.member_id.in_(
+                    db.query(FleetMember.id).filter(FleetMember.fleet_id == fleet.id)
+                )
+            )
+            if isinstance(provides, dict) and provides.get("a2a")
+        }
+        q = (
+            q.filter(FleetMember.id.in_(a2a_member_ids))
+            if a2a_member_ids
+            else q.filter(FleetMember.id.is_(None))
+        )
 
     if after:
         try:

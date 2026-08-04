@@ -307,6 +307,17 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         if request.method == "POST" and path in self.PUBLIC_POST_ONLY_PATHS:
             return await call_next(request)
 
+        # mesh_0408 T3-A — GET /api/orgs/{org_id}/a2a-directory authenticates
+        # with an audience-bound mesh credential (Authorization: Bearer ...),
+        # NOT x-api-key. The route itself (app/mesh_discovery_routes.py)
+        # parses + verifies the bearer token and 401s on anything missing/
+        # invalid, so skipping the x-api-key gate here does not weaken auth —
+        # it routes to the correct one. Path-suffix match (org_id is a path
+        # segment) rather than a PUBLIC_PREFIXES entry, which would also
+        # expose the x-api-key-gated /api/orgs CRUD routes.
+        if request.method == "GET" and path.startswith("/api/orgs/") and path.endswith("/a2a-directory"):
+            return await call_next(request)
+
         # Public skill-detail GETs (/api/skills/{slug}) — match LarryBrain catalog
         # browsability. Auth-only verbs (install, _download, _publish) still gated,
         # EXCEPT /api/skills/install for tier=free skills (polish_1805 item 1 —
