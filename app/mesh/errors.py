@@ -26,3 +26,18 @@ class MeshMintRaceError(Exception):
 
 class MeshKeyRingError(Exception):
     """The mesh Ed25519 signing key ring is missing, unreadable, or misconfigured."""
+
+
+class MeshVerifyError(Exception):
+    """mesh_0408 T3-A — a mesh credential failed admission at a LoopSkill
+
+    control-plane endpoint (bad signature, wrong aud/class, expired, revoked
+    member, unassigned org, etc). Deliberately a single exception type with a
+    human-readable reason string — the caller maps it to one HTTP status
+    (401), matching spec §3.3's "no degraded mode": every verification
+    failure rejects, there is no partial-success branch to distinguish.
+    """
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(reason)

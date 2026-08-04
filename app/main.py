@@ -205,6 +205,9 @@ def create_app() -> FastAPI:
     # to any future generic /.well-known/{path} catch-all stays explicit.
     app.include_router(mesh_wellknown_router, tags=["mesh", "well-known"])
     app.include_router(mesh_router, tags=["mesh"])
+    from app.mesh_discovery_routes import router as mesh_discovery_router  # mesh_0408 T3-A
+
+    app.include_router(mesh_discovery_router, tags=["mesh", "a2a-directory"])
     app.include_router(graph_router, tags=["graph"])
     app.include_router(cookbook_deploy_router, tags=["cookbook-deploy"])
     app.include_router(heartbeat_router, tags=["heartbeat"])
