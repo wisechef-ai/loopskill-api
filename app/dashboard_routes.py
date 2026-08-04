@@ -32,6 +32,7 @@ from app.models import (
     RecipifyRequest,
     SkillErrorReport,
 )
+from app.services.loop_convergence import fleet_convergence
 
 router = APIRouter(prefix="/api/fleets", tags=["dashboard"])
 
@@ -178,3 +179,34 @@ def get_fleet_dashboard(
         "ralph_loops": ralph_loops,
         "ralph_count": len(ralph_loops),
     }
+
+
+@router.get("/{fleet_id}/convergence")
+def get_fleet_convergence(
+    fleet_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Per-assignment convergence (mesh_0408 T1-B\u2032).
+
+    Replaces the deleted aggregate ``success > rolled_back`` fleet-wide gate
+    (see ``app/services/loop_convergence.py`` module docstring for why that
+    design was never shipped). Returns one row per tracked LoopPlacement \u2014
+    desired epoch, observed epoch, consecutive-failure streak, and an
+    explicit ``never_attempted`` state \u2014 so a single stuck daily loop is
+    visible on its own row and cannot be diluted by a noisy healthy sibling's
+    success volume. ``status: red`` iff ANY tracked assignment is failing.
+    """
+    ctx = resolve_fleet_ctx(request, db)
+    try:
+        fleet_uuid = UUID(fleet_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="fleet_not_found")
+
+    fleet = db.query(Fleet).filter(Fleet.id == fleet_uuid).first()
+    if fleet is None:
+        raise HTTPException(status_code=404, detail="fleet_not_found")
+    if not authz.can_use_fleet(ctx, fleet):
+        raise HTTPException(status_code=404, detail="fleet_not_found")
+
+    return fleet_convergence(db, fleet.id)
