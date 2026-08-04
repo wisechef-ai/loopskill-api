@@ -203,6 +203,24 @@ class Settings(BaseSettings):
         "131.0.72.0/22",
     ]
 
+    # mesh_0408 T0-D — SEPARATE Ed25519 mesh credential signing ring (spec §0).
+    # This is NOT the session-JWT HMAC ring above (JWT_SECRET/JWT_KEYS) and
+    # must never be merged with it — see app/mesh/keys.py module docstring.
+    #
+    # MESH_SIGNING_KEY_PATH: filesystem path to a PEM-encoded Ed25519 private
+    # key, mode 0600, OUTSIDE the repo tree. No default — an unset path means
+    # mesh minting is disabled (fails closed), which is correct for any
+    # deployment that hasn't provisioned a key via scripts/mesh_keygen.py.
+    MESH_SIGNING_KEY_PATH: str = ""
+    # MESH_SIGNING_KID: the `kid` new tokens are signed with. Must match a
+    # key present in MESH_JWKS_DIR (see keys.py) so verifiers can resolve it.
+    MESH_SIGNING_KID: str = ""
+    # MESH_JWKS_DIR: directory holding PUBLIC key material for every kid in
+    # the ring (active + retired-but-not-yet-expired), used to build the
+    # published JWKS. Each file is `<kid>.pub.pem`. Separate from the private
+    # key path so the JWKS-serving code path never touches private material.
+    MESH_JWKS_DIR: str = ""
+
     model_config = {"env_file": ".env", "env_prefix": "WR_", "extra": "ignore"}
 
     @model_validator(mode="after")

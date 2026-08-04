@@ -18,6 +18,17 @@ regexes = [
   '''admin:PASSWORD''',
   '''123456789012345678''',
   '''sk_liv[._]*1234''',
+  # mesh_0408 T0-D — a dataclass FIELD ANNOTATION, not a value:
+  #     private_key: Ed25519PrivateKey
+  # gitleaks' generic-api-key rule fires on the `private_key:` prefix and
+  # captures the TYPE NAME as the "secret". NOTE: this `regexes` list is matched
+  # against the captured secret, not the whole line — so the entry below is the
+  # type name, not `private_key: Ed25519PrivateKey` (that spelling silently does
+  # not match, verified). There is no key material here or anywhere in
+  # app/mesh/: SigningKey deliberately carries no serialized form, and the real
+  # key is a 0600 PEM outside the repo tree (spec §0.3). A class name is not a
+  # credential, and a genuine literal would not match this anchored pattern.
+  '''^Ed25519PrivateKey$''',
 ]
 paths = [
   '''docs/.*\.md''',

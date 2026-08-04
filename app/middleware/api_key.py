@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
+from app.middleware._public_paths import EXEMPT_PATHS as _EXEMPT_PATHS
 from app.middleware._public_paths import PUBLIC_PREFIXES as _PUBLIC_PREFIXES
 from app.middleware.key_prefixes import API_KEY_PREFIX, FLEET_KEY_PREFIX  # noqa: F401 — compat re-export
 from app.middleware.key_prefixes import LOOPSKILL_KEY_PREFIX, USER_KEY_PREFIXES  # noqa: F401
@@ -229,27 +230,9 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     """Validate x-api-key header. Exempt /docs, /openapi.json, /healthz, /,
     auth endpoints (JWT-based), Stripe webhooks, and other public read surfaces."""
 
-    EXEMPT_PATHS = {
-        "/docs",
-        "/openapi.json",
-        "/redoc",
-        "/healthz",
-        "/",
-        "/api/healthz",
-        "/api/health",  # spotify_1507 Ph0: public liveness status (no auth, no DB)
-        "/api/health/transparency",  # Stream 0: public transparency scorecard
-        # loopclose_3005 Phase B — canonical /skill serve (the install front-door
-        # printed on the hero + every integrations card). MUST be public so an
-        # agent can curl the meta-skill before it has a key. Serves the clean
-        # in-repo SKILL.md as text/plain; no PII. (app/skill_serve_routes.py)
-        "/skill",
-        "/skill/",
-        "/SKILL.md",
-        # fleetos_1607 T — fleet-control-plane SKILL.md (public GET-only doc).
-        "/fleet/skill",
-        "/fleet/skill/",
-        "/fleet/SKILL.md",
-    }
+    # Exact no-auth paths — see app/middleware/_public_paths.py
+    # (extracted to keep this module under the 600-line god-object cap).
+    EXEMPT_PATHS = _EXEMPT_PATHS
     # Prefixes for paths that use JWT auth instead of API key
     JWT_AUTH_PREFIXES = (
         "/api/auth/",

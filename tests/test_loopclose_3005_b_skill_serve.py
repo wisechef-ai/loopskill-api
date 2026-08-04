@@ -126,17 +126,32 @@ class TestSkillPublicViaMiddleware:
 
 
 class TestMiddlewareExemptGuard:
-    """Grep guard — a refactor that drops /skill from EXEMPT_PATHS re-breaks the
+    """Guard — a refactor that drops /skill from the exempt set re-breaks the
     bare-401 bug. Trip CI here, not in prod."""
 
     def test_middleware_exempts_skill_paths(self):
-        from pathlib import Path
+        """Assert the EFFECTIVE exempt set, not the file the literals live in.
 
-        src = Path("app/middleware/api_key.py").read_text(encoding="utf-8")
-        for p in ('"/skill"', '"/skill/"', '"/SKILL.md"'):
-            assert p in src, (
-                f"APIKeyMiddleware no longer exempts {p} — re-introduces the "
-                "loopclose_3005 Phase B bare-401 bug. Restore it in EXEMPT_PATHS."
+        Was a grep over ``app/middleware/api_key.py``. mesh_0408 T0-D moved
+        ``EXEMPT_PATHS`` into ``app/middleware/_public_paths.py`` — the same
+        extraction ``PUBLIC_PREFIXES`` already had — because adding the two
+        mesh discovery endpoints pushed ``api_key.py`` to 603 lines, over the
+        NEVER-waived 600-line cap. The grep then failed even though the paths
+        were still exempt, so it was reporting file layout, not behaviour.
+
+        Reading the resolved attribute is strictly stronger: it survives any
+        future extraction AND it would still fail if a path were genuinely
+        dropped, renamed, or shadowed — which is the bug this guard exists to
+        catch.
+        """
+        from app.middleware.api_key import APIKeyMiddleware
+
+        exempt = set(APIKeyMiddleware.EXEMPT_PATHS)
+        for p in ("/skill", "/skill/", "/SKILL.md"):
+            assert p in exempt, (
+                f"APIKeyMiddleware no longer exempts {p!r} — re-introduces the "
+                "loopclose_3005 Phase B bare-401 bug. Restore it in EXEMPT_PATHS "
+                "(app/middleware/_public_paths.py)."
             )
 
 
