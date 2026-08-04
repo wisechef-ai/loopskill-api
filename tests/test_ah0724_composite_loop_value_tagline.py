@@ -87,6 +87,12 @@ DREAMING_DESC = (
     "daily memories, extract learnings, and prune stale ones. The agent's "
     "'sleep' cycle."
 )
+REPO_STEWARDSHIP_DESC = (
+    "One-click bundle of the three loops that keep a repo healthy: Repo Steward "
+    "(triage + Dependabot auto-merge), Test-Green (drive red tests to green), "
+    "and PR Review (structured review on every PR). Install once, wake up to a "
+    "repo that triages itself, reviews itself, and won't let the test suite go red."
+)
 
 
 @pytest.fixture
@@ -95,12 +101,18 @@ def flagship_loops(db_session):
         db_session, slug="atomic-habits", title="Atomic Habits", description=ATOMIC_HABITS_DESC
     )
     dr = _mk_composite_loop(db_session, slug="dreaming", title="Dreaming", description=DREAMING_DESC)
+    rs = _mk_composite_loop(
+        db_session,
+        slug="repo-stewardship-pack",
+        title="Repo Stewardship Pack",
+        description=REPO_STEWARDSHIP_DESC,
+    )
     db_session.commit()
-    return ah, dr
+    return ah, dr, rs
 
 
 class TestValueTaglineOnListEndpoint:
-    @pytest.mark.parametrize("slug", ["atomic-habits", "dreaming"])
+    @pytest.mark.parametrize("slug", ["atomic-habits", "dreaming", "repo-stewardship-pack"])
     def test_value_tagline_present_on_list(self, middleware_client, flagship_loops, slug):
         r = middleware_client.get("/api/composite-loops")
         assert r.status_code == 200, r.text
@@ -138,9 +150,20 @@ class TestValueTaglineOnDetailEndpoint:
             "tomorrow it starts sharper."
         )
 
+    def test_repo_stewardship_pack_exact_tagline(self, middleware_client, flagship_loops):
+        """ah0804 rank-8: was the raw 194-char description prefix; now a real hook."""
+        r = middleware_client.get("/api/composite-loops/repo-stewardship-pack")
+        assert r.status_code == 200, r.text
+        assert r.json()["value_tagline"] == (
+            "Install once, wake up to a repo that triages itself, reviews "
+            "itself, and won't let the test suite go red."
+        )
+        # Must be shorter than the old raw-description fallback it replaces.
+        assert len(r.json()["value_tagline"]) < 194
+
 
 class TestAgentInstructionsValueHook:
-    @pytest.mark.parametrize("slug", ["atomic-habits", "dreaming"])
+    @pytest.mark.parametrize("slug", ["atomic-habits", "dreaming", "repo-stewardship-pack"])
     def test_agent_instructions_keeps_mechanics_and_gains_value_hook(
         self, middleware_client, flagship_loops, slug
     ):

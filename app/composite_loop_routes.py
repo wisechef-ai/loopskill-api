@@ -190,6 +190,15 @@ def _composite_loop_value_tagline(cl: CompositeLoop) -> str | None:
             "memories, extracts what mattered, prunes the noise — so "
             "tomorrow it starts sharper."
         ),
+        "repo-stewardship-pack": (
+            # ah0804 rank-8 REVENUE/CATALOG: was falling through to the
+            # 194-char generic-fallback first-sentence of the description
+            # (three parenthetical asides, no verb the buyer cares about).
+            # This is the description's own closing hook, promoted to the
+            # tagline slot — same class of fix as atomic-habits/dreaming above.
+            "Install once, wake up to a repo that triages itself, reviews "
+            "itself, and won't let the test suite go red."
+        ),
     }
     if cl.slug in taglines:
         return taglines[cl.slug]
