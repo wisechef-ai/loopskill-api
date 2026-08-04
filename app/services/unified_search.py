@@ -1,16 +1,24 @@
 """Unified cross-type search helpers — powers GET /api/search.
 
 feat/unified-search: a single anonymous call that searches skills, loops
-(verifiers), bundles, and personalities and returns them grouped by type
-("Spotify-style" search). Each per-type query below deliberately COPIES the
-public-visibility filter expression from that type's existing public route so
-the two surfaces (the dedicated per-type browse/search endpoint and this
-unified endpoint) can never disagree about what's publicly visible:
+(verifiers), bundles, personalities, and connectors and returns them grouped
+by type ("Spotify-style" search). Each per-type query below deliberately
+COPIES the public-visibility filter expression from that type's existing
+public route so the two surfaces (the dedicated per-type browse/search
+endpoint and this unified endpoint) can never disagree about what's publicly
+visible:
 
   * skills        -> app/skill_routes.py:search_skills          (Skill.is_public == True, Skill.is_archived == False)
   * loops         -> app/verifier_routes.py:list_verifiers      (Verifier.is_public.is_(True), Verifier.is_archived.is_(False))
   * bundles       -> app/bundle_routes.py:discover_cookbooks    (Bundle.visibility == "public", Bundle.slug.isnot(None))
   * personalities -> app/personality_routes.py:list_personalities (Personality.is_public.is_(True), Personality.is_archived.is_(False))
+  * connectors    -> app/connector_routes.py:browse_connectors  (Connector.is_public.is_(True), Connector.is_archived.is_(False))
+
+mesh0408 T1-D scope note: this is FIVE groups, not seven. ``verifiers`` (as a
+type distinct from ``loops`` — Verifier already backs the loops group above)
+and ``composite_loops`` have NO unified-search coverage and are not built by
+this module. That is a recorded, known gap — see hub.md §3 — not an oversight
+to silently patch over.
 
 SEARCH SEMANTICS: mirrors the existing per-type search — case-insensitive
 substring (ILIKE) on name/title + description, no new search infra (no
@@ -32,7 +40,7 @@ from __future__ import annotations
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
-from app.models import Bundle, BundleSkill, Personality, Skill, Verifier
+from app.models import Bundle, BundleSkill, Connector, Personality, Skill, Verifier
 
 _DESC_TRUNCATE = 200
 
@@ -146,4 +154,32 @@ def search_personalities_group(db: Session, q: str, limit: int) -> list[dict]:
             "tier": p.tier,
         }
         for p in rows
+    ]
+
+
+def search_connectors_group(db: Session, q: str, limit: int) -> list[dict]:
+    """Public connectors matching ``q``: /api/connectors twin.
+
+    mesh0408 T1-D: fifth group added alongside skills/loops/bundles/
+    personalities. T1-C (sister phase) populates the underlying ``connectors``
+    table; an empty table is a CORRECT response here — this group's contract
+    is a well-formed (possibly empty) list, matching the other four groups'
+    "no invented data for an empty group" rule.
+    """
+    like = f"%{q}%"
+    prefix_like = f"{q}%"
+    # Visibility filter copied verbatim from app/connector_routes.py:browse_connectors.
+    query = db.query(Connector).filter(Connector.is_public.is_(True), Connector.is_archived.is_(False))
+    query = query.filter(Connector.slug.ilike(like) | Connector.title.ilike(like))
+    exact_prefix = case((Connector.title.ilike(prefix_like), 0), else_=1)
+    query = query.order_by(exact_prefix, Connector.install_count.desc(), Connector.title.asc())
+    rows = query.limit(limit).all()
+    return [
+        {
+            "slug": c.slug,
+            "title": c.title,
+            "description": _truncate(c.description),
+            "connector_type": c.connector_type,
+        }
+        for c in rows
     ]
