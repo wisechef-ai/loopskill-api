@@ -29,7 +29,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Bundle, BundleConnector, Connector, ConnectorVersion
+from app.models import Bundle, BundleConnector, Connector, ConnectorVersion, ExternalConnector
 from app.services.connector_validation import (
     ConnectorValidationError,
     validate_connector_version,
@@ -194,9 +194,18 @@ def browse_connectors(
     q: str | None = Query(None),
     limit: int = Query(20, le=_MAX_PAGE),
     offset: int = Query(0, ge=0),
+    include_external: bool = Query(False),
     db: Session = Depends(get_db),
 ) -> Any:
-    """Public browse — anonymous-safe. Keyset-paginated by created_at desc."""
+    """Public browse — anonymous-safe. Keyset-paginated by created_at desc.
+
+    mesh0408 T1-C: ``include_external=true`` additionally appends STAGED
+    ``ExternalConnector`` rows (review_required, never installable — see
+    ``connector_taps.py``). Default (``include_external`` omitted/false)
+    behaviour is BYTE-IDENTICAL to before this phase shipped: the query,
+    filters, and response shape for the base ``results``/``total`` are
+    untouched, and no ``external`` key is added unless explicitly requested.
+    """
     query = db.query(Connector).filter(
         Connector.is_public.is_(True),
         Connector.is_archived.is_(False),
@@ -205,12 +214,22 @@ def browse_connectors(
         query = query.filter(Connector.slug.ilike(f"%{q}%") | Connector.title.ilike(f"%{q}%"))
     total = query.count()
     rows = query.order_by(Connector.created_at.desc()).offset(offset).limit(limit).all()
-    return {
+    out: dict[str, Any] = {
         "results": [_connector_to_out(c) for c in rows],
         "total": total,
         "offset": offset,
         "limit": limit,
     }
+    if include_external:
+        ext_query = db.query(ExternalConnector)
+        if q:
+            ext_query = ext_query.filter(
+                ExternalConnector.slug.ilike(f"%{q}%") | ExternalConnector.title.ilike(f"%{q}%")
+            )
+        ext_rows = ext_query.order_by(ExternalConnector.discovered_at.desc()).limit(_MAX_PAGE).all()
+        out["external"] = [_external_connector_to_out(e) for e in ext_rows]
+        out["external_total"] = ext_query.count()
+    return out
 
 
 @router.get("/api/connectors/{slug}")
@@ -331,4 +350,28 @@ def _version_to_out(version: ConnectorVersion) -> dict[str, Any]:
         "required_env": version.required_env or [],
         "changelog": version.changelog,
         "created_at": version.created_at.isoformat() if version.created_at else None,
+    }
+
+
+def _external_connector_to_out(ext: ExternalConnector) -> dict[str, Any]:
+    """Serialize a STAGED candidate. No 'install' field exists anywhere in this
+    shape — mesh0408 T1-C: a staged row cannot be installed without explicit
+    promotion into a real Connector, because no install/apply code path
+    (``connector_apply.py``, ``ConnectorApplier``) ever reads ``ExternalConnector``
+    at all. There is no flag to flip here; the absence of a reachable install
+    path IS the gate.
+    """
+    return {
+        "id": str(ext.id),
+        "source": ext.source,
+        "external_id": ext.external_id,
+        "slug": ext.slug,
+        "title": ext.title,
+        "description": ext.description,
+        "connector_type": ext.connector_type,
+        "origin_url": ext.origin_url,
+        "license": ext.license,
+        "trust_tier": ext.trust_tier,
+        "review_required": ext.review_required,
+        "discovered_at": ext.discovered_at.isoformat() if ext.discovered_at else None,
     }

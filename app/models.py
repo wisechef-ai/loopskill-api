@@ -2530,6 +2530,69 @@ class BundleConnector(Base):
     added_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
+# ── mesh_0408 Phase T1-C — Connector federation (staging, behind a review gate) ──
+# Populates the empty Connector artifact type from open MCP catalogs. This is
+# a STAGING table only — see app/services/connector_taps.py. No row here ever
+# auto-materializes into a real Connector/ConnectorVersion; promotion is a
+# separate, explicit, human-reviewed action (out of scope for this phase —
+# the gate exists so an operator CAN build one later without an unreviewed
+# row ever having reached the live catalog in the meantime).
+#
+# Deletion-opener finding (plan §0.1): the existing federation chain
+# (ExternalSkill / FederationHubSkill, app/services/federation.py +
+# federation_adapters.py) is typed end-to-end to skills — ExternalSkill's
+# dataclass fields (install_path: InstallPath, license/redistributable) and
+# FederationHubSkill's ORM columns (owner_handle, duplicate_of) encode
+# skill-specific semantics with no connector_type/config_template shape.
+# Retrofitting Connector fields onto that stack would mean widening a
+# skill-typed contract that federation_adapters.py, bundle_external.py and
+# federation_scan.py all pattern-match against — a net new sibling table is
+# the smaller, more honest change. Nothing existing is reused verbatim;
+# review_required/trust_tier are new and specific to the review-gate
+# requirement this phase adds (ExternalSkill has no such gate at all).
+class ExternalConnector(Base):
+    """A staged MCP-server candidate discovered from an open catalog.
+
+    NEVER auto-materializes into a real ``Connector`` row. ``review_required``
+    defaults True (server_default) and EVERY row lands with it True — the
+    daily walk (``connector_taps.stage_candidates``) never sets it False.
+    Promotion into a real ``Connector`` is a distinct, future, explicit action
+    outside this table's write path entirely.
+    """
+
+    __tablename__ = "external_connectors"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    # Stable external identity: (source, external_id) is unique so a re-walk
+    # upserts rather than duplicates. external_id is the source's own path/id
+    # (e.g. "docker/mcp-registry:servers/SQLite", MCP registry's server name).
+    source = Column(String(64), nullable=False, index=True)
+    external_id = Column(String(512), nullable=False)
+    slug = Column(String(255), nullable=False, index=True)
+    title = Column(String(512), nullable=False)
+    description = Column(Text, nullable=True)
+    connector_type = Column(String(32), nullable=True)  # "stdio" | "http" | "sse" | unknown
+    # The RAW candidate config as discovered — never trusted, never applied.
+    # SSRF/dangerous-command guard runs BEFORE a row is inserted at all
+    # (connector_ssrf_guard.py); this column holds only rows that passed.
+    config_template = Column(JSON, nullable=True)
+    origin_url = Column(Text, nullable=True)
+    license = Column(String(128), nullable=True)
+    # "trusted-source" (docker/mcp-registry, modelcontextprotocol/servers) or
+    # "curated-community" (official MCP registry). Smithery/Glama excluded by
+    # construction — connector_taps.py has no adapter for either.
+    trust_tier = Column(String(32), nullable=False)
+    # ALWAYS True on insert (server_default). Staging is not publishing —
+    # this column is the review gate; nothing in this phase ever flips it.
+    review_required = Column(Boolean, nullable=False, default=True, server_default="true")
+    discovered_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    __table_args__ = (UniqueConstraint("source", "external_id", name="uq_external_connector_source_id"),)
+
+
 # ── activate_0701 Phase A2 — Composite Loop + Personality deploy ─────────────
 
 
