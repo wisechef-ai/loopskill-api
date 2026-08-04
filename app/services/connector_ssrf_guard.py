@@ -54,7 +54,9 @@ from app.services.federation_fetch import is_safe_url
 # narrow and pattern-based (not a full shell-injection parser — out of scope
 # for a staging filter whose rows can never install without promotion).
 _DANGEROUS_COMMAND_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*)\s"),  # rm -rf / rm -fr
+    re.compile(
+        r"\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|-[a-zA-Z]*f[a-zA-Z]*r[a-zA-Z]*)\s"
+    ),  # rm -rf / rm -fr
     re.compile(r"\brm\s+.*\s/(\s|$)"),  # rm ... / (root-targeted delete)
     re.compile(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:"),  # classic fork bomb
     re.compile(r"\bmkfs\b|\bdd\s+if="),  # filesystem format / raw disk write

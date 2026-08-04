@@ -114,9 +114,7 @@ def docker_mcp_registry_walk(*, _get: Getter | None = None) -> list[Candidate]:
         logger.warning("docker_mcp_registry_walk: fetch failed: %s", exc)
         return candidates
     if resp is None or resp.status_code != 200:
-        logger.warning(
-            "docker_mcp_registry_walk: status=%s", getattr(resp, "status_code", None)
-        )
+        logger.warning("docker_mcp_registry_walk: status=%s", getattr(resp, "status_code", None))
         return candidates
     try:
         rows = resp.json()
@@ -311,9 +309,7 @@ def stage_candidates(db: Session, candidates: list[Candidate]) -> StageResult:
         if reasons:
             result.blocked += 1
             result.blocked_reasons.extend(reasons)
-            logger.warning(
-                "stage_candidates: blocked %s/%s: %s", cand.source, cand.external_id, reasons
-            )
+            logger.warning("stage_candidates: blocked %s/%s: %s", cand.source, cand.external_id, reasons)
             continue
 
         values = {
