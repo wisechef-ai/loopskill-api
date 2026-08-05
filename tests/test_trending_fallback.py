@@ -184,9 +184,7 @@ class TestTrendingFallback:
         resp = client.get("/api/skills/trending?period=week")
         assert resp.status_code == 200
         body = resp.json()
-        assert body["total"] == 1, (
-            f"week-period with only month-old events should widen to month, " f"got {body}"
-        )
+        assert body["total"] == 1, f"week-period with only month-old events should widen to month, got {body}"
         assert body["results"][0]["slug"] == "stale-but-installed"
 
     def test_day_widens_through_week_to_month(self, client, db):
