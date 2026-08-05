@@ -24,6 +24,7 @@ Covers:
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 import pytest
@@ -111,12 +112,100 @@ class TestExitCodes:
         assert code == 1
         assert db_session.query(ExternalConnector).count() == 0
 
-    def test_dry_run_always_exits_zero_even_with_zero_discovered(self, db_session: Session):
-        """--dry-run never applies the staged>=1 failure signal — it hasn't
-        attempted to stage anything, so 'discovered 0' isn't a walk failure
-        by itself (that's what a non-dry-run invocation is for)."""
+    def test_dry_run_exits_nonzero_when_zero_discovered(self, db_session: Session):
+        """Regression test for defect 1 (empirically confirmed by the
+        parent): a --dry-run against dead upstream catalogs must NOT report
+        success. This replaces the old
+        ``test_dry_run_always_exits_zero_even_with_zero_discovered`` test,
+        which pinned that exact wrong behaviour (codex review, lines
+        114-119) — an operator running --dry-run as a sanity check must be
+        told the walk found nothing, not exit 0."""
         code = run_walk(db_session, dry_run=True, _get=_all_empty_get)
+        assert code != 0
+        assert code == 1
+
+
+    def test_dry_run_with_discoveries_still_exits_zero(self, db_session: Session):
+        """Sanity companion to the regression test above: a --dry-run that
+        DOES discover candidates must still exit 0 — only an all-dead walk
+        should fail."""
+        code = run_walk(db_session, dry_run=True, _get=_one_dir_docker_get)
         assert code == 0
+
+
+class TestMainEndToEnd:
+    """Exercises main() itself (codex MINOR 3) rather than only run_walk —
+    covers argv parsing, DB session construction/teardown, and the
+    exception boundary that maps infra failures to exit 2."""
+
+    def test_main_dry_run_all_dead_exits_nonzero(self, monkeypatch):
+        """main() must propagate run_walk's failure signal end-to-end, and
+        must not construct a DB session for --dry-run."""
+        import scripts.connector_walk as cw
+
+        monkeypatch.setattr(sys, "argv", ["connector_walk.py", "--dry-run"])
+        called = {}
+
+        def _fake_run_walk(db, *, dry_run=False, as_json=False, _get=None):
+            called["db"] = db
+            called["dry_run"] = dry_run
+            return 1
+
+        monkeypatch.setattr(cw, "run_walk", _fake_run_walk)
+        code = cw.main()
+        assert code == 1
+        assert called["dry_run"] is True
+        assert called["db"] is None, "--dry-run must not construct a DB session"
+
+    def test_main_normal_run_exits_zero_on_success(self, monkeypatch):
+        import scripts.connector_walk as cw
+
+        monkeypatch.setattr(sys, "argv", ["connector_walk.py"])
+
+        class _FakeSessionLocal:
+            def __call__(self):
+                return object()
+
+        monkeypatch.setattr(cw, "run_walk", lambda db, **kw: 0)
+        monkeypatch.setattr("app.database.SessionLocal", _FakeSessionLocal())
+        code = cw.main()
+        assert code == 0
+
+    def test_main_db_session_construction_failure_exits_two(self, monkeypatch):
+        """Regression test for defect 2 (empirically confirmed by the
+        parent): a broken DB/config must exit 2, not 1 — 1 is reserved for
+        the 'catalogs are dead' signal and must not collide with infra
+        failure."""
+        import scripts.connector_walk as cw
+
+        monkeypatch.setattr(sys, "argv", ["connector_walk.py"])
+
+        def _raise_session_local():
+            raise RuntimeError("could not connect to database")
+
+        monkeypatch.setattr("app.database.SessionLocal", _raise_session_local)
+        code = cw.main()
+        assert code == 2
+
+    def test_main_db_close_failure_does_not_mask_exit_code(self, monkeypatch):
+        """A failure closing the session in the finally block must not
+        override the exit code run_walk already produced."""
+        import scripts.connector_walk as cw
+
+        monkeypatch.setattr(sys, "argv", ["connector_walk.py"])
+
+        class _BrokenCloseSession:
+            def close(self):
+                raise RuntimeError("connection already closed")
+
+        class _FakeSessionLocal:
+            def __call__(self):
+                return _BrokenCloseSession()
+
+        monkeypatch.setattr(cw, "run_walk", lambda db, **kw: 0)
+        monkeypatch.setattr("app.database.SessionLocal", _FakeSessionLocal())
+        code = cw.main()
+        assert code == 0, "a db.close() failure must not turn a successful run into an error exit"
 
 
 class TestSummaryOutput:

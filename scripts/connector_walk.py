@@ -32,13 +32,22 @@ Usage:
   python3 scripts/connector_walk.py --json      # machine-readable single summary line
 
 Exit codes (a cron needs these to be meaningful):
-  0 = walk succeeded and staged >= 1 row. A ``--dry-run`` also exits 0 on a
-      clean report — it never attempts to stage, so the "staged 0" failure
-      signal below does not apply to it.
+  0 = walk succeeded and staged >= 1 row. A ``--dry-run`` exits 0 only when
+      it discovered >= 1 candidate — it never attempts to stage, so
+      "discovered" is the closest analog it has to the "staged 0" failure
+      signal below, and it applies the same anti-rot logic to it.
   1 = walk ran but staged 0 rows — every upstream catalog returned nothing,
       or every discovered candidate was blocked by the guard. This is the
       "silently rotting" signal a cron must surface (page/alert on it).
-  2 = unhandled error (bad args, DB unavailable, unexpected exception).
+      A ``--dry-run`` that discovers 0 candidates from every source hits
+      this same exit code, for the same reason: someone running
+      --dry-run to sanity-check the walk must not be told "success" when
+      every catalog is unreachable.
+  2 = unhandled error (bad args, DB unavailable/unreachable, or any other
+      unexpected exception raised anywhere in ``main()`` — including
+      constructing the DB session before the walk even starts). A failure
+      closing the DB session afterward is logged but does NOT override an
+      exit code already determined by the walk itself.
 """
 
 from __future__ import annotations
@@ -140,7 +149,7 @@ def run_walk(db, *, dry_run: bool = False, as_json: bool = False, _get: Callable
         )
 
     if dry_run:
-        return 0
+        return 0 if discovered >= 1 else 1
     return 0 if staged >= 1 else 1
 
 
@@ -150,16 +159,30 @@ def main() -> int:
     parser.add_argument("--json", dest="as_json", action="store_true", help="print a single JSON summary line")
     args = parser.parse_args()
 
-    from app.database import SessionLocal
-
-    db = SessionLocal()
+    db = None
     try:
+        # A --dry-run never touches the DB (see run_walk), so don't even
+        # construct a session for it — a --dry-run should work as a sanity
+        # check even when the DB/config backing a real run is broken.
+        if not args.dry_run:
+            from app.database import SessionLocal
+
+            db = SessionLocal()
         return run_walk(db, dry_run=args.dry_run, as_json=args.as_json)
     except Exception:  # noqa: BLE001
+        # Anything unhandled here — a bad import, SessionLocal() failing to
+        # connect, or an unexpected exception inside run_walk — is an infra
+        # error, not a "catalogs are dead" signal. Exit 2, per the docstring.
         logger.exception("connector_walk: unhandled error")
         return 2
     finally:
-        db.close()
+        if db is not None:
+            try:
+                db.close()
+            except Exception:  # noqa: BLE001
+                # A failure closing the session must never mask the exit
+                # code already determined above.
+                logger.exception("connector_walk: error closing db session")
 
 
 if __name__ == "__main__":
