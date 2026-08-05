@@ -87,6 +87,7 @@ def _raise_for_tool_error(result: dict[str, Any]) -> dict[str, Any]:
         "invalid_fleet_id": 422,
         "invalid_cookbook_id": 422,
         "invalid_channel": 422,
+        "invalid_org_id": 422,
     }.get(err, 400)
     raise HTTPException(status_code=status, detail=result)
 
@@ -96,6 +97,7 @@ def _raise_for_tool_error(result: dict[str, Any]) -> dict[str, Any]:
 
 class FleetCreateIn(BaseModel):
     name: str
+    org_id: str | None = None
 
 
 @router.get("")
@@ -111,12 +113,19 @@ def list_fleets(request: Request, db: Session = Depends(get_db)):
 
 @router.post("", status_code=201)
 def create_fleet(body: FleetCreateIn, request: Request, db: Session = Depends(get_db)):
-    """POST /api/fleets — create a named fleet. Returns the plaintext fleet_key ONCE."""
+    """POST /api/fleets — create a named fleet. Returns the plaintext fleet_key ONCE.
+
+    mesh_0408/B' — body.org_id is optional. Omitted → today's behaviour
+    (ctx.org_id, the caller's oldest membership). Provided → validated
+    against the caller's OWN OrgMembership rows in the tool layer; a caller
+    cannot select an org they don't belong to (403), and a malformed UUID
+    is rejected (422) before ever reaching the DB query.
+    """
     ctx = resolve_fleet_ctx(request, db)
     name = (body.name or "").strip()
     if not name:
         raise HTTPException(status_code=422, detail="invalid_name")
-    return _raise_for_tool_error(loopskill_fleet_create(db, name=name, ctx=ctx))
+    return _raise_for_tool_error(loopskill_fleet_create(db, name=name, ctx=ctx, org_id=body.org_id))
 
 
 class SubscribeIn(BaseModel):
