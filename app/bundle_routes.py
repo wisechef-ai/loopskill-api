@@ -236,6 +236,11 @@ def require_cookbook_tier(request: Request, db: Session = Depends(get_db)) -> Co
 class CookbookCreateIn(BaseModel):
     name: str
     description: str | None = None
+    # mesh_0408 — optional org_id selector, mirroring B' (fleets, PR #191).
+    # Omitted/None -> ctx.org_id (the caller's oldest OrgMembership, same as
+    # today). Provided -> must be a UUID matching an OrgMembership row for
+    # THIS caller's user_id; no match -> 403. Malformed UUID -> 422.
+    org_id: str | None = None
 
 
 class SkillAddIn(BaseModel):
@@ -898,12 +903,56 @@ def create_cookbook(
             },
         )
 
+    # mesh_0408 — bundles are born tenantless today: this constructor never
+    # wrote org_id, so the org-scoped read filter in list_cookbooks (and
+    # authz.can_access_bundle) was dead code in practice. Mirrors B' (fleets,
+    # PR #191) exactly.
+    #
+    # Resolution:
+    #   - body.org_id omitted/None -> unchanged from ctx's perspective, but
+    #     this IS a BEHAVIOUR CHANGE from today: today the constructor wrote
+    #     nothing at all (NULL forever); now it writes ctx.org_id (the
+    #     caller's oldest OrgMembership). This is the fix — it makes the read
+    #     filter live. ctx.is_master already 400s above, so master never
+    #     reaches this branch (mirrors B', which fails master closed too).
+    #   - body.org_id provided -> must parse as a UUID and must match an
+    #     OrgMembership row for THIS caller's user_id (the same authority
+    #     require_cookbook_tier's _resolve_org_membership already uses). No
+    #     match -> 403. Malformed UUID -> 422. This is SELECTION over a set
+    #     the server has already independently verified via OrgMembership,
+    #     not ASSERTION of an arbitrary tenant string (that was T0-B, and is
+    #     NOT this — see PR body).
+    resolved_org_id = ctx.org_id
+    if body.org_id is not None:
+        try:
+            requested_org_uuid = UUID(body.org_id)
+        except (ValueError, AttributeError, TypeError):
+            raise HTTPException(status_code=422, detail="invalid_org_id")
+
+        from app.models import OrgMembership
+
+        membership = (
+            db.query(OrgMembership)
+            .filter(
+                OrgMembership.org_id == requested_org_uuid,
+                OrgMembership.user_id == ctx.user_id,
+            )
+            .first()
+        )
+        if membership is None:
+            raise HTTPException(
+                status_code=403,
+                detail={"reason": "forbidden", "detail": "Not a member of the requested org"},
+            )
+        resolved_org_id = requested_org_uuid
+
     cb = Bundle(
         id=uuid4(),
         name=name,
         description=body.description,
         is_base=False,
         bundle_owner=ctx.user_id,
+        org_id=resolved_org_id,
     )
     # fix/bundle-slug-on-create: slugify at birth so a later visibility flip
     # can never produce a slug-less (publicly invisible) bundle.
