@@ -249,6 +249,21 @@ def client(db_session: Session):
         test_app.include_router(access_router, prefix="/api")
         test_app.include_router(recipe_router, prefix="/api")
         test_app.include_router(health_router, prefix="/api")
+
+        # mesh_0408 T1-B′ / T3-B: the dashboard router owns
+        # GET /api/fleets/{fleet_id}/convergence and carries its OWN
+        # prefix="/api/fleets", so it is included WITHOUT a prefix here.
+        #
+        # Why this matters: without it, every request to that path returned
+        # FastAPI's generic 404 "Not Found" — including the OWNER's. The
+        # cross-tenant test asserted 404 and passed for the wrong reason, so
+        # deleting `authz.can_use_fleet(...)` from dashboard_routes left the
+        # whole suite green. Verified 2026-08-05 by RED-proof (gate removed →
+        # 48 passed) and by route introspection (zero /api/fleets routes were
+        # mounted in the test app).
+        from app.dashboard_routes import router as dashboard_router
+
+        test_app.include_router(dashboard_router)
     except Exception:
         pass
 
