@@ -18,6 +18,7 @@ These tests cover:
   - private skills excluded even when install events exist for them
   - ordering: most installs first
 """
+
 from __future__ import annotations
 
 import uuid
@@ -37,6 +38,7 @@ from app.models import Base, Skill, TelemetryEvent
 
 
 # ── Fixtures ────────────────────────────────────────────────────────────────
+
 
 @pytest.fixture()
 def engine_fixture():
@@ -89,6 +91,7 @@ def client(app_with_middleware) -> TestClient:
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
+
 def _make_skill(db, slug, *, is_public=True, category="devops"):
     s = Skill(
         id=uuid.uuid4(),
@@ -122,6 +125,7 @@ def _make_install(db, skill_slug, *, days_ago=0):
 
 
 # ── Tests ───────────────────────────────────────────────────────────────────
+
 
 class TestTrendingEmptyDB:
     def test_empty_db_returns_empty_shape(self, client):
@@ -181,8 +185,7 @@ class TestTrendingFallback:
         assert resp.status_code == 200
         body = resp.json()
         assert body["total"] == 1, (
-            f"week-period with only month-old events should widen to month, "
-            f"got {body}"
+            f"week-period with only month-old events should widen to month, " f"got {body}"
         )
         assert body["results"][0]["slug"] == "stale-but-installed"
 
@@ -243,6 +246,91 @@ class TestTrendingVisibility:
         resp = client.get("/api/skills/trending?period=week")
         assert resp.status_code == 200
         assert resp.json()["total"] == 0
+
+
+class TestTrendingDenormFallback:
+    """2026-08-05 identity-canary regression: telemetry can be exhausted
+    (zero rows, or only covering archived skills) while the live public
+    catalog has real installs tracked on the denormalised install_count
+    counter. Trending must fall back to that counter rather than reporting
+    an empty catalog to anonymous cold agents.
+    """
+
+    def _make_skill_with_denorm_count(self, db, slug, count, *, is_public=True, is_archived=False):
+        s = Skill(
+            id=uuid.uuid4(),
+            slug=slug,
+            title=slug.title(),
+            description=f"{slug} for testing",
+            category="devops",
+            tier="operator",
+            is_public=is_public,
+            is_archived=is_archived,
+            install_count=count,
+            rating_avg=4.0,
+        )
+        db.add(s)
+        db.commit()
+        db.refresh(s)
+        return s
+
+    def test_falls_back_to_install_count_when_telemetry_totally_empty(self, client, db):
+        """No TelemetryEvent rows at all ⇒ still surface real install_count."""
+        self._make_skill_with_denorm_count(db, "denorm-only", count=7)
+
+        resp = client.get("/api/skills/trending?period=week")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 1, f"denorm install_count should surface, got {body}"
+        assert body["results"][0]["slug"] == "denorm-only"
+        assert body["window"] == "all"
+
+    def test_denorm_fallback_orders_by_install_count_descending(self, client, db):
+        self._make_skill_with_denorm_count(db, "denorm-popular", count=10)
+        self._make_skill_with_denorm_count(db, "denorm-less-popular", count=2)
+
+        resp = client.get("/api/skills/trending?period=week")
+        body = resp.json()
+        slugs = [s["slug"] for s in body["results"]]
+        assert slugs == ["denorm-popular", "denorm-less-popular"]
+
+    def test_denorm_fallback_excludes_archived_and_private(self, client, db):
+        """Telemetry only covers archived skills (real regression shape);
+        install_count>0 archived/private skills must still not leak."""
+        self._make_skill_with_denorm_count(db, "archived-with-installs", count=50, is_archived=True)
+        self._make_skill_with_denorm_count(db, "private-with-installs", count=50, is_public=False)
+        # Telemetry exists only for the archived skill (the real prod shape).
+        _make_install(db, "archived-with-installs", days_ago=1)
+
+        resp = client.get("/api/skills/trending?period=week")
+        body = resp.json()
+        assert body["total"] == 0, f"archived/private install_count must not leak, got {body}"
+
+    def test_denorm_fallback_excludes_zero_install_count_skills(self, client, db):
+        """A public skill with install_count=0 must not show up as 'trending'."""
+        self._make_skill_with_denorm_count(db, "zero-installs", count=0)
+        self._make_skill_with_denorm_count(db, "real-installs", count=3)
+
+        resp = client.get("/api/skills/trending?period=week")
+        body = resp.json()
+        slugs = [s["slug"] for s in body["results"]]
+        assert slugs == ["real-installs"]
+
+    def test_telemetry_tier_preferred_over_denorm_when_both_exist(self, client, db):
+        """If telemetry has real signal at any widened window, use it — the
+        denorm tier is a last resort, not a competing ranking."""
+        _make_skill(db, "telemetry-driven")
+        for _ in range(3):
+            _make_install(db, "telemetry-driven", days_ago=2)
+        # A different skill with a much higher denorm count must NOT outrank
+        # the telemetry-backed skill, proving denorm only kicks in when
+        # telemetry is fully exhausted.
+        self._make_skill_with_denorm_count(db, "denorm-noise", count=999)
+
+        resp = client.get("/api/skills/trending?period=week")
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["results"][0]["slug"] == "telemetry-driven"
 
 
 class TestTrendingPagination:

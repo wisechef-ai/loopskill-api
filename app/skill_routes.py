@@ -345,6 +345,18 @@ def trending_skills(
     never returns empty trending while real install history exists. The
     response is the same shape; widening is silent on the wire and logged
     server-side so we can spot a chronically dead telemetry stream.
+
+    2026-08-05 (loopskill-identity-canary regression): the all-time widen
+    still returns empty when TelemetryEvent history only covers *archived*
+    test skills (install_count=0 rows join to nothing, per RCP-11's own
+    is_public/is_archived filter). That's not "genuinely no traffic" — the
+    live public catalog has real installs, just tracked on the denormalised
+    `Skill.install_count` counter (bumped independently of TelemetryEvent,
+    see _skill_helpers.py) rather than in telemetry for those rows. Add a
+    final ``denorm`` tier: when telemetry is exhausted, fall back to
+    ``ORDER BY install_count DESC`` over public, non-archived skills with
+    install_count > 0. Anonymous /api/skills/trending must never report an
+    empty catalog while there is real install history to show.
     """
     since_map = {"day": 1, "week": 7, "month": 30}
     fallback_chain = ["day", "week", "month", "all"]
@@ -390,8 +402,29 @@ def trending_skills(
             break
 
     if query is None:
-        # Genuinely no install telemetry anywhere — return the empty shape.
-        return SkillSearchResult(results=[], total=0, page=page, page_size=page_size, window="all")
+        # Telemetry is exhausted at all-time — fall back to the denormalised
+        # install_count counter before conceding the catalog is empty. This
+        # is the tier that closes the identity-canary regression: telemetry
+        # coverage can legitimately be archived-skills-only while real public
+        # skills carry real install_count > 0.
+        denorm_query = (
+            db.query(Skill)
+            .options(joinedload(Skill.versions), joinedload(Skill.creator))
+            .filter(Skill.is_public == True, Skill.is_archived == False)  # noqa: E712
+            .filter(Skill.install_count > 0)
+            .order_by(Skill.install_count.desc())
+        )
+        denorm_total = denorm_query.count()
+        if denorm_total == 0:
+            # Genuinely no install signal anywhere — return the empty shape.
+            return SkillSearchResult(results=[], total=0, page=page, page_size=page_size, window="all")
+        logger.info(
+            "trending: telemetry exhausted at all-time — falling back to denorm install_count (%s skills)",
+            denorm_total,
+        )
+        query = denorm_query
+        total = denorm_total
+        chosen_window = "all"
 
     if chosen_window != period:
         logger.info(
