@@ -48,17 +48,56 @@ def loopskill_fleet_create(
     *,
     name: str,
     ctx: AuthContext,
+    org_id: str | None = None,
 ) -> dict[str, Any]:
     """Create a new named fleet for the authenticated user.
 
     Returns fleet_id, fleet_key (plaintext, shown ONCE), and name.
     The plaintext key is NOT stored — only its sha256 hash is persisted.
+
+    mesh_0408/B' — optional org_id selector. A caller may belong to MULTIPLE
+    orgs (OrgMembership is unique on (org_id, user_id), not on user_id alone)
+    but until now the fleet always landed in whichever org happened to be the
+    caller's OLDEST membership (_resolve_org_membership's tie-break), because
+    ctx.org_id was the only signal available. This adds a way to pick a
+    DIFFERENT one of the caller's own orgs — it is a SELECTION over a set the
+    server has already independently verified via OrgMembership, not an
+    ASSERTION of an arbitrary tenant string (that was T0-B, and is NOT this).
+
+    Resolution:
+      - org_id omitted/None → unchanged: use ctx.org_id (byte-identical to
+        pre-existing behaviour, including for master, whose ctx.org_id is
+        always None).
+      - org_id provided → must parse as a UUID and must match an
+        OrgMembership row for THIS caller's user_id. No such row → forbidden.
+        Malformed UUID → invalid_org_id.
     """
     # Master callers can create fleets without a user_id (for admin use)
     if ctx.scope not in ("master", "user"):
         return {"error": "forbidden", "detail": "Must be authenticated to create a fleet"}
 
     owner_id = ctx.user_id
+
+    resolved_org_id = ctx.org_id
+    if org_id is not None:
+        try:
+            requested_org_uuid = UUID(org_id)
+        except (ValueError, AttributeError, TypeError):
+            return {"error": "invalid_org_id", "org_id": org_id}
+
+        from app.models import OrgMembership
+
+        membership = (
+            db.query(OrgMembership)
+            .filter(
+                OrgMembership.org_id == requested_org_uuid,
+                OrgMembership.user_id == owner_id,
+            )
+            .first()
+        )
+        if membership is None:
+            return {"error": "forbidden", "detail": "Not a member of the requested org"}
+        resolved_org_id = requested_org_uuid
 
     # Generate key and hash
     plaintext_key = _generate_fleet_key()
@@ -69,8 +108,9 @@ def loopskill_fleet_create(
         owner_user_id=owner_id,
         name=name,
         fleet_api_key_hash=key_hash,
-        # activate_0701/TEN: inherit org_id from the caller's tenant scope.
-        org_id=ctx.org_id,
+        # activate_0701/TEN: inherit org_id from the caller's tenant scope,
+        # unless mesh_0408/B' narrowed it to a specific membership above.
+        org_id=resolved_org_id,
     )
     db.add(fleet)
     db.commit()
