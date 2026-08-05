@@ -317,8 +317,11 @@ def test_direct_install_returns_provenance(db):
         patch("app.utils.client_ip._real_client_ip", return_value=None),
     ):
         # s is public + has a version; pro_plus tier = unlimited installs
+        # mesh0408 Q-031: direct function call bypasses FastAPI's Query
+        # resolution, so the new optional bundle_id param must be passed
+        # explicitly as None (its raw default is the Query() sentinel object).
         resp = install_routes.install_skill(
-            request=_Req(), slug="direct-prov", mode="files", version=None, ref=None, db=db
+            request=_Req(), slug="direct-prov", mode="files", version=None, ref=None, bundle_id=None, db=db
         )
     pid = resp.provenance_id if hasattr(resp, "provenance_id") else None
     assert pid, "direct install must return a provenance_id"

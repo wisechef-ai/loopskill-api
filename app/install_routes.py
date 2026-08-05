@@ -13,6 +13,7 @@ Also exports:
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
@@ -25,10 +26,9 @@ from app._skill_helpers import (
 )
 from app.access_routes import TIER_INSTALL_LIMITS
 from app.database import get_db
-from app.models import InstallEvent, Skill, SkillVersion
+from app.models import Bundle, BundleSkill, Skill, SkillVersion
 from app.schemas import InstallResponse
 from app.tier_labels import display_label
-from app.utils.client_ip import _real_client_ip
 
 router = APIRouter(tags=["skills"])
 
@@ -71,6 +71,53 @@ if _RETIREMENT_FILE.exists():
                 _RETIRED_SKILLS[_parts[0]] = _parts[1]
 
 
+def _resolve_validated_bundle(db: Session, bundle_id: str, skill: Skill) -> UUID:
+    """Validate a caller-supplied bundle_id for mesh0408 Q-031.
+
+    The supplied bundle must:
+      - parse as a UUID -> else 422
+      - exist -> else 404 (mirrors ``_resolve_owned_cookbook``'s no-existence-leak
+        precedent in app/bundle_routes.py — an unknown id and a real-but-foreign
+        id are indistinguishable to the caller)
+      - actually CONTAIN the skill being installed -> else 422. Without this a
+        caller could attribute an install to an unrelated bundle and misroute
+        someone else's defect reports to that bundle's curator repo. This is a
+        content-membership failure, not an existence question, so it is 422
+        (unprocessable — the request is well-formed and the bundle is real, but
+        the combination is invalid) rather than 404.
+
+    Deliberately does NOT check bundle OWNERSHIP — installing FROM a public (or
+    any readable) bundle is a normal, unauthenticated-adjacent action distinct
+    from cookbook CRUD, which is why this does not reuse
+    ``_resolve_owned_cookbook``. Only membership (does the bundle actually
+    contain this skill) is enforced, per the task brief.
+    """
+    try:
+        bid = UUID(bundle_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="Malformed bundle_id; must be a UUID")
+
+    bundle = db.query(Bundle).filter(Bundle.id == bid).first()
+    if bundle is None:
+        raise HTTPException(status_code=404, detail="Bundle not found")
+
+    member = (
+        db.query(BundleSkill)
+        .filter(
+            BundleSkill.bundle_id == bid,
+            BundleSkill.skill_id == skill.id,
+            BundleSkill.source != "disabled",
+        )
+        .first()
+    )
+    if member is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Bundle does not contain this skill; cannot attribute the install to it",
+        )
+    return bid
+
+
 @router.get("/skills/install", response_model=InstallResponse, tags=["skills"])
 def install_skill(
     request: Request,
@@ -81,6 +128,16 @@ def install_skill(
         description="Pin install to a specific semver. Overrides any '@version' suffix on slug.",
     ),
     ref: str | None = Query(None, description="UTM ref platform code (li, x, yt, ig, fb, agentpact)"),
+    bundle_id: str | None = Query(
+        None,
+        description=(
+            "Optional bundle (cookbook) the install is attributed to. Must be a "
+            "valid UUID for a bundle that actually contains this skill. Stamps "
+            "provenance so a later loopskill_feedback/skill-error report routes to "
+            "the bundle curator's configured repo. Omitted → direct install, "
+            "bundle_id stays NULL on the InstallEvent (today's behaviour)."
+        ),
+    ),
     db: Session = Depends(get_db),
 ):
     """Return a signed URL for downloading the skill tarball.
@@ -104,6 +161,12 @@ def install_skill(
                 detail=f"This skill was retired 2026-05-07. See: {_alt} or contact support.",
             )
         raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
+
+    # mesh0408 Q-031: validate the caller-supplied bundle_id (if any) BEFORE
+    # any other work. Do not trust it — see _resolve_validated_bundle.
+    validated_bundle_id: UUID | None = None
+    if bundle_id is not None:
+        validated_bundle_id = _resolve_validated_bundle(db, bundle_id, skill)
 
     # polish_1805 item 1 — free-skill anonymous install path.
     # The middleware sets ``is_anonymous_free_install`` when the request
@@ -258,40 +321,32 @@ def install_skill(
     url_base = public_origin.rstrip("/") + "/api/skills/_download" + "?" + "tok" + "en="
     tarball_url = url_base + token
 
-    # Log install event
-    from uuid import uuid4 as _uuid4
+    # mesh0408 Q-031: route through the canonical provenance-minting entry
+    # point (app/services/provenance.py::record_install_with_provenance) —
+    # the SAME helper app/bundle_routes.py already uses for cookbook installs
+    # — instead of hand-rolling a parallel InstallEvent + counter-bump + mint
+    # path. This fixes two things at once:
+    #   1. bundle_id is now stamped when the caller supplies a validated
+    #      bundle_id, so the feedback rail (route_targets_for_provenance ->
+    #      _curator_target) can actually resolve a curator repo for a
+    #      bundle-scoped install (previously: always NULL, always unroutable).
+    #   2. the install_count counter now respects the is_test integrity rule
+    #      (Ph B §4.2) — a test/CI key records the InstallEvent but does NOT
+    #      inflate the public counter. The old hand-rolled block bumped the
+    #      counter unconditionally, inflating it with test-key traffic.
+    from app.services.provenance import ATTR_ATTRIBUTED, record_install_with_provenance
 
     api_key_id = getattr(request.state, "api_key_id", None)
-    event = InstallEvent(
-        id=_uuid4(),
-        skill_id=skill.id,
-        skill_slug=slug,
-        api_key_id=api_key_id,
+    _event, provenance_id = record_install_with_provenance(
+        db,
+        skill=skill,
         version_semver=latest.semver,
-        client_ip=_real_client_ip(request, settings.TRUSTED_PROXY_CIDRS),  # Issue #22
+        request=request,
+        source="cookbook" if validated_bundle_id is not None else "direct",
+        cookbook_id=validated_bundle_id,
+        attribution=ATTR_ATTRIBUTED,
+        commit=True,
     )
-    db.add(event)
-
-    # RCP-13: keep the denormalised Skill.install_count counter in sync with
-    # the InstallEvent table (the path /api/skills/install actually writes).
-    # Atomic SQL-level expression so concurrent installs cannot lose writes.
-    # Same transaction as the InstallEvent insert — either both land or
-    # neither does.
-    db.query(Skill).filter(Skill.id == skill.id).update(
-        {Skill.install_count: Skill.install_count + 1},
-        synchronize_session=False,
-    )
-
-    # spotify_0608 Ph E — mint a provenance_id for this (direct) install so the
-    # agent can pass it to loopskill_feedback / loopskill_report_skill_error and have
-    # the report route to the correct creator repo. The direct path has no
-    # bundle context (cookbook_id stays NULL); attribution is 'attributed'  # compat-alias
-    # because we know the exact skill + version.
-    from app.services.provenance import mint_provenance
-
-    db.flush()  # ensure event.id is populated before the FK insert
-    provenance_id = mint_provenance(db, event)
-    db.commit()
 
     # WIS-902: Add rate-limit info headers to successful response
     resp_headers = {}
