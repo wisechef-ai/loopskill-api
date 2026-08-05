@@ -40,7 +40,7 @@ Exit codes (a cron needs these to be meaningful):
       or every discovered candidate was blocked by the guard. This is the
       "silently rotting" signal a cron must surface (page/alert on it).
       A ``--dry-run`` that discovers 0 candidates from every source hits
-      this same exit code, for the same reason: an operator running
+      this same exit code, for the same reason: someone running
       --dry-run to sanity-check the walk must not be told "success" when
       every catalog is unreachable.
   2 = unhandled error (bad args, DB unavailable/unreachable, or any other
