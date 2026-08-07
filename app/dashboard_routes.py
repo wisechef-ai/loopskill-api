@@ -33,6 +33,7 @@ from app.models import (
     SkillErrorReport,
 )
 from app.services.loop_convergence import fleet_convergence
+from app.services.synthetic_runs import RunCounts
 
 router = APIRouter(prefix="/api/fleets", tags=["dashboard"])
 
@@ -147,12 +148,20 @@ def get_fleet_dashboard(
             func.sum(LoopRunDailyRollup.cost_usd_total).label("total_cost"),
             func.sum(LoopRunDailyRollup.accepted_changes).label("total_accepted"),
             func.sum(LoopRunDailyRollup.runs).label("total_runs"),
+            func.sum(LoopRunDailyRollup.synthetic_runs).label("synthetic_runs"),
         )
         .filter(LoopRunDailyRollup.fleet_id == fleet.id)
         .first()
     )
     total_cost = float(rollup_row.total_cost or 0)
     total_accepted = int(rollup_row.total_accepted or 0)
+    # mesh_0408 W4: never report a run total on its own. LoopSkill's own
+    # */3min proof-of-life beacon produced 1759 of prod's 1760 loop runs, so
+    # ``total_runs`` alone reads as adoption when there is none.
+    runs = RunCounts(
+        total=int(rollup_row.total_runs or 0),
+        synthetic=int(rollup_row.synthetic_runs or 0),
+    )
 
     # spotify_1507 Ph F — Ralph-loop detector: members stuck re-running the same
     # loop with zero accepted_change. Surfaced on the pane so a fleet owner sees a
@@ -175,7 +184,9 @@ def get_fleet_dashboard(
         "voice": voice_counts,
         "total_cost_usd": total_cost,
         "total_accepted_changes": total_accepted,
-        "total_runs": int(rollup_row.total_runs or 0),
+        "total_runs": runs.total,
+        "synthetic_runs": runs.synthetic,
+        "external_runs": runs.external,
         "ralph_loops": ralph_loops,
         "ralph_count": len(ralph_loops),
     }
@@ -195,7 +206,17 @@ def get_fleet_convergence(
     desired epoch, observed epoch, consecutive-failure streak, and an
     explicit ``never_attempted`` state \u2014 so a single stuck daily loop is
     visible on its own row and cannot be diluted by a noisy healthy sibling's
-    success volume. ``status: red`` iff ANY tracked assignment is failing.
+    success volume.
+
+    ``status`` is ``"red"`` iff ANY tracked assignment is ``failing``,
+    ``overdue`` (silent past a deadline derived from its own schedule) or
+    ``unknown_schedule`` (no derivable deadline at all), and
+    ``status_reasons`` names which. Silence is judged for the CURRENT
+    placement epoch, so a placement that moved and never fired again cannot
+    stay green on its predecessor's traffic. Red iff-failing was the pre-W4
+    rule and is exactly the lie this endpoint now exists to remove: a fleet
+    running 3-of-4 assignments that had never fired reported green
+    indefinitely.
     """
     ctx = resolve_fleet_ctx(request, db)
     try:

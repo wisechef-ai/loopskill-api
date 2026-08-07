@@ -14,9 +14,16 @@ working — they predate the honest contract and are exempt from dedup):
   * member_seq       — emitter monotonic sequence (ordering)
   * stale_epoch      — flagged runs excluded from pass numerators
 
-Plus one dedup index. All portable (ADD COLUMN / CREATE INDEX). The stale_epoch
-default is a portable CURRENT-style boolean default. No data migration — the
-backfill is unnecessary (NULL tick_id rows are exempt by design).
+Plus one dedup index. All portable (ADD COLUMN / CREATE INDEX). No data
+migration — the backfill is unnecessary (NULL tick_id rows are exempt by
+design).
+
+mesh_0408 W4b: ``stale_epoch``'s server_default was ``"false"`` (a Python str),
+which renders as ``DEFAULT 'false'`` — coerced to boolean false by Postgres but
+stored as a truthy 4-char string by SQLite. Corrected to ``sa.text("false")``.
+Existing Postgres rows are unaffected (the rendered default was already boolean
+false there); re-running this migration on a fresh DB now produces the same
+default on both engines.
 """
 
 from collections.abc import Sequence
@@ -40,7 +47,11 @@ def upgrade() -> None:
     op.add_column("loop_runs", sa.Column("member_seq", sa.Integer(), nullable=True))
     op.add_column(
         "loop_runs",
-        sa.Column("stale_epoch", sa.Boolean(), nullable=False, server_default="false"),
+        # sa.text("false"), not the Python string "false" — a str renders as
+        # DEFAULT 'false', a 4-char literal that SQLite reads back truthy while
+        # Postgres coerces it to boolean false. The column is consumed as a
+        # boolean by pass_rate_for_loop(), so the two engines disagreed.
+        sa.Column("stale_epoch", sa.Boolean(), nullable=False, server_default=sa.text("false")),
     )
     op.create_index(op.f("ix_loop_runs_tick_id"), "loop_runs", ["tick_id"])
     op.create_index("ix_loop_runs_dedup", "loop_runs", ["loop_slug", "tick_id", "attempt", "placement_epoch"])

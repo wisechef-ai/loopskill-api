@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from app import authz
 from app.auth_ctx import AuthContext
 from app.models import Fleet, FleetSubscription
+from app.services.synthetic_runs import origin_verdict_for_key
 
 
 # ── helpers ───────────────────────────────────────────────────────────────
@@ -111,6 +112,11 @@ def loopskill_fleet_create(
         # activate_0701/TEN: inherit org_id from the caller's tenant scope,
         # unless mesh_0408/B' narrowed it to a specific membership above.
         org_id=resolved_org_id,
+        # mesh_0408 W4b: stamp an EXPLICIT origin verdict from the single
+        # definition (APIKey.is_test) instead of leaving the row unclassified.
+        # An unclassified fleet falls back to the known-beacon slug list, which
+        # would count a customer's `p4-loop-proof` as our own traffic.
+        is_synthetic=origin_verdict_for_key(db, ctx.api_key_id),
     )
     db.add(fleet)
     db.commit()
