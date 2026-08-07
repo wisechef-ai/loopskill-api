@@ -177,6 +177,40 @@ def get_bundle_status(
     return result
 
 
+def decorate_with_bundle_status(
+    db: Session, payload: Any, caller: dict[str, Any], normalized_tool_name: str
+) -> Any:
+    """Append the caller's ``bundle_status`` block to a dispatched tool result.
+
+    Returns ``payload`` (mutated in place when it is a dict) so the dispatcher
+    reads as one expression.
+
+    mesh_0408 W1 (P0), codex review of PR #202 finding 2: the status block is
+    decoration the caller never asked for, so it must carry the caller's TENANT
+    as well as their identity — every fleet-member key of an account shares one
+    ``user_id``, and selecting on that alone put client A's bundles in the reply
+    to client B's agent. The tenant is read from the caller's ``auth_ctx``, the
+    same object every authorization site consults; a caller without one resolves
+    to ``None`` = personal scope, which is the fail-closed answer.
+
+    ``loopskill_sync`` is skipped: it already returns the diff, so injecting the
+    block there is noisy double-reporting. A sync that APPLIED invalidates the
+    cached block instead.
+    """
+    caller_org_id = getattr(caller.get("auth_ctx"), "org_id", None)
+
+    if normalized_tool_name == "loopskill_sync":
+        if isinstance(payload, dict) and payload.get("applied"):
+            invalidate_bundle_status(caller.get("user_id"), caller_org_id)
+        return payload
+
+    if isinstance(payload, dict):
+        status = get_bundle_status(db, caller.get("user_id"), org_id=caller_org_id)
+        if status:
+            payload["bundle_status"] = status
+    return payload
+
+
 def _cache_key(user_id: Any, org_id: Any) -> str:
     """Redis key for one (caller, tenant) pair — never one per caller alone."""
     return f"bundle_status:{user_id}:{org_id}"

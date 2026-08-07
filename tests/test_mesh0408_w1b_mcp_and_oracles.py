@@ -499,6 +499,110 @@ class TestBundleLockRoutesOverHttp:
 # ══════════════════════════════════════════════════════════════════════════
 
 
+def _oracle_probe(db, tenants, call):
+    """Run ``call(bundle_id)`` for a cross-tenant bundle and for an absent id.
+
+    Returns the two denial IDENTIFIERS. Payloads legitimately echo back the
+    ``cookbook_id`` the caller supplied — that is the caller's own input, not
+    new information — so only the error/code identifier is compared.
+    """
+
+    def _ident(out):
+        return (out.get("error"), out.get("code"))
+
+    return _ident(call(str(tenants.bundle_a.id))), _ident(call(str(uuid.uuid4())))
+
+
+class TestMcpToolsHaveNoExistenceOracle:
+    """FINDING 3, applied to the CLASS rather than the sites codex listed.
+
+    Hard rule #7. Codex named the bundle-lock, follow, configure_feedback and
+    engagement oracles; the same 'forbidden here, not-found there' pair was
+    spelled out in five more MCP tools that resolve a bundle
+    (``loopskill_sync``, ``share_*``, ``harvest``, ``bundle_handoff``, and the
+    reconcile engine). Every one of them is reachable cross-tenant, because one
+    account owns every client org it runs — 'unauthorized' on these surfaces is
+    routinely a sibling tenant, not a stranger.
+
+    ``fork_deploy`` already collapsed both cases to ``cookbook_not_found``; it
+    is the shape the rest now match.
+    """
+
+    def test_loopskill_sync(self, tenants, db_session):
+        from app.mcp.tools.loopskill_sync import loopskill_sync
+
+        ctx = _mcp_caller(db_session, tenants.key_b)["auth_ctx"]
+        real, absent = _oracle_probe(
+            db_session, tenants, lambda cid: loopskill_sync(db_session, cookbook_id=cid, ctx=ctx)
+        )
+        assert real == absent, f"loopskill_sync oracle: {real} vs {absent}"
+
+    def test_share_revoke(self, tenants, db_session):
+        from app.mcp.tools.share import loopskill_share_revoke
+
+        ctx = _mcp_caller(db_session, tenants.key_b)["auth_ctx"]
+        real, absent = _oracle_probe(
+            db_session,
+            tenants,
+            lambda cid: loopskill_share_revoke(
+                db_session, cookbook_id=cid, token_id=str(uuid.uuid4()), ctx=ctx
+            ),
+        )
+        assert real == absent, f"share_revoke oracle: {real} vs {absent}"
+
+    def test_harvest(self, tenants, db_session):
+        from app.mcp.tools import harvest as htool
+
+        ctx = _mcp_caller(db_session, tenants.key_b)["auth_ctx"]
+        real, absent = _oracle_probe(
+            db_session,
+            tenants,
+            lambda bid: htool.loopskill_harvest(db_session, bid, str(uuid.uuid4()), ctx=ctx),
+        )
+        assert real == absent, f"harvest oracle: {real} vs {absent}"
+
+    def test_bundle_handoff(self, tenants, db_session):
+        from app.mcp.tools.bundle_handoff import loopskill_bundle_handoff
+
+        ctx = _mcp_caller(db_session, tenants.key_b)["auth_ctx"]
+        real, absent = _oracle_probe(
+            db_session,
+            tenants,
+            lambda cid: loopskill_bundle_handoff(
+                db_session, cookbook_id=cid, new_owner_email="nobody@example.com", ctx=ctx
+            ),
+        )
+        assert real == absent, f"bundle_handoff oracle: {real} vs {absent}"
+
+    def test_reconcile_engine(self, tenants, db_session):
+        from app.services.reconcile import recipes_reconcile
+
+        ctx = _mcp_caller(db_session, tenants.key_b)["auth_ctx"]
+        real, absent = _oracle_probe(
+            db_session,
+            tenants,
+            lambda cid: recipes_reconcile(db_session, cookbook_id=cid, local=[], ctx=ctx),
+        )
+        assert real == absent, f"reconcile oracle: {real} vs {absent}"
+
+    def test_the_probe_is_not_vacuous(self, tenants, db_session):
+        """CONTROL: the cross-tenant bundle really does exist, and is denied.
+
+        Without this, every assertion above would pass if both probes were
+        simply hitting the not-found path for the same benign reason.
+        """
+        from app.models import Bundle
+        from app.mcp.tools.loopskill_sync import loopskill_sync
+
+        assert db_session.query(Bundle).filter(Bundle.id == tenants.bundle_a.id).first() is not None
+
+        owner_ctx = _mcp_caller(db_session, tenants.key_a)["auth_ctx"]
+        allowed = loopskill_sync(db_session, cookbook_id=str(tenants.bundle_a.id), ctx=owner_ctx)
+        assert allowed.get("error") != "not_found", (
+            f"CONTROL FAILED: the owning tenant is denied its own bundle — void, not green: {allowed!r}"
+        )
+
+
 def test_follow_has_no_cross_tenant_existence_oracle(tenant_app, tenants):
     """400 cannot_follow_own_bundle (exists) vs 404 (absent) — the same shape
     already closed in artifact_like_routes, on the route it was copied from."""

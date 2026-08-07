@@ -238,6 +238,64 @@ MUTATIONS: list[Mutation] = [
         tests=(P0,),
         required=("test_site_authz_can_read_skill_bundle_clause",),
     ),
+    # The same oracle pair, in the five MCP tools codex did NOT name. Hard rule
+    # #7: fix the CLASS, and prove each member of it independently.
+    Mutation(
+        label="MCP loopskill_sync — the forbidden-vs-not_found oracle",
+        why="a distinct cookbook_forbidden confirmed a guessed bundle id is real",
+        path="app/mcp/tools/loopskill_sync.py",
+        old='        return {"error": "not_found", "cookbook_id": cookbook_id}\n\n'
+        "    outdated = _find_outdated_skills(db, cb_uuid)\n",
+        new='        return {"error": "cookbook_forbidden", "cookbook_id": cookbook_id}  # MUTATED\n\n'
+        "    outdated = _find_outdated_skills(db, cb_uuid)\n",
+        tests=(W1B,),
+        required=("test_loopskill_sync",),
+    ),
+    Mutation(
+        label="MCP share_revoke — the forbidden-vs-not_found oracle",
+        why="four share verbs carried the same pair",
+        path="app/mcp/tools/share.py",
+        old="    if not authz.can_write_cookbook(ctx, cb):\n"
+        "        # mesh_0408 W1b (codex PR #202, finding 3): same answer as the absent\n"
+        "        # case above — a distinct `cookbook_forbidden` was an existence oracle.\n"
+        '        return {"error": "cookbook_not_found", "cookbook_id": cookbook_id}\n\n'
+        "    try:\n        _revoke_service(db, cookbook=cb, token_id=token_id)\n",
+        new="    if not authz.can_write_cookbook(ctx, cb):\n"
+        '        return {"error": "cookbook_forbidden", "cookbook_id": cookbook_id}  # MUTATED\n\n'
+        "    try:\n        _revoke_service(db, cookbook=cb, token_id=token_id)\n",
+        tests=(W1B,),
+        required=("test_share_revoke",),
+    ),
+    Mutation(
+        label="MCP harvest — the 403-vs-404 oracle",
+        why="the fleet harvest rail answered 403 for an existing bundle",
+        path="app/mcp/tools/harvest.py",
+        old='        return {"error": "bundle_not_found", "code": 404}\n',
+        new='        return {"error": "forbidden", "code": 403}  # MUTATED\n',
+        tests=(W1B,),
+        required=("test_harvest",),
+    ),
+    Mutation(
+        label="MCP bundle_handoff — the forbidden-vs-not_found oracle",
+        why="'only the owner may hand off this cookbook' named a real bundle",
+        path="app/mcp/tools/bundle_handoff.py",
+        old='        return {"error": "cookbook_not_found", "message": "Cookbook not found."}\n\n'
+        "    # ── resolve new owner",
+        new='        return {"error": "forbidden", "message": "Only the owner."}  # MUTATED\n\n'
+        "    # ── resolve new owner",
+        tests=(W1B,),
+        required=("test_bundle_handoff",),
+    ),
+    Mutation(
+        label="reconcile engine — the forbidden-vs-not_found oracle",
+        why="the HTTP twin already 404s; the MCP engine kept the oracle",
+        path="app/services/reconcile.py",
+        old='        return {"error": "not_found", "cookbook_id": cookbook_id}\n\n    local_states = [\n',
+        new='        return {"error": "cookbook_forbidden", "cookbook_id": cookbook_id}  # MUTATED\n\n'
+        "    local_states = [\n",
+        tests=(W1B,),
+        required=("test_reconcile_engine",),
+    ),
     Mutation(
         label="follow — the 400-vs-404 existence oracle (W1b finding 3)",
         why="cannot_follow_own_bundle vs bundle_not_found told client B that A's id is real",
