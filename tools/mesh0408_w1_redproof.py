@@ -27,8 +27,20 @@ LAYER3 = (
     '    ctx_org = getattr(ctx, "org_id", None)\n    return False  # MUTATED: layer 3 reverted to bare owner-match\n',
 )
 
+# Layer 3 has TWO implementations that must agree: the row predicate (above)
+# and the SQL clause the list/query sites filter on. Mutating only the first
+# leaves the LIST sites green, which would misreport them as proven — so the
+# clause gets its own mutation.
+LAYER3_SQL = (
+    "app/authz.py",
+    "    if ctx_org is None:\n"
+    "        return and_(owner_col == user_id, org_col.is_(None))\n"
+    "    return and_(owner_col == user_id, or_(org_col.is_(None), org_col == ctx_org))\n",
+    "    return owner_col == user_id  # MUTATED: SQL clause reverted to bare owner-match\n",
+)
+
 LAYER2 = (
-    "app/middleware/api_key.py",
+    "app/middleware/_org_scope.py",
     "    if api_key_id is not None:\n",
     "    if api_key_id is None:  # MUTATED: layer 2 reverted to oldest-membership\n",
 )
@@ -94,6 +106,28 @@ def main() -> int:
     print(f"    {_summary(out)}")
     assert rc == 0, f"restore failed\n{out[-4000:]}"
 
+    print("\n[2b] MUTATE LAYER 3's SQL CLAUSE (owner_match_within_tenant_clause)")
+    print("     proves the LIST sites (bundle list, library) are gated, not just the")
+    print("     row-predicate sites")
+    original3sql = _apply(LAYER3_SQL)
+    try:
+        rc, out = _pytest()
+        print(f"    {_summary(out)}")
+        assert rc != 0, "THE SQL CLAUSE IS NOT LOAD-BEARING — the list sites are unproven"
+        failed = sorted(
+            {ln.split("::")[1].split("[")[0] for ln in out.splitlines() if ln.startswith("FAILED ")}
+        )
+        print("    RED tests:")
+        for name in failed:
+            print(f"      - {name}")
+    finally:
+        _restore(LAYER3_SQL, original3sql)
+
+    print("\n[2c] RESTORE the SQL clause — expect GREEN")
+    rc, out = _pytest()
+    print(f"    {_summary(out)}")
+    assert rc == 0, f"restore failed\n{out[-4000:]}"
+
     print("\n[3] MUTATE LAYER 2 ONLY (_resolve_org_for_key -> oldest membership)")
     print("    layer 3 stays fully in place — this is the 'naive fix' scenario")
     original2 = _apply(LAYER2)
@@ -120,7 +154,7 @@ def main() -> int:
     assert rc == 0, f"restore failed\n{out[-4000:]}"
 
     print("\n[5] git diff must be clean w.r.t. the committed tree")
-    p = _run("git", "diff", "--stat", "--", LAYER3[0], LAYER2[0])
+    p = _run("git", "diff", "--stat", "--", LAYER3[0], LAYER3_SQL[0], LAYER2[0])
     print(f"    git diff on mutated files: {p.stdout.strip() or '(empty — clean)'}")
     assert not p.stdout.strip(), "mutated files did not restore byte-identically"
 
