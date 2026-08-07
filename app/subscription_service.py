@@ -26,6 +26,7 @@ from app.config import settings
 from app.discord_bot.role_sync import sync_role_for_user
 from app.models import CreatorPayout, Referral, StripeEventId, User
 from app.revenue_alerts import post_revenue_event
+from app.revenue_truth import RevenueFigures, cents_to_usd, figures_for
 
 logger = logging.getLogger(__name__)
 
@@ -365,8 +366,56 @@ def _user_from_subscription_metadata(sub_or_session: dict, db: Session) -> User 
     return None
 
 
-def _apply_subscription_state(user: User, sub: dict, db: Session) -> None:
-    """Sync the user's subscription_* fields from a Stripe subscription dict."""
+def _event_ts(event: dict) -> datetime | None:
+    """The Stripe ``event.created`` timestamp, as an aware datetime.
+
+    Returns None when absent or unparseable, which the staleness guard treats as
+    "cannot compare" → apply. Better to accept an event we cannot order than to
+    silently drop a real state change.
+    """
+    created = event.get("created")
+    if created is None:
+        return None
+    try:
+        return datetime.fromtimestamp(int(created), tz=UTC)
+    except (ValueError, TypeError, OSError, OverflowError):
+        return None
+
+
+def _is_stale_event(user: User, event_ts: datetime | None) -> bool:
+    """True when this event predates the state already applied for the user.
+
+    Stripe guarantees at-least-once delivery, NOT ordering. Retries, regional
+    failover and a slow endpoint all reorder events in practice, so an older
+    ``customer.subscription.updated`` carrying ``status=active`` can land after
+    a newer one carrying ``status=past_due`` and hand back Pro entitlement to a
+    failed card. Idempotency does not catch it — the two are different events
+    with different ids.
+
+    Compared per USER rather than per subscription id: this schema holds exactly
+    one live subscription per user (``User.subscription_id``), and a genuinely
+    new subscription always carries a later ``event.created`` than the old one's
+    events, so the coarser key cannot reject anything current.
+
+    Ties (same second) apply — Stripe timestamps are second-granular and exact
+    replays are already handled by the ``stripe_event_ids`` primary key.
+    """
+    prior = user.subscription_event_at
+    if prior is None or event_ts is None:
+        return False
+    if prior.tzinfo is None:
+        prior = prior.replace(tzinfo=UTC)
+    return event_ts < prior
+
+
+def _apply_subscription_state(user: User, sub: dict, db: Session, event_ts: datetime | None = None) -> None:
+    """Sync the user's subscription_* fields from a Stripe subscription dict.
+
+    ``event_ts`` is the ``event.created`` of the event carrying ``sub``; it is
+    recorded so a later-delivered OLDER event can be rejected as stale. Pass
+    None when ``sub`` was just read back from the Stripe API (a live read is
+    never stale, and stamping it would reject subsequent real events).
+    """
     user.subscription_id = sub["id"]
     user.subscription_status = sub.get("status")
     period_end = sub.get("current_period_end")
@@ -387,7 +436,38 @@ def _apply_subscription_state(user: User, sub: dict, db: Session) -> None:
             # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10
             tier = _normalise_tier(tier) or tier
             user.subscription_tier = tier
+    _record_event_ts(user, event_ts)
     db.commit()
+
+
+def _record_event_ts(user: User, event_ts: datetime | None) -> None:
+    """Advance the applied-event watermark, never rewind it.
+
+    ``max`` rather than assignment: an event we accepted because it was newer
+    than the watermark must not lower it, or the next stale event would slip
+    through behind it.
+    """
+    if event_ts is None:
+        return
+    prior = user.subscription_event_at
+    if prior is not None and prior.tzinfo is None:
+        prior = prior.replace(tzinfo=UTC)
+    if prior is None or event_ts > prior:
+        user.subscription_event_at = event_ts
+
+
+def _revenue_figures(sub: dict | None) -> RevenueFigures:
+    """Revenue figures for an alert, read from the Stripe object — never a table.
+
+    The ONLY sanctioned way to fill ``post_revenue_event(real_usd=...)``. Never
+    substitute ``TIER_USD_PRICE[tier]`` here: that is the LIST price of the tier,
+    not what this customer is billed, and reporting it as revenue is the
+    phantom-MRR bug (all 7 live subscriptions are 100% comped).
+
+    All-None when Stripe handed us no priced line item, so the alert renders
+    *unknown* rather than a confident $0.00.
+    """
+    return figures_for(sub)
 
 
 def _maybe_sync_discord_role(user: User) -> None:
@@ -423,9 +503,14 @@ def handle_checkout_completed(event: dict, db: Session) -> dict:
         return {"skipped": "user-not-found"}
 
     sub_id = session.get("subscription")
+    sub_dict: dict | None = None
     if sub_id:
-        sub = stripe.Subscription.retrieve(sub_id, expand=["items.data.price"])
-        _apply_subscription_state(user, dict(sub), db)
+        # `discount`/`discounts` carry the coupon that decides whether this
+        # activation is real cash or a comp. Expanding them is what makes the
+        # revenue alert able to tell the difference at all.
+        sub = stripe.Subscription.retrieve(sub_id, expand=["items.data.price", "discount", "discounts"])
+        sub_dict = dict(sub)
+        _apply_subscription_state(user, sub_dict, db, event_ts=_event_ts(event))
     else:
         user.subscription_status = "active"
         db.commit()
@@ -435,14 +520,19 @@ def handle_checkout_completed(event: dict, db: Session) -> dict:
     # Revenue alert: ping Discord on first paid signup. Internal users
     # (chef@/tori@/adam.krawczyk0698 on $0 Co-worker price) still trigger
     # this — that's intentional, the team should see every checkout completion
-    # to confirm the pipe is alive.
+    # to confirm the pipe is alive. What must NOT happen is the alert claiming
+    # revenue that never arrived: the figures come from the Stripe subscription
+    # we just retrieved, so a comped activation renders $0.00 and says so.
+    figures = _revenue_figures(sub_dict)
     try:
         post_revenue_event(
             event_kind="new_subscription",
             user_email=user.email,
             user_id=str(user.id),
             tier=user.subscription_tier,
-            amount_usd=TIER_USD_PRICE.get((user.subscription_tier or "").lower()),
+            real_usd=figures.real_usd,
+            list_usd=figures.list_usd,
+            discount_pct=figures.discount_pct,
             extra_lines=[
                 f"Stripe checkout: `{session.get('id', '?')}`",
                 f"Stripe subscription: `{sub_id or '(none)'}`",
@@ -462,6 +552,11 @@ def handle_subscription_event(event: dict, db: Session) -> dict:
     (subscription_tier=None, subscription_status="canceled"). Their installed
     skills keep working locally; only auto-improvement updates and new catalog
     access stop.
+
+    This handler trusts the event PAYLOAD (unlike ``handle_checkout_completed``,
+    which re-reads the subscription from Stripe), so it is the path where an
+    out-of-order delivery can clobber newer state. Events older than the state
+    already applied are dropped — see :func:`_is_stale_event`.
     """
     sub = event["data"]["object"]
     user = _user_from_subscription_metadata(sub, db)
@@ -470,6 +565,21 @@ def handle_subscription_event(event: dict, db: Session) -> dict:
         return {"skipped": "user-not-found"}
 
     event_type = event.get("type", "")
+    event_ts = _event_ts(event)
+    if _is_stale_event(user, event_ts):
+        # An older event delivered after a newer one. Applying it would restore
+        # superseded state — e.g. reinstating `active` over `past_due`, handing
+        # Pro entitlement back to a card that has already failed.
+        logger.warning(
+            "Stale Stripe event %s (%s) for user %s: event_ts=%s < applied=%s — dropped",
+            event.get("id", "?"),
+            event_type,
+            user.id,
+            event_ts,
+            user.subscription_event_at,
+        )
+        return {"skipped": "stale-event", "user_id": str(user.id), "event_type": event_type}
+
     prior_tier = (user.subscription_tier or "").lower() if user.subscription_tier else None
 
     if event_type == "customer.subscription.deleted":
@@ -478,17 +588,26 @@ def handle_subscription_event(event: dict, db: Session) -> dict:
         user.subscription_id = None
         user.subscription_tier = None
         user.subscription_current_period_end = None
+        # Stamp the watermark on the cancel too, so a late-delivered older
+        # `updated` event cannot resurrect the subscription afterwards.
+        _record_event_ts(user, event_ts)
         db.commit()
         _maybe_sync_discord_role(user)
         logger.info("Subscription canceled for user %s — downgraded to free", user.id)
 
+        # The churned MRR is what this customer was ACTUALLY billed, read off
+        # the subscription in the event — not the list price of the tier they
+        # happened to sit on. Cancelling a comped sub loses $0.00/mo.
+        figures = _revenue_figures(sub)
         try:
             post_revenue_event(
                 event_kind="subscription_canceled",
                 user_email=user.email,
                 user_id=str(user.id),
                 tier=prior_tier,
-                amount_usd=TIER_USD_PRICE.get(prior_tier or ""),
+                real_usd=figures.real_usd,
+                list_usd=figures.list_usd,
+                discount_pct=figures.discount_pct,
                 extra_lines=[
                     f"Stripe subscription: `{sub.get('id', '?')}`",
                     "Installed skills keep working locally; only auto-improvement updates stop.",
@@ -499,7 +618,7 @@ def handle_subscription_event(event: dict, db: Session) -> dict:
             logger.exception("revenue_alerts: cancel dispatch failed")
         return {"processed": event_type, "user_id": str(user.id), "downgraded_to": "free"}
 
-    _apply_subscription_state(user, sub, db)
+    _apply_subscription_state(user, sub, db, event_ts=event_ts)
     # marketing_1205: persist utm_ref from subscription metadata (or session
     # metadata fallback) onto the user row so attribution survives the webhook.
     sub_meta = sub.get("metadata") or {}
@@ -521,6 +640,10 @@ def handle_subscription_event(event: dict, db: Session) -> dict:
     # period rollovers, payment-method updates) where the tier is unchanged.
     new_tier = (user.subscription_tier or "").lower() if user.subscription_tier else None
     if new_tier and new_tier != prior_tier:
+        # Direction (up vs down) IS a list-price question — it ranks two tiers
+        # against each other and says nothing about cash. The MRR figure is a
+        # revenue question and comes from Stripe. Keep the two separate.
+        figures = _revenue_figures(sub)
         try:
             kind = "subscription_upgrade"
             if prior_tier and TIER_USD_PRICE.get(new_tier, 0) < TIER_USD_PRICE.get(prior_tier, 0):
@@ -530,7 +653,9 @@ def handle_subscription_event(event: dict, db: Session) -> dict:
                 user_email=user.email,
                 user_id=str(user.id),
                 tier=new_tier,
-                amount_usd=TIER_USD_PRICE.get(new_tier),
+                real_usd=figures.real_usd,
+                list_usd=figures.list_usd,
+                discount_pct=figures.discount_pct,
                 extra_lines=[
                     f"Was: {prior_tier or '(none)'} → Now: {new_tier}",
                     f"Stripe event: `{event_type}`",
@@ -728,6 +853,108 @@ def _accrue_referral_on_first_payment(user: User, db: Session) -> dict | None:
         rate,
     )
     return {"payout_id": str(payout.id), "creator_share_cents": reward_cents}
+
+
+def handle_invoice_payment_failed(event: dict, db: Session) -> dict:
+    """Handle invoice.payment_failed — a renewal charge did not go through.
+
+    Without this, a failed card kept serving Pro until (and only if) Stripe
+    eventually cancelled the subscription: dunning was invisible to the app and
+    a failed renewal silently became free service.
+
+    What it does:
+      * marks the subscription ``past_due``, which removes entitlement
+        immediately at every gate (they all go through
+        :func:`app.revenue_truth.entitled_tier`);
+      * posts a Discord alert carrying the REAL amount Stripe failed to collect,
+        read off the invoice — never a tier list price;
+      * respects the same staleness watermark as the subscription events, so a
+        late-delivered failure cannot un-recover a subscription that has since
+        paid.
+
+    Note this is belt-and-braces: Stripe also emits
+    ``customer.subscription.updated`` with ``status=past_due`` for the same
+    failure, and that path applies the status too. Both are idempotent about it,
+    and whichever arrives first wins — which is the point of the watermark.
+
+    Retries are Stripe's job (its own Smart Retries schedule, configured in the
+    dashboard); the app deliberately does not count attempts or decide when to
+    give up. Final give-up arrives as ``customer.subscription.deleted``, which
+    clears the tier outright.
+    """
+    invoice = event.get("data", {}).get("object", {}) or {}
+    customer_id = invoice.get("customer")
+    if not customer_id:
+        return {"skipped": "no-customer"}
+
+    if not invoice.get("subscription"):
+        # A one-off invoice failing is not a renewal — it must not touch
+        # subscription state or revoke anybody's tier.
+        return {"skipped": "non-subscription-invoice"}
+
+    user = db.query(User).filter(User.stripe_customer_id == customer_id).first()
+    if not user:
+        logger.warning("No user found for Stripe customer %s (payment_failed)", customer_id)
+        return {"skipped": "user-not-found"}
+
+    event_ts = _event_ts(event)
+    if _is_stale_event(user, event_ts):
+        logger.warning(
+            "Stale invoice.payment_failed %s for user %s: event_ts=%s < applied=%s — dropped",
+            event.get("id", "?"),
+            user.id,
+            event_ts,
+            user.subscription_event_at,
+        )
+        return {"skipped": "stale-event", "user_id": str(user.id)}
+
+    prior_status = user.subscription_status
+    user.subscription_status = "past_due"
+    _record_event_ts(user, event_ts)
+    db.commit()
+    _maybe_sync_discord_role(user)
+    logger.warning(
+        "Payment failed for user %s (invoice %s, attempt %s) — %s → past_due, entitlement revoked",
+        user.id,
+        invoice.get("id", "?"),
+        invoice.get("attempt_count", "?"),
+        prior_status,
+    )
+
+    # The amount at risk is what Stripe actually tried to collect on THIS
+    # invoice. `amount_due` is already net of any coupon, so it needs no
+    # discount maths — but it is still cents, and still must never be swapped
+    # for a tier price.
+    amount_due = invoice.get("amount_due")
+    real_usd = cents_to_usd(amount_due) if amount_due is not None else None
+    next_attempt = invoice.get("next_payment_attempt")
+    next_line = (
+        f"Next Stripe retry: <t:{int(next_attempt)}:R>"
+        if isinstance(next_attempt, (int, float))
+        else "No further Stripe retry scheduled — cancellation follows."
+    )
+    try:
+        post_revenue_event(
+            event_kind="payment_failed",
+            user_email=user.email,
+            user_id=str(user.id),
+            tier=user.subscription_tier,
+            real_usd=real_usd,
+            extra_lines=[
+                f"Stripe invoice: `{invoice.get('id', '?')}` (attempt {invoice.get('attempt_count', '?')})",
+                f"Entitlement: **revoked now** ({prior_status or 'none'} → past_due)",
+                next_line,
+            ],
+        )
+    # Rationale: dunning alert dispatch must never block the webhook handler
+    except Exception:  # noqa: BLE001
+        logger.exception("revenue_alerts: payment_failed dispatch failed")
+
+    return {
+        "processed": "invoice.payment_failed",
+        "user_id": str(user.id),
+        "subscription_status": "past_due",
+    }
 
 
 def handle_invoice_payment_succeeded(event: dict, db: Session) -> dict:

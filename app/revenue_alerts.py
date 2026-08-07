@@ -30,9 +30,12 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from decimal import Decimal
 from typing import Any
 
 import httpx
+
+from app.revenue_truth import tier_list_monthly_usd
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +59,9 @@ def post_revenue_event(
     user_email: str | None,
     user_id: str | None,
     tier: str | None,
-    amount_usd: float | None,
+    real_usd: Decimal | None,
+    list_usd: Decimal | None = None,
+    discount_pct: Decimal | None = None,
     extra_lines: list[str] | None = None,
 ) -> None:
     """Fire-and-forget Discord ping for a revenue-relevant event.
@@ -67,14 +72,32 @@ def post_revenue_event(
       - ``"subscription_upgrade"`` — Pro → Pro+ swap
       - ``"subscription_downgrade"`` — Pro+ → Pro swap
       - ``"subscription_canceled"`` — cancellation
+      - ``"payment_failed"`` — a renewal charge failed (dunning has begun)
       - ``"subscription_updated"`` — generic state change (use sparingly)
+
+    There is deliberately **no single ``amount`` parameter.** One ambiguous
+    "amount" is precisely what let the LIST price of a tier be handed in and
+    rendered as realised revenue — a 100%-comped $0.00 activation posted
+    "MRR impact: $9.95/mo" for all 7 live subscriptions. The caller must now
+    say which number it holds, and ``real_usd`` can only come from a Stripe
+    object (see :mod:`app.revenue_truth`).
 
     Args:
         event_kind: short label, see above.
         user_email: paying user's email (None if not yet known).
         user_id: internal UUID, surfaced for cross-reference.
         tier: db slug — ``pro``, ``pro_plus``, ``free``, or None. Legacy slugs ``cook``, ``operator``, ``studio`` also accepted via shim until 2026-06-10.
-        amount_usd: monthly subscription price in USD (None if unknown).
+        real_usd: REAL monthly cash Stripe bills, net of discounts, from
+            :func:`app.revenue_truth.real_monthly_usd`. ``Decimal("0.00")``
+            means "Stripe bills nothing" (comped — a fact). ``None`` means
+            "we could not determine the amount" (unknown — not a fact); it
+            renders as *unknown*, never as $0.00 and never as list price.
+        list_usd: gross monthly price before discount, for contrast. Shown
+            alongside ``real_usd`` whenever the two differ. NEVER revenue.
+        discount_pct: exact share of list price discounted away, from
+            :func:`app.revenue_truth.discount_pct`. Passed separately because it
+            must be computed from exact cents — recomputing it from the two
+            rounded USD figures renders a 50%-off coupon as "49.95% off".
         extra_lines: optional list of additional bullet strings.
 
     Never raises. If both transports are unconfigured, returns silently.
@@ -101,7 +124,9 @@ def post_revenue_event(
         user_email=user_email,
         user_id=user_id,
         tier=tier,
-        amount_usd=amount_usd,
+        real_usd=real_usd,
+        list_usd=list_usd,
+        discount_pct=discount_pct,
         extra_lines=extra_lines or [],
     )
 
@@ -154,13 +179,73 @@ def _emoji_for(event_kind: str) -> str:
     return "ℹ️"
 
 
+def _usd(amount: Decimal) -> str:
+    """Render a Decimal USD figure as ``$9.95/mo``."""
+    return f"${amount:,.2f}/mo"
+
+
+def _pct(pct: Decimal) -> str:
+    """Render a discount percentage, e.g. ``50`` or ``33.33``."""
+    pct = pct.quantize(Decimal("0.01")).normalize()
+    # normalize() turns Decimal("50.00") into Decimal("5E+1"); format with 'f'
+    # so it reads as "50" and not as scientific notation in a Discord message.
+    return f"{pct:f}"
+
+
+def _render_mrr_impact(
+    *,
+    real_usd: Decimal | None,
+    list_usd: Decimal | None,
+    discount_pct: Decimal | None,
+    tier: str | None,
+) -> str:
+    """Render the money line for the Discord embed. The anti-phantom-MRR core.
+
+    Three distinct states, rendered three distinct ways — conflating any two of
+    them is how phantom revenue gets reported:
+
+      * **known and full price** → ``$9.95/mo``
+      * **known and discounted** → ``real $4.98/mo · list $9.95/mo · 50% off``,
+        or ``real $0.00/mo · list $9.95/mo · 100% comped`` when nothing is
+        billed. Both figures are always shown when they differ, so nobody has
+        to guess which one they are reading.
+      * **unknown** (``real_usd is None``) → the word *unknown*. The tier's list
+        price may be quoted for context, but only spelled out as a ceiling that
+        is NOT revenue.
+    """
+    if real_usd is None:
+        ceiling = tier_list_monthly_usd(tier)
+        if ceiling > 0:
+            return f"unknown — Stripe reported no amount (list ceiling {_usd(ceiling)}, NOT revenue)"
+        return "unknown — Stripe reported no amount"
+
+    if list_usd is None or list_usd <= real_usd:
+        # No contrasting list price to show. A $0.00 bill is still called comped
+        # explicitly, so a $0 internal price never reads as ordinary revenue.
+        if real_usd <= 0:
+            return f"{_usd(real_usd)} · comped"
+        return _usd(real_usd)
+
+    if real_usd <= 0:
+        label = "100% comped"
+    elif discount_pct is not None:
+        label = f"{_pct(discount_pct)}% off"
+    else:
+        # No exact percentage supplied — say the two differ without asserting a
+        # figure derived from rounded dollars (that renders 50% off as 49.95%).
+        label = "discounted"
+    return f"real {_usd(real_usd)} · list {_usd(list_usd)} · {label}"
+
+
 def _build_embed_payload(
     *,
     event_kind: str,
     user_email: str | None,
     user_id: str | None,
     tier: str | None,
-    amount_usd: float | None,
+    real_usd: Decimal | None,
+    list_usd: Decimal | None,
+    discount_pct: Decimal | None,
     extra_lines: list[str],
 ) -> dict[str, Any]:
     """Construct the Discord-compatible JSON body."""
@@ -171,11 +256,20 @@ def _build_embed_payload(
         fields.append({"name": "Email", "value": user_email, "inline": True})
     if tier:
         fields.append({"name": "Tier", "value": tier_display, "inline": True})
-    if amount_usd is not None:
+    if real_usd is not None or tier:
+        # Always render the money line when there is a subscription in play,
+        # including for a $0.00 comped activation: suppressing the alert would
+        # hide that the checkout pipe is alive, which the team explicitly wants
+        # to see. Honesty here is about the FIGURE, not about staying quiet.
         fields.append(
             {
                 "name": "MRR impact",
-                "value": f"${amount_usd:.2f}/mo",
+                "value": _render_mrr_impact(
+                    real_usd=real_usd,
+                    list_usd=list_usd,
+                    discount_pct=discount_pct,
+                    tier=tier,
+                ),
                 "inline": True,
             }
         )

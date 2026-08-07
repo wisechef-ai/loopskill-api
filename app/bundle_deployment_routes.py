@@ -43,6 +43,10 @@ from app.auth_routes import get_current_user_optional
 from app.bundle_preflight import run_preflight
 from app.database import get_db
 from app.models import Bundle, BundleApplyJob, BundleDeployment, InstallEvent, Skill, User
+
+# mesh0408e2e W2: entitlement follows subscription STATUS, not the raw tier
+# column — a past_due Pro must not keep deploying.
+from app.revenue_truth import entitled_tier
 from app.services.bundle_apply import (
     UnresolvableBundle,
     create_apply_job,
@@ -63,10 +67,15 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$")
 
 
 def _require_deploy_tier(user: User | None) -> User:
-    """Enforce pro/pro_plus tier; 401 if anonymous, 402 otherwise."""
+    """Enforce pro/pro_plus tier; 401 if anonymous, 402 otherwise.
+
+    W2: gates on the ENTITLED tier, not the raw ``subscription_tier`` column —
+    that column keeps its slug after a payment fails, so a past_due Pro would
+    otherwise keep deploying on a card that no longer charges.
+    """
     if user is None:
         raise HTTPException(status_code=401, detail="login_required")
-    tier = (user.subscription_tier or "").lower()
+    tier = (entitled_tier(user) or "").lower()
     if tier not in DEPLOY_TIERS:
         raise HTTPException(
             status_code=402,

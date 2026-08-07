@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.auth_routes import get_current_user_optional
 from app.database import get_db
 from app.models import APIKey, Bundle, InstallEvent, User
+from app.revenue_truth import entitled_tier_or_free
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["api-keys"])
@@ -157,7 +158,8 @@ async def create_api_key(
         body = {}
 
     # ── Tier cap enforcement ──────────────────────────────────────────────
-    tier = user.subscription_tier or "free"
+    # The ENTITLED tier, so a lapsed Pro cannot keep minting keys at the Pro cap.
+    tier = entitled_tier_or_free(user)
     cap = KEY_CAP.get(tier, DEFAULT_CAP)
 
     active_count = (

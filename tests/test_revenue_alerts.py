@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import threading
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,7 +29,9 @@ def test_build_embed_payload_full() -> None:
         user_email="alice@example.com",
         user_id="11111111-1111-1111-1111-111111111111",
         tier="cook",
-        amount_usd=20.0,
+        real_usd=Decimal("20.00"),
+        list_usd=Decimal("20.00"),
+        discount_pct=Decimal(0),
         extra_lines=["Stripe checkout: cs_test_123"],
     )
     embed = payload["embeds"][0]
@@ -54,7 +57,9 @@ def test_build_embed_payload_pro_plus_aliases() -> None:
             user_email=None,
             user_id=None,
             tier=slug,
-            amount_usd=100.0,
+            real_usd=Decimal("100.00"),
+            list_usd=Decimal("100.00"),
+            discount_pct=Decimal(0),
             extra_lines=[],
         )
         tier_field = next(
@@ -70,7 +75,9 @@ def test_build_embed_payload_minimal() -> None:
         user_email=None,
         user_id=None,
         tier=None,
-        amount_usd=None,
+        real_usd=None,
+        list_usd=None,
+        discount_pct=None,
         extra_lines=[],
     )
     embed = payload["embeds"][0]
@@ -95,7 +102,7 @@ def test_post_revenue_event_silent_when_unconfigured(monkeypatch: pytest.MonkeyP
             user_email="x@y.z",
             user_id="x",
             tier="cook",
-            amount_usd=20.0,
+            real_usd=Decimal("20.00"),
         )
         mock_thread.assert_not_called()
 

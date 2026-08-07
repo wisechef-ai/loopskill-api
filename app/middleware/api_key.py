@@ -32,6 +32,11 @@ from app.middleware._org_scope import resolve_org_membership as _resolve_org_mem
 from app.middleware.key_prefixes import API_KEY_PREFIX, FLEET_KEY_PREFIX  # noqa: F401 — compat re-export
 from app.middleware.key_prefixes import LOOPSKILL_KEY_PREFIX, USER_KEY_PREFIXES  # noqa: F401
 
+# mesh0408e2e W2: entitlement is derived from subscription STATUS, never from
+# the raw tier column — a past_due/canceled Pro must not keep paid capability
+# just because the slug is still on the row.
+from app.revenue_truth import entitled_tier
+
 logger = logging.getLogger("wiserecipes.middleware")
 
 
@@ -168,9 +173,9 @@ def _auth_ctx_from_api_key(request) -> "AuthContext | None":
         if api_key_obj is None:
             return None
         user_obj = db.query(User).filter(User.id == api_key_obj.user_id).first()
-        tier: str | None = None
-        if user_obj and user_obj.subscription_status in ("active", "trialing"):
-            tier = user_obj.subscription_tier
+        # W2: entitled tier, not the raw column — a lapsed subscription must not
+        # keep paid capability just because the slug is still on the row.
+        tier: str | None = entitled_tier(user_obj)
         # mesh_0408 W1: member keys resolve their tenant from their fleet.
         org_id, is_org_owner = _resolve_org_for_key(db, api_key_obj.id, api_key_obj.user_id)
         return AuthContext(

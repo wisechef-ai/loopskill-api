@@ -31,6 +31,10 @@ from app.mcp.tools.fleet import (
 )
 from app.models import User
 
+# mesh0408e2e W2: entitlement follows subscription STATUS, not the raw tier
+# column — a lapsed Pro+ must fall back to free fleet capability.
+from app.revenue_truth import entitled_tier_or_free
+
 router = APIRouter(prefix="/api/fleets", tags=["fleets"])
 
 
@@ -75,7 +79,9 @@ def resolve_fleet_ctx(request: Request, db: Session = Depends(get_db)) -> AuthCo
         # context that dropped the id would silently leave every member
         # unclassified — which reads as "let the beacon slug list decide".
         api_key_id=getattr(request.state, "api_key_id", None),
-        tier=user.subscription_tier or "free",
+        # W2: entitled tier, not the raw column — a lapsed subscription must not
+        # keep Pro+ fleet capability just because the slug is still on the row.
+        tier=entitled_tier_or_free(user),
         org_id=org_id,
         is_org_owner=is_org_owner,
     )

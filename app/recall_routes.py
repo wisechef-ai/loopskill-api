@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.embeddings import embed_text, is_model_loaded
 from app.models import Bundle, BundleSkill, Skill, User
+from app.revenue_truth import entitled_tier_or_free
 from app.ranking import TIER_RANK, combine, score_bm25, score_vector
 
 logger = logging.getLogger(__name__)
@@ -220,7 +221,8 @@ def post_recall(
     user_tier: str | None = None
     if not is_master:
         user = db.query(User).filter(User.id == api_key_user_id).first()
-        user_tier = user.subscription_tier if user else "free"
+        # Entitled tier: tier-gated skills must not stay visible to a lapsed sub.
+        user_tier = entitled_tier_or_free(user)
 
     result = recall_skills(
         db,

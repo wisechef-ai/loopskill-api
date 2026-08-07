@@ -34,6 +34,10 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app import authz, config
 from app.database import get_db
+
+# mesh0408e2e W2: entitlement follows subscription STATUS, not the raw tier
+# column — a past_due Pro must fall back to the free private-bundle cap.
+from app.revenue_truth import entitled_tier_or_free
 from app.models import (
     Bundle,
     BundleCompositeLoop,
@@ -221,7 +225,9 @@ def require_cookbook_tier(request: Request, db: Session = Depends(get_db)) -> Co
 
     # evergreen_0206 Phase G: free tier is allowed through (the on-ramp). The
     # tier travels in the ctx so downstream caps/gates enforce per-tier limits.
-    tier = user.subscription_tier or "free"
+    # W2: must be the ENTITLED tier — a past_due Pro falls back to the free cap
+    # rather than keeping 50 private bundles on a card that no longer charges.
+    tier = entitled_tier_or_free(user)
     # feat/org-scoped-bundle-reads: resolve the caller's org so org-scoped
     # bundles are readable by org members.
     #
