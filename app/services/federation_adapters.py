@@ -13,6 +13,7 @@ from typing import Any, Callable
 from app.services import clawhub_url
 from app.services.federation import ExternalSkill, InstallPath, SourceAdapter
 from app.services.federation_fetch import is_redistributable as _canonical_is_redistributable
+from app.services.federation_relevance import relevance_order_clauses
 
 
 def _is_redistributable(license_id: str | None) -> bool:
@@ -94,7 +95,28 @@ class HermesHubAdapter(SourceAdapter):
                             FederationHubSkill.slug.ilike(like),
                         )
                     )
-                rows = db_q.order_by(FederationHubSkill.title).limit(limit).all()
+                rows = (
+                    db_q.order_by(
+                        # fdeloop_0808 Phase B — RELEVANCE BEFORE TRUNCATION.
+                        #
+                        # This was `order_by(FederationHubSkill.title).limit(limit)`.
+                        # Against the live 90,605-row snapshot, `q=seo` matches 676
+                        # rows; the LIMIT kept the 25 that sorted first
+                        # alphabetically, so the row slugged exactly `seo` — and
+                        # `ai-seo`, `seopro`, `seo-geo` — were unreachable at any
+                        # page size the UI uses. The downstream ranker cannot
+                        # recover a row SQL already discarded, which is why fixing
+                        # `metasearch.rank()` would not have fixed this.
+                        #
+                        # Title stays as the stable tiebreak WITHIN a tier, so
+                        # equally-relevant rows keep their previous deterministic
+                        # order and an empty query behaves exactly as before.
+                        *relevance_order_clauses(FederationHubSkill, q),
+                        FederationHubSkill.title,
+                    )
+                    .limit(limit)
+                    .all()
+                )
                 if rows:
                     return [self._map_hub_skill(r) for r in rows]
             finally:
