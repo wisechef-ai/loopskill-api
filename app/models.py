@@ -1370,6 +1370,90 @@ class BundleDeployment(Base):
     )
 
 
+class BundleApplyJob(Base):
+    """One attempt to converge a member onto a bundle's currently-resolved versions.
+
+    mesh_0408 W5 — the bundle deploy path had NO terminal state: apply()
+    synthesized a ``uuid4()`` job id and discarded it, and the status endpoint
+    returned a hard-coded ``{"status": "applying"}`` for any id whatsoever. A
+    status that cannot go red is decoration, so this table gives the path a
+    real, observable lifecycle:
+
+        applying -> converged | failed
+
+    The transition is driven ENTIRELY by what the member reports (see
+    ``BundleApplyJobItem``); the control plane never assumes success.
+
+    ``member_id`` is NULL for curator-initiated applies (the portal's
+    ``POST /api/bundle-deploy/{id}/apply``) and set for agent-initiated ones
+    (``POST /api/bundle-apply/{slug}/start``).
+    """
+
+    __tablename__ = "bundle_apply_jobs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    bundle_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("bundles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    member_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("fleet_members.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    requested_by_user_id = Column(UUID(as_uuid=True), nullable=True)
+    status = Column(String(20), nullable=False, default="applying", server_default="applying")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    # Set exactly once, when the job first reaches converged|failed.
+    terminal_at = Column(DateTime(timezone=True), nullable=True)
+
+    items = relationship(
+        "BundleApplyJobItem",
+        back_populates="job",
+        cascade="all, delete-orphan",
+        order_by="BundleApplyJobItem.skill_slug",
+    )
+
+
+class BundleApplyJobItem(Base):
+    """Per-skill convergence expectation + the member's actual report.
+
+    ``expected_semver`` is resolved from the bundle AT JOB-CREATION TIME (the
+    deployment's ``version_pin``, else the skill's newest published version).
+    Convergence requires ``outcome == 'success' AND reported_semver ==
+    expected_semver`` for every item: a member that reports success while still
+    running the OLD, defective version does not converge the job. Without that
+    equality the redeploy half of the moat loop would be unfalsifiable.
+    """
+
+    __tablename__ = "bundle_apply_job_items"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    job_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("bundle_apply_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False)
+    skill_slug = Column(String(255), nullable=False)
+    expected_semver = Column(String(64), nullable=False)
+    outcome = Column(String(20), nullable=True)  # NULL = not yet reported
+    reported_semver = Column(String(64), nullable=True)
+    failure_reason = Column(Text, nullable=True)
+    reported_at = Column(DateTime(timezone=True), nullable=True)
+
+    job = relationship("BundleApplyJob", back_populates="items")
+
+    __table_args__ = (UniqueConstraint("job_id", "skill_id", name="uq_bundle_apply_job_items_job_skill"),)
+
+
 class Fleet(Base):
     """A named fleet of agents belonging to one owner user.
 

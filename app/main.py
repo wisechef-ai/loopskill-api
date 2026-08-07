@@ -210,6 +210,11 @@ def create_app() -> FastAPI:
     app.include_router(mesh_discovery_router, tags=["mesh", "a2a-directory"])
     app.include_router(graph_router, tags=["graph"])
     app.include_router(cookbook_deploy_router, tags=["cookbook-deploy"])
+    # mesh_0408 W5 — agent-facing convergence surface (api-key auth). Distinct
+    # prefix from bundle-deploy so /jobs/{id} can never be shadowed.
+    from app.bundle_converge_routes import router as bundle_converge_router
+
+    app.include_router(bundle_converge_router, tags=["bundle-apply"])
     app.include_router(heartbeat_router, tags=["heartbeat"])
     app.include_router(intent_survey_router, tags=["surveys"])
     app.include_router(skill_error_router, tags=["skill-errors"])
