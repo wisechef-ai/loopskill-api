@@ -215,10 +215,11 @@ def fan_out(
                     degraded.append(src)
                     continue
                 if not result.ok:
-                    # A gated source (open circuit / dry bucket) is already
-                    # reflected in breaker state — only record a failure for a
-                    # genuine fetch error, not for a rate-limit skip.
-                    if result.reason == "fetch_error":
+                    # A GATED source (open circuit / dry bucket) never leased a
+                    # probe, so it needs no outcome. Everything else consumed
+                    # one and must resolve it, or the breaker holds a lease for
+                    # a call that never happened (mesh0408e2e).
+                    if result.reason != "rate_limited_or_open_circuit":
                         rl.record_failure(src)
                     degraded.append(src)
                     continue

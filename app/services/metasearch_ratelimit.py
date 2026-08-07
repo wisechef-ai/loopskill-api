@@ -115,16 +115,23 @@ class CircuitBreaker:
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False)
 
     def allow(self) -> bool:
-        """Whether a request to this source is permitted right now."""
+        """Whether a request to this source is permitted right now.
+
+        A half-open probe is leased, not given away: ``_opened_at`` is restamped
+        as the lease is issued, so an outcome that never arrives costs exactly
+        one cooldown instead of pinning the breaker half-open for the life of
+        the process. Callers should still record an outcome — this only bounds
+        the damage when one escapes (mesh0408e2e).
+        """
         with self._lock:
             if self._opened_at is None:
                 return True  # CLOSED
             # OPEN — check cooldown.
             if (time.monotonic() - self._opened_at) < self.cooldown_sec:
                 return False
-            # cooldown elapsed → allow exactly one half-open probe.
-            if self._half_open_probe_inflight:
-                return False
+            # cooldown elapsed → lease exactly one half-open probe, and restart
+            # the clock so an unrecorded probe expires instead of latching.
+            self._opened_at = time.monotonic()
             self._half_open_probe_inflight = True
             return True
 
@@ -198,15 +205,17 @@ def _breaker_for(source: str) -> CircuitBreaker:
 
 
 def acquire(source: str) -> bool:
-    """Gate a single upstream call to ``source``. Returns True if BOTH the
-    circuit is closed/half-open AND a token is available. False → the caller
-    skips this source for this request (graceful degrade)."""
-    breaker = _breaker_for(source)
-    if not breaker.allow():
-        return False
+    """Gate a single upstream call to ``source``. Returns True if BOTH a token
+    is available AND the circuit is closed/half-open. False → the caller skips
+    this source for this request (graceful degrade).
+
+    Bucket first, breaker second: a call the rate limiter rejects never reaches
+    the upstream, so it must not spend the breaker's single half-open probe
+    (mesh0408e2e).
+    """
     if not _bucket_for(source).try_acquire():
         return False
-    return True
+    return _breaker_for(source).allow()
 
 
 def record_success(source: str) -> None:
