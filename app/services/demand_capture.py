@@ -63,9 +63,7 @@ def _upsert(db: Session, q: str, *, user_id=None) -> None:
     if bind.dialect.name == "postgresql":
         from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-        stmt = pg_insert(MissingSkillQuery).values(
-            query=q, user_id=user_id, day=today, count=1
-        )
+        stmt = pg_insert(MissingSkillQuery).values(query=q, user_id=user_id, day=today, count=1)
         stmt = stmt.on_conflict_do_update(
             index_elements=[func.lower(MissingSkillQuery.query), MissingSkillQuery.day],
             set_={"count": MissingSkillQuery.count + 1},

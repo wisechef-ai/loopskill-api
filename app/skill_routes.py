@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -36,7 +36,7 @@ from app._skill_helpers import (
     _skill_to_out,
 )
 from app.database import get_db
-from app.models import MissingSkillQuery, Skill, SkillAlias, TelemetryEvent
+from app.models import Skill, SkillAlias, TelemetryEvent
 from app.schemas import SkillDetailOut, SkillOut, SkillSearchResult
 from app.services.demand_capture import record_missing_skill_query
 from app.tier_labels import _is_paid_tier

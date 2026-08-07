@@ -58,9 +58,7 @@ def extract_skill_references(text: str | None) -> set[str]:
     return refs
 
 
-def find_dangling_references(
-    readmes: dict[str, str | None], published: set[str]
-) -> dict[str, set[str]]:
+def find_dangling_references(readmes: dict[str, str | None], published: set[str]) -> dict[str, set[str]]:
     """Map each skill slug to the references it makes that do not resolve.
 
     ``readmes``   — {slug: readme text} for the corpus being checked
