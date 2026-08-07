@@ -134,7 +134,12 @@ def _resolve_cookbook(
 
     if ctx.scope == "master":
         return cb
-    if ctx.scope == "user" and ctx.user_id is not None and cb.bundle_owner == ctx.user_id:
+    # mesh_0408 W1 (P0), codex review of PR #202 finding 2 — the bare
+    # owner-match here is the same short-circuit the REST sites had, on the MCP
+    # tool that INSTALLS a bundle's skills onto an agent. One account owns every
+    # client org it runs, so an agent at client B could pull client A's private
+    # skill payloads. Routed through the shared predicate.
+    if ctx.scope == "user" and authz.owner_match_within_tenant(ctx, cb):
         return cb
 
     # Default: 404 (no oracle for non-owners — keep parity with REST routes)

@@ -399,7 +399,15 @@ class TestConfigureFeedback:
         assert "not yet live" in result["error"]
 
     def test_unowned_cookbook_rejected(self, db_session):
-        """T20: user doesn't own cookbook → rejected."""
+        """T20: user doesn't own cookbook → rejected, with NO existence oracle.
+
+        mesh_0408 W1 (codex review of PR #202, finding 3): this used to assert
+        the reply said "You do not own this cookbook", while an id that matched
+        no row said "Bundle not found". That pair of messages is an oracle — it
+        confirms to an unauthorized caller that the UUID they hold is real. The
+        two answers must now be byte-identical, so the test asserts the
+        indistinguishability rather than the wording.
+        """
         from app.auth_ctx import AuthContext
         from app.mcp.tools.configure_feedback import loopskill_configure_feedback
 
@@ -408,16 +416,28 @@ class TestConfigureFeedback:
         cb = _make_cookbook(db_session, owner_id)
         ctx = AuthContext(scope="user", user_id=attacker_id, tier="pro")
 
-        result = loopskill_configure_feedback(
-            db_session,
-            repo="owner/repo",
-            mode="pat",
-            pat="ghp_x",
-            cookbook_id=str(cb.id),
-            ctx=ctx,
+        def _probe(cookbook_id):
+            return loopskill_configure_feedback(
+                db_session,
+                repo="owner/repo",
+                mode="pat",
+                pat="ghp_x",
+                cookbook_id=cookbook_id,
+                ctx=ctx,
+            )
+
+        exists_but_not_mine = _probe(str(cb.id))
+        does_not_exist = _probe(str(uuid.uuid4()))
+
+        assert exists_but_not_mine["ok"] is False
+        assert exists_but_not_mine == does_not_exist, (
+            "configure_feedback distinguishes an existing bundle the caller may "
+            f"not write from one that does not exist: {exists_but_not_mine!r} "
+            f"vs {does_not_exist!r}"
         )
-        assert result["ok"] is False
-        assert "do not own" in result["error"]
+        # And nothing was written to the victim's bundle.
+        db_session.refresh(cb)
+        assert cb.feedback_repo is None and cb.feedback_pat_enc is None
 
 
 # ── loopskill_feedback routing tests ───────────────────────────────────────────

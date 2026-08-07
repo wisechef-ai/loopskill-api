@@ -59,9 +59,28 @@ def resolve_org_for_key(db: Any, api_key_id: UUID | None, user_id: UUID) -> tupl
     at most one member; a single join off that index is enough (this runs on
     every authenticated request — do not split it into two queries).
 
-    Fails CLOSED: when the key IS a member key but its fleet carries no
-    ``org_id``, this returns personal scope ``(None, False)`` rather than
-    falling back to membership — falling back is precisely the bug.
+    Fails CLOSED in BOTH states where the fleet cannot name a tenant:
+
+    * the member key's fleet carries no ``org_id`` -> personal scope;
+    * the member row exists but is ``is_active = False`` (a DEACTIVATED agent)
+      -> personal scope.
+
+    The second case is why ``is_active`` is SELECTed rather than filtered on.
+    Filtering it would make a deactivated member look like "not a member key at
+    all", and the function would fall through to the membership lookup and hand
+    the key the account's OLDEST org — the exact fail-OPEN this function exists
+    to remove (codex review of PR #202, finding 4). ``remove_member`` revokes the
+    APIKey alongside the member row today, so this is defence in depth rather
+    than the only guard; it is here because the next deactivation path to ship
+    will not necessarily remember to revoke.
+
+    KNOWN RESIDUAL (see /tmp/ISSUES-w1b.md §1): if the member ROW is deleted
+    while its key stays active — ``fleet_members.fleet_id`` is ``ON DELETE
+    CASCADE``, so deleting a Fleet would do it — the join finds nothing and the
+    orphaned key is indistinguishable from an ordinary human key, so it falls
+    back to membership. Closing that needs a durable key-type marker on
+    ``api_keys`` (a schema change); no fleet-delete route exists today, so the
+    state is not reachable through the API.
 
     ``is_org_owner`` is always False for a member key: a deployed agent is not
     the org payer, and ``authz.can_manage_fleet`` keys off that flag.
@@ -70,11 +89,14 @@ def resolve_org_for_key(db: Any, api_key_id: UUID | None, user_id: UUID) -> tupl
 
     if api_key_id is not None:
         row = (
-            db.query(Fleet.org_id)
+            db.query(Fleet.org_id, FleetMember.is_active)
             .join(FleetMember, FleetMember.fleet_id == Fleet.id)
             .filter(FleetMember.api_key_id == api_key_id)
             .first()
         )
         if row is not None:
-            return (row[0], False)
+            org_id, member_is_active = row
+            if not member_is_active:
+                return (None, False)
+            return (org_id, False)
     return resolve_org_membership(db, user_id)

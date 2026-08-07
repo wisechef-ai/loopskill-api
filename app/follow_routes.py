@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app import authz
 from app.auth_ctx import AuthContext
 from app.database import get_db
 from app.models import Bundle, FollowedBundle
@@ -13,12 +14,12 @@ from app.models import Bundle, FollowedBundle
 _h = APIRouter(tags=["bundles"])
 
 
-def _authenticated_user_id(request: Request) -> UUID:
+def _authenticated_ctx(request: Request) -> AuthContext:
     """Require a user identity because follows belong to one user."""
     ctx = getattr(request.state, "auth_ctx", None)
     if not isinstance(ctx, AuthContext) or ctx.user_id is None:
         raise HTTPException(status_code=401, detail="Authentication required")
-    return ctx.user_id
+    return ctx
 
 
 def _bundle_or_404(db: Session, bundle_id: str) -> Bundle:
@@ -36,8 +37,20 @@ def _bundle_or_404(db: Session, bundle_id: str) -> Bundle:
 @_h.post("/{bundle_id}/follow")
 def follow_bundle(bundle_id: str, request: Request, db: Session = Depends(get_db)) -> dict:
     """Idempotently follow a public bundle without copying its content."""
-    user_id = _authenticated_user_id(request)
+    ctx = _authenticated_ctx(request)
+    user_id = ctx.user_id
     bundle = _bundle_or_404(db, bundle_id)
+    # mesh_0408 W1 (P0), codex review of PR #202 finding 3. Identical treatment
+    # to artifact_like_routes.like_bundle: the owner-match below is a DENY
+    # predicate (the self-follow guard), so tenant-scoping it would LOOSEN this
+    # route. The cross-tenant defect is one line earlier — an account owns every
+    # bundle of every client org it runs, so `400 cannot_follow_own_bundle` vs
+    # `404 bundle_not_found` told a key deployed at client B whether a given
+    # private bundle id exists in client A. Deny first, indistinguishably from
+    # "no such bundle". Public bundles stay exempt: the catalog is cross-tenant
+    # on purpose, and following one is the whole point of the verb.
+    if bundle.visibility != "public" and authz.crosses_tenant(ctx, bundle):
+        raise HTTPException(status_code=404, detail="bundle_not_found")
     if bundle.bundle_owner == user_id:
         raise HTTPException(status_code=400, detail="cannot_follow_own_bundle")
     if bundle.visibility != "public":
@@ -83,13 +96,23 @@ def _resync_follower_count(db: Session, bundle_id) -> None:
 @_h.delete("/{bundle_id}/follow")
 def unfollow_bundle(bundle_id: str, request: Request, db: Session = Depends(get_db)) -> dict:
     """Idempotently remove a saved bundle reference."""
-    user_id = _authenticated_user_id(request)
+    ctx = _authenticated_ctx(request)
+    user_id = ctx.user_id
     bundle = _bundle_or_404(db, bundle_id)
-    (
+    existing = (
         db.query(FollowedBundle)
         .filter(FollowedBundle.user_id == user_id, FollowedBundle.bundle_id == bundle.id)
-        .delete(synchronize_session=False)
+        .first()
     )
+    # Same no-oracle rule as follow, one step weaker so it cannot strand a row:
+    # a caller who ALREADY follows this bundle (it was public when they followed
+    # and has since gone private) must keep the ability to unfollow. Everyone
+    # else gets the not-found answer for another tenant's private bundle, so
+    # 200-vs-404 stops reporting whether the id is real.
+    if existing is None and bundle.visibility != "public" and authz.crosses_tenant(ctx, bundle):
+        raise HTTPException(status_code=404, detail="bundle_not_found")
+    if existing is not None:
+        db.delete(existing)
     db.commit()
     # spotify_1507 Ph A — keep the denormalized counter in sync on unfollow too.
     _resync_follower_count(db, bundle.id)

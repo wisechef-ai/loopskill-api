@@ -329,11 +329,18 @@ def test_layer2_fails_closed_when_fleet_has_no_org(tenant_app, db_session):
 def test_site_authz_can_read_skill_bundle_clause(tenant_app, tenants, db_session):
     """A private skill in client A's bundle is unreadable from client B's key.
 
-    Asserted at the DESTINATION, not the status code (trap E2): the like route
-    fails CLOSED by writing nothing and still returns 200, so the only honest
-    signal is whether the skill landed in the Liked bundle.
+    Asserted at the DESTINATION, not the status code (trap E2): the mirror into
+    the Liked bundle is the read that would widen access.
+
+    codex review of PR #202, finding 5 — this test USED TO BE TOOTHLESS on half
+    its subject. It asserted only that no ``BundleSkill`` mirror appeared, while
+    the route went on to COMMIT a ``SkillLike`` row against client A's private
+    skill and answer 200 with its global ``like_count``. A cross-tenant caller
+    that cannot read a row must not be able to write one referencing it, and
+    must not be able to tell it apart from a slug that was never minted, so all
+    three are asserted now: the mirror, the row, and the status code.
     """
-    from app.models import Bundle, BundleSkill
+    from app.models import Bundle, BundleSkill, SkillLike
 
     def _in_liked_bundle(skill):
         return (
@@ -344,13 +351,35 @@ def test_site_authz_can_read_skill_bundle_clause(tenant_app, tenants, db_session
             is not None
         )
 
+    def _like_rows(skill):
+        return db_session.query(SkillLike).filter(SkillLike.skill_id == skill.id).count()
+
     # CROSS-TENANT first, so a later control write cannot mask it.
     r = tenant_app.post(f"/api/skills/{tenants.skill_a.slug}/like", headers={"x-api-key": tenants.key_b})
-    assert r.status_code == 200, r.text
+    assert r.status_code == 404, (
+        f"cross-tenant like leaked the existence of a private slug: {r.status_code} {r.text}"
+    )
+    assert r.json()["detail"] == f"Track '{tenants.skill_a.slug}' not found", (
+        "the cross-tenant denial must be byte-identical to the never-existed "
+        f"answer _resolve_track_identity gives: {r.text}"
+    )
     assert not _in_liked_bundle(tenants.skill_a), (
         "client B's key read a PRIVATE skill out of client A's bundle via the "
         "can_read_skill bundle-ownership clause"
     )
+    assert _like_rows(tenants.skill_a) == 0, (
+        "client B's key COMMITTED a SkillLike row against client A's private "
+        "skill — a cross-tenant caller must not mutate"
+    )
+
+    # The same must hold for the favourite verb, which writes its own row.
+    r = tenant_app.post(f"/api/skills/{tenants.skill_a.slug}/favourite", headers={"x-api-key": tenants.key_b})
+    assert r.status_code == 404, f"cross-tenant favourite: {r.status_code} {r.text}"
+    from app.models import SkillFavourite
+
+    assert (
+        db_session.query(SkillFavourite).filter(SkillFavourite.skill_id == tenants.skill_a.id).count() == 0
+    ), "client B's key COMMITTED a SkillFavourite row against client A's private skill"
 
     # CONTROL — same tenant still works. If this fails the suite is VOID.
     r = tenant_app.post(f"/api/skills/{tenants.skill_a.slug}/like", headers={"x-api-key": tenants.key_a})
@@ -358,6 +387,9 @@ def test_site_authz_can_read_skill_bundle_clause(tenant_app, tenants, db_session
     assert _in_liked_bundle(tenants.skill_a), (
         "CONTROL FAILED: the owning tenant can no longer read its own private "
         "skill — this suite is void, not green"
+    )
+    assert _like_rows(tenants.skill_a) == 1, (
+        "CONTROL FAILED: the owning tenant's like no longer writes its row — void, not green"
     )
 
 

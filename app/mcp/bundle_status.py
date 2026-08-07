@@ -4,20 +4,33 @@ Used by the MCP dispatcher to inject a ``bundle_status`` block into every
 tool response when the authenticated user has skills with newer versions
 available.
 
-Caching: Redis with 60 s TTL, keyed on ``bundle_status:<user_id>``.
+Caching: Redis with 60 s TTL, keyed on ``bundle_status:<user_id>:<org_id>``.
 If Redis is unavailable (e.g., in the test environment), caching is skipped
 gracefully.
+
+mesh_0408 W1 (P0), codex review of PR #202 finding 2 — "automatic MCP response
+decoration leaks cross-org data". This block is injected into EVERY MCP tool
+response, and it used to select on a bare ``Bundle.bundle_owner == user_id``.
+Every fleet-member key of an account carries the SAME ``user_id`` (it is minted
+with ``user_id = fleet.owner_user_id``), so an agent deployed at client B got
+client A's bundle ids, bundle NAMES and skill slugs appended to the result of
+any tool it called — ``loopskill_search``, ``loopskill_feedback``, anything.
+No authorization site was involved and no tool argument had to be guessed; the
+leak arrived unrequested. The tenant now travels with the query AND with the
+cache key.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.authz import owner_match_within_tenant_clause
 from app.models import Bundle, BundleSkill, Skill
 
 logger = logging.getLogger("wiserecipes.bundle_status")
@@ -37,12 +50,21 @@ def _redis_client():  # pragma: no cover — optional dependency
         return None
 
 
-def get_bundle_status(db: Session, user_id: UUID | str | None) -> dict[str, Any] | None:
+def get_bundle_status(
+    db: Session, user_id: UUID | str | None, *, org_id: UUID | str | None = None
+) -> dict[str, Any] | None:
     """Return the ``bundle_status`` dict or *None* if nothing to report.
+
+    ``org_id`` is the tenant the CALLING KEY resolved to (``auth_ctx.org_id``).
+    It is keyword-only and defaults to ``None`` = personal scope, which is the
+    fail-CLOSED answer: a caller whose tenant could not be resolved is shown
+    only bundles that carry no ``org_id`` at all, never an org's. Passing the
+    caller's ``user_id`` without their tenant can therefore no longer widen the
+    result set by accident.
 
     Returns *None* when:
       - user_id is None
-      - user has no cookbooks
+      - the caller has no cookbooks IN THIS TENANT
       - all pinned versions are already at latest
     """
     if user_id is None:
@@ -54,9 +76,16 @@ def get_bundle_status(db: Session, user_id: UUID | str | None) -> dict[str, Any]
             user_id = UUID(user_id)
         except (ValueError, AttributeError):
             return None
+    if isinstance(org_id, str):
+        try:
+            org_id = UUID(org_id)
+        except (ValueError, AttributeError):
+            return None
 
-    # Try Redis cache
-    cache_key = f"bundle_status:{user_id}"
+    # Try Redis cache. The tenant is part of the key: one account's two member
+    # keys share a user_id, so a user-only key served client A's status block to
+    # client B's agent for the whole TTL even once the query was scoped.
+    cache_key = _cache_key(user_id, org_id)
     try:
         rds = _redis_client()
         if rds:
@@ -84,7 +113,10 @@ def get_bundle_status(db: Session, user_id: UUID | str | None) -> dict[str, Any]
         )
         .join(BundleSkill, BundleSkill.bundle_id == Bundle.id)  # compat-alias
         .join(Skill, Skill.id == BundleSkill.skill_id)
-        .filter(Bundle.bundle_owner == user_id)  # compat-alias
+        # mesh_0408 W1 (P0): tenant-scoped through the SAME clause every other
+        # bundle-list site uses, so this decoration cannot drift away from the
+        # routes it decorates.
+        .filter(owner_match_within_tenant_clause(SimpleNamespace(user_id=user_id, org_id=org_id), Bundle))
         .all()
     )
 
@@ -145,14 +177,19 @@ def get_bundle_status(db: Session, user_id: UUID | str | None) -> dict[str, Any]
     return result
 
 
-def invalidate_bundle_status(user_id: UUID | str | None) -> None:
-    """Invalidate cached status for a user (called after loopskill_sync applies)."""
+def _cache_key(user_id: Any, org_id: Any) -> str:
+    """Redis key for one (caller, tenant) pair — never one per caller alone."""
+    return f"bundle_status:{user_id}:{org_id}"
+
+
+def invalidate_bundle_status(user_id: UUID | str | None, org_id: UUID | str | None = None) -> None:
+    """Invalidate cached status for a (user, tenant) pair after a sync applies."""
     if user_id is None:
         return
     try:
         rds = _redis_client()
         if rds:
-            rds.delete(f"bundle_status:{user_id}")
+            rds.delete(_cache_key(user_id, org_id))
     # Rationale: Redis cache invalidation is non-critical; any error → log and continue
     except Exception:  # noqa: BLE001
         logger.debug("Redis cache invalidation failed (non-critical)")

@@ -86,11 +86,40 @@ def _resolve_track_identity(db: Session, slug: str) -> tuple:
     raise HTTPException(status_code=404, detail=f"Track '{slug}' not found")
 
 
+def _require_readable_track(db: Session, ctx: AuthContext, slug: str, skill_id) -> None:
+    """404 a LOCAL track the caller may not read, before anything is written.
+
+    mesh_0408 W1 (P0), codex review of PR #202 finding 3/5. ``like_track``
+    already failed closed on the part that widens access — the Liked-bundle
+    mirror is gated on ``authz.can_read_skill`` inside
+    ``library_service.set_local_like_by_skill`` — but it went on to COMMIT a
+    ``SkillLike`` row for the private skill and answer ``200`` with the track's
+    global ``like_count``. So a key deployed at client B could both confirm that
+    a private slug of client A's exists and write a row against it. A
+    cross-tenant caller must not mutate, and must not be able to tell a private
+    skill it cannot read from a slug that was never minted.
+
+    ``_resolve_track_identity`` is a bare slug lookup with no visibility gate,
+    which is why the check has to live here rather than there: the FEDERATED
+    branch has no local row to authorize and must stay reachable.
+
+    The 404 message is byte-identical to ``_resolve_track_identity``'s so the
+    two answers are indistinguishable.
+    """
+    if skill_id is None:
+        return  # federated track — no local row, nothing to authorize
+    skill = db.execute(select(Skill).where(Skill.id == skill_id)).scalar_one_or_none()
+    if skill is None or authz.can_read_skill(ctx, skill, db=db):
+        return
+    raise HTTPException(status_code=404, detail=f"Track '{slug}' not found")
+
+
 @router.post("/api/skills/{slug}/like", response_model=LikeResponse)
 def like_track(slug: str, request: Request, db: Session = Depends(get_db)):
     """Like a track (local skill or federated). Requires user scope."""
     ctx: AuthContext = _require_user(request)
     skill_id, fed_source, fed_slug = _resolve_track_identity(db, slug)
+    _require_readable_track(db, ctx, slug, skill_id)
 
     # Check existing
     existing_q = select(SkillLike).where(SkillLike.user_id == ctx.user_id)
@@ -173,6 +202,13 @@ def unlike_track(slug: str, request: Request, db: Session = Depends(get_db)):
             and_(SkillLike.federated_source == fed_source, SkillLike.federated_slug == fed_slug)
         )
     existing = db.execute(del_q).scalar_one_or_none()
+    # An UNLIKE never widens access, so it is gated one step weaker than the
+    # like: a caller who already holds a like row keeps the ability to remove it
+    # even if the skill has since gone private. Everyone else gets the same
+    # not-found answer, so the returned ``like_count`` stops doubling as an
+    # existence oracle on another tenant's private slug.
+    if existing is None:
+        _require_readable_track(db, ctx, slug, skill_id)
     if existing is not None:
         db.delete(existing)
 
@@ -221,6 +257,10 @@ def favourite_track(slug: str, request: Request, db: Session = Depends(get_db)):
     """Save a track to library (favourite). Requires user scope."""
     ctx: AuthContext = _require_user(request)
     skill_id, fed_source, fed_slug = _resolve_track_identity(db, slug)
+    # Same class as like_track (hard rule #7 — fix the class, not the one site
+    # named): favouriting also COMMITTED a row against a private skill the
+    # caller cannot read, from another tenant's key.
+    _require_readable_track(db, ctx, slug, skill_id)
 
     existing_q = select(SkillFavourite).where(SkillFavourite.user_id == ctx.user_id)
     if skill_id is not None:
@@ -264,6 +304,8 @@ def unfavourite_track(slug: str, request: Request, db: Session = Depends(get_db)
             )
         )
     existing = db.execute(del_q).scalar_one_or_none()
+    if existing is None:
+        _require_readable_track(db, ctx, slug, skill_id)
     if existing is not None:
         db.delete(existing)
         db.commit()

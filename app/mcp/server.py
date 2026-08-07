@@ -444,15 +444,20 @@ def call_tool_sync(
     try:
         payload = _dispatch(name, session, args or {}, caller)
 
+        # mesh_0408 W1 (P0), codex finding 2: the status block is decoration the
+        # caller never asked for, so it must carry the caller's TENANT as well as
+        # their identity — every member key of an account shares one user_id.
+        caller_org_id = getattr(caller.get("auth_ctx"), "org_id", None)
+
         # After a successful loopskill_sync apply, invalidate cached status
         if normalized_name == "loopskill_sync" and isinstance(payload, dict) and payload.get("applied"):
-            invalidate_bundle_status(caller.get("user_id"))
+            invalidate_bundle_status(caller.get("user_id"), caller_org_id)
 
         # Inject bundle_status for authenticated users (skip for loopskill_sync  # compat-alias
         # itself to avoid noisy double-reporting — sync already returns the diff).
         if isinstance(payload, dict) and normalized_name != "loopskill_sync":
             user_id = caller.get("user_id")
-            status = get_bundle_status(session, user_id)
+            status = get_bundle_status(session, user_id, org_id=caller_org_id)
             if status:
                 payload["bundle_status"] = status
 
