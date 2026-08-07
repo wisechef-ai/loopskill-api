@@ -1,46 +1,47 @@
-"""mesh_0408 T1-B\u2032 \u2014 per-assignment convergence observability.
+"""mesh_0408 T1-B′ — per-assignment convergence observability.
 
 **The aggregate gate this module replaces was never actually shipped as code
-in this repo \u2014 it existed only as v1's PROPOSED design** (mesh_0408 plan
-\u00a70.1, \u00a73 Phase T1-B\u2032): "healthy iff fleet-wide success_count >
+in this repo — it existed only as v1's PROPOSED design** (mesh_0408 plan
+§0.1, §3 Phase T1-B′): "healthy iff fleet-wide success_count >
 rolled_back_count". Both adversarial council seats destroyed that design
 before a single line of it was written, because it is exactly the shape of
 the failure documented in
 ``references/reconcile-outcome-vs-event-volume-2026-08-02.md``: LoopSkill's
 own healthy ``*/3min`` beacon loop (``p4-loop-proof``) emits roughly 480
-successes/day \u2014 more than enough for ANY fleet-wide success-vs-failure
+successes/day — more than enough for ANY fleet-wide success-vs-failure
 ratio to read green while several OTHER daily loops fail on every single
-run. Deletion is therefore the first fix (plan \u00a70.1, musk-5-step): this
+run. Deletion is therefore the first fix (plan §0.1, musk-5-step): this
 module intentionally contains NO aggregate success/rolled_back ratio,
 anywhere, ever. If a future change reintroduces one, it reintroduces the
 27-day silent outage class.
 
-Convergence is computed **per assignment** \u2014 one ``(fleet_id, loop_key,
-member_id)`` triple \u2014 from data that already exists:
+Convergence is computed **per assignment** — one ``(fleet_id, loop_key,
+member_id)`` triple — from data that already exists:
 
-* **desired revision** \u2014 ``LoopPlacement.placement_epoch`` (the CAS-guarded
+* **desired revision** — ``LoopPlacement.placement_epoch`` (the CAS-guarded
   monotonic epoch of the current live placement).
-* **observed revision** \u2014 the ``placement_epoch`` stamped on the most
+* **observed revision** — the ``placement_epoch`` stamped on the most
   recent ``LoopRun`` for that assignment (fleetos_1607 Phase D honest event
-  contract \u2014 the run registry already refuses to let a stale-epoch run count
+  contract — the run registry already refuses to let a stale-epoch run count
   as current).
-* **consecutive-failure count** \u2014 how many of the most recent runs, walking
-  backward from now, failed to pass \u2014 stopping at the first pass. A single
+* **consecutive-failure count** — how many of the most recent runs, walking
+  backward from now, failed to pass — stopping at the first pass. A single
   stuck loop shows a non-zero count on ITS OWN row; it is never blended with
   a healthy sibling's success volume.
-* **NEVER_ATTEMPTED** \u2014 an assignment with a live LoopPlacement but zero
+* **NEVER_ATTEMPTED** — an assignment with a live LoopPlacement but zero
   LoopRun rows. Distinct from FAILING: a loop that has never fired is not
   the same defect class as one that fires and fails every time, and
   conflating the two (the failure the plan's gate #3 names) hides a
   bootstrap defect behind "no data == fine."
 
-* **OVERDUE** (mesh_0408 W4) \u2014 the assignment has been SILENT past a deadline
-  derived from its own schedule. Covers both halves of the same defect class:
-  a loop that was assigned and never fired, and a loop that fired happily for
-  months and then went quiet. See ":ref:`silence`" below.
+* **OVERDUE** (mesh_0408 W4) — the assignment has been SILENT past a deadline
+  derived from its own schedule. Covers all three halves of the same defect
+  class: a loop that was assigned and never fired, a loop that fired happily
+  for months and then went quiet, and a placement that MOVED and whose new
+  epoch never fired. See ":ref:`silence`" below.
 
 Fleet-level status is RED if **any** tracked assignment is FAILING, OVERDUE or
-UNKNOWN_SCHEDULE \u2014 full stop, no averaging, no ratio. One stuck loop cannot be
+UNKNOWN_SCHEDULE — full stop, no averaging, no ratio. One stuck loop cannot be
 masked by N healthy ones.
 
 .. _silence:
@@ -48,14 +49,24 @@ masked by N healthy ones.
 **Silence is not health (mesh_0408 W4).** Before W4 this module rendered
 NEVER_ATTEMPTED as green forever: production ran 3-of-4 assignments
 ``never_attempted`` and the fleet reported green indefinitely. A constant
-threshold cannot fix that \u2014 an hour of silence is a catastrophe for a
+threshold cannot fix that — an hour of silence is a catastrophe for a
 ``*/3min`` beacon and a non-event for a weekly report. So the deadline is
 derived from the loop's OWN schedule
 (:func:`app.services.schedule_interval.parse_schedule_interval`) and the
-policy is three named, retunable constants below. The reference point for
-silence is the last run if there is one, and the placement's assignment time
-if there is not, so a freshly-assigned loop still gets its grace period \u2014 the
-correct intention the pre-W4 behaviour encoded, now with an expiry.
+policy is three named, retunable constants in
+:mod:`app.services.loop_silence`, re-exported here. The reference point for
+silence is the last run of the CURRENT placement epoch if there is one, and the
+instant that epoch began if there is not, so a freshly-assigned (or freshly
+re-placed) loop still gets its grace period — the correct intention the pre-W4
+behaviour encoded, now with an expiry.
+
+Measuring from the current epoch is what makes the claim true along the
+placement axis too. Measured from "the newest run of any epoch", a placement
+that moved and never fired again renewed its own grace period off its
+predecessor's traffic forever: the row read DRIFTING, DRIFTING is not a red
+state, and the fleet stayed green. Every transient state in this module is now
+reachable only INSIDE a deadline, and becomes OVERDUE once that deadline
+passes. A transient state with no expiry is the bug, not a nuance of it.
 
 If a schedule cannot be resolved (undeclared, or declared but unparseable) the
 assignment lands in **UNKNOWN_SCHEDULE**, which is NOT green. Judging silence
@@ -67,7 +78,7 @@ remove.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 from uuid import UUID
@@ -75,10 +86,24 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.models import Fleet, LoopManifest, LoopPlacement, LoopRun
-from app.services.schedule_interval import UnparseableSchedule, parse_schedule_interval
+
+# mesh_0408 W4b: the silence policy lives in its own module — one unit
+# answering one question ("is this loop late yet?"), and the piece Adam
+# retunes for Q-021. Re-exported here because it is part of THIS module's
+# published surface: the API response echoes the three constants under
+# ``silence_policy`` and callers import ScheduleStatus from here. The split
+# moved code, not API.
+from app.services.loop_silence import (  # noqa: F401  — re-exported surface
+    SILENCE_GRACE_CEILING_SECONDS,
+    SILENCE_GRACE_FLOOR_SECONDS,
+    SILENCE_GRACE_MULTIPLIER,
+    ScheduleStatus,
+    evaluate_silence,
+    silence_grace_seconds,
+)
 
 # Placement statuses that should actively be converging right now. Mirrors
-# app.loop_assignment_routes._SCHEDULABLE_STATUSES \u2014 a draining/removed
+# app.loop_assignment_routes._SCHEDULABLE_STATUSES — a draining/removed
 # placement is not expected to keep converging and is excluded here too.
 _TRACKED_STATUSES = ("assigned", "active")
 
@@ -96,60 +121,17 @@ _PASS_OUTCOMES = frozenset({"pass", "success"})
 # window before this endpoint is read.
 DEFAULT_RUN_WINDOW = 50
 
-# \u2500\u2500 SILENCE POLICY (mesh_0408 W4 / hub.md Q-021) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-# Q-021 asked "should NEVER_ATTEMPTED age into FAILING?" and was flagged a
-# DESIGN question, not a defect. The answer shipped here: it ages into its own
-# state (OVERDUE, not FAILING \u2014 "never ran and is late" is a different repair
-# than "ran and broke"), on a deadline derived from the loop's own schedule.
-#
-# These three constants ARE the policy. They are deliberately named, exported
-# in the API response under ``silence_policy``, and referenced nowhere else, so
-# retuning the aggressiveness of the gate is a one-line change with no
-# behavioural archaeology.
-#
-#   deadline = silent_since + clamp(MULTIPLIER * expected_interval,
-#                                   FLOOR, CEILING)
-#
-# MULTIPLIER 3 = "three firings missed in a row". The floor keeps a very
-# frequent loop from alarming on one slow cycle (a */3min beacon gets 15
-# minutes \u2248 5 ticks). The ceiling keeps a rare loop from being un-alarmable
-# forever (a monthly loop is overdue after 7 days of silence, not 3 months);
-# for a weekly loop the ceiling lands on exactly one missed period.
-SILENCE_GRACE_MULTIPLIER = 3.0
-SILENCE_GRACE_FLOOR_SECONDS = 900.0  # 15 minutes
-SILENCE_GRACE_CEILING_SECONDS = 604800.0  # 7 days
-
-
-def silence_grace_seconds(expected_interval_seconds: float) -> float:
-    """How long silence is tolerated for a loop firing every N seconds."""
-    return min(
-        SILENCE_GRACE_CEILING_SECONDS,
-        max(SILENCE_GRACE_FLOOR_SECONDS, SILENCE_GRACE_MULTIPLIER * expected_interval_seconds),
-    )
-
-
-class ScheduleStatus(str, Enum):
-    """Why (or whether) a silence deadline could be computed."""
-
-    PARSED = "parsed"
-    # No enabled LoopManifest declares this placement's loop_key in the
-    # fleet's scope \u2014 the member is not even told when to run it.
-    UNDECLARED = "undeclared"
-    # A schedule string exists but no firing rate can be derived from it.
-    UNPARSEABLE = "unparseable"
-    # A schedule exists but there is no reference point to measure silence
-    # from (no runs AND no known assignment time).
-    NO_REFERENCE_TIME = "no_reference_time"
-
 
 class ConvergenceState(str, Enum):
     NEVER_ATTEMPTED = "never_attempted"
     CONVERGED = "converged"
     FAILING = "failing"
-    # Latest run passed, but it converged an OLDER placement epoch than the
-    # one currently desired \u2014 a placement moved and the new owner hasn't
-    # produced a passing run yet. Distinct from FAILING (nothing is actually
-    # erroring) and from CONVERGED (the live desired state isn't reflected).
+    # The live placement epoch has produced no run of its own — a placement
+    # moved and the new owner hasn't reported yet — but the new epoch is still
+    # INSIDE its schedule-derived deadline. Distinct from FAILING (nothing is
+    # actually erroring) and from CONVERGED (the live desired state isn't
+    # reflected). Bounded: past the deadline this becomes OVERDUE, which is
+    # red. Before that bound existed, a placement could drift silently forever.
     DRIFTING = "drifting"
     # Silent past its schedule-derived deadline. Distinct from FAILING on
     # purpose: FAILING means the loop ran and errored (read the logs);
@@ -157,14 +139,17 @@ class ConvergenceState(str, Enum):
     # placement). Different diagnosis, different repair.
     OVERDUE = "overdue"
     # No derivable schedule, so silence cannot be judged. Loud and non-green
-    # by construction \u2014 the alternative is rendering an un-judgeable loop as
+    # by construction — the alternative is rendering an un-judgeable loop as
     # healthy, which is the bug this module exists to remove.
     UNKNOWN_SCHEDULE = "unknown_schedule"
 
 
 # States that make the fleet non-green, most-actionable first (this order is
-# the order of ``status_reasons`` in the response). NEVER_ATTEMPTED inside its
-# grace window and DRIFTING are transient-by-design and stay out.
+# the order of ``status_reasons`` in the response). NEVER_ATTEMPTED and
+# DRIFTING stay out because both are now bounded: each is reachable ONLY while
+# the assignment is inside its schedule-derived deadline, and each becomes
+# OVERDUE the moment that deadline passes. A transient state with no expiry is
+# how silence rendered as health in the first place; neither has one now.
 _RED_STATES = (
     ConvergenceState.FAILING,
     ConvergenceState.OVERDUE,
@@ -174,7 +159,7 @@ _RED_STATES = (
 
 @dataclass
 class AssignmentConvergence:
-    """Per-assignment convergence snapshot \u2014 the unit this phase makes visible."""
+    """Per-assignment convergence snapshot — the unit this phase makes visible."""
 
     fleet_id: str
     member_id: str
@@ -185,14 +170,14 @@ class AssignmentConvergence:
     consecutive_failures: int
     last_outcome: str | None
     last_run_at: str | None
-    # None only for NEVER_ATTEMPTED \u2014 there is no age to report when nothing
+    # None only for NEVER_ATTEMPTED — there is no age to report when nothing
     # has ever run. For every other state this is seconds since the last
     # PASSING run, or (if the assignment has attempts but has never passed)
-    # seconds since its earliest observed attempt \u2014 i.e. "how long has this
+    # seconds since its earliest observed attempt — i.e. "how long has this
     # been failing", never silently coerced to 0.
     convergence_age_seconds: float | None
 
-    # ── mesh_0408 W4 — server-computed silence verdict ──
+    # ── mesh_0408 W4 — server-computed silence verdict ───────────────────────────────
     # These exist so a client (portal/mesh.astro, the CLI, an alerting hook)
     # renders a state the SERVER decided, instead of re-deriving staleness
     # from a hard-coded threshold it cannot make schedule-aware.
@@ -238,51 +223,22 @@ def _iso(dt: datetime | None) -> str | None:
     return dt.isoformat() if dt is not None else None
 
 
-@dataclass
-class _Silence:
-    """The schedule-derived silence verdict for one assignment."""
+def _current_epoch_runs(runs: list[LoopRun], desired_epoch: int) -> list[LoopRun]:
+    """The subset of ``runs`` that speaks for the CURRENTLY desired epoch.
 
-    schedule: str | None
-    status: ScheduleStatus
-    expected_interval_seconds: float | None
-    silent_since: datetime | None
-    deadline: datetime | None
-    seconds_until_overdue: float | None
-    overdue: bool
+    A run stamped with a SUPERSEDED epoch converged a placement that no longer
+    exists. Before this filter existed, silence was measured from the newest
+    run of ANY epoch, so a placement that moved and then never fired again kept
+    buying itself a fresh grace period off its predecessor's traffic: the row
+    read DRIFTING (correct) but DRIFTING is not a red state, so the FLEET read
+    green indefinitely — the same silent-green shape this module exists to
+    delete, one state over.
 
-
-def _evaluate_silence(
-    schedule: str | None,
-    silent_since: datetime | None,
-    now: datetime,
-) -> _Silence:
-    """Turn (schedule, last-sign-of-life) into an OVERDUE verdict.
-
-    Never raises and never guesses: an unparseable or undeclared schedule
-    comes back with ``overdue=False`` and a non-PARSED status, which the
-    caller MUST translate into UNKNOWN_SCHEDULE rather than into health.
+    ``placement_epoch IS NULL`` counts as current: those rows predate
+    fleetos_1607 Phase A, and treating a missing stamp as "superseded" would
+    flip every legacy fleet red on a data artefact rather than on evidence.
     """
-    try:
-        interval = parse_schedule_interval(schedule)
-    except UnparseableSchedule:
-        status = ScheduleStatus.UNDECLARED if not schedule else ScheduleStatus.UNPARSEABLE
-        return _Silence(schedule, status, None, silent_since, None, None, False)
-
-    if silent_since is None:
-        return _Silence(schedule, ScheduleStatus.NO_REFERENCE_TIME, interval, None, None, None, False)
-
-    silent_since = _aware(silent_since)
-    deadline = silent_since + timedelta(seconds=silence_grace_seconds(interval))
-    slack = (deadline - now).total_seconds()
-    return _Silence(
-        schedule=schedule,
-        status=ScheduleStatus.PARSED,
-        expected_interval_seconds=interval,
-        silent_since=silent_since,
-        deadline=deadline,
-        seconds_until_overdue=slack,
-        overdue=slack < 0,
-    )
+    return [r for r in runs if r.placement_epoch is None or r.placement_epoch >= desired_epoch]
 
 
 def assignment_convergence(
@@ -299,7 +255,7 @@ def assignment_convergence(
 ) -> AssignmentConvergence:
     """Compute convergence for ONE (fleet, loop, member) assignment.
 
-    Reads only \u2014 no writes, no aggregation across assignments. Callers that
+    Reads only — no writes, no aggregation across assignments. Callers that
     need a fleet-wide view compose this per placement (see
     :func:`fleet_convergence`); this function never itself blends more than
     one assignment's data, which is the property the deleted aggregate gate
@@ -307,11 +263,17 @@ def assignment_convergence(
 
     Args:
         schedule: the loop's declared schedule expression (``LoopManifest.
-            schedule``). Omitting it is NOT a way to get a green answer \u2014 a
+            schedule``). Omitting it is NOT a way to get a green answer — a
             missing schedule yields ``UNKNOWN_SCHEDULE``, because silence
             cannot be judged without an expected firing rate.
-        assigned_at: when the placement was created. The silence reference
-            point for an assignment that has never run.
+        assigned_at: when the CURRENT epoch's placement row was created — i.e.
+            when this epoch began, since every tracked placement row is minted
+            by the transition that created its epoch. The silence reference
+            point whenever the live epoch has produced no run of its own.
+            Omitting it is not a way to get a green answer either: with a
+            superseded-epoch run and no assignment time there is no reference
+            point for the live epoch, which yields
+            ``NO_REFERENCE_TIME`` → ``UNKNOWN_SCHEDULE``.
     """
     now = now or datetime.now(UTC)
 
@@ -330,7 +292,7 @@ def assignment_convergence(
     if not runs:
         # Nothing has ever run. Silence is measured from the assignment
         # itself: brand-new gets grace, weeks-old does not.
-        silence = _evaluate_silence(schedule, assigned_at, now)
+        silence = evaluate_silence(schedule, assigned_at, now)
         if silence.status is not ScheduleStatus.PARSED:
             state = ConvergenceState.UNKNOWN_SCHEDULE
         elif silence.overdue:
@@ -358,6 +320,11 @@ def assignment_convergence(
 
     latest = runs[0]
 
+    # Runs that speak for the CURRENT placement epoch. A run stamped with a
+    # SUPERSEDED epoch is evidence about a placement that no longer exists —
+    # see _current_epoch_runs for why letting it speak was a silent-green hole.
+    current_epoch_runs = _current_epoch_runs(runs, desired_epoch)
+
     # Walk backward from the most recent run until the first PASS. The
     # count of non-passing runs before that first pass is the consecutive
     # failure streak. If nothing in the window ever passed, every run in
@@ -371,11 +338,20 @@ def assignment_convergence(
         consecutive_failures += 1
 
     # Silence for an assignment that HAS run is measured from its most recent
-    # run — the other half of the same defect class as NEVER_ATTEMPTED: a
-    # beacon that ran happily for months and then went quiet used to read
-    # CONVERGED forever, because "the last thing it did was pass" is not the
-    # same claim as "it is still running".
-    silence = _evaluate_silence(schedule, latest.created_at, now)
+    # CURRENT-EPOCH run — the other half of the same defect class as
+    # NEVER_ATTEMPTED: a beacon that ran happily for months and then went quiet
+    # used to read CONVERGED forever, because "the last thing it did was pass"
+    # is not the same claim as "it is still running".
+    #
+    # When the live epoch has never run, the reference point is when that epoch
+    # BEGAN, which is exactly ``assigned_at``: every tracked placement row is
+    # created by the transition that minted its epoch (app/services/placement.py
+    # — complete_move/force_move add a fresh row at epoch+1; begin_drain's
+    # in-place bump leaves the row ``draining``, which _TRACKED_STATUSES
+    # excludes). So a placement that moved 30 days ago and never fired is 30
+    # days silent, not "one minute silent" because its predecessor ran.
+    silent_since = current_epoch_runs[0].created_at if current_epoch_runs else assigned_at
+    silence = evaluate_silence(schedule, silent_since, now)
 
     if consecutive_failures > 0:
         # A loop that ran and errored is FAILING regardless of the schedule —
@@ -385,8 +361,13 @@ def assignment_convergence(
     elif silence.status is not ScheduleStatus.PARSED:
         state = ConvergenceState.UNKNOWN_SCHEDULE
     elif silence.overdue:
+        # Covers both shapes of the same silence: nothing has run for a while,
+        # and the live epoch has NEVER run and its deadline has passed.
         state = ConvergenceState.OVERDUE
-    elif latest.placement_epoch is not None and latest.placement_epoch < desired_epoch:
+    elif not current_epoch_runs:
+        # Drift inside the live epoch's own grace window. Transient by design
+        # and bounded by the branch above — the placement moved seconds ago and
+        # the new owner has not had a scheduled firing yet.
         state = ConvergenceState.DRIFTING
     else:
         state = ConvergenceState.CONVERGED
@@ -394,7 +375,7 @@ def assignment_convergence(
     if last_converged_at is not None:
         age = max(0.0, (now - _aware(last_converged_at)).total_seconds())
     else:
-        # Never converged within the window \u2014 age is measured from the
+        # Never converged within the window — age is measured from the
         # EARLIEST attempt we can see, so "how long has this been broken"
         # is honest rather than reported as 0 just because the latest
         # failing run is recent.
@@ -435,7 +416,7 @@ def fleet_convergence(
 ) -> dict[str, Any]:
     """Per-assignment convergence for every actively-tracked placement in a fleet.
 
-    THE FIX (plan \u00a73 Phase T1-B\u2032): overall ``status`` is ``"red"`` iff ANY
+    THE FIX (plan §3 Phase T1-B′): overall ``status`` is ``"red"`` iff ANY
     tracked assignment is FAILING. There is no ratio, no aggregate count, no
     threshold a noisy healthy loop can satisfy on a broken sibling's behalf.
     One stuck daily loop is visible on its own row and flips the fleet
@@ -445,7 +426,7 @@ def fleet_convergence(
     mesh_0408 W4 widens that: ``status`` is also red when any assignment is
     OVERDUE (silent past its schedule-derived deadline) or UNKNOWN_SCHEDULE
     (no derivable deadline at all). ``status_reasons`` names which of the
-    three it was, so red is never a mystery. The counts stay separate \u2014 a
+    three it was, so red is never a mystery. The counts stay separate — a
     fleet nobody has bootstrapped and a fleet whose loops are erroring need
     different work.
     """
@@ -496,7 +477,7 @@ def fleet_convergence(
         "drifting_count": len(drifting),
         "overdue_count": len(overdue),
         "unknown_schedule_count": len(unknown_schedule),
-        # The policy that produced every ``overdue_deadline_at`` below \u2014
+        # The policy that produced every ``overdue_deadline_at`` below —
         # echoed so a client renders the server's rule instead of inventing
         # its own threshold, and so retuning it is visible in the response.
         "silence_policy": {
@@ -515,14 +496,14 @@ def _schedules_for_placements(
 ) -> dict[str, str]:
     """Resolve each placement's declared schedule in ONE query.
 
-    Scoping mirrors ``app.loop_assignment_routes`` exactly \u2014 declare_loop
+    Scoping mirrors ``app.loop_assignment_routes`` exactly — declare_loop
     stamps BOTH ``owner_user_id`` and ``org_id`` from the fleet onto every
     manifest, so the read side must match both, including ``org_id IS NULL``
     for a personal fleet. Getting this wrong here would silently classify
     every loop of an org-scoped fleet as UNKNOWN_SCHEDULE.
 
     A loop_key with no enabled manifest is simply absent from the result, and
-    the caller turns that into UNKNOWN_SCHEDULE \u2014 never into a default.
+    the caller turns that into UNKNOWN_SCHEDULE — never into a default.
     """
     loop_keys = {p.loop_key for p in placements}
     if not loop_keys:

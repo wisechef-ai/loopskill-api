@@ -1,9 +1,9 @@
-"""mesh_0408 T1-B\u2032 \u2014 per-assignment convergence observability (RED-proof gate suite).
+"""mesh_0408 T1-B′ — per-assignment convergence observability (RED-proof gate suite).
 
 The adversarial test in this file (``test_one_noisy_healthy_loop_cannot_mask_three_silently_failing``)
 is the CENTRAL gate for this phase: it reproduces the exact scenario that
 produced the 27-day silent outage (see
-``references/reconcile-outcome-vs-event-volume-2026-08-02.md``) \u2014 one loop
+``references/reconcile-outcome-vs-event-volume-2026-08-02.md``) — one loop
 that fires constantly and always succeeds, alongside several loops that fire
 rarely and fail every single time. An aggregate ``success_count >
 rolled_back_count`` style gate reads this fleet as healthy. This suite proves
@@ -105,7 +105,7 @@ def _run(db, fleet, member, loop_slug, outcome, *, epoch=1, when=None):
     )
 
 
-# \u2500\u2500 assignment_convergence: single-assignment unit tests \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+# ── assignment_convergence: single-assignment unit tests ────────────────────────────
 
 
 def test_never_attempted_is_distinguishable_from_failing(db_session):
@@ -170,18 +170,41 @@ def test_single_stuck_loop_detected_via_consecutive_failures(db_session):
 
 
 def test_drifting_when_latest_pass_is_behind_desired_epoch(db_session):
-    """Placement moved to epoch 2; the only recorded run passed at epoch 1."""
+    """Placement moved to epoch 2 a moment ago; the only run passed at epoch 1.
+
+    DRIFTING is the honest answer only INSIDE the new epoch's grace window,
+    which is why ``assigned_at`` (the instant epoch 2 began) is supplied here.
+    ``TestSilenceIsJudgedForTheCurrentPlacementEpoch`` is the other side of the
+    same rule: once that window closes the row goes OVERDUE and the FLEET goes
+    red. Asserting only ``healthy is False`` on this row is what let the
+    fleet-level hole ship — so the fleet status is asserted here too.
+    """
     fleet = _mk_fleet(db_session)
     m = _mk_member(db_session, fleet)
     db_session.commit()
-    _run(db_session, fleet, m, "moved-loop", "success", epoch=1)
+    now = datetime.now(UTC)
+    _place(db_session, fleet, "moved-loop", m, epoch=2, assigned_at=now - timedelta(minutes=1))
+    _declare(db_session, fleet, "moved-loop", EVERY_3_MIN)
+    _run(db_session, fleet, m, "moved-loop", "success", epoch=1, when=now - timedelta(minutes=1))
     db_session.commit()
 
     result = conv.assignment_convergence(
-        db_session, fleet.id, "moved-loop", m.id, desired_epoch=2, schedule=EVERY_3_MIN
+        db_session,
+        fleet.id,
+        "moved-loop",
+        m.id,
+        desired_epoch=2,
+        schedule=EVERY_3_MIN,
+        assigned_at=now - timedelta(minutes=1),
+        now=now,
     )
     assert result.state == conv.ConvergenceState.DRIFTING
     assert result.to_dict()["healthy"] is False
+    # A drifting row is transient-by-design and must NOT alarm the fleet while
+    # the new epoch is still inside its own deadline.
+    fleet_view = conv.fleet_convergence(db_session, fleet.id, now=now)
+    assert fleet_view["status"] == "green"
+    assert fleet_view["drifting_count"] == 1
 
 
 def test_convergence_age_measures_since_last_pass_not_since_latest_failure(db_session):
@@ -203,21 +226,21 @@ def test_convergence_age_measures_since_last_pass_not_since_latest_failure(db_se
     assert result.convergence_age_seconds == 36000.0
 
 
-# \u2500\u2500 fleet_convergence: THE CENTRAL ADVERSARIAL GATE \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+# ── fleet_convergence: THE CENTRAL ADVERSARIAL GATE ─────────────────────────────────
 
 
 def test_one_noisy_healthy_loop_cannot_mask_three_silently_failing(db_session):
     """THE gate. Reproduces the 27-day postmortem fleet composition:
 
-      * 1 beacon loop firing every 3 minutes, always succeeding \u2014 480
+      * 1 beacon loop firing every 3 minutes, always succeeding — 480
         successes/day, exactly the volume that satisfied v1's proposed
         (never-shipped) aggregate success>rolled_back gate.
       * 3 daily loops that each fail EVERY run they've ever made.
 
     An aggregate success-vs-failure ratio across the whole fleet reads this
-    as overwhelmingly healthy (480 successes vs 3 failures \u2192 99.4% success).
+    as overwhelmingly healthy (480 successes vs 3 failures → 99.4% success).
     fleet_convergence() must report RED regardless, because it never
-    aggregates across assignments \u2014 it flags any FAILING row directly.
+    aggregates across assignments — it flags any FAILING row directly.
     """
     fleet = _mk_fleet(db_session)
     beacon_member = _mk_member(db_session, fleet, host="beacon-host")
@@ -302,7 +325,7 @@ def test_fleet_convergence_green_when_every_assignment_healthy(db_session):
 
 def test_never_attempted_inside_its_grace_window_does_not_flip_status_to_red(db_session):
     """A brand-new placement with no runs yet is NOT the same as a red fleet
-    \u2014 it is surfaced via never_attempted_count, not folded into failing.
+    — it is surfaced via never_attempted_count, not folded into failing.
 
     mesh_0408 W4 keeps that intention and gives it an expiry. The placement
     below is a DAILY loop assigned one minute ago; its schedule-derived
@@ -310,7 +333,7 @@ def test_never_attempted_inside_its_grace_window_does_not_flip_status_to_red(db_
     green is the honest answer *right now* and the response says exactly when
     that stops being true. The companion test
     ``test_never_attempted_past_its_deadline_flips_the_fleet_red`` is the
-    other side of the same rule \u2014 before W4 there was no other side.
+    other side of the same rule — before W4 there was no other side.
     """
     fleet = _mk_fleet(db_session)
     m = _mk_member(db_session, fleet)
@@ -328,7 +351,7 @@ def test_never_attempted_inside_its_grace_window_does_not_flip_status_to_red(db_
 
     row = result["assignments"][0]
     assert row["state"] == "never_attempted"
-    # The grace is NOT a constant \u2014 it is 3 x the schedule's own interval,
+    # The grace is NOT a constant — it is 3 x the schedule's own interval,
     # and the row carries the resulting deadline so no client has to guess.
     assert row["expected_interval_seconds"] == pytest.approx(86400.0)
     assert row["overdue_deadline_at"] is not None
@@ -349,7 +372,7 @@ def test_draining_and_removed_placements_are_excluded(db_session):
     assert result["assignment_count"] == 0
 
 
-# ── mesh_0408 W4: SILENCE IS NOT HEALTH ─────────────────────────────────────
+# ── mesh_0408 W4: SILENCE IS NOT HEALTH ─────────────────────────────────────────────
 #
 # THE defect these close: before W4, `status = "red" if failing else "green"`.
 # Only a loop that RAN and FAILED could redden the fleet, so a loop that never
@@ -488,6 +511,152 @@ class TestSilenceIsNotHealth:
         assert result["failing_count"] == 1
         assert result["overdue_count"] == 0
         assert result["status_reasons"] == ["failing"]
+
+
+class TestSilenceIsJudgedForTheCurrentPlacementEpoch:
+    """The placement-epoch axis of "silence is not health" (was W4-I2).
+
+    W4 shipped with silence measured from the newest run for the
+    ``(fleet, member, loop)`` triple, **whatever epoch that run belonged to**.
+    So a placement that moved to epoch 2 and never fired again kept renewing
+    its own grace period off an epoch-1 run: the row read DRIFTING (correct)
+    but DRIFTING is not a red state, so the FLEET rendered green forever —
+    the exact silent-green shape W4 exists to delete, one state over.
+
+    The rule now: silence for the CURRENT epoch is measured from the newest
+    run **of that epoch**, and from the epoch's own start when it has never
+    run. A superseded epoch's run is evidence about a placement that no
+    longer exists and buys the live one nothing.
+    """
+
+    def test_a_superseded_epochs_run_does_not_keep_the_fleet_green(self, db_session):
+        """THE gate for this finding, at FLEET level.
+
+        Epoch 2 was placed 30 days ago and has never produced a run. The only
+        run in the table passed one minute ago — under epoch 1. Pre-fix:
+        ``status == "green"``, ``status_reasons == []``.
+        """
+        fleet = _mk_fleet(db_session)
+        m = _mk_member(db_session, fleet)
+        db_session.commit()
+        now = datetime.now(UTC)
+        _place(db_session, fleet, "moved-loop", m, epoch=2, assigned_at=now - timedelta(days=30))
+        _declare(db_session, fleet, "moved-loop", EVERY_3_MIN)
+        _run(db_session, fleet, m, "moved-loop", "success", epoch=1, when=now - timedelta(minutes=1))
+        db_session.commit()
+
+        result = conv.fleet_convergence(db_session, fleet.id, now=now)
+
+        assert result["status"] == "red", (
+            "a placement whose live epoch has never run must not render green "
+            "on the strength of a superseded epoch's run"
+        )
+        assert result["status_reasons"] == ["overdue"]
+        assert result["overdue_count"] == 1
+        assert result["drifting_count"] == 0
+
+        row = result["assignments"][0]
+        assert row["state"] == "overdue"
+        assert row["healthy"] is False
+        assert row["desired_epoch"] == 2
+        assert row["observed_epoch"] == 1  # the drift is still legible on the row
+        # Silence is measured from when epoch 2 began, NOT from the epoch-1
+        # run — otherwise the deadline is a minute away instead of 30 days past.
+        assert row["seconds_until_overdue"] < 0
+        assert row["silent_since"] != row["last_run_at"]
+
+    def test_a_placement_that_just_moved_is_drifting_not_overdue(self, db_session):
+        """The distinction the fix must preserve: brief drift is not a stuck
+        placement, exactly as NEVER_ATTEMPTED is not OVERDUE. Same data as the
+        test above, one field different — the epoch began a minute ago."""
+        fleet = _mk_fleet(db_session)
+        m = _mk_member(db_session, fleet)
+        db_session.commit()
+        now = datetime.now(UTC)
+        _place(db_session, fleet, "moved-loop", m, epoch=2, assigned_at=now - timedelta(minutes=1))
+        _declare(db_session, fleet, "moved-loop", EVERY_3_MIN)
+        _run(db_session, fleet, m, "moved-loop", "success", epoch=1, when=now - timedelta(minutes=1))
+        db_session.commit()
+
+        result = conv.fleet_convergence(db_session, fleet.id, now=now)
+        assert result["status"] == "green"
+        assert result["drifting_count"] == 1
+        assert result["overdue_count"] == 0
+        assert result["assignments"][0]["state"] == "drifting"
+
+    def test_drifting_is_bounded_by_the_schedules_own_deadline_not_a_constant(self, db_session):
+        """Same drift, same instant, two schedules, opposite verdicts — the
+        assertion a constant drift timeout could not satisfy. Both placements
+        moved 3 hours ago and neither new epoch has run."""
+        fleet = _mk_fleet(db_session)
+        m = _mk_member(db_session, fleet)
+        db_session.commit()
+        now = datetime.now(UTC)
+        moved = now - timedelta(hours=3)
+        for slug, schedule in (("a-fast-loop", EVERY_3_MIN), ("b-slow-loop", WEEKLY_MONDAY)):
+            _place(db_session, fleet, slug, m, epoch=2, assigned_at=moved)
+            _declare(db_session, fleet, slug, schedule)
+            _run(db_session, fleet, m, slug, "success", epoch=1, when=moved - timedelta(minutes=1))
+        db_session.commit()
+
+        rows = {
+            a["loop_key"]: a
+            for a in conv.fleet_convergence(db_session, fleet.id, now=now)["assignments"]
+        }
+        assert rows["a-fast-loop"]["state"] == "overdue"
+        assert rows["b-slow-loop"]["state"] == "drifting"
+
+    def test_a_run_at_the_current_epoch_clears_the_drift(self, db_session):
+        """Control for the two tests above: once the live epoch actually runs,
+        the same 30-day-old placement is CONVERGED and the fleet is green. If
+        this ever fails, the fix has over-corrected into permanent drift."""
+        fleet = _mk_fleet(db_session)
+        m = _mk_member(db_session, fleet)
+        db_session.commit()
+        now = datetime.now(UTC)
+        _place(db_session, fleet, "moved-loop", m, epoch=2, assigned_at=now - timedelta(days=30))
+        _declare(db_session, fleet, "moved-loop", EVERY_3_MIN)
+        _run(db_session, fleet, m, "moved-loop", "success", epoch=1, when=now - timedelta(days=29))
+        _run(db_session, fleet, m, "moved-loop", "success", epoch=2, when=now - timedelta(minutes=1))
+        db_session.commit()
+
+        result = conv.fleet_convergence(db_session, fleet.id, now=now)
+        assert result["status"] == "green"
+        assert result["assignments"][0]["state"] == "converged"
+
+    def test_a_legacy_run_with_no_epoch_still_counts_as_current(self, db_session):
+        """Runs ingested before ``placement_epoch`` existed carry NULL. They
+        must keep counting for the live epoch — treating them as superseded
+        would flip every pre-Phase-A fleet red on a data artefact."""
+        fleet = _mk_fleet(db_session)
+        m = _mk_member(db_session, fleet)
+        db_session.commit()
+        now = datetime.now(UTC)
+        _place(db_session, fleet, "legacy-loop", m, epoch=3, assigned_at=now - timedelta(days=30))
+        _declare(db_session, fleet, "legacy-loop", EVERY_3_MIN)
+        _run(db_session, fleet, m, "legacy-loop", "success", epoch=None, when=now - timedelta(minutes=1))
+        db_session.commit()
+
+        result = conv.fleet_convergence(db_session, fleet.id, now=now)
+        assert result["status"] == "green"
+        assert result["assignments"][0]["state"] == "converged"
+
+    def test_no_reference_point_for_the_live_epoch_is_loud_not_green(self, db_session):
+        """Direct caller, superseded run, and no assignment time at all: the
+        module cannot say when the live epoch began, so it must not certify
+        health. Same policy as an underivable schedule."""
+        fleet = _mk_fleet(db_session)
+        m = _mk_member(db_session, fleet)
+        db_session.commit()
+        _run(db_session, fleet, m, "moved-loop", "success", epoch=1)
+        db_session.commit()
+
+        result = conv.assignment_convergence(
+            db_session, fleet.id, "moved-loop", m.id, desired_epoch=2, schedule=EVERY_3_MIN
+        )
+        assert result.state == conv.ConvergenceState.UNKNOWN_SCHEDULE
+        assert result.schedule_status == conv.ScheduleStatus.NO_REFERENCE_TIME
+        assert result.to_dict()["healthy"] is False
 
 
 class TestUnknownScheduleIsNeverGreen:

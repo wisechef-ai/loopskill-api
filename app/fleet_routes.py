@@ -70,6 +70,11 @@ def resolve_fleet_ctx(request: Request, db: Session = Depends(get_db)) -> AuthCo
     return AuthContext(
         scope="user",
         user_id=user.id,
+        # mesh_0408 W4b: carry the calling key's id. Fleet-member enrollment
+        # stamps the new member's origin from this key's APIKey.is_test, and a
+        # context that dropped the id would silently leave every member
+        # unclassified — which reads as "let the beacon slug list decide".
+        api_key_id=getattr(request.state, "api_key_id", None),
         tier=user.subscription_tier or "free",
         org_id=org_id,
         is_org_owner=is_org_owner,

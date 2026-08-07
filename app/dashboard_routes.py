@@ -206,7 +206,17 @@ def get_fleet_convergence(
     desired epoch, observed epoch, consecutive-failure streak, and an
     explicit ``never_attempted`` state \u2014 so a single stuck daily loop is
     visible on its own row and cannot be diluted by a noisy healthy sibling's
-    success volume. ``status: red`` iff ANY tracked assignment is failing.
+    success volume.
+
+    ``status`` is ``"red"`` iff ANY tracked assignment is ``failing``,
+    ``overdue`` (silent past a deadline derived from its own schedule) or
+    ``unknown_schedule`` (no derivable deadline at all), and
+    ``status_reasons`` names which. Silence is judged for the CURRENT
+    placement epoch, so a placement that moved and never fired again cannot
+    stay green on its predecessor's traffic. Red iff-failing was the pre-W4
+    rule and is exactly the lie this endpoint now exists to remove: a fleet
+    running 3-of-4 assignments that had never fired reported green
+    indefinitely.
     """
     ctx = resolve_fleet_ctx(request, db)
     try:

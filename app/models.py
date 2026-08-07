@@ -1404,8 +1404,16 @@ class Fleet(Base):
     # mesh_0408 W4: this fleet is LoopSkill's own (proof-of-life beacons, CI,
     # internal harnesses). Its loop runs are EXCLUDED from every external/
     # adoption number — see app/services/synthetic_runs.py. Mirrors the
-    # APIKey.is_test precedent (spotify_0608/B). Default false = a real customer.
-    is_synthetic = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # APIKey.is_test precedent (spotify_0608/B).
+    #
+    # THREE-VALUED on purpose (W4b): NULL = nobody has classified this fleet,
+    # which is the state every pre-W4 row is in and the ONLY state where the
+    # SELF_ORIGINATED_LOOP_SLUGS backstop is consulted. True/False are explicit
+    # verdicts and always beat the slug list, so a customer who names a loop
+    # ``p4-loop-proof`` is not silently counted as ours. Creation paths stamp
+    # this explicitly from the caller's APIKey.is_test, so new rows are never
+    # NULL — see app/mcp/tools/fleet.py.
+    is_synthetic = Column(Boolean, nullable=True, default=None)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -1450,9 +1458,12 @@ class FleetMember(Base):
     api_key_id = Column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=False, unique=True)
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
     # mesh_0408 W4: this agent is ours, inside an otherwise-real fleet (the
-    # beacon host). ORed with Fleet.is_synthetic and APIKey.is_test — see
-    # app/services/synthetic_runs.py.
-    is_synthetic = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # beacon host). Three-valued like Fleet.is_synthetic (NULL = unclassified);
+    # the MOST SPECIFIC explicit verdict wins, and this is the most specific
+    # one there is, because lock #13 makes the per-agent key the identity.
+    # Stamped at enrollment from the enrolling key's APIKey.is_test — see
+    # app/services/synthetic_runs.py and app/fleet_member_routes.py.
+    is_synthetic = Column(Boolean, nullable=True, default=None)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -2343,7 +2354,12 @@ class LoopRun(Base):
     member_seq = Column(Integer, nullable=True)
     # True when this run was flagged as carrying a superseded (stale) epoch.
     #   Excluded from pass numerators; counted in the health denominator.
-    stale_epoch = Column(Boolean, nullable=False, default=False, server_default="false")
+    #   server_default is text("false"), NOT the string "false": SQLAlchemy
+    #   renders a str as DEFAULT 'false', which SQLite stores as a 4-char
+    #   literal that Python reads back TRUTHY. pass_rate_for_loop() consumes
+    #   this column as a boolean, so the string form silently excluded every
+    #   default-valued run from the pass rate on the SQLite CI leg.
+    stale_epoch = Column(Boolean, nullable=False, default=False, server_default=text("false"))
 
     # ── mesh_0408 W4 — adoption honesty ──
     # True when this run came from LoopSkill's own beacon/CI traffic rather

@@ -31,7 +31,7 @@ from app.models import (
 from app.services.synthetic_runs import (
     SELF_ORIGINATED_LOOP_SLUGS,
     RunCounts,
-    member_is_synthetic,
+    origin_verdict_for_member,
 )
 
 logger = logging.getLogger(__name__)
@@ -111,15 +111,21 @@ def ingest_sync_report(
     if lr_truncated:
         truncated["loop_runs"] = lr_truncated
 
-    # mesh_0408 W4: classify origin ONCE per report (the member/fleet/key
-    # markers are constant across the batch), then OR in the per-slug
-    # backstop below. Frozen onto each row so counts never need a join.
-    member_synthetic = member_is_synthetic(db, member)
+    # mesh_0408 W4: resolve the IDENTITY's verdict ONCE per report (the
+    # member/fleet/key markers are constant across the batch) and fall back to
+    # the per-slug backstop only when nobody has classified this identity.
+    # Frozen onto each row so counts never need a join.
+    #
+    # W4b: this is a precedence, NOT an OR. Or-ing the slug in unconditionally
+    # meant an explicitly-external customer who declared `p4-loop-proof` was
+    # counted as our own beacon — the slug list overruling a real verdict is
+    # the bug the backstop is supposed to be a backstop against.
+    member_verdict = origin_verdict_for_member(db, member)
     synthetic_ingested = 0
 
     for lr in loop_runs:
         slug = (lr.get("loop_slug") or "")[:255]
-        run_synthetic = member_synthetic or slug in SELF_ORIGINATED_LOOP_SLUGS
+        run_synthetic = member_verdict if member_verdict is not None else slug in SELF_ORIGINATED_LOOP_SLUGS
         synthetic_ingested += int(run_synthetic)
         db.add(
             LoopRun(
