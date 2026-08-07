@@ -55,6 +55,45 @@ def _mcp_caller(db, key: str) -> dict:
     return validate_key(key, db)
 
 
+def _order_bundles_a_then_b(db, tenants) -> None:
+    """Give the two bundles DISTINCT creation times: A oldest, B newest.
+
+    Required by every "implicit target" test below, and not cosmetic. The
+    fixture inserts both bundles inside the same second, and
+    ``Bundle.created_at`` has second resolution — so ``order_by(created_at)``
+    was a TIE broken by insertion order, and the pre-fix "pick the account's
+    oldest/newest bundle" query happened to return the SAME row as the fixed
+    tenant-scoped one. The RED-proof harness caught
+    ``test_list_bundle_implicit_target_stays_in_tenant`` passing with the guard
+    reverted for exactly this reason (trap V1: green is not a gate).
+
+    With A strictly older than B:
+      * an ``asc`` (oldest-first) picker returns A  -> a key in tenant B that
+        gets A has crossed the boundary;
+      * a ``desc`` (newest-first) picker returns B -> a key in tenant A that
+        gets B has crossed the boundary.
+    Both directions now discriminate whatever the insertion order.
+    """
+    from datetime import datetime
+
+    from app.models import Bundle
+
+    for bundle, when in (
+        (tenants.bundle_a, datetime(2026, 1, 1, 0, 0, 0)),
+        (tenants.bundle_b, datetime(2026, 6, 1, 0, 0, 0)),
+    ):
+        db.query(Bundle).filter(Bundle.id == bundle.id).update(
+            {"created_at": when}, synchronize_session=False
+        )
+    db.commit()
+    db.refresh(tenants.bundle_a)
+    db.refresh(tenants.bundle_b)
+    assert tenants.bundle_a.created_at < tenants.bundle_b.created_at, (
+        "the two bundles still share a creation time — every implicit-target "
+        "assertion below would be a coin flip, not a test"
+    )
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # FINDING 2 — the MCP path must resolve the tenant like the REST path
 # ══════════════════════════════════════════════════════════════════════════
@@ -209,8 +248,13 @@ class TestMcpToolsAreTenantScoped:
         ``loopskill_list_bundle()`` with no ``cookbook_id`` returned the
         account's most recently created bundle across ALL its orgs, with the
         owner, the name and the full skill list including pinned versions.
+
+        This picker is ``created_at DESC``, so B is what an unscoped query
+        returns and key_a is the principal that must not receive it.
         """
         from app.mcp.server import call_tool_sync
+
+        _order_bundles_a_then_b(db_session, tenants)
 
         out = call_tool_sync(
             "loopskill_list_bundle",
@@ -272,6 +316,10 @@ class TestMcpToolsAreTenantScoped:
 
         from app.mcp.tools.configure_feedback import loopskill_configure_feedback
 
+        # This picker is ``created_at ASC``, so A is what an unscoped query
+        # returns and key_b is the principal that must not reach it.
+        _order_bundles_a_then_b(db_session, tenants)
+
         # AuthContext is frozen; the tier gate needs Pro to reach the
         # bundle-resolution step at all.
         ctx_b = replace(_mcp_caller(db_session, tenants.key_b)["auth_ctx"], tier="pro")
@@ -323,6 +371,8 @@ class TestMcpToolsAreTenantScoped:
     def test_skillify_implicit_target_stays_in_tenant(self, tenants, db_session):
         """The MCP twin of the REST recipify fix (same bug, unfixed surface)."""
         from app.mcp.server import call_tool_sync
+
+        _order_bundles_a_then_b(db_session, tenants)
 
         content = (
             "---\nname: w1b-mcp-probe\n"
