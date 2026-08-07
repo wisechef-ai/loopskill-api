@@ -139,25 +139,75 @@ def _get_public_skill(slug: str, db: Session) -> Skill:
     return skill
 
 
+def skill_is_free_to_read(tier: str | None) -> bool:
+    """Is a skill at ``tier`` readable by an anonymous (free) caller?
+
+    fdeloop_0808 Phase A — SINGLE-SOURCED against install authz.
+
+    This route used to answer with its own inline predicate,
+    ``(skill.tier or "").lower() == "free"``, which says NO for a NULL tier.
+    ``authz.tier_rank_allows_install`` says YES for the same row: it floors an
+    unknown/NULL tier to free (rank 1). So one skill got two answers — prod
+    2026-08-08 served ``agentic-os`` (tier NULL) as installable by anyone while
+    403-ing its SKILL.md.
+
+    Resolving that in the DATA (backfilling one row) would have left the policy
+    fork in place for the next NULL. This delegates instead: an anonymous
+    caller may READ exactly what an anonymous caller may INSTALL, by
+    construction, forever.
+    """
+    from app.authz import tier_rank_allows_install
+
+    return tier_rank_allows_install(None, tier)
+
+
 def _get_latest_version_and_tarball(skill: Skill):
-    """Return (version, tarball_path) or raise 404."""
-    if not skill.versions:
-        raise HTTPException(status_code=404, detail=f"No versions available for '{skill.slug}'")
-    latest = skill.versions[0]
-    if not latest.tarball_path:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No tarball path recorded for '{skill.slug}@{latest.semver}'",
-        )
+    """Return (version, tarball_path) for the newest RESOLVABLE version, or 404.
+
+    fdeloop_0808 Phase A. Previously this took ``skill.versions[0]`` and 404'd
+    if its artifact was missing — so ONE dead row at the head of the list took
+    the entire skill offline even when older versions had perfectly good bytes.
+    Live on prod 2026-08-08: 13 ``skill_versions`` rows carry a ``tarball_path``
+    under the retired ``/storage/skills/`` root. Two of them were the head
+    version of a PUBLIC skill (``loopskill``, ``llm-wiki-hermes``), and
+    ``loopskill`` — the product's namesake — served a 404 to every visitor.
+
+    Two rules, in order:
+
+    1. A version whose ``resolution_status`` is ``'unresolvable'`` is SKIPPED
+       even if a file now exists at its path. That flag is a deliberate
+       maintainer verdict (converge_0208 P3) that the exact bytes a pin names
+       are gone; an incidental blob appearing at that path must not silently
+       resurrect it. The flag has been in the schema since converge_0208 and
+       was read by nothing on the read path until now.
+    2. Otherwise take the newest version whose artifact is actually on disk.
+
+    If nothing resolves we still 404 — the fallback must never invent success.
+    """
     import pathlib
 
-    tar_path = pathlib.Path(latest.tarball_path)
-    if not tar_path.is_file():
-        raise HTTPException(
-            status_code=404,
-            detail=f"Tarball file missing for '{skill.slug}@{latest.semver}'",
-        )
-    return latest, str(tar_path)
+    if not skill.versions:
+        raise HTTPException(status_code=404, detail=f"No versions available for '{skill.slug}'")
+
+    # skill.versions is ordered created_at DESC by the relationship, so the
+    # first survivor of this walk IS the newest resolvable one.
+    for version in skill.versions:
+        if (version.resolution_status or "ok") == "unresolvable":
+            continue
+        if not version.tarball_path:
+            continue
+        tar_path = pathlib.Path(version.tarball_path)
+        if tar_path.is_file():
+            return version, str(tar_path)
+
+    head = skill.versions[0]
+    raise HTTPException(
+        status_code=404,
+        detail=(
+            f"No resolvable artifact for '{skill.slug}' "
+            f"(newest version {head.semver}; {len(skill.versions)} version(s) checked)"
+        ),
+    )
 
 
 # ── Q.1.1 — File manifest ─────────────────────────────────────────────────
@@ -244,8 +294,13 @@ def get_skill_file(
     #    a paid skill gates EVERY file, SKILL.md included.
     #    Federation/external skills are served by /api/skills/external/* and are
     #    unaffected by this route.
-    skill_is_free = (skill.tier or "").lower() == "free"
-    if not caller_is_paid and not skill_is_free:
+    #
+    #    fdeloop_0808 Phase A: the free/paid predicate now delegates to
+    #    ``skill_is_free_to_read`` -> ``authz.tier_rank_allows_install`` so this
+    #    route and the install route cannot drift apart again. The inline
+    #    ``(skill.tier or "").lower() == "free"`` that lived here answered NO for
+    #    a NULL tier while install authz answered YES.
+    if not caller_is_paid and not skill_is_free_to_read(skill.tier):
         raise HTTPException(
             status_code=403,
             detail="Pro subscription required to access this skill's files",
