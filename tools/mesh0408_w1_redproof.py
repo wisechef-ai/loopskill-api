@@ -270,8 +270,16 @@ MUTATIONS: list[Mutation] = [
         label="MCP harvest — the 403-vs-404 oracle",
         why="the fleet harvest rail answered 403 for an existing bundle",
         path="app/mcp/tools/harvest.py",
-        old='        return {"error": "bundle_not_found", "code": 404}\n',
-        new='        return {"error": "forbidden", "code": 403}  # MUTATED\n',
+        # The anchor MUST include the guard line: the whole point of the fix is
+        # that the two returns are now byte-identical, so the bare return
+        # statement matches twice and _apply's uniqueness assert (trap V4)
+        # rejects it — which is exactly what caught this.
+        old="    if not authz.can_write_cookbook(ctx, bundle):\n"
+        "        # mesh_0408 W1b (codex PR #202, finding 3): the same answer the absent\n"
+        "        # case gives one line up. 403-vs-404 confirmed the bundle id is real.\n"
+        '        return {"error": "bundle_not_found", "code": 404}\n',
+        new="    if not authz.can_write_cookbook(ctx, bundle):\n"
+        '        return {"error": "forbidden", "code": 403}  # MUTATED\n',
         tests=(W1B,),
         required=("test_harvest",),
     ),
