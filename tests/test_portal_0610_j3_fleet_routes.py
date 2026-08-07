@@ -207,3 +207,39 @@ def test_sync_dry_run(middleware_client, db_session):
     assert r.status_code == 200, r.text
     assert r.json()["fleet_id"] == fid
     assert "cookbooks_synced" in r.json()
+
+
+# ── reconcile-precheck (fleetos_1607 gap-close, 2026-08-07) ─────────────────
+
+
+def test_reconcile_precheck_route_clean_fleet(middleware_client, db_session):
+    owner = _mk_user(db_session)
+    key = _mk_key(db_session, owner)
+    fid = middleware_client.post("/api/fleets", headers={"x-api-key": key}, json={"name": "f"}).json()[
+        "fleet_id"
+    ]
+    r = middleware_client.post(f"/api/fleets/{fid}/reconcile-precheck", headers={"x-api-key": key})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True
+    assert body["checked"] == 0
+
+
+def test_reconcile_precheck_route_nonexistent_fleet_404(middleware_client, db_session):
+    owner = _mk_user(db_session)
+    key = _mk_key(db_session, owner)
+    r = middleware_client.post(f"/api/fleets/{uuid.uuid4()}/reconcile-precheck", headers={"x-api-key": key})
+    assert r.status_code == 404
+
+
+def test_reconcile_precheck_route_non_owner_403(middleware_client, db_session):
+    owner = _mk_user(db_session)
+    owner_key = _mk_key(db_session, owner)
+    other = _mk_user(db_session)
+    other_key = _mk_key(db_session, other)
+    fid = middleware_client.post("/api/fleets", headers={"x-api-key": owner_key}, json={"name": "f"}).json()[
+        "fleet_id"
+    ]
+
+    r = middleware_client.post(f"/api/fleets/{fid}/reconcile-precheck", headers={"x-api-key": other_key})
+    assert r.status_code == 403
