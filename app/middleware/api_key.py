@@ -244,7 +244,13 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         "/api/checkout/",
         "/api/billing/",
         "/api/api-keys",
-        "/api/cookbook-deploy/",  # spotify_0608 Ph A: re-homed from /api/buckets/
+        # spotify_0608 Ph A: re-homed from /api/buckets/. Both names mount the
+        # SAME handler (bundle_deployment_routes.py:436-437), so both must be
+        # listed — the canonical name was missing until mesh_0408 W5, which made
+        # it unreachable while only the compat-alias worked.
+        # Pinned by tests/test_middleware_jwt_allowlist.py::TestCanonicalPrefixParity.
+        "/api/bundle-deploy/",  # canonical
+        "/api/cookbook-deploy/",  # compat-alias
         "/api/subscriptions/",  # subscriptions/downgrade is JWT-authed
     )
     WEBHOOK_PATHS = {
