@@ -298,8 +298,10 @@ class TestReconcileIsolation:
 
         ctx = AuthContext(scope="user", user_id=intruder.id, tier="pro")
         res = recipes_reconcile(db, cookbook_id=str(cb.id), local=[], ctx=ctx)
+        # mesh_0408 W1b (codex PR #202, finding 3): the reconcile engine now
+        # gives the same `not_found` an absent id gets, matching its HTTP twin.
         assert (
-            res.get("error") == "cookbook_forbidden"
+            res.get("error") == "not_found"
         ), "a non-owner must not be able to reconcile another tenant's cookbook"
 
 

@@ -27,6 +27,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app import authz
 from app.auth_ctx import AuthContext
 from app.database import get_db
 from app.models import Bundle, BundleSkill, Skill
@@ -85,9 +86,9 @@ def reconcile_report(
         response.status_code = 404
         return {"error": "cookbook_not_found"}
 
-    is_owner = auth_ctx.scope == "master" or (
-        auth_ctx.user_id is not None and cb.bundle_owner == auth_ctx.user_id
-    )
+    # mesh_0408 W1 (P0): tenant-scoped owner-match — a member key deployed at
+    # one client must not be able to drive another client's promotion gate.
+    is_owner = authz.owner_match_within_tenant(auth_ctx, cb)
     if not is_owner:
         response.status_code = 404
         return {"error": "cookbook_not_found"}

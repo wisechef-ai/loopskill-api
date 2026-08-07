@@ -74,12 +74,23 @@ def validate_key(key: str | None, db: Session) -> dict[str, Any]:
         .first()
     )
     if api_key_obj:
-        # Resolve org membership the SAME way the REST path does
-        # (app.middleware.api_key._resolve_org_membership) — otherwise
-        # org-scoped features silently fail closed over MCP (Lane C #4).
-        from app.middleware.api_key import _resolve_org_membership
+        # Resolve the caller's tenant the SAME way the REST path does
+        # (app.middleware.api_key) — otherwise org-scoped features silently fail
+        # closed over MCP (Lane C #4).
+        #
+        # mesh_0408 W1 (P0), codex review of PR #202 finding 2. This used to call
+        # _resolve_org_membership, which resolves the OLDEST OrgMembership of the
+        # key's user. Every fleet-member key is minted with
+        # user_id = fleet.owner_user_id, so over MCP every member key of an
+        # account collapsed onto whichever org that account created FIRST — i.e.
+        # the layer-2 fix was reproduced only for REST and discarded on every MCP
+        # call, leaving the whole P0 exploitable over the universal path (lock
+        # #31: MCP is the universal path; a REST-only fix is not a fix).
+        # _resolve_org_for_key resolves a member key through its fleet and falls
+        # back to membership only for genuine human keys.
+        from app.middleware.api_key import _resolve_org_for_key
 
-        org_id, is_org_owner = _resolve_org_membership(db, api_key_obj.user_id)
+        org_id, is_org_owner = _resolve_org_for_key(db, api_key_obj.id, api_key_obj.user_id)
         ctx = AuthContext(
             scope="user",
             user_id=api_key_obj.user_id,

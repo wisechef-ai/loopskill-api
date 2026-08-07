@@ -447,7 +447,11 @@ def recipes_reconcile(
     # The HTTP route rejects non-dry-run follower requests before this engine
     # runs, keeping every bundle mutation owner-only.
     if not authz.can_reconcile_cookbook(ctx, cb, db=db):
-        return {"error": "cookbook_forbidden", "cookbook_id": cookbook_id}
+        # mesh_0408 W1b (codex PR #202, finding 3): the SAME `not_found` an
+        # absent id gets six lines up. The HTTP twin (reconcile_routes) already
+        # 404s cross-tenant; this engine still answered `cookbook_forbidden`,
+        # so the MCP surface kept the oracle the REST surface had closed.
+        return {"error": "not_found", "cookbook_id": cookbook_id}
 
     local_states = [
         LocalSkillState(

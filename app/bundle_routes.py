@@ -32,7 +32,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app import config
+from app import authz, config
 from app.database import get_db
 from app.models import (
     Bundle,
@@ -222,11 +222,26 @@ def require_cookbook_tier(request: Request, db: Session = Depends(get_db)) -> Co
     # evergreen_0206 Phase G: free tier is allowed through (the on-ramp). The
     # tier travels in the ctx so downstream caps/gates enforce per-tier limits.
     tier = user.subscription_tier or "free"
-    # feat/org-scoped-bundle-reads: resolve org membership (same resolver the
-    # fleet routes use) so org-scoped bundles are readable by org members.
-    from app.middleware.api_key import _resolve_org_membership
+    # feat/org-scoped-bundle-reads: resolve the caller's org so org-scoped
+    # bundles are readable by org members.
+    #
+    # mesh_0408 W1 (P0): PREFER the org the middleware already resolved onto
+    # request.state.auth_ctx. This helper is on the x-api-key path as much as
+    # the browser one, and re-deriving the org here from OrgMembership would
+    # discard the fleet-member resolution done in _resolve_org_for_key —
+    # every fleet-member key would fall back to the account's OLDEST org and
+    # keep reading another client's bundles through the org clause below.
+    # Behaviour for human callers is unchanged: the JWT-cookie path stamps its
+    # auth_ctx from the very same _resolve_org_membership resolver, so this
+    # reads its answer instead of recomputing it. The fallback covers callers
+    # that reach a bundle route without a stamped user-scope ctx.
+    stamped = getattr(request.state, "auth_ctx", None)
+    if stamped is not None and getattr(stamped, "scope", None) == "user":
+        org_id = stamped.org_id
+    else:
+        from app.middleware.api_key import _resolve_org_membership
 
-    org_id, _is_org_owner = _resolve_org_membership(db, user.id)
+        org_id, _is_org_owner = _resolve_org_membership(db, user.id)
     return CookbookCtx(user_id=user.id, is_master=False, tier=tier, org_id=org_id)
 
 
@@ -353,7 +368,11 @@ def _resolve_owned_cookbook(
     if ctx.cbt_cookbook_id is not None and ctx.cbt_cookbook_id == cb.id:
         return cb
 
-    if ctx.is_master or cb.bundle_owner == ctx.user_id:
+    # mesh_0408 W1 (P0): owner-match is tenant-scoped. A bare
+    # `cb.bundle_owner == ctx.user_id` matched across every org the account
+    # runs, so a key deployed for client A resolved client B's bundles here —
+    # and this helper is the chokepoint for ~20 bundle routes.
+    if authz.owner_match_within_tenant(ctx, cb):
         return cb
 
     if (
@@ -1000,7 +1019,11 @@ def list_cookbooks(
 
     ensure_liked_bundle(db, ctx.user_id)
 
-    owned_or_org = Bundle.bundle_owner == ctx.user_id  # compat-alias
+    # mesh_0408 W1 (P0): the owned-half is tenant-scoped. It used to be a bare
+    # `bundle_owner == ctx.user_id`, so this list returned EVERY bundle the
+    # account owns across EVERY client org it runs — the org clause below only
+    # ever widened the set, never narrowed it.
+    owned_or_org = authz.owner_match_within_tenant_clause(ctx, Bundle)  # compat-alias
     if ctx.org_id is not None:
         owned_or_org = owned_or_org | (Bundle.org_id == ctx.org_id)
     rows = db.query(Bundle).filter(owned_or_org).order_by(Bundle.created_at.desc()).all()

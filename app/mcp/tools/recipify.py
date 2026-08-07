@@ -8,6 +8,7 @@ serialize them cleanly.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -80,16 +81,23 @@ def loopskill_skillify(
     cb: Bundle | None = None
     if cb_id is not None:
         cb = db.query(Bundle).filter(Bundle.id == cb_id).first()
-        if cb is None:
+        # mesh_0408 W1 (P0), codex review of PR #202 finding 3. `cookbook_
+        # forbidden` (exists, not yours) vs `cookbook_not_found` (absent) is an
+        # existence oracle — it confirms a guessed UUID is real. One answer for
+        # both, matching the REST twin (recipify_routes) which already 404s.
+        if cb is None or not authz.can_write_cookbook(ctx, cb):
             return {"error": f"cookbook_not_found: {cb_id}", "code": "cookbook_not_found"}
-        # Phase B (Issue #7): bundle ownership check
-        if not authz.can_write_cookbook(ctx, cb):
-            return {"error": "cookbook_forbidden", "code": "cookbook_forbidden"}
     else:
         if owner_id is not None:
+            # mesh_0408 W1 (P0), finding 2 — MCP twin of the REST fix in
+            # recipify_routes._resolve_or_create_cookbook. The implicit
+            # authoring target was "the account's OLDEST bundle", i.e. its
+            # first client's, so a draft skillified from an agent at client B
+            # landed in client A's bundle. Tenant-scoped.
+            scope_ctx = SimpleNamespace(user_id=owner_id, org_id=getattr(ctx, "org_id", None))
             cb = (
                 db.query(Bundle)
-                .filter(Bundle.bundle_owner == owner_id)  # compat-alias
+                .filter(authz.owner_match_within_tenant_clause(scope_ctx, Bundle))
                 .order_by(Bundle.created_at.asc())
                 .first()
             )

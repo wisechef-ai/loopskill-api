@@ -606,7 +606,10 @@ class TestShareToolsErrorPaths:
             ctx=ctx,
         )
         assert "error" in result
-        assert result["error"] == "cookbook_forbidden"
+        # mesh_0408 W1b (codex PR #202, finding 3): the denial is now the same
+        # cookbook_not_found an absent id gets — a distinct forbidden code was
+        # an existence oracle.
+        assert result["error"] == "cookbook_not_found"
 
     def test_revoke_nonexistent_token_returns_error(self, db_session):
         """Non-existent token_id → error dict via exception (covers lines 144-148)."""
@@ -665,7 +668,10 @@ class TestShareToolsErrorPaths:
             ctx=ctx,
         )
         assert "error" in result
-        assert result["error"] == "cookbook_forbidden"
+        # mesh_0408 W1b (codex PR #202, finding 3): the denial is now the same
+        # cookbook_not_found an absent id gets — a distinct forbidden code was
+        # an existence oracle.
+        assert result["error"] == "cookbook_not_found"
 
     def test_rotate_nonexistent_token_returns_error(self, db_session):
         """Non-existent token_id → error dict (covers lines 185-189)."""

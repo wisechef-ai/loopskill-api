@@ -28,6 +28,8 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app import authz
+
 from app.database import get_db
 from app.models import Bundle, BundleConnector, Connector, ConnectorVersion, ExternalConnector
 from app.services.connector_validation import (
@@ -93,7 +95,10 @@ def _require_bundle_owner(request: Request, db: Session, bundle_id: str) -> Bund
     if cb is None:
         raise HTTPException(status_code=404, detail="bundle_not_found")
 
-    is_owner = ctx.scope == "master" or (ctx.user_id is not None and cb.bundle_owner == ctx.user_id)
+    # mesh_0408 W1 (P0): tenant-scoped owner-match. Connector declarations
+    # carry a client's integration surface; a bare owner-match exposed them
+    # to every other client the same account runs.
+    is_owner = authz.owner_match_within_tenant(ctx, cb)
     if not is_owner:
         # 404 not 403 — existence must not leak to non-owners.
         raise HTTPException(status_code=404, detail="bundle_not_found")

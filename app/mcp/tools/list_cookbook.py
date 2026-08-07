@@ -7,6 +7,7 @@ Phase B's responsibility.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
 
@@ -57,9 +58,21 @@ def loopskill_list_bundle(
     else:
         owner = _coerce_uuid(user_id) if user_id is not None else (ctx.user_id if ctx is not None else None)
         if owner is not None:
+            # mesh_0408 W1 (P0), codex review of PR #202 finding 2. The
+            # cookbook_id branch above is gated by can_read_cookbook, but this
+            # implicit "your newest bundle" branch selected on a bare
+            # owner-match, so an agent at client B calling
+            # loopskill_list_bundle() with no argument got whichever client's
+            # bundle the account touched most recently — name, owner and the
+            # full skill list with pinned versions. Scoped to the caller's
+            # tenant through the same clause the REST bundle list uses.
+            # Built from the RESOLVED owner (the user_id kwarg wins over ctx for
+            # legacy callers) plus the caller's tenant, so an explicit user_id
+            # keeps selecting that user's bundles and gains the org clause.
+            scope_ctx = SimpleNamespace(user_id=owner, org_id=getattr(ctx, "org_id", None))
             cookbook = (
                 db.query(Bundle)
-                .filter(Bundle.bundle_owner == owner)  # compat-alias
+                .filter(authz.owner_match_within_tenant_clause(scope_ctx, Bundle))
                 .order_by(Bundle.created_at.desc())
                 .first()
             )

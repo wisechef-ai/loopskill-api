@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app import authz
 from app.bundle_routes import CookbookCtx, require_cookbook_tier  # compat-alias
 from app.database import get_db
 from app.models import Bundle
@@ -55,13 +56,18 @@ def _resolve_or_create_cookbook(db: Session, ctx: CookbookCtx, target_cookbook_i
         cb = db.query(Bundle).filter(Bundle.id == target_cookbook_id).first()
         if cb is None:
             raise HTTPException(status_code=404, detail="cookbook_not_found")
-        if not ctx.is_master and cb.bundle_owner != ctx.user_id:
+        # mesh_0408 W1 (P0): tenant-scoped owner-match — authoring into a
+        # bundle that belongs to another client's org is a cross-tenant write.
+        if not authz.owner_match_within_tenant(ctx, cb):
             raise HTTPException(status_code=404, detail="cookbook_not_found")
         return cb
 
+    # mesh_0408 W1: the implicit "my oldest bundle" target must stay inside the
+    # caller's tenant, or a draft authored from client B lands in client A's
+    # bundle. Falls through to creating a fresh bundle when the tenant has none.
     cb = (
         db.query(Bundle)
-        .filter(Bundle.bundle_owner == ctx.user_id)  # compat-alias
+        .filter(authz.owner_match_within_tenant_clause(ctx, Bundle))  # compat-alias
         .order_by(Bundle.created_at.asc())
         .first()
     )

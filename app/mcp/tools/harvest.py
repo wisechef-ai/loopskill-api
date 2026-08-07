@@ -57,7 +57,9 @@ def loopskill_harvest(
     if bundle is None:
         return {"error": "bundle_not_found", "code": 404}
     if not authz.can_write_cookbook(ctx, bundle):
-        return {"error": "forbidden", "code": 403}
+        # mesh_0408 W1b (codex PR #202, finding 3): the same answer the absent
+        # case gives one line up. 403-vs-404 confirmed the bundle id is real.
+        return {"error": "bundle_not_found", "code": 404}
 
     loops = harvested_loops or []
 

@@ -289,6 +289,16 @@ def like_bundle(slug: str, request: Request, db: Session = Depends(get_db)) -> B
     """
     ctx = _require_user(request)
     b = _bundle_or_404(db, slug)
+    # mesh_0408 W1 (P0). Unlike the other bundle sites, the owner-match below
+    # is a DENY predicate (the self-follow guard), so tenant-scoping it would
+    # LOOSEN this route. The cross-tenant defect here is narrower and lives one
+    # line earlier: an account that runs several client orgs owns every one of
+    # their bundles, so `400 cannot_like_own_bundle` vs `404 bundle_not_found`
+    # told a key deployed at client B whether a given private slug exists in
+    # client A. Deny first, indistinguishably from "no such bundle".
+    # Public bundles are exempt: the catalog is cross-tenant on purpose.
+    if b.visibility != "public" and authz.crosses_tenant(ctx, b):
+        raise HTTPException(status_code=404, detail="bundle_not_found")
     if b.bundle_owner == ctx.user_id:
         raise HTTPException(status_code=400, detail="cannot_like_own_bundle")
     if b.visibility != "public":
