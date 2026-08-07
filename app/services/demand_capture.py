@@ -56,19 +56,42 @@ def _upsert(db: Session, q: str, *, user_id=None) -> None:
     Split out from ``record_missing_skill_query`` so the swallow-everything
     boundary is one function up: a test can make THIS raise and assert the
     caller stays quiet.
+
+    **The conflict target must be spelled exactly as the index.** The unique
+    index (topshelf_2605_h) is FUNCTIONAL — ``(lower(query), day)`` — so
+    Postgres only infers it when ON CONFLICT names the same expression.
+    Handing SQLAlchemy the ORM column renders ``ON CONFLICT (lower(query), day)``
+    against the INSERT's own column reference, which Postgres declines to match
+    to the index; the statement then affects zero rows. Combined with the
+    fire-and-forget guard around this call, the write vanishes **silently**.
+
+    Caught by the postgres CI matrix on 2026-08-08: 4 tests green on SQLite,
+    zero rows written on Postgres — which is what prod runs. The SQLite branch
+    below cannot catch this class of bug (the same migration gives SQLite a
+    plain, non-functional unique index), so the postgres matrix is the only
+    thing standing between this and silent data loss in production.
+
+    ``index_where=None`` + an explicit text() target is the spelling that
+    matches; it is written literally rather than built from ORM constructs so
+    it can be diffed against the migration by eye.
     """
     today = date.today()
     bind = db.get_bind()
 
     if bind.dialect.name == "postgresql":
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from sqlalchemy import text
 
-        stmt = pg_insert(MissingSkillQuery).values(query=q, user_id=user_id, day=today, count=1)
-        stmt = stmt.on_conflict_do_update(
-            index_elements=[func.lower(MissingSkillQuery.query), MissingSkillQuery.day],
-            set_={"count": MissingSkillQuery.count + 1},
+        db.execute(
+            text(
+                """
+                INSERT INTO missing_skill_queries (id, query, user_id, day, count)
+                VALUES (gen_random_uuid(), :q, :uid, :day, 1)
+                ON CONFLICT (lower(query), day)
+                DO UPDATE SET count = missing_skill_queries.count + 1
+                """
+            ),
+            {"q": q, "uid": user_id, "day": today},
         )
-        db.execute(stmt)
     else:
         # SQLite (tests): no functional-index upsert support — SELECT then write.
         existing = (

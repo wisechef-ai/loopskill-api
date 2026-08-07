@@ -407,3 +407,69 @@ class TestReferenceGateFailsCI:
         assert rc == 1
         assert payload["dangling_count"] == 1
         assert payload["dangling"]["alpha-skill"] == ["nonexistent-skill"]
+
+
+# ── 6. the schema the upsert depends on ──────────────────────────────────
+
+
+class TestDemandIndexIsDeclaredOnTheModel:
+    """The functional unique index must live in ``Base.metadata``, not only in
+    the migration.
+
+    Found by the postgres CI matrix on 2026-08-08 and reproduced locally
+    against postgres:17. ``missing_skill_queries`` declared its columns but not
+    its index; the index existed only in topshelf_2605_h. Tests build their
+    schema with ``Base.metadata.create_all``, so the table they got had NO
+    functional index — and ``ON CONFLICT (lower(query), day)`` cannot infer an
+    index that does not exist. Every upsert therefore matched nothing and wrote
+    zero rows.
+
+    It was invisible on SQLite (that branch does SELECT-then-write) and
+    invisible in production (the migration DOES create the index there). Only
+    the postgres test leg could see it — which is exactly the gap the
+    mesh0408 T0-A dual-engine matrix was added to close.
+    """
+
+    def test_model_declares_the_functional_unique_index(self):
+        idx = {i.name: i for i in MissingSkillQuery.__table__.indexes}
+        assert "uq_missing_skill_queries_query_day" in idx, (
+            "the upsert's ON CONFLICT target is not declared on the model — "
+            "create_all() will build a table the upsert cannot use"
+        )
+        assert idx["uq_missing_skill_queries_query_day"].unique is True
+
+    def test_index_is_on_lower_query_not_raw_query(self):
+        """A plain ``(query, day)`` index would let 'SEO' and 'seo' become two
+        rows, splitting the count the demand brief ranks on."""
+        idx = next(
+            i
+            for i in MissingSkillQuery.__table__.indexes
+            if i.name == "uq_missing_skill_queries_query_day"
+        )
+        rendered = str(idx.expressions[0]).lower()
+        assert "lower(" in rendered, f"index must be on lower(query), got {rendered!r}"
+
+    def test_index_matches_the_migration_definition(self):
+        """Model and migration must agree, or prod and tests diverge silently.
+
+        Guards the specific direction that bit us: the migration is the source
+        of truth for prod, the model is the source of truth for tests, and they
+        drifted.
+        """
+        import pathlib
+        import re
+
+        mig = (
+            pathlib.Path(__file__).resolve().parent.parent
+            / "alembic"
+            / "versions"
+            / "topshelf_2605_h_missing_skill_queries.py"
+        ).read_text()
+
+        # The postgres branch of the migration.
+        m = re.search(
+            r"CREATE UNIQUE INDEX (\w+)\s*\n\s*ON missing_skill_queries \(lower\(query\), day\)",
+            mig,
+        )
+        assert m, "migration no longer creates the functional index this upsert needs"
+        assert m.group(1) == "uq_missing_skill_queries_query_day"
