@@ -315,7 +315,9 @@ class TestDogfoodIsolationProbe:
         # A synthetic non-owner attempts to reconcile our internal cookbook.
         intruder_ctx = AuthContext(scope="user", user_id=intruder.id, tier="pro")
         res = recipes_reconcile(db, cookbook_id=str(cb.id), local=[], ctx=intruder_ctx)
+        # mesh_0408 W1b (codex PR #202, finding 3): same `not_found` an absent
+        # id gets — "forbidden" told the caller the cookbook is real.
         assert (
-            res.get("error") == "cookbook_forbidden"
+            res.get("error") == "not_found"
         ), "our internal cookbook must be invisible/forbidden to a non-owner"
         db.close()

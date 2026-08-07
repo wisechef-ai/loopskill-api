@@ -13,8 +13,6 @@ import hmac
 import logging
 import time
 from datetime import UTC
-from typing import Any
-from uuid import UUID
 
 import redis
 from fastapi import Request
@@ -24,8 +22,19 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.config import settings
 from app.middleware._public_paths import EXEMPT_PATHS as _EXEMPT_PATHS
 from app.middleware._public_paths import PUBLIC_PREFIXES as _PUBLIC_PREFIXES
+
+# mesh_0408 W1: tenant resolution lives in _org_scope so this module stays
+# under the 600-line god-object cap. Re-exported under the historical
+# private names — app.bundle_routes / app.fleet_routes / app.mcp.auth import
+# _resolve_org_membership from here.
+from app.middleware._org_scope import resolve_org_for_key as _resolve_org_for_key  # noqa: F401
+from app.middleware._org_scope import resolve_org_membership as _resolve_org_membership  # noqa: F401
 from app.middleware.key_prefixes import API_KEY_PREFIX, FLEET_KEY_PREFIX  # noqa: F401 — compat re-export
 from app.middleware.key_prefixes import LOOPSKILL_KEY_PREFIX, USER_KEY_PREFIXES  # noqa: F401
+
+# mesh0408e2e W2: entitlement is derived from subscription STATUS, never from
+# the raw tier column — a past_due/canceled Pro must not keep paid capability
+# just because the slug is still on the row.
 from app.revenue_truth import entitled_tier
 
 logger = logging.getLogger("wiserecipes.middleware")
@@ -35,19 +44,6 @@ logger = logging.getLogger("wiserecipes.middleware")
 _redis_client = None
 _redis_available = None
 _redis_next_retry_at: float = 0.0  # F-API-05: backoff timestamp
-
-
-def _resolve_org_membership(db: Any, user_id: UUID) -> tuple[UUID | None, bool]:
-    """Resolve user org_id + owner flag (activate_0701/TEN)."""
-    from app.models import OrgMembership
-
-    m = (
-        db.query(OrgMembership)
-        .filter(OrgMembership.user_id == user_id)
-        .order_by(OrgMembership.created_at.asc())
-        .first()
-    )
-    return (m.org_id, m.role == "owner") if m else (None, False)
 
 
 def _auth_ctx_from_jwt_cookie(request) -> "AuthContext":
@@ -103,7 +99,7 @@ def _auth_ctx_from_jwt_cookie(request) -> "AuthContext":
         # (old code 401'd fresh signups). `tier` alone stays conditional.
         if user:
             org_id, is_org_owner = _resolve_org_membership(db, user_id)
-            tier = entitled_tier(user)
+            tier = user.subscription_tier if user.subscription_status in ("active", "trialing") else None
             return AuthContext(
                 scope="user", user_id=user_id, tier=tier, org_id=org_id, is_org_owner=is_org_owner
             )
@@ -177,8 +173,11 @@ def _auth_ctx_from_api_key(request) -> "AuthContext | None":
         if api_key_obj is None:
             return None
         user_obj = db.query(User).filter(User.id == api_key_obj.user_id).first()
+        # W2: entitled tier, not the raw column — a lapsed subscription must not
+        # keep paid capability just because the slug is still on the row.
         tier: str | None = entitled_tier(user_obj)
-        org_id, is_org_owner = _resolve_org_membership(db, api_key_obj.user_id)
+        # mesh_0408 W1: member keys resolve their tenant from their fleet.
+        org_id, is_org_owner = _resolve_org_for_key(db, api_key_obj.id, api_key_obj.user_id)
         return AuthContext(
             scope="user",
             user_id=api_key_obj.user_id,
@@ -243,7 +242,13 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         "/api/checkout/",
         "/api/billing/",
         "/api/api-keys",
-        "/api/cookbook-deploy/",  # spotify_0608 Ph A: re-homed from /api/buckets/
+        # spotify_0608 Ph A: re-homed from /api/buckets/. Both names mount the
+        # SAME handler (bundle_deployment_routes.py:436-437), so both must be
+        # listed — the canonical name was missing until mesh_0408 W5, which made
+        # it unreachable while only the compat-alias worked.
+        # Pinned by tests/test_middleware_jwt_allowlist.py::TestCanonicalPrefixParity.
+        "/api/bundle-deploy/",  # canonical
+        "/api/cookbook-deploy/",  # compat-alias
         "/api/subscriptions/",  # subscriptions/downgrade is JWT-authed
     )
     WEBHOOK_PATHS = {
@@ -560,10 +565,14 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 from app.models import User as _User
 
                 _user_obj = db.query(_User).filter(_User.id == api_key_obj.user_id).first()
-                _tier: str | None = entitled_tier(_user_obj)
+                _tier: str | None = None
+                if _user_obj and _user_obj.subscription_status in ("active", "trialing"):
+                    _tier = _user_obj.subscription_tier
 
                 # activate_0701/TEN: resolve org membership for tenant scope.
-                _org_id, _is_org_owner = _resolve_org_membership(db, api_key_obj.user_id)
+                # mesh_0408 W1: …except for a fleet-member key, which resolves
+                # its tenant from its fleet (see _resolve_org_for_key).
+                _org_id, _is_org_owner = _resolve_org_for_key(db, api_key_obj.id, api_key_obj.user_id)
 
                 from app.auth_ctx import AuthContext
 

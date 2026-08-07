@@ -26,6 +26,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, relationship, validates
@@ -138,7 +139,17 @@ class APIKey(Base):
     # every public-ranking surface — discovery ranking, leaderboards, the carousel
     # popularity term, and the GTM kill/scale install signal. Flag at the key level,
     # filter at count time (cheapest correct path). Default false = organic.
-    is_test = Column(Boolean, nullable=False, server_default="false")
+    #
+    # mesh_0408 W4: the default is a text() clause, not the STRING "false".
+    # A string server_default renders on SQLite as ``DEFAULT 'false'`` — the
+    # four characters, which Python reads back as a truthy str — while
+    # Postgres coerces the same literal to boolean false. That divergence made
+    # every ORM-created key read is_test=True under the SQLite test engine and
+    # is_test=False in production, so any Python-side ``if key.is_test`` (see
+    # app/services/provenance.py:166) silently behaves the opposite way on the
+    # two engines CI runs. ``text("false")`` emits the bare SQL keyword, which
+    # both engines store as a real boolean.
+    is_test = Column(Boolean, nullable=False, default=False, server_default=text("false"))
 
     user = relationship("User", back_populates="api_keys")
 
@@ -1379,6 +1390,90 @@ class BundleDeployment(Base):
     )
 
 
+class BundleApplyJob(Base):
+    """One attempt to converge a member onto a bundle's currently-resolved versions.
+
+    mesh_0408 W5 — the bundle deploy path had NO terminal state: apply()
+    synthesized a ``uuid4()`` job id and discarded it, and the status endpoint
+    returned a hard-coded ``{"status": "applying"}`` for any id whatsoever. A
+    status that cannot go red is decoration, so this table gives the path a
+    real, observable lifecycle:
+
+        applying -> converged | failed
+
+    The transition is driven ENTIRELY by what the member reports (see
+    ``BundleApplyJobItem``); the control plane never assumes success.
+
+    ``member_id`` is NULL for curator-initiated applies (the portal's
+    ``POST /api/bundle-deploy/{id}/apply``) and set for agent-initiated ones
+    (``POST /api/bundle-apply/{slug}/start``).
+    """
+
+    __tablename__ = "bundle_apply_jobs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    bundle_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("bundles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    member_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("fleet_members.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    requested_by_user_id = Column(UUID(as_uuid=True), nullable=True)
+    status = Column(String(20), nullable=False, default="applying", server_default="applying")
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+    # Set exactly once, when the job first reaches converged|failed.
+    terminal_at = Column(DateTime(timezone=True), nullable=True)
+
+    items = relationship(
+        "BundleApplyJobItem",
+        back_populates="job",
+        cascade="all, delete-orphan",
+        order_by="BundleApplyJobItem.skill_slug",
+    )
+
+
+class BundleApplyJobItem(Base):
+    """Per-skill convergence expectation + the member's actual report.
+
+    ``expected_semver`` is resolved from the bundle AT JOB-CREATION TIME (the
+    deployment's ``version_pin``, else the skill's newest published version).
+    Convergence requires ``outcome == 'success' AND reported_semver ==
+    expected_semver`` for every item: a member that reports success while still
+    running the OLD, defective version does not converge the job. Without that
+    equality the redeploy half of the moat loop would be unfalsifiable.
+    """
+
+    __tablename__ = "bundle_apply_job_items"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    job_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("bundle_apply_jobs.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False)
+    skill_slug = Column(String(255), nullable=False)
+    expected_semver = Column(String(64), nullable=False)
+    outcome = Column(String(20), nullable=True)  # NULL = not yet reported
+    reported_semver = Column(String(64), nullable=True)
+    failure_reason = Column(Text, nullable=True)
+    reported_at = Column(DateTime(timezone=True), nullable=True)
+
+    job = relationship("BundleApplyJob", back_populates="items")
+
+    __table_args__ = (UniqueConstraint("job_id", "skill_id", name="uq_bundle_apply_job_items_job_skill"),)
+
+
 class Fleet(Base):
     """A named fleet of agents belonging to one owner user.
 
@@ -1399,6 +1494,19 @@ class Fleet(Base):
     org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
     # activate_0701/E: EU data residency. NULL = unrestricted (own fleet default).
     residency = Column(String(32), nullable=True)  # "eu" | "row" | null
+    # mesh_0408 W4: this fleet is LoopSkill's own (proof-of-life beacons, CI,
+    # internal harnesses). Its loop runs are EXCLUDED from every external/
+    # adoption number — see app/services/synthetic_runs.py. Mirrors the
+    # APIKey.is_test precedent (spotify_0608/B).
+    #
+    # THREE-VALUED on purpose (W4b): NULL = nobody has classified this fleet,
+    # which is the state every pre-W4 row is in and the ONLY state where the
+    # SELF_ORIGINATED_LOOP_SLUGS backstop is consulted. True/False are explicit
+    # verdicts and always beat the slug list, so a customer who names a loop
+    # ``p4-loop-proof`` is not silently counted as ours. Creation paths stamp
+    # this explicitly from the caller's APIKey.is_test, so new rows are never
+    # NULL — see app/mcp/tools/fleet.py.
+    is_synthetic = Column(Boolean, nullable=True, default=None)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -1442,6 +1550,13 @@ class FleetMember(Base):
     skills_dir = Column(Text, nullable=False)  # e.g. "~/.hermes/loopskill"
     api_key_id = Column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=False, unique=True)
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+    # mesh_0408 W4: this agent is ours, inside an otherwise-real fleet (the
+    # beacon host). Three-valued like Fleet.is_synthetic (NULL = unclassified);
+    # the MOST SPECIFIC explicit verdict wins, and this is the most specific
+    # one there is, because lock #13 makes the per-agent key the identity.
+    # Stamped at enrollment from the enrolling key's APIKey.is_test — see
+    # app/services/synthetic_runs.py and app/fleet_member_routes.py.
+    is_synthetic = Column(Boolean, nullable=True, default=None)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -2332,7 +2447,21 @@ class LoopRun(Base):
     member_seq = Column(Integer, nullable=True)
     # True when this run was flagged as carrying a superseded (stale) epoch.
     #   Excluded from pass numerators; counted in the health denominator.
-    stale_epoch = Column(Boolean, nullable=False, default=False, server_default="false")
+    #   server_default is text("false"), NOT the string "false": SQLAlchemy
+    #   renders a str as DEFAULT 'false', which SQLite stores as a 4-char
+    #   literal that Python reads back TRUTHY. pass_rate_for_loop() consumes
+    #   this column as a boolean, so the string form silently excluded every
+    #   default-valued run from the pass rate on the SQLite CI leg.
+    stale_epoch = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+
+    # ── mesh_0408 W4 — adoption honesty ──
+    # True when this run came from LoopSkill's own beacon/CI traffic rather
+    # than from somebody else's fleet. Denormalized from the fleet/member/key
+    # markers at INGEST time so a run is classified once, as the immutable
+    # fact it is, and so no read path needs a three-table join. Every surface
+    # that reports run counts must report the split, never the total alone —
+    # see app/services/synthetic_runs.py.
+    is_synthetic = Column(Boolean, nullable=False, default=False, server_default=text("false"))
 
     __table_args__ = (
         Index("ix_loop_runs_member_slug_created", "member_id", "loop_slug", "created_at"),
@@ -2432,6 +2561,10 @@ class LoopRunDailyRollup(Base):
     loop_slug = Column(String(255), nullable=False)
     day = Column(Date, nullable=False)
     runs = Column(Integer, nullable=False, default=0, server_default="0")
+    # mesh_0408 W4: how many of ``runs`` were LoopSkill's own beacon/CI traffic.
+    # external = runs - synthetic_runs. Carried on the rollup so the dashboard
+    # can report the split without re-reading raw rows (which are pruned at 30d).
+    synthetic_runs = Column(Integer, nullable=False, default=0, server_default=text("0"))
     successes = Column(Integer, nullable=False, default=0, server_default="0")
     failures = Column(Integer, nullable=False, default=0, server_default="0")
     accepted_changes = Column(Integer, nullable=False, default=0, server_default="0")

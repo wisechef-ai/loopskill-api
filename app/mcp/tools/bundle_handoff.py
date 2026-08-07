@@ -108,10 +108,10 @@ def loopskill_bundle_handoff(
 
     # ── ownership check (uses authz.can_write_cookbook for single source of truth) ─
     if not authz.can_write_cookbook(ctx, cb):
-        return {
-            "error": "forbidden",
-            "message": "Only the cookbook owner may hand off this cookbook.",
-        }
+        # mesh_0408 W1b (codex PR #202, finding 3): byte-identical to the
+        # not-found answer above. "Only the owner may hand off this cookbook"
+        # told an unauthorized caller their guessed UUID names a real bundle.
+        return {"error": "cookbook_not_found", "message": "Cookbook not found."}
 
     # ── resolve new owner ────────────────────────────────────────────────────
     if not new_owner_user_id and not new_owner_email:

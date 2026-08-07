@@ -27,6 +27,7 @@ from app.api_key_routes import _generate_key
 from app.database import get_db
 from app.fleet_routes import resolve_fleet_ctx
 from app.models import APIKey, Fleet, FleetMember, ReconcileEvent
+from app.services.synthetic_runs import origin_verdict_for_key
 
 router = APIRouter(prefix="/api/fleets", tags=["fleet-members"])
 
@@ -152,6 +153,15 @@ def enroll_member(
             },
         )
 
+    # mesh_0408 W4b: origin is decided ONCE here, from the single definition
+    # (APIKey.is_test — spotify_0608/B), and stamped explicitly on both the
+    # minted per-agent key and the member. Two reasons it cannot be left
+    # unclassified: an unclassified identity falls back to the known-beacon
+    # slug list (so a customer's `p4-loop-proof` would count as our traffic),
+    # and an internal beacon enrolled under a new slug would count as adoption
+    # — the number this phase exists to stop inflating.
+    caller_is_synthetic = origin_verdict_for_key(db, getattr(ctx, "api_key_id", None))
+
     plaintext_key, prefix12, key_hash = _generate_key()
     label = f"member:{host}/{profile}"[:100]
     key_row = APIKey(
@@ -161,6 +171,7 @@ def enroll_member(
         name=label,
         label=label,
         is_active=True,
+        is_test=bool(caller_is_synthetic),
     )
     db.add(key_row)
     db.flush()
@@ -172,6 +183,7 @@ def enroll_member(
         skills_dir=skills_dir,
         api_key_id=key_row.id,
         is_active=True,
+        is_synthetic=caller_is_synthetic,
     )
     db.add(member)
     db.commit()

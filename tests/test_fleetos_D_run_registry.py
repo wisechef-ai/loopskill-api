@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from app.models import APIKey, Fleet, FleetMember, LoopPlacement, User
+from app.models import APIKey, Fleet, FleetMember, LoopPlacement, LoopRun, User
 from app.services import run_registry as rr
 
 
@@ -192,6 +192,58 @@ def test_stale_epoch_flagged_and_excluded(db_session):
     assert pr.stale == 1
     assert pr.counted == 1  # the stale one is excluded
     assert pr.passes == 1  # only the live-epoch pass counts toward passes
+
+
+def test_a_row_that_omits_stale_epoch_is_not_stale(db_session):
+    """mesh_0408 W4b — the DATABASE default for ``stale_epoch`` must be a real
+    boolean false, not the four-character string ``'false'``.
+
+    ``server_default="false"`` (a Python str) renders as ``DEFAULT 'false'``.
+    Postgres coerces that to boolean false; **SQLite stores the literal string,
+    which Python reads back as a truthy ``str``.** ``pass_rate_for_loop``
+    consumes the column with ``if is_stale:``, so under SQLite every row
+    inserted without an explicit value would be excluded from the pass rate —
+    the CI leg would not be testing the branch it appears to test.
+
+    The INSERT below deliberately omits the column (an ORM insert can't
+    reproduce this: ``default=False`` fills it in Python before the statement
+    is built, which is exactly why 11 green tests never caught it).
+    """
+    from sqlalchemy import bindparam, text
+
+    fleet = _mk_fleet(db_session)
+    m = _mk_member(db_session, fleet)
+    _place(db_session, fleet, "loop-x", m, epoch=1)
+    db_session.commit()
+
+    # Bind the UUIDs through the column's own type so this INSERT lands in the
+    # same storage form the ORM writes on every engine (SQLite renders UUID as
+    # bare hex, Postgres natively) — a hand-formatted string would simply not
+    # match on the read side, and the test would "pass" by finding nothing.
+    db_session.execute(
+        text(
+            "INSERT INTO loop_runs (id, member_id, fleet_id, loop_slug, instance_key, outcome) "
+            "VALUES (:id, :mid, :fid, 'loop-x', :ik, 'pass')"
+        ).bindparams(
+            bindparam("id", type_=LoopRun.id.type),
+            bindparam("mid", type_=LoopRun.member_id.type),
+            bindparam("fid", type_=LoopRun.fleet_id.type),
+        ),
+        {"id": uuid4(), "mid": m.id, "fid": fleet.id, "ik": uuid4().hex},
+    )
+    db_session.commit()
+
+    row = db_session.query(LoopRun).filter(LoopRun.loop_slug == "loop-x").one()
+    assert row.stale_epoch is not True, (
+        f"DB default for stale_epoch reads back as {row.stale_epoch!r} — "
+        "server_default must be text('false'), not the string 'false'"
+    )
+
+    pr = rr.pass_rate_for_loop(db_session, fleet.id, "loop-x")
+    assert pr.stale == 0, "a run that never declared a stale epoch was counted stale"
+    assert pr.counted == 1
+    assert pr.passes == 1
+    assert pr.pass_rate == 1.0
 
 
 # ── aggregate views ──────────────────────────────────────────────────────────

@@ -44,7 +44,11 @@ from app.mcp._alias_map import normalize_tool_name
 from app.mcp.registry import _tool_definitions  # noqa: F401
 
 # ── Tool imports (for _dispatch + patch compatibility) ─────────────────────
-from app.mcp.bundle_status import get_bundle_status, invalidate_bundle_status
+from app.mcp.bundle_status import (  # noqa: F401  re-exported for existing patch targets
+    decorate_with_bundle_status,
+    get_bundle_status,
+    invalidate_bundle_status,
+)
 from app.mcp.tools import (  # noqa: F401  loopskill_0622 Phase 8 tools
     loopskill_get_loop,
     loopskill_get_personality,
@@ -443,20 +447,10 @@ def call_tool_sync(
     normalized_name = normalize_tool_name(name)
     try:
         payload = _dispatch(name, session, args or {}, caller)
-
-        # After a successful loopskill_sync apply, invalidate cached status
-        if normalized_name == "loopskill_sync" and isinstance(payload, dict) and payload.get("applied"):
-            invalidate_bundle_status(caller.get("user_id"))
-
-        # Inject bundle_status for authenticated users (skip for loopskill_sync  # compat-alias
-        # itself to avoid noisy double-reporting — sync already returns the diff).
-        if isinstance(payload, dict) and normalized_name != "loopskill_sync":
-            user_id = caller.get("user_id")
-            status = get_bundle_status(session, user_id)
-            if status:
-                payload["bundle_status"] = status
-
-        return payload
+        # Cache-invalidate + inject the status block. Lives in bundle_status so
+        # the decoration sits next to the tenant clause that gates it (and so
+        # this module stays under the 600-line god-object cap).
+        return decorate_with_bundle_status(session, payload, caller, normalized_name)
     finally:
         if own_db:
             session.close()

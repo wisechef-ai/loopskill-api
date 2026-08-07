@@ -11,6 +11,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app import authz
 from app.auth_ctx import AuthContext
 from app.feedback_github import _validate_repo, verify_repo_access
 from app.models import Bundle
@@ -33,13 +34,22 @@ def _coerce_uuid(v: Any) -> UUID | None:
 
 
 def _resolve_user_cookbook(db: Session, ctx: AuthContext) -> Bundle | None:
-    """Return the caller's personal cookbook, or None if not found."""
+    """Return the caller's oldest cookbook IN THEIR TENANT, or None.
+
+    mesh_0408 W1 (P0). The implicit target used to be "the account's oldest
+    non-base bundle", which for an account running several client orgs is
+    whichever client it onboarded FIRST. So a bare
+    ``loopskill_configure_feedback(repo=...)`` issued from an agent at client B
+    pointed client A's feedback at client B's GitHub repo — a cross-tenant
+    WRITE with no id to guess. Same fix shape as
+    ``recipify_routes._resolve_or_create_cookbook``.
+    """
     if ctx.user_id is None:
         return None
     return (
         db.query(Bundle)
         .filter(
-            Bundle.bundle_owner == ctx.user_id,  # compat-alias
+            authz.owner_match_within_tenant_clause(ctx, Bundle),
             Bundle.is_base.is_(False),
         )
         .order_by(Bundle.created_at.asc())
@@ -84,14 +94,23 @@ def loopskill_configure_feedback(
     else:
         cb = _resolve_user_cookbook(db, ctx)
 
-    if cb is None:
-        return {"ok": False, "error": "Bundle not found"}
-
     # ── Ownership gate ────────────────────────────────────────────────────────
-    if ctx.scope != "master":
-        user_uuid = _coerce_uuid(ctx.user_id)
-        if cb.bundle_owner != user_uuid:
-            return {"ok": False, "error": "You do not own this cookbook"}
+    # mesh_0408 W1 (P0), codex review of PR #202 findings 2 and 3.
+    #
+    # Was: `cb.bundle_owner != user_uuid` -> "You do not own this cookbook",
+    # while an unresolvable id answered "Bundle not found". Two problems in one
+    # line. (a) The bare owner-match is the P0 short-circuit — one account owns
+    # every org it runs, so an agent at client B could repoint client A's
+    # feedback routing at its own repo and harvest that client's feedback
+    # stream. (b) The two distinct messages were an existence oracle: they told
+    # an unauthorized caller which bundle UUIDs are real.
+    #
+    # Now: one answer for "absent", "not yours" and "not in your tenant", via
+    # the same authz.can_write_cookbook predicate the other bundle-mutating MCP
+    # tools (share, harvest, loopskill_sync, fork_deploy) already use — which is
+    # tenant-scoped, keeps master's bypass, and honours a bundle-scoped key.
+    if cb is None or not authz.can_write_cookbook(ctx, cb):
+        return {"ok": False, "error": "Bundle not found"}
 
     # ── Clear path ────────────────────────────────────────────────────────────
     if repo is None:

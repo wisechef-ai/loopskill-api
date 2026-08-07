@@ -252,7 +252,9 @@ def test_harvest_forbidden_for_non_owner(db_session):
         harvested_loops=[_loop("x")],
         ctx=ctx,
     )
-    assert res["code"] == 403
+    # mesh_0408 W1b (codex PR #202, finding 3): the denial is now the same
+    # bundle_not_found/404 an absent id gets — 403 confirmed the id is real.
+    assert res["code"] == 404 and res["error"] == "bundle_not_found"
 
 
 # ── end-to-end through the real MCP server dispatch ──────────────────────────

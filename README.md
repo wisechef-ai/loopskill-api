@@ -124,6 +124,24 @@ two constraints worth knowing before you build on it:
 
 Both are covered end to end in [docs/SELF_HOST.md](docs/SELF_HOST.md#running-loops).
 
+### The defect loop, and how much of it has actually run
+
+A skill you published, running inside someone else's governed agent fleet, can
+report a real defect back to you **privately** — and then converge onto your fix.
+Install carries routable provenance, the report routes to the bundle curator's
+own private repo, and a bundle-apply job reaches a terminal
+`converged`/`failed` state driven by what the member actually reports.
+
+Stated up front: **private defect routing is proven** (a client agent's report
+reached a private sink, verified at the GitHub API, sink confirmed private by an
+anonymous `404`). The redeploy half — patch → version → the member converging
+onto it — is **shipped and tested, but has not yet been run end to end against
+production**. `scripts/moat_loop_proof.py` is the gate for that claim, and
+`--selftest` falsifies the harness before you trust a run.
+
+[docs/moat-loop.md](docs/moat-loop.md) has the full contract and the status
+table that owns the wording.
+
 ---
 
 ## Why open-core

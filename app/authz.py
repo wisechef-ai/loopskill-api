@@ -18,6 +18,118 @@ if TYPE_CHECKING:
     from app.auth_ctx import AuthContext
 
 
+def _is_master(ctx: Any) -> bool:
+    """True for a master-scope caller, for either context shape.
+
+    ``AuthContext`` carries ``scope="master"``; ``bundle_routes.CookbookCtx``
+    carries ``is_master=True``. The tenant predicates below are called with
+    both, so they duck-type the master signal in one place.
+    """
+    return getattr(ctx, "scope", None) == "master" or bool(getattr(ctx, "is_master", False))
+
+
+def crosses_tenant(ctx: Any, obj: Any) -> bool:
+    """True when ``obj`` belongs to a tenant (org) that ``ctx`` is NOT inside.
+
+    mesh_0408 W1 (P0). LoopSkill's whole wedge is "one account, N isolated
+    client orgs" — so an owner-match is NOT sufficient authorization. A single
+    account owns every org it runs, which means ``obj.bundle_owner == ctx.user_id``
+    is true across every tenant boundary that account spans. This predicate is
+    the missing half.
+
+    The rule, exhaustively:
+
+    ==================  ==================  ==========================
+    ``obj.org_id``      ``ctx.org_id``      result
+    ==================  ==================  ==========================
+    NULL                anything            False — obj is not tenant-scoped
+    non-NULL            NULL                True  — personal-scope caller may
+                                                    not reach an org artifact
+    non-NULL            equal               False — same tenant
+    non-NULL            different           True  — CROSS-TENANT, deny
+    ==================  ==================  ==========================
+
+    NULL ``obj.org_id`` is personal scope and stays reachable by its owner
+    regardless of which tenant the caller's key currently resolves to: those
+    artifacts predate tenancy and belong to the account, not to a client org.
+    Master scope is never considered cross-tenant.
+    """
+    if _is_master(ctx):
+        return False
+    obj_org = getattr(obj, "org_id", None)
+    if obj_org is None:
+        return False
+    ctx_org = getattr(ctx, "org_id", None)
+    return ctx_org is None or ctx_org != obj_org
+
+
+def owner_match_within_tenant(ctx: Any, obj: Any) -> bool:
+    """True when ctx owns ``obj`` AND does not cross a tenant boundary to reach it.
+
+    mesh_0408 W1 (P0) — the shared replacement for the bare
+    ``obj.bundle_owner == ctx.user_id`` test that every bundle-authorization
+    site used to spell inline. That bare test short-circuits BEFORE any org
+    constraint, so for an account running two client orgs it granted full
+    cross-tenant read/write on bundles, connectors, reconcile diffs and
+    promotion reports.
+
+    Routing every site through one predicate is deliberate: nine inline copies
+    is how the tenth site ships next month without the org clause.
+
+    Master scope keeps its existing unconditional bypass.
+
+    ``ctx`` may be an :class:`~app.auth_ctx.AuthContext` or a
+    ``bundle_routes.CookbookCtx`` — only ``user_id`` / ``org_id`` and the
+    master signal are read. ``obj`` is any row exposing ``bundle_owner`` and
+    ``org_id`` (i.e. :class:`~app.models.Bundle`).
+
+    See :func:`owner_match_within_tenant_clause` for the SQL-filter twin used
+    by the list/query sites, which MUST stay semantically identical.
+    """
+    if _is_master(ctx):
+        return True
+    user_id = getattr(ctx, "user_id", None)
+    owner = getattr(obj, "bundle_owner", None)
+    if user_id is None or owner is None or user_id != owner:
+        return False
+    return not crosses_tenant(ctx, obj)
+
+
+def owner_match_within_tenant_clause(ctx: Any, model: Any) -> Any:
+    """SQL twin of :func:`owner_match_within_tenant`, for query filters.
+
+    mesh_0408 W1 (P0). The list/query authorization sites cannot call the
+    row-level predicate — they need a WHERE clause. Keeping the two in one
+    module (and one docstring pair) is what stops them drifting apart, which
+    is exactly how a "fixed" detail route ends up beside a still-leaking list
+    route.
+
+    Emits, for ``ctx.org_id`` non-NULL::
+
+        bundle_owner = :uid AND (org_id IS NULL OR org_id = :org)
+
+    and, for a personal-scope caller (``ctx.org_id`` IS NULL)::
+
+        bundle_owner = :uid AND org_id IS NULL
+
+    A caller with no ``user_id`` matches nothing (``false()``) rather than
+    degrading to ``bundle_owner IS NULL``, which would hand every ownerless
+    row to an unauthenticated caller.
+    """
+    from sqlalchemy import and_, false, or_
+
+    user_id = getattr(ctx, "user_id", None)
+    if user_id is None:
+        return false()
+
+    owner_col = model.bundle_owner
+    org_col = model.org_id
+    ctx_org = getattr(ctx, "org_id", None)
+    if ctx_org is None:
+        return and_(owner_col == user_id, org_col.is_(None))
+    return and_(owner_col == user_id, or_(org_col.is_(None), org_col == ctx_org))
+
+
 def can_read_skill(ctx: AuthContext, skill: Any, db: "Session | None" = None) -> bool:
     """Return True if ctx may read/view the given skill.
 
@@ -63,7 +175,10 @@ def can_read_skill(ctx: AuthContext, skill: Any, db: "Session | None" = None) ->
             .filter(
                 BundleSkill.skill_id == skill.id,
                 BundleSkill.source != "disabled",
-                Bundle.bundle_owner == ctx.user_id,  # compat-alias
+                # mesh_0408 W1: owner-match alone spans every org the account
+                # runs — a private skill in one client's bundle was readable
+                # from another client's key. Tenant-scoped now.
+                owner_match_within_tenant_clause(ctx, Bundle),
             )
             .first()
             is not None
@@ -209,7 +324,8 @@ def can_write_cookbook(ctx: AuthContext, cookbook: Any) -> bool:
 
     Access rules:
     - Master scope: always allowed
-    - User scope: allowed if ctx.user_id == cookbook.bundle_owner  # compat-alias
+    - User scope: allowed if ctx owns the cookbook WITHIN its tenant
+      (mesh_0408 W1 — see owner_match_within_tenant)
     - Bundle-scoped key: additionally restricted to the specific cookbook
       (ctx.bundle_scope must match cookbook.id)  # compat-alias
     - All other cases: False
@@ -220,11 +336,7 @@ def can_write_cookbook(ctx: AuthContext, cookbook: Any) -> bool:
 
     if ctx.scope == "master":
         return True
-    if (
-        ctx.scope == "user"
-        and ctx.user_id is not None
-        and ctx.user_id == cookbook.bundle_owner  # compat-alias
-    ):
+    if ctx.scope == "user" and owner_match_within_tenant(ctx, cookbook):
         return True
     return False
 
@@ -236,7 +348,8 @@ def can_read_cookbook(ctx: AuthContext, cookbook: Any, *, allow_org_read: bool =
     REST and MCP agree on who may read a given bundle:
     - Bundle-scoped key/token: only the one bundle it is scoped to
     - Master scope: always allowed
-    - User scope: allowed if ctx.user_id == cookbook.bundle_owner
+    - User scope: allowed if ctx owns the cookbook WITHIN its tenant
+      (mesh_0408 W1 — see owner_match_within_tenant)
     - allow_org_read=True and ctx.org_id matches cookbook.org_id: allowed
       (mirrors the REST detail route's ``allow_org_read=True`` clause)
     - All other cases: False
@@ -246,11 +359,7 @@ def can_read_cookbook(ctx: AuthContext, cookbook: Any, *, allow_org_read: bool =
 
     if ctx.scope == "master":
         return True
-    if (
-        ctx.scope == "user"
-        and ctx.user_id is not None
-        and ctx.user_id == cookbook.bundle_owner  # compat-alias
-    ):
+    if ctx.scope == "user" and owner_match_within_tenant(ctx, cookbook):
         return True
     if (
         allow_org_read
@@ -379,15 +488,17 @@ def can_access_bundle(ctx: AuthContext, bundle: Any) -> bool:
 
     Access rules:
     - Master scope: always allowed
-    - User scope + bundle owner: allowed if ctx.user_id == bundle.bundle_owner
+    - User scope + bundle owner: allowed if ctx owns the bundle WITHIN its
+      tenant (mesh_0408 W1 — the bare owner-match this replaced short-circuited
+      BEFORE the org clause below, so it granted access across every org the
+      owning account runs, making that clause unreachable for its own owner)
     - User scope + same org: allowed if bundle.org_id == ctx.org_id (both non-NULL)
     - NULL org_id = personal scope (backward compat): only the direct owner
     - All other cases: False
     """
     if ctx.scope == "master":
         return True
-    bundle_owner = getattr(bundle, "bundle_owner", None)
-    if ctx.scope == "user" and ctx.user_id is not None and ctx.user_id == bundle_owner:
+    if ctx.scope == "user" and owner_match_within_tenant(ctx, bundle):
         return True
     bundle_org = getattr(bundle, "org_id", None)
     # Org boundary: same org → allowed. NULL=personal scope, org check skipped.

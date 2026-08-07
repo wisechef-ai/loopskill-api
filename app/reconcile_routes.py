@@ -89,9 +89,11 @@ def reconcile_cookbook(
     # Deployment read access: master, owner, or an active follower of a public
     # bundle. Follows intentionally grant reconcile only; all bundle mutation
     # paths remain owner-only through their existing write predicates.
-    is_owner = auth_ctx.scope == "master" or (
-        auth_ctx.user_id is not None and cb.bundle_owner == auth_ctx.user_id
-    )
+    # mesh_0408 W1 (P0): tenant-scoped owner-match. The bare owner-match this
+    # replaces handed one client's full reconcile diff (every skill, version
+    # and connector) to a member key deployed at a DIFFERENT client, because
+    # both fleets are run by the same account.
+    is_owner = authz.owner_match_within_tenant(auth_ctx, cb)
     is_follower = not is_owner and authz.can_reconcile_cookbook(auth_ctx, cb, db=db)
     if not is_owner and not is_follower:
         response.status_code = 404

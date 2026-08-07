@@ -308,8 +308,21 @@ class TestIssue7RecipifyCrossTenantRed:
             target_cookbook_id=str(user_a_cookbook.id),
             ctx=user_b_ctx,
         )
-        assert out.get("error") == "cookbook_forbidden", (
+        # mesh_0408 W1b (codex PR #202, finding 3): a distinct forbidden code was
+        # an existence oracle — the denial is now the SAME answer an absent id
+        # gets. The tests assert indistinguishability, not the old wording.
+        assert out.get("code") == "cookbook_not_found", (
             f"CROSS-TENANT EXPLOIT: user B wrote to user A's cookbook; got {out!r}"
+        )
+        absent = loopskill_skillify(
+            db_session,
+            slug="attack-skill",
+            content=_VALID_SKILL_MD,
+            target_cookbook_id=str(uuid4()),
+            ctx=user_b_ctx,
+        )
+        assert out["code"] == absent["code"], (
+            f"existence oracle: forbidden={out!r} vs absent={absent!r}"
         )
 
     def test_red_anonymous_cannot_write_cookbook(self, db_session):
@@ -326,7 +339,7 @@ class TestIssue7RecipifyCrossTenantRed:
             target_cookbook_id=str(cb.id),
             ctx=anon_ctx,
         )
-        assert out.get("error") == "cookbook_forbidden", (
+        assert out.get("code") == "cookbook_not_found", (
             f"EXPLOIT: anonymous wrote to cookbook; got {out!r}"
         )
 
@@ -345,7 +358,7 @@ class TestIssue7RecipifyCrossTenantRed:
             target_cookbook_id=str(cb.id),
             ctx=owner_ctx,
         )
-        assert "error" not in out or out.get("error") != "cookbook_forbidden", (
+        assert out.get("code") != "cookbook_not_found", (
             f"Owner should be able to write their own cookbook; got {out!r}"
         )
 
@@ -363,7 +376,7 @@ class TestIssue7RecipifyCrossTenantRed:
             target_cookbook_id=str(cb.id),
             ctx=master_ctx,
         )
-        assert out.get("error") != "cookbook_forbidden", (
+        assert out.get("code") != "cookbook_not_found", (
             f"Master should write to any cookbook; got {out!r}"
         )
 
@@ -475,14 +488,15 @@ class TestIssue15SyncRed:
         # Different user — not the cookbook owner
         attacker_ctx = AuthContext(scope="user", user_id=uuid4())
 
-        # Before fix: sync allowed for any cookbook_id
-        # After fix: returns cookbook_forbidden
+        # Before fix: sync allowed for any cookbook_id.
+        # After fix: denied with the SAME `not_found` an absent id gets —
+        # mesh_0408 W1b (codex PR #202, finding 3) collapsed that oracle.
         out = loopskill_sync(
             db_session,
             cookbook_id=str(cookbook.id),
             ctx=attacker_ctx,
         )
-        assert out.get("error") == "cookbook_forbidden", (
+        assert out.get("error") == "not_found", (
             f"EXPLOIT: attacker synced cookbook they don't own; got {out!r}"
         )
 
@@ -499,7 +513,7 @@ class TestIssue15SyncRed:
             cookbook_id=str(cookbook.id),
             ctx=owner_ctx,
         )
-        assert out.get("error") != "cookbook_forbidden", (
+        assert out.get("error") != "not_found", (
             f"Owner should be able to sync their cookbook; got {out!r}"
         )
         assert out.get("applied") is True or out.get("changes") is not None
@@ -537,6 +551,8 @@ class TestIssue13CookbookScopedKey:
         cb = MagicMock()
         cb.id = cb_id
         cb.bundle_owner = owner_id
+        # personal scope — a bare MagicMock would auto-create a truthy org_id
+        cb.org_id = None
 
         assert can_write_cookbook(ctx, cb) is True
 
@@ -559,6 +575,7 @@ class TestIssue13CookbookScopedKey:
         other_cb = MagicMock()
         other_cb.id = other_cb_id
         other_cb.bundle_owner = owner_id  # user owns it, but key is scoped
+        other_cb.org_id = None
 
         assert can_write_cookbook(ctx, other_cb) is False, (
             "EXPLOIT: cookbook-scoped key allowed to write to a different cookbook"
@@ -625,18 +642,20 @@ class TestIssue13CookbookScopedKey:
         cb_mock = MagicMock()
         cb_mock.id = cb_id
         cb_mock.bundle_owner = owner_id
+        cb_mock.org_id = None
         assert can_write_cookbook(stamped_ctx, cb_mock) is True
 
         # Different cookbook → denied (even though user owns it)
         other_cb = MagicMock()
         other_cb.id = uuid4()
         other_cb.bundle_owner = owner_id
+        other_cb.org_id = None
         assert can_write_cookbook(stamped_ctx, other_cb) is False, (
             "BUG: cookbook-scoped key should not write to a different cookbook"
         )
 
     def test_end_to_end_scoped_key_blocks_other_cookbook(self, db_session):
-        """End-to-end: cookbook-scoped key + wrong cookbook → cookbook_forbidden."""
+        """End-to-end: cookbook-scoped key + wrong cookbook → cookbook_not_found."""
         owner_id = uuid4()
         cb_allowed = Bundle(
             id=uuid4(), name="Allowed CB", bundle_owner=owner_id
@@ -663,7 +682,7 @@ class TestIssue13CookbookScopedKey:
             target_cookbook_id=str(cb_other.id),
             ctx=scoped_ctx,
         )
-        assert out.get("error") == "cookbook_forbidden", (
+        assert out.get("code") == "cookbook_not_found", (
             f"EXPLOIT: scoped key wrote to different cookbook; got {out!r}"
         )
 

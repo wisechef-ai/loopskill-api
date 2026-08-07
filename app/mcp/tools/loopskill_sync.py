@@ -91,9 +91,14 @@ def loopskill_sync(
     if not cb:
         return {"error": "not_found", "cookbook_id": cookbook_id}
 
-    # Phase B (Issue #15b): bundle ownership check
+    # Phase B (Issue #15b): bundle ownership check.
+    # mesh_0408 W1b (codex review of PR #202, finding 3): the answer is the SAME
+    # `not_found` an absent id gets, four lines up. A distinct `cookbook_forbidden`
+    # confirmed to an unauthorized caller that the UUID they hold is real — and
+    # since one account owns every client org it runs, "unauthorized" here is
+    # routinely a cross-tenant caller rather than a stranger.
     if not authz.can_write_cookbook(ctx, cb):
-        return {"error": "cookbook_forbidden", "cookbook_id": cookbook_id}
+        return {"error": "not_found", "cookbook_id": cookbook_id}
 
     outdated = _find_outdated_skills(db, cb_uuid)
 

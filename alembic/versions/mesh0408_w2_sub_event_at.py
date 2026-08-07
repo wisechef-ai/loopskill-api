@@ -36,7 +36,10 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "mesh0408_w2_sub_event_at"
-down_revision: Union[str, Sequence[str], None] = "mesh0408_t1c_extconn"
+down_revision: Union[str, Sequence[str], None] = (
+    "mesh0408_w4_synth_runs",
+    "mesh0408_w5_applyjobs",
+)
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

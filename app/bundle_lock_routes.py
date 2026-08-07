@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app import authz
 from app.auth_ctx import AuthContext
 from app.database import get_db
 from app.models import Bundle
@@ -58,13 +59,29 @@ def _bundle_or_404(db: Session, bundle_id: str) -> Bundle:
 
 
 def _require_owner_or_master(ctx: AuthContext | None, bundle: Bundle) -> None:
+    """Authorize the owner/master-only lock verbs, WITHIN the caller's tenant.
+
+    mesh_0408 W1 (P0), codex review of PR #202 finding 1. This helper used to
+    grant on a bare ``ctx.user_id == bundle.bundle_owner``, with no tenant
+    predicate anywhere in the module — the exact short-circuit the rest of this
+    fix closes, on the routes that MINT and REPLAY a bundle's immutable lock.
+    Because one account owns every client org it runs, that comparison was true
+    across every tenant boundary: a key deployed at client B could freeze
+    client A's bundle and read its full lock history (every skill slug, version
+    and checksum, at every revision).
+
+    Denial is 404 ``bundle_not_found``, never 403 ``not_bundle_owner`` (finding
+    3): the module's own ``_bundle_or_404`` answers 404 for a bundle that does
+    not exist, so a 403 here told an unauthorized caller that the id it guessed
+    is real. Cross-tenant denial must be indistinguishable from not-found.
+    """
     if ctx is None:
         raise HTTPException(status_code=401, detail="Authentication required")
     if ctx.scope == "master":
         return
-    if ctx.scope == "user" and ctx.user_id is not None and ctx.user_id == bundle.bundle_owner:
+    if ctx.scope == "user" and authz.owner_match_within_tenant(ctx, bundle):
         return
-    raise HTTPException(status_code=403, detail="not_bundle_owner")
+    raise HTTPException(status_code=404, detail="bundle_not_found")
 
 
 class DriftRequestSkill(BaseModel):
