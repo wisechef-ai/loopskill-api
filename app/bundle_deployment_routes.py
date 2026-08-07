@@ -42,7 +42,13 @@ from sqlalchemy.orm import Session
 from app.auth_routes import get_current_user_optional
 from app.bundle_preflight import run_preflight
 from app.database import get_db
-from app.models import Bundle, BundleDeployment, InstallEvent, Skill, User
+from app.models import Bundle, BundleApplyJob, BundleDeployment, InstallEvent, Skill, User
+from app.services.bundle_apply import (
+    UnresolvableBundle,
+    create_apply_job,
+    job_items,
+    job_to_dict,
+)
 
 logger = logging.getLogger(__name__)
 _h = APIRouter(tags=["bundle-deploy"])  # Phase 3+4: handlers prefix-free; combined router below
@@ -275,11 +281,17 @@ async def apply_cookbook(
 ):
     """Kick off an atomic install across all cookbook deployments (ordered).
 
-    Returns a synthesized job_id; an InstallEvent is written for each skill in
-    the cookbook with the cookbook annotation carried in `client_ip` (legacy
-    column) so dashboards can join apply-events back to the originating
-    cookbook. The actual install work runs agent-side via the meta-skill
-    `recipes apply` command; this endpoint records intent + returns the manifest.
+    Opens a PERSISTED ``BundleApplyJob`` (mesh_0408 W5) pinned to the versions
+    the bundle resolves to right now, and an InstallEvent per skill carrying the
+    cookbook annotation in `client_ip` (legacy column) so dashboards can join
+    apply-events back to the originating cookbook. The actual install work runs
+    agent-side via the meta-skill `recipes apply` command; the member then
+    reports its outcome to ``POST /api/bundle-apply/jobs/{job_id}/report``,
+    which is the ONLY thing that can move this job off ``applying``.
+
+    Before W5 the job_id was a ``uuid.uuid4()`` that was returned and
+    immediately discarded, and the status endpoint answered ``applying`` for
+    any id forever — a status that could not go red.
     """
     user = _require_deploy_tier(user)
     cb = _resolve_cookbook_or_404(db, cookbook_id, user)
@@ -290,7 +302,23 @@ async def apply_cookbook(
         .all()
     )
 
-    job_id = uuid.uuid4()
+    try:
+        job, targets = create_apply_job(db, cb, requested_by_user_id=user.id)
+    except UnresolvableBundle as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "no_resolvable_version",
+                "unresolvable": exc.slugs,
+                "hint": "publish a version for these skills before applying",
+            },
+        )
+    job_id = job.id
+    # The job already resolved every deployment to a CONCRETE semver, so the
+    # InstallEvent can record that instead of the literal string "latest" it
+    # used to write into a semver column (unjoinable against skill_versions,
+    # and indistinguishable from a skill actually versioned "latest").
+    resolved_semver = {t.skill_id: t.semver for t in targets}
     cookbook_annotation = f"cookbook:{cb.id}"
     # Batched skill fetch (was N+1: one SELECT per row). One IN-query + dict
     # lookup, same pattern as _install_counts_for / search_skills (Issue #19).
@@ -308,7 +336,7 @@ async def apply_cookbook(
             id=uuid.uuid4(),
             skill_id=skill.id,
             skill_slug=skill.slug,
-            version_semver=row.version_pin or "latest",
+            version_semver=resolved_semver.get(skill.id) or row.version_pin or "latest",
             client_ip=cookbook_annotation,
             created_at=datetime.now(UTC),
         )
@@ -323,10 +351,11 @@ async def apply_cookbook(
         user.id,
     )
     return {
-        "status": "applying",
+        "status": job.status,
         "job_id": str(job_id),
         "cookbook_id": str(cb.id),
         "skills": len([r for r in rows if r.skill_id]),
+        "targets": [t.to_dict() for t in targets],
     }
 
 
@@ -337,15 +366,23 @@ async def cookbook_job_status(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
-    """Poll status for a cookbook-apply job.
+    """Poll a bundle-apply job — the control-plane view of member convergence.
 
-    Thin wrapper that always returns 'applying' — a real terminal state lands
-    when the health-check-before-ready work ships. Returning a stable shape now
-    means the dashboard apply-panel can be wired without a follow-up rev.
+    mesh_0408 W5: reads the PERSISTED job. ``applying`` until every skill has
+    been reported by the member at the semver the bundle resolved to, then
+    ``converged``; any reported failure makes it ``failed``. An unknown job_id
+    is 404 — this used to fabricate ``applying`` for ids that were never issued.
     """
     user = _require_deploy_tier(user)
-    _ = _resolve_cookbook_or_404(db, cookbook_id, user)
-    return {"job_id": job_id, "status": "applying"}
+    cb = _resolve_cookbook_or_404(db, cookbook_id, user)
+    try:
+        jid = UUID(job_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="job_not_found")
+    job = db.query(BundleApplyJob).filter(BundleApplyJob.id == jid, BundleApplyJob.bundle_id == cb.id).first()
+    if job is None:
+        raise HTTPException(status_code=404, detail="job_not_found")
+    return job_to_dict(job, job_items(db, job))
 
 
 @_h.post("/{slug}/preflight")
