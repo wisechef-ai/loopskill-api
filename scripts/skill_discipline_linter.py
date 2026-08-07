@@ -185,6 +185,17 @@ ALLOWED_LINK_DOMAINS = (
     "centralnic.com",  # rdap.centralnic.com — RDAP registry lookups
     "duckduckgo.com",  # scrapling — html.duckduckgo.com search endpoint
     "civitai.com",  # comfyui — model hub the skill pulls checkpoints from
+    # fleetos_1607 gap-close (2026-08-07): the platform's OWN marketplace skill
+    # (recipes/loopskill or docs/recipes-skill's SKILL.md) documents its own MCP
+    # transport (POST https://app.loopskill.io/api/mcp/http/) and signin URL —
+    # citing your own product's own API endpoints is not third-party promo, it's
+    # the skill describing itself. Missing entry is why `loopskill` (slug
+    # c62fb0f1) has been stuck failing the discipline gate since seeding,
+    # leaving skill_versions.tarball_path pointing at a never-written path
+    # (loopskill-catalog-health "1/55 skills FAIL G1 no-tarball") — the skill
+    # that teaches agents to use the marketplace can never pass its own
+    # marketplace's publish gate without this.
+    "loopskill.io",
 )
 
 # Placeholder / RFC-2606 reserved / docs-example domains. Always documentation,
