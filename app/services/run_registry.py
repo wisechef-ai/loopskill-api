@@ -25,6 +25,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import LoopPlacement, LoopRun
+from app.services.synthetic_runs import RunCounts, classify_run_synthetic
 
 # Canonical outcome vocabulary. `unknown` is distinct from fail.
 OUTCOME_PASS = "pass"
@@ -113,6 +114,9 @@ def ingest_run(
         member_seq=member_seq,
         outcome=norm_outcome,
         stale_epoch=bool(is_stale),
+        # mesh_0408 W4: origin frozen at ingest, same as stale_epoch above —
+        # a run is an immutable fact, so it is classified once.
+        is_synthetic=classify_run_synthetic(db, loop_slug=loop_slug, member_id=member_id),
         cost_usd=cost_usd,
         duration_seconds=duration_seconds,
         detail=detail,
@@ -131,6 +135,13 @@ class PassRate:
     fails: int
     unknown: int
     stale: int
+    # mesh_0408 W4: how many of ``total`` were LoopSkill's own beacon/CI
+    # traffic. Reported alongside total everywhere, never folded into it.
+    synthetic: int = 0
+
+    @property
+    def external(self) -> int:
+        return self.total - self.synthetic
 
     @property
     def counted(self) -> int:
@@ -152,14 +163,21 @@ def pass_rate_for_loop(db: Session, fleet_id: UUID, loop_slug: str) -> PassRate:
     nor fail the loop, but they ARE visible in the health denominator (total).
     """
     rows = (
-        db.query(LoopRun.outcome, LoopRun.stale_epoch, func.count(LoopRun.id))
+        db.query(
+            LoopRun.outcome,
+            LoopRun.stale_epoch,
+            LoopRun.is_synthetic,
+            func.count(LoopRun.id),
+        )
         .filter(LoopRun.fleet_id == fleet_id, LoopRun.loop_slug == loop_slug)
-        .group_by(LoopRun.outcome, LoopRun.stale_epoch)
+        .group_by(LoopRun.outcome, LoopRun.stale_epoch, LoopRun.is_synthetic)
         .all()
     )
-    total = passes = fails = unknown = stale = 0
-    for outcome, is_stale, n in rows:
+    total = passes = fails = unknown = stale = synthetic = 0
+    for outcome, is_stale, is_synthetic, n in rows:
         total += n
+        if is_synthetic:
+            synthetic += n
         if is_stale:
             stale += n
             continue  # stale runs don't count as pass/fail
@@ -170,7 +188,13 @@ def pass_rate_for_loop(db: Session, fleet_id: UUID, loop_slug: str) -> PassRate:
         else:
             unknown += n
     return PassRate(
-        loop_slug=loop_slug, total=total, passes=passes, fails=fails, unknown=unknown, stale=stale
+        loop_slug=loop_slug,
+        total=total,
+        passes=passes,
+        fails=fails,
+        unknown=unknown,
+        stale=stale,
+        synthetic=synthetic,
     )
 
 
@@ -189,6 +213,11 @@ def fleet_state(db: Session, fleet_id: UUID, limit: int = 200) -> dict[str, Any]
             {
                 "loop_slug": slug,
                 "total": pr.total,
+                # mesh_0408 W4 — the adoption-bearing split. A caller reading
+                # only ``total`` for this fleet would count LoopSkill's own
+                # */3min beacon as a customer running loops.
+                "synthetic": pr.synthetic,
+                "external": pr.external,
                 "passes": pr.passes,
                 "fails": pr.fails,
                 "unknown": pr.unknown,
@@ -196,7 +225,16 @@ def fleet_state(db: Session, fleet_id: UUID, limit: int = 200) -> dict[str, Any]
                 "pass_rate": pr.pass_rate,
             }
         )
-    return {"fleet_id": str(fleet_id), "loop_count": len(loops), "loops": loops}
+    runs = RunCounts(
+        total=sum(lo["total"] for lo in loops),
+        synthetic=sum(lo["synthetic"] for lo in loops),
+    )
+    return {
+        "fleet_id": str(fleet_id),
+        "loop_count": len(loops),
+        "runs": runs.to_dict(),
+        "loops": loops,
+    }
 
 
 def trust_ledger_view(db: Session, fleet_id: UUID) -> dict[str, Any]:
@@ -215,4 +253,6 @@ def trust_ledger_view(db: Session, fleet_id: UUID) -> dict[str, Any]:
         "aggregate_pass_rate": (passes / counted) if counted > 0 else None,
         "excluded_unknown": sum(lo["unknown"] for lo in state["loops"]),
         "excluded_stale": sum(lo["stale_epoch"] for lo in state["loops"]),
+        # mesh_0408 W4: the ledger reports run volume, so it reports origin.
+        "runs": state["runs"],
     }

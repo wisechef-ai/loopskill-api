@@ -28,6 +28,11 @@ from app.models import (
     MemberLockfileSnapshot,
     SkillErrorReport,
 )
+from app.services.synthetic_runs import (
+    SELF_ORIGINATED_LOOP_SLUGS,
+    RunCounts,
+    member_is_synthetic,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -106,12 +111,22 @@ def ingest_sync_report(
     if lr_truncated:
         truncated["loop_runs"] = lr_truncated
 
+    # mesh_0408 W4: classify origin ONCE per report (the member/fleet/key
+    # markers are constant across the batch), then OR in the per-slug
+    # backstop below. Frozen onto each row so counts never need a join.
+    member_synthetic = member_is_synthetic(db, member)
+    synthetic_ingested = 0
+
     for lr in loop_runs:
+        slug = (lr.get("loop_slug") or "")[:255]
+        run_synthetic = member_synthetic or slug in SELF_ORIGINATED_LOOP_SLUGS
+        synthetic_ingested += int(run_synthetic)
         db.add(
             LoopRun(
                 member_id=member.id,
                 fleet_id=member.fleet_id,
-                loop_slug=(lr.get("loop_slug") or "")[:255],
+                loop_slug=slug,
+                is_synthetic=run_synthetic,
                 instance_key=(lr.get("instance_key") or "")[:255],
                 outcome=(lr.get("outcome") or "failure")[:32],
                 accepted_change=bool(lr.get("accepted_change", False)),
@@ -213,8 +228,14 @@ def ingest_sync_report(
 
     db.commit()
 
+    # mesh_0408 W4: the ack reports a run count, so it reports the split too —
+    # ``loop_runs`` alone would be the same combined-figure-only lie the
+    # dashboard used to tell.
+    ingested = RunCounts(total=len(loop_runs), synthetic=synthetic_ingested)
     recorded: dict[str, int | bool] = {
-        "loop_runs": len(loop_runs),
+        "loop_runs": ingested.total,
+        "loop_runs_synthetic": ingested.synthetic,
+        "loop_runs_external": ingested.external,
         "skill_errors": len(skill_errors),
         "cron_health": cron_stored,
         "lockfile_state": lockfile_stored,
@@ -267,6 +288,10 @@ def rollup_loop_runs(db: Session, day: date | None = None) -> int:
         )
         successes = sum(1 for r in group_rows if r.outcome in ("success", "budget_stop", "max_turns_stop"))
         failures = sum(1 for r in group_rows if r.outcome == "failure")
+        # mesh_0408 W4: carried onto the rollup because raw rows are pruned at
+        # 30d — without it, every adoption number older than a month would
+        # silently re-merge our own beacon back into the total.
+        synthetic = sum(1 for r in group_rows if r.is_synthetic)
         accepted_changes = sum(1 for r in group_rows if r.accepted_change)
         cost_total = sum(float(r.cost_usd or 0) for r in group_rows)
         duration_total = sum(r.duration_seconds or 0 for r in group_rows)
@@ -278,6 +303,7 @@ def rollup_loop_runs(db: Session, day: date | None = None) -> int:
                 loop_slug=loop_slug,
                 day=day,
                 runs=len(group_rows),
+                synthetic_runs=synthetic,
                 successes=successes,
                 failures=failures,
                 accepted_changes=accepted_changes,
