@@ -20,6 +20,7 @@ Contract pinned:
 2. /api/subscriptions/downgrade likewise — added preventatively so the
    next /api/me/-style addition doesn't reintroduce the same bug.
 """
+
 from __future__ import annotations
 
 from fastapi import FastAPI
@@ -98,8 +99,7 @@ class TestApiMeAllowlist:
         client = TestClient(app)
         r = client.get("/api/subscriptions/probe")
         assert r.status_code == 200, (
-            f"/api/subscriptions/* must be in JWT_AUTH_PREFIXES. "
-            f"Got {r.status_code} with body {r.text!r}"
+            f"/api/subscriptions/* must be in JWT_AUTH_PREFIXES. Got {r.status_code} with body {r.text!r}"
         )
 
 
@@ -155,9 +155,7 @@ class TestCanonicalPrefixParity:
         only one name cannot see it.
         """
         gated = {
-            name: any(
-                f"/api/{name}/probe".startswith(p) for p in APIKeyMiddleware.JWT_AUTH_PREFIXES
-            )
+            name: any(f"/api/{name}/probe".startswith(p) for p in APIKeyMiddleware.JWT_AUTH_PREFIXES)
             for name in ("bundle-deploy", "cookbook-deploy")
         }
         assert len(set(gated.values())) == 1, (
