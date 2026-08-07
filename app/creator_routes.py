@@ -478,6 +478,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     # Idempotency check — replays are no-ops
     from app.subscription_service import (
         handle_checkout_completed,
+        handle_invoice_payment_failed,
         handle_invoice_payment_succeeded,
         handle_subscription_event,
         record_event_or_skip,
@@ -506,6 +507,12 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     # ── Invoice events (WIS-660: referral payout accrual) ───────────────
     if event_type == "invoice.payment_succeeded":
         result = handle_invoice_payment_succeeded(event, db)
+        return {"received": True, "event_id": event_id, **result}
+
+    # mesh0408e2e W2: a failed renewal must not silently become free service.
+    # Marks the subscription past_due so entitlement lapses at every gate.
+    if event_type == "invoice.payment_failed":
+        result = handle_invoice_payment_failed(event, db)
         return {"received": True, "event_id": event_id, **result}
 
     # ── Connect events (creator payouts — existing behavior) ───────────

@@ -45,6 +45,7 @@ from app.models import (
     SkillVersion,
     User,
 )
+from app.revenue_truth import HEALTHY_SUB_STATUSES, entitled_tier_or_free
 from app.services.bundle_external import (
     install_descriptor_for,
     is_external_skill,
@@ -63,7 +64,11 @@ _h = APIRouter(tags=["bundles"])  # Phase 3+4: handlers registered prefix-free; 
 # constants remain for reference/documentation only — do not use for gate checks.
 COOKBOOK_TIERS = {"pro", "pro_plus"}  # canonical; legacy slugs handled via shim
 UNLIMITED_TIERS = {"pro_plus"}  # canonical; legacy slugs handled via shim
-ACTIVE_SUB_STATUSES = {"active", "trialing"}
+# mesh0408e2e W2: this set was declared here and then never consulted — the ctx
+# resolver read User.subscription_tier raw, so a past_due Pro kept the 50-bundle
+# cap. The single source of truth is now
+# app.revenue_truth.HEALTHY_SUB_STATUSES, reached via entitled_tier_or_free().
+ACTIVE_SUB_STATUSES = HEALTHY_SUB_STATUSES
 ALLOWED_SOURCES = {"forked", "custom-added", "overridden", "disabled"}
 
 # Pro tier skill cap per bundle — a runaway-guard, not a product limiter (large
@@ -221,7 +226,9 @@ def require_cookbook_tier(request: Request, db: Session = Depends(get_db)) -> Co
 
     # evergreen_0206 Phase G: free tier is allowed through (the on-ramp). The
     # tier travels in the ctx so downstream caps/gates enforce per-tier limits.
-    tier = user.subscription_tier or "free"
+    # Must be the ENTITLED tier: a past_due Pro falls back to the free cap
+    # rather than keeping 50 private bundles on a card that no longer charges.
+    tier = entitled_tier_or_free(user)
     # feat/org-scoped-bundle-reads: resolve org membership (same resolver the
     # fleet routes use) so org-scoped bundles are readable by org members.
     from app.middleware.api_key import _resolve_org_membership

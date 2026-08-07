@@ -30,6 +30,7 @@ from app.mcp.tools.fleet import (
     loopskill_fleet_sync,
 )
 from app.models import User
+from app.revenue_truth import entitled_tier_or_free
 
 router = APIRouter(prefix="/api/fleets", tags=["fleets"])
 
@@ -70,7 +71,9 @@ def resolve_fleet_ctx(request: Request, db: Session = Depends(get_db)) -> AuthCo
     return AuthContext(
         scope="user",
         user_id=user.id,
-        tier=user.subscription_tier or "free",
+        # Entitled tier, not the raw column: a lapsed subscription must not keep
+        # Pro+ fleet capability just because the tier slug is still on the row.
+        tier=entitled_tier_or_free(user),
         org_id=org_id,
         is_org_owner=is_org_owner,
     )

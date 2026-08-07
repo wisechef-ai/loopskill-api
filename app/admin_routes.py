@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
@@ -23,8 +24,15 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.billable_units import billable_units
 from app.config import settings
 from app.database import get_db
+from app.revenue_truth import (
+    HEALTHY_SUB_STATUSES,
+    cents_to_usd,
+    real_monthly_cents,
+    tier_list_monthly_usd,
+)
 from app.search_index import reindex_all
 from app.tier_labels import _is_paid_tier
 
@@ -33,71 +41,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 # ── North-star pulse ─────────────────────────────────────────────────────────
-# Monthly price per canonical tier in USD. SSOT is config/tiers.yaml
-# (price_usd); duplicated here as a small constant map so the pulse query has
-# no YAML I/O on the hot path. Keep in sync with tiers.yaml on any price change.
-# Legacy slugs (cook->pro, operator->pro_plus) are normalised before lookup.
-_TIER_MRR_USD: dict[str, int] = {"pro": 20, "pro_plus": 100}
+# Money and the comped/real/list vocabulary come from app.revenue_truth — the
+# ONE module allowed to answer "did money actually move?". This route used to
+# carry its own float-based discount maths and its own hand-maintained tier
+# price map (which had drifted to $20 for a $9.95 tier: a duplicated price
+# constant is a lie waiting for someone to trust it). Both now live in the
+# shared helper, so the pulse and the Discord revenue alerts cannot disagree.
 _LEGACY_TIER_TO_CANONICAL: dict[str, str] = {"cook": "pro", "operator": "pro_plus", "studio": "pro_plus"}
-# Subscription statuses that count as live, paying revenue.
-_HEALTHY_SUB_STATUSES: frozenset[str] = frozenset({"active", "trialing"})
-
-
-def _monthly_cents_from_stripe_sub(sub: dict) -> int:
-    """Real monthly cash (in cents) a Stripe subscription bills, net of discount.
-
-    Pure function — no network. Takes a Stripe Subscription dict (as returned by
-    Subscription.list with items.data.price expanded and discount expanded) and
-    returns the actual recurring cash per month after any coupon.
-
-    This is the fix for the promo-code illusion: a 100%-off coupon makes the
-    list-price irrelevant — the customer pays $0, and this returns 0. We never
-    infer revenue from tier list-price again; we read what Stripe actually bills.
-
-    Rules:
-      - Sum each line item: unit_amount * quantity.
-      - Normalise yearly prices to monthly (annual / 12).
-      - Apply a subscription-level coupon: percent_off (×(1-pct/100)) OR
-        amount_off (subtract, in the coupon's currency minor unit).
-      - Clamp at 0 (a discount can't make Stripe pay the customer).
-    Unknown/missing fields are treated conservatively as "no charge for that
-    item" so we under-count rather than re-introduce phantom revenue.
-    """
-    gross = 0.0
-    items = ((sub.get("items") or {}).get("data")) or []
-    for it in items:
-        price = it.get("price") or {}
-        unit = price.get("unit_amount")
-        if unit is None:
-            continue  # metered/unknown price → contributes no fixed cash
-        qty = it.get("quantity", 1) or 1
-        recurring = price.get("recurring") or {}
-        interval = recurring.get("interval", "month")
-        interval_count = recurring.get("interval_count", 1) or 1
-        amount = float(unit) * float(qty)
-        # Normalise to a monthly figure.
-        if interval == "year":
-            amount /= 12.0 * interval_count
-        elif interval == "week":
-            amount *= 52.0 / 12.0 / interval_count
-        elif interval == "day":
-            amount *= 365.0 / 12.0 / interval_count
-        elif interval == "month":
-            amount /= float(interval_count)
-        gross += amount
-
-    # Subscription-level coupon (the promo-code path). Stripe attaches the
-    # checkout coupon to the subscription's `discount.coupon`.
-    discount = sub.get("discount") or {}
-    coupon = (discount.get("coupon") if isinstance(discount, dict) else None) or {}
-    pct = coupon.get("percent_off")
-    amt = coupon.get("amount_off")
-    if pct is not None:
-        gross *= max(0.0, 1.0 - float(pct) / 100.0)
-    elif amt is not None:
-        gross -= float(amt)
-
-    return max(0, int(round(gross)))
 
 
 class ReindexAllResponse(BaseModel):
@@ -277,6 +227,25 @@ def admin_update_publish_request_status(
 # ── North-star demand pulse ──────────────────────────────────────────────────
 
 
+class OrgBillableUnitsOut(BaseModel):
+    """Per-tenant count of the billable-CANDIDATE unit. NOT a charge.
+
+    LoopSkill has a cap but no meter (see :mod:`app.billable_units`). These are
+    the counters a future meter would attach to — exposed now, org-scoped, with
+    synthetic traffic separable, so that decision becomes a config change
+    against reconciled history instead of an integration project. No price, no
+    Stripe usage record, no metered SKU is implied (lock #24).
+    """
+
+    org_id: str | None  # None = personal-scope fleets (Fleet.org_id IS NULL)
+    org_name: str | None
+    active_fleet_members: int  # enrolled agents, EXCLUDING synthetic
+    active_fleet_members_synthetic: int  # test/CI/internal keys (api_keys.is_test)
+    loop_runs: int  # runs in period attributable to a non-synthetic member
+    loop_runs_synthetic: int  # runs from a synthetic member (e.g. the self-beacon)
+    loop_runs_unattributed: int  # member_id resolves to no member — NOT rounded down to 0
+
+
 class PulseOut(BaseModel):
     """The 'one number' demand scoreboard for the khaserto GTM loop.
 
@@ -285,23 +254,30 @@ class PulseOut(BaseModel):
     Stripe actually bills, net of promo-code discounts — not list-price ×
     subscriber count. A 100%-off-coupon "customer" pays $0 and counts as $0.
     Master-key only.
+
+    Money fields are ``Decimal`` and serialise as JSON *strings* ("9.95"), not
+    floats. Exactness beats convenience for a revenue figure.
     """
 
     # ── The honest headline ──────────────────────────────────────────────
     paying_operators: int  # subs whose REAL monthly cash > $0 (the NORTH STAR)
-    real_cash_mrr_usd: int | None  # actual billed $/mo net of discounts; None if Stripe unreachable
+    real_cash_mrr_usd: Decimal | None  # actual billed $/mo net of discounts; None if Stripe unreachable
     comped_subscriptions: int  # active subs paying $0 (promo/100%-off) — the illusion exposed
     mrr_source: str  # "stripe" (real) | "stripe_unavailable" (could not verify)
     # ── Context (DB-only, always available) ──────────────────────────────
     active_subscriptions: int  # all healthy paid-tier subs regardless of what they pay
     by_tier: dict[str, int]  # canonical paid tier -> count of active subscribers
-    list_mrr_ceiling_usd: int  # list-price × active subs — a CEILING, NOT revenue (labeled honestly)
+    list_mrr_ceiling_usd: Decimal  # list-price × active subs — a CEILING, NOT revenue (labeled honestly)
     # ── Paywall pressure + fleet deploy ──────────────────────────────────
     free_sync_used_total: int  # free users who burned their one free sync (felt the wall)
     free_sync_used_7d: int  # ...in the last 7 days (recent paywall pressure)
     fleets_total: int  # named fleets created
     fleet_subscriptions_total: int  # cookbook->fleet deploys (the moat motion; 0 = never used)
     fleet_subscriptions_7d: int  # ...in the last 7 days
+    # ── Billable-candidate units (the meter that doesn't exist yet) ───────
+    billable_units: list[OrgBillableUnitsOut]
+    billable_units_period_start: str
+    billable_units_period_end: str
     generated_at: str
 
 
@@ -309,6 +285,7 @@ class PulseOut(BaseModel):
 def admin_pulse(
     request: Request,
     db: Session = Depends(get_db),
+    org_id: UUID | None = None,
 ):
     """Return the north-star demand scoreboard. Master-key only.
 
@@ -318,6 +295,9 @@ def admin_pulse(
     Stripe per active subscriber. If Stripe is unreachable the cash figures are
     returned as None with mrr_source="stripe_unavailable" — we NEVER fall back
     to list-price as if it were revenue (that was the original bug).
+
+    ``org_id`` narrows the ``billable_units`` breakdown to one tenant (the cash
+    and paywall figures are account-wide and unaffected). Omit it for every org.
     """
     api_key_user_id = getattr(request.state, "api_key_user_id", "MISSING")
     if api_key_user_id is not None:
@@ -332,14 +312,14 @@ def admin_pulse(
     active_users = (
         db.query(User.id, User.subscription_tier, User.stripe_customer_id)
         .filter(
-            User.subscription_status.in_(_HEALTHY_SUB_STATUSES),
+            User.subscription_status.in_(HEALTHY_SUB_STATUSES),
             User.subscription_tier.isnot(None),
         )
         .all()
     )
     by_tier: dict[str, int] = {}
     active_subscriptions = 0
-    list_mrr_ceiling_usd = 0
+    list_ceiling = Decimal(0)
     for _uid, tier_slug, _cust in active_users:
         if not tier_slug or not _is_paid_tier(tier_slug):
             continue
@@ -347,16 +327,16 @@ def admin_pulse(
         canonical = _LEGACY_TIER_TO_CANONICAL.get(slug, slug)
         by_tier[canonical] = by_tier.get(canonical, 0) + 1
         active_subscriptions += 1
-        list_mrr_ceiling_usd += _TIER_MRR_USD.get(canonical, 0)
+        list_ceiling += tier_list_monthly_usd(canonical)
 
     # ── Real cash MRR from Stripe (the source of truth for what's billed) ──
-    real_cash_cents = 0
+    real_cash_cents = Decimal(0)
     paying_operators = 0
     mrr_source = "stripe"
     customer_ids = [c for (_u, _t, c) in active_users if c]
     if not customer_ids:
         # No Stripe customers at all → unambiguously $0 real cash, no API needed.
-        real_cash_mrr_usd: int | None = 0
+        real_cash_mrr_usd: Decimal | None = cents_to_usd(0)
     else:
         try:
             import stripe
@@ -368,15 +348,17 @@ def admin_pulse(
                     customer=cust_id,
                     status="active",
                     limit=5,
-                    expand=["data.items.data.price", "data.discount"],
+                    expand=["data.items.data.price", "data.discount", "data.discounts"],
                 )
                 sub_list = getattr(subs, "data", None) or []
                 for sub in sub_list:
-                    cents = _monthly_cents_from_stripe_sub(dict(sub))
+                    # Exact Decimal cents, accumulated unrounded: rounding once
+                    # at the end beats accumulating per-subscription error.
+                    cents = real_monthly_cents(dict(sub))
                     real_cash_cents += cents
                     if cents > 0:
                         paying_operators += 1
-            real_cash_mrr_usd = int(round(real_cash_cents / 100.0))
+            real_cash_mrr_usd = cents_to_usd(real_cash_cents)
         # Rationale: Stripe is the revenue source of truth; if it's unreachable we
         # report None + a flag rather than inventing revenue from list-price.
         except Exception:  # noqa: BLE001
@@ -406,6 +388,10 @@ def admin_pulse(
         or 0
     )
 
+    # Billable-candidate units per org (instrumentation only — see
+    # app.billable_units; no price, no usage record, lock #24).
+    units = billable_units(db, org_id=org_id)
+
     logger.info(
         "admin pulse: paying=%d real_cash_mrr=%s comped=%d active=%d fleet_subs=%d source=%s",
         paying_operators,
@@ -423,12 +409,26 @@ def admin_pulse(
         mrr_source=mrr_source,
         active_subscriptions=active_subscriptions,
         by_tier=by_tier,
-        list_mrr_ceiling_usd=list_mrr_ceiling_usd,
+        list_mrr_ceiling_usd=list_ceiling.quantize(Decimal("0.01")),
         free_sync_used_total=int(free_sync_used_total),
         free_sync_used_7d=int(free_sync_used_7d),
         fleets_total=int(fleets_total),
         fleet_subscriptions_total=int(fleet_subscriptions_total),
         fleet_subscriptions_7d=int(fleet_subscriptions_7d),
+        billable_units=[
+            OrgBillableUnitsOut(
+                org_id=str(u.org_id) if u.org_id else None,
+                org_name=u.org_name,
+                active_fleet_members=u.active_fleet_members,
+                active_fleet_members_synthetic=u.active_fleet_members_synthetic,
+                loop_runs=u.loop_runs,
+                loop_runs_synthetic=u.loop_runs_synthetic,
+                loop_runs_unattributed=u.loop_runs_unattributed,
+            )
+            for u in units.orgs
+        ],
+        billable_units_period_start=units.period_start.isoformat(),
+        billable_units_period_end=units.period_end.isoformat(),
         generated_at=now.isoformat(),
     )
 

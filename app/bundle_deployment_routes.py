@@ -43,6 +43,7 @@ from app.auth_routes import get_current_user_optional
 from app.bundle_preflight import run_preflight
 from app.database import get_db
 from app.models import Bundle, BundleDeployment, InstallEvent, Skill, User
+from app.revenue_truth import entitled_tier
 
 logger = logging.getLogger(__name__)
 _h = APIRouter(tags=["bundle-deploy"])  # Phase 3+4: handlers prefix-free; combined router below
@@ -57,10 +58,15 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$")
 
 
 def _require_deploy_tier(user: User | None) -> User:
-    """Enforce pro/pro_plus tier; 401 if anonymous, 402 otherwise."""
+    """Enforce pro/pro_plus tier; 401 if anonymous, 402 otherwise.
+
+    Gates on the ENTITLED tier, not the raw ``subscription_tier`` column: that
+    column keeps its paid value through past_due/unpaid/paused, so reading it
+    directly let a customer whose card had failed keep deploying indefinitely.
+    """
     if user is None:
         raise HTTPException(status_code=401, detail="login_required")
-    tier = (user.subscription_tier or "").lower()
+    tier = (entitled_tier(user) or "").lower()
     if tier not in DEPLOY_TIERS:
         raise HTTPException(
             status_code=402,

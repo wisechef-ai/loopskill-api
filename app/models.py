@@ -70,6 +70,15 @@ class User(Base):
     subscription_tier = Column(String(32), nullable=True)  # free, pro, pro_plus (legacy: cook, operator)
     subscription_id = Column(String(255), nullable=True)  # Stripe subscription id
     subscription_current_period_end = Column(DateTime(timezone=True), nullable=True)
+    # mesh0408e2e W2 — webhook ORDERING guard. Stripe delivery is at-least-once
+    # but NOT ordered: an older customer.subscription.updated (status=active)
+    # can arrive AFTER a newer one (status=past_due) and clobber it, silently
+    # restoring Pro entitlement to a subscription whose card just failed.
+    # Idempotency (stripe_event_ids) does not help — these are DISTINCT events.
+    # This stores the Stripe `event.created` timestamp of the most recently
+    # APPLIED subscription-state event; an event older than it is dropped.
+    # NULL = no event applied yet (nothing to be stale against).
+    subscription_event_at = Column(DateTime(timezone=True), nullable=True)
     # evergreen_0206 Phase G — free-tier conversion taste. When a free user runs
     # their ONE allowed manual reconcile/sync, this is stamped. A second manual
     # sync → 402/upgrade. NULL = the free sync has not been used yet.

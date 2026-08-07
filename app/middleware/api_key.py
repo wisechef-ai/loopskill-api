@@ -26,6 +26,7 @@ from app.middleware._public_paths import EXEMPT_PATHS as _EXEMPT_PATHS
 from app.middleware._public_paths import PUBLIC_PREFIXES as _PUBLIC_PREFIXES
 from app.middleware.key_prefixes import API_KEY_PREFIX, FLEET_KEY_PREFIX  # noqa: F401 — compat re-export
 from app.middleware.key_prefixes import LOOPSKILL_KEY_PREFIX, USER_KEY_PREFIXES  # noqa: F401
+from app.revenue_truth import entitled_tier
 
 logger = logging.getLogger("wiserecipes.middleware")
 
@@ -102,7 +103,7 @@ def _auth_ctx_from_jwt_cookie(request) -> "AuthContext":
         # (old code 401'd fresh signups). `tier` alone stays conditional.
         if user:
             org_id, is_org_owner = _resolve_org_membership(db, user_id)
-            tier = user.subscription_tier if user.subscription_status in ("active", "trialing") else None
+            tier = entitled_tier(user)
             return AuthContext(
                 scope="user", user_id=user_id, tier=tier, org_id=org_id, is_org_owner=is_org_owner
             )
@@ -176,9 +177,7 @@ def _auth_ctx_from_api_key(request) -> "AuthContext | None":
         if api_key_obj is None:
             return None
         user_obj = db.query(User).filter(User.id == api_key_obj.user_id).first()
-        tier: str | None = None
-        if user_obj and user_obj.subscription_status in ("active", "trialing"):
-            tier = user_obj.subscription_tier
+        tier: str | None = entitled_tier(user_obj)
         org_id, is_org_owner = _resolve_org_membership(db, api_key_obj.user_id)
         return AuthContext(
             scope="user",
@@ -561,9 +560,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 from app.models import User as _User
 
                 _user_obj = db.query(_User).filter(_User.id == api_key_obj.user_id).first()
-                _tier: str | None = None
-                if _user_obj and _user_obj.subscription_status in ("active", "trialing"):
-                    _tier = _user_obj.subscription_tier
+                _tier: str | None = entitled_tier(_user_obj)
 
                 # activate_0701/TEN: resolve org membership for tenant scope.
                 _org_id, _is_org_owner = _resolve_org_membership(db, api_key_obj.user_id)

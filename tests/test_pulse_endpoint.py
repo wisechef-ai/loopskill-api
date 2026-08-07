@@ -8,7 +8,8 @@ Stripe, so the cash figures are resolved there and degrade to None (never
 list-price) when Stripe is unreachable.
 
 Covers:
-  - _monthly_cents_from_stripe_sub: the pure discount-math core (no network)
+  - real_monthly_cents: the pure discount-math core (no network), now shared
+    with the Discord revenue alerts via app.revenue_truth (mesh0408e2e W2)
   - the master-key gate (a normal user api key -> 403)
   - DB-only context fields (active subs, by_tier, list ceiling, fleet counters)
   - the no-Stripe-customers fast path ($0 real cash, no API call)
@@ -17,6 +18,7 @@ Covers:
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from uuid import uuid4
 
 from fastapi import FastAPI
@@ -24,9 +26,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.admin_routes import _monthly_cents_from_stripe_sub
 from app.database import get_db
 from app.models import Fleet, FleetSubscription, User
+from app.revenue_truth import real_monthly_cents
 
 
 # ─────────────── Pure discount-math core (no network) ───────────────
@@ -43,39 +45,41 @@ def _sub(unit_amount, *, interval="month", qty=1, percent_off=None, amount_off=N
 
 
 class TestMonthlyCentsPure:
+    """The maths is exact Decimal cents now — compare against Decimal, not int."""
+
     def test_full_price_monthly(self):
         # $20.00/mo, no discount → 2000 cents
-        assert _monthly_cents_from_stripe_sub(_sub(2000)) == 2000
+        assert real_monthly_cents(_sub(2000)) == Decimal(2000)
 
     def test_hundred_percent_off_is_zero(self):
         # The promo-code illusion: 100%-off → real cash is $0, NOT list price.
-        assert _monthly_cents_from_stripe_sub(_sub(2000, percent_off=100)) == 0
+        assert real_monthly_cents(_sub(2000, percent_off=100)) == Decimal(0)
 
     def test_fifty_percent_off(self):
-        assert _monthly_cents_from_stripe_sub(_sub(2000, percent_off=50)) == 1000
+        assert real_monthly_cents(_sub(2000, percent_off=50)) == Decimal(1000)
 
     def test_amount_off(self):
         # $100.00 list, $100.00 off → 0
-        assert _monthly_cents_from_stripe_sub(_sub(10000, amount_off=10000)) == 0
+        assert real_monthly_cents(_sub(10000, amount_off=10000)) == Decimal(0)
         # $100.00 list, $30.00 off → 7000
-        assert _monthly_cents_from_stripe_sub(_sub(10000, amount_off=3000)) == 7000
+        assert real_monthly_cents(_sub(10000, amount_off=3000)) == Decimal(7000)
 
     def test_yearly_normalised_to_monthly(self):
         # $240/yr → $20/mo
-        assert _monthly_cents_from_stripe_sub(_sub(24000, interval="year")) == 2000
+        assert real_monthly_cents(_sub(24000, interval="year")) == Decimal(2000)
 
     def test_quantity_multiplies(self):
-        assert _monthly_cents_from_stripe_sub(_sub(2000, qty=3)) == 6000
+        assert real_monthly_cents(_sub(2000, qty=3)) == Decimal(6000)
 
     def test_discount_cannot_go_negative(self):
-        assert _monthly_cents_from_stripe_sub(_sub(2000, amount_off=999999)) == 0
+        assert real_monthly_cents(_sub(2000, amount_off=999999)) == Decimal(0)
 
     def test_metered_price_contributes_zero(self):
         s = {"items": {"data": [{"price": {"unit_amount": None, "recurring": {"interval": "month"}}}]}}
-        assert _monthly_cents_from_stripe_sub(s) == 0
+        assert real_monthly_cents(s) == Decimal(0)
 
     def test_empty_subscription(self):
-        assert _monthly_cents_from_stripe_sub({}) == 0
+        assert real_monthly_cents({}) == Decimal(0)
 
 
 # ─────────────── Endpoint (DB-only paths, no Stripe) ───────────────
@@ -141,12 +145,16 @@ class TestAdminPulseEndpoint:
         assert r.status_code == 200, r.text
         b = r.json()
         assert b["mrr_source"] == "stripe"
-        assert b["real_cash_mrr_usd"] == 0  # the HONEST number
+        # Money is Decimal end to end, so it serialises as an exact string.
+        assert Decimal(b["real_cash_mrr_usd"]) == Decimal("0.00")  # the HONEST number
         assert b["paying_operators"] == 0
         assert b["active_subscriptions"] == 2  # pro_plus + pro
         assert b["comped_subscriptions"] == 2  # both active, neither pays
         assert b["by_tier"] == {"pro_plus": 1, "pro": 1}
-        assert b["list_mrr_ceiling_usd"] == 120  # 100 + 20, labeled a CEILING not revenue
+        # 100 + 9.95, from the config/tiers.yaml SSOT. Labeled a CEILING, not
+        # revenue. Was 120 while a stale local copy of the price map still said
+        # Pro cost $20 — the pulse's own list figure was wrong by $10.05.
+        assert Decimal(b["list_mrr_ceiling_usd"]) == Decimal("109.95")
         assert b["free_sync_used_7d"] == 1
 
     def test_zero_state(self, db_session):
@@ -155,7 +163,7 @@ class TestAdminPulseEndpoint:
             r = client.get("/api/admin/pulse")
         assert r.status_code == 200, r.text
         b = r.json()
-        assert b["real_cash_mrr_usd"] == 0
+        assert Decimal(b["real_cash_mrr_usd"]) == Decimal("0.00")
         assert b["paying_operators"] == 0
         assert b["active_subscriptions"] == 0
         assert b["by_tier"] == {}
