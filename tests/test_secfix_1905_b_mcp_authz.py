@@ -537,6 +537,8 @@ class TestIssue13CookbookScopedKey:
         cb = MagicMock()
         cb.id = cb_id
         cb.bundle_owner = owner_id
+        # personal scope — a bare MagicMock would auto-create a truthy org_id
+        cb.org_id = None
 
         assert can_write_cookbook(ctx, cb) is True
 
@@ -559,6 +561,7 @@ class TestIssue13CookbookScopedKey:
         other_cb = MagicMock()
         other_cb.id = other_cb_id
         other_cb.bundle_owner = owner_id  # user owns it, but key is scoped
+        other_cb.org_id = None
 
         assert can_write_cookbook(ctx, other_cb) is False, (
             "EXPLOIT: cookbook-scoped key allowed to write to a different cookbook"
@@ -625,12 +628,14 @@ class TestIssue13CookbookScopedKey:
         cb_mock = MagicMock()
         cb_mock.id = cb_id
         cb_mock.bundle_owner = owner_id
+        cb_mock.org_id = None
         assert can_write_cookbook(stamped_ctx, cb_mock) is True
 
         # Different cookbook → denied (even though user owns it)
         other_cb = MagicMock()
         other_cb.id = uuid4()
         other_cb.bundle_owner = owner_id
+        other_cb.org_id = None
         assert can_write_cookbook(stamped_ctx, other_cb) is False, (
             "BUG: cookbook-scoped key should not write to a different cookbook"
         )

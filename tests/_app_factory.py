@@ -86,6 +86,13 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.skill_error_routes", "router", ""),
     ("app.transparency_routes", "router", ""),
     ("app.engagement_routes", "router", ""),  # spotify_1507 PhA — likes/favourites/discover/library
+    # spotify_2607 PhB — slug-based likes for personalities/loops/bundles.
+    # create_app has mounted this since PR #144; the factory never did, so any
+    # test hitting POST /api/bundles/{slug}/like got FastAPI's generic 404 and
+    # "passed" against a route that did not exist (mesh_0408 W1 found it while
+    # probing that route's cross-tenant behaviour). Mounted immediately after
+    # engagement_routes to mirror create_app's ordering exactly.
+    ("app.artifact_like_routes", "router", ""),
     ("app.bundle_lock_routes", "router", ""),  # spotify_1507 PhB — bundle-lock + drift
     ("app.feedback_v1_routes", "router", ""),
     ("app.skill_patch_routes", "router", ""),

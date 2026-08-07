@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select, desc, and_
 from sqlalchemy.orm import Session
 
+from app import authz
 from app.auth_ctx import AuthContext
 from app.database import get_db
 from app.library_service import set_federated_like_in_bundle, set_local_like_by_skill
@@ -320,7 +321,10 @@ def my_library(request: Request, db: Session = Depends(get_db)):
             select(Bundle)
             .where(
                 and_(
-                    Bundle.bundle_owner == ctx.user_id,
+                    # mesh_0408 W1 (P0): tenant-scoped. The library used to
+                    # aggregate bundles from every client org the account runs
+                    # into one list, with no tenant label to tell them apart.
+                    authz.owner_match_within_tenant_clause(ctx, Bundle),
                     Bundle.is_base.is_(False),
                     Bundle.is_liked.is_(False),
                 )

@@ -32,11 +32,20 @@ def make_skill(is_public: bool = True, skill_owner=None):
     return skill
 
 
-def make_cookbook(bundle_owner=None, cookbook_id=None):
-    """Create a mock cookbook object."""
+def make_cookbook(bundle_owner=None, cookbook_id=None, org_id=None):
+    """Create a mock cookbook object.
+
+    ``org_id`` MUST be stamped explicitly. A bare MagicMock auto-creates any
+    attribute read off it, so ``getattr(cb, "org_id", None)`` would return a
+    truthy Mock rather than the NULL a real personal-scope Bundle carries —
+    and the mesh_0408 W1 tenant predicate would read that as "this bundle
+    lives in some org", denying a caller it should allow. Default None =
+    personal scope, matching the column default.
+    """
     cb = MagicMock()
     cb.bundle_owner = bundle_owner
     cb.id = cookbook_id or uuid4()
+    cb.org_id = org_id
     return cb
 
 
