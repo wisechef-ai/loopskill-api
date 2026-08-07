@@ -167,6 +167,54 @@ def preflight_member(db: Session, member_id: UUID, loop_key: str) -> PreflightRe
     return PreflightResult(ok=not missing, missing=missing)
 
 
+# ── reconcile pre-apply gate ─────────────────────────────────────────────────
+
+
+def reconcile_precheck(db: Session, fleet_id: UUID) -> dict[str, Any]:
+    """Re-validate every LIVE placement in a fleet before a reconcile applies.
+
+    fleetos_1607 gap: a loop's ``requires{}`` (LoopManifest) or a member's
+    advertised ``provides{}`` (FleetMemberLiveness) can drift AFTER a placement
+    was made — the manifest gets re-declared with a new required package, or
+    the member re-pings with fewer capabilities. Nothing previously re-ran
+    ``preflight_member`` against that drift; a stale-but-live placement would
+    silently keep routing to a now-incompatible host until it broke at
+    runtime. This walks every live (assigned/active/draining) placement and
+    re-runs the same preflight the initial assign used, so an operator (or an
+    automated reconcile loop) can see incompatibilities BEFORE applying
+    further placement changes — not after a loop fails on a host it can no
+    longer satisfy.
+
+    Returns a structured, honest result — never raises on drift, only on a
+    malformed fleet_id (caller's job to validate that upstream).
+    """
+    placements = (
+        db.query(LoopPlacement)
+        .filter(LoopPlacement.fleet_id == fleet_id, LoopPlacement.status.in_(LIVE_STATUSES))
+        .order_by(LoopPlacement.loop_key)
+        .all()
+    )
+    incompatible: list[dict[str, Any]] = []
+    for pl in placements:
+        pf = preflight_member(db, pl.member_id, pl.loop_key)
+        if not pf.ok:
+            incompatible.append(
+                {
+                    "placement_id": str(pl.id),
+                    "loop_key": pl.loop_key,
+                    "member_id": str(pl.member_id),
+                    "epoch": pl.placement_epoch,
+                    "missing": pf.missing,
+                }
+            )
+    return {
+        "fleet_id": str(fleet_id),
+        "checked": len(placements),
+        "ok": not incompatible,
+        "incompatible": incompatible,
+    }
+
+
 # ── transitions ──────────────────────────────────────────────────────────────
 
 

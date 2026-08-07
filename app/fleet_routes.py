@@ -29,6 +29,7 @@ from app.mcp.tools.fleet import (
     loopskill_fleet_subscribe,
     loopskill_fleet_sync,
 )
+from app.mcp.tools.placement import loopskill_reconcile_precheck
 from app.models import User
 
 # mesh0408e2e W2: entitlement follows subscription STATUS, not the raw tier
@@ -95,6 +96,7 @@ def _raise_for_tool_error(result: dict[str, Any]) -> dict[str, Any]:
     status = {
         "forbidden": 403,
         "not_found": 404,
+        "fleet_not_found": 404,
         "invalid_fleet_id": 422,
         "invalid_cookbook_id": 422,
         "invalid_channel": 422,
@@ -164,3 +166,19 @@ def sync_fleet_route(fleet_id: str, body: SyncIn, request: Request, db: Session 
     """POST /api/fleets/{id}/sync — sync every subscribed cookbook. dry_run previews."""
     ctx = resolve_fleet_ctx(request, db)
     return _raise_for_tool_error(loopskill_fleet_sync(db, fleet_id=fleet_id, dry_run=body.dry_run, ctx=ctx))
+
+
+@router.post("/{fleet_id}/reconcile-precheck")
+def reconcile_precheck_route(fleet_id: str, request: Request, db: Session = Depends(get_db)):
+    """POST /api/fleets/{id}/reconcile-precheck — pre-apply gate for the reconcile step.
+
+    fleetos_1607 gap-close (2026-08-07): re-validates every LIVE placement's
+    compatibility (loop requires{} vs member provides{}) BEFORE a reconcile
+    applies further placement changes. Manager-capability gated — a bare
+    fleet-member key gets 403. Returns {ok: bool, incompatible: [...]} so a
+    caller can refuse to proceed on drift instead of silently propagating a
+    now-incompatible placement. Mirrors loopskill_reconcile_precheck exactly
+    (PM7 — the two surfaces never drift).
+    """
+    ctx = resolve_fleet_ctx(request, db)
+    return _raise_for_tool_error(loopskill_reconcile_precheck(db, fleet_id=fleet_id, ctx=ctx))
