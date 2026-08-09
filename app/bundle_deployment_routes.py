@@ -23,6 +23,7 @@ Endpoints:
   DELETE /api/cookbook-deploy/{cookbook_id}/skills/{skill_id}
   POST   /api/cookbook-deploy/{cookbook_id}/apply
   GET    /api/cookbook-deploy/{cookbook_id}/jobs/{job_id}
+  POST   /api/cookbook-deploy/{cookbook_id}/rollback
   POST   /api/cookbook-deploy/{slug}/preflight
   GET    /api/cookbook-deploy/{slug}/manifest
 """
@@ -52,6 +53,8 @@ from app.services.bundle_apply import (
     create_apply_job,
     job_items,
     job_to_dict,
+    RollbackNotFailed,
+    rollback_bundle_job,
 )
 
 logger = logging.getLogger(__name__)
@@ -393,6 +396,65 @@ async def cookbook_job_status(
     if job is None:
         raise HTTPException(status_code=404, detail="job_not_found")
     return job_to_dict(job, job_items(db, job))
+
+
+@_h.post("/{cookbook_id}/rollback")  # compat-alias
+async def rollback_cookbook(
+    cookbook_id: str,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    """Clear a bundle stuck in a FAILED apply job with one atomic reset.
+
+    W5 gave the bundle path a real terminal state (``applying`` ->
+    ``converged`` | ``failed``) but no recovery path off ``failed`` — an
+    operator had to notice and manually re-POST ``/apply``. This closes that
+    gap: it verifies the bundle's LATEST job is genuinely ``failed`` (409 if
+    it's still ``applying`` — it might still converge on its own — or already
+    ``converged`` — nothing to roll back), then opens a fresh apply job
+    against the bundle's CURRENT resolution, same as ``/apply``. If a patch
+    was published between the failure and the rollback call, the new job
+    targets the patched version, not a frozen retry of the broken one.
+    """
+    user = _require_deploy_tier(user)
+    cb = _resolve_cookbook_or_404(db, cookbook_id, user)
+
+    try:
+        job, targets = rollback_bundle_job(db, cb, requested_by_user_id=user.id)
+    except RollbackNotFailed as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "not_failed",
+                "latest_status": exc.status,
+                "hint": (
+                    "rollback only applies on top of a 'failed' job — "
+                    "'applying' may still converge, 'converged' has nothing to roll back"
+                ),
+            },
+        )
+    except UnresolvableBundle as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "no_resolvable_version",
+                "unresolvable": exc.slugs,
+                "hint": "publish a version for these skills before rolling back",
+            },
+        )
+
+    logger.info(
+        "cookbook_rollback cookbook=%s job=%s owner=%s",
+        cb.id,
+        job.id,
+        user.id,
+    )
+    return {
+        "status": job.status,
+        "job_id": str(job.id),
+        "cookbook_id": str(cb.id),
+        "targets": [t.to_dict() for t in targets],
+    }
 
 
 @_h.post("/{slug}/preflight")
