@@ -102,6 +102,25 @@ class UnresolvableBundle(Exception):
         super().__init__(f"no resolvable version for: {', '.join(slugs) or '(empty bundle)'}")
 
 
+class RollbackNotFailed(Exception):
+    """Rollback requested but the bundle's most recent job is not ``failed``.
+
+    W5 gave the bundle path a terminal state but no recovery path — a job
+    that reaches ``failed`` just sits there; the only way out was an operator
+    noticing and manually re-POSTing ``/apply``. Rollback is scoped
+    deliberately narrow: it only ever fires on top of an actually-FAILED
+    latest job, never on ``applying`` (that job might still converge) or
+    ``converged`` (nothing to roll back from). This also makes a second
+    rollback call idempotent-safe: once the retry job exists it is
+    ``applying``, not ``failed``, so calling rollback again correctly raises
+    this instead of silently stacking a second retry.
+    """
+
+    def __init__(self, status: str | None) -> None:
+        self.status = status
+        super().__init__(f"latest job status is {status!r}, not 'failed' — nothing to roll back")
+
+
 @dataclass(frozen=True)
 class ResolvedTarget:
     """One (skill, version) pair the bundle currently resolves to."""
@@ -219,6 +238,51 @@ def job_items(db: Session, job: BundleApplyJob) -> list[BundleApplyJobItem]:
         .filter(BundleApplyJobItem.job_id == job.id)
         .order_by(BundleApplyJobItem.skill_slug.asc())
         .all()
+    )
+
+
+def latest_job_for_bundle(db: Session, bundle_id: UUID) -> BundleApplyJob | None:
+    """Most recently created apply job for ``bundle_id``, or ``None``."""
+    return (
+        db.query(BundleApplyJob)
+        .filter(BundleApplyJob.bundle_id == bundle_id)
+        .order_by(BundleApplyJob.created_at.desc())
+        .first()
+    )
+
+
+def rollback_bundle_job(
+    db: Session,
+    bundle: Bundle,
+    *,
+    member_id: UUID | None = None,
+    requested_by_user_id: UUID | None = None,
+) -> tuple[BundleApplyJob, list[ResolvedTarget]]:
+    """Clear a stuck FAILED bundle state with a single idempotent call.
+
+    mesh0408-W5 closed the moat loop's status side (applying -> converged |
+    failed) but left FAILED a dead end — no code path ever moved a bundle off
+    it. This is that recovery path: verify the bundle's LATEST job is
+    genuinely ``failed`` (never touch ``applying`` — it might still converge;
+    never touch ``converged`` — there is nothing to roll back), then open a
+    brand-new apply job the exact same way ``/apply`` and ``/start`` do,
+    re-resolving the bundle's CURRENT targets so a rollback issued after a
+    patch was published picks up the fix, not a frozen retry of the same
+    broken versions.
+
+    Raises :class:`RollbackNotFailed` if the latest job is not ``failed``
+    (covers both "no job has ever run" — ``None`` — and "still applying" /
+    "already converged"), and :class:`UnresolvableBundle` if the bundle no
+    longer resolves to anything installable (unchanged from ``create_apply_job``).
+    """
+    latest = latest_job_for_bundle(db, bundle.id)
+    if latest is None or latest.status != STATUS_FAILED:
+        raise RollbackNotFailed(latest.status if latest else None)
+    return create_apply_job(
+        db,
+        bundle,
+        member_id=member_id,
+        requested_by_user_id=requested_by_user_id,
     )
 
 
