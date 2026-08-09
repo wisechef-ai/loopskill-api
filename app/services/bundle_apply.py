@@ -106,7 +106,7 @@ class RollbackNotFailed(Exception):
     """Rollback requested but the bundle's most recent job is not ``failed``.
 
     W5 gave the bundle path a terminal state but no recovery path — a job
-    that reaches ``failed`` just sits there; the only way out was an operator
+    that reaches ``failed`` just sits there; the only way out was a human
     noticing and manually re-POSTing ``/apply``. Rollback is scoped
     deliberately narrow: it only ever fires on top of an actually-FAILED
     latest job, never on ``applying`` (that job might still converge) or

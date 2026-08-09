@@ -3,7 +3,7 @@
 mesh0408-W5 gave the bundle-apply path a real terminal state
 (``applying -> converged | failed``), closing the "status that cannot go
 red" gap. But it opened a new one: nothing ever moved a bundle OFF
-``failed``. An operator had to notice and manually re-POST ``/apply``.
+``failed``. A human had to notice and manually re-POST ``/apply``.
 
 This pins the fix: ``POST /api/cookbook-deploy/{id}/rollback``.
 

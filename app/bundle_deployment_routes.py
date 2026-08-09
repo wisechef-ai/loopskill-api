@@ -406,11 +406,11 @@ async def rollback_cookbook(
     """Clear a bundle stuck in a FAILED apply job with one atomic reset.
 
     W5 gave the bundle path a real terminal state (``applying`` ->
-    ``converged`` | ``failed``) but no recovery path off ``failed`` — an
-    operator had to notice and manually re-POST ``/apply``. This closes that
-    gap: it verifies the bundle's LATEST job is genuinely ``failed`` (409 if
-    it's still ``applying`` — it might still converge on its own — or already
-    ``converged`` — nothing to roll back), then opens a fresh apply job
+    ``converged`` | ``failed``) but no recovery path off ``failed`` — a human
+    had to notice and manually re-POST ``/apply``. This closes that gap: it
+    verifies the bundle's LATEST job is genuinely ``failed`` (409 if it's
+    still ``applying`` -> it might still converge on its own -> or already
+    ``converged`` -> nothing to roll back), then opens a fresh apply job
     against the bundle's CURRENT resolution, same as ``/apply``. If a patch
     was published between the failure and the rollback call, the new job
     targets the patched version, not a frozen retry of the broken one.
