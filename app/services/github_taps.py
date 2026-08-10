@@ -15,11 +15,20 @@ independently: redistributable → fetch-origin; source-available → deep-link.
 
 Each tap surfaces as a DISTINCT source id (``github-anthropic``, ``github-openai``,
 …) so the facets browse separately, mirroring the Hub's facet UI 1:1.
+
+bundles_0811 Phase P3.5 (locked decision #10): the tap LIST itself moved from a
+hardcoded Python tuple to ``config/federation_sources.yaml`` — accepting a
+self-serve-proposed GitHub-hosted registry is now a config edit (append one row
+to that YAML's ``github_taps`` list), never a Python change. This module is now
+just the READER: it builds ``GitHubTap`` namedtuples from
+``app.services.federation_sources_config.github_tap_rows()``.
 """
 
 from __future__ import annotations
 
 from typing import NamedTuple
+
+from app.services.federation_sources_config import github_tap_rows
 
 
 class GitHubTap(NamedTuple):
@@ -46,33 +55,27 @@ class GitHubTap(NamedTuple):
     in_metasearch: bool = False
 
 
-# The locked allowlist (decision #12, our own monorepo removed per Adam).
-# Verified live 2026-06-06 (anon Contents API): anthropics/skills=17 dirs,
-# huggingface/skills=16, garrytan/gstack=69, NVIDIA Apache-2.0+CC-BY-4.0.
-GITHUB_TAPS: tuple[GitHubTap, ...] = (
-    # Per-skill license repos (anthropics + openai ship a LICENSE.txt per skill
-    # dir; repo_license=None forces per-skill resolution → redistributable subset
-    # installs fetch-origin, source-available (docx/pdf/pptx/xlsx) deep-links).
-    GitHubTap("github-anthropic", "anthropics/skills", "skills/", None, "trusted-source"),
-    GitHubTap("github-openai", "openai/skills", "skills/.curated/", None, "curated-community"),
-    # Whole-repo single-license repos → every skill is fetch-origin installable
-    # (decision #13 hard gate: each yields >=1 installable skill via Recipes).
-    GitHubTap("github-huggingface", "huggingface/skills", "skills/", "Apache-2.0", "curated-community"),
-    GitHubTap("github-nvidia", "NVIDIA/skills", "skills/", "Apache-2.0 AND CC-BY-4.0", "trusted-source"),
-    GitHubTap("github-gstack", "garrytan/gstack", "", "MIT", "curated-community"),
-    GitHubTap("github-superpowers", "obra/superpowers", "skills/", "MIT", "curated-community"),
-    # Corey Haines' marketing skill pack (47 skills, MIT). Layout: skills/<slug>/SKILL.md.
-    # in_metasearch=True → first-class ranking; live-fetch (no SHA pin) so daily
-    # upstream edits surface at query+install time.
-    GitHubTap(
-        "github-marketing",
-        "coreyhaines31/marketingskills",
-        "skills/",
-        "MIT",
-        "trusted-source",
-        in_metasearch=True,
-    ),
-)
+def _build_github_taps() -> tuple[GitHubTap, ...]:
+    """Build the GITHUB_TAPS tuple from config/federation_sources.yaml.
+
+    Verified live 2026-06-06 (anon Contents API) for the original 7 rows:
+    anthropics/skills=17 dirs, huggingface/skills=16, garrytan/gstack=69,
+    NVIDIA Apache-2.0+CC-BY-4.0.
+    """
+    return tuple(
+        GitHubTap(
+            source_id=row["source_id"],
+            repo=row["repo"],
+            path=row.get("path", ""),
+            repo_license=row.get("repo_license"),
+            trust=row.get("trust", "curated-community"),
+            in_metasearch=bool(row.get("in_metasearch", False)),
+        )
+        for row in github_tap_rows()
+    )
+
+
+GITHUB_TAPS: tuple[GitHubTap, ...] = _build_github_taps()
 
 # Fast lookup: source_id -> tap.
 TAP_BY_SOURCE: dict[str, GitHubTap] = {t.source_id: t for t in GITHUB_TAPS}

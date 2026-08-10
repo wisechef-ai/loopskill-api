@@ -49,19 +49,17 @@ INTERNAL_SOURCE = "recipes"
 # superset_0606 Phase C: the 6 GitHub provider facets (the big steal) are
 # appended from the curated tap-list — one parameterized adapter, distinct
 # source ids so they browse as named facets mirroring the Hub's facet UI.
+#
+# bundles_0811 Phase P3.5 (locked decision #10): both halves now come from
+# config/federation_sources.yaml (adapter_sources + github_taps) via
+# app.services.federation_sources_config — NOT a hardcoded Python tuple.
+# Accepting a self-serve-proposed GitHub-hosted registry is therefore a config
+# edit; see tests/test_federation_propose.py for the RED-proof.
 def _live_sources() -> tuple[str, ...]:
+    from app.services.federation_sources_config import adapter_source_ids
     from app.services.github_taps import GITHUB_FACET_SOURCES
 
-    return (
-        "hermes-hub",
-        "skills-sh",
-        "well-known",
-        "clawhub",
-        "lobehub",
-        "browse-sh",
-        "github-oss",
-        *GITHUB_FACET_SOURCES,
-    )
+    return (*adapter_source_ids(), *GITHUB_FACET_SOURCES)
 
 
 LIVE_SOURCES = _live_sources()

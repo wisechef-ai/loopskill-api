@@ -189,8 +189,13 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
     # Phase A — POST /api/intent-survey is anonymous; GET /api/intent-survey/results
     # is admin-gated at the route level via x-api-key. Method-aware allowlist.
+    # bundles_0811 Phase P3.5 (locked decision #10): POST /api/federation/propose
+    # must be callable WITHOUT an account (self-serve) — anonymous callers are
+    # still rate-limited by RateLimitMiddleware's per-IP bucket AND by the
+    # feedback_ratelimit multi-window gate inside the route itself.
     PUBLIC_POST_ONLY_PATHS = {
         "/api/intent-survey",
+        "/api/federation/propose",
     }
     # Public skill-detail GETs match path-shape /api/skills/{slug} (no trailing path).
     # Distinguished from /api/skills/install (auth) and /api/skills/_download (auth)

@@ -12,7 +12,7 @@ name: Feedback Dispatcher
 
 on:
   repository_dispatch:
-    types: [feedback, skill-error, publish-request, skill-patch]
+    types: [feedback, skill-error, publish-request, skill-patch, federation-registry-propose]
 
 permissions:
   issues: write
@@ -34,35 +34,71 @@ jobs:
             const payload = context.payload.client_payload;
             const eventType = context.payload.action;
 
-            // Build title and body from the dispatch payload
-            const category = payload.category || 'general';
-            const message = payload.message || 'No message provided';
-            const agentId = payload.agent_id || 'unknown';
-            const signature = payload.signature || '';
-
             // Map event types to labels
             const labelMap = {
-              'feedback': ['feedback', category],
+              'feedback': ['feedback', payload.category || 'general'],
               'skill-error': ['bug', 'skill-error'],
               'publish-request': ['enhancement', 'publish-request'],
               'skill-patch': ['enhancement', 'skill-patch'],
+              'federation-registry-propose': ['enhancement', 'federation-registry-propose'],
             };
             const labels = labelMap[eventType] || ['feedback'];
 
-            // Build issue body
-            let body = `**Category:** ${category}\n\n**Message:**\n${message}\n`;
-            if (signature) {
-              body += `\n**Signature:** \`${signature.substring(0, 16)}…\`\n`;
-            }
-            body += `\n**Submission ID:** ${payload.id}\n`;
-            body += `**Source:** MCP tool (agent: ${agentId})\n`;
-            body += `\n---\n_Auto-created by Feedback Dispatcher workflow from repository_dispatch event._`;
+            let title;
+            let body;
 
-            // Truncate title to fit GitHub limits
-            const titlePrefix = `[${category}]`;
-            const maxTitleLen = 256 - titlePrefix.length;
-            const titleSuffix = message.substring(0, maxTitleLen);
-            const title = `${titlePrefix} ${titleSuffix}${message.length > maxTitleLen ? '…' : ''}`;
+            if (eventType === 'federation-registry-propose') {
+              // bundles_0811 Phase P3.5 — self-serve federation registry proposal.
+              // Pre-flight evidence is attached to the body so the issue is
+              // triageable in a minute without further research.
+              const pf = payload.preflight || {};
+              const repoSlug = payload.repo_slug || payload.repo_url || 'unknown';
+              title = `[federation-registry] ${repoSlug}`.substring(0, 256);
+              body = [
+                `**Proposed source id:** \`${payload.proposed_source_id || ''}\``,
+                `**Repo URL:** ${payload.repo_url || ''}`,
+                `**Contact:** ${payload.contact || '(none provided)'}`,
+                '',
+                '**Why:**',
+                payload.why || '(none provided)',
+                '',
+                '### Pre-flight evidence',
+                `- Repo exists: \`${pf.repo_exists}\``,
+                `- SKILL.md files found: \`${pf.skill_md_count}\``,
+                `- License detected: \`${pf.license_detected || 'unknown'}\``,
+                `- Default branch: \`${pf.default_branch || 'unknown'}\``,
+                pf.reason ? `- Note: ${pf.reason}` : '',
+                '',
+                '### To accept',
+                'Append an entry to `config/federation_sources.yaml` (either',
+                '`adapter_sources` for a bespoke non-GitHub source, or `github_taps`',
+                'for a GitHub-hosted skill collection) and merge. No Python change',
+                'is required for a github_taps entry.',
+                '',
+                `**Submission ID:** ${payload.id}`,
+                `\n---\n_Auto-created by Feedback Dispatcher workflow from repository_dispatch event._`,
+              ].filter(Boolean).join('\n');
+            } else {
+              // Build title and body from the dispatch payload (feedback / skill-error / publish-request / skill-patch)
+              const category = payload.category || 'general';
+              const message = payload.message || 'No message provided';
+              const agentId = payload.agent_id || 'unknown';
+              const signature = payload.signature || '';
+
+              body = `**Category:** ${category}\n\n**Message:**\n${message}\n`;
+              if (signature) {
+                body += `\n**Signature:** \`${signature.substring(0, 16)}…\`\n`;
+              }
+              body += `\n**Submission ID:** ${payload.id}\n`;
+              body += `**Source:** MCP tool (agent: ${agentId})\n`;
+              body += `\n---\n_Auto-created by Feedback Dispatcher workflow from repository_dispatch event._`;
+
+              // Truncate title to fit GitHub limits
+              const titlePrefix = `[${category}]`;
+              const maxTitleLen = 256 - titlePrefix.length;
+              const titleSuffix = message.substring(0, maxTitleLen);
+              title = `${titlePrefix} ${titleSuffix}${message.length > maxTitleLen ? '…' : ''}`;
+            }
 
             const issue = await github.rest.issues.create({
               owner: context.repo.owner,
@@ -91,6 +127,7 @@ jobs:
           # Determine table type from event action
           case "${{ github.event.action }}" in
             publish-request) TABLE="recipify" ;;
+            federation-registry-propose) TABLE="federation" ;;
             *) TABLE="feedback" ;;
           esac
 
