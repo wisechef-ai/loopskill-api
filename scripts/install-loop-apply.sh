@@ -9,7 +9,8 @@
 #            collector cron  → drains those loops' run telemetry to the server
 #
 # Usage:
-#   export RECIPES_API_KEY=rec_live_MEMBER_KEY   # the MEMBER key, not the bundle key
+#   export LOOPSKILL_API_KEY=rec_live_MEMBER_KEY   # the MEMBER key, not the bundle key
+#   # (legacy alias RECIPES_API_KEY still accepted — LOOPSKILL_API_KEY wins if both set)
 #   bash scripts/install-loop-apply.sh [--api URL] [--host hermes]
 #                                      [--interval 30] [--jobs-file PATH] [--dry-run]
 #
@@ -54,8 +55,13 @@ else
 fi
 [[ -n "$PYTHON" ]] || { echo "install-loop-apply.sh: no python3 on PATH" >&2; exit 1; }
 
-if [[ $DRY_RUN -eq 0 && -z "${RECIPES_API_KEY:-}" ]]; then
-    echo "install-loop-apply.sh: set RECIPES_API_KEY to this agent's MEMBER key first." >&2
+# qa0208-w3 dual-accept: LOOPSKILL_API_KEY is canonical, RECIPES_API_KEY is
+# accepted as a deprecated fallback so existing installs keep working
+# unchanged. Prefer LOOPSKILL_API_KEY when both are set (issue #219 item 1).
+: "${LOOPSKILL_API_KEY:=${RECIPES_API_KEY:-}}"
+
+if [[ $DRY_RUN -eq 0 && -z "${LOOPSKILL_API_KEY:-}" ]]; then
+    echo "install-loop-apply.sh: set LOOPSKILL_API_KEY (or legacy RECIPES_API_KEY) to this agent's MEMBER key first." >&2
     echo "  (loop assignments are a member surface — a bundle key gets a 403)" >&2
     exit 2
 fi
@@ -138,7 +144,7 @@ echo "install-loop-apply.sh: installed emitter + collector into $HOST_ROOT/scrip
 # readable by every process this user owns and the command line shows up in ps.
 umask 077
 mkdir -p "$HOST_ROOT/loopskill"
-printf '%s' "$RECIPES_API_KEY" > "$HOST_ROOT/loopskill/member.key"
+printf '%s' "$LOOPSKILL_API_KEY" > "$HOST_ROOT/loopskill/member.key"
 chmod 0600 "$HOST_ROOT/loopskill/member.key"
 
 # ── wire the fenced cron block (idempotent) ──────────────────────────────────

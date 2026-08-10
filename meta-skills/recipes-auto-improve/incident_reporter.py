@@ -173,18 +173,51 @@ def wrap_invocation(
         return 1
 
 
-def run_cli(argv: list[str] | None = None) -> int:
+def _resolve_api_key() -> str | None:
+    """LOOPSKILL_API_KEY is canonical; RECIPES_API_KEY is accepted as a
+    deprecated fallback so existing installs keep working unchanged. When
+    both are set, LOOPSKILL_API_KEY wins.
+
+    Mirrors tools/recipes_cli.py's ``_get_api_key`` dual-accept pattern
+    (qa0208-w3) — issue #219 item 1: the product is branded LoopSkill
+    everywhere else (domain, repo, landing page, llms.txt), so a user
+    exporting only LOOPSKILL_API_KEY should not be told to set the legacy
+    RECIPES_API_KEY name.
+    """
+    key = os.environ.get("LOOPSKILL_API_KEY", "").strip()
+    if key:
+        return key
+    key = os.environ.get("RECIPES_API_KEY", "").strip()
+    return key or None
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="recipes-auto-improve")
     p.add_argument("--skill-id", required=True)
     p.add_argument("--skill-version", default=None)
     p.add_argument("--api-url", default=os.environ.get(
         "RECIPES_API_URL", "https://recipes.wisechef.ai"))
-    p.add_argument("--api-key", default=os.environ.get("RECIPES_API_KEY"))
+    p.add_argument("--api-key", default=_resolve_api_key())
     p.add_argument("--agent-fp", default=os.environ.get("RECIPES_AGENT_FP"))
     p.add_argument("rest", nargs=argparse.REMAINDER)
-    args = p.parse_args(argv)
+    return p
+
+
+def _parse_key_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI args with key-resolution wired in. Split out from
+    ``run_cli`` so tests can assert the resolved ``--api-key`` value without
+    needing a full ``--skill-id`` + ``--agent-fp`` + subprocess round-trip.
+    """
+    return _build_arg_parser().parse_args(argv)
+
+
+def run_cli(argv: list[str] | None = None) -> int:
+    args = _parse_key_args(argv)
     if not args.api_key or not args.agent_fp or not args.rest:
-        sys.stderr.write("usage: --skill-id UUID -- <cmd>; needs RECIPES_API_KEY+AGENT_FP\n")
+        sys.stderr.write(
+            "usage: --skill-id UUID -- <cmd>; needs LOOPSKILL_API_KEY "
+            "(or legacy RECIPES_API_KEY) + RECIPES_AGENT_FP\n"
+        )
         return 2
     cmd = args.rest[1:] if args.rest[0] == "--" else args.rest
     return wrap_invocation(
