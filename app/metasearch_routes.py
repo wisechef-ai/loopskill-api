@@ -182,6 +182,7 @@ def metasearch(
         result = merge_unified(
             curated,
             external,
+            query=q,
             sources_ok=["recipes", *fanout.sources_ok],
             sources_degraded=fanout.sources_degraded,
         )
