@@ -865,9 +865,7 @@ def _public_install_block(cb: Bundle, api_base: str) -> dict:
                                      to hardcode the auth caveat itself.
     """
     return {
-        "install_command": (
-            f"curl -fsSL {api_base}/api/bundles/install.sh | bash -s -- {cb.slug}"
-        ),
+        "install_command": (f"curl -fsSL {api_base}/api/bundles/install.sh | bash -s -- {cb.slug}"),
         "install_command_requires_auth": False,
         "clone_line_requires_auth": True,
         "clone_line_label": "Authenticated (MCP) install — requires a free LoopSkill API key",

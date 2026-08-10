@@ -90,7 +90,7 @@ class ForkPreviewOut(BaseModel):
     signed_in: bool
     # agent_instructions pattern (loopskill-api-endpoint-development skill) —
     # a remote agent calling this over raw HTTP cannot log in on the caller's
-    # behalf; this tells it exactly what to relay to its human operator.
+    # behalf; this tells it exactly what to relay to its human handler.
     agent_instructions: str
 
 
@@ -123,8 +123,8 @@ def preview_bundle_fork(slug: str, request: Request, db: Session = Depends(get_d
         claim_expires_at=expires_at.isoformat(),
         signed_in=signed_in,
         agent_instructions=(
-            f"This preview is not yet saved. To claim it, the calling agent's human "
-            f"operator must sign in at https://app.loopskill.io/signin (or provide an "
+            f"This preview is not yet saved. To claim it, whoever is running the calling "
+            f"agent must sign in at https://app.loopskill.io/signin (or provide an "
             f"x-api-key), then POST claim_token to /api/bundles/fork/claim within "
             f"{FORK_CLAIM_TTL_SECONDS // 60} minutes."
         ),
