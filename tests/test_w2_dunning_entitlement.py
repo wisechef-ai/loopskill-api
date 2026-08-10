@@ -154,12 +154,20 @@ class TestBundleQuotaGateHonoursSubscriptionStatus:
 
 class TestApiKeyCapHonoursSubscriptionStatus:
     def test_lapsed_pro_gets_free_key_cap(self, db_session):
-        from app.api_key_routes import DEFAULT_CAP, KEY_CAP
+        # bundles_0811 P2.5: the KEY_CAP/DEFAULT_CAP dict literals in
+        # app/api_key_routes.py were replaced by the config/tiers.yaml SSOT,
+        # read through app.tier_labels.api_key_cap(). The guarantee under test
+        # is unchanged: a past_due Pro is entitled to FREE, so it gets Free's
+        # cap (1), not Pro's (10).
         from app.revenue_truth import entitled_tier_or_free
+        from app.tier_labels import api_key_cap
 
         u = _user(db_session, subscription_tier="pro", subscription_status="past_due")
         tier = entitled_tier_or_free(u)
-        assert KEY_CAP.get(tier, DEFAULT_CAP) == KEY_CAP.get("free", DEFAULT_CAP)
+        assert api_key_cap(tier) == api_key_cap("free")
+        # Pin the asymmetry too — otherwise this passes if every tier collapses
+        # to one value, which is the exact defect P2.5 fixed.
+        assert api_key_cap("pro") > api_key_cap("free")
 
 
 class TestFleetCtxHonoursSubscriptionStatus:
