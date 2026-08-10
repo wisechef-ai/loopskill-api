@@ -596,3 +596,93 @@ def test_install_command_reports_locked_paid_members_by_name_not_silently(app_cl
     assert entries["free-member"].get("locked") is not True
     assert entries["paid-member"]["locked"] is True
     assert entries["paid-member"]["tier"] == "pro"
+
+
+# ═════════════════════════════════════════════════════════════════════════
+# admin dashboard: bundle COUNT + DISTINCT-OWNER count (§0 lock #2 — "Success
+# = bundle COUNT and bundle AUTHORS, not skill count")
+# ═════════════════════════════════════════════════════════════════════════
+
+
+def _make_admin_app(db):
+    """Mirrors tests/test_pulse_endpoint.py's _make_app exactly (same repo
+    convention for admin_routes-only test apps) — kept local rather than
+    imported so this file has no cross-test-file coupling.
+    """
+    from fastapi import FastAPI
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    from app.admin_routes import router as admin_router
+    from app.database import get_db
+
+    app = FastAPI()
+
+    def _override_get_db():
+        try:
+            yield db
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = _override_get_db
+
+    class InjectAuthState(BaseHTTPMiddleware):
+        async def dispatch(self, request, call_next):
+            request.state.api_key_user_id = None  # master key sentinel
+            request.state.api_key_id = None
+            return await call_next(request)
+
+    app.add_middleware(InjectAuthState)
+    app.include_router(admin_router)
+    return app
+
+
+def test_admin_pulse_reports_bundle_count_and_distinct_authors(db_session):
+    """Three bundles, two distinct owners, one public — pin all three new
+    counters against a hand-built, independently-verifiable scenario."""
+    owner_a = _mk_user(db_session)
+    owner_b = _mk_user(db_session)
+    db_session.commit()
+
+    _mk_bundle(db_session, name="A1", slug="a1", visibility="private", bundle_owner=owner_a.id)
+    _mk_bundle(db_session, name="A2", slug="a2", visibility="public", bundle_owner=owner_a.id)
+    _mk_bundle(db_session, name="B1", slug="b1", visibility="private", bundle_owner=owner_b.id)
+    db_session.commit()
+
+    app = _make_admin_app(db_session)
+    with TestClient(app, raise_server_exceptions=True) as client:
+        resp = client.get("/api/admin/pulse")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    assert body["bundles_total"] == 3
+    assert body["bundles_public_total"] == 1
+    assert body["bundle_authors_total"] == 2
+
+
+def test_admin_pulse_bundle_metrics_zero_state(db_session):
+    """No bundles at all → all three counters are 0, not an error."""
+    app = _make_admin_app(db_session)
+    with TestClient(app, raise_server_exceptions=True) as client:
+        resp = client.get("/api/admin/pulse")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["bundles_total"] == 0
+    assert body["bundles_public_total"] == 0
+    assert body["bundle_authors_total"] == 0
+
+
+def test_admin_pulse_bundle_authors_excludes_null_owner_rows(db_session):
+    """A bundle with bundle_owner=NULL (e.g. the base/system bundle) must not
+    inflate the distinct-author count — it has no author to count."""
+    owner = _mk_user(db_session)
+    db_session.commit()
+    _mk_bundle(db_session, name="Owned", slug="owned", visibility="private", bundle_owner=owner.id)
+    _mk_bundle(db_session, name="System", slug="system-base", visibility="private")
+    db_session.commit()
+
+    app = _make_admin_app(db_session)
+    with TestClient(app, raise_server_exceptions=True) as client:
+        resp = client.get("/api/admin/pulse")
+    body = resp.json()
+    assert body["bundles_total"] == 2
+    assert body["bundle_authors_total"] == 1
