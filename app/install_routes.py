@@ -142,11 +142,19 @@ def _install_federated_hermes_hub_ref(fed_slug: str, db: Session):
     if hub_row is None:
         raise HTTPException(status_code=404, detail=f"External skill '{fed_slug}' not found in hermes-hub")
 
+    # bundles0811 P3 item 4 (Q3): licence is RECORDED when the source's
+    # ingested `extra` payload carries one, never used to gate anything
+    # below — an unknown/missing licence resolves EXACTLY the same
+    # instruction as any other. No branch in this function reads it.
+    hub_extra = hub_row.extra if isinstance(hub_row.extra, dict) else {}
+    recorded_license = hub_extra.get("license") if hub_extra else None
+
     instr = resolve_install_instruction(
         repo=hub_row.repo,
         path=hub_row.path,
         origin_url=hub_row.origin_url,
         slug=fed_slug,
+        license=recorded_license,
     )
     if not instr.url:
         raise HTTPException(status_code=404, detail=f"External skill '{fed_slug}' has no resolvable location")

@@ -87,6 +87,16 @@ class InstallInstruction:
     ``kind='origin'`` — no direct coordinates; the agent visits this page
     (a repo/catalog listing) to find the skill itself. LoopSkill never
     fetched or stored bytes for either kind.
+
+    ``license`` (bundles0811 P3 item 4, decision Q3): RECORDED when the
+    source hands us one, NEVER ENFORCED. There is no gate anywhere in this
+    module that refuses, warns on, or badges an install because the licence
+    is unknown/absent/restrictive — an unknown licence resolves EXACTLY the
+    same instruction as MIT. This supersedes an earlier plan draft that
+    proposed blocking unknown-licence installs; that gate is VOID. Q3's
+    posture: LoopSkill resolves WHERE a skill lives, never whether an agent
+    is allowed to fetch it — that judgment belongs to the agent/user, same
+    as visiting any other URL.
     """
 
     kind: str  # "fetch" | "origin"
@@ -94,6 +104,7 @@ class InstallInstruction:
     repo: str | None = None
     path: str | None = None
     branch: str | None = None
+    license: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -102,6 +113,7 @@ class InstallInstruction:
             "repo": self.repo,
             "path": self.path,
             "branch": self.branch,
+            "license": self.license,
         }
 
 
@@ -197,6 +209,7 @@ def resolve_install_instruction(
     path: str | None,
     origin_url: str | None,
     slug: str | None = None,
+    license: str | None = None,
 ) -> InstallInstruction:
     """Resolve one federated entry's install INSTRUCTION. Never fetches bytes.
 
@@ -205,6 +218,12 @@ def resolve_install_instruction(
          A direct miss triggers ONE tree-walk fallback for that repo; a hit
          there is cached too. Still missing -> degrade to origin.
       2. no coordinates -> the origin page URL is the instruction.
+
+    ``license`` (item 4 / Q3): passed straight through to the returned
+    instruction for RECORDING only — it plays no part in resolution. An
+    unknown/absent/restrictive license resolves identically to MIT; nothing
+    here branches on it. See ``InstallInstruction.license``'s docstring for
+    the decision this supersedes.
     """
     if repo and path:
         branch = _resolve_ref_direct(repo, path)
@@ -215,6 +234,7 @@ def resolve_install_instruction(
                 repo=repo,
                 path=path,
                 branch=branch,
+                license=license,
             )
         # Direct miss on every candidate branch — one bounded tree-walk,
         # trying each candidate branch's tree in turn (still one call each,
@@ -229,16 +249,17 @@ def resolve_install_instruction(
                     repo=repo,
                     path=resolved_path,
                     branch=candidate,
+                    license=license,
                 )
     # Degrade to the origin instruction — repo/path absent, or every fetch
     # attempt above failed. Never fabricate a URL to a host known to 404.
     if origin_url:
-        return InstallInstruction(kind="origin", url=origin_url)
+        return InstallInstruction(kind="origin", url=origin_url, license=license)
     if repo:
-        return InstallInstruction(kind="origin", url=f"https://github.com/{repo}", repo=repo)
+        return InstallInstruction(kind="origin", url=f"https://github.com/{repo}", repo=repo, license=license)
     # Absolute last resort: no coordinates at all. Caller decides what to do
     # with an empty instruction (e.g. 404); this function never invents a URL.
-    return InstallInstruction(kind="origin", url="")
+    return InstallInstruction(kind="origin", url="", license=license)
 
 
 __all__ = [

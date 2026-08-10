@@ -157,4 +157,4 @@ def test_to_dict_shape_is_agent_executable_instruction():
     d = instr.to_dict()
     assert d["kind"] == "fetch"
     assert d["url"].endswith("SKILL.md")
-    assert set(d.keys()) == {"kind", "url", "repo", "path", "branch"}
+    assert set(d.keys()) == {"kind", "url", "repo", "path", "branch", "license"}
