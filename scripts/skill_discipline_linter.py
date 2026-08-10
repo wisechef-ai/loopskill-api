@@ -196,6 +196,12 @@ ALLOWED_LINK_DOMAINS = (
     # that teaches agents to use the marketplace can never pass its own
     # marketplace's publish gate without this.
     "loopskill.io",
+    # A citation is not promotion. `humanizer` derives its method from
+    # Wikipedia:Signs of AI writing and cites it -- rejected at publish time
+    # (HTTP 422, 2026-08-10) because wikipedia.org was absent here, while
+    # arxiv.org/semanticscholar.org (same KIND of source) were allowlisted.
+    "wikipedia.org",
+    "wikimedia.org",
 )
 
 # Placeholder / RFC-2606 reserved / docs-example domains. Always documentation,
