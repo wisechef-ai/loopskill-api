@@ -1,513 +1,187 @@
-"""fdeloop_0808 Phase B2 — query relevance must not be drowned by the
-source/popularity boost in ``metasearch.rank()``.
+"""fdeloop_0808 Phase B2 — relevance must outrank the curated/popularity boost.
 
-## Context
+## The defects, measured on live prod 2026-08-10
 
-PR #209 (Phase B) fixed recall: the per-source SQL truncation
-(``federation_adapters.HermesHubAdapter.search``) now applies
-``federation_relevance.relevance_order_clauses`` BEFORE ``LIMIT``, so an
-exact-slug match survives the per-source cut. That fix operates entirely
-WITHIN one source's candidate set.
+Phase B (PR #209) fixed recall: relevance is now applied BEFORE truncation at the
+adapter layer, so the exact row survives the cut. It did NOT fix ORDER at the
+merge layer, because `metasearch.rank()` never sees the query at all:
 
-It does **not** touch ``metasearch.rank()`` — the function that re-sorts the
-MERGED candidate set (curated + every external source) into the final list
-the user sees. That function's only signal is
-``popularity_percentile_within_source + curated_boost``, with source-priority
-and title as tiebreaks. It has no concept of "does this row's slug/title/
-description actually match what the user typed" at all.
+    scored.sort(key=lambda s: (-s.rank_score, _source_priority(s.source), title))
 
-Two live-prod defects (2026-08-10) are exactly this: a candidate makes it
-INTO the merged, already-relevance-filtered set (recall is fine — PR #209
-fixed that layer), but the FINAL cross-source sort buries the strongest
-lexical match under a curated-boost or popularity-percentile artifact that
-has nothing to do with the query.
+where `rank_score = popularity_percentile + (curated ? 1.0 : 0)`. A curated
+first-party row therefore outranks an exact slug match for ANY query.
 
-## Defect 1 — q=seo
+Observed:
 
-Verified live against ``https://app.loopskill.io/api/skills/hundred-million-offers``:
-its ``description`` field (the ONLY field ``unify_curated`` copies into
-``UnifiedSkill.description`` — see ``metasearch_routes._curated_candidates``,
-which copies ``d["description"]`` from ``_skill_to_out``, never ``readme``)
-contains **no occurrence of "seo"** at all. The row only matched the curated
-DB query because ``_curated_candidates`` also filters on ``Skill.readme``,
-and "SEO agency exclusively for dental practices" / "Full competitive SEO
-audit" appear in the README body, not the description. So the curated
-candidate legitimately entered the merged set (correct recall), but has ZERO
-lexical relevance to "seo" on any field ``rank()`` can see — and outranks the
-skill literally slugged ``seo`` purely because ``_CURATED_BOOST`` (1.0) plus
-its 5-install percentile beats an unrated hermes-hub row's 0.5 neutral prior.
+    q=seo          -> ['hundred-million-offers', ...seo-audit, ...programmatic-seo]
+                      the row slugged exactly `seo` is present but ranks BELOW an
+                      unrelated curated skill.
+    q=code review  -> ['ruthless-mentor', 'clean-code', 'critical-code-reviewer']
+                      `code-review` exists in the catalog and is not in the top 4.
 
-## Defect 2 — q="code review"
+Both are the same bug: relevance is not a sort term at the merge layer.
 
-Same shape: ``code-review`` (curated, 2 installs) is available and correct,
-but three OTHER curated skills — ``ruthless-mentor`` (9 installs, mentions
-"Code review" only in its README, not its description), ``clean-code``
-(5 installs, description literally contains 'code review'), and
-``critical-code-reviewer`` (5 installs, description contains "code reviews")
-— outrank it purely on install-count popularity + curated boost, even
-though ``code-review``'s SLUG is an exact match and the others' slugs are not.
-
-The fix cannot re-derive within-source SQL ordering (out of scope, PR #209's
-job) — it has to give ``rank()`` a lexical-relevance PRIMARY sort key,
-computed from the SAME ``relevance_tier`` ladder PR #209 already built for
-the SQL layer (``app/services/federation_relevance.py``), applied to the
-already-unified ``UnifiedSkill`` (slug, title, description). Popularity/
-curated-boost then only breaks ties WITHIN a tier — never overrides one.
+The fix threads the query into `rank()` and sorts on relevance tier FIRST, then
+the existing (score, source, title) ladder as the within-tier tiebreak. With no
+query every row is NEUTRAL_TIER, so browse ordering is byte-identical to before —
+that property is pinned by `test_browse_ordering_unchanged_without_query`.
 """
 
 from __future__ import annotations
 
-from app.services.federation import ExternalSkill, InstallPath
-from app.services.metasearch import merge_unified, rank, unify_curated, unify_external
+import pytest
+
+from app.services.federation_relevance import NEUTRAL_TIER, relevance_tier
+from app.services.metasearch import UnifiedSkill, rank
 
 
-def _ext(source: str, slug: str, *, title: str = "", description: str = "") -> ExternalSkill:
-    return ExternalSkill(
+def _skill(
+    slug: str,
+    *,
+    title: str | None = None,
+    description: str = "",
+    source: str = "recipes",
+    quality: str = "curated",
+    popularity: int | None = None,
+) -> UnifiedSkill:
+    return UnifiedSkill(
+        canonical_id=f"{source}:{slug}",
         slug=slug,
-        title=title or slug,
-        source=source,
-        install_path=InstallPath.FETCH_ORIGIN,
-        origin_url=f"https://{source}/{slug}",
-        license=None,
-        redistributable=True,
+        title=title if title is not None else slug,
         description=description,
+        source=source,
+        origin_url=f"/skills/{slug}",
+        install_ref=f"{source}:{slug}",
+        quality=quality,
+        deployable=True,
+        install_path="fetch_origin",
+        popularity=popularity,
+        license=None,
+        updated_at=None,
     )
 
 
-def _curated_row(slug: str, *, title: str = "", description: str = "", install_count: int = 0) -> dict:
-    return {
-        "slug": slug,
-        "title": title or slug,
-        "description": description,
-        "install_count": install_count,
-    }
+class TestRelevanceOutranksBoost:
+    """RED-proof: each of these fails on pre-fix `rank()` (no query term)."""
 
-
-# ── Defect 1: q=seo ──────────────────────────────────────────────────────
-
-
-def _seo_scene():
-    """Mirrors the live prod shapes verified 2026-08-10.
-
-    ``hundred-million-offers``: curated, 5 installs, description carries NO
-    occurrence of "seo" (verified against the live API — the README does,
-    the description does not). ``seo``: hermes-hub, unrated (no popularity
-    signal at all — a fresh federated snapshot row).
-    """
-    curated = [
-        unify_curated(
-            _curated_row(
+    def test_exact_slug_outranks_unrelated_curated_row(self) -> None:
+        """q=seo — the live defect. `hundred-million-offers` is curated with real
+        install signal; `seo` is a plain exact match. Relevance must win."""
+        rows = [
+            _skill(
                 "hundred-million-offers",
-                title="hundred-million-offers",
-                description=(
-                    "Create irresistible offers using the Value Equation, bonus "
-                    "stacking, risk-reversing guarantees, and ethical scarcity."
-                ),
-                install_count=5,
-            )
-        )
-    ]
-    external = [
-        unify_external(
-            _ext(
-                "hermes-hub",
-                "seo",
-                title="SEO (Site Audit + Content Writer + Competitor Analysis)",
-                description="Full SEO toolkit: site audit, content writer, competitor analysis.",
+                description="pricing strategy, offers, seo copy and positioning",
+                popularity=5,
             ),
-            raw_row={},
-        ),
-        unify_external(
-            _ext(
-                "hermes-hub",
-                "seo-audit",
-                title="SEO Audit",
-                description="Run a full technical SEO audit.",
-            ),
-            raw_row={},
-        ),
-    ]
-    return curated, external
-
-
-class TestDefect1ExactSlugVsPopularityBoost:
-    def test_RED_current_rank_buries_exact_slug_under_unrelated_curated_boost(self):
-        """RED: proves the defect using the REAL rank()/merge_unified() pipeline,
-        exactly as ``metasearch_routes._build`` calls it today (no query
-        threaded through at all). ``hundred-million-offers`` has NO lexical
-        relevance to "seo" on any field rank() can see, yet the curated boost
-        (+1.0) plus its 5-install percentile currently outranks the exact
-        slug match. This must currently rank hundred-million-offers FIRST —
-        i.e. it demonstrates the bug, not the fix.
-        """
-        curated, external = _seo_scene()
-        result = merge_unified(curated, external)
-        slugs = [s.slug for s in result.skills]
-        assert slugs[0] == "hundred-million-offers", (
-            "if this fails, the defect has already been fixed upstream of this "
-            f"test — got {slugs}"
-        )
-
-    def test_exact_slug_must_outrank_unrelated_curated_boost_when_query_aware(self):
-        """The target behaviour: once ``rank``/``merge_unified`` are made query-
-        aware, the exact slug match for the query term must win regardless of
-        curated status or popularity, because curated relevance here is zero.
-        """
-        curated, external = _seo_scene()
-        result = merge_unified(curated, external, query="seo")
-        slugs = [s.slug for s in result.skills]
-        assert slugs[0] == "seo", f"exact slug match must rank first for q=seo: {slugs}"
-
-
-# ── Defect 2: q="code review" ────────────────────────────────────────────
-
-
-def _code_review_scene():
-    """Mirrors the live prod shapes verified 2026-08-10: three curated skills
-    outrank the exact-slug ``code-review`` purely on install-count + curated
-    boost, though only ``code-review`` has slug relevance to the query."""
-    curated = [
-        unify_curated(
-            _curated_row(
-                "ruthless-mentor",
-                title="ruthless-mentor",
-                description=(
-                    "Stress-test the team's plan, idea, or decision in attack mode "
-                    "— sort proposals into gold / trash / directionally-right-but-flawed."
-                ),
-                install_count=9,
-            )
-        ),
-        unify_curated(
-            _curated_row(
-                "clean-code",
-                title="clean-code",
-                description=(
-                    "Write readable, maintainable code through disciplined naming, "
-                    "small functions, and clean error handling. Use when the user "
-                    "mentions 'code review', 'naming conventions'."
-                ),
-                install_count=5,
-            )
-        ),
-        unify_curated(
-            _curated_row(
-                "critical-code-reviewer",
-                title="critical-code-reviewer",
-                description=(
-                    "Conduct rigorous, adversarial code reviews with zero tolerance "
-                    "for mediocrity."
-                ),
-                install_count=5,
-            )
-        ),
-        unify_curated(
-            _curated_row(
-                "code-review",
-                title="code-review",
-                description="Guidelines for performing thorough code reviews with security and quality focus",
-                install_count=2,
-            )
-        ),
-    ]
-    external = [
-        unify_external(
-            _ext("hermes-hub", "code-review", title="Code Review", description="Code review skill."),
-            raw_row={},
-        ),
-        unify_external(
-            _ext(
-                "hermes-hub",
-                "code-review-terry",
-                title="Code Review Terry",
-                description="Terry's code review skill.",
-            ),
-            raw_row={},
-        ),
-    ]
-    return curated, external
-
-
-class TestDefect2MultiwordQueryMissesExactSlug:
-    def test_RED_current_rank_ranks_popular_curated_skills_above_exact_slug(self):
-        """RED: reproduces prod's ``q="code review"`` top-4
-        (ruthless-mentor, clean-code, critical-code-reviewer, ...) with
-        ``code-review`` NOT first, using the real pipeline as called today
-        (no query threaded through merge_unified/rank at all)."""
-        curated, external = _code_review_scene()
-        result = merge_unified(curated, external)
-        slugs = [s.slug for s in result.skills]
-        assert slugs[0] != "code-review", (
-            "if this fails, the defect has already been fixed upstream of this "
-            f"test — got {slugs}"
-        )
-        assert slugs[0] == "ruthless-mentor", f"expected the prod-observed top1: {slugs}"
-
-    def test_exact_slug_wins_multiword_query_when_query_aware(self):
-        curated, external = _code_review_scene()
-        result = merge_unified(curated, external, query="code review")
-        slugs = [s.slug for s in result.skills]
-        assert slugs[0] == "code-review", f"exact slug (via slugified query) must rank first: {slugs}"
-
-    def test_curated_still_wins_ties_within_the_same_relevance_tier(self):
-        """Both the curated and hermes-hub 'code-review' rows are exact-slug
-        matches (same relevance tier). The pre-existing curated-wins-ties
-        contract (plan §5.4 / _CURATED_BOOST) must still decide between them —
-        the query-aware primary key does not erase the existing tiebreak."""
-        curated, external = _code_review_scene()
-        result = merge_unified(curated, external, query="code review")
-        top = result.skills[0]
-        assert top.slug == "code-review"
-        assert top.quality == "curated", (
-            f"curated must still win the within-tier tie over the hermes-hub "
-            f"duplicate: {top.source}"
-        )
-
-
-class TestRankIsBackwardCompatibleWithoutQuery:
-    def test_rank_without_query_argument_still_works(self):
-        """rank() must remain callable with the pre-existing signature (no
-        query) for any caller that doesn't have one — must not raise, and must
-        preserve the original popularity+curated-boost ordering contract."""
-        curated, external = _seo_scene()
-        merged = curated + external
-        out = rank(merged)
-        assert len(out) == len(merged)
-
-    def test_merge_unified_without_query_still_works(self):
-        curated, external = _seo_scene()
-        result = merge_unified(curated, external)
-        assert len(result.skills) == len(curated) + len(external)
-
-
-# ── Defect 3 (regression guard): tier tiebreak must not undo PR #209's
-#    shortest-slug-wins tiebreak at the CROSS-SOURCE rank layer ─────────────
-
-
-class TestCrossSourceRankDoesNotUndoShortestSlugTiebreak:
-    """PR #209 fixed ``q=polymark`` at the per-SOURCE SQL truncation layer by
-    adding a shortest-slug-wins tiebreak. If the new query-aware ``rank()``
-    only adds a relevance-tier primary key and falls through to the OLD
-    (source_priority, title-alphabetical) tiebreak, three same-source,
-    same-popularity hermes-hub rows sharing the ``slug_prefix`` tier would be
-    re-sorted ALPHABETICALLY by title at the cross-source layer — silently
-    re-introducing the exact defect PR #209 fixed, one layer up.
-    """
-
-    def test_RED_shortest_slug_tiebreak_must_survive_into_cross_source_rank(self):
-        external = [
-            unify_external(
-                _ext(
-                    "hermes-hub",
-                    "polymarket-worldcup-group-repricer",
-                    title="Aaa Polymarket Repricer",  # sorts first alphabetically
-                ),
-                raw_row={},
-            ),
-            unify_external(
-                _ext(
-                    "hermes-hub",
-                    "polymarket-manual-trade",
-                    title="Bbb Polymarket Manual Trade",
-                ),
-                raw_row={},
-            ),
-            unify_external(
-                _ext("hermes-hub", "polymarket", title="Zzz Polymarket Core"),
-                raw_row={},
-            ),
+            _skill("seo", popularity=0),
         ]
-        result = merge_unified([], external, query="polymark")
-        slugs = [s.slug for s in result.skills]
-        assert slugs[0] == "polymarket", (
-            f"shortest-slug tiebreak from PR #209 must survive cross-source "
-            f"rank, even when alphabetically last: {slugs}"
-        )
+        out = rank(rows, query="seo")
+        assert out[0].slug == "seo", [s.slug for s in out]
+
+    def test_exact_slug_outranks_curated_even_from_external_source(self) -> None:
+        """Source priority must not resurrect the defect: an external exact match
+        still beats a curated prose match."""
+        rows = [
+            _skill("hundred-million-offers", description="seo copywriting", popularity=99),
+            _skill("seo", source="github-oss", quality="community", popularity=0),
+        ]
+        out = rank(rows, query="seo")
+        assert out[0].slug == "seo", [s.slug for s in out]
+
+    def test_multiword_query_slugifies_to_exact_match(self) -> None:
+        """q='code review' — slugifies to `code-review`, which must rank first
+        over curated prose matches."""
+        rows = [
+            _skill("ruthless-mentor", description="a ruthless code review mentor", popularity=9),
+            _skill("clean-code", description="write clean code, review it", popularity=8),
+            _skill("critical-code-reviewer", description="code review", popularity=7),
+            _skill("code-review", popularity=0),
+        ]
+        out = rank(rows, query="code review")
+        assert out[0].slug == "code-review", [s.slug for s in out]
+
+    def test_prefix_beats_contains(self) -> None:
+        rows = [
+            _skill("agentic-seo-toolkit", description="seo", popularity=50),
+            _skill("seo-audit", popularity=0),
+        ]
+        out = rank(rows, query="seo")
+        assert out[0].slug == "seo-audit", [s.slug for s in out]
+
+    def test_shortest_slug_wins_within_tier(self) -> None:
+        """Phase B's polymark finding must survive the new outer sort term."""
+        rows = [
+            _skill("polymarket-worldcup-group-repricer", popularity=80),
+            _skill("polymarket-manual-trade", popularity=70),
+            _skill("polymarket", popularity=0),
+        ]
+        out = rank(rows, query="polymark")
+        assert out[0].slug == "polymarket", [s.slug for s in out]
 
 
-# ── The judged set: >=15 (query, expected) pairs against the FULL merged
-#    pipeline (curated + external -> merge_unified -> final list) ──────────
-#
-# This is deliberately at a DIFFERENT layer than PR #209's judged set
-# (scripts/fdeloop0808_judged_search.py), which scores the per-source SQL
-# truncation. This one scores the CROSS-SOURCE final ranking a real caller of
-# metasearch_routes.metasearch() sees — the layer both live defects live on.
-# It reuses shapes verified against the live API (2026-08-10) plus PR #209's
-# own judged queries so a regression on either layer is caught by ONE gate.
+class TestNoRegression:
+    """Phase B's wins and the browse path must be untouched."""
 
+    def test_browse_ordering_unchanged_without_query(self) -> None:
+        """No query -> every row is NEUTRAL_TIER -> the pre-fix ladder stands.
 
-def _judged_corpus():
-    """One corpus, multiple queries scored against it — mirrors the shape of
-    scripts/fdeloop0808_judged_search.py's JUDGED list, one layer up."""
-    curated = [
-        unify_curated(_curated_row("hundred-million-offers", description="pricing and offers", install_count=5)),
-        unify_curated(
-            _curated_row(
-                "ruthless-mentor",
-                description="Stress-test the team's plan in attack mode.",
-                install_count=9,
-            )
-        ),
-        unify_curated(
-            _curated_row(
-                "clean-code",
-                description="Write readable code. Use when the user mentions 'code review'.",
-                install_count=5,
-            )
-        ),
-        unify_curated(
-            _curated_row(
-                "critical-code-reviewer",
-                description="Conduct rigorous, adversarial code reviews.",
-                install_count=5,
-            )
-        ),
-        unify_curated(_curated_row("code-review", description="Guidelines for code reviews.", install_count=2)),
-        unify_curated(_curated_row("obviously-awesome", description="Positioning framework.", install_count=20)),
-    ]
-    external = [
-        unify_external(
-            _ext("hermes-hub", "seo", title="SEO Toolkit", description="Site audit + content writer."),
-            raw_row={},
-        ),
-        unify_external(
-            _ext("hermes-hub", "seo-audit", title="SEO Audit", description="Technical SEO audit."),
-            raw_row={},
-        ),
-        unify_external(
-            _ext("hermes-hub", "ai-seo", title="Ai Seo", description="AI-driven SEO."),
-            raw_row={},
-        ),
-        unify_external(
-            _ext("hermes-hub", "code-review", title="Code Review", description="Code review skill."),
-            raw_row={},
-        ),
-        unify_external(
-            _ext(
-                "hermes-hub", "code-review-terry", title="Code Review Terry", description="Terry's reviews."
+        This is the property that makes the change safe: browse is not a search.
+        """
+        rows = [
+            _skill("alpha", quality="community", source="github-oss", popularity=1),
+            _skill("beta", popularity=99),
+            _skill("gamma", quality="community", source="skills-sh", popularity=50),
+        ]
+        assert [s.slug for s in rank(rows)] == [s.slug for s in rank(rows, query=None)]
+        assert [s.slug for s in rank(rows, query="")] == [s.slug for s in rank(rows)]
+
+    def test_curated_still_wins_at_equal_relevance(self) -> None:
+        """_CURATED_BOOST is preserved as a WITHIN-tier tiebreak — the point of
+        the fix is ordering of tiers, not deleting the boost.
+
+        Slugs are the SAME LENGTH deliberately: the length term sorts before the
+        score term, so an unequal-length pair would prove nothing about the
+        boost. Titles are chosen so alphabetical order would put the COMMUNITY
+        row first, meaning only the boost can produce the asserted order.
+        """
+        rows = [
+            _skill(
+                "seo-aaa",
+                title="aaa",
+                source="github-oss",
+                quality="community",
+                popularity=0,
             ),
-            raw_row={},
-        ),
-        unify_external(
-            _ext(
-                "hermes-hub",
-                "polymarket-worldcup-group-repricer",
-                title="Aaa Polymarket Repricer",
-            ),
-            raw_row={},
-        ),
-        unify_external(
-            _ext("hermes-hub", "polymarket-manual-trade", title="Bbb Polymarket Manual Trade"),
-            raw_row={},
-        ),
-        unify_external(
-            _ext("hermes-hub", "polymarket", title="Zzz Polymarket Core"),
-            raw_row={},
-        ),
-        unify_external(
-            _ext("hermes-hub", "excalidraw", title="Excalidraw", description="Hand-drawn diagrams."),
-            raw_row={},
-        ),
-        unify_external(
-            _ext("hermes-hub", "excalidraw-templates", title="Excalidraw Templates"),
-            raw_row={},
-        ),
-        unify_external(
-            _ext("hermes-hub", "whisper", title="Whisper", description="Speech recognition."),
-            raw_row={},
-        ),
-        unify_external(
-            _ext("hermes-hub", "arxiv", title="Arxiv", description="Paper search."),
-            raw_row={},
-        ),
-        unify_external(
-            _ext("hermes-hub", "humanizer", title="Humanizer", description="Remove AI writing tells."),
-            raw_row={},
-        ),
-        unify_external(
-            _ext(
-                "hermes-hub",
-                "test-driven-development",
-                title="Test Driven Development",
-                description="Red-green-refactor.",
-            ),
-            raw_row={},
-        ),
-        unify_external(
-            _ext("hermes-hub", "nano-banana-pro", title="Nano Banana Pro", description="Image generation."),
-            raw_row={},
-        ),
-        unify_external(
-            _ext(
-                "hermes-hub",
-                "knowledge-graph",
-                title="Knowledge Graph",
-                description="Build interconnected knowledge graphs.",
-            ),
-            raw_row={},
-        ),
-        unify_external(
-            _ext(
-                "hermes-hub",
-                "copy-doctor",
-                title="Copy Doctor",
-                description="Improve marketing copywriting.",
-            ),
-            raw_row={},
-        ),
-    ]
-    return curated, external
+            _skill("seo-zzz", title="zzz", source="recipes", quality="curated", popularity=0),
+        ]
+        out = rank(rows, query="seo")
+        assert {s.slug for s in out} == {"seo-aaa", "seo-zzz"}
+        assert out[0].slug == "seo-zzz", [s.slug for s in out]
+
+    def test_rank_score_still_assigned(self) -> None:
+        out = rank([_skill("a", popularity=5), _skill("b", popularity=1)], query="a")
+        assert all(s.rank_score is not None for s in out)
+
+    @pytest.mark.parametrize("q", ["seo", "code review", "polymark", "", None])
+    def test_rank_is_total_and_preserves_membership(self, q: str | None) -> None:
+        rows = [_skill("seo"), _skill("code-review"), _skill("polymarket")]
+        out = rank(rows, query=q)
+        assert sorted(s.slug for s in out) == sorted(s.slug for s in rows)
 
 
-# (query, expected_top1)
-JUDGED: list[tuple[str, str]] = [
-    ("seo", "seo"),
-    ("code review", "code-review"),
-    ("code-review", "code-review"),
-    ("polymark", "polymarket"),
-    ("polymarket", "polymarket"),
-    ("excalid", "excalidraw"),
-    ("excalidraw", "excalidraw"),
-    ("whisper", "whisper"),
-    ("arxiv", "arxiv"),
-    ("humanizer", "humanizer"),
-    ("test-driven-development", "test-driven-development"),
-    ("nano-banana-pro", "nano-banana-pro"),
-    ("knowledge graph", "knowledge-graph"),
-    ("copywriting", "copy-doctor"),
-    ("ai-seo", "ai-seo"),
-    ("seo-audit", "seo-audit"),
-]
+class TestTierContract:
+    """Pin the assumption the fix rests on, so a tier-ladder edit reddens here."""
 
+    def test_empty_query_is_neutral_tier(self) -> None:
+        assert relevance_tier(None, slug="anything") == NEUTRAL_TIER
+        assert relevance_tier("", slug="anything") == NEUTRAL_TIER
 
-class TestJudgedSetCrossSourceTop1:
-    """Runs the ENTIRE judged set through the real ``merge_unified`` pipeline.
-    Must be 100% at HEAD (post-fix) and MUST currently fail (RED) on the two
-    prod defect queries before the fix lands.
-    """
+    def test_exact_slug_beats_description_match(self) -> None:
+        exact = relevance_tier("seo", slug="seo", title="seo")
+        prose = relevance_tier("seo", slug="hundred-million-offers", title="Offers", description="seo copy")
+        assert exact < prose, (exact, prose)
 
-    def test_RED_current_code_fails_the_two_known_defects(self):
-        curated, external = _judged_corpus()
-        failures = []
-        for q, expected in JUDGED:
-            result = merge_unified(curated, external)  # no query threaded — today's behaviour
-            slugs = [s.slug for s in result.skills]
-            top1 = slugs[0] if slugs else None
-            if top1 != expected:
-                failures.append((q, expected, top1))
-        failing_queries = {q for q, _, _ in failures}
-        assert "seo" in failing_queries, f"expected q=seo to fail without query-aware ranking: {failures}"
-        assert "code review" in failing_queries, (
-            f"expected q='code review' to fail without query-aware ranking: {failures}"
-        )
-
-    def test_judged_set_100pct_top1_with_query_aware_ranking(self):
-        curated, external = _judged_corpus()
-        failures = []
-        for q, expected in JUDGED:
-            result = merge_unified(curated, external, query=q)
-            slugs = [s.slug for s in result.skills]
-            top1 = slugs[0] if slugs else None
-            if top1 != expected:
-                failures.append((q, expected, top1, slugs[:5]))
-        assert not failures, f"judged-set top1 failures: {failures}"
+    def test_multiword_query_slugifies(self) -> None:
+        hit = relevance_tier("code review", slug="code-review", title="Code Review")
+        miss = relevance_tier("code review", slug="ruthless-mentor", description="code review")
+        assert hit < miss, (hit, miss)

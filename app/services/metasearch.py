@@ -412,14 +412,15 @@ def rank(skills: list[UnifiedSkill], *, query: str | None = None) -> list[Unifie
         return scored
 
     tiers = {
-        id(s): relevance_tier(q, slug=s.slug, title=s.title, description=s.description) for s in scored
+        id(s): relevance_tier(q, slug=s.slug, title=s.title, description=s.description)
+        for s in scored
     }
     scored.sort(
         key=lambda s: (
             tiers[id(s)],
+            len(s.slug),
             -s.rank_score,
             _source_priority(s.source),
-            len(s.slug),
             s.title.lower(),
         )
     )
