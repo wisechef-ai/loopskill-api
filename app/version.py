@@ -208,6 +208,18 @@ inert). No schema, no migration.
     separately). This is Phase 1 of 5 from issue #157 — the words agents
     and users actually read, for ~5% of the total work. Verified against
     prod /api/healthz 0.9.34 before bumping.
+
+0.9.36 - fix(issue-219 item 1): LOOPSKILL_API_KEY dual-accept for the
+    agent-side loop-apply tooling. tools/recipes_cli.py already had this
+    (qa0208-w3); scripts/install-loop-apply.sh and
+    meta-skills/recipes-auto-improve/incident_reporter.py still hard-read
+    the legacy RECIPES_API_KEY name only, so a user who exported only
+    LOOPSKILL_API_KEY (the branded name docs/MCP config use everywhere
+    else) got a confusing "set RECIPES_API_KEY" error with a perfectly
+    valid key. LOOPSKILL_API_KEY now wins when both are set; RECIPES_API_KEY
+    keeps working unchanged as a fallback. Pure env-var resolution change,
+    no schema, no migration. Verified against prod /api/healthz 0.9.35
+    before bumping.
 """
 
-__version__ = "0.9.35"
+__version__ = "0.9.36"
