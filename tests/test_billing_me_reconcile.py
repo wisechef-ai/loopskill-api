@@ -314,3 +314,39 @@ def test_billing_me_returns_cookbook_limit_from_ssot(db, tier, expected_limit):
         f"tier={tier!r} expected cookbook_limit={expected_limit}, got {body['cookbook_limit']}"
     )
     mock_list.assert_not_called()
+
+
+# ── Test 7: api_key_cap reflects the tier SSOT (bundles_0811 P2.5) ───────────
+
+
+@pytest.mark.parametrize(
+    "tier,expected_cap",
+    [("free", 1), ("pro", 10), ("pro_plus", 20), (None, 1)],
+)
+def test_billing_me_returns_api_key_cap_from_ssot(db, tier, expected_cap):
+    """bundles_0811 P2.5: /api/billing/me must expose api_key_cap read from
+    the config/tiers.yaml SSOT so the portal account page (currently
+    hardcoding "Pro: 1 key · Pro+: up to 20 keys") can render the real,
+    server-held number instead of a stale literal. Free/null → 1 (unchanged,
+    deliberate Pro differentiator), Pro → 10 (the fix, was 1), Pro+ → 20
+    (unchanged).
+    """
+    from app.checkout_routes import _reconcile_last_attempt
+
+    kwargs = {}
+    if tier is not None:
+        kwargs = {"subscription_tier": tier, "subscription_status": "active"}
+    user = _make_user(db, **kwargs)
+    _reconcile_last_attempt.pop(str(user.id), None)
+
+    client = _build_app(db, user)
+    with patch("stripe.Subscription.list") as mock_list:
+        resp = client.get("/api/billing/me")
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "api_key_cap" in body, "billing/me must expose api_key_cap"
+    assert body["api_key_cap"] == expected_cap, (
+        f"tier={tier!r} expected api_key_cap={expected_cap}, got {body['api_key_cap']}"
+    )
+    mock_list.assert_not_called()

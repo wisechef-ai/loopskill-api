@@ -75,6 +75,13 @@
             {"type": "null"}
           ]
         },
+        "api_key_cap": {
+          "description": "Max active rec_ API keys a tier may hold (bundles_0811 P2.5 SSOT). Integer cap, or null for unlimited (reserved; no current tier is unlimited). app/api_key_routes.py reads this via tier_labels.api_key_cap() — the only source of this number.",
+          "oneOf": [
+            {"type": "integer", "minimum": 0},
+            {"type": "null"}
+          ]
+        },
         "public": {
           "type": "boolean",
           "description": "autopilot_0308 M2 / D-003: whether this tier appears on /pricing, the tier picker, and marketing copy. Defaults to true (public) when absent — a tier is only hidden by explicitly setting false. The db_slug and all data-layer behavior stay fully functional regardless of this flag; it is presentation-only."

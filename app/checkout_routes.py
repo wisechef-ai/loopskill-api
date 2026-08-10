@@ -27,6 +27,7 @@ from app.subscription_service import (
     downgrade_pro_plus_to_pro,
 )
 from app.services.bundle_quota import quota_status
+from app.tier_labels import api_key_cap as _tier_api_key_cap
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["checkout"])
@@ -245,6 +246,12 @@ async def billing_me(
         "cookbook_limit": _quota["limit"],  # compat-alias
         "max_private_bundles": _quota["limit"],
         "private_bundles_used": _quota["used"],
+        # api_key_cap — SSOT in config/tiers.yaml (bundles_0811 P2.5), read
+        # through the SAME helper app/api_key_routes.py enforces with
+        # (app.tier_labels.api_key_cap). account.astro's #key-tier-note
+        # currently hardcodes "Pro: 1 key." — the portal must render THIS
+        # field instead: GET /api/billing/me -> api_key_cap (int).
+        "api_key_cap": _tier_api_key_cap(user.subscription_tier),
         "subscription_current_period_end": (
             user.subscription_current_period_end.isoformat() if user.subscription_current_period_end else None
         ),

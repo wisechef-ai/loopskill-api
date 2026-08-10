@@ -1,12 +1,16 @@
 """Tests for Phase C per-cookbook API key cap enforcement.
 
-Acceptance gates from plan §3 / §6:
+Acceptance gates from plan §3 / §6 (updated bundles_0811 P2.5, 2026-08-11 —
+caps now read from config/tiers.yaml SSOT; Pro raised 1 -> 10, Free unchanged):
   - Free user: 0 active → 200; 1 active → 403 cap_exceeded
-  - Pro user:  1 active → 403 (same cap as Free, both = 1)
+  - Pro user:  10 active → all 200; 11th → 403 (Pro is now differentiated
+    from Free — see tests/test_bundles0811_p25_api_key_cap_ssot.py for the
+    full acceptance suite and the RED-proof)
   - Pro+ user: 20× → all 200; 21st → 403
   - POST with invalid cookbook_id → 404
   - GET /api-keys returns install_count_total + install_count_7d fields
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -27,6 +31,7 @@ from app.models import APIKey, Base, Bundle, User
 
 
 # ── In-memory DB fixture ───────────────────────────────────────────────────
+
 
 @pytest.fixture(scope="module")
 def engine():
@@ -53,6 +58,7 @@ def db(engine) -> Session:
 
 
 # ── Helper factories ───────────────────────────────────────────────────────
+
 
 def _make_user(db: Session, tier: str = "free", status: str = "active") -> User:
     u = User(
@@ -103,6 +109,7 @@ def _make_active_key(db: Session, user: User) -> APIKey:
 
 # ── Test app factory ───────────────────────────────────────────────────────
 
+
 def _make_test_app(db: Session, authed_user: User) -> TestClient:
     """Return a TestClient wired to the given user (no auth middleware needed)."""
     app = FastAPI()
@@ -120,6 +127,7 @@ def _make_test_app(db: Session, authed_user: User) -> TestClient:
 
 
 # ── Free user cap tests ────────────────────────────────────────────────────
+
 
 class TestFreeUserCap:
     def test_create_first_key_succeeds(self, db):
@@ -155,13 +163,24 @@ class TestFreeUserCap:
 
 # ── Pro user cap tests ─────────────────────────────────────────────────────
 
+
 class TestProUserCap:
-    def test_pro_user_gets_1_key(self, db):
-        """Pro user cap is 1 (same as free)."""
+    def test_pro_user_gets_10_keys(self, db):
+        """Pro user cap is 10 (bundles_0811 P2.5: raised from 1, Free stays 1)."""
         user = _make_user(db, tier="pro")
-        _make_active_key(db, user)
+        for _ in range(9):
+            _make_active_key(db, user)  # 9 pre-existing + 1 via endpoint = 10
         client = _make_test_app(db, user)
-        r = client.post("/api/api-keys", json={"label": "second"})
+        r = client.post("/api/api-keys", json={"label": "tenth"})
+        assert r.status_code == 200, r.text
+
+    def test_pro_user_11th_key_blocked(self, db):
+        """Pro user with 10 active keys cannot create an 11th."""
+        user = _make_user(db, tier="pro")
+        for _ in range(10):
+            _make_active_key(db, user)
+        client = _make_test_app(db, user)
+        r = client.post("/api/api-keys", json={"label": "eleventh"})
         assert r.status_code == 403, r.text
         assert "key_cap_exceeded" in r.json()["detail"]
 
@@ -174,6 +193,7 @@ class TestProUserCap:
 
 
 # ── Pro+ user cap tests ────────────────────────────────────────────────────
+
 
 class TestProPlusUserCap:
     def test_pro_plus_allows_20_keys(self, db):
@@ -200,16 +220,20 @@ class TestProPlusUserCap:
 
 # ── Cookbook scoping tests ─────────────────────────────────────────────────
 
+
 class TestCookbookScoping:
     def test_valid_cookbook_id_persisted(self, db):
         """POST with valid owned cookbook_id creates a scoped key."""
         user = _make_user(db, tier="pro_plus")
         cb = _make_cookbook(db, user)
         client = _make_test_app(db, user)
-        r = client.post("/api/api-keys", json={
-            "label": "client-key",
-            "cookbook_id": str(cb.id),
-        })
+        r = client.post(
+            "/api/api-keys",
+            json={
+                "label": "client-key",
+                "cookbook_id": str(cb.id),
+            },
+        )
         assert r.status_code == 200, r.text
         data = r.json()
         assert data["bundle_id"] == str(cb.id)
@@ -239,6 +263,7 @@ class TestCookbookScoping:
 
 
 # ── GET /api-keys returns install count fields ─────────────────────────────
+
 
 class TestGetApiKeys:
     def test_list_includes_install_count_fields(self, db):
@@ -292,12 +317,14 @@ class TestGetApiKeys:
 
 # ── Stripe Connect 410 Gone tests ─────────────────────────────────────────
 
+
 class TestStripeConnectKilled:
     """Verify that the Stripe Connect endpoints return 410 Gone."""
 
     @pytest.fixture()
     def creator_client(self, db):
         from app.creator_routes import router as creator_router
+
         app = FastAPI()
         app.include_router(creator_router)
 
