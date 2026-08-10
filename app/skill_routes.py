@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -36,8 +36,9 @@ from app._skill_helpers import (
     _skill_to_out,
 )
 from app.database import get_db
-from app.models import MissingSkillQuery, Skill, SkillAlias, TelemetryEvent
+from app.models import Skill, SkillAlias, TelemetryEvent
 from app.schemas import SkillDetailOut, SkillOut, SkillSearchResult
+from app.services.demand_capture import record_missing_skill_query
 from app.tier_labels import _is_paid_tier
 
 logger = logging.getLogger(__name__)
@@ -278,48 +279,13 @@ def search_skills(
     # topshelf_2605/H.1 — log zero-result queries for VOC digest.
     # Only fires when q is provided AND the final merged results list is empty
     # AND this is the first page (avoid double-counting paginated traversal).
-    # Wrapped in try/except so a DB hiccup never breaks the search response.
+    # fdeloop_0808 Phase A: the inline upsert that used to live here moved to
+    # ``app.services.demand_capture`` so the federated paths share ONE writer
+    # and ONE normalisation. Two callers normalising differently would either
+    # violate the (lower(query), day) unique index or split the count and
+    # under-report demand.
     if q and not final_outs and page == 1:
-        try:
-            from sqlalchemy.dialects.postgresql import insert as pg_insert
-
-            today = date.today()
-            bind = db.get_bind()
-            if bind.dialect.name == "postgresql":
-                # Postgres: atomic upsert — increment count on duplicate day.
-                stmt = pg_insert(MissingSkillQuery).values(
-                    query=q,
-                    user_id=None,
-                    day=today,
-                    count=1,
-                )
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=[
-                        func.lower(MissingSkillQuery.query),
-                        MissingSkillQuery.day,
-                    ],
-                    set_={"count": MissingSkillQuery.count + 1},
-                )
-                db.execute(stmt)
-            else:
-                # SQLite (tests): simple SELECT-then-upsert path.
-                existing = (
-                    db.query(MissingSkillQuery)
-                    .filter(
-                        func.lower(MissingSkillQuery.query) == q.lower(),
-                        MissingSkillQuery.day == today,
-                    )
-                    .first()
-                )
-                if existing:
-                    existing.count += 1
-                else:
-                    db.add(MissingSkillQuery(query=q, user_id=None, day=today, count=1))
-            db.commit()
-        # Rationale: VOC logging must never break the search response
-        except Exception:  # noqa: BLE001
-            logger.debug("missing_skill_query upsert failed — ignored", exc_info=True)
-            db.rollback()
+        record_missing_skill_query(db, q)
 
     return SkillSearchResult(
         results=final_outs,
@@ -852,6 +818,22 @@ def get_external_skills(
             "degraded_sources": degraded_sources,
         }
     )
+
+    # fdeloop_0808 Phase A — demand capture on the FEDERATED path.
+    #
+    # ``MissingSkillQuery`` used to be written only from ``search_skills``, the
+    # first-party path over ~55 curated skills. This route is what the portal's
+    # library and browse pages call, and it fans out across the ~91k federated
+    # catalog — three orders of magnitude more surface, recording nothing. A
+    # zero-result search HERE is the strongest demand signal the platform has:
+    # the user looked in the biggest index we know about and still found
+    # nothing.
+    #
+    # Guarded on `enabled` so a toggle-off request (which returns [] by design,
+    # not by absence) never mints a phantom demand row.
+    if q and enabled and not merged.external:
+        record_missing_skill_query(db, q)
+
     return payload
 
 

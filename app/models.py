@@ -2102,6 +2102,30 @@ class MissingSkillQuery(Base):
     count = Column(Integer, nullable=False, default=1, server_default="1")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+    # fdeloop_0808 Phase A — declare the functional unique index the upsert
+    # depends on, so it exists in `Base.metadata` and not only in the migration.
+    #
+    # It was previously created ONLY by topshelf_2605_h. Tests build their
+    # schema with `Base.metadata.create_all`, which therefore produced a table
+    # with NO functional index — so `ON CONFLICT (lower(query), day)` had
+    # nothing to infer and every upsert wrote zero rows. Both engines were
+    # affected; SQLite hid it because that branch takes a SELECT-then-write
+    # path, so only the postgres CI leg surfaced it.
+    #
+    # `sqlite_where=None` is not needed: SQLite accepts a functional index too,
+    # and creating it there additionally makes the two engines agree about what
+    # "duplicate" means. The migration remains the source of truth for prod;
+    # this makes the test schema match it. `if_not_exists` keeps create_all
+    # idempotent against a DB the migration already touched.
+    __table_args__ = (
+        Index(
+            "uq_missing_skill_queries_query_day",
+            func.lower(query),
+            day,
+            unique=True,
+        ),
+    )
+
 
 # ── Federation index cache (superset_0606 Phase B) ──────────────────────────
 
