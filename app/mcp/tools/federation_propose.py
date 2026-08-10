@@ -32,6 +32,8 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app import feedback_ratelimit, github_dispatch
+from app.auth_ctx import AuthContext
+from app.mcp.tools.fleet_write import _NOT_HANDLED
 from app.models import FederationRegistryProposal
 from app.services.federation_propose import preflight_repo
 
@@ -189,3 +191,38 @@ def loopskill_propose_registry(
         "preflight": preflight.to_dict(),
         "deduped": False,
     }
+
+
+# ── Delegated MCP dispatch (bundles_0811 P3.5) ────────────────────────────────
+# Registered in app/mcp/dispatch_chain.py rather than adding a branch to
+# server.py's _dispatch god node, which sits 10 lines under the 600-line gate
+# (test_w0_2_pyfile_size_discipline, NEVER waived). dispatch_chain.py's own
+# docstring prescribes exactly this: "Append future phase dispatchers here
+# rather than growing server.py's _dispatch god node."
+
+_FEDERATION_PROPOSE_TOOLS = frozenset({"loopskill_propose_registry"})
+
+
+def dispatch_federation_propose(name: str, db: Session, args: dict[str, Any], ctx: AuthContext) -> Any:
+    """Delegated dispatch for the P3.5 registry-proposal tool.
+
+    Returns ``_NOT_HANDLED`` when ``name`` is not ours, so the chain falls
+    through to the next handler.
+
+    ``api_key_id`` comes off the AuthContext (same source the server's caller
+    dict reads) so this handler matches the chain's (name, db, args, ctx)
+    signature without needing the raw caller mapping.
+    """
+    if name not in _FEDERATION_PROPOSE_TOOLS:
+        return _NOT_HANDLED
+    return loopskill_propose_registry(
+        db,
+        repo_url=args["repo_url"],
+        source_id=args.get("source_id"),
+        contact=args.get("contact"),
+        why=args.get("why"),
+        agent_id=args.get("agent_id"),
+        api_key_id=str(ctx.api_key_id) if ctx.api_key_id else None,
+        force=args.get("force", False),
+        confirmation=args.get("confirmation"),
+    )

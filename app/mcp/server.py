@@ -81,7 +81,6 @@ from app.mcp.tools import (
     loopskill_compose_bundle_from_links,
     loopskill_list_bundle,
     loopskill_propose_skill_patch,
-    loopskill_propose_registry,
     loopskill_publish_request,
     loopskill_recall,
     loopskill_skillify,
@@ -370,18 +369,6 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             confirmation=args.get("confirmation"),
             api_key_id=caller.get("api_key_id"),
             ctx=ctx,
-        )
-    if name == "loopskill_propose_registry":
-        return _tool_ns.get("loopskill_propose_registry", loopskill_propose_registry)(
-            db,
-            repo_url=args["repo_url"],
-            source_id=args.get("source_id"),
-            contact=args.get("contact"),
-            why=args.get("why"),
-            agent_id=args.get("agent_id"),
-            api_key_id=caller.get("api_key_id"),
-            force=args.get("force", False),
-            confirmation=args.get("confirmation"),
         )
     # integrator_2905 W1: tailor / fork tools
     if name == "loopskill_fork_list":
