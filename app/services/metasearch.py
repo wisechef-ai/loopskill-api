@@ -40,6 +40,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from app.services.federation import ExternalSkill, InstallPath, route_install
+from app.services.federation_relevance import relevance_tier
 
 # ── Source priority (dedupe tie-break + rank prior) ──────────────────────────
 # Lower number = higher priority. Curated ("recipes") always wins. Order below
@@ -351,12 +352,45 @@ def _percentiles_within_source(skills: list[UnifiedSkill]) -> dict[int, float]:
     return out
 
 
-def rank(skills: list[UnifiedSkill]) -> list[UnifiedSkill]:
+def rank(skills: list[UnifiedSkill], *, query: str | None = None) -> list[UnifiedSkill]:
     """Assign rank_score and return a new list sorted best-first.
 
     score = popularity_percentile_within_source
             + (curated ? _CURATED_BOOST : 0)
-    Ties break on: source priority (lower first) → title (stable, alpha).
+
+    fdeloop0808 Phase B2 (2026-08-10): the score above is a POPULARITY signal
+    only — it has no idea whether a row actually matches what the user typed.
+    PR #209 fixed per-source SQL truncation so the right row always survives
+    into this merged set, but this cross-source sort had no lexical-relevance
+    key at all, so a popular/curated row with ZERO relevance could (and did,
+    live) outrank an exact-slug/exact-title match from a less popular source.
+
+    Verified on prod 2026-08-10:
+      - q=seo: ``hundred-million-offers`` (curated, +1.0 boost, 5 installs,
+        description contains NO occurrence of "seo" — verified against the
+        live API body) ranked ABOVE the hermes-hub row slugged exactly
+        ``seo``, purely on the boost + percentile.
+      - q="code review": three curated skills with higher install counts
+        (ruthless-mentor, clean-code, critical-code-reviewer) outranked the
+        skill slugged exactly ``code-review``, for the same reason.
+
+    Fix: reuse the SAME tier ladder PR #209 built for the SQL layer
+    (``federation_relevance.relevance_tier`` — slug-prefix > slug-contains >
+    title-prefix > title-contains > identifier > description > no-match) as
+    the PRIMARY sort key, computed against each row's already-unified
+    slug/title/description. Popularity + curated boost remain the score used
+    to break ties WITHIN a tier (so curated still wins a genuine tie — e.g.
+    two exact-slug matches from different sources), and the shortest-slug
+    tiebreak from PR #209 is carried into this layer too (`len(slug)`) so a
+    same-tier, same-score group of same-source rows (e.g. three unrated
+    ``polymarket*`` hermes-hub rows for q=polymark) doesn't fall back to an
+    alphabetical-by-title ordering that has no relationship to intent — the
+    exact class of bug PR #209 fixed one layer down.
+
+    With no query (``query`` omitted/empty — a browse, or any pre-existing
+    caller that has none), the ordering is BYTE-IDENTICAL to before this fix:
+    tiers and slug-length are never computed, and the tiebreak stays
+    (source priority, title-alpha) exactly as previously.
     """
     pctile = _percentiles_within_source(skills)
     scored: list[UnifiedSkill] = []
@@ -364,8 +398,24 @@ def rank(skills: list[UnifiedSkill]) -> list[UnifiedSkill]:
         base = pctile.get(id(s), 0.5)
         boost = _CURATED_BOOST if s.quality == "curated" else 0.0
         scored.append(_with_score(s, base + boost))
+
+    q = (query or "").strip()
+    if not q:
+        # Backward-compatible path: unchanged since before Phase B2.
+        scored.sort(
+            key=lambda s: (
+                -s.rank_score,
+                _source_priority(s.source),
+                s.title.lower(),
+            )
+        )
+        return scored
+
+    tiers = {id(s): relevance_tier(q, slug=s.slug, title=s.title, description=s.description) for s in scored}
     scored.sort(
         key=lambda s: (
+            tiers[id(s)],
+            len(s.slug),
             -s.rank_score,
             _source_priority(s.source),
             s.title.lower(),
@@ -469,6 +519,7 @@ def merge_unified(
     curated: list[UnifiedSkill],
     external: list[UnifiedSkill],
     *,
+    query: str | None = None,
     sources_ok: list[str] | None = None,
     sources_degraded: list[str] | None = None,
 ) -> MetasearchResult:
@@ -477,10 +528,14 @@ def merge_unified(
 
     dedupe first (so a github skill on skills.sh doesn't double-render), then
     rank the merged set. Curated always sorts above an external row of equal
-    normalised popularity via _CURATED_BOOST.
+    normalised popularity via _CURATED_BOOST — but only WITHIN the same
+    lexical-relevance tier when ``query`` is supplied (fdeloop0808 Phase B2):
+    an unrelated curated row must never outrank an exact-slug/title match from
+    a less-popular source. ``query`` is optional and defaults to the
+    pre-Phase-B2 popularity-only ordering for backward compatibility.
     """
     merged = dedupe([*curated, *external])
-    ranked = rank(merged)
+    ranked = rank(merged, query=query)
     return MetasearchResult(
         skills=ranked,
         sources_ok=sources_ok or [],
