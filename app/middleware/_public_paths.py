@@ -63,6 +63,11 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     "/api/bundles/public/",
     "/api/cookbooks/discover",  # compat-alias
     "/api/cookbooks/public/",  # compat-alias
+    # bundles0811-P1 (F1/F2) — the auth-free bundle installer script. Must be
+    # public: a visitor fetches this BEFORE they have any key. Read-only,
+    # serves a static asset, no write verb on this path.
+    "/api/bundles/install.sh",
+    "/api/cookbooks/install.sh",  # compat-alias
     # spotify_0608 Ph G — public reputation leaderboards (verify stays auth-gated).
     "/api/bundles/leaderboard",
     "/api/cookbooks/leaderboard",  # compat-alias
