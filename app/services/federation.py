@@ -1,9 +1,17 @@
 """Federation install router + source adapters — evergreen_0206 Phase F.
 
-The funnel half of the control plane: make ~88k external skills installable (or
+The funnel half of the control plane: make external skills installable (or
 honestly deep-linkable) through one uniform surface, so agents discover Recipes
 via the external catalog (SEO / agent-discovery) and convert on the maintenance
 moat (B-E).
+
+Federation is a set of LIVE LOOKUPS into other people's catalogs, never an
+owned index (P3.9, bundles_0811). github-oss in particular is GitHub
+code-search rate-limited to 10 req/min — a long-tail per-query lookup, not a
+bulk crawl. No count derived from any federation source should be read as
+"skills we host"; see app/services/federation_cache.py's honest
+indexed-vs-installable distinction and docs/runbooks/
+github-federation-token-rotation.md for the rate-limit reality.
 
 Three install paths (be honest about installable-vs-indexed):
   1. OSS / SKILL.md / git  → fetch-from-origin, license preserved

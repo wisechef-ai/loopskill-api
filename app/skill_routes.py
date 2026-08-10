@@ -518,7 +518,7 @@ def get_external_skills(
     from app.services.external_fanout import run_external_fanout
     from app.services.federation import ExternalSkill, LIVE_SOURCES, merge_search, route_install
     from app.services.federation_adapters import get_adapter
-    from app.services.federation_live import LIVE_FETCH
+    from app.services.federation_live import LIVE_FETCH, STRUCTURALLY_EMPTY_SOURCES
 
     auth_ctx = getattr(request.state, "auth_ctx", None)
     caller_is_master = getattr(auth_ctx, "scope", None) == "master"
@@ -573,6 +573,15 @@ def get_external_skills(
             # spotify_1507 Phase C2: deduped count + snapshot freshness (hermes-hub only).
             "deduped_indexed": None,
             "snapshot_generated_at": None,
+            # P3.9 (bundles_0811): tell the truth about WHY a source is at 0.
+            # `structurally_empty` is set from the STRUCTURALLY_EMPTY_SOURCES
+            # registry (e.g. well-known — discovery-by-URL, no catalog to walk)
+            # and is a BY-DESIGN steady state, never a failing source. It is
+            # computed from the static registry, not from indexed_count, so an
+            # admin surface can distinguish "zero and fine" from "zero and
+            # broken" without guessing from the number alone.
+            "structurally_empty": source_id in STRUCTURALLY_EMPTY_SOURCES,
+            "last_error": None,
         }
         if is_enabled or (force_refresh and source_id in requested):
             has_query = bool((q or "").strip())
@@ -599,6 +608,10 @@ def get_external_skills(
                     # spotify_1507 Phase C2: surface deduped count + freshness.
                     block["deduped_indexed"] = existing.get("deduped_indexed")
                     block["snapshot_generated_at"] = existing.get("snapshot_generated_at")
+                    # P3.9: surface the real last-walk error honestly (e.g.
+                    # clawhub's "page 220: status=503") rather than hiding it
+                    # behind a bare zero/None count.
+                    block["last_error"] = existing.get("last_error")
                     if is_enabled:
                         all_external.extend(found)
 
@@ -630,6 +643,8 @@ def get_external_skills(
                 # spotify_1507 Phase C2: surface deduped count + snapshot freshness.
                 block["deduped_indexed"] = cached.get("deduped_indexed")
                 block["snapshot_generated_at"] = cached.get("snapshot_generated_at")
+                # P3.9: same honest last_error surfacing as the enabled path.
+                block["last_error"] = cached.get("last_error")
         per_source[source_id] = block
 
     # The concurrent fan-out: every source needing a live fetch runs in
@@ -677,6 +692,8 @@ def get_external_skills(
                     block["stale"] = existing.get("stale")
                     block["deduped_indexed"] = existing.get("deduped_indexed")
                     block["snapshot_generated_at"] = existing.get("snapshot_generated_at")
+                    # P3.9: honest last-walk error, not hidden behind a bare count.
+                    block["last_error"] = existing.get("last_error")
                 else:
                     # Codex review MUST-FIX 4 (CONFIRMED): the OLD code turned an
                     # adapter exception into `found = []` and therefore ALWAYS
@@ -759,6 +776,8 @@ def get_external_skills(
                 # spotify_1507 Phase C2: surface deduped count + freshness.
                 block["deduped_indexed"] = existing.get("deduped_indexed")
                 block["snapshot_generated_at"] = existing.get("snapshot_generated_at")
+                # P3.9: honest last-walk error, not hidden behind a bare count.
+                block["last_error"] = existing.get("last_error")
 
     # The isolation wall: internal=[] (this surface is external-only); the toggle
     # is "on" iff at least one source is enabled. merge_search enforces that no

@@ -65,12 +65,20 @@ export WR_GITHUB_CLIENT_SECRET="..."
 # OPTIONAL but high-leverage: GitHub code-search federation.
 #
 # The `github-oss` federated source discovers public skills across GitHub by
-# code-searching `filename:SKILL.md` (>5,000,000 matches as of 2026-08). GitHub's
-# code-search API rejects anonymous requests with 401, so WITHOUT a token this
-# source degrades to a GRACEFUL EMPTY: it logs one info line and indexes zero
-# rows, with `last_error = NULL` in `federation_index_cache`. It looks healthy
-# and returns nothing — verified on prod 2026-08-10, where github-oss had been
-# indexing 0 for want of this single variable.
+# code-searching `filename:SKILL.md`. GitHub's own search index has millions of
+# matches for that filename, but `github-oss` is NOT a bulk crawl of them and
+# never will be: GitHub's code-search API rate-limits authenticated callers to
+# 10 requests/minute (not the 5,000/hr the REST API otherwise allows), so this
+# source is a LIVE LONG-TAIL LOOKUP resolved per query — it answers "does GitHub
+# have a skill matching this search term right now", never "we have indexed
+# GitHub's skills". Do not read the periodic reindex cron's indexed_count as an
+# owned catalog size; it is a small per-page sample, not the reachable set.
+#
+# WITHOUT a token, this source degrades to a GRACEFUL EMPTY: it logs one info
+# line and indexes zero rows, with `last_error = NULL` in
+# `federation_index_cache`. It looks healthy and returns nothing — verified on
+# prod 2026-08-10, where github-oss had been indexing 0 for want of this single
+# variable.
 #
 # A fine-grained token with PUBLIC READ-ONLY scope is sufficient; no repo write,
 # no org access. Either name is accepted.
@@ -81,6 +89,8 @@ export GITHUB_TOKEN="github_pat_..."   # or GH_TOKEN
 #     where source = 'github-oss';
 # indexed_count = 0 AND last_error IS NULL means the token is missing or unset
 # in the SERVER's environment (systemd EnvironmentFile, not just your shell).
+# See docs/runbooks/github-federation-token-rotation.md for the full silent-
+# symptom rundown, verification SQL, and the annual rotation steps.
 #
 # Note: `well-known` legitimately indexes 0 — it is discovery-by-URL and has no
 # central catalog to crawl. See STRUCTURALLY_EMPTY_SOURCES in
