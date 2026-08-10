@@ -481,12 +481,21 @@ def browse_sh_origin_skill_md(slug: str) -> tuple[str, str] | None:
     return None
 
 
+# Sources that are STRUCTURALLY empty rather than broken. `well-known` is
+# discovery-by-URL: an agent points at a specific origin's /.well-known/ path,
+# so there is no central catalog to crawl and `indexed_count = 0` is its correct
+# steady state — NOT a failed walk. Kept as data (not a comment) so operators and
+# the catalog-health surface can tell "this source is fine and empty by design"
+# from "this source is silently broken", which is exactly the confusion that hid
+# github-oss indexing 0 rows for want of a GITHUB_TOKEN.
+STRUCTURALLY_EMPTY_SOURCES = frozenset({"well-known"})
+
 # Map of source_id → its live fetch callable (consumed by the route).
 LIVE_FETCH = {
     "hermes-hub": hermes_hub_fetch,
     "github-oss": github_oss_fetch,
     "skills-sh": skills_sh_fetch,
-    "well-known": lambda _q: [],  # discovery-by-URL only; no central catalog to crawl
+    "well-known": lambda _q: [],  # see STRUCTURALLY_EMPTY_SOURCES above
     "clawhub": clawhub_fetch,
     "lobehub": lobehub_fetch,
     "browse-sh": browse_sh_fetch,
