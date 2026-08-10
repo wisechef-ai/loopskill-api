@@ -15,13 +15,43 @@ single unified card component needs — and enforces the §5 invariants:
   gold, external always neutral, so honesty can't be faked and curated can't be
   disguised as community or vice-versa.
 - §5.3 **no dead cards**: every card exposes exactly ONE ``primary_action``
-  (``deploy_to_fleet`` for a deployable card, ``preview_install`` otherwise). A
-  card is ``actionable`` iff it has a resolvable action; the merge layer already
-  fail-closes unresolvable external cards, and this contract asserts the property.
+  (``deploy_to_fleet`` for a deployable card, ``preview_install`` for an
+  install-preview-able one, ``view_origin`` for a deep-link-only one — see P3.9
+  below). A card is ``actionable`` iff it has a resolvable action; the merge
+  layer already fail-closes unresolvable external cards, and this contract
+  asserts the property.
 - §5.4 **curated wins ties + carries the chip**: enforced upstream in
   ``metasearch.rank`` (curated boost) + here (the gold chip is curated-only).
 - §5.1 **one ranked list**: the contract is per-card and source-agnostic — there
   is no ``internal``/``external`` split field anywhere in the shape.
+
+**P3.9 (bundles_0811) — the deep-link surfacing decision, implemented.** The
+open product question was: do DEEP_LINK-only results (github-oss with an
+unresolved/absent license, a hermes-hub or well-known row whose license forbids
+redistribution, a github-facet tap with an unlicensed skill) appear in
+metasearch at all, or does indexing-without-surfacing quietly make them
+invisible — "the same silent-failure class as the missing token" (plan P3.9)?
+
+**Decision: (a) — they DO appear, unmissably labelled "not installable".**
+Reach is the point of federation: finding a skill and going to its repo has
+real value even when LoopSkill cannot resolve an install instruction for it
+(no license, no coordinates, or a source that is deep-link-only by policy).
+Before this change, `_ref_is_resolvable` required a registered origin fetcher
+for every non-curated/non-clawhub source — a genuine github-oss deep-link row
+had a non-empty `install_ref` but no fetcher, so `apply_card_contract` silently
+dropped it. A source that indexed 30 rows and surfaced 0 of them is exactly
+the "indexes but never surfaces" failure this phase closes.
+
+Any DEEP_LINK card (other than ClawHub, which keeps its own richer inline
+preview from its own API — see ``metasearch_install.resolve_clawhub_preview``)
+now renders with ``primary_action=ACTION_VIEW_ORIGIN`` and an explicit
+``action_label`` ("View on GitHub — not installable" etc.), is NEVER
+``deployable`` (defense in depth — ``route_install`` already denies it),
+and NEVER carries an ``installable=True`` claim. This is deliberately
+DIFFERENT from a licence judgement (Q3, 2026-08-10: licence is recorded,
+never enforced — no block, no warning, no "unverified licence" badge). The
+label here is about INSTALLABILITY — we have no coordinates to resolve, or the
+source is deep-link by policy — never about whether the licence is "safe".
 
 The card contract is additive metadata layered onto the existing UnifiedSkill
 dict, so P0's response stays backward-compatible.
@@ -55,6 +85,11 @@ _SOURCE_BADGE = {
 # Primary action vocabulary (§5.3). Exactly one per card.
 ACTION_DEPLOY = "deploy_to_fleet"  # deployable card, fleet-deploy motion (the moat)
 ACTION_PREVIEW = "preview_install"  # non-deployable (e.g. ClawHub) — preview + ad-hoc install
+# P3.9 (bundles_0811) decision (a): a DEEP_LINK card (not ClawHub, which keeps
+# its own richer inline preview) — reach without an install instruction. The
+# card links to the origin and is unmissably labelled "not installable"; it is
+# never deployable and never implies we have a resolvable install path.
+ACTION_VIEW_ORIGIN = "view_origin"
 
 
 def _source_badge(source: str) -> str:
@@ -81,7 +116,12 @@ class CardContract:
     quality_chip_label: str  # §5.2 chip text (derived)
     quality_chip_tone: str  # gold | neutral (derived)
     primary_action: str  # §5.3 exactly one action
+    action_label: str  # P3.9: human-facing action copy (non-empty for view_origin)
     actionable: bool  # §5.3 has a resolvable action → renderable
+    installable: bool  # P3.9: True iff the action resolves to a real install/preview,
+    # False for a deep-link-only "view origin" card — the honest installability
+    # signal, kept structurally distinct from `license` (Q3: licence is never a
+    # gate, this field never reflects it).
     install_ref: str
     deployable: bool
     popularity: int | None
@@ -97,7 +137,9 @@ class CardContract:
             "quality": self.quality,
             "quality_chip": {"label": self.quality_chip_label, "tone": self.quality_chip_tone},
             "primary_action": self.primary_action,
+            "action_label": self.action_label,
             "actionable": self.actionable,
+            "installable": self.installable,
             "install_ref": self.install_ref,
             "deployable": self.deployable,
             "popularity": self.popularity,
@@ -105,33 +147,48 @@ class CardContract:
         }
 
 
+def _decode_and_check(source: str, install_ref: str) -> tuple[str, str] | None:
+    """Decode ``install_ref`` and verify its source matches the card's display
+    ``source``. Returns ``(decoded_source, slug)`` or ``None`` on any malformed
+    or spoofed/mismatched ref (council R2/R3: a mismatch fails closed under
+    EVERY action type, not just the fetch-origin one — a deep-link card cannot
+    borrow another source's identity either)."""
+    if not install_ref or ":" not in install_ref:
+        return None
+    decoded_source, _, slug = install_ref.partition(":")
+    decoded_source = decoded_source.strip()
+    slug = slug.strip()
+    if not decoded_source or not slug:
+        return None
+    if decoded_source != source:
+        return None
+    return decoded_source, slug
+
+
 def _ref_is_resolvable(source: str, install_ref: str) -> bool:
-    """§5.3 TRUE resolvability predicate — a card is actionable iff the P1 install
-    route can actually resolve it, NOT merely because it carries a ref string.
+    """§5.3 TRUE resolvability predicate for the fetch-origin/curated/ClawHub
+    paths — a card is actionable iff the P1 install route can actually resolve
+    it, NOT merely because it carries a ref string.
 
     Council P2 MUST: ``bool(install_ref)`` was wrong — ``github-oss`` mints a
     deployable card with a non-empty ref whose origin fetcher is deliberately
     absent (needs a prod token), so it would render a deploy button that 404s.
 
     Council P2 R2: route the decision off the source DECODED FROM ``install_ref``
-    (exactly as ``resolve_install`` does), not the card's display ``source`` — a
-    mismatch (display ``recipes`` but ref ``github-oss:x``) would otherwise be
-    called actionable here yet 404 at the route. We additionally require the
-    decoded source to EQUAL the display source, so a spoofed/mismatched card
-    fails closed. This makes the contract and the install endpoint provably agree.
+    (exactly as ``resolve_install`` does), not the card's display ``source`` —
+    handled by ``_decode_and_check`` above.
+
+    Note: this function does NOT know about ``install_path`` and therefore does
+    NOT cover the P3.9 deep-link-only path (``ACTION_VIEW_ORIGIN``) — that is
+    decided separately in ``card_from_unified`` because it needs the
+    ``install_path``/``origin_url`` fields this function isn't given. Kept as a
+    standalone predicate because it is the exact check the P1 install route
+    performs, so tests can assert contract/route agreement directly.
     """
-    if not install_ref or ":" not in install_ref:
+    decoded = _decode_and_check(source, install_ref)
+    if decoded is None:
         return False
-    decoded_source, _, slug = install_ref.partition(":")
-    decoded_source = decoded_source.strip()
-    slug = slug.strip()
-    if not decoded_source or not slug:
-        return False
-    # The ref's own source must match the card's display source (no spoofing).
-    # Council R3: strict — an EMPTY display source must also fail closed (an empty
-    # badge with a recipes:x ref is still a spoofed/mismatched card).
-    if decoded_source != source:
-        return False
+    decoded_source, _slug = decoded
     if decoded_source == "recipes":  # curated — resolved from the internal catalog
         return True
     if decoded_source == "clawhub":  # preview from ClawHub's own API (decision #6)
@@ -140,6 +197,22 @@ def _ref_is_resolvable(source: str, install_ref: str) -> bool:
     from app.services.federation_install import get_origin_fetcher
 
     return get_origin_fetcher(decoded_source) is not None
+
+
+def _is_deep_link_reach_card(install_path: str, decoded_source: str) -> bool:
+    """P3.9 (bundles_0811) decision (a): True iff this card is DEEP_LINK-only
+    AND is neither ``recipes`` (never deep-link) nor ``clawhub`` (which keeps
+    its own richer inline-preview action rather than a bare origin link).
+    A deep-link card in this state gets ``ACTION_VIEW_ORIGIN`` — reach without
+    an install instruction — instead of being silently dropped."""
+    return install_path == "deep_link" and decoded_source not in ("recipes", "clawhub")
+
+
+def _view_origin_label(source: str) -> str:
+    """P3.9: the unmissable, honest action copy for a deep-link-only card. This
+    is an INSTALLABILITY statement, never a licence judgement (Q3 supersedes
+    the old 'unverified licence' badge idea — no licence wording belongs here)."""
+    return f"View on {_source_badge(source)} — not installable"
 
 
 def card_from_unified(card: dict) -> CardContract:
@@ -152,11 +225,47 @@ def card_from_unified(card: dict) -> CardContract:
     raw_ref = card.get("install_ref")
     install_ref = str(raw_ref) if isinstance(raw_ref, str) else ""
     source = str(card.get("source", ""))
-    # §5.3: actionable iff the P1 install route can genuinely RESOLVE this ref
-    # (not just because a string is present — that let github-oss render a dead
-    # deploy card). This is the true no-dead-cards gate.
-    actionable = _ref_is_resolvable(source, install_ref)
-    primary_action = ACTION_DEPLOY if (deployable and actionable) else ACTION_PREVIEW
+    install_path = str(card.get("install_path") or "")
+    origin_url = str(card.get("origin_url") or "")
+
+    decoded = _decode_and_check(source, install_ref)
+    actionable = False
+    primary_action = ACTION_PREVIEW
+    action_label = ""
+    installable = False
+
+    if decoded is not None:
+        decoded_source, _slug = decoded
+        if decoded_source == "recipes":
+            actionable = True
+            primary_action = ACTION_DEPLOY if deployable else ACTION_PREVIEW
+            installable = True
+        elif decoded_source == "clawhub":
+            actionable = True
+            primary_action = ACTION_PREVIEW
+            installable = True
+        elif _is_deep_link_reach_card(install_path, decoded_source) and origin_url.startswith(
+            ("http://", "https://")
+        ):
+            # P3.9 decision (a): deep-link-only reach — labelled, never
+            # deployable, never claimed installable. See module docstring.
+            actionable = True
+            primary_action = ACTION_VIEW_ORIGIN
+            action_label = _view_origin_label(decoded_source)
+            deployable = False  # defense in depth — route_install already denies this
+            installable = False
+        else:
+            # §5.3: actionable iff the P1 install route can genuinely RESOLVE
+            # this ref (not just because a string is present — that let
+            # github-oss render a dead deploy card). This is the true
+            # no-dead-cards gate for the fetch-origin/curated/ClawHub paths.
+            from app.services.federation_install import get_origin_fetcher
+
+            if get_origin_fetcher(decoded_source) is not None:
+                actionable = True
+                primary_action = ACTION_DEPLOY if deployable else ACTION_PREVIEW
+                installable = True
+
     return CardContract(
         canonical_id=str(card.get("canonical_id", "")),
         title=str(card.get("title", "")),
@@ -167,7 +276,9 @@ def card_from_unified(card: dict) -> CardContract:
         quality_chip_label=chip["label"],
         quality_chip_tone=chip["tone"],
         primary_action=primary_action,
+        action_label=action_label,
         actionable=actionable,
+        installable=installable,
         install_ref=install_ref,
         deployable=deployable,
         popularity=card.get("popularity"),

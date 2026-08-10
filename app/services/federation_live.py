@@ -18,6 +18,10 @@ Two live sources this sprint (Adam q4):
                  works (Hermes Hub carries it) and GitHub lights up the moment a
                  token lands in the environment. No personal token is ever baked
                  into the process; prod reads a dedicated fine-grained token.
+                 RATE-LIMIT REALITY (P3.9, bundles_0811): GitHub code-search is
+                 10 req/min, not the 5,000/hr the REST API otherwise allows.
+                 That makes this a LIVE LONG-TAIL LOOKUP, never a bulk crawl —
+                 do not read its periodic reindex sample as an owned index size.
 
 Honesty rule (Phase F5): this module separates INDEXED (everything discovered)
 from INSTALLABLE (the redistributable / registerable subset). It never conflates
@@ -489,6 +493,28 @@ def browse_sh_origin_skill_md(slug: str) -> tuple[str, str] | None:
 # from "this source is silently broken", which is exactly the confusion that hid
 # github-oss indexing 0 rows for want of a GITHUB_TOKEN.
 STRUCTURALLY_EMPTY_SOURCES = frozenset({"well-known"})
+
+# P3.9 (bundles_0811): sources whose fetch is GATED on an env token, and whose
+# absence-of-token failure mode is SILENT — `indexed_count=0` with
+# `last_error=NULL`, indistinguishable from a source that is legitimately empty
+# unless you separately check whether the token exists. Kept as data so a
+# reindex/health check can tell "zero because auth vanished" from "zero and
+# fine" (STRUCTURALLY_EMPTY_SOURCES, above) without hardcoding source names in
+# three different places.
+TOKEN_GATED_SOURCES = frozenset({"github-oss"})
+
+
+def token_gated_source_missing_auth(source_id: str) -> bool:
+    """True iff ``source_id`` is token-gated (P3.9) and its token is absent.
+
+    This is the auth-vanished detector the reindex walker uses to distinguish
+    a source that is silently zero for want of `GITHUB_TOKEN`/`GH_TOKEN` from a
+    source that is genuinely, structurally empty (STRUCTURALLY_EMPTY_SOURCES) —
+    the exact ambiguity that let github-oss sit at `indexed_count=0,
+    last_error=NULL` for days without anyone noticing (docs/SELF_HOST.md).
+    """
+    return source_id in TOKEN_GATED_SOURCES and _github_token() is None
+
 
 # Map of source_id → its live fetch callable (consumed by the route).
 LIVE_FETCH = {

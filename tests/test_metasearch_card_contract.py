@@ -9,6 +9,7 @@ from __future__ import annotations
 from app.services.metasearch_card_contract import (
     ACTION_DEPLOY,
     ACTION_PREVIEW,
+    ACTION_VIEW_ORIGIN,
     RenderContractMeta,
     apply_card_contract,
     card_from_unified,
@@ -124,17 +125,45 @@ def test_render_meta_within_budget():
 # ── council P2 MUST: resolvability, not string-presence (github-oss dead card) ──
 
 
-def test_github_oss_deployable_but_unresolvable_is_dropped():
-    """Council MUST: github-oss can be deployable=True with a non-empty install_ref
-    but has NO origin fetcher (needs prod token) → resolve_install 404s. Such a
-    card must be non-actionable and DROPPED, not rendered as a dead deploy button."""
-    from app.services.metasearch_card_contract import _ref_is_resolvable
-
-    assert _ref_is_resolvable("github-oss", "github-oss:owner--repo") is False
-    card = _card(source="github-oss", install_ref="github-oss:owner--repo", deployable=True)
+def test_github_oss_deployable_but_unresolvable_falls_back_to_view_origin():
+    """P3.9 (bundles_0811): github-oss can be deployable=True with a non-empty
+    install_ref but has NO origin fetcher (needs prod token). Before P3.9 this
+    card was dropped entirely — the deep-link surfacing decision (a) means it
+    now renders as a labelled, non-deployable 'view origin' card instead of
+    vanishing (github-oss's install_path is deep_link when no origin fetcher
+    exists / no license is known)."""
+    card = _card(
+        source="github-oss",
+        install_ref="github-oss:owner--repo",
+        deployable=True,
+        install_path="deep_link",
+        origin_url="https://github.com/owner/repo",
+    )
     c = card_from_unified(card)
-    assert c.actionable is False, "github-oss with no fetcher must be non-actionable"
-    assert apply_card_contract([card]) == [], "dead github-oss deploy card must be dropped"
+    assert c.actionable is True, "P3.9: deep-link-only must surface, not disappear"
+    assert c.primary_action == ACTION_VIEW_ORIGIN
+    assert c.installable is False, "reach without a resolvable install instruction"
+    assert c.deployable is False, "never deployable — defense in depth"
+    assert "not installable" in c.action_label
+    out = apply_card_contract([card])
+    assert len(out) == 1
+    assert out[0]["primary_action"] == ACTION_VIEW_ORIGIN
+
+
+def test_github_oss_fetch_origin_path_still_dropped_without_fetcher():
+    """A github-oss card whose install_path is fetch_origin (a real license was
+    found) but has no registered origin fetcher must still fail closed — P3.9
+    only changes the DEEP_LINK case, not fetch_origin resolvability."""
+    card = _card(
+        source="github-oss",
+        install_ref="github-oss:owner--repo",
+        deployable=True,
+        install_path="fetch_origin",
+        origin_url="https://github.com/owner/repo",
+    )
+    c = card_from_unified(card)
+    assert c.actionable is False
+    assert apply_card_contract([card]) == []
 
 
 def test_resolvable_sources_stay_actionable():
