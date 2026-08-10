@@ -232,6 +232,9 @@ def create_app() -> FastAPI:
     app.include_router(skill_patch_router, tags=["skill-patches"])
     app.include_router(recall_router, tags=["recall"])
     app.include_router(recipify_router, tags=["recipify"])
+    from app.federation_propose_routes import router as federation_propose_router  # bundles_0811 P3.5
+
+    app.include_router(federation_propose_router, tags=["federation"])
     from app.fleet_routes import router as fleet_router  # portal_0610 J3
     from app.fleet_member_routes import router as fleet_member_router  # activate_0701 Phase 1
 

@@ -2901,3 +2901,43 @@ class BundlePersonality(Base):
     added_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (Index("ix_bundle_pers_bundle", "bundle_id"),)
+
+
+class FederationRegistryProposal(Base):
+    """Self-serve proposal to add a new federation source registry.
+
+    bundles_0811 Phase P3.5 (locked decision #10). Created via
+    POST /api/federation/propose or the loopskill_propose_registry MCP tool.
+    Dispatches a GitHub repository_dispatch event of type
+    'federation-registry-propose'. ACCEPTING a proposal means appending an
+    entry to config/federation_sources.yaml — this row is a durable record of
+    the request, not itself a registration; see app/services/federation.py.
+    """
+
+    __tablename__ = "federation_registry_proposals"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    repo_url = Column(Text, nullable=False)
+    proposed_source_id = Column(Text, nullable=False)
+    contact = Column(Text, nullable=True)
+    why = Column(Text, nullable=True)
+    identity = Column(Text, nullable=False)  # rate-limit identity (api_key:*/agent:*/ip:*/anon)
+    signature = Column(Text, nullable=False)  # sha256(identity|repo_url) — the 24h dedupe key
+    # Pre-flight evidence, attached to the GitHub issue body verbatim.
+    repo_exists = Column(Boolean, nullable=True)
+    skill_md_count = Column(Integer, nullable=True)
+    license_detected = Column(Text, nullable=True)
+    preflight_summary = Column(JSON, nullable=True)
+    # status: pending | accepted | rejected
+    status = Column(String(32), nullable=False, default="pending")
+    issue_url = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','accepted','rejected')",
+            name="ck_frp_status",
+        ),
+        Index("idx_frp_signature", "signature"),
+        Index("idx_frp_identity_created", "identity", "created_at"),
+    )

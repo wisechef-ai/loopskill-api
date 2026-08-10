@@ -197,6 +197,39 @@ def _publish_tools() -> list[types.Tool]:
                 },
             },
         ),
+        types.Tool(
+            name="loopskill_propose_registry",
+            description=(
+                "Propose a new federation registry source (a GitHub repo or "
+                "catalog of skills) for LoopSkill to federate. Pre-flights the "
+                "repo (exists? SKILL.md count? license?) BEFORE opening a "
+                "labelled GitHub issue with the evidence attached — a repo "
+                "that does not exist or has zero SKILL.md files is reported "
+                "back instead of filing a junk issue. Rate limited to 1 "
+                "proposal per 24h per (identity, repo). Accepting a proposal "
+                "is a config edit (config/federation_sources.yaml), never a "
+                "code change."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["repo_url"],
+                "properties": {
+                    "repo_url": {
+                        "type": "string",
+                        "description": "https://github.com/<owner>/<repo> URL of the proposed registry.",
+                    },
+                    "source_id": {
+                        "type": "string",
+                        "description": "Optional proposed source id (slug). Defaults to the repo name.",
+                    },
+                    "contact": {"type": "string", "description": "Optional contact for follow-up."},
+                    "why": {"type": "string", "description": "Optional rationale for the proposal."},
+                    "agent_id": {"type": "string"},
+                    "force": {"type": "boolean", "default": False},
+                    "confirmation": {"type": "string"},
+                },
+            },
+        ),
     ]
 
 
