@@ -87,6 +87,42 @@ def bundle_limit(tier: str | None) -> int | None:
 cookbook_limit = bundle_limit
 
 
+# DEFAULT_API_KEY_CAP is the fail-closed fallback for a missing/corrupt
+# `api_key_cap` key AND for an unknown/None tier (bundles_0811 P2.5, Adam
+# 2026-08-10 lock #11). Deliberately a HARDCODED literal, not a read of the
+# free-tier YAML value: an unknown/null tier must remain the most restrictive
+# cap under every circumstance, including a future edit that raises Free —
+# it must never silently inherit a raise via this fallback. This is the one
+# tier number allowed to live outside config/tiers.yaml, and only because it
+# is not a tier's number at all — it is the "we don't know the tier" guard.
+DEFAULT_API_KEY_CAP = 1
+
+
+def api_key_cap(tier: str | None) -> int:
+    """Return the max active API keys a tier may hold.
+
+    SSOT: config/tiers.yaml `api_key_cap` per tier. This is the ONLY source of
+    active-key caps — app/api_key_routes.py reads it here rather than holding
+    its own Python-literal dict (the bundles_0811 P2.5 fix for the verified
+    defect where Pro shared Free's cap of 1). Accepts legacy slugs ('cook',
+    'studio', 'operator') transparently via _canonical().
+
+    Returns DEFAULT_API_KEY_CAP (1) for an unknown/None tier or a tier config
+    missing the key — the most restrictive cap, by design, never inherited
+    from another tier's value.
+    """
+    if not tier:
+        return DEFAULT_API_KEY_CAP
+    canonical = _canonical(tier)
+    tier_cfg = _tiers().get(canonical)
+    if tier_cfg is None:
+        return DEFAULT_API_KEY_CAP
+    cap = tier_cfg.get("api_key_cap")
+    if cap is None:
+        return DEFAULT_API_KEY_CAP
+    return cap
+
+
 def is_public_tier(tier: str | None) -> bool:
     """Return False only for a tier explicitly flagged `public: false` in the SSOT.
 

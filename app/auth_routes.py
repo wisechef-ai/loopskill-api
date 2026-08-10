@@ -40,6 +40,7 @@ from app.referral import (
 )
 from app.services.bundle_quota import quota_status
 from app.tier_labels import _is_paid_tier, _is_pro_plus_tier
+from app.tier_labels import api_key_cap as _tier_api_key_cap
 
 logger = logging.getLogger(__name__)
 
@@ -383,6 +384,12 @@ async def get_me(
                 "operator": None,  # legacy alias → pro_plus
                 "studio": None,  # legacy alias → pro_plus
             }.get(user.subscription_tier, 0),
+            # api_key_cap — SSOT in config/tiers.yaml (bundles_0811 P2.5), read
+            # through the SAME helper app/api_key_routes.py enforces with
+            # (app.tier_labels.api_key_cap), so this UI-facing number can never
+            # drift from what the create-key endpoint actually holds the user
+            # to. Portal readers: GET /api/auth/me -> features.api_key_cap.
+            "api_key_cap": _tier_api_key_cap(user.subscription_tier),
             "fleet_sync": _is_pro_plus_tier(user.subscription_tier),
             "fleet_seeker": _is_pro_plus_tier(user.subscription_tier),
             "subrecipe_priority_resolve": _is_pro_plus_tier(user.subscription_tier),

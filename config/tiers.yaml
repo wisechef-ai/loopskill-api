@@ -38,6 +38,14 @@ tiers:
     # public ones).
     bundle_limit: 2
 
+    # ACTIVE-API-KEY cap SSOT (bundles_0811 P2.5, Adam 2026-08-10 lock #11).
+    # UNCHANGED at 1 — deliberate, not an oversight. The key cap is the ONE
+    # concrete reason to upgrade that is not bundle count; raising Free here
+    # would remove it. Read via app.tier_labels.api_key_cap() — the ONLY
+    # source of this number; app/api_key_routes.py enforces it and must never
+    # hold a second copy as a Python literal.
+    api_key_cap: 1
+
   pro:
     db_slug: pro
     display_name: Pro
@@ -58,6 +66,14 @@ tiers:
     # bundles remain unlimited here as on every tier (D-011); see the free
     # block above for the full metering rule.
     bundle_limit: 50
+
+    # ACTIVE-API-KEY cap SSOT (bundles_0811 P2.5, Adam 2026-08-10 lock #11):
+    # 1 → 10. The verified defect: a $9.95/mo Pro customer had the SAME
+    # single-key cap as Free, making every advertised workflow (one key per
+    # client / machine / agent) impossible. Legacy alias `cook` follows this
+    # value transparently via _canonical(). See free.api_key_cap above for
+    # the SSOT contract.
+    api_key_cap: 10
 
   pro_plus:
     db_slug: pro_plus
@@ -84,3 +100,7 @@ tiers:
     badge: Pro+
     # Private bundles only (D-011); public bundles are unlimited.
     bundle_limit: 200
+
+    # ACTIVE-API-KEY cap SSOT (bundles_0811 P2.5) — unchanged at 20. Legacy
+    # aliases `operator`/`studio` follow this value via _canonical().
+    api_key_cap: 20
