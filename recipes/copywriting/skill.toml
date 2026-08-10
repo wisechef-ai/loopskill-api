@@ -1,0 +1,7 @@
+[skill]
+name = "copywriting"
+version = "1.0.0"
+description = "Write and edit marketing copy that survives scrutiny — landing pages, emails, ads, product descriptions, and launch posts. Direct-response discipline (one reader, one promise, one action) plus a claim-grounding pass that refuses any assertion the source cannot support."
+license = "MIT"
+tier = "free"
+entrypoint = "SKILL.md"
