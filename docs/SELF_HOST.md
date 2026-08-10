@@ -4,6 +4,33 @@ LoopSkill is the GitOps fleet control plane for AI agents. Declare desired state
 server-side; agents pull and converge. This guide walks a cold clone to a working
 fleet loop using only the docs below.
 
+## Fastest path: two commands, zero config
+
+The repo ships a zero-config Docker stack (SQLite, no secrets required; Redis is
+optional — the app degrades gracefully to in-memory rate limiting without it):
+
+```bash
+git clone https://github.com/wisechef-ai/loopskill-api.git && cd loopskill-api
+docker compose up -d
+curl http://localhost:8200/api/healthz     # → {"status":"ok","db":"ok",...}
+```
+
+That is a running control plane. Use it to evaluate LoopSkill before committing
+to any of the setup below.
+
+**Which path do you want?**
+
+| You want | Use |
+|---|---|
+| To try it / evaluate / develop against it | `docker compose up -d` (above) |
+| A production-grade stack (Postgres + Redis) | `docker-compose.prod.yml` |
+| Full manual control, no Docker | The venv walkthrough below |
+
+The manual walkthrough is the reference for what the containers do, and it is the
+path to follow when running LoopSkill for real on your own host. Everything after
+§1 (owner key, fleets, reconcile, loops) applies **identically** whichever way you
+booted — only the boot step differs.
+
 ## Quick Start (cold clone → fleet → reconcile → outcome records)
 
 ### 1. Clone + boot
