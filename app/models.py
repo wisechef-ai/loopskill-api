@@ -2211,6 +2211,18 @@ class FederationHubSkill(Base):
     duplicate_of = Column(String(64), nullable=True)  # upstream source id if duplicate
     repo = Column(String(512), nullable=True)
     path = Column(String(512), nullable=True)
+    # bundles0811 P3.6 — recorded, never enforced (plan §0 decision/Q3): the
+    # live Hub snapshot does not populate this field for any of its 90,605
+    # rows today (verified 2026-08-11), so this column starts universally
+    # NULL. It exists so (a) filtering by license is a real, testable,
+    # DB-level capability the moment any source starts shipping it — a
+    # future snapshot version or a per-skill origin resolution (P3's tree
+    # walker) populating this needs zero further migration — and (b) no
+    # code path anywhere gates or blocks on it, matching the license
+    # columns already on Skill/Verifier/Personality. NEVER a redistribution
+    # gate: `install_path` (fetch_origin vs deep_link) already carries that
+    # decision independently.
+    license = Column(String(64), nullable=True)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
