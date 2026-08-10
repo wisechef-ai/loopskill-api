@@ -185,6 +185,8 @@ ALLOWED_LINK_DOMAINS = (
     "centralnic.com",  # rdap.centralnic.com — RDAP registry lookups
     "duckduckgo.com",  # scrapling — html.duckduckgo.com search endpoint
     "civitai.com",  # comfyui — model hub the skill pulls checkpoints from
+    "wikipedia.org",  # humanizer — cites Wikipedia:Signs of AI writing as its source
+    "wikimedia.org",  # sibling of wikipedia.org (commons, wikidata assets)
 )
 
 # Placeholder / RFC-2606 reserved / docs-example domains. Always documentation,

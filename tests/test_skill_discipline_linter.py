@@ -295,6 +295,26 @@ def test_spotify1507_infra_source_domains_pass() -> None:
     ]
 
 
+def test_wikipedia_citation_domains_pass() -> None:
+    """Encyclopedic citation sources must not trip the promo rule.
+
+    Regression: the `humanizer` skill cites Wikipedia:Signs of AI writing as the
+    source its whole method is derived from, and was rejected at publish time
+    (HTTP 422) on 2026-08-10 because wikipedia.org was absent from the
+    allowlist — while arxiv.org and semanticscholar.org, the same *kind* of
+    citation source, were already present. A citation is not promotion.
+    """
+    body = CLEAN_SKILL_MD + (
+        "\nBased on https://en.wikipedia.org/wiki/Wikipedia:Signs_of_AI_writing "
+        "and https://commons.wikimedia.org/wiki/Main_Page.\n"
+    )
+    result = lint_skill(body, recipe_yaml=CLEAN_RECIPE_YAML)
+    rules = {v["rule"] for v in result["violations"]}
+    assert "no_external_promo" not in rules, [
+        v for v in result["violations"] if v["rule"] == "no_external_promo"
+    ]
+
+
 # ── CLI entry point ────────────────────────────────────────────────────────
 
 
