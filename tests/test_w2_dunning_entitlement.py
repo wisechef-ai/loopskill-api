@@ -243,6 +243,12 @@ class TestNoGateReadsTheRawTierColumn:
             "subscriber_credit_service.py",  # credit grant, checks status separately
             "role_sync.py",  # Discord role sync, checks status separately
             "api_key.py",  # middleware, gates on status correctly
+            # fdeloop_0808 Ph D: extracted VERBATIM out of api_key.py to keep
+            # that module under the 600-line god-object cap. It carries the same
+            # inline `subscription_status in ("active","trialing")` guard the
+            # allowance above was granted for — the code did not change, only
+            # the file it lives in.
+            "_jwt_cookie_auth.py",
             "recall_routes.py",  # routed through entitled_tier_or_free
             "fleet_routes.py",  # routed through entitled_tier_or_free
             "bundle_routes.py",  # routed through entitled_tier_or_free

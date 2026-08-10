@@ -22,6 +22,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.config import settings
 from app.middleware._public_paths import EXEMPT_PATHS as _EXEMPT_PATHS
 from app.middleware._public_paths import PUBLIC_PREFIXES as _PUBLIC_PREFIXES
+from app.middleware._public_paths import is_public_plugin_manifest_path as _is_plugin_manifest_path
+from app.middleware._jwt_cookie_auth import auth_ctx_from_jwt_cookie as _auth_ctx_from_jwt_cookie  # noqa: F401
+from app.middleware._jwt_cookie_auth import try_jwt_cookie_auth as _try_jwt_cookie_auth  # noqa: F401
 
 # mesh_0408 W1: tenant resolution lives in _org_scope so this module stays
 # under the 600-line god-object cap. Re-exported under the historical
@@ -44,86 +47,6 @@ logger = logging.getLogger("wiserecipes.middleware")
 _redis_client = None
 _redis_available = None
 _redis_next_retry_at: float = 0.0  # F-API-05: backoff timestamp
-
-
-def _auth_ctx_from_jwt_cookie(request) -> "AuthContext":
-    """Return an AuthContext populated from the wr_jwt cookie / Bearer token.
-
-    Used on public skill-detail GETs where no x-api-key is present.  If the
-    cookie is absent or invalid, returns AuthContext.anonymous() so downstream
-    handlers always have a valid auth_ctx to inspect.
-
-    Resolution order:
-      1. ``wr_jwt`` cookie (browser portal sessions)
-      2. ``Authorization: Bearer <token>`` (SPA clients, backward compat)
-
-    Issue #25 (secfix_1905/H): extracted from the deleted _resolve_caller_tier
-    helper so that JWT-cookie callers on public routes are properly hydrated
-    into auth_ctx without the route needing a separate DB call.
-    """
-    from app.auth_ctx import AuthContext
-
-    token = request.cookies.get("wr_jwt")
-    if not token:
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.lower().startswith("bearer "):
-            token = auth_header[7:].strip()
-    if not token:
-        return AuthContext.anonymous()
-
-    try:
-        from app.auth_routes import verify_jwt  # local import to avoid cycles
-
-        payload = verify_jwt(token)
-    # Rationale: any JWT validation failure must not crash public skill-detail — return anonymous
-    except Exception:  # noqa: BLE001
-        return AuthContext.anonymous()
-
-    if not payload:
-        return AuthContext.anonymous()
-
-    from uuid import UUID
-
-    try:
-        user_id = UUID(payload["sub"])
-    except (ValueError, KeyError, TypeError):
-        return AuthContext.anonymous()
-
-    from app.database import SessionLocal
-    from app.models import User
-
-    db = SessionLocal()
-    try:
-        user = db.query(User).filter(User.id == user_id).first()
-        # BUGFIX (2026-07-19): identity mustn't gate on subscription status
-        # (old code 401'd fresh signups). `tier` alone stays conditional.
-        if user:
-            org_id, is_org_owner = _resolve_org_membership(db, user_id)
-            tier = user.subscription_tier if user.subscription_status in ("active", "trialing") else None
-            return AuthContext(
-                scope="user", user_id=user_id, tier=tier, org_id=org_id, is_org_owner=is_org_owner
-            )
-    finally:
-        db.close()
-
-    return AuthContext.anonymous()
-
-
-def _try_jwt_cookie_auth(request) -> bool:
-    """Authenticate an authed route via the wr_jwt cookie. Returns success.
-
-    Portal/OAuth users carry a ``wr_jwt`` cookie, not an ``x-api-key`` header.
-    On a valid user-scope cookie, stamp ``auth_ctx`` + ``api_key_user_id`` so
-    cookie auth and key auth converge (cookbook routes read api_key_user_id).
-    The id is the real user UUID (never ``None``), so admin routes still reject.
-    """
-    jwt_ctx = _auth_ctx_from_jwt_cookie(request)
-    if jwt_ctx is not None and getattr(jwt_ctx, "scope", None) == "user":
-        request.state.auth_ctx = jwt_ctx
-        request.state.api_key_user_id = jwt_ctx.user_id
-        request.state.api_key_id = None
-        return True
-    return False
 
 
 def _auth_ctx_from_api_key(request) -> "AuthContext | None":
@@ -305,6 +228,11 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 # No / invalid key: still stamp an auth_ctx so handlers always
                 # have one. Honour a wr_jwt cookie if present, else anonymous.
                 request.state.auth_ctx = _auth_ctx_from_jwt_cookie(request)
+            return await call_next(request)
+
+        # fdeloop_0808 Ph D: public Agent Plugins manifest read. Rationale and
+        # the no-leak contract live with the predicate in _public_paths.py.
+        if _is_plugin_manifest_path(path, request.method):
             return await call_next(request)
 
         # Method-aware public POST endpoints (intent-survey: anonymous submit only)

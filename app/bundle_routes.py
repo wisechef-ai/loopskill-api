@@ -800,6 +800,62 @@ def public_cookbook_page(slug: str, db: Session = Depends(get_db)):
     return card
 
 
+# ── fdeloop_0808 Phase D — Agent Plugins v1.0.0 manifest ────────────────────
+# GET /api/bundles/{slug}/plugin.json (+ /api/cookbooks/* compat alias) emits
+# a spec-valid Agent Plugins manifest for a PUBLIC bundle. See the schema
+# fetched into tests/fixtures/agent_plugins_v1_0_0_schema.json for the
+# authoritative contract (source URL + fetch date in that file's header).
+#
+# DRIFT FROM THE ORIGINAL PLAN (documented here, not just in the PR body):
+# the plan assumed Agent Plugins fields map onto existing Bundle columns
+# (keywords, license, homepage, repository, version, author). None of those
+# columns exist on Bundle — only name, description, and slug do. The schema
+# is CLOSED (additionalProperties: false) and only requires $schema + name,
+# so this helper emits the minimal, honest subset it can populate truthfully
+# and OMITS everything else rather than inventing placeholder values.
+_AGENT_PLUGINS_SCHEMA_URL = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+
+
+def _build_plugin_manifest(bundle: Bundle) -> dict:
+    """Build an Agent Plugins v1.0.0 manifest dict for a PUBLIC bundle.
+
+    Deliberately NOT a reuse of app._skill_helpers._build_manifest — that
+    helper parses skill.toml into a category/tags/tier dict for the
+    completely unrelated skill-install response contract. This helper's
+    output shape is dictated entirely by the external Agent Plugins schema.
+
+    ``name`` is derived from ``bundle.slug`` rather than ``bundle.name``:
+    the schema's ``name`` pattern is a strict slug shape
+    (``^(?!.*(?:--|\\.\\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$``, max 64 chars)
+    that a free-text display name will not generally satisfy, while
+    ``bundle.slug`` is already produced by ``_slugify``/``_ensure_bundle_slug``
+    to a compatible kebab-case shape. ``description`` is included only when
+    non-blank — an absent or whitespace-only description is OMITTED, never
+    emitted as ``null`` or ``""``.
+    """
+    manifest: dict = {
+        "$schema": _AGENT_PLUGINS_SCHEMA_URL,
+        "name": bundle.slug,
+    }
+    description = (bundle.description or "").strip()
+    if description:
+        manifest["description"] = description
+    return manifest
+
+
+@_h.get("/{slug}/plugin.json")  # compat-alias
+def bundle_plugin_manifest(slug: str, db: Session = Depends(get_db)):
+    """Agent Plugins v1.0.0 manifest for a PUBLIC bundle. No auth.
+
+    404 (never 403) for a private/team bundle or an unknown slug — mirrors
+    ``public_cookbook_page``'s no-leak contract exactly.
+    """
+    cb = db.query(Bundle).filter(Bundle.slug == slug).first()
+    if not cb or cb.visibility != "public":
+        raise HTTPException(status_code=404, detail="cookbook_not_found")
+    return _build_plugin_manifest(cb)
+
+
 # ── spotify_0608 Ph G — reputation surfaces ──────────────────────────────
 
 
