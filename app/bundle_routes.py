@@ -2148,6 +2148,20 @@ def install_cookbook(
         hub_by_slug = resolve_federated_hub_titles(db, (r.federated_slug for r in fed_rows))
         for join in fed_rows:
             hub = hub_by_slug.get(join.federated_slug)
+            # bundles0811 P3 item 5 — MCP/REST parity: every federated entry
+            # carries the resolved install INSTRUCTION (never bytes), same
+            # shape loopskill_bundle_install (MCP) now emits. hermes-hub is
+            # the only source with repo/path coordinates today; any other
+            # federated_source degrades honestly to an origin-only
+            # instruction via the same resolver (no coordinates -> origin).
+            from app.services.federation_hub_install import resolve_install_instruction
+
+            instr = resolve_install_instruction(
+                repo=getattr(hub, "repo", None),
+                path=getattr(hub, "path", None),
+                origin_url=getattr(hub, "origin_url", None),
+                slug=join.federated_slug,
+            )
             skills_payload.append(
                 {
                     "slug": join.federated_slug,
@@ -2170,6 +2184,7 @@ def install_cookbook(
                     "federated": True,
                     "federated_source": join.federated_source,
                     "provenance": "community",
+                    "install_instruction": instr.to_dict(),
                 }
             )
 

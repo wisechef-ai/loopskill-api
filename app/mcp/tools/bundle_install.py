@@ -331,6 +331,53 @@ def loopskill_bundle_install(
         if version is not None:
             installed.append((skill, version.semver, len(skills_payload) - 1))
 
+    # bundles0811 P3 item 5 — MCP/REST parity. The plain INNER JOIN above
+    # structurally drops federated BundleSkill rows (skill_id NULL), exactly
+    # the bug sp2607fix-1 fixed for the REST bulk-install path
+    # (app/bundle_routes.py::install_cookbook). Mirror that fix here: a
+    # sibling query for skill_id IS NULL rows, each resolved to an install
+    # INSTRUCTION via the same P3 resolver REST uses — one shared contract,
+    # not two independently-drifting ones.
+    fed_rows = (
+        db.query(BundleSkill)
+        .filter(
+            BundleSkill.bundle_id == cb.id,
+            BundleSkill.skill_id.is_(None),
+            BundleSkill.federated_source.isnot(None),
+            BundleSkill.federated_slug.isnot(None),
+            BundleSkill.source != "disabled",
+        )
+        .all()
+    )
+    if fed_rows:
+        from app.services.federated_titles import federated_title_for, resolve_federated_hub_titles
+        from app.services.federation_hub_install import resolve_install_instruction
+
+        hub_by_slug = resolve_federated_hub_titles(db, (r.federated_slug for r in fed_rows))
+        for join in fed_rows:
+            hub = hub_by_slug.get(join.federated_slug)
+            instr = resolve_install_instruction(
+                repo=getattr(hub, "repo", None),
+                path=getattr(hub, "path", None),
+                origin_url=getattr(hub, "origin_url", None),
+                slug=join.federated_slug,
+            )
+            skills_payload.append(
+                {
+                    "slug": join.federated_slug,
+                    "version": None,
+                    "tarball_url": None,
+                    "checksum_sha256": None,
+                    "source": join.source,
+                    "title": federated_title_for(hub, join.federated_slug),
+                    "origin_url": getattr(hub, "origin_url", None),
+                    "federated": True,
+                    "federated_source": join.federated_source,
+                    "provenance": "community",
+                    "install_instruction": instr.to_dict(),
+                }
+            )
+
     # spotify_0608 Ph E — record install events + mint a PER-SKILL provenance_id
     # for MCP-driven bulk installs (R4 nit (a): provenance rides per-skill under
     # skills[], not bundle-top-level). Stamps cookbook_id for feedback routing.  # compat-alias
