@@ -110,6 +110,26 @@ def _raw_skill_md_url(repo: str, branch: str, path: str) -> str:
     return f"{GITHUB_RAW_BASE}/{repo}/{branch}/{clean_path}/SKILL.md"
 
 
+def derive_hub_origin_url(*, repo: str | None, path: str | None, branch: str = "main") -> str | None:
+    """Derive a REAL, non-404ing origin page URL from repo+path, when present.
+
+    bundles0811 P3 item 2: the previous synthesised fallback
+    (``https://claude-code.nousresearch.com/skills/{slug}``) 404s for every
+    one of the 20,509 rows that carry real repo+path coordinates — that host
+    never served per-skill pages. skills-sh rows already store the correct
+    shape (``https://github.com/<repo>/tree/main/<path>``); this reproduces
+    it generically for any hub row that has repo+path, so every caller uses
+    ONE derivation instead of guessing at a dead host. Returns ``None`` when
+    repo/path aren't available — the caller must fall back to something else
+    it actually knows resolves (never invent a URL to a known-404 host).
+    """
+    if not repo:
+        return None
+    if path:
+        return f"https://github.com/{repo}/tree/{branch}/{path.strip('/')}"
+    return f"https://github.com/{repo}"
+
+
 def _probe_branch(repo: str, path: str, branch: str) -> bool:
     """HEAD-only existence probe. Zero body bytes ever transferred."""
     url = _raw_skill_md_url(repo, path=path, branch=branch)
