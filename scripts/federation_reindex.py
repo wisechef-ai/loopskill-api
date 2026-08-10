@@ -183,7 +183,7 @@ def reindex_source(db, source_id: str, *, dry_run: bool = False) -> dict:
     # raises, so the except-block above never fires and last_error would
     # otherwise stay NULL, indistinguishable from a healthy zero-result walk.
     # Record the real cause explicitly so `select ... where last_error is not
-    # null` (or an operator eyeballing the admin surface) can tell "auth
+    # null` (or a human eyeballing the admin surface) can tell "auth
     # vanished" from "walk ran clean and found nothing today".
     reindex_last_error: str | None = None
     if indexed == 0 and federation_live.token_gated_source_missing_auth(source_id):
