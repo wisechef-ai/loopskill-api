@@ -77,6 +77,21 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.feedback_routes", "router", ""),
     ("app.canary", "router", ""),
     ("app.forks_routes", "router", ""),
+    # bundles0811-P1: MUST register BEFORE app.bundle_routes, mirroring
+    # app.main.create_app's ordering exactly (see its inline comment).
+    # GET /{cookbook_id} on bundle_routes is a single-segment catch-all
+    # (FastAPI/Starlette is first-match) — /install.sh is also single-segment,
+    # so registering it after bundle_routes made "install.sh" match
+    # {cookbook_id} first and 401 with "auth_required" instead of ever
+    # reaching the installer route. Caught live by
+    # test_install_script_route_is_public_no_auth_header (bundles0811-P1
+    # test suite) — this factory previously mounted these two AFTER
+    # bundle_routes, the opposite of create_app's wiring, so every anonymous
+    # test against these two routers was silently exercising the wrong
+    # handler.
+    ("app.bundle_install_script_routes", "router", ""),
+    # bundles0811-P1 (F3) — fork preview/claim. Same ordering constraint.
+    ("app.bundle_fork_claim_routes", "router", ""),
     ("app.bundle_routes", "router", ""),
     # bundles0811-P1: was missing entirely — GET /api/bundles/public/{slug}/
     # .well-known/skills/index.json (+ /SKILL.md) 404'd through build_test_app,
@@ -85,10 +100,6 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     # mirroring create_app's own ordering comment (must register after the
     # generic /public/{slug} route so the more specific path wins).
     ("app.bundle_wellknown_routes", "router", ""),
-    # bundles0811-P1 (F1/F2) — GET /api/bundles/install.sh.
-    ("app.bundle_install_script_routes", "router", ""),
-    # bundles0811-P1 (F3) — fork preview/claim.
-    ("app.bundle_fork_claim_routes", "router", ""),
     ("app.promotion_routes", "router", ""),
     ("app.graph_routes", "router", ""),
     ("app.bundle_deployment_routes", "router", ""),
