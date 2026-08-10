@@ -59,7 +59,7 @@ def _tag_filter_predicate(tag: str):
 
     ``FederationHubSkill.tags`` is a JSON column (list[str]); neither SQLite
     (used by the test suite) nor a portable SQLAlchemy expression supports a
-    native "JSON array contains" operator across both backends used here
+    native "JSON array contains" comparison across both backends used here
     (SQLite via the test suite, Postgres in prod) without dialect branching.
     Casting to TEXT and substring-matching a quoted token is the same
     dialect-agnostic trick this codebase already uses elsewhere for JSON
