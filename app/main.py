@@ -307,6 +307,12 @@ def create_app() -> FastAPI:
 
     app.include_router(search_router, prefix="/api", tags=["search"])
 
+    # bundles0811 P3.6 — filters over the federated index (source, license,
+    # trust_level, tag), feeding directly into the bulk bundle-add endpoint.
+    from app.federation_filter_routes import router as federation_filter_router
+
+    app.include_router(federation_filter_router, tags=["federation", "filters"])
+
     # Phase 1 (v7.1): Mount StreamableHTTP ASGI sub-app at /api/mcp/http.
     # Must happen after include_router(mcp_router) so the session manager's
     # MCP server is built from the same build_mcp_server() factory.

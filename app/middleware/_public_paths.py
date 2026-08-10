@@ -79,6 +79,11 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     # method-agnostic prefix does not expose anything the per-type public
     # routes don't already expose. There is no write verb on this path.
     "/api/search",
+    # bundles0811 P3.6 — federated-index filter is a public discovery surface
+    # (same posture as /api/skills/external and /api/bundles/discover). It
+    # returns NO bundle-membership data and mutates nothing; writing a result
+    # into a bundle happens at the bulk-add endpoint, which IS auth-gated.
+    "/api/federation/filter",
 )
 
 

@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -73,6 +74,16 @@ ALLOWED_SOURCES = {"forked", "custom-added", "overridden", "disabled"}
 # Pro tier skill cap per bundle — a runaway-guard, not a product limiter (large
 # curated packs run to ~50 skills).
 BUNDLE_SKILL_CAP = 1000
+
+# bundles0811 P3.6 — bulk add/remove ceiling per request. 500 comfortably
+# covers the phase's own demo ("select 40 marketing skills") and every
+# scale-of-management scenario in the plan (curating a themed bundle from a
+# filtered federated-index page); it is a runaway-guard against a client
+# accidentally posting the ENTIRE 154k-row index in one call, not a product
+# limiter. A caller that needs more paginates the filter and calls again —
+# bulk-add is idempotent (see add_skills_bulk), so repeating a call that
+# straddles a batch boundary is safe.
+BUNDLE_BULK_MAX_ITEMS = 500
 
 
 def _touch_bundle_generation(db: Session, cookbook_id: UUID) -> None:  # compat-alias
@@ -272,6 +283,55 @@ class SkillAddIn(BaseModel):
     # bundle-provenance ``source`` above (custom-added/forked/…) is unrelated
     # to this federation source id (lobehub/clawhub/skills-sh/…).
     external_source: str | None = None
+
+
+# bundles0811 P3.6 — bulk add/remove ────────────────────────────────────────
+#
+# A bulk item is EITHER a local skill (``slug``, no ``federated_source``) OR
+# a federated identity (``federated_source`` + ``federated_slug``, ``slug``
+# ignored) — the same XOR the ``bundle_skills`` CHECK constraint already
+# enforces at the DB layer (see BundleSkill's docstring in app/models.py).
+# This mirrors ``SkillAddIn``'s local/external split but as a batch member,
+# and deliberately reuses the federated identity pair BundleSkill already
+# carries rather than inventing a third vocabulary for "which skill".
+class BulkSkillItem(BaseModel):
+    slug: str | None = None
+    source: str | None = "custom-added"
+    federated_source: str | None = None
+    federated_slug: str | None = None
+
+    def is_federated(self) -> bool:
+        return bool(self.federated_source and self.federated_slug)
+
+
+class BulkAddIn(BaseModel):
+    items: list[BulkSkillItem]
+
+
+class BulkRemoveItem(BaseModel):
+    slug: str | None = None
+    federated_source: str | None = None
+    federated_slug: str | None = None
+
+    def is_federated(self) -> bool:
+        return bool(self.federated_source and self.federated_slug)
+
+
+class BulkRemoveIn(BaseModel):
+    items: list[BulkRemoveItem]
+
+
+class BulkItemResult(BaseModel):
+    """Per-item outcome — bulk endpoints NEVER fail the whole batch on one
+    bad row (task requirement). ``identity`` echoes back whichever of
+    slug/federated pair the caller sent, so a client can correlate a result
+    to its request item without re-deriving the XOR itself."""
+
+    identity: str
+    ok: bool
+    reactivated: bool = False
+    federated: bool = False
+    error: str | None = None
 
 
 def _as_slug_list(val: object) -> list[str]:
@@ -1380,6 +1440,260 @@ def remove_skill_from_cookbook(
     sync_bundle_lock(db, cb, created_by=ctx.user_id)
     db.commit()
     return {"cookbook_id": str(cb.id), "slug": slug, "source": "disabled", "deleted": True}
+
+
+# ── bundles0811 P3.6 — bulk add/remove, ONE operation for many members ──────
+#
+# Lock #9 (plan §0): "the platform's job is MANAGING LARGE NUMBERS of skills /
+# bundles / personalities / MCPs — not curating a catalog." With ~154,000
+# indexed skills, one-click-per-skill does not scale; a search result or a
+# federated-index filter (see federation_filter_routes.py) must be actionable
+# in ONE call. This mirrors add_skill_to_cookbook/remove_skill_from_cookbook
+# item-by-item (same authz predicate via _resolve_owned_cookbook, same
+# idempotency contract, same tier cap) but commits ONCE for the whole batch —
+# a single sync_bundle_lock + one DB round trip, not N.
+#
+# Partial-failure semantics: a bad item (unresolvable slug, unknown external
+# source, tier-cap overflow) is recorded as a per-item failure and does NOT
+# abort the other items in the batch — each item's DB work runs inside its
+# own SAVEPOINT (db.begin_nested()) so one IntegrityError/failure rolls back
+# only that item, not the whole transaction (same pattern already used by
+# app.heartbeat_routes.post_heartbeat / app.liked_service.ensure_liked_bundle
+# for the identical "N inserts, some may collide" shape).
+#
+# Idempotency: re-adding an existing (local or federated) member updates its
+# `source` and reports reactivated=True — exactly add_skill_to_cookbook's
+# existing single-item contract, applied per item.
+
+
+def _bulk_add_one_local(db: Session, cb: Bundle, item: "BulkSkillItem", ctx: CookbookCtx) -> BulkItemResult:
+    """Resolve + add ONE local-or-external-materialized skill. Never raises —
+    every failure mode becomes a BulkItemResult(ok=False, error=...)."""
+    identity = item.slug or ""
+    source = item.source or "custom-added"
+    if source not in ALLOWED_SOURCES:
+        return BulkItemResult(identity=identity, ok=False, error="invalid_source")
+    if not item.slug:
+        return BulkItemResult(identity=identity, ok=False, error="missing_slug")
+
+    skill = db.query(Skill).filter(Skill.slug == item.slug).first()
+    if skill is None:
+        return BulkItemResult(identity=identity, ok=False, error="skill_not_found")
+
+    existing = (
+        db.query(BundleSkill).filter(BundleSkill.bundle_id == cb.id, BundleSkill.skill_id == skill.id).first()
+    )
+    if existing is not None:
+        existing.source = source
+        return BulkItemResult(identity=identity, ok=True, reactivated=True)
+
+    # WIS-902: same Pro-tier skill cap the single-item route enforces —
+    # counted fresh per item so a batch that would cross the cap partway
+    # through fails ONLY the items past the ceiling, not the whole request.
+    if ctx.tier in ("pro", "cook"):  # cook=legacy alias, remove after 2026-06-10
+        active_count = (
+            db.query(BundleSkill)
+            .filter(BundleSkill.bundle_id == cb.id, BundleSkill.source != "disabled")
+            .count()
+        )
+        if active_count >= BUNDLE_SKILL_CAP:
+            return BulkItemResult(identity=identity, ok=False, error="pro_skill_cap")
+
+    try:
+        with db.begin_nested():
+            db.add(BundleSkill(bundle_id=cb.id, skill_id=skill.id, source=source))
+    except IntegrityError:
+        # Concurrent add of the same (bundle, skill) pair inside this batch,
+        # or a race with another request — the unique constraint already
+        # protects the row; report it as a reactivation, not a failure.
+        return BulkItemResult(identity=identity, ok=True, reactivated=True)
+    return BulkItemResult(identity=identity, ok=True, reactivated=False)
+
+
+def _bulk_add_one_federated(db: Session, cb: Bundle, item: "BulkSkillItem") -> BulkItemResult:
+    """Add ONE federated (source, slug) identity directly to bundle_skills —
+    no materialized Skill row (mirrors library_service.set_federated_like_in_bundle).
+    Never resolves/fetches origin content (control-plane lock #5): the
+    identity is recorded as-is, exactly like the existing federated-like path."""
+    identity = f"{item.federated_source}:{item.federated_slug}"
+    existing = (
+        db.query(BundleSkill)
+        .filter(
+            BundleSkill.bundle_id == cb.id,
+            BundleSkill.federated_source == item.federated_source,
+            BundleSkill.federated_slug == item.federated_slug,
+        )
+        .first()
+    )
+    if existing is not None:
+        existing.source = item.source or "custom-added"
+        return BulkItemResult(identity=identity, ok=True, reactivated=True, federated=True)
+
+    try:
+        with db.begin_nested():
+            db.add(
+                BundleSkill(
+                    bundle_id=cb.id,
+                    skill_id=None,
+                    federated_source=item.federated_source,
+                    federated_slug=item.federated_slug,
+                    source=item.source or "custom-added",
+                )
+            )
+    except IntegrityError:
+        return BulkItemResult(identity=identity, ok=True, reactivated=True, federated=True)
+    return BulkItemResult(identity=identity, ok=True, reactivated=False, federated=True)
+
+
+@_h.post("/{cookbook_id}/skills/bulk", status_code=200)  # compat-alias
+def add_skills_bulk(
+    cookbook_id: str,
+    body: BulkAddIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """Add MANY skills (local and/or federated, mixed) to a bundle in ONE call.
+
+    Bulk = the demo (plan §P3.6 gate 4): "select N skills → new bundle" must
+    be one operation, not N HTTP calls. Authorization reuses the exact same
+    ownership predicate every other bundle-mutation route uses
+    (``_resolve_owned_cookbook`` → ``authz.owner_match_within_tenant``) — a
+    non-owner gets the same 404-no-existence-leak every other route returns,
+    resolved ONCE for the whole batch.
+
+    Partial-failure: each item is attempted independently; the response
+    always has one ``BulkItemResult`` per input item, `ok` per item, and the
+    whole request only 4xxs on a REQUEST-level problem (bad auth, oversized
+    batch, cookbook not found) — never because one item was unresolvable.
+
+    Idempotency: re-posting the same batch (including a batch that partially
+    landed) updates already-present members' `source` and reports
+    ``reactivated=True`` for them; it never duplicates a row (both a DB-level
+    UniqueConstraint AND an in-request existing-row check enforce this).
+    """
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+
+    if not body.items:
+        raise HTTPException(status_code=422, detail="empty_batch")
+    if len(body.items) > BUNDLE_BULK_MAX_ITEMS:
+        raise HTTPException(
+            status_code=422,
+            detail={"reason": "batch_too_large", "max_items": BUNDLE_BULK_MAX_ITEMS, "got": len(body.items)},
+        )
+
+    results: list[BulkItemResult] = []
+    for item in body.items:
+        if item.is_federated():
+            results.append(_bulk_add_one_federated(db, cb, item))
+        else:
+            results.append(_bulk_add_one_local(db, cb, item, ctx))
+
+    _touch_bundle_generation(db, cb.id)
+    # ONE lock-sync + ONE commit for the whole batch — this is what makes it
+    # "one operation", not the item count. sync_bundle_lock flushes internally
+    # so every SAVEPOINT above is already visible to the resolver by here.
+    sync_bundle_lock(db, cb, created_by=ctx.user_id)
+    db.commit()
+
+    added = sum(1 for r in results if r.ok and not r.reactivated)
+    reactivated = sum(1 for r in results if r.ok and r.reactivated)
+    failed = sum(1 for r in results if not r.ok)
+    return {
+        "cookbook_id": str(cb.id),
+        "total": len(results),
+        "added": added,
+        "reactivated": reactivated,
+        "failed": failed,
+        "results": [r.model_dump() for r in results],
+    }
+
+
+@_h.post("/{cookbook_id}/skills/bulk_remove", status_code=200)  # compat-alias
+def remove_skills_bulk(
+    cookbook_id: str,
+    body: BulkRemoveIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """Soft-delete MANY skills (local and/or federated) from a bundle in ONE
+    call — the bulk twin of ``remove_skill_from_cookbook`` (same
+    ``source='disabled'`` soft-delete semantics, so a bulk-remove is always
+    reversible via a bulk-add of the same items). Partial-failure and
+    idempotency semantics mirror ``add_skills_bulk``.
+    """
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+
+    if not body.items:
+        raise HTTPException(status_code=422, detail="empty_batch")
+    if len(body.items) > BUNDLE_BULK_MAX_ITEMS:
+        raise HTTPException(
+            status_code=422,
+            detail={"reason": "batch_too_large", "max_items": BUNDLE_BULK_MAX_ITEMS, "got": len(body.items)},
+        )
+
+    results: list[BulkItemResult] = []
+    for item in body.items:
+        if item.is_federated():
+            identity = f"{item.federated_source}:{item.federated_slug}"
+            cs = (
+                db.query(BundleSkill)
+                .filter(
+                    BundleSkill.bundle_id == cb.id,
+                    BundleSkill.federated_source == item.federated_source,
+                    BundleSkill.federated_slug == item.federated_slug,
+                )
+                .first()
+            )
+            if cs is None:
+                # Already absent — DELETE is idempotent by definition; a
+                # missing row is a successful no-op, not a failure.
+                results.append(BulkItemResult(identity=identity, ok=True, federated=True))
+                continue
+            cs.source = "disabled"
+            results.append(BulkItemResult(identity=identity, ok=True, federated=True))
+            continue
+
+        identity = item.slug or ""
+        if not item.slug:
+            results.append(BulkItemResult(identity=identity, ok=False, error="missing_slug"))
+            continue
+        skill = db.query(Skill).filter(Skill.slug == item.slug).first()
+        if skill is None:
+            # Unknown slug: nothing to remove. Idempotent no-op, not a failure
+            # — this mirrors "already absent" for the federated branch above,
+            # not the single-item route's 404 (a bulk caller re-posting the
+            # same filter result after a skill was retired must not have that
+            # one stale entry sink the whole batch's success reporting).
+            results.append(BulkItemResult(identity=identity, ok=True))
+            continue
+        cs = (
+            db.query(BundleSkill)
+            .filter(BundleSkill.bundle_id == cb.id, BundleSkill.skill_id == skill.id)
+            .first()
+        )
+        if cs is None:
+            results.append(BulkItemResult(identity=identity, ok=True))
+            continue
+        cs.source = "disabled"
+        results.append(BulkItemResult(identity=identity, ok=True))
+
+    _touch_bundle_generation(db, cb.id)
+    sync_bundle_lock(db, cb, created_by=ctx.user_id)
+    db.commit()
+
+    removed = sum(1 for r in results if r.ok)
+    failed = sum(1 for r in results if not r.ok)
+    return {
+        "cookbook_id": str(cb.id),
+        "total": len(results),
+        "removed": removed,
+        "failed": failed,
+        "results": [r.model_dump() for r in results],
+    }
 
 
 # ── spotify_2607 Phase C — mixed bundles: personality + composite-loop
