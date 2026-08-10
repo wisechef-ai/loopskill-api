@@ -82,6 +82,24 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
 )
 
 
+# fdeloop_0808 Phase D — public plugin.json manifest surface. Matches
+# GET /api/bundles/{slug}/plugin.json (and the /api/cookbooks/* compat
+# alias) WITHOUT exposing the rest of the bundle-detail CRUD surface, which
+# stays auth-gated. Kept as a function (not a plain prefix string) because a
+# bare "/plugin.json" suffix match is needed, not a prefix match — a prefix
+# entry would also have to special-case every other bundle sub-route.
+def is_public_plugin_manifest_path(path: str, method: str) -> bool:
+    """True for a public-bundle Agent Plugins manifest GET.
+
+    Visibility is enforced by the route handler itself (404 for a private or
+    unknown slug — see app/bundle_routes.py:_build_plugin_manifest and its
+    caller); this only decides whether the request needs an x-api-key at all.
+    """
+    if method != "GET":
+        return False
+    return path.startswith(("/api/bundles/", "/api/cookbooks/")) and path.endswith("/plugin.json")
+
+
 # Exact paths that skip API-key auth entirely.
 # Moved here from ``api_key.py`` (mesh_0408 T0-D) for the same reason
 # PUBLIC_PREFIXES was: adding the two mesh discovery endpoints pushed that
