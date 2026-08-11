@@ -34,14 +34,13 @@ from __future__ import annotations
 import logging
 import os
 import re
-import threading
-import time
 from html import unescape
 from typing import Any
 from urllib.parse import urlencode
 
 import httpx
 
+from app.services._ttl_cache import TTLCache
 from app.services.federation_fetch import guarded_get
 
 logger = logging.getLogger(__name__)
@@ -55,6 +54,13 @@ HERMES_REPO_LICENSE = "MIT"
 # Raw fetch-origin base: the MIT repo's SKILL.md files are fetchable here. A
 # bundled skill's repo path is skills/<slug-with-double-dash→slash>/SKILL.md.
 HERMES_RAW_BASE = "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/skills"
+# bundles0811 P3 item 3: raw-content base for resolving a hub row's REAL
+# repo/path coordinates (distinct from HERMES_RAW_BASE above, which is
+# pinned to the bundled hermes-agent repo's string convention only). Same
+# value as federation_install.GITHUB_RAW_BASE; duplicated as a local
+# constant (not imported) to avoid a federation_install <-> federation_live
+# import cycle — federation_install already imports FROM this module.
+GITHUB_RAW_BASE = "https://raw.githubusercontent.com"
 
 GITHUB_CODE_SEARCH_URL = "https://api.github.com/search/code"
 
@@ -75,33 +81,13 @@ _CATALOG_TTL_S = 1800.0  # browse-sh / lobehub static catalogs — refresh every
 _SEARCH_TTL_S = 300.0  # skills.sh / clawhub per-query search
 
 # ───────────────────────────── Tiny TTL cache ───────────────────────────
+# The CLASS lives in app/services/_ttl_cache.py (extracted in bundles_0811 P3
+# when this module crossed the 600-line god-object cap). The INSTANCE stays
+# here: external_fanout, metasearch_fanout and github_taps_live all reach it as
+# ``fl._cache``, and _TTLCache is re-exported below so any existing reference to
+# federation_live._TTLCache keeps resolving.
 
-
-class _TTLCache:
-    """Thread-safe value cache keyed by string, with per-entry TTL."""
-
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._store: dict[str, tuple[float, Any]] = {}
-
-    def get(self, key: str, ttl: float) -> Any | None:
-        with self._lock:
-            hit = self._store.get(key)
-        if hit is None:
-            return None
-        ts, val = hit
-        if (time.monotonic() - ts) > ttl:
-            return None
-        return val
-
-    def put(self, key: str, val: Any) -> None:
-        with self._lock:
-            self._store[key] = (time.monotonic(), val)
-
-    def clear(self) -> None:  # test hook
-        with self._lock:
-            self._store.clear()
-
+_TTLCache = TTLCache
 
 _cache = _TTLCache()
 
@@ -186,20 +172,64 @@ def hermes_indexed_count() -> int:
     return len(_load_hermes_catalog())
 
 
-def hermes_origin_skill_md(slug: str) -> tuple[str, str] | None:
+def hermes_origin_skill_md(slug: str, row: dict[str, Any] | None = None) -> tuple[str, str] | None:
     """Fetch the real SKILL.md content for a Hermes-Hub skill, from origin.
 
-    This is the fetch-origin install path made real: the whole hermes-agent repo
-    is MIT, so the bundled SKILL.md is redistributable. The bundled repo path is
-    skills/<slug with "--" → "/">/SKILL.md on the MIT repo's raw host.
+    bundles0811 P3 item 3: ``hermes-hub:<slug>`` install refs were 404ing in
+    prod. Root cause: this resolver ONLY ever tried the string convention
+    (``slug`` with ``--`` -> ``/``, prefixed onto the bundled hermes-agent
+    repo), ignoring the ``FederationHubSkill.repo``/``.path`` columns that
+    hold a row's TRUE coordinates (P3 ground truth: repo/path are the real
+    filesystem location for the 20,509-row resolvable set, not a slug to be
+    reconstructed). For any snapshot row outside the ~100 bundled
+    hermes-agent skills, the string convention was structurally wrong.
 
-    Returns (raw_url, content) on success, or None when the slug doesn't resolve
-    to a real SKILL.md (so the caller can 404 honestly rather than fabricate).
+    Resolution order:
+      1. ``row['repo']``/``row['path']`` if the caller already has them
+         (mirrors ``github_tap_origin_skill_md``'s row-passthrough contract —
+         callers that don't support ``row`` get a TypeError and retry
+         without it, per the existing install-route pattern).
+      2. Look up the ``FederationHubSkill`` DB row by slug for its
+         repo/path, when not supplied.
+      3. Fall back to the string convention (bundled hermes-agent skills;
+         also the last resort when no DB row is found).
+
+    Returns (raw_url, content) on success, or None when the slug doesn't
+    resolve to a real SKILL.md (so the caller can 404 honestly rather than
+    fabricate).
     """
-    path = (slug or "").replace("--", "/").strip("/")
-    if not path:
+    repo = row.get("repo") if row else None
+    path = row.get("path") if row else None
+
+    if not (repo and path):
+        # Rationale: DB unavailable (e.g. test without engine) must degrade
+        # to the string-convention fallback, never crash the install route.
+        try:
+            from app.database import SessionLocal
+            from app.models import FederationHubSkill
+
+            db = SessionLocal()
+            try:
+                hub_row = db.query(FederationHubSkill).filter(FederationHubSkill.slug == slug).first()
+                if hub_row is not None and hub_row.repo and hub_row.path:
+                    repo, path = hub_row.repo, hub_row.path
+            finally:
+                db.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    if repo and path:
+        for branch in ("main", "master"):
+            raw_url = f"{GITHUB_RAW_BASE}/{repo}/{branch}/{path.strip('/')}/SKILL.md"
+            resp = guarded_get(raw_url, timeout=_HTTP_TIMEOUT_S)
+            if resp is not None and resp.status_code == 200 and resp.text.strip():
+                return raw_url, resp.text
+
+    # Fallback: the string convention (bundled hermes-agent skills only).
+    conv_path = (slug or "").replace("--", "/").strip("/")
+    if not conv_path:
         return None
-    raw_url = f"{HERMES_RAW_BASE}/{path}/SKILL.md"
+    raw_url = f"{HERMES_RAW_BASE}/{conv_path}/SKILL.md"
     resp = guarded_get(raw_url, timeout=_HTTP_TIMEOUT_S)
     if resp is None or resp.status_code != 200 or not resp.text.strip():
         return None

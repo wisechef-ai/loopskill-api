@@ -199,6 +199,43 @@ def guarded_get(
     return None
 
 
+def guarded_head(
+    url: str,
+    *,
+    timeout: float = _DEFAULT_TIMEOUT_S,
+) -> int | None:
+    """SSRF-guarded HEAD probe — resolve reachability with ZERO body bytes.
+
+    bundles0811 Phase P3: install-INSTRUCTION resolution (which GitHub ref a
+    repo/path pair lives on) must never pull skill content into this process
+    — LoopSkill stores/fetches zero federated bytes. A HEAD request transfers
+    no response body, so this is the safe primitive for "does this URL exist"
+    probes (branch guessing, cached per-repo). Same SSRF + redirect-target
+    revalidation discipline as ``guarded_get``. Returns the final status code,
+    or ``None`` on any unsafe target, redirect-limit overflow, or transport
+    error (caller treats None as "couldn't determine").
+    """
+    current_url = url
+    for _ in range(_MAX_FETCH_REDIRECTS + 1):
+        if not is_safe_url(current_url):
+            logger.warning("federation_fetch: blocked unsafe URL (HEAD): %s", current_url)
+            return None
+        try:
+            resp = httpx.head(current_url, timeout=timeout, follow_redirects=False)
+        except httpx.HTTPError as exc:
+            logger.debug("federation_fetch: transport error (HEAD) for %s: %s", current_url, exc)
+            return None
+        if resp.status_code in _REDIRECT_STATUS_CODES:
+            location = resp.headers.get("location")
+            if not location:
+                return None
+            current_url = urljoin(current_url, location)
+            continue
+        return resp.status_code
+    logger.warning("federation_fetch: redirect limit exceeded (HEAD) for %s", url)
+    return None
+
+
 # ─────────────────────────────── Path safety ────────────────────────────────
 
 # A single path component: no separators, no traversal, no NUL, no leading dot

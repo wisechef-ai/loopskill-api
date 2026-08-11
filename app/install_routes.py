@@ -118,6 +118,68 @@ def _resolve_validated_bundle(db: Session, bundle_id: str, skill: Skill) -> UUID
     return bid
 
 
+def _install_federated_hermes_hub_ref(fed_slug: str, db: Session):
+    """Resolve `hermes-hub:<slug>` to an install INSTRUCTION. Never bytes.
+
+    bundles0811 P3 item 3. Looks up the FederationHubSkill row by slug for
+    its repo/path (the row's TRUE coordinates), then resolves a fetchable
+    SKILL.md URL via the P3 instruction resolver — a plain string, never a
+    fetched body. LoopSkill stores/fetches zero federated bytes here.
+
+    Returns a raw ``JSONResponse`` (bypassing ``InstallResponse``'s
+    required version/tarball_url fields, which a federated entry has no
+    tarball/version for) in the same key shape as
+    ``resolve_external_install`` (bundle_external.py) plus an
+    ``install_command`` so an agent has a copy-paste path, matching the
+    public ``/skills/external/{source}/{slug}/install`` route's contract.
+    """
+    from fastapi.responses import JSONResponse
+
+    from app.models import FederationHubSkill
+    from app.services.federation_hub_install import resolve_install_instruction
+
+    hub_row = db.query(FederationHubSkill).filter(FederationHubSkill.slug == fed_slug).first()
+    if hub_row is None:
+        raise HTTPException(status_code=404, detail=f"External skill '{fed_slug}' not found in hermes-hub")
+
+    # bundles0811 P3 item 4 (Q3): licence is RECORDED when the source's
+    # ingested `extra` payload carries one, never used to gate anything
+    # below — an unknown/missing licence resolves EXACTLY the same
+    # instruction as any other. No branch in this function reads it.
+    hub_extra = hub_row.extra if isinstance(hub_row.extra, dict) else {}
+    recorded_license = hub_extra.get("license") if hub_extra else None
+
+    instr = resolve_install_instruction(
+        repo=hub_row.repo,
+        path=hub_row.path,
+        origin_url=hub_row.origin_url,
+        slug=fed_slug,
+        license=recorded_license,
+    )
+    if not instr.url:
+        raise HTTPException(status_code=404, detail=f"External skill '{fed_slug}' has no resolvable location")
+
+    leaf = fed_slug.rsplit("--", 1)[-1].rsplit("/", 1)[-1]
+    payload: dict = {
+        "slug": f"hermes-hub:{fed_slug}",
+        "source": "hermes-hub",
+        "namespace": "external",
+        "quality": "community · as-is",
+        **instr.to_dict(),
+    }
+    if instr.kind == "fetch":
+        payload["install_command"] = (
+            f"mkdir -p ~/.claude/skills/{leaf} && curl -fsSL {instr.url} -o ~/.claude/skills/{leaf}/SKILL.md"
+        )
+    else:
+        payload["install_command"] = None
+        payload["agent_instructions"] = (
+            "LoopSkill did not resolve a direct SKILL.md location for this skill. "
+            f"Visit the origin to find it yourself: {instr.url}"
+        )
+    return JSONResponse(content=payload)
+
+
 @router.get("/skills/install", response_model=InstallResponse, tags=["skills"])
 def install_skill(
     request: Request,
@@ -151,6 +213,20 @@ def install_skill(
         slug, _v = slug.split("@", 1)
         version = (_v or "").strip() or None
     slug = slug.strip()
+
+    # bundles0811 P3 item 3 — a `<source>:<slug>` ref (e.g.
+    # "hermes-hub:1password") names a FEDERATED entry, not a local Skill row.
+    # No local Skill can ever legitimately carry a colon in its slug (the
+    # only colon-bearing convention in this codebase is the `ext:` prefix on
+    # a MATERIALIZED pointer row, which is excluded below), so this check is
+    # safe to run before the local-Skill lookup rather than only as a 404
+    # fallback. Resolved via the P3 instruction resolver — zero bytes
+    # fetched or stored here, unlike the bundle-scoped fetch-origin routes.
+    if ":" in slug and not slug.startswith("ext:"):
+        fed_source, _sep, fed_slug = slug.partition(":")
+        if fed_source == "hermes-hub":
+            return _install_federated_hermes_hub_ref(fed_slug, db)
+
     skill = db.query(Skill).filter(Skill.slug == slug).first()
     if not skill:
         # WIS-903: check retired skill registry
