@@ -94,6 +94,34 @@ def _is_redistributable_external(skill) -> bool:
     return bool(desc.get("redistributable")) and desc.get("install_path") == "fetch_origin"
 
 
+def portable_dir_name(skill_slug: str) -> str:
+    """A filesystem-safe directory name for a bundle member.
+
+    bundles_0811: both installers do ``mkdir -p <dest>/<name>``, so a member's
+    ``name`` becomes a REAL DIRECTORY on the caller's disk. Materialized
+    federated members are slugged ``ext:<source>:<upstream-slug>``, and a colon
+    is **illegal in a Windows path** (it is the drive separator) as well as
+    awkward in shell, URLs and tab-completion everywhere else.
+
+    Measured on prod 2026-08-11: **114 of 172 public-bundle members (66%)**
+    carried a name that cannot be a directory on Windows — every federated
+    member of every seeded bundle. Only the 58 purely-local members were safe.
+
+    ``name`` itself is the WIRE KEY: the SKILL.md route looks a member up by
+    ``skill.slug == skill_name``. So this is deliberately a SEPARATE field —
+    renaming ``name`` would break the download for every existing client.
+    Installers should prefer ``dir_name`` for the directory and keep using
+    ``name`` for the fetch.
+    """
+    safe = skill_slug
+    for ch in ':*?"<>|':
+        safe = safe.replace(ch, "-")
+    # Collapse the runs the substitution creates (``ext:a:b`` -> ``ext-a-b``).
+    while "--" in safe:
+        safe = safe.replace("--", "-")
+    return safe.strip("-. ") or "skill"
+
+
 def _resolve_public_cookbook(db: Session, slug: str) -> Bundle:
     cb = db.query(Bundle).filter(Bundle.slug == slug).first()
     if not cb or cb.visibility != "public":
@@ -153,6 +181,11 @@ def cookbook_wellknown_index(slug: str, db: Session = Depends(get_db)) -> JSONRe
     for _cs, skill in rows:
         entry = {
             "name": skill.slug,
+            # bundles_0811: the filesystem-safe form. `name` stays the WIRE KEY
+            # (the SKILL.md route resolves members by it); `dir_name` is what an
+            # installer should `mkdir`. 114/172 public members were previously
+            # unusable as Windows directories — see portable_dir_name().
+            "dir_name": portable_dir_name(skill.slug),
             "description": (skill.description or skill.title or skill.slug),
             "files": ["SKILL.md"],
         }
