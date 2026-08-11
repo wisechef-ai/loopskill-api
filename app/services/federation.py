@@ -102,6 +102,24 @@ class ExternalSkill:
             "slug": self.slug,
             "title": self.title,
             "source": self.source,
+            # bundles_0811 — the identifier a caller can ACT on.
+            #
+            # Every federated search row previously shipped a bare `slug` and no
+            # install ref, so an anonymous caller had nothing to feed
+            # `GET /api/skills/install`. Worse, the shapes disagree by source:
+            # skills-sh and github-oss return upstream double-dash ids
+            # (`mvanhorn--cli-printing-press--printing-press`) while the hub
+            # snapshot stores hyphen slugs (`skills-sh-mvanhorn-cli-...`), so a
+            # user pasting what they were SHOWN got "not found" for a row we
+            # hold. Measured 2026-08-11: 180/180 rows across 6 queries had no
+            # install ref; 120 of them displayed a slug the install route
+            # rejected.
+            #
+            # `install_ref` is the SAME `{source}:{slug}` contract metasearch
+            # already builds (services/metasearch.py) and the install route
+            # already accepts (install_routes._FEDERATED_SLUG_PREFIXES), so this
+            # adds no new vocabulary — it stops withholding one that exists.
+            "install_ref": f"{self.source}:{self.slug}",
             "install_path": self.install_path.value,
             "origin_url": self.origin_url,
             "license": self.license,
