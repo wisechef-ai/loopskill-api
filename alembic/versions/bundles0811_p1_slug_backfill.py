@@ -1,7 +1,7 @@
 """bundles0811-P1 (F5) — backfill NULL slug on the live public bundle row.
 
 Revision ID: bundles0811_p1_slug_backfill
-Revises: mesh0408_w2_sub_event_at
+Revises: 06671beefcd1
 Create Date: 2026-08-11
 
 The cold-path trace (2026-08-11, projects/loopskill/
@@ -42,7 +42,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "bundles0811_p1_slug_backfill"
-down_revision: Union[str, Sequence[str], None] = "mesh0408_w2_sub_event_at"
+down_revision: Union[str, Sequence[str], None] = "06671beefcd1"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
