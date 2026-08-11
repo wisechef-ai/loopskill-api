@@ -106,6 +106,26 @@ Two things, and the CLI is the one to start with:
    the reason to start here — the CLI working on your own machine, before
    you've made an account, is.
 
+## Loops: two limits stated up front
+
+The registry also serves **10 vetted loops** (`scripts/seed_starter_catalog.py`).
+`POST /api/loops/{slug}/run` is synchronous and works anywhere. Putting a loop on
+a *fleet member* so it fires on a schedule is a second path with two constraints
+worth knowing before you build on it:
+
+1. **A loop reports nothing unless its own prompt says to.** Telemetry exists
+   only because the loop's prompt calls `scripts/loopskill-emit-run.sh`. Nothing
+   else observes a fire — not the scheduler, not the server. Omit that line and
+   the loop runs forever while every dashboard shows zero. This is the reason
+   `loop_runs` sat at 1 for a year.
+2. **Cron materialization is Hermes-only.** `app/loop_apply.py` writes the Hermes
+   scheduler's `~/.hermes/cron/jobs.json`, and nothing else speaks that format
+   yet. On Codex, Claude or OpenCode hosts `scripts/install-loop-apply.sh`
+   refuses rather than installing a cron that can never converge. The skill path
+   is cross-vendor; the scheduled-loop path is not.
+
+Both are covered end to end in [docs/SELF_HOST.md](docs/SELF_HOST.md#running-loops).
+
 ## Self-host the registry (optional, for `pull`/`apply` against your own instance)
 
 ```sh
@@ -117,12 +137,18 @@ Zero-config: SQLite, auto-generated dev secrets, a seeded starter catalog.
 Your dev API key is printed on first boot. Full guide, including the
 Postgres/production path: **[docs/SELF_HOST.md](docs/SELF_HOST.md)**.
 
-The registry also runs **loops** — safety-bounded autonomous-agent
-contracts (`max_turns`, `tool_allowlist`, `verification_script`) that get
-objectively verified rather than asserted. That's covered in
-[docs/SELF_HOST.md](docs/SELF_HOST.md#running-loops), not repeated here —
-this README's job is to get you to a working `diff`, not to sell the
-catalog.
+**Then run a loop** — the runner is live (no LLM needed for verify-mode):
+
+```sh
+# the zero-config Docker Compose stack always boots with this dev key
+# (override via WR_API_KEY in production) — same value the boot banner prints
+curl -X POST localhost:8200/api/loops/hello-world-loop/run \
+  -H "x-api-key: rec_de...key"
+# → {"passed": true, "confinement": "bounded", "duration_seconds": 0.03, ...}
+```
+
+A fresh registry that doesn't just *list* a loop — it *executes* the
+loop's success check under enforced bounds and hands you a verdict.
 
 ---
 
