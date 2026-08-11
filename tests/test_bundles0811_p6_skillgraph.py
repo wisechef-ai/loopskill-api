@@ -285,7 +285,7 @@ class TestNeighborhoodEndpoint:
         assert r.status_code == 422
 
     def test_neighborhood_filters_by_edge_type(self, client: TestClient, db_session: Session):
-        a = make_skill(db_session, slug="a", related_skills=["b"])
+        make_skill(db_session, slug="a", related_skills=["b"])
         make_skill(db_session, slug="b")
         db_session.commit()
         r = client.get("/api/graph/neighborhood", params={"skill": "a", "edge": "related_skills"})
