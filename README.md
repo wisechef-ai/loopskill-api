@@ -1,7 +1,8 @@
 # LoopSkill
 
-**Open-core, self-hostable registry for AI agents. Loops don't just get listed — they run.**
-Browse, install and converge **skills · bundles · loops · personalities**. Zero signup to self-host.
+**A local CLI for skills you already have, plus a self-hostable registry to
+pull more from.** Start with the CLI — it needs no account and makes no
+network call for `import`/`diff`.
 
 <p>
   <a href="https://github.com/wisechef-ai/loopskill-api/actions/workflows/ci.yml"><img src="https://github.com/wisechef-ai/loopskill-api/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
@@ -11,105 +12,106 @@ Browse, install and converge **skills · bundles · loops · personalities**. Ze
   <img src="https://img.shields.io/badge/MCP-native-00e5c0.svg" alt="MCP native">
 </p>
 
-> **Spotify for AI agents.** A registry your agents pull runnable artifacts from — skills,
-> bundles, loops, and personalities. The novel part: a **loop** carries its safety envelope
-> (max turns, tool allow-list, verification, stopping criteria), and the registry **runs that
-> verification and returns an objective pass/fail**. "Did the loop succeed?" is measured, not asserted.
-
 ---
 
-## Quickstart (Docker Compose) — zero config
+## 60 seconds: see skill drift, reproducibly
 
-The Docker Compose stack ships with pre-configured defaults: SQLite, auto-generated
-dev secrets, and a seeded catalog. **No `.env` file needed** for local testing.
+This is a literal, self-contained transcript. Paste every command below
+into a clean shell — it fabricates two fake "skill" installs, edits one
+and deletes the other to simulate drift, then diffs. You will get
+*exactly* this output; nothing here depends on skills you already have
+installed.
 
 ```sh
-git clone https://github.com/wisechef-ai/loopskill-api
-cd loopskill-api && docker compose up
+git clone https://github.com/wisechef-ai/loopskill-api && cd loopskill-api
+pip install ./cli   # editable install, no PyPI account or publish needed
+loopskill --version
+
+# --- fabricate a "machine" with two skills, take a snapshot ---
+mkdir -p /tmp/loopskill-demo/home/.claude/skills/agent-reach
+mkdir -p /tmp/loopskill-demo/home/.claude/skills/recipes
+cat > /tmp/loopskill-demo/home/.claude/skills/agent-reach/SKILL.md <<'EOF'
+---
+name: agent-reach
+description: Give your agent eyes on the internet.
+---
+Body v1.
+EOF
+cat > /tmp/loopskill-demo/home/.claude/skills/recipes/SKILL.md <<'EOF'
+---
+name: recipes
+description: Recipe search skill.
+---
+Body.
+EOF
+loopskill import --home /tmp/loopskill-demo/home -o /tmp/loopskill-demo/machine-a.lock.json
+
+# --- simulate drift: edit one skill, delete the other ---
+cat > /tmp/loopskill-demo/home/.claude/skills/agent-reach/SKILL.md <<'EOF'
+---
+name: agent-reach
+description: Give your agent eyes on the internet.
+---
+Body v2 — updated tool list.
+EOF
+rm -rf /tmp/loopskill-demo/home/.claude/skills/recipes
+
+loopskill diff /tmp/loopskill-demo/machine-a.lock.json - --home /tmp/loopskill-demo/home
 ```
 
-Your dev API key is printed on first boot. The default stack uses SQLite, replays
-the real alembic migrations, and seeds a starter catalog (skills + 9 loops +
-personalities) automatically.
+```
+loopskill import: wrote /tmp/loopskill-demo/machine-a.lock.json (2 skill(s) across 1 client(s))
+loopskill diff: /tmp/loopskill-demo/machine-a.lock.json  vs  <live scan>
 
-**Then RUN a loop** — the runner is live (no LLM needed for verify-mode):
-```sh
-# the zero-config Docker Compose stack always boots with this dev key
-# (override via WR_API_KEY in production) — same value the boot banner prints
-curl -X POST localhost:8200/api/loops/hello-world-loop/run \
-  -H "x-api-key: rec_dev_wiserecipes_local_testing_key"
-# → {"passed": true, "confinement": "bounded", "duration_seconds": 0.03, ...}
+[claude] DRIFT DETECTED
+  - only in /tmp/loopskill-demo/machine-a.lock.json: recipes
+  ~ changed:          agent-reach
+[codex] in sync (0 skill(s))
+[cursor] in sync (0 skill(s))
+[hermes] in sync (0 skill(s))
+
+DRIFT FOUND
 ```
 
-That's the whole wow: a fresh registry that doesn't just *list* a loop — it *executes* the loop's
-success check under enforced bounds and hands you a verdict.
+Exit code is `1` — drift found, script- and CI-friendly. Run `loopskill
+diff` again with nothing changed and exit code is `0`. That's the whole
+pitch: two snapshots, one command, drift visible in the time it took to
+read this paragraph — on the skills you actually have, not a demo, once
+you drop `--home`.
 
-Browse the hosted registry: **[loopskill.io](https://loopskill.io)**
+`import` and `diff` make **zero network calls** — this isn't a promise in
+a docstring, it's a structural guarantee: the network-capable code lives
+in exactly one module (`loopskill.pull`) that `import`/`diff` never
+import, and
+`cli/tests/test_loopskill_cli.py::test_import_and_diff_make_zero_network_calls`
+proves it by breaking `socket.socket` for the duration of those commands.
+
+Full CLI reference, lockfile format, and `pull`/`apply` (the two commands
+that DO touch the network, opt-in): **[cli/README.md](cli/README.md)**.
 
 ---
 
-## Production self-host
+## What this repo actually is
 
-For production deployments (multiple users, persistent data, GitHub OAuth), you need:
+Two things, and the CLI is the one to start with:
 
-- **A Postgres database** — SQLite is for local testing only.
-- **Secrets** (`.env` or exported env vars):
-  - `WR_API_KEY` — master API key
-  - `WR_JWT_SECRET` — JWT signing secret
-  - `WR_SIGNING_SECRET` — HMAC signing secret for download tokens
-  - `WR_HEARTBEAT_PEPPER` — heartbeat anonymization pepper
-  - `WR_OAUTH_REDIRECT_BASE` — your public URL (for OAuth callbacks)
-- **Run alembic migrations** before first boot on Postgres.
+1. **`cli/`** — a local, offline-by-construction tool for the skills you
+   already have on disk. No account, no server, no LoopSkill dependency
+   for `import`/`diff`. Point it at any registry that serves the same
+   well-known bundle-index shape for `pull`/`apply`, or never call those
+   commands at all.
+2. **`app/`** — a self-hostable FastAPI registry (this repo) that the CLI's
+   `pull`/`apply` can optionally talk to, and that also serves a browsable
+   catalog at [loopskill.io](https://loopskill.io). The registry is **not**
+   the reason to start here — the CLI working on your own machine, before
+   you've made an account, is.
 
-Full guide: **[docs/SELF_HOST.md](docs/SELF_HOST.md)**
+## Loops: two limits stated up front
 
----
-
-## What's in the box
-
-Four first-class, pullable artifact types:
-
-| Artifact | What it is |
-|----------|------------|
-| **skill** | One capability — a `SKILL.md` + optional scripts/refs. |
-| **bundle** | A curated set a whole fleet subscribes to and converges on. |
-| **loop** | A safety-bounded autonomous agent loop — the part no other registry has. |
-| **personality** | A deployable persona (system prompt + config). |
-
-### Loops are the bet
-
-People hand-roll agentic loops and they spin out — runaway turns, surprise bills. A LoopSkill loop
-ships as a **contract**, stored as structured columns (not free text) so the registry can validate it
-on publish and enforce it at run time:
-
-- `success_condition` — the goal, in plain language
-- `verification_script` — a command that **objectively** checks success
-- `max_turns` — a hard ceiling on autonomous turns
-- `tool_allowlist` — deny-by-default tool access
-- `stopping_criteria` — success / failure / budget stops
-
-And then the registry **runs it**. `POST /api/loops/{slug}/run` executes the loop's
-`verification_script` under enforced bounds — POSIX rlimits (CPU, memory, file size), a hard
-wall-clock timeout, an isolated workspace, and a **scrubbed, secret-free environment** so the script
-never sees the server's own credentials — and returns an objective `passed: true|false` plus the
-`confinement` level it achieved (`sandboxed` when a firejail/bwrap backend is present, else `bounded`
-POSIX rlimits, which run everywhere including the zero-config Docker image).
-
-The starter catalog ships **10 vetted loops** — `hello-world`, `test-green` (TDD), `lint-clean`,
-`secret-scan`, `doc-coverage`, `changelog-from-commits`, `json-schema-validate`, and more. Each
-verification is **non-vacuous**: it passes on good input and *fails* on bad (the secret-scan loop
-catches a planted AWS key; the doc-coverage loop catches a missing docstring).
-
-> Verify-mode (running the verification under bounds) is shipped. The autonomous **agent-driving**
-> layer — bringing your own LLM to drive a loop's `system_prompt` within the bounds — is a clean
-> pluggable seam on the roadmap (`mode=agent` currently returns `501`). The contract is enforced; the
-> driver is yours.
-
-### Two limits of the scheduled-loop path, stated up front
-
-`POST /api/loops/{slug}/run` above is synchronous and works anywhere. Putting a
-loop on a *fleet member* so it fires on a schedule is a second path, and it has
-two constraints worth knowing before you build on it:
+The registry also serves **10 vetted loops** (`scripts/seed_starter_catalog.py`).
+`POST /api/loops/{slug}/run` is synchronous and works anywhere. Putting a loop on
+a *fleet member* so it fires on a schedule is a second path with two constraints
+worth knowing before you build on it:
 
 1. **A loop reports nothing unless its own prompt says to.** Telemetry exists
    only because the loop's prompt calls `scripts/loopskill-emit-run.sh`. Nothing
@@ -124,35 +126,52 @@ two constraints worth knowing before you build on it:
 
 Both are covered end to end in [docs/SELF_HOST.md](docs/SELF_HOST.md#running-loops).
 
-### The defect loop, and how much of it has actually run
+## Self-host the registry (optional, for `pull`/`apply` against your own instance)
 
-A skill you published, running inside someone else's governed agent fleet, can
-report a real defect back to you **privately** — and then converge onto your fix.
-Install carries routable provenance, the report routes to the bundle curator's
-own private repo, and a bundle-apply job reaches a terminal
-`converged`/`failed` state driven by what the member actually reports.
+```sh
+git clone https://github.com/wisechef-ai/loopskill-api
+cd loopskill-api && docker compose up
+```
 
-Stated up front: **private defect routing is proven** (a client agent's report
-reached a private sink, verified at the GitHub API, sink confirmed private by an
-anonymous `404`). The redeploy half — patch → version → the member converging
-onto it — is **shipped and tested, but has not yet been run end to end against
-production**. `scripts/moat_loop_proof.py` is the gate for that claim, and
-`--selftest` falsifies the harness before you trust a run.
+Zero-config: SQLite, auto-generated dev secrets, a seeded starter catalog.
+Your dev API key is printed on first boot. Full guide, including the
+Postgres/production path: **[docs/SELF_HOST.md](docs/SELF_HOST.md)**.
 
-[docs/moat-loop.md](docs/moat-loop.md) has the full contract and the status
-table that owns the wording.
+**Then run a loop** — the runner is live (no LLM needed for verify-mode):
 
----
+```sh
+# the zero-config Docker Compose stack always boots with this dev key
+# (override via WR_API_KEY in production) — same value the boot banner prints
+curl -X POST localhost:8200/api/loops/hello-world-loop/run \
+  -H "x-api-key: rec_dev_wiserecipes_local_testing_key"
+# → {"passed": true, "confinement": "bounded", "duration_seconds": 0.03, ...}
+```
 
-## Why open-core
-
-The **whole registry is the OSS product** (MPL-2.0). Self-host it anywhere — `docker compose up` is the
-complete experience, not a teaser, and nothing phones home. The hosted plan is "don't run it
-yourself," never a feature gate. Same posture as n8n / PostHog / Supabase.
+A fresh registry that doesn't just *list* a loop — it *executes* the
+loop's success check under enforced bounds and hands you a verdict.
 
 ---
 
-## Core API surface
+## What's actually in this codebase (and the honest answer to "why so big")
+
+289 app Python files, 69,172 lines of app code, 107 Alembic migrations,
+404 test files, **2 GitHub stars, 0 forks** (measured 2026-08-11 via `gh
+repo view wisechef-ai/loopskill-api --json stargazerCount,forkCount`).
+
+That ratio is real and it isn't a good one. [Issue
+#68](https://github.com/wisechef-ai/loopskill-api/issues/68) asked about
+it; the honest answer — including why the codebase grew from a working
+recipe-search product's battle-tested auth/Stripe/sandbox stack rather
+than from a blank registry, and the concrete cuts committed as a result —
+is in
+[docs/decisions/2026-08-11-bundles0811-p4-issue-68-codebase-size.md](docs/decisions/2026-08-11-bundles0811-p4-issue-68-codebase-size.md).
+Every number above is checked against a live filesystem measurement by
+`tests/test_readme_claims.py` on every run — it fails the build if this
+paragraph drifts from reality the way #68's original numbers did.
+
+---
+
+## Core API surface (self-hosted registry)
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -163,37 +182,20 @@ yourself," never a feature gate. Same posture as n8n / PostHog / Supabase.
 | `GET` | `/api/loops` | List loops (with their safety contracts) |
 | `GET` | `/api/loops/{slug}` | Loop detail — contract, run count, rating |
 | `POST` | `/api/loops` | Publish a loop (validates the contract) |
-| `POST` | `/api/loops/{slug}/run` | **Run the loop's verification → objective pass/fail** |
+| `POST` | `/api/loops/{slug}/run` | Run the loop's verification → objective pass/fail |
 | `POST` | `/api/loops/{slug}/rate` | Rate a loop 1–5 (social-proof signal) |
 | `GET` | `/api/personalities` | List deployable personalities |
 
-It's **MCP-native**: agents (Claude Code, Cursor, anything speaking MCP) discover and install over the
-protocol. There's also a signed-URL tarball path for direct fetch.
-
----
+MCP-native: agents (Claude Code, Cursor, anything speaking MCP) discover
+and install over the protocol. There's also a signed-URL tarball path for
+direct fetch.
 
 ## Architecture
 
-FastAPI + SQLAlchemy. The same alembic migration chain runs on **SQLite (self-host)** and
-**Postgres (hosted)** — no `create_all` drift; the SQLite boot replays the real migrations, so what you
-self-host is what production runs.
-
-```
-app/
-├── main.py                  FastAPI app factory + lifespan
-├── config.py                Settings + boot-time secrets gate
-├── auth_ctx.py              AuthContext (scope, user_id, tier, …) — single source of truth
-├── authz.py                 Authorization predicates (can_install, can_write_bundle, …)
-├── middleware.py            APIKeyMiddleware → request.state.auth_ctx
-├── loop_routes.py           /api/loops/* — registry + the RUNNER (/run) + /rate
-├── loop_runner.py           LoopRunner — tiered confinement (sandboxed / bounded)
-├── loop_runner_support.py   Pure helpers: env scrub, rlimits, bounded read, path safety
-├── bundle_routes.py         /api/bundles/* — discover, compose, install, sync
-├── skill_routes.py          /api/skills/* — search, detail, install
-├── mcp/                     MCP server + tools (install, sync, …)
-├── sandbox/                 Kernel sandbox backend (firejail / bwrap, Linux-only)
-└── …                        (auth, checkout, creator, publisher, admin)
-```
+FastAPI + SQLAlchemy. The same alembic migration chain runs on SQLite
+(self-host) and Postgres (hosted) — no `create_all` drift; the SQLite boot
+replays the real migrations, so what you self-host is what production
+runs. Full module layout: **[AGENTS.md](AGENTS.md)**.
 
 ### Auth flow
 
@@ -204,8 +206,9 @@ APIKeyMiddleware.dispatch()
             └─ REST routes / MCP tools / runner call authz.can_*() predicates
 ```
 
-API keys are `rec_`-prefixed and passed in the `x-api-key` header. Most read endpoints (search, detail, discover) are
-unauthenticated; install, publish, run, and rate require a key.
+API keys are `rec_`-prefixed and passed in the `x-api-key` header. Most
+read endpoints (search, detail, discover) are unauthenticated; install,
+publish, run, and rate require a key.
 
 ---
 
@@ -234,18 +237,12 @@ Contributor guide for AI agents: [AGENTS.md](./AGENTS.md).
 
 ---
 
-## Environment variables
+## Why open-core
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `WR_DATABASE_URL` | `sqlite:////data/loopskill.db` (compose) | DB connection string — SQLite self-host or Postgres |
-| `WR_API_KEY` | `rec_dev_…` | Master / dev API key (printed on first boot) |
-| `WR_SIGNING_SECRET` | `wr-tarball-…` | HMAC signing secret for download tokens |
-| `WR_LOOP_RUN_REQUIRE_SANDBOX` | `false` | Refuse bounded-mode loop runs (multi-tenant safety) |
-| `WR_RATE_LIMIT_PER_MINUTE` | `60` | Requests per minute per IP |
-| `WR_PORT` | `8201` | Bind port |
-
----
+The whole registry is the OSS product (MPL-2.0). Self-host it anywhere —
+`docker compose up` is the complete experience, not a teaser, and nothing
+phones home. The hosted plan is "don't run it yourself," never a feature
+gate. Same posture as n8n / PostHog / Supabase.
 
 ## License
 
@@ -253,6 +250,8 @@ MPL-2.0 — see [LICENSE](./LICENSE). The whole registry is open source; we only
 
 ## Links
 
+- **CLI (start here):** [cli/README.md](cli/README.md)
 - **Home:** [loopskill.io](https://loopskill.io)
 - **Self-host guide:** [docs/SELF_HOST.md](docs/SELF_HOST.md)
+- **Issue #68 answer:** [docs/decisions/2026-08-11-bundles0811-p4-issue-68-codebase-size.md](docs/decisions/2026-08-11-bundles0811-p4-issue-68-codebase-size.md)
 - **Contributing (AI agents):** [AGENTS.md](./AGENTS.md)
