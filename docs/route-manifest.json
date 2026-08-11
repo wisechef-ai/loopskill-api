@@ -1,12 +1,12 @@
 {
   "source": "app.main.app.routes + app.middleware.api_key.APIKeyMiddleware (dispatch tree replayed), derived at import time",
   "generator": "scripts/generate_route_manifest.py",
-  "route_count": 302,
+  "route_count": 304,
   "counts_by_classification": {
     "admin": 9,
     "authenticated": 190,
     "internal": 2,
-    "public": 101
+    "public": 103
   },
   "routes": [
     {
@@ -2408,6 +2408,30 @@
       ],
       "classification": "authenticated",
       "summary": "Upload a new version tarball to an existing fork."
+    },
+    {
+      "method": "GET",
+      "path": "/api/graph/coverage",
+      "name": "graph_coverage",
+      "module": "app.graph_routes",
+      "tags": [
+        "graph",
+        "graph"
+      ],
+      "classification": "public",
+      "summary": "Per-edge-type eligible/covered/coverage_pct/last_built_at \u2014 computed live."
+    },
+    {
+      "method": "GET",
+      "path": "/api/graph/neighborhood",
+      "name": "graph_neighborhood",
+      "module": "app.graph_routes",
+      "tags": [
+        "graph",
+        "graph"
+      ],
+      "classification": "public",
+      "summary": "Lazy, paginated neighbor listing for one skill. ADVISORY ONLY."
     },
     {
       "method": "GET",
