@@ -112,11 +112,21 @@ def loopskill_propose_registry(
 
     if not rl.allowed:
         if rl.deduped:
+            # bundles_0811: the dedupe branch had the SAME dishonesty the main
+            # path was fixed for — it hardcoded "pending_review" regardless of
+            # whether any review channel ever opened. Caught by a live prod
+            # probe AFTER the main-path fix shipped: a repeat proposal returned
+            # `status: pending_review` with `review_channel_open: false`, which
+            # is self-contradictory. A dedupe hit can only honestly claim a
+            # pending review if the ORIGINAL submission actually dispatched —
+            # which is exactly what a cached issue_url proves.
+            deduped_channel_open = bool(rl.issue_url)
             return {
                 "ok": True,
                 "proposal_id": "",
                 "repo_slug": repo_slug,
-                "status": "pending_review",
+                "status": "pending_review" if deduped_channel_open else "recorded_not_dispatched",
+                "review_channel_open": deduped_channel_open,
                 "issue_url": rl.issue_url,
                 "preflight": preflight.to_dict(),
                 "deduped": True,

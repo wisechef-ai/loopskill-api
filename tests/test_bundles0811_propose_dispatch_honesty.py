@@ -121,3 +121,57 @@ class TestSuccessfulDispatch:
             "issue_url must be a string, never dispatch_event's boolean"
         )
         assert isinstance(out["issue_url"], str)
+
+
+class TestDedupePathIsAlsoHonest:
+    """The dedupe early-return is a SECOND path with the same promise to keep.
+
+    Found by a live prod probe AFTER the main-path fix shipped: proposing a repo
+    twice returned `status: "pending_review"` together with
+    `review_channel_open: false` — self-contradictory, and the exact dishonesty
+    the main path had just been fixed for. The first suite never exercised this
+    branch, so it passed while prod still lied. Fixing one branch of a two-branch
+    promise is not fixing the promise.
+    """
+
+    def test_dedupe_after_a_failed_dispatch_does_not_claim_pending_review(
+        self, db_session, monkeypatch
+    ):
+        # 1st submission: dispatch fails (no PAT) -> nothing queued for review.
+        first = _call(monkeypatch, db_session, dispatch_returns=None)
+        assert first["status"] == "recorded_not_dispatched"
+
+        # 2nd identical submission hits the dedupe branch. There is still no
+        # issue, so it must NOT suddenly claim a review is pending.
+        monkeypatch.setattr(fp, "preflight_repo", lambda *a, **k: _preflight())
+        with patch.object(fp.github_dispatch, "dispatch_event", return_value=None):
+            second = fp.loopskill_propose_registry(
+                db_session,
+                repo_url="https://github.com/anthropics/skills",
+                source_id="anthropics-skills",
+                contact="probe@example.com",
+                why="terminal gate step 8",
+            )
+
+        if not second.get("deduped"):
+            import pytest
+
+            pytest.skip("rate-limit window did not dedupe; branch not exercised")
+
+        assert second["review_channel_open"] is False
+        assert second["status"] == "recorded_not_dispatched", (
+            "a dedupe hit whose original never dispatched must not claim "
+            "'pending_review' — that is the bug this file exists for"
+        )
+
+    def test_status_and_channel_flag_never_contradict(self, db_session, monkeypatch):
+        """pending_review AND review_channel_open=False is incoherent."""
+        for dispatch in (None, True):
+            fp.feedback_ratelimit.reset_all()
+            out = _call(monkeypatch, db_session, dispatch_returns=dispatch)
+            if out["status"] == "pending_review":
+                assert out["review_channel_open"] is True, (
+                    f"claimed pending_review with no open channel: {out}"
+                )
+            else:
+                assert out["review_channel_open"] is False, out
