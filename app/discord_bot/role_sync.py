@@ -17,7 +17,7 @@ from typing import Any
 
 from app.config import settings
 
-logger = logging.getLogger("wiserecipes.discord")
+logger = logging.getLogger("loopskill.discord")
 
 ACTIVE_STATUSES = frozenset({"active", "trialing"})
 

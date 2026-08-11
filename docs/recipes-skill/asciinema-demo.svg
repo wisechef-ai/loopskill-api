@@ -87,7 +87,7 @@
     <text class="output" x="36" y="338">mcpServers:</text>
     <text class="output" x="36" y="356">  recipes-shared:</text>
     <text class="output" x="36" y="374">    transport: streamable-http</text>
-    <text class="output" x="36" y="392">    url: https://recipes.wisechef.ai/api/mcp/http</text>
+    <text class="output" x="36" y="392">    url: https://app.loopskill.io/api/mcp/http</text>
     <text class="output" x="36" y="410">    headers:</text>
     <text class="highlight" x="36" y="428">      x-api-key: cbt_f4e3d2c1_a1b2...c5d6</text>
   </g>

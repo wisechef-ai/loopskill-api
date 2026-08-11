@@ -33,7 +33,7 @@ from dataclasses import dataclass
 
 import redis
 
-logger = logging.getLogger("wiserecipes.abuse_ceiling")
+logger = logging.getLogger("loopskill.abuse_ceiling")
 
 # Decision #20: generous, same all tiers. 60 reconcile requests / 5 min per key.
 RECONCILE_CEILING_REQUESTS = 60

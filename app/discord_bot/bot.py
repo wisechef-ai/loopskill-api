@@ -16,7 +16,7 @@ import os
 
 from app.config import settings
 
-logger = logging.getLogger("wiserecipes.discord")
+logger = logging.getLogger("loopskill.discord")
 
 
 def _resolve_token() -> str:

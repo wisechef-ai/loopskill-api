@@ -12,7 +12,7 @@ import logging
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
-logger = logging.getLogger("wiserecipes.middleware")
+logger = logging.getLogger("loopskill.middleware")
 
 
 class CookbookHostMiddleware(BaseHTTPMiddleware):

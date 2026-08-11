@@ -290,7 +290,7 @@ def _build_embed_payload(
         "title": title,
         "color": _color_for(event_kind),
         "fields": fields,
-        "footer": {"text": "recipes.wisechef.ai"},
+        "footer": {"text": "app.loopskill.io"},
     }
     return {"embeds": [embed]}
 

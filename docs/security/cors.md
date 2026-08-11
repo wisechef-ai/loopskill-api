@@ -12,8 +12,8 @@ credentialed cross-origin requests from browsers.
 |--------|-----------|
 | `https://app.loopskill.io` | Primary production frontend (LoopSkill-branded portal) |
 | `https://loopskill.io` | Canonical brand default (config.LOOPSKILL_DEFAULT_ORIGIN) |
-| `https://recipes.wisechef.ai` | Legacy frontend (sunset 2026-07-10, 301 → app.loopskill.io) |
-| `https://www.recipes.wisechef.ai` | www-prefixed legacy variant |
+| `https://recipes.wisechef.ai` | Legacy frontend (sunset 2026-07-10, 301 → app.loopskill.io) — kept in the allow-list so credentialed calls from any still-cached old-domain browser tab don't silently CORS-fail; see app/main.py:137 |
+| `https://www.recipes.wisechef.ai` | www-prefixed legacy variant — same rationale |
 
 ## Policy Settings
 

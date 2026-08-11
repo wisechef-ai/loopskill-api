@@ -18,7 +18,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.config import settings
 from app.utils.client_ip import _real_client_ip as _real_client_ip_from_utils  # Issue #12
 
-logger = logging.getLogger("wiserecipes.middleware")
+logger = logging.getLogger("loopskill.middleware")
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
