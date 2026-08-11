@@ -24,7 +24,8 @@ installed.
 
 ```sh
 git clone https://github.com/wisechef-ai/loopskill-api && cd loopskill-api
-pip install ./cli   # editable install, no PyPI account or publish needed
+python3 -m venv .venv && ./.venv/bin/pip install ./cli
+alias loopskill=./.venv/bin/loopskill   # or add ./.venv/bin to PATH
 loopskill --version
 
 # --- fabricate a "machine" with two skills, take a snapshot ---
