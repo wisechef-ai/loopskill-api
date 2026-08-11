@@ -1,16 +1,24 @@
-"""Graph extension HTTP surface (Phase B.5).
+"""Graph extension HTTP surface (Phase B.5 + bundles0811 P6).
 
 GET  /api/graph/related        — public read; queries any of the 7 edge types
+GET  /api/graph/coverage       — public read; honest per-edge-type coverage
+GET  /api/graph/neighborhood   — public read; lazy paginated, ADVISORY ONLY
 POST /api/graph/replacements   — master-key-only; insert a manual replacement
 GET  /api/graph/replacements   — public read; list all manual replacements
 
 The router lives under `/api/graph/` so the middleware can grant blanket
 public access via PUBLIC_PREFIXES. The POST endpoint validates the master
 API key inline because the middleware exempted the prefix.
+
+ADVISORY ONLY (control-plane lock, bundles0811 P6): every GET on this router
+returns suggestions/coverage data. None of them install, apply, or mutate
+anything a skill/bundle actually runs — that gate is unconditional and is
+asserted by test.
 """
 
 from __future__ import annotations
 
+import base64
 import hmac
 from uuid import uuid4
 
@@ -20,10 +28,14 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
+from app.graph_coverage import compute_coverage
 from app.graph_extension import EDGE_TYPES, edges_for
 from app.models import Skill, SkillReplacement
 
 router = APIRouter(prefix="/api/graph", tags=["graph"])
+
+NEIGHBORHOOD_DEFAULT_LIMIT = 20
+NEIGHBORHOOD_MAX_LIMIT = 100
 
 
 class GraphEdge(BaseModel):
@@ -75,6 +87,116 @@ def graph_related(
         raise HTTPException(status_code=404, detail=f"Skill '{skill}' not found")
 
     return edges_for(db, skill, edge, min_weight=min_weight)
+
+
+# ── Read: GET /api/graph/coverage ──────────────────────────────────────────
+
+
+class EdgeTypeCoverage(BaseModel):
+    eligible_nodes: int
+    covered_nodes: int
+    coverage_pct: float
+    last_built_at: str | None
+    scope: str
+    note: str
+    deferred_federated_eligible_origins: int | None = None
+
+
+class CoverageResponse(BaseModel):
+    edge_types: dict[str, EdgeTypeCoverage]
+
+
+@router.get("/coverage", response_model=CoverageResponse)
+def graph_coverage(db: Session = Depends(get_db)):
+    """Per-edge-type eligible/covered/coverage_pct/last_built_at — computed live.
+
+    Every number here comes from a real query against the bound session (see
+    `app.graph_coverage`); nothing is a placeholder. Reports honestly when a
+    signal is local-only (tag_overlap, category_sibling, co_install,
+    related_skills) versus spanning federated identities
+    (bundle_co_membership) — never silently mixes the two.
+    """
+    return CoverageResponse(edge_types=compute_coverage(db))
+
+
+# ── Read: GET /api/graph/neighborhood (lazy, paginated, ADVISORY ONLY) ─────
+
+
+class NeighborhoodItem(BaseModel):
+    skill_slug: str
+    edge_type: str
+    weight: float
+    evidence_count: int
+
+
+class NeighborhoodResponse(BaseModel):
+    skill: str
+    items: list[NeighborhoodItem]
+    next_cursor: str | None
+    advisory_only: bool = True
+    note: str = (
+        "Suggestions only. This endpoint never installs, applies, or mutates "
+        "anything — the control-plane lock is unconditional."
+    )
+
+
+def _encode_cursor(offset: int) -> str:
+    return base64.urlsafe_b64encode(str(offset).encode()).decode()
+
+
+def _decode_cursor(cursor: str | None) -> int:
+    if not cursor:
+        return 0
+    try:
+        return max(0, int(base64.urlsafe_b64decode(cursor.encode()).decode()))
+    # Rationale: a malformed/tampered cursor must not 500 the request — restart at page 0.
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+@router.get("/neighborhood", response_model=NeighborhoodResponse)
+def graph_neighborhood(
+    skill: str = Query(..., description="Source skill slug"),
+    edge: str | None = Query(None, description=f"Optional edge type filter — one of {sorted(EDGE_TYPES)}"),
+    limit: int = Query(NEIGHBORHOOD_DEFAULT_LIMIT, ge=1, le=NEIGHBORHOOD_MAX_LIMIT),
+    cursor: str | None = Query(None, description="Opaque pagination cursor from a prior response"),
+    min_weight: float = Query(0.0, ge=0.0, le=1.0),
+    db: Session = Depends(get_db),
+):
+    """Lazy, paginated neighbor listing for one skill. ADVISORY ONLY.
+
+    Lazy: computed on demand for the ONE requested skill (never materializes
+    the whole graph — contrast with `GET /api/skills/graph`, which dumps
+    everything). Paginated: `limit`/`cursor` slice the weight-sorted result;
+    `next_cursor` is null once exhausted. Advisory only: this is a read
+    surface for suggestions — no endpoint here installs or applies anything.
+    """
+    if edge is not None and edge not in EDGE_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"unknown edge type {edge!r}; expected one of {sorted(EDGE_TYPES)}",
+        )
+
+    src = db.query(Skill).filter(Skill.slug == skill).first()
+    if not src:
+        raise HTTPException(status_code=404, detail=f"Skill '{skill}' not found")
+
+    edge_types = [edge] if edge else sorted(EDGE_TYPES)
+    merged: list[dict] = []
+    for et in edge_types:
+        merged.extend(edges_for(db, skill, et, min_weight=min_weight))
+    merged.sort(key=lambda e: e["weight"], reverse=True)
+
+    offset = _decode_cursor(cursor)
+    page = merged[offset : offset + limit]
+    next_offset = offset + limit
+    next_cursor = _encode_cursor(next_offset) if next_offset < len(merged) else None
+
+    return NeighborhoodResponse(
+        skill=skill,
+        items=[NeighborhoodItem(**item) for item in page],
+        next_cursor=next_cursor,
+    )
 
 
 # ── Write: POST /api/graph/replacements (master-only) ─────────────────────

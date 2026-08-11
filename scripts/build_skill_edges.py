@@ -8,6 +8,7 @@ Run from the API host:
 
 Prints a JSON summary for cron scraping. Exits non-zero on failure.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,11 +20,10 @@ from app.database import SessionLocal
 from app.edge_builder import build_edges, persist_edges, WEIGHT_THRESHOLD
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dry-run", action="store_true",
-                    help="Compute but do not write")
-    args = ap.parse_args()
+    ap.add_argument("--dry-run", action="store_true", help="Compute but do not write")
+    args = ap.parse_args(argv)
 
     db = SessionLocal()
     started = datetime.now(timezone.utc)
@@ -46,11 +46,17 @@ def main() -> int:
         return 0
     except Exception as exc:  # noqa: BLE001
         db.rollback()
-        print(json.dumps({
-            "ok": False,
-            "error": str(exc),
-            "error_type": type(exc).__name__,
-        }, indent=2), file=sys.stderr)
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
+                indent=2,
+            ),
+            file=sys.stderr,
+        )
         return 1
     finally:
         db.close()
