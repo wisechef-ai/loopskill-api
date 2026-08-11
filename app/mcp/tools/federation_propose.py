@@ -154,7 +154,14 @@ def loopskill_propose_registry(
     db.refresh(row)
 
     # ── 4. Dispatch a LABELLED GitHub issue with the pre-flight evidence ───
-    gh_url = (
+    # NOTE the shape: dispatch_event returns bool|None, NOT a URL. GitHub's
+    # repository_dispatch API answers 204 No Content, so the issue number is
+    # simply not knowable here — feedback-dispatch.yml opens the issue
+    # asynchronously. Naming this `gh_url` (as the original did) and assigning
+    # it to `row.issue_url` stored the literal boolean True in a string column
+    # and made `issue_url` meaningless. Pyright flagged it; keeping the honest
+    # name and leaving issue_url empty until the workflow reports back.
+    dispatched = bool(
         github_dispatch.dispatch_event(
             "federation-registry-propose",
             {
@@ -168,26 +175,44 @@ def loopskill_propose_registry(
                 "preflight": preflight.to_dict(),
             },
         )
-        or ""
     )
 
-    if gh_url:
-        row.issue_url = gh_url
-        db.commit()
-        feedback_ratelimit.update_dedup_url(sig, gh_url)
+    if dispatched:
+        # The issue URL is not knowable synchronously (204 No Content), so the
+        # dedup entry records the proposal itself rather than a fake link.
+        feedback_ratelimit.update_dedup_url(sig, f"proposal:{row.id}")
 
-    logger.info(
-        "federation-registry-propose accepted: id=%s repo=%s sig=%s",
-        row.id,
-        repo_slug,
-        sig[:12],
-    )
+    # bundles_0811 TERMINAL-gate probe: a proposal that opens NO issue is a
+    # proposal nobody is triaging. Before this, an absent GITHUB_DISPATCH_PAT
+    # made dispatch_event return None and this route still answered a cheerful
+    # `ok: true, status: pending_review` — the same silent-failure class as the
+    # federation token that indexed 0 rows with last_error=NULL. The API write
+    # stays durable (that is deliberate — GitHub being down must not lose the
+    # proposal), but the caller is now TOLD the review channel did not open.
+    if not dispatched:
+        logger.error(
+            "federation-registry-propose RECORDED BUT NOT DISPATCHED: id=%s repo=%s "
+            "— no GitHub issue was opened, so nothing is queued for review. "
+            "Most likely GITHUB_DISPATCH_PAT is unset on this host.",
+            row.id,
+            repo_slug,
+        )
+    else:
+        logger.info(
+            "federation-registry-propose accepted: id=%s repo=%s sig=%s",
+            row.id,
+            repo_slug,
+            sig[:12],
+        )
     return {
         "ok": True,
         "proposal_id": str(row.id),
         "repo_slug": repo_slug,
-        "status": "pending_review",
-        "issue_url": gh_url,
+        # `pending_review` promises a human will see it. That promise is only
+        # true when the dispatch actually landed.
+        "status": "pending_review" if dispatched else "recorded_not_dispatched",
+        "review_channel_open": dispatched,
+        "issue_url": row.issue_url or "",
         "preflight": preflight.to_dict(),
         "deduped": False,
     }

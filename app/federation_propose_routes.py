@@ -55,6 +55,11 @@ class FederationProposeOut(BaseModel):
     proposal_id: str = ""
     repo_slug: str | None = None
     status: str | None = None
+    # bundles_0811: `status` alone was ambiguous — an accepted proposal that
+    # opened NO GitHub issue still answered "pending_review", promising a review
+    # nobody was queued to perform. This flag states plainly whether the review
+    # channel actually opened. MCP and REST must agree (parity test).
+    review_channel_open: bool = False
     issue_url: str = ""
     preflight: dict[str, Any] | None = None
     deduped: bool = False
@@ -108,6 +113,7 @@ def post_federation_propose(
         proposal_id=result.get("proposal_id", ""),
         repo_slug=result.get("repo_slug"),
         status=result.get("status"),
+        review_channel_open=result.get("review_channel_open", False),
         issue_url=result.get("issue_url", ""),
         preflight=result.get("preflight"),
         deduped=result.get("deduped", False),
