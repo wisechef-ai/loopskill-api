@@ -167,13 +167,35 @@ def _insert_legacy_bundle_row(db, *, name, slug=None, visibility="private"):
     # probing: a raw dashed insert round-trips through SELECT but a
     # `Bundle.id == uuid.UUID(...)` filter returns None). Use `.hex` so the
     # bytes on disk match what the ORM itself would have written.
+    #
+    # CI-caught (postgres job): the boolean columns MUST be bound Python
+    # `False` values, not inline `0` literals in the SQL text. SQLite's
+    # dynamic typing accepts an integer where a boolean column expects one;
+    # Postgres's driver does not adapt a literal `0` to `boolean` and raises
+    # `DatatypeMismatch`. Bound params let psycopg2 adapt `False` -> `FALSE`
+    # per-dialect — this is the exact SQLite-vs-Postgres divergence
+    # tests/conftest.py's own docstring warns about ("SQLite silently accepts
+    # things Postgres rejects... strict boolean typing").
     db.execute(
         sa.text(
             "INSERT INTO bundles (id, name, slug, visibility, is_base, is_liked, "
             "follower_count, is_editorial, is_verified, is_white_label, pin_mode) "
-            "VALUES (:id, :name, :slug, :visibility, 0, 0, 0, 0, 0, 0, 'latest-stable')"
+            "VALUES (:id, :name, :slug, :visibility, :is_base, :is_liked, "
+            ":follower_count, :is_editorial, :is_verified, :is_white_label, :pin_mode)"
         ),
-        {"id": bundle_uuid.hex, "name": name, "slug": slug, "visibility": visibility},
+        {
+            "id": bundle_uuid.hex,
+            "name": name,
+            "slug": slug,
+            "visibility": visibility,
+            "is_base": False,
+            "is_liked": False,
+            "follower_count": 0,
+            "is_editorial": False,
+            "is_verified": False,
+            "is_white_label": False,
+            "pin_mode": "latest-stable",
+        },
     )
     return bundle_uuid
 
