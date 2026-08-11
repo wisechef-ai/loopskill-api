@@ -255,6 +255,24 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         if request.method == "GET" and path.startswith("/api/orgs/") and path.endswith("/a2a-directory"):
             return await call_next(request)
 
+        # bundles_0811 — PATCH /api/internal/feedback/{id}/issue-url authenticates
+        # with X-Internal-Token, NOT x-api-key. Without this branch the middleware
+        # 401s the request before app/internal_routes.py::_verify_token ever runs,
+        # so the endpoint has been UNREACHABLE since it shipped: the CI workflow
+        # that writes a created issue's URL back always got
+        # {"detail":"Invalid or missing x-api-key header"} and every proposal row
+        # kept issue_url = NULL.
+        #
+        # Skipping the x-api-key gate here does not weaken auth — it routes to the
+        # correct one. `_verify_token` fails CLOSED: an unset or empty
+        # INTERNAL_PATCH_TOKEN, or any mismatch, raises 403. Same reasoning as the
+        # a2a-directory branch above.
+        #
+        # Scoped to the exact prefix rather than a PUBLIC_PREFIXES entry so no
+        # other /api/internal/* route inherits the exemption by accident.
+        if path.startswith("/api/internal/"):
+            return await call_next(request)
+
         # Public skill-detail GETs (/api/skills/{slug}) — match LarryBrain catalog
         # browsability. Auth-only verbs (install, _download, _publish) still gated,
         # EXCEPT /api/skills/install for tier=free skills (polish_1805 item 1 —
