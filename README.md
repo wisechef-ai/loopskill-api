@@ -24,7 +24,8 @@ installed.
 
 ```sh
 git clone https://github.com/wisechef-ai/loopskill-api && cd loopskill-api
-pip install ./cli   # editable install, no PyPI account or publish needed
+python3 -m venv .venv && ./.venv/bin/pip install ./cli
+alias loopskill=./.venv/bin/loopskill   # or add ./.venv/bin to PATH
 loopskill --version
 
 # --- fabricate a "machine" with two skills, take a snapshot ---
@@ -155,7 +156,7 @@ loop's success check under enforced bounds and hands you a verdict.
 ## What's actually in this codebase (and the honest answer to "why so big")
 
 289 app Python files, 69,180 lines of app code, 107 Alembic migrations,
-403 test files, **2 GitHub stars, 0 forks** (measured 2026-08-11 via `gh
+404 test files, **2 GitHub stars, 0 forks** (measured 2026-08-11 via `gh
 repo view wisechef-ai/loopskill-api --json stargazerCount,forkCount`).
 
 That ratio is real and it isn't a good one. [Issue
