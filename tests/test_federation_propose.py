@@ -22,7 +22,14 @@ import app.feedback_ratelimit as rl_module
 from app.mcp.tools.federation_propose import loopskill_propose_registry
 from app.services.federation_propose import PreflightResult
 
-FAKE_ISSUE_URL = "https://github.com/wisechef-ai/loopskill-api/issues/501"
+# github_dispatch.dispatch_event is typed `bool | None` and POSTs
+# repository_dispatch, which answers *204 No Content* — it CANNOT return an
+# issue URL. These tests previously stubbed it with a URL string, so the mock
+# was more capable than the real function and hid a live bug: the route stored
+# that value in `issue_url`, which in production is the boolean True.
+# bundles_0811: stub the REAL contract. The issue is opened asynchronously by
+# .github/workflows/feedback-dispatch.yml, so no URL is knowable synchronously.
+DISPATCH_OK = True
 SAMPLE_REPO = "https://github.com/example-org/example-skills"
 
 
@@ -56,7 +63,7 @@ def test_propose_opens_labelled_issue_with_preflight_evidence(db_session):
         ),
         patch(
             "app.mcp.tools.federation_propose.github_dispatch.dispatch_event",
-            return_value=FAKE_ISSUE_URL,
+            return_value=DISPATCH_OK,
         ) as mock_dispatch,
     ):
         result = loopskill_propose_registry(
@@ -69,7 +76,9 @@ def test_propose_opens_labelled_issue_with_preflight_evidence(db_session):
     assert result["ok"] is True, result
     assert result["status"] == "pending_review"
     assert result["repo_slug"] == "example-org/example-skills"
-    assert result["issue_url"] == FAKE_ISSUE_URL
+    assert result["review_channel_open"] is True
+    assert result["status"] == "pending_review"
+    assert result["issue_url"] == ""  # not knowable synchronously (204)
     assert result["proposal_id"] != ""
     assert result["preflight"]["skill_md_count"] == 5
     assert result["preflight"]["license_detected"] == "mit"
@@ -95,7 +104,7 @@ def test_propose_opens_labelled_issue_with_preflight_evidence(db_session):
     )
     assert row is not None
     assert row.status == "pending"
-    assert row.issue_url == FAKE_ISSUE_URL
+    assert row.issue_url in ("", None)  # filled in later by the workflow, never a bool
     assert row.skill_md_count == 5
 
 
@@ -115,7 +124,7 @@ def test_propose_repo_not_found_reports_back_no_issue(db_session):
         patch("app.mcp.tools.federation_propose.preflight_repo", return_value=not_found),
         patch(
             "app.mcp.tools.federation_propose.github_dispatch.dispatch_event",
-            return_value=FAKE_ISSUE_URL,
+            return_value=DISPATCH_OK,
         ) as mock_dispatch,
     ):
         result = loopskill_propose_registry(
@@ -148,7 +157,7 @@ def test_propose_zero_skill_md_reports_back_no_issue(db_session):
         patch("app.mcp.tools.federation_propose.preflight_repo", return_value=empty_repo),
         patch(
             "app.mcp.tools.federation_propose.github_dispatch.dispatch_event",
-            return_value=FAKE_ISSUE_URL,
+            return_value=DISPATCH_OK,
         ) as mock_dispatch,
     ):
         result = loopskill_propose_registry(
@@ -175,7 +184,7 @@ def test_propose_duplicate_within_24h_is_deduped_not_double_filed(db_session):
         patch("app.mcp.tools.federation_propose.preflight_repo", return_value=_viable_preflight()),
         patch(
             "app.mcp.tools.federation_propose.github_dispatch.dispatch_event",
-            return_value=FAKE_ISSUE_URL,
+            return_value=DISPATCH_OK,
         ),
     ):
         result1 = loopskill_propose_registry(
@@ -190,7 +199,7 @@ def test_propose_duplicate_within_24h_is_deduped_not_double_filed(db_session):
         patch("app.mcp.tools.federation_propose.preflight_repo", return_value=_viable_preflight()),
         patch(
             "app.mcp.tools.federation_propose.github_dispatch.dispatch_event",
-            return_value=FAKE_ISSUE_URL,
+            return_value=DISPATCH_OK,
         ) as mock2,
     ):
         result2 = loopskill_propose_registry(
@@ -203,7 +212,7 @@ def test_propose_duplicate_within_24h_is_deduped_not_double_filed(db_session):
     mock2.assert_not_called()
     assert result2["ok"] is True
     assert result2["deduped"] is True
-    assert result2["issue_url"] == FAKE_ISSUE_URL
+    assert result2["deduped"] is True
 
     from app.models import FederationRegistryProposal
 
@@ -219,7 +228,7 @@ def test_propose_duplicate_uses_dedup_gate_not_a_second_mechanism(db_session):
         patch("app.mcp.tools.federation_propose.preflight_repo", return_value=_viable_preflight()),
         patch(
             "app.mcp.tools.federation_propose.github_dispatch.dispatch_event",
-            return_value=FAKE_ISSUE_URL,
+            return_value=DISPATCH_OK,
         ),
     ):
         loopskill_propose_registry(db_session, repo_url=SAMPLE_REPO, api_key_id="key-xyz")
@@ -253,7 +262,7 @@ def test_propose_anonymous_is_rate_limited(db_session):
         patch("app.mcp.tools.federation_propose.preflight_repo", side_effect=_preflight_for),
         patch(
             "app.mcp.tools.federation_propose.github_dispatch.dispatch_event",
-            return_value=FAKE_ISSUE_URL,
+            return_value=DISPATCH_OK,
         ),
     ):
         # LOOP_THRESHOLD (3 in 5 min) is tighter than PER_TOOL_MAX (10/24h) for
@@ -293,7 +302,7 @@ def test_propose_force_bypasses_loop_cooldown(db_session):
         patch("app.mcp.tools.federation_propose.preflight_repo", return_value=_viable_preflight()),
         patch(
             "app.mcp.tools.federation_propose.github_dispatch.dispatch_event",
-            return_value=FAKE_ISSUE_URL,
+            return_value=DISPATCH_OK,
         ) as mock_forced,
     ):
         result = loopskill_propose_registry(
@@ -420,7 +429,7 @@ def test_rest_endpoint_mirrors_mcp_tool_contract(db_session):
         patch("app.mcp.tools.federation_propose.preflight_repo", return_value=_viable_preflight()),
         patch(
             "app.mcp.tools.federation_propose.github_dispatch.dispatch_event",
-            return_value=FAKE_ISSUE_URL,
+            return_value=DISPATCH_OK,
         ),
         TestClient(test_app, raise_server_exceptions=True) as c,
     ):
@@ -432,7 +441,8 @@ def test_rest_endpoint_mirrors_mcp_tool_contract(db_session):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["ok"] is True
-    assert body["issue_url"] == FAKE_ISSUE_URL
+    assert body["review_channel_open"] is True
+    assert body["issue_url"] == ""
     assert body["preflight"]["skill_md_count"] == 5
 
 
