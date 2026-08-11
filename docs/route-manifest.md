@@ -3,7 +3,7 @@
 
 # Route Manifest (bundles_0811 P7)
 
-Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **302** distinct (method, path) surfaces.
+Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **304** distinct (method, path) surfaces.
 
 ## How classification works
 
@@ -24,7 +24,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | admin | 9 |
 | authenticated | 190 |
 | internal | 2 |
-| public | 101 |
+| public | 103 |
 
 ## Full manifest
 
@@ -222,6 +222,8 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | DELETE | `/api/forks/{fork_id}` | authenticated | `app.forks_routes` | forks, forks |
 | GET | `/api/forks/{fork_id}/install` | authenticated | `app.forks_routes` | forks, forks |
 | POST | `/api/forks/{fork_id}/version` | authenticated | `app.forks_routes` | forks, forks |
+| GET | `/api/graph/coverage` | public | `app.graph_routes` | graph, graph |
+| GET | `/api/graph/neighborhood` | public | `app.graph_routes` | graph, graph |
 | GET | `/api/graph/related` | public | `app.graph_routes` | graph, graph |
 | GET | `/api/graph/replacements` | public | `app.graph_routes` | graph, graph |
 | POST | `/api/graph/replacements` | public | `app.graph_routes` | graph, graph |
