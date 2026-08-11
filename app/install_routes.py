@@ -70,6 +70,33 @@ if _RETIREMENT_FILE.exists():
             if len(_parts) == 2:
                 _RETIRED_SKILLS[_parts[0]] = _parts[1]
 
+# bundles_0811 P3 follow-up — accepted prefixes for a `<prefix>:<slug>` install
+# ref against the federated hub.
+#
+# `hermes-hub` is the HUB NAMESPACE: all 90,605 federation_hub_skills rows live
+# under it whatever their origin. The others are the `upstream_source` values a
+# user actually SEES on a search result card, so typing what you were shown must
+# work. Verified on prod 2026-08-11: distinct upstream_source = browse-sh,
+# claude-marketplace, clawhub, github, lobehub, official, skills-sh — and
+# `hermes-hub` is deliberately NOT one of them.
+#
+# Safe because hub slugs are globally unique (90,605 rows / 90,605 distinct
+# slugs), so the prefix is a hint, never a disambiguator. `ext:` is excluded by
+# the caller: it names a MATERIALIZED local pointer row, not a hub row.
+_FEDERATED_SLUG_PREFIXES: frozenset[str] = frozenset(
+    {
+        "hermes-hub",
+        "browse-sh",
+        "claude-marketplace",
+        "clawhub",
+        "github",
+        "github-oss",
+        "lobehub",
+        "official",
+        "skills-sh",
+    }
+)
+
 
 def _resolve_validated_bundle(db: Session, bundle_id: str, skill: Skill) -> UUID:
     """Validate a caller-supplied bundle_id for mesh0408 Q-031.
@@ -222,9 +249,21 @@ def install_skill(
     # safe to run before the local-Skill lookup rather than only as a 404
     # fallback. Resolved via the P3 instruction resolver — zero bytes
     # fetched or stored here, unlike the bundle-scoped fetch-origin routes.
+    # bundles_0811 P3 follow-up: `hermes-hub` is the HUB NAMESPACE, not an
+    # upstream source. Every one of the 90,605 federation_hub_skills rows lives
+    # under it regardless of where it came from (verified on prod: distinct
+    # upstream_source = browse-sh, claude-marketplace, clawhub, github, lobehub,
+    # official, skills-sh — `hermes-hub` is not among them), and slugs are
+    # globally unique (90,605 rows / 90,605 distinct slugs).
+    #
+    # So `hermes-hub:<slug>` already resolves a skills-sh or github row — but a
+    # user who read `source: "skills-sh"` off a search result and typed
+    # `skills-sh:<slug>` got a bare "Skill not found", which reads as "we don't
+    # have it" when we do. Because slugs are globally unique, accepting any
+    # known upstream source as an ALIAS for the hub namespace is unambiguous.
     if ":" in slug and not slug.startswith("ext:"):
         fed_source, _sep, fed_slug = slug.partition(":")
-        if fed_source == "hermes-hub":
+        if fed_source in _FEDERATED_SLUG_PREFIXES:
             return _install_federated_hermes_hub_ref(fed_slug, db)
 
     skill = db.query(Skill).filter(Skill.slug == slug).first()

@@ -157,3 +157,52 @@ def test_ext_prefixed_slug_still_routes_to_local_skill_lookup(master_client, db_
     # NOT the federated-ref branch's 404 message.
     assert resp.status_code == 404
     assert "not found in hermes-hub" not in resp.text
+
+
+# ── bundles_0811 P3 follow-up: the prefix a user was SHOWN must also work ─────
+#
+# P3 wired only `hermes-hub:<slug>`. But `hermes-hub` is the HUB NAMESPACE, not
+# an upstream source — prod's distinct upstream_source values are browse-sh,
+# claude-marketplace, clawhub, github, lobehub, official, skills-sh. A search
+# card shows `source: "skills-sh"`, so a user types `skills-sh:<slug>` and got a
+# bare "Skill not found" for a row we demonstrably hold (the same row resolved
+# 200 under the hermes-hub prefix). Slugs are globally unique — 90,605 rows /
+# 90,605 distinct slugs — so the prefix is a hint, never a disambiguator.
+
+
+def test_upstream_source_prefix_resolves_the_same_row_as_hermes_hub(master_client, db_session):
+    """`skills-sh:<slug>` must resolve identically to `hermes-hub:<slug>`."""
+    _mk_hub_row(
+        db_session,
+        "skills-sh-getpaseo-paseo-handoff",
+        repo="getpaseo/paseo",
+        path="skills/handoff",
+    )
+
+    with patch(
+        "app.services.federation_hub_install._probe_branch",
+        side_effect=lambda repo, path, branch: branch == "main",
+    ):
+        via_source = master_client.get(
+            "/api/skills/install?slug=skills-sh:skills-sh-getpaseo-paseo-handoff"
+        )
+        via_hub = master_client.get(
+            "/api/skills/install?slug=hermes-hub:skills-sh-getpaseo-paseo-handoff"
+        )
+
+    assert via_source.status_code == 200, via_source.text
+    assert via_hub.status_code == 200, via_hub.text
+    # Same row, same instruction — the prefix is a hint, not a selector.
+    assert via_source.json()["url"] == via_hub.json()["url"]
+    assert via_source.json()["kind"] == "fetch"
+
+
+def test_unknown_prefix_still_404s_as_a_local_skill(master_client, db_session):
+    """An unknown prefix must NOT be treated as federated.
+
+    It falls through to the local lookup so the 404 names the real problem
+    rather than blaming the federated hub.
+    """
+    resp = master_client.get("/api/skills/install?slug=not-a-source:whatever")
+    assert resp.status_code == 404
+    assert "not-a-source:whatever" in resp.json()["detail"]
