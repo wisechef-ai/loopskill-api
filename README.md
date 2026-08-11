@@ -143,7 +143,7 @@ Postgres/production path: **[docs/SELF_HOST.md](docs/SELF_HOST.md)**.
 # the zero-config Docker Compose stack always boots with this dev key
 # (override via WR_API_KEY in production) — same value the boot banner prints
 curl -X POST localhost:8200/api/loops/hello-world-loop/run \
-  -H "x-api-key: rec_de...key"
+  -H "x-api-key: rec_dev_wiserecipes_local_testing_key"
 # → {"passed": true, "confinement": "bounded", "duration_seconds": 0.03, ...}
 ```
 
