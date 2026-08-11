@@ -63,6 +63,37 @@ def _is_free(skill) -> bool:
     return bool(getattr(skill, "is_free", False))
 
 
+def _is_redistributable_external(skill) -> bool:
+    """A materialized federated (external) skill whose license permits redistribution.
+
+    bundles0811-P1-follow-seed gate 2 (issue #67) bugfix: EVERY materialized
+    external skill (``app.services.bundle_external.materialize_external_skill``)
+    carries ``tier='external'`` — a value not in ``_FREE_TIERS`` — so
+    ``_is_free`` always returned False for federated bundle members, and the
+    well-known index/SKILL.md surface flagged EVERY federated skill ``locked``
+    regardless of its actual license. That silently broke ``install.sh`` for
+    any bundle assembled from the federated index: it fetches the well-known
+    index, sees every entry ``locked``, and installs zero skills — reproduced
+    live against ``coreys-marketing`` (49/49 skills, 49 locked, 0 installed)
+    2026-08-11 before this fix.
+
+    A federated skill has ALREADY passed the redistribution gate at
+    materialize time (``route_install`` in ``app.services.federation`` — only
+    an explicitly redistribution-permitting license sets
+    ``install_path='fetch_origin'`` + ``redistributable=True`` in the
+    descriptor; everything else stays ``deep_link``/non-redistributable and
+    is correctly withheld here). This mirrors ``_is_free`` in spirit — "is the
+    body safe to hand over unauthenticated" — for the federated half of a
+    bundle's membership.
+    """
+    from app.services.bundle_external import is_external_skill
+
+    if not is_external_skill(skill):
+        return False
+    desc = skill.external_resources or {}
+    return bool(desc.get("redistributable")) and desc.get("install_path") == "fetch_origin"
+
+
 def _resolve_public_cookbook(db: Session, slug: str) -> Bundle:
     cb = db.query(Bundle).filter(Bundle.slug == slug).first()
     if not cb or cb.visibility != "public":
@@ -127,8 +158,11 @@ def cookbook_wellknown_index(slug: str, db: Session = Depends(get_db)) -> JSONRe
         }
         # Non-standard but harmless hint so a UI can see which entries
         # ship a real body vs a locked stub. agentskills.io consumers ignore
-        # unknown keys.
-        if not _is_free(skill):
+        # unknown keys. bundles0811-P1-follow-seed gate 2: a materialized
+        # federated skill unlocks here too when its resolved license permits
+        # redistribution — see _is_redistributable_external's docstring for
+        # the install.sh bug this closes.
+        if not (_is_free(skill) or _is_redistributable_external(skill)):
             entry["locked"] = True
             entry["tier"] = skill.tier or "pro"
         skills.append(entry)
@@ -150,6 +184,14 @@ def cookbook_wellknown_skill_md(
 
     Public (no auth). FREE skill → real readme body. PAID skill → stub pointer
     (no paid IP crosses this surface). 404 if the skill is not in this cookbook.
+
+    bundles0811-P1-follow-seed gate 2: a materialized federated (external)
+    skill has NO stored ``readme`` — federation never rehosts — so a
+    redistributable external skill's real body is fetched live from origin
+    at serve time via ``resolve_external_install`` (the same resolver the
+    authenticated single-skill install route uses), never persisted here
+    either. A federated skill whose license does NOT permit redistribution
+    still gets the non-leaking stub, exactly like a paid internal skill.
     """
     from app.bundle_routes import _skills_for
 
@@ -163,7 +205,22 @@ def cookbook_wellknown_skill_md(
     if _is_free(match) and (match.readme or "").strip():
         return PlainTextResponse(match.readme, media_type="text/markdown")
 
-    # Paid (or free-but-empty-body): serve the non-leaking stub.
+    if _is_redistributable_external(match):
+        from app.services.bundle_external import descriptor_source_slug, resolve_external_install
+
+        pair = descriptor_source_slug(match)
+        if pair is not None:
+            source, ext_slug = pair
+            installed = resolve_external_install(source, ext_slug)
+            if installed is not None and (installed.get("content") or "").strip():
+                return PlainTextResponse(installed["content"], media_type="text/markdown")
+        # Transient origin failure / unresolvable at serve time — fall through
+        # to the honest stub rather than a raw 500; the index already
+        # advertised this entry as unlocked so a stub here is a degrade, not
+        # a lie about licensing.
+
+    # Paid (or free-but-empty-body, or transient external-fetch failure):
+    # serve the non-leaking stub.
     return PlainTextResponse(_stub_skill_md(match, cb.slug), media_type="text/markdown")
 
 
