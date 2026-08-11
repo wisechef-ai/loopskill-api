@@ -91,7 +91,13 @@ for s in skills:
     if s.get("locked"):
         locked.append(name)
         continue
-    outdir = os.path.join(dest, name)
+    # bundles_0811: `name` is the WIRE KEY used to fetch; `dir_name` is the
+    # filesystem-safe form to mkdir. Federated members are slugged
+    # `ext:<source>:<slug>` and a colon is illegal in a Windows path, so
+    # writing `name` verbatim produced an unusable directory for 114 of 172
+    # public-bundle members. Falls back to `name` for an older API build.
+    dir_name = s.get("dir_name") or name
+    outdir = os.path.join(dest, dir_name)
     os.makedirs(outdir, exist_ok=True)
     urllib.request.urlretrieve(f"{{base}}/{{name}}/SKILL.md", os.path.join(outdir, "SKILL.md"))
     installed.append(name)
