@@ -264,7 +264,9 @@ def test_offline_modules_never_import_network_capable_stdlib():
                 found.update(n.name.split(".")[0] for n in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
                 found.add(node.module.split(".")[0])
-        assert not (found & forbidden), f"{modname}.py imports forbidden network module(s): {found & forbidden}"
+        assert not (found & forbidden), (
+            f"{modname}.py imports forbidden network module(s): {found & forbidden}"
+        )
 
 
 def test_pull_module_is_the_only_one_with_urllib():

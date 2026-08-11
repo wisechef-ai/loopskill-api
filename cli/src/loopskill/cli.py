@@ -32,8 +32,7 @@ def _cmd_import(args: argparse.Namespace) -> int:
         total = sum(c["skill_count"] for c in lockfile["clients"].values())
         present = sum(1 for c in lockfile["clients"].values() if c["installed"])
         print(
-            f"loopskill import: wrote {args.output} "
-            f"({total} skill(s) across {present} client(s))",
+            f"loopskill import: wrote {args.output} ({total} skill(s) across {present} client(s))",
             file=sys.stderr,
         )
     else:
