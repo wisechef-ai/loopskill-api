@@ -1813,6 +1813,140 @@ def remove_personality_from_cookbook(
     return {"cookbook_id": str(cb.id), "slug": slug, "deleted": True}
 
 
+# ── bundles0811 P3.6 (gate closure) — bulk personality add/remove ──────────
+#
+# The docs/decisions/2026-08-11-bundles0811-p36-personalities-mcp-scope.md
+# decision: personalities already have a bundle-membership primitive
+# (BundlePersonality, single identity column, no XOR — simpler than
+# BundleSkill). The bulk-operation VERB generalizes with zero schema change;
+# this mirrors add_skills_bulk/remove_skills_bulk exactly (same request-level
+# 422s, same one-commit-per-batch contract, same idempotent-reactivation
+# semantics collapsed to "already present" since BundlePersonality carries
+# no `source` enum to update).
+
+
+class BulkPersonalityItem(BaseModel):
+    slug: str
+
+
+class BulkPersonalityAddIn(BaseModel):
+    items: list[BulkPersonalityItem]
+
+
+class BulkPersonalityRemoveIn(BaseModel):
+    items: list[BulkPersonalityItem]
+
+
+@_h.post("/{cookbook_id}/personalities/bulk", status_code=200)
+def add_personalities_bulk(
+    cookbook_id: str,
+    body: BulkPersonalityAddIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """Add MANY personalities to a bundle in ONE call — the bulk twin of
+    add_personality_to_cookbook. Same partial-failure and one-commit
+    contract as add_skills_bulk."""
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+
+    if not body.items:
+        raise HTTPException(status_code=422, detail="empty_batch")
+    if len(body.items) > BUNDLE_BULK_MAX_ITEMS:
+        raise HTTPException(
+            status_code=422,
+            detail={"reason": "batch_too_large", "max_items": BUNDLE_BULK_MAX_ITEMS, "got": len(body.items)},
+        )
+
+    results: list[BulkItemResult] = []
+    for item in body.items:
+        identity = item.slug
+        personality = db.query(Personality).filter(Personality.slug == identity).first()
+        if personality is None:
+            results.append(BulkItemResult(identity=identity, ok=False, error="personality_not_found"))
+            continue
+        existing = (
+            db.query(BundlePersonality)
+            .filter(
+                BundlePersonality.bundle_id == cb.id,
+                BundlePersonality.personality_id == personality.id,
+            )
+            .first()
+        )
+        if existing is not None:
+            results.append(BulkItemResult(identity=identity, ok=True, reactivated=True))
+            continue
+        db.add(BundlePersonality(bundle_id=cb.id, personality_id=personality.id))
+        results.append(BulkItemResult(identity=identity, ok=True))
+
+    _touch_bundle_generation(db, cb.id)
+    db.commit()
+
+    added = sum(1 for r in results if r.ok and not r.reactivated)
+    reactivated = sum(1 for r in results if r.ok and r.reactivated)
+    failed = sum(1 for r in results if not r.ok)
+    return {
+        "cookbook_id": str(cb.id),
+        "total": len(results),
+        "added": added,
+        "reactivated": reactivated,
+        "failed": failed,
+        "results": [r.model_dump() for r in results],
+    }
+
+
+@_h.post("/{cookbook_id}/personalities/bulk_remove", status_code=200)
+def remove_personalities_bulk(
+    cookbook_id: str,
+    body: BulkPersonalityRemoveIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """Remove MANY personalities from a bundle in ONE call. Unknown/absent
+    entries are idempotent no-ops (mirrors remove_skills_bulk)."""
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+
+    if not body.items:
+        raise HTTPException(status_code=422, detail="empty_batch")
+    if len(body.items) > BUNDLE_BULK_MAX_ITEMS:
+        raise HTTPException(
+            status_code=422,
+            detail={"reason": "batch_too_large", "max_items": BUNDLE_BULK_MAX_ITEMS, "got": len(body.items)},
+        )
+
+    results: list[BulkItemResult] = []
+    for item in body.items:
+        identity = item.slug
+        personality = db.query(Personality).filter(Personality.slug == identity).first()
+        if personality is None:
+            results.append(BulkItemResult(identity=identity, ok=True))
+            continue
+        bp = (
+            db.query(BundlePersonality)
+            .filter(
+                BundlePersonality.bundle_id == cb.id,
+                BundlePersonality.personality_id == personality.id,
+            )
+            .first()
+        )
+        if bp is not None:
+            db.delete(bp)
+        results.append(BulkItemResult(identity=identity, ok=True))
+
+    _touch_bundle_generation(db, cb.id)
+    db.commit()
+    return {
+        "cookbook_id": str(cb.id),
+        "total": len(results),
+        "removed": sum(1 for r in results if r.ok),
+        "failed": 0,
+        "results": [r.model_dump() for r in results],
+    }
+
+
 @_h.post("/{cookbook_id}/loops/{slug}", status_code=201)  # compat-alias
 def add_loop_to_cookbook(
     cookbook_id: str,
