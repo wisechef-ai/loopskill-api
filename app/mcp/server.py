@@ -467,7 +467,7 @@ from app.mcp.streaming import (  # noqa: F401
     run_stdio,
 )
 
-logger = logging.getLogger("wiserecipes.mcp")
+logger = logging.getLogger("loopskill.mcp")
 
 SERVER_NAME = "recipes-mcp"
 SERVER_VERSION = "0.1.0"

@@ -40,7 +40,7 @@ from app.middleware.key_prefixes import LOOPSKILL_KEY_PREFIX, USER_KEY_PREFIXES 
 # just because the slug is still on the row.
 from app.revenue_truth import entitled_tier
 
-logger = logging.getLogger("wiserecipes.middleware")
+logger = logging.getLogger("loopskill.middleware")
 
 
 # Shared Redis client (lazy init)

@@ -7,6 +7,9 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=/opt/recipes-api
 EnvironmentFile=-/etc/recipes-api/recipes-api.env
-ExecStart=/opt/recipes-api/.venv/bin/python -m app.crons.version_staleness --json
+# bundles0811-P8: catalog moved out of this repo to wisechef-ai/loopskill-recipes.
+# Point --catalog at a checkout/clone of that repo on this host (kept in sync
+# separately, e.g. via a `git pull` in a pre-start ExecStartPre or a deploy hook).
+ExecStart=/opt/recipes-api/.venv/bin/python -m app.crons.version_staleness --catalog /opt/loopskill-recipes --json
 StandardOutput=journal
 StandardError=journal

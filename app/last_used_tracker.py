@@ -17,7 +17,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-logger = logging.getLogger("wiserecipes.last_used_tracker")
+logger = logging.getLogger("loopskill.last_used_tracker")
 
 # Redis hash key that stores {str(api_key_id): iso-timestamp}
 _REDIS_HASH_KEY = "wr:last_used"

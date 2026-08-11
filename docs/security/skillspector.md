@@ -58,7 +58,7 @@ has a documented rationale. The format is:
 | P2 | `asciinema-demo.svg:20` | SVG HTML comments in demo animation — not AI-readable instruction plane |
 | TM1 | `QUICKSTART-share.md:25` | DELETE HTTP method in REST docs — documentation, not shell execution |
 | TM1 | `mcp/03-cookbook-share.sh:10` | DELETE in a comment block — never executed |
-| E1 | `QUICKSTART-publisher.md:58` | curl POST to `recipes.wisechef.ai` in docs — legitimate first-party API |
+| E1 | `QUICKSTART-publisher.md:58` | curl POST to `app.loopskill.io` in docs — legitimate first-party API |
 | E1 | `mcp/03-cookbook-share.sh:37` | curl to our own API — legitimate example |
 | SC2 | `mcp/03-cookbook-share.sh:37,66,83,104` | `curl … | python3 -m json.tool` — pretty-printing JSON, not executing remote code |
 | TT3 | `rest/0*.py` | API key sent as auth header to our own API — correct authentication pattern |
