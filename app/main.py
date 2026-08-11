@@ -13,6 +13,8 @@ from app.demand_routes import router as demand_router
 from app.api_key_routes import router as api_key_router
 from app.auth_routes import router as auth_router
 from app.bundle_deployment_routes import router as cookbook_deploy_router  # compat-alias
+from app.bundle_fork_claim_routes import router as bundle_fork_claim_router  # bundles0811-P1
+from app.bundle_install_script_routes import router as bundle_install_script_router  # bundles0811-P1
 from app.canary import router as canary_router
 from app.bootcamp_routes import router as bootcamp_router  # bootcamp_0607
 from app.checkout_routes import router as checkout_router
@@ -195,6 +197,14 @@ def create_app() -> FastAPI:
     app.include_router(feedback_router, tags=["feedback"])
     app.include_router(canary_router, tags=["canary"])
     app.include_router(forks_router, tags=["forks"])
+    # bundles0811-P1: MUST register BEFORE cookbook_router. GET /{cookbook_id}
+    # on cookbook_router is a single-segment catch-all (FastAPI/Starlette is
+    # first-match); /install.sh is also single-segment, so registering it
+    # after cookbook_router would make "install.sh" match {cookbook_id} first.
+    app.include_router(bundle_install_script_router, tags=["bundles"])
+    # bundles0811-P1 (F3): fork preview/claim. Registered before cookbook_router
+    # for the same reason as install_script_router above.
+    app.include_router(bundle_fork_claim_router, tags=["bundles"])
     app.include_router(cookbook_router, tags=["cookbooks"])
     # Well-known bundle bridge MUST register AFTER cookbook_router so the more
     # specific /public/{slug}/.well-known/... paths are matched (FastAPI is

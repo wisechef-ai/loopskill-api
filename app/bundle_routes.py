@@ -835,13 +835,53 @@ def discover_cookbooks(
     return {"cookbooks": cards, "limit": limit, "offset": offset, "sort": sort}
 
 
+def _public_install_block(cb: Bundle, api_base: str) -> dict:
+    """bundles0811-P1 (F1/F2) — the auth-free install block for a public bundle.
+
+    THE FIX: the cold-path trace (2026-08-11) found ``clone_line`` was the
+    ONLY "take it" affordance on a public bundle page, and it is an MCP call
+    that 401s for every anonymous caller (``POST /api/mcp/http/`` requires an
+    x-api-key, keyed or not — see issue #217's auth contract). Meanwhile the
+    path that genuinely works anonymously
+    (``GET /api/bundles/public/{slug}/.well-known/skills/index.json`` +
+    per-skill ``SKILL.md``, both already public per ``bundle_wellknown_routes``)
+    was never surfaced as a copy-pasteable command.
+
+    Returns:
+      install_command             — one shell line, verified end-to-end
+                                     (curl | bash) against a live bundle;
+                                     see PR body for the transcript. Installs
+                                     every FREE-tier member with zero auth;
+                                     reports (never silently drops) any
+                                     paid-tier members by name.
+      install_command_requires_auth — always False; this is the honesty
+                                     signal the portal renders against.
+      clone_line                  — UNCHANGED (byte-identical to before this
+                                     change — do not break any existing
+                                     copier of this field).
+      clone_line_requires_auth    — True. clone_line is the MCP path, and
+                                     MCP always requires an x-api-key.
+      clone_line_label            — human-readable, so the portal never has
+                                     to hardcode the auth caveat itself.
+    """
+    return {
+        "install_command": (f"curl -fsSL {api_base}/api/bundles/install.sh | bash -s -- {cb.slug}"),
+        "install_command_requires_auth": False,
+        "clone_line_requires_auth": True,
+        "clone_line_label": "Authenticated (MCP) install — requires a free LoopSkill API key",
+    }
+
+
 @_h.get("/public/{slug}")
 def public_cookbook_page(slug: str, db: Session = Depends(get_db)):
     """Public cookbook page by slug. No auth. 404 unless visibility='public'.
 
-    Returns the cookbook card + its ordered skill list + a ONE-LINE clone hint
-    so an agent can compose it via MCP from the public page (GTM gate, Ph F will
-    render this). Carries ?ref attribution.
+    Returns the cookbook card + its ordered skill list + BOTH install paths:
+    an auth-free copy-pasteable shell command (``install_command`` — F1/F2,
+    the headline fix of bundles0811-P1) and the pre-existing MCP one-liner
+    (``clone_line``, now honestly labelled as requiring a key via
+    ``clone_line_requires_auth``/``clone_line_label``). Carries ?ref
+    attribution.
     """
     cb = db.query(Bundle).filter(Bundle.slug == slug).first()
     if not cb or cb.visibility != "public":
@@ -853,10 +893,12 @@ def public_cookbook_page(slug: str, db: Session = Depends(get_db)):
     for entry, (cs, _skill) in zip(card["skills"], skill_rows, strict=True):
         entry["source"] = cs.source
         entry["pinned_version"] = cs.pinned_version
-    # One copy-paste MCP line (the entire top-of-funnel). ?ref makes the install
-    # attributable to the creator from the public page.
+    # One copy-paste MCP line (unchanged — do not alter this field's content,
+    # only its labelling via the new clone_line_* keys below). ?ref makes the
+    # install attributable to the creator from the public page.
     ref_q = f"?ref={card['ref']}" if card["ref"] else ""
     card["clone_line"] = f'loopskill_bundle_install from "bundle://{cb.slug}{ref_q}"'
+    card.update(_public_install_block(cb, config.public_origin()))
     return card
 
 

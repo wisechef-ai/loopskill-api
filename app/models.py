@@ -42,7 +42,7 @@ class LikedBundleNotPublishableError(ValueError):
     The Liked bundle is a Spotify-style auto-created SYSTEM collection.
     Publishing a user's entire saved-likes set is a privacy incident, not a
     feature (Spotify shipped a version of this mistake and it reached the
-    press — plan §0a). Raised by ``Bundle._reject_liked_bundle_publish``
+    press — plan §0a). Raised by ``Bundle._validate_visibility``
     (an ORM-level ``@validates`` hook) so EVERY write path is protected, not
     just one route — a bare-metal script, an MCP tool, or a future route can
     never accidentally publish someone's Liked bundle. ``app/bundle_routes.py``
@@ -948,19 +948,51 @@ class Bundle(Base):
     is_verified = Column(Boolean, nullable=False, default=False, server_default="0")
 
     @validates("visibility")
-    def _reject_liked_bundle_publish(self, _key: str, value: str) -> str:
-        """spotify_2607 Phase A (§0a) — the Liked bundle can never be published.
+    def _validate_visibility(self, _key: str, value: str) -> str:
+        """Visibility write-path guard. TWO independent checks, ONE hook —
 
-        ORM-level guard so EVERY write path is protected (not just one route):
-        a direct model mutation, a future MCP tool, or a maintenance script
-        all go through ``Column.__set__`` -> this hook. ``self.is_liked`` is
-        already loaded on any row fetched via ``ensure_liked_bundle`` /
-        ``_resolve_owned_cookbook`` before a caller ever reaches ``.visibility
-        = ...``, so the check sees the correct flag regardless of attribute
-        assignment order at construction time (``ensure_liked_bundle`` sets
-        both ``is_liked`` and ``visibility='private'`` in the SAME
-        constructor call, which never round-trips through this hook with a
-        stale ``is_liked``).
+        SQLAlchemy raises ``InvalidRequestError`` if the same mapped attribute
+        carries more than one ``@validates`` method, so both checks that used
+        to be logically separate concerns live in this single function.
+
+        1. spotify_2607 Phase A (§0a) — the Liked bundle can never be
+           published. ORM-level guard so EVERY write path is protected (not
+           just one route): a direct model mutation, a future MCP tool, or a
+           maintenance script all go through ``Column.__set__`` -> this hook.
+           ``self.is_liked`` is already loaded on any row fetched via
+           ``ensure_liked_bundle`` / ``_resolve_owned_cookbook`` before a
+           caller ever reaches ``.visibility = ...``, so the check sees the
+           correct flag regardless of attribute assignment order at
+           construction time (``ensure_liked_bundle`` sets both ``is_liked``
+           and ``visibility='private'`` in the SAME constructor call, which
+           never round-trips through this hook with a stale ``is_liked``).
+
+        2. bundles0811-P1 (F5) — public-with-no-slug is structurally
+           impossible. The cold-path trace (2026-08-11) found a live public
+           bundle (``agent_marketing``, 25 skills) with ``slug IS NULL`` —
+           public in name, unreachable in practice, because every public
+           route (``GET /api/bundles/public/{slug}``,
+           ``GET /bundles/p?slug=``) is slug-addressed. That row predates
+           this validator (backfilled by the migration in this same PR);
+           this hook stops a NEW one from ever being created, on ANY write
+           path, because every one of them sets ``Bundle.visibility``
+           through this same ORM attribute.
+
+           Mirrors ``bundle_routes._ensure_bundle_slug`` (the route-level
+           convenience already used by ``POST /api/cookbooks`` and
+           ``PATCH /{id}/visibility``) exactly — same slugify + collision-
+           suffix discipline — so the two paths can never disagree about
+           what slug a given name produces. That route-level call remains in
+           place (it also advances the generation token via
+           ``_touch_bundle_generation``); this validator is the backstop
+           that makes the invariant true even when a caller bypasses the
+           route entirely.
+
+           A session-bound collision check runs when a session is available
+           (the common case — the object is being flushed); a not-yet-
+           attached object degrades to the un-collision-checked base slug,
+           matching the one instant where a real collision truly cannot be
+           observed yet.
         """
         if getattr(self, "is_liked", False) and value != "private":
             raise LikedBundleNotPublishableError(
@@ -968,6 +1000,27 @@ class Bundle(Base):
                 "Publishing your entire saved-likes set would leak everything you've ever "
                 "hearted — add the skills you want to share to a regular bundle instead."
             )
+
+        if value == "public" and not self.slug:
+            from sqlalchemy.orm import object_session
+
+            from app.bundle_deployment_routes import _slugify
+
+            base_slug = _slugify(self.name or "")
+            slug = base_slug
+            session = object_session(self)
+            if session is not None:
+                suffix = 0
+                q = session.query(Bundle).filter(Bundle.slug == slug)
+                if self.id is not None:
+                    q = q.filter(Bundle.id != self.id)
+                while q.first() is not None:
+                    suffix += 1
+                    slug = f"{base_slug}-{suffix}"
+                    q = session.query(Bundle).filter(Bundle.slug == slug)
+                    if self.id is not None:
+                        q = q.filter(Bundle.id != self.id)
+            self.slug = slug
         return value
 
     # activate_0701/TEN: tenant boundary for bundles. NULL = personal scope

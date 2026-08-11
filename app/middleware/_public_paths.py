@@ -63,6 +63,27 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     "/api/bundles/public/",
     "/api/cookbooks/discover",  # compat-alias
     "/api/cookbooks/public/",  # compat-alias
+    # bundles0811-P1 (F1/F2) — the auth-free bundle installer script. Must be
+    # public: a visitor fetches this BEFORE they have any key. Read-only,
+    # serves a static asset, no write verb on this path.
+    "/api/bundles/install.sh",
+    "/api/cookbooks/install.sh",  # compat-alias
+    # bundles0811-P1 (F3) — fork claim (the SAVE step). This IS a write verb,
+    # but the handler (app/bundle_fork_claim_routes.py:claim_bundle_fork)
+    # deliberately self-enforces auth by reading request.state.auth_ctx and
+    # returning its own {"reason": "sign_in_required", "next": "/signin"}
+    # 401 body — the loopskill-api-endpoint-development skill's documented
+    # pattern ("On a PUBLIC_PREFIXES path... read request.state.auth_ctx
+    # directly and 401 if it's None/anonymous", mirrors
+    # composite_loop_routes.publish_composite_loop). Without this entry the
+    # middleware's OWN bare 401 ("Invalid or missing x-api-key header") fires
+    # first and the handler's friendly sign-in-required body is unreachable
+    # dead code — caught live by
+    # test_fork_claim_401s_anonymously_with_same_token_echoed_in_the_retry_contract.
+    # Opportunistic auth still applies: a valid x-api-key or wr_jwt cookie is
+    # honoured (stamped onto auth_ctx) so an authenticated claim succeeds.
+    "/api/bundles/fork/claim",
+    "/api/cookbooks/fork/claim",  # compat-alias
     # spotify_0608 Ph G — public reputation leaderboards (verify stays auth-gated).
     "/api/bundles/leaderboard",
     "/api/cookbooks/leaderboard",  # compat-alias
