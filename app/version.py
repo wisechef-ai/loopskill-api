@@ -354,6 +354,27 @@ inert). No schema, no migration.
     that genuinely exists in app.routes (the no-404-links promise, pinned
     against reality rather than hardcoded). No schema, no migration.
     Verified against prod /api/healthz 0.9.41 before bumping.
+
+0.9.43 - fix(money-path-3): first-touch UTM/ref attribution capture at
+    signup. 2026-08-12 money-path audit found post→signup attribution
+    entirely dark: the short-link redirector (app/utm_redirects.py) sets a
+    ref cookie at click time and app/referral.py captures referral codes at
+    signup, but nothing captured UTM/ref context AT signup — User.utm_ref
+    was only ever written weeks later, at Stripe paid-conversion webhook
+    time, and only if the cookie happened to survive that long. Adds
+    User.signup_attribution (new nullable JSON column, additive migration
+    bd8afe172c89 — deliberately NOT a repurposing of utm_ref, which has a
+    different writer/lifecycle/validation shape) + app/services/
+    signup_attribution.py:resolve_signup_attribution (validates + bounds
+    utm_source/medium/campaign/content + ref, cookie-wins-over-query
+    first-touch precedence, never raises). Wired into both OAuth callbacks
+    (auth_routes.py) as a write-once, best-effort side effect wrapped in its
+    own try/except — attribution capture can never block sign-in, including
+    when all non-essential cookies are blocked. 17 new tests (unit resolver
+    + real end-to-end signup path via TestClient, no raw-SQL seeding),
+    RED-proofed the write-once guard. No change to Stripe/webhook code,
+    pricing, or the existing utm_ref column. Verified against prod
+    /api/healthz 0.9.36 before bumping.
 """
 
-__version__ = "0.9.42"
+__version__ = "0.9.43"

@@ -116,6 +116,20 @@ class User(Base):
     # Stamped into AuthContext.is_agent on BOTH validate paths (REST middleware
     # and app/mcp/auth.py) and read by authz.can_run_sandbox.
     is_agent = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # ── money-path-3 (2026-08-12 audit, Fix #3): FIRST-TOUCH signup
+    # attribution — captured inside the OAuth callback that creates this row
+    # (see app._skill_helpers.resolve_signup_attribution + auth_routes.py),
+    # not weeks later at paid-conversion time like ``utm_ref`` above. Deliberately
+    # a SEPARATE column, not a repurposing of ``utm_ref``: ``utm_ref`` is a
+    # narrow allowlisted platform code written by the Stripe webhook path,
+    # while this is a JSON blob of {utm_source, utm_medium, utm_campaign,
+    # utm_content, ref, captured_at} written by the signup path — different
+    # writers, different lifecycles, different validation rules. Conflating
+    # them would make either writer's "don't overwrite if already set" guard
+    # block the other's legitimate write.
+    # WRITE-ONCE: the auth callback only sets this when it is still NULL
+    # (first-touch semantics — never overwritten by a later login/session).
+    signup_attribution = Column(JSON, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

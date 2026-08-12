@@ -39,6 +39,7 @@ from app.referral import (
     resolve_referral_cookie,
 )
 from app.services.bundle_quota import quota_status
+from app.services.signup_attribution import resolve_signup_attribution
 from app.tier_labels import _is_paid_tier, _is_pro_plus_tier
 from app.tier_labels import api_key_cap as _tier_api_key_cap
 
@@ -121,6 +122,29 @@ def _stamp_referral_cookie(response, ref: str | None) -> None:
     )
 
 
+def _capture_signup_attribution(request: Request, user, db: Session) -> None:
+    """money-path-3: persist first-touch UTM/ref attribution, write-once.
+
+    Called from inside the OAuth callback, immediately after
+    find_or_create_user_by_github/_by_google. WRITE-ONCE (first-touch): only
+    writes when ``user.signup_attribution`` is still NULL — a returning
+    user's second/Nth login must never clobber the attribution captured at
+    their original signup. Best-effort by construction: any failure here
+    (malformed cookie, DB hiccup) is caught by the caller's existing
+    try/except around the referral-processing block — this function itself
+    never raises past a bad individual field (see resolve_signup_attribution's
+    own per-field validation), but the caller wraps the CALL too, since
+    attribution must never be able to block sign-in.
+    """
+    if user.signup_attribution:
+        return  # first-touch already recorded — never overwrite
+    attribution = resolve_signup_attribution(request)
+    if not attribution:
+        return
+    user.signup_attribution = attribution
+    db.commit()
+
+
 # ── GitHub OAuth ─────────────────────────────────────────────────────────
 
 
@@ -193,6 +217,12 @@ async def github_callback(
         # Rationale: referral code processing must never block sign-in; log and continue
         except Exception:  # noqa: BLE001 — never block sign-in on referral failure
             logger.exception("Referral processing failed for user %s (non-fatal)", user.id)
+        # money-path-3: capture first-touch UTM/ref attribution, write-once.
+        try:
+            _capture_signup_attribution(request, user, db)
+        # Rationale: attribution capture must never block sign-in; log and continue
+        except Exception:  # noqa: BLE001 — never block sign-in on attribution failure
+            logger.exception("Signup attribution capture failed for user %s (non-fatal)", user.id)
         jwt_token = create_jwt(user)
         next_url = request.cookies.get("oauth_next")
         logger.info(f"GitHub auth success: user={user.id} ({user.display_name}) next={next_url!r}")
@@ -278,6 +308,12 @@ async def google_callback(
         # Rationale: referral code processing must never block sign-in; log and continue
         except Exception:  # noqa: BLE001 — never block sign-in on referral failure
             logger.exception("Referral processing failed for user %s (non-fatal)", user.id)
+        # money-path-3: capture first-touch UTM/ref attribution, write-once.
+        try:
+            _capture_signup_attribution(request, user, db)
+        # Rationale: attribution capture must never block sign-in; log and continue
+        except Exception:  # noqa: BLE001 — never block sign-in on attribution failure
+            logger.exception("Signup attribution capture failed for user %s (non-fatal)", user.id)
         jwt_token = create_jwt(user)
         next_url = request.cookies.get("oauth_next")
         logger.info(f"Google auth success: user={user.id} ({user.display_name}) next={next_url!r}")
