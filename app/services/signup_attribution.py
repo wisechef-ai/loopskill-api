@@ -74,6 +74,18 @@ def _creator_handle_exists(handle: str, db) -> bool:
     path uses — not a re-invented, possibly-looser check. Returns False
     (never raises) when ``db`` is absent or the query fails; callers treat
     False as "cannot verify, drop the ref."
+
+    codex re-review (PR #250, round 2): this lookup runs OUTSIDE
+    ``capture_signup_attribution``'s own try/db.rollback() envelope (it's
+    called from ``resolve_signup_attribution``, before that function even
+    returns) — a lookup failure here used to be swallowed WITHOUT a
+    rollback, same failure class as the already-fixed P1-b but on a
+    different path. A failed ``db.query`` on a SQLAlchemy session leaves it
+    in a "needs rollback" state; the very next statement on that shared
+    session (the attribution UPDATE, or anything else in the request) would
+    raise PendingRollbackError. Roll back HERE, at the point of failure, so
+    the session is guaranteed usable again no matter which caller invoked
+    this helper or whether it wraps its own db access.
     """
     if db is None or not handle:
         return False
@@ -83,7 +95,16 @@ def _creator_handle_exists(handle: str, db) -> bool:
         return db.query(Creator.id).filter(Creator.handle == handle).first() is not None
     # Rationale: a lookup failure here must never block signup — the caller
     # (resolve_signup_attribution) treats False as "drop this one field."
+    # Roll back first so the failure can't poison the shared session for
+    # whatever runs next on it (same class as the fixed P1-b, different path).
     except Exception:  # noqa: BLE001
+        try:
+            db.rollback()
+        # Rationale: rollback itself must never raise past this helper —
+        # a session that can't even roll back is unusable either way, but
+        # this lookup must still degrade to "drop the ref," never propagate.
+        except Exception:  # noqa: BLE001
+            pass
         return False
 
 
@@ -201,6 +222,7 @@ def resolve_signup_attribution(request, db=None) -> dict | None:
 def stamp_utm_ctx_cookie(
     response,
     *,
+    request=None,
     utm_source: str | None,
     utm_medium: str | None,
     utm_campaign: str | None,
@@ -235,7 +257,35 @@ def stamp_utm_ctx_cookie(
     the few-second OAuth provider round-trip, not a multi-day
     landing-to-signup gap, since it is set at click time immediately
     before the redirect.
+
+    FIRST-TOUCH AT THE PRODUCER (codex re-review, PR #250 round 2): if the
+    incoming request already carries a valid ``recipes_utm_ctx`` cookie,
+    this call is a no-op — the existing cookie is left untouched. Without
+    this guard, a repeat "Sign in" click (e.g. a user who bounced off the
+    OAuth provider and retried, or simply logs in again later within the
+    600s TTL with different UTM query params on the link) would silently
+    REPLACE the true first-touch value with whatever this later click
+    happens to carry, defeating the entire first-touch contract this
+    module exists to implement. ``request`` is optional (backwards
+    compatible with any other caller) — when omitted, no existing-cookie
+    check is possible and the old always-restamp behaviour applies, so
+    every call site that cares about first-touch MUST pass ``request``.
     """
+    if request is not None:
+        existing = request.cookies.get(_UTM_CTX_COOKIE_NAME)
+        if existing and len(existing) <= _UTM_CTX_COOKIE_MAX_LEN:
+            try:
+                parsed = json.loads(existing)
+            except (ValueError, TypeError):
+                parsed = None
+            if isinstance(parsed, dict) and any(
+                _clean_utm_field(parsed.get(k))
+                for k in ("utm_source", "utm_medium", "utm_campaign", "utm_content")
+            ):
+                # A genuine earlier touch is already stamped — first-touch
+                # wins, do not overwrite it with this later click's context.
+                return
+
     fields = {
         "utm_source": _clean_utm_field(utm_source),
         "utm_medium": _clean_utm_field(utm_medium),

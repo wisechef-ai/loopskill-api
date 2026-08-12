@@ -135,12 +135,17 @@ class TestResolveSignupAttributionUnit:
         result = resolve_signup_attribution(req)  # no db passed
         assert result is None
 
-    def test_creator_namespaced_ref_forged_with_db_is_dropped(self):
-        """P1-d: even WITH a db handle, a creator: ref for a handle that
+    def test_creator_namespaced_ref_forged_with_db_is_dropped(self, db_session: Session):
+        """P1-d: even WITH a real db handle, a creator: ref for a handle that
         does not exist in the Creator table (the forged-cookie attack) is
-        dropped, not stored."""
+        dropped, not stored. Uses a REAL session with no matching Creator
+        row — not ``object()`` (codex re-review, PR #250 round 2: a dummy
+        ``object()`` only exercises the swallowed-exception path inside
+        ``_creator_handle_exists`` because ``object().query`` raises
+        AttributeError; it never proves the actual "queried, found nothing"
+        rejection branch this test's name and docstring claim to cover)."""
         req = _FakeRequest(cookies={"recipes_utm_ref": "creator:nonexistent-forged-handle"})
-        result = resolve_signup_attribution(req, db=object())  # dummy, query will fail -> False
+        result = resolve_signup_attribution(req, db=db_session)
         assert result is None
 
     def test_creator_namespaced_ref_real_handle_accepted(self, db_session: Session):
@@ -173,6 +178,34 @@ class TestResolveSignupAttributionUnit:
         result = resolve_signup_attribution(req)
         assert result is not None
         assert result["utm_source"] == "fallback_source"
+
+    def test_oversized_ctx_cookie_never_reaches_json_loads_unit(self, monkeypatch):
+        """P2-f, unit level: mirrors the real-path oversized-cookie test but
+        exercises resolve_signup_attribution() directly. Asserts json.loads
+        was NEVER called for an over-bound cookie (not just that the result
+        happens to fall through to None) — same rationale as codex's P2-f
+        re-review comment on the real-path test."""
+        import types
+
+        import app.services.signup_attribution as sa_mod
+
+        call_count = {"n": 0}
+        real_json = sa_mod.json
+
+        def counting_loads(*args, **kwargs):
+            call_count["n"] += 1
+            return real_json.loads(*args, **kwargs)
+
+        monkeypatch.setattr(
+            sa_mod, "json", types.SimpleNamespace(loads=counting_loads, dumps=real_json.dumps)
+        )
+
+        huge_ctx = json.dumps({"utm_source": "x" * (_UTM_CTX_COOKIE_MAX_LEN + 500)})
+        assert len(huge_ctx) > _UTM_CTX_COOKIE_MAX_LEN
+        req = _FakeRequest(cookies={_UTM_CTX_COOKIE_NAME: huge_ctx})
+        result = resolve_signup_attribution(req)
+        assert result is None
+        assert call_count["n"] == 0  # json.loads must never be reached for an oversized cookie
 
 
 # ── Integration tests: real OAuth callback route, real DB write path ───────
@@ -374,10 +407,35 @@ class TestSignupAttributionEndToEnd:
         assert user is not None
         assert user.signup_attribution is None
 
-    def test_oversized_ctx_cookie_through_real_path_discarded(self, auth_client, db_session):
+    def test_oversized_ctx_cookie_through_real_path_discarded(self, auth_client, db_session, monkeypatch):
         """P2-f, real request path: a recipes_utm_ctx cookie bigger than the
         2048-byte bound is discarded before json.loads ever runs — signup
-        succeeds, no attribution captured from that cookie."""
+        succeeds, no attribution captured from that cookie.
+
+        codex re-review (PR #250 round 2): assert json.loads was NEVER
+        called, not just that the end result happens to be None (a bug
+        that let json.loads run on the oversized value but still produced
+        no attribution for some unrelated reason would have passed the old
+        assertion set). Monkeypatches the ``json`` NAME BOUND inside the
+        signup_attribution module specifically (a small stand-in object
+        with a counting ``.loads`` and the real ``.dumps``) rather than the
+        shared stdlib json module object, so no other json.loads call
+        anywhere else in the request lifecycle (FastAPI response encoding,
+        the test's own ``json.dumps`` calls, etc.) is affected."""
+        import types
+
+        import app.services.signup_attribution as sa_mod
+
+        call_count = {"n": 0}
+        real_json = sa_mod.json
+
+        def counting_loads(*args, **kwargs):
+            call_count["n"] += 1
+            return real_json.loads(*args, **kwargs)
+
+        fake_json = types.SimpleNamespace(loads=counting_loads, dumps=real_json.dumps)
+        monkeypatch.setattr(sa_mod, "json", fake_json)
+
         huge_ctx = json.dumps({"utm_source": "x" * (_UTM_CTX_COOKIE_MAX_LEN + 500)})
         assert len(huge_ctx) > _UTM_CTX_COOKIE_MAX_LEN
         resp = _do_github_callback(
@@ -390,6 +448,7 @@ class TestSignupAttributionEndToEnd:
         user = db_session.query(User).filter(User.github_id == 90010).first()
         assert user is not None
         assert user.signup_attribution is None
+        assert call_count["n"] == 0  # json.loads must never be reached for an oversized cookie
 
 
 # ── P1-a: write-once race — second write must be a genuine no-op ───────────
@@ -481,15 +540,26 @@ class TestWriteOnceRace:
 
 
 class TestCommitFailureRecovery:
-    def test_signup_completes_when_attribution_commit_raises_integrity_error(self, auth_client, db_session):
-        """Force a REAL SQLAlchemy IntegrityError at the exact db.commit()
-        inside _capture_signup_attribution (via a UNIQUE constraint
-        collision planted right before that commit runs), through the real
-        OAuth callback request path. Before the fix, the session was left
-        poisoned (PendingRollbackError) and create_jwt(user) — called right
-        after — raised, 500ing the whole signup. After the fix, the
-        function catches the failure, rolls back, and signup still
-        succeeds with a 302."""
+    def test_signup_completes_when_attribution_execute_raises_integrity_error(self, auth_client, db_session):
+        """Force a REAL SQLAlchemy IntegrityError via autoflush at the exact
+        db.execute(update(...)) call inside _capture_signup_attribution (via
+        a UNIQUE constraint collision planted right before that call runs),
+        through the real OAuth callback request path. Before the fix, the
+        session was left poisoned (PendingRollbackError) and create_jwt(user)
+        — called right after — raised, 500ing the whole signup. After the
+        fix, the function catches the failure, rolls back, and signup still
+        succeeds with a 302.
+
+        codex re-review (PR #250 round 2): this test's original name/
+        docstring claimed the failure happens at db.commit(), but the
+        poisoned row is added to the session BEFORE
+        _capture_signup_attribution's own db.execute(update(...)) runs —
+        SQLAlchemy's default autoflush flushes that pending insert (and
+        raises the UNIQUE-constraint IntegrityError) as a side effect of
+        THAT execute() call, never reaching db.commit() at all. Renamed to
+        describe the boundary this test actually exercises; see
+        test_signup_completes_when_attribution_commit_raises below for
+        real coverage of the db.commit()-raises boundary specifically."""
         from uuid import uuid4
 
         from app.models import User as UserModel
@@ -507,7 +577,7 @@ class TestCommitFailureRecovery:
             result = real_resolve(request, db=db)
             # Plant a genuine uncommitted UNIQUE-constraint violation into
             # the SAME session right before _capture_signup_attribution's
-            # own db.commit() runs.
+            # own db.execute(update(...)) runs — autoflush surfaces it there.
             db_session.add(UserModel(id=uuid4(), display_name="poison", github_id=444))
             return result
 
@@ -520,15 +590,66 @@ class TestCommitFailureRecovery:
                 cookies={"recipes_utm_ref": "li"},
             )
 
-        assert resp.status_code == 302  # signup succeeded despite the commit failure
+        assert resp.status_code == 302  # signup succeeded despite the execute()/autoflush failure
         assert "auth=success" in resp.headers.get("location", "") or resp.headers.get(
             "location", ""
         ).startswith("/library")
 
-    def test_session_usable_after_attribution_commit_failure(self, db_session: Session):
-        """Unit-level: after _capture_signup_attribution swallows a commit
-        failure, the session must be immediately usable again (proves the
-        rollback actually ran, not just that no exception escaped)."""
+    def test_signup_completes_when_attribution_commit_raises(self, auth_client, db_session):
+        """codex re-review (PR #250 round 2): actually fail at the intended
+        db.commit() boundary inside _capture_signup_attribution (not at
+        db.execute() via autoflush, see the test above), through the real
+        OAuth callback request path. Swaps the SAME session's ``.commit``
+        method (instance-level, not the whole ``Session`` class) to raise
+        ONLY once resolve_signup_attribution has already returned — i.e.
+        only for the one commit() call that belongs to
+        _capture_signup_attribution itself, leaving every EARLIER commit on
+        this session (find_or_create_user_by_github, ensure_liked_bundle,
+        ensure_referral_code) genuinely successful. Proves the except/
+        rollback in capture_signup_attribution guards the commit() line
+        specifically, not merely whichever statement happens to trigger
+        autoflush first."""
+        import app.services.signup_attribution as sa_mod
+
+        real_resolve = sa_mod.resolve_signup_attribution
+        real_commit = db_session.commit
+
+        def failing_commit():
+            raise RuntimeError("boom at commit")
+
+        def break_commit_after_resolve(request, db=None):
+            result = real_resolve(request, db=db)
+            # Only the NEXT commit() on this session (capture's own) fails;
+            # every commit that already happened earlier in this request is
+            # untouched.
+            db_session.commit = failing_commit
+            return result
+
+        try:
+            with patch(
+                "app.services.signup_attribution.resolve_signup_attribution",
+                side_effect=break_commit_after_resolve,
+            ):
+                resp = _do_github_callback(
+                    auth_client,
+                    github_id=90013,
+                    cookies={"recipes_utm_ref": "li"},
+                )
+        finally:
+            db_session.commit = real_commit
+
+        assert resp.status_code == 302  # signup succeeded despite the commit() failure
+        assert "auth=success" in resp.headers.get("location", "") or resp.headers.get(
+            "location", ""
+        ).startswith("/library")
+
+    def test_session_usable_after_attribution_execute_failure(self, db_session: Session):
+        """Unit-level: after _capture_signup_attribution swallows a failure
+        raised by autoflush during its db.execute(update(...)) call, the
+        session must be immediately usable again (proves the rollback
+        actually ran, not just that no exception escaped). Renamed from
+        the prior "commit_failure" name — see the class-level rationale
+        above for why this scenario fails at execute(), not commit()."""
         from uuid import uuid4
 
         from app.models import User as UserModel
@@ -555,6 +676,32 @@ class TestCommitFailureRecovery:
             "app.services.signup_attribution.resolve_signup_attribution", side_effect=poisoning_resolve
         ):
             req = _FakeRequest(cookies={"recipes_utm_ref": "li"})
+            _capture_signup_attribution(req, target_user, db_session)
+
+        # The session must be usable again — no PendingRollbackError.
+        refetched = db_session.query(UserModel).filter(UserModel.id == target_uid).first()
+        assert refetched is not None
+
+    def test_session_usable_after_attribution_commit_raises(self, db_session: Session):
+        """Unit-level companion to test_signup_completes_when_attribution_
+        commit_raises: patches Session.commit itself so the failure is
+        pinned to the commit() boundary specifically, then asserts the
+        session is immediately usable again afterwards (proves the
+        rollback genuinely ran)."""
+        from uuid import uuid4
+
+        from sqlalchemy.orm import Session as SessionCls
+
+        from app.models import User as UserModel
+        from app.services.signup_attribution import capture_signup_attribution as _capture_signup_attribution
+
+        target_uid = uuid4()
+        target_user = UserModel(id=target_uid, display_name="target-commit", github_id=557)
+        db_session.add(target_user)
+        db_session.commit()
+
+        req = _FakeRequest(cookies={"recipes_utm_ref": "li"})
+        with patch.object(SessionCls, "commit", side_effect=RuntimeError("boom at commit")):
             _capture_signup_attribution(req, target_user, db_session)
 
         # The session must be usable again — no PendingRollbackError.
@@ -713,3 +860,181 @@ class TestGoogleCallbackVariant:
         payload = _decode_cookie_json(cookie_val)
         assert payload["utm_source"] == "twitter"
         assert payload["utm_campaign"] == "g_launch"
+
+
+# ── codex re-review (PR #250 round 2), item 1: _creator_handle_exists must
+#    roll back on failure instead of leaving the shared session poisoned ───
+
+
+class TestCreatorLookupSessionPoisoning:
+    """A failing Creator lookup used to be swallowed WITHOUT a db.rollback()
+    — same failure class as the already-fixed P1-b (commit-failure), but on
+    the earlier lookup path that runs OUTSIDE capture_signup_attribution's
+    own protected try/except. Left un-rolled-back, the shared session would
+    be stuck in PendingRollbackError state for whatever runs next on it."""
+
+    def test_creator_lookup_raise_leaves_session_usable(self, db_session: Session, monkeypatch):
+        """Unit level: force the Creator lookup itself to raise, then assert
+        (a) the helper still degrades to False rather than propagating, and
+        (b) the session is immediately usable again afterwards — proving a
+        rollback actually ran, not just that no exception escaped."""
+        from app.models import Creator, User
+        from app.services.signup_attribution import _creator_handle_exists
+
+        real_query = db_session.query
+
+        def raising_query(*args, **kwargs):
+            if args and args[0] is Creator.id:
+                raise RuntimeError("boom: creator lookup failed")
+            return real_query(*args, **kwargs)
+
+        monkeypatch.setattr(db_session, "query", raising_query)
+
+        result = _creator_handle_exists("somehandle", db_session)
+        assert result is False
+
+        monkeypatch.undo()  # restore real .query before probing usability
+        # The session must be immediately usable again — no PendingRollbackError.
+        assert db_session.query(User).count() >= 0
+
+    def test_signup_succeeds_when_creator_lookup_raises_mid_request(
+        self, auth_client, db_session, monkeypatch
+    ):
+        """End-to-end: a creator:<handle> ref cookie triggers the Creator
+        lookup during the real OAuth callback; force that lookup to raise
+        and assert signup still completes with a 302 (never blocks
+        sign-in) — the same 'never a blocker' contract every other
+        attribution failure path already honours."""
+        from app.models import Creator
+
+        real_query = db_session.query
+
+        def raising_query(*args, **kwargs):
+            if args and args[0] is Creator.id:
+                raise RuntimeError("boom: creator lookup failed mid-request")
+            return real_query(*args, **kwargs)
+
+        monkeypatch.setattr(db_session, "query", raising_query)
+
+        resp = _do_github_callback(
+            auth_client,
+            github_id=90014,
+            cookies={"recipes_utm_ref": "creator:whatever-handle"},
+        )
+        assert resp.status_code == 302
+        assert "auth=success" in resp.headers.get("location", "") or resp.headers.get(
+            "location", ""
+        ).startswith("/library")
+
+        monkeypatch.undo()  # restore real .query so this assertion doesn't also raise
+        user = db_session.query(User).filter(User.github_id == 90014).first()
+        assert user is not None  # signup completed despite the lookup failure
+        # session usable afterwards — proves the rollback inside
+        # _creator_handle_exists actually ran, not just that the outer
+        # try/except in auth_routes.py swallowed a 500.
+        assert db_session.query(User).count() >= 1
+
+
+# ── codex re-review (PR #250 round 2), item 2: first-touch at the producer +
+#    consume-once at the callback ──────────────────────────────────────────
+
+
+class TestFirstTouchCookieAndConsumeOnce:
+    """stamp_utm_ctx_cookie() used to unconditionally REPLACE an existing
+    recipes_utm_ctx cookie on every /login click, and the OAuth callback
+    never deleted it after reading it — so a repeat login could clobber the
+    true first touch, and a leftover cookie could mis-attribute a DIFFERENT
+    account created within its 600s TTL."""
+
+    def test_repeat_login_preserves_original_cookie_value(self, auth_client):
+        """(a) first-touch at the producer: a SECOND /login click carrying
+        different UTM query params must NOT overwrite an already-present,
+        valid recipes_utm_ctx cookie."""
+        first = auth_client.get(
+            "/api/auth/github/login?utm_source=first_touch_source&utm_campaign=first",
+            follow_redirects=False,
+        )
+        assert first.status_code == 302
+        original_cookie = first.cookies.get(_UTM_CTX_COOKIE_NAME)
+        assert original_cookie is not None
+        # TestClient's cookie jar now carries recipes_utm_ctx forward, same
+        # as a real browser would on the next request from this client.
+
+        second = auth_client.get(
+            "/api/auth/github/login?utm_source=second_touch_source&utm_campaign=second",
+            follow_redirects=False,
+        )
+        assert second.status_code == 302
+        # No NEW Set-Cookie for recipes_utm_ctx was issued — the producer
+        # saw a valid existing cookie and left it alone.
+        assert second.cookies.get(_UTM_CTX_COOKIE_NAME) is None
+
+        # And the value the client jar carries is still the ORIGINAL touch.
+        assert auth_client.cookies.get(_UTM_CTX_COOKIE_NAME) == original_cookie
+        payload = _decode_cookie_json(auth_client.cookies.get(_UTM_CTX_COOKIE_NAME))
+        assert payload["utm_source"] == "first_touch_source"
+
+    def test_callback_response_deletes_the_ctx_cookie(self, auth_client, db_session):
+        """(b) consume-once: after the callback reads recipes_utm_ctx, its
+        response must carry a deletion (Max-Age=0) for that cookie so it
+        cannot be replayed against a later signup."""
+        resp = _do_github_callback(
+            auth_client,
+            github_id=90015,
+            cookies={_UTM_CTX_COOKIE_NAME: json.dumps({"utm_source": "consume_me"})},
+        )
+        assert resp.status_code == 302
+
+        set_cookie_headers = resp.headers.get_list("set-cookie")
+        ctx_deletions = [h for h in set_cookie_headers if h.startswith(f"{_UTM_CTX_COOKIE_NAME}=")]
+        assert ctx_deletions, "callback response must set/clear the recipes_utm_ctx cookie"
+        assert any("Max-Age=0" in h for h in ctx_deletions)
+
+        user = db_session.query(User).filter(User.github_id == 90015).first()
+        assert user is not None
+        assert user.signup_attribution["utm_source"] == "consume_me"
+
+    def test_callback_deletes_ctx_cookie_even_on_no_attribution(self, auth_client, db_session):
+        """(b) consume-once applies unconditionally: even a signup with NO
+        recipes_utm_ctx cookie at all still gets a (harmless) deletion
+        instruction in the response — proves the delete_cookie call isn't
+        conditioned on attribution having actually been captured."""
+        resp = _do_github_callback(auth_client, github_id=90016)
+        assert resp.status_code == 302
+        set_cookie_headers = resp.headers.get_list("set-cookie")
+        ctx_deletions = [h for h in set_cookie_headers if h.startswith(f"{_UTM_CTX_COOKIE_NAME}=")]
+        assert ctx_deletions
+        assert any("Max-Age=0" in h for h in ctx_deletions)
+
+    def test_second_signup_gets_no_attribution_from_stale_consumed_cookie(self, auth_client, db_session):
+        """(c) the exact attack the review flagged: cookie is set once,
+        consumed by a FIRST signup, and — because the callback response
+        deletes it — a SECOND signup within the same 600s TTL (same
+        browser/client, e.g. shared machine or the same user creating a
+        second account) must NOT inherit the first signup's attribution
+        from a replayed/stale cookie value."""
+        login_resp = auth_client.get(
+            "/api/auth/github/login?utm_source=stale_source&utm_campaign=stale_campaign",
+            follow_redirects=False,
+        )
+        assert login_resp.status_code == 302
+        assert auth_client.cookies.get(_UTM_CTX_COOKIE_NAME) is not None
+
+        first_resp = _do_github_callback(auth_client, github_id=90017)
+        assert first_resp.status_code == 302
+        first_user = db_session.query(User).filter(User.github_id == 90017).first()
+        assert first_user is not None
+        assert first_user.signup_attribution["utm_source"] == "stale_source"
+
+        # The callback's deletion must have actually cleared the client's
+        # cookie jar — the exact mechanism that prevents replay.
+        assert auth_client.cookies.get(_UTM_CTX_COOKIE_NAME) is None
+
+        # A second, brand-new signup right after (same client/session,
+        # different github_id — e.g. a different account on a shared
+        # machine) must get NO attribution from the now-gone cookie.
+        second_resp = _do_github_callback(auth_client, github_id=90018)
+        assert second_resp.status_code == 302
+        second_user = db_session.query(User).filter(User.github_id == 90018).first()
+        assert second_user is not None
+        assert second_user.signup_attribution is None

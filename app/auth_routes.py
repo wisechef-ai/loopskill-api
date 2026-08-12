@@ -45,6 +45,9 @@ from app.services.signup_attribution import (
 from app.services.signup_attribution import (
     stamp_utm_ctx_cookie as _stamp_utm_ctx_cookie,
 )
+from app.services.signup_attribution import (
+    _UTM_CTX_COOKIE_NAME,
+)
 from app.tier_labels import _is_paid_tier, _is_pro_plus_tier
 from app.tier_labels import api_key_cap as _tier_api_key_cap
 
@@ -181,6 +184,7 @@ async def github_login(
     _stamp_referral_cookie(response, ref)
     _stamp_utm_ctx_cookie(
         response,
+        request=request,
         utm_source=utm_source,
         utm_medium=utm_medium,
         utm_campaign=utm_campaign,
@@ -237,6 +241,15 @@ async def github_callback(
         # Clear both referral cookie names once we've persisted attribution.
         resp.delete_cookie(REFERRAL_COOKIE_NAME, path="/")
         resp.delete_cookie(LEGACY_REFERRAL_COOKIE_NAME, path="/")
+        # codex re-review (PR #250 round 2): CONSUME-ONCE. The recipes_utm_ctx
+        # cookie exists solely to carry first-touch UTM context across the
+        # OAuth round-trip; it has now been read (successfully or not — the
+        # try/except above swallows resolver failures either way) and must be
+        # deleted so it cannot mis-attribute a DIFFERENT account created
+        # within its 600s TTL from the same browser (e.g. a second, unrelated
+        # signup on a shared/kiosk machine, or the same user signing up a
+        # second account before the cookie naturally expires).
+        resp.delete_cookie(_UTM_CTX_COOKIE_NAME, path="/")
         return resp
     except AuthError as e:
         logger.error(f"GitHub auth failed: {e}")
@@ -293,6 +306,7 @@ async def google_login(
     _stamp_referral_cookie(response, ref)
     _stamp_utm_ctx_cookie(
         response,
+        request=request,
         utm_source=utm_source,
         utm_medium=utm_medium,
         utm_campaign=utm_campaign,
@@ -348,6 +362,9 @@ async def google_callback(
             resp.delete_cookie("oauth_next", path="/")
         resp.delete_cookie(REFERRAL_COOKIE_NAME, path="/")
         resp.delete_cookie(LEGACY_REFERRAL_COOKIE_NAME, path="/")
+        # codex re-review (PR #250 round 2): consume-once — see the matching
+        # comment in github_callback for the full rationale.
+        resp.delete_cookie(_UTM_CTX_COOKIE_NAME, path="/")
         return resp
     except AuthError as e:
         logger.error(f"Google auth failed: {e}")
