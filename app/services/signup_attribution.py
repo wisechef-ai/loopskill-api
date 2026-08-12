@@ -31,17 +31,19 @@ from datetime import UTC, datetime
 from app._skill_helpers import _UTM_COOKIE_NAME, _UTM_REF_ALLOWLIST
 
 # Sibling cookie to _UTM_COOKIE_NAME (recipes_utm_ref), JSON-encoded
-# {utm_source, utm_medium, utm_campaign, utm_content}. Nothing in this repo
-# mints it yet (no page runs a landing-capture step) — it exists so a future
-# landing/redirect surface can stamp granular UTM fields the exact same way
-# utm_redirects.py already stamps the ref shortcode, and so a test can
-# simulate "the visitor's browser already carries UTM context from an
-# earlier page load" without inventing a parallel mechanism. Absence of this
-# cookie is the common case today; resolve_signup_attribution() degrades
+# {utm_source, utm_medium, utm_campaign, utm_content}. Minted by this repo's
+# own /api/auth/{provider}/login initiation routes (see
+# auth_routes.py::_set_utm_ctx_cookie) when the caller (the portal, a
+# different repo) forwards utm_* query params onto the "Sign in" link —
+# mirroring exactly how ?ref= already survives the OAuth round-trip via
+# _set_utm_ref_cookie. Absence of this cookie is still a valid, common case
+# (a signup with no UTM context, or a portal that hasn't wired the
+# query-param passthrough yet); resolve_signup_attribution() degrades
 # cleanly (falls through to query params, then to None) when it's missing.
 _UTM_CTX_COOKIE_NAME = "recipes_utm_ctx"
 _UTM_FIELD_MAX_LEN = 64  # bound any individual free-text utm_* value
 _UTM_REF_COOKIE_MAX_LEN = 128  # bound before any further validation
+_UTM_CTX_COOKIE_MAX_LEN = 2048  # bound the RAW cookie BEFORE json.loads ever runs
 _UTM_CONTROL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
@@ -63,7 +65,29 @@ def _clean_utm_field(value: str | None) -> str | None:
     return value[:_UTM_FIELD_MAX_LEN]
 
 
-def resolve_signup_attribution(request) -> dict | None:
+def _creator_handle_exists(handle: str, db) -> bool:
+    """Check whether ``handle`` is a real ``Creator.handle`` row.
+
+    Mirrors ``app._skill_helpers._resolve_ref_value``'s own Creator lookup
+    exactly (same table, same column) so a ``creator:<handle>`` ref cookie
+    is judged by the identical grammar/source of truth the cookie-setting
+    path uses — not a re-invented, possibly-looser check. Returns False
+    (never raises) when ``db`` is absent or the query fails; callers treat
+    False as "cannot verify, drop the ref."
+    """
+    if db is None or not handle:
+        return False
+    from app.models import Creator
+
+    try:
+        return db.query(Creator.id).filter(Creator.handle == handle).first() is not None
+    # Rationale: a lookup failure here must never block signup — the caller
+    # (resolve_signup_attribution) treats False as "drop this one field."
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def resolve_signup_attribution(request, db=None) -> dict | None:
     """Resolve first-touch UTM/ref attribution for a brand-new signup.
 
     Precedence (first-touch: cookie wins over the current request's own
@@ -81,6 +105,16 @@ def resolve_signup_attribution(request) -> dict | None:
          e.g. "li", "x", "creator:foo") — always captured as the ``ref``
          field independently of which UTM source won above.
 
+    ``db``: optional SQLAlchemy ``Session``. When provided, a
+    ``creator:<handle>`` ref cookie is RE-VALIDATED against the live
+    ``Creator.handle`` table (see ``_creator_handle_exists``) before being
+    trusted — cookies are client-writable, so a stale "already validated
+    when set" assumption is a trust bypass (a forger can mint
+    ``recipes_utm_ref=creator:anything`` directly, no Creator row required).
+    Without ``db`` (e.g. a unit test against a bare fake request), a
+    ``creator:`` ref cannot be verified and is dropped rather than trusted
+    blind — fail closed, not fail open.
+
     Returns ``None`` when there is nothing to attribute (no cookie, no query
     params, no ref) — never raises. Every value is validated + length-bounded
     via ``_clean_utm_field``; a malformed/oversized/control-char value is
@@ -94,6 +128,14 @@ def resolve_signup_attribution(request) -> dict | None:
     source_is_cookie = False
 
     raw_ctx = request.cookies.get(_UTM_CTX_COOKIE_NAME)
+    # P2-f: bound the RAW cookie length BEFORE it is ever handed to
+    # json.loads. Cookies are fully client-controlled (forgeable, arbitrary
+    # size) — parsing an unbounded value is a cheap denial-of-service lever
+    # against every signup request. Oversized values are discarded outright,
+    # same "drop this one field/signal, never block signup" contract as
+    # every other malformed-input path in this module.
+    if raw_ctx and len(raw_ctx) > _UTM_CTX_COOKIE_MAX_LEN:
+        raw_ctx = None
     if raw_ctx:
         try:
             ctx = json.loads(raw_ctx)
@@ -123,12 +165,25 @@ def resolve_signup_attribution(request) -> dict | None:
         # _clean_utm_field only bounds length/control-chars; also re-validate
         # against the allowlist shape here so an unvalidated free-text cookie
         # value (cookies are client-writable) never gets stored as a ref even
-        # if it happened to pass the generic field cleaner. Creator-namespaced
-        # refs ("creator:<handle>") are accepted as-is — they were already
-        # validated against the Creator table by _resolve_ref_value
-        # (app/_skill_helpers.py) at the point the cookie was originally set.
-        if ref is not None and ref not in _UTM_REF_ALLOWLIST and not ref.startswith("creator:"):
-            ref = None
+        # if it happened to pass the generic field cleaner.
+        if ref is not None and ref not in _UTM_REF_ALLOWLIST:
+            if ref.startswith("creator:"):
+                # P1-d: a stale comment used to claim "creator:<handle>"
+                # cookies were pre-validated against the Creator table at
+                # the point _set_utm_ref_cookie originally set them — but
+                # the cookie is client-writable at the browser layer with
+                # no signature, so a forger can mint
+                # `recipes_utm_ref=creator:anything` directly and this
+                # resolver has no way to tell that apart from a real one
+                # without re-checking. Re-validate against the SAME table
+                # _resolve_ref_value (app/_skill_helpers.py) checks; without
+                # a db handle the claim is unverifiable and is dropped
+                # (fail closed), not trusted blind (fail open).
+                handle = ref.split("creator:", 1)[1]
+                if not (handle and _creator_handle_exists(handle, db)):
+                    ref = None
+            else:
+                ref = None
 
     if not any((utm_source, utm_medium, utm_campaign, utm_content, ref)):
         return None
@@ -141,3 +196,129 @@ def resolve_signup_attribution(request) -> dict | None:
         "ref": ref,
         "captured_at": datetime.now(UTC).isoformat(),
     }
+
+
+def stamp_utm_ctx_cookie(
+    response,
+    *,
+    utm_source: str | None,
+    utm_medium: str | None,
+    utm_campaign: str | None,
+    utm_content: str | None,
+    secure: bool,
+) -> None:
+    """money-path-3 P1-c: capture UTM context AT the /login click and carry
+    it through the OAuth round-trip via a cookie, so the callback (which
+    receives no query params of its own — GitHub/Google strip them) can
+    still resolve first-touch attribution.
+
+    This repo does not serve the portal's landing page, so it cannot stamp
+    this cookie at the moment a visitor first arrives with ``?utm_source=``
+    in the URL — that page load never touches this API. What IS in this
+    repo's power is capturing UTM context at the moment the visitor clicks
+    "Sign in", the same way ``?ref=`` already survives the round-trip via
+    ``app.auth_routes._stamp_referral_cookie`` (WIS-660) and the short-link
+    redirector (``app/utm_redirects.py::_set_utm_ref_cookie``) stamps its
+    ref cookie at click time. Contract for the portal (documented in the PR
+    body): when a page has UTM context (from its own URL, e.g. a landing
+    page hit via ?utm_source=twitter), forward utm_source/utm_medium/
+    utm_campaign/utm_content as query params onto the "Sign in with
+    GitHub/Google" link (``/api/auth/{provider}/login?utm_source=...&ref=
+    ...``) exactly as it already must for ``?ref=``. No cookie contract is
+    required of the portal — only a query-param passthrough on a link it
+    already builds.
+
+    Cookie shape/name matches exactly what ``resolve_signup_attribution``
+    reads (``recipes_utm_ctx``, JSON dict) so this producer and that
+    consumer stay in lock-step. Short-lived (matches ``oauth_state``/
+    ``oauth_next`` in auth_routes.py): this cookie only needs to survive
+    the few-second OAuth provider round-trip, not a multi-day
+    landing-to-signup gap, since it is set at click time immediately
+    before the redirect.
+    """
+    fields = {
+        "utm_source": _clean_utm_field(utm_source),
+        "utm_medium": _clean_utm_field(utm_medium),
+        "utm_campaign": _clean_utm_field(utm_campaign),
+        "utm_content": _clean_utm_field(utm_content),
+    }
+    if not any(fields.values()):
+        return
+    response.set_cookie(
+        key=_UTM_CTX_COOKIE_NAME,
+        value=json.dumps(fields),
+        max_age=600,  # matches oauth_state / oauth_next — round-trip only
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        path="/",
+    )
+
+
+def capture_signup_attribution(request, user, db) -> None:
+    """money-path-3: persist first-touch UTM/ref attribution, write-once.
+
+    Called from inside the OAuth callback, immediately after
+    find_or_create_user_by_github/_by_google.
+
+    WRITE-ONCE (first-touch), ATOMIC (P1-a): uses a conditional
+    ``UPDATE ... WHERE id = :id AND signup_attribution IS NULL`` instead of
+    a read-then-write ``if user.signup_attribution`` check. Two concurrent
+    callbacks for the SAME (brand-new) user both read NULL before either
+    writes; a plain read-then-write lets the second writer clobber the
+    first writer's genuinely-first touch. The conditional UPDATE makes the
+    write-once guarantee atomic at the database layer — whichever request's
+    UPDATE lands first flips the row from NULL, and the loser's UPDATE
+    matches zero rows (checked via ``rowcount``) and is a deliberate no-op.
+    Portable across Postgres and SQLite (plain WHERE clause, no dialect-
+    specific locking needed).
+
+    Explicitly checks ``IS NULL`` at the SQL layer (not `if user.signup_
+    attribution` in Python) so P2-e is structurally impossible: an empty
+    dict ``{}`` is falsy in Python but IS NOT NULL in SQL, so it correctly
+    blocks a second write the same as any other already-recorded value.
+
+    SESSION-SAFE ON FAILURE (P1-b): commit failures (constraint violation,
+    dropped connection, etc.) are caught HERE and immediately followed by
+    ``db.rollback()`` before returning. Attribution capture runs after
+    ``find_or_create_user_by_github``/``ensure_referral_code`` have already
+    committed the user row, but BEFORE ``create_jwt(user)`` reads user
+    attributes — a commit failure left un-rolled-back here would leave the
+    session in SQLAlchemy's PendingRollbackError state, and the very next
+    attribute access (inside create_jwt) would raise and 500 the entire
+    signup. Rolling back here, inside this function, guarantees the session
+    is usable again by the time control returns to the caller — the
+    caller's own try/except (defense-in-depth, matches the referral-
+    processing pattern in auth_routes.py) no longer has to be the one to
+    fix the session, it only has to log.
+    """
+    import logging
+
+    from sqlalchemy import update
+
+    from app.models import User
+
+    logger = logging.getLogger("app.auth_routes")
+
+    attribution = resolve_signup_attribution(request, db=db)
+    if not attribution:
+        return
+    try:
+        result = db.execute(
+            update(User)
+            .where(User.id == user.id, User.signup_attribution.is_(None))
+            .values(signup_attribution=attribution)
+        )
+        db.commit()
+    # Rationale: a commit failure here must never poison the session for the
+    # rest of the request (create_jwt reads user attributes right after) —
+    # roll back immediately so signup can still complete. Attribution
+    # capture must never be able to block sign-in.
+    except Exception:  # noqa: BLE001
+        db.rollback()
+        logger.exception("Signup attribution commit failed for user %s (rolled back, non-fatal)", user.id)
+        return
+    if result.rowcount:
+        # Keep the in-memory object in sync with what was actually written,
+        # in case anything downstream in this request reads it.
+        user.signup_attribution = attribution

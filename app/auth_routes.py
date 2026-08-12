@@ -39,7 +39,12 @@ from app.referral import (
     resolve_referral_cookie,
 )
 from app.services.bundle_quota import quota_status
-from app.services.signup_attribution import resolve_signup_attribution
+from app.services.signup_attribution import (
+    capture_signup_attribution as _capture_signup_attribution,
+)
+from app.services.signup_attribution import (
+    stamp_utm_ctx_cookie as _stamp_utm_ctx_cookie,
+)
 from app.tier_labels import _is_paid_tier, _is_pro_plus_tier
 from app.tier_labels import api_key_cap as _tier_api_key_cap
 
@@ -122,38 +127,30 @@ def _stamp_referral_cookie(response, ref: str | None) -> None:
     )
 
 
-def _capture_signup_attribution(request: Request, user, db: Session) -> None:
-    """money-path-3: persist first-touch UTM/ref attribution, write-once.
-
-    Called from inside the OAuth callback, immediately after
-    find_or_create_user_by_github/_by_google. WRITE-ONCE (first-touch): only
-    writes when ``user.signup_attribution`` is still NULL — a returning
-    user's second/Nth login must never clobber the attribution captured at
-    their original signup. Best-effort by construction: any failure here
-    (malformed cookie, DB hiccup) is caught by the caller's existing
-    try/except around the referral-processing block — this function itself
-    never raises past a bad individual field (see resolve_signup_attribution's
-    own per-field validation), but the caller wraps the CALL too, since
-    attribution must never be able to block sign-in.
-    """
-    if user.signup_attribution:
-        return  # first-touch already recorded — never overwrite
-    attribution = resolve_signup_attribution(request)
-    if not attribution:
-        return
-    user.signup_attribution = attribution
-    db.commit()
-
-
 # ── GitHub OAuth ─────────────────────────────────────────────────────────
 
 
 @router.get("/github/login")
-async def github_login(request: Request, next: str | None = None, ref: str | None = None):
+async def github_login(
+    request: Request,
+    next: str | None = None,
+    ref: str | None = None,
+    utm_source: str | None = None,
+    utm_medium: str | None = None,
+    utm_campaign: str | None = None,
+    utm_content: str | None = None,
+):
     """Initiate GitHub OAuth flow. Preserves optional `next` query param via cookie.
 
     Optional `ref=CODE` query param is stamped as a 30-day cookie so the
     referral attribution survives the OAuth round-trip (WIS-660).
+
+    money-path-3 P1-c: optional `utm_source`/`utm_medium`/`utm_campaign`/
+    `utm_content` query params are stamped as a short-lived `recipes_utm_ctx`
+    cookie so first-touch UTM context survives the OAuth round-trip the same
+    way `ref` already does. The portal (or any caller of this link) forwards
+    whatever UTM context IT already has on its own current page — this route
+    doesn't originate UTM context, it only relays it through the OAuth hop.
     """
     if not settings.GITHUB_CLIENT_ID:
         raise HTTPException(status_code=503, detail="GitHub OAuth not configured")
@@ -182,6 +179,14 @@ async def github_login(request: Request, next: str | None = None, ref: str | Non
             samesite="lax",
         )
     _stamp_referral_cookie(response, ref)
+    _stamp_utm_ctx_cookie(
+        response,
+        utm_source=utm_source,
+        utm_medium=utm_medium,
+        utm_campaign=utm_campaign,
+        utm_content=utm_content,
+        secure=settings.COOKIES_SECURE,
+    )
     return response
 
 
@@ -242,10 +247,23 @@ async def github_callback(
 
 
 @router.get("/google/login")
-async def google_login(request: Request, next: str | None = None, ref: str | None = None):
+async def google_login(
+    request: Request,
+    next: str | None = None,
+    ref: str | None = None,
+    utm_source: str | None = None,
+    utm_medium: str | None = None,
+    utm_campaign: str | None = None,
+    utm_content: str | None = None,
+):
     """Initiate Google OAuth flow. Preserves optional `next` query param via cookie.
 
     Optional `ref=CODE` query param is stamped as a 30-day cookie (WIS-660).
+
+    money-path-3 P1-c: optional `utm_source`/`utm_medium`/`utm_campaign`/
+    `utm_content` query params are stamped as a short-lived `recipes_utm_ctx`
+    cookie so first-touch UTM context survives the OAuth round-trip — see
+    ``github_login`` for the full contract this mirrors.
     """
     if not settings.GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=503, detail="Google OAuth not configured")
@@ -273,6 +291,14 @@ async def google_login(request: Request, next: str | None = None, ref: str | Non
             samesite="lax",
         )
     _stamp_referral_cookie(response, ref)
+    _stamp_utm_ctx_cookie(
+        response,
+        utm_source=utm_source,
+        utm_medium=utm_medium,
+        utm_campaign=utm_campaign,
+        utm_content=utm_content,
+        secure=settings.COOKIES_SECURE,
+    )
     return response
 
 

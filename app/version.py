@@ -368,13 +368,55 @@ inert). No schema, no migration.
     signup_attribution.py:resolve_signup_attribution (validates + bounds
     utm_source/medium/campaign/content + ref, cookie-wins-over-query
     first-touch precedence, never raises). Wired into both OAuth callbacks
-    (auth_routes.py) as a write-once, best-effort side effect wrapped in its
-    own try/except — attribution capture can never block sign-in, including
-    when all non-essential cookies are blocked. 17 new tests (unit resolver
-    + real end-to-end signup path via TestClient, no raw-SQL seeding),
-    RED-proofed the write-once guard. No change to Stripe/webhook code,
-    pricing, or the existing utm_ref column. Verified against prod
-    /api/healthz 0.9.36 before bumping.
+    (auth_routes.py) as a write-once, best-effort side effect — attribution
+    capture can never block sign-in, including when all non-essential
+    cookies are blocked or the attribution commit itself fails. No change
+    to Stripe/webhook code, pricing, or the existing utm_ref column.
+    Verified against prod /api/healthz 0.9.36 before bumping.
+
+0.9.38 - fix(money-path-3 review): codex REQUEST_CHANGES on PR #250 — 7
+    findings, all reproduced with evidence before fixing. WRITE-ONCE is now
+    ATOMIC: the read-then-write `if user.signup_attribution` race (two
+    concurrent callbacks for a brand-new user could both read NULL and the
+    second write would silently clobber the true first touch) is replaced
+    by a conditional `UPDATE ... WHERE signup_attribution IS NULL` checked
+    via rowcount — portable across Postgres and SQLite, no dialect-specific
+    locking. A commit failure inside the attribution write is now caught
+    and immediately followed by db.rollback() in the SAME function, so a
+    DB hiccup there can no longer poison the session and 500 the rest of
+    the signup request (create_jwt reads user attributes right after) —
+    reproduced with a genuine SQLAlchemy IntegrityError through the real
+    OAuth callback request path, not a mock. The `recipes_utm_ctx` cookie
+    (JSON UTM context) previously had NO producer anywhere in this repo —
+    a callback-only capture with a documented-but-dead cookie path. Fixed
+    the part that IS in this repo's power: /api/auth/{github,google}/login
+    now accept optional utm_source/utm_medium/utm_campaign/utm_content
+    query params and stamp them into the SAME short-lived cookie the
+    callback already reads, mirroring exactly how ?ref= already survives
+    the OAuth round-trip (WIS-660). The landing-page capture step itself is
+    the PORTAL's responsibility (a different repo) — documented as a
+    portal-side contract (forward its own page's UTM query params onto the
+    "Sign in" link) rather than shipped as a silent dead path. The
+    `creator:<handle>` ref-cookie trust bypass (a stale comment claimed
+    pre-validation at cookie-set time, but the cookie is client-writable
+    with no signature — a forger could mint `recipes_utm_ref=creator:
+    anything` directly) is fixed: resolve_signup_attribution now takes an
+    optional `db` and RE-VALIDATES creator: refs against the live
+    Creator.handle table (same lookup _resolve_ref_value already uses);
+    without a db handle the claim is unverifiable and is dropped, fail
+    closed. `if user.signup_attribution` (falsy-overwrite: an empty dict
+    `{}` — a valid "recorded, nothing to attribute" state — read as
+    absent) is eliminated by construction: the new atomic UPDATE checks
+    `IS NULL` at the SQL layer, where `{}` is NOT NULL and correctly blocks
+    a second write. The `recipes_utm_ctx` cookie is now size-bounded
+    (2048 bytes) BEFORE json.loads ever runs, closing a per-request
+    unbounded-parse DoS lever on a fully client-controlled value. 15 new
+    tests added (39 total in the money-path-3 suite): write-once race
+    no-op, commit-failure recovery + signup-still-succeeds, existing-{}
+    not overwritten, forged/unverifiable/real creator: ref, oversized ctx
+    cookie discarded pre-parse, Google OAuth callback variant, and the
+    utm_ctx cookie producer's full login->callback round-trip. No schema
+    change. Verified against prod /api/healthz 0.9.37 before bumping.
 """
 
 __version__ = "0.9.43"
