@@ -29,57 +29,110 @@ def _find_publish_module():
 class TestGateIsActuallyWired:
     """The regression that mattered: the service imported but never called."""
 
-    def test_publisher_module_imports_the_service(self):
+    def test_publisher_module_imports_the_gate(self):
         pr = _find_publish_module()
-        assert hasattr(pr, "find_dangling_references"), (
-            "publisher_routes no longer imports find_dangling_references — "
-            "the gate has been unwired and publishes can emit 404 references again"
+        assert hasattr(pr, "dangling_reference_warning"), (
+            "publisher_routes no longer imports the gate — it has been unwired "
+            "and publishes can emit 404 references again"
         )
 
-    def test_publish_route_body_calls_the_service(self):
+    def test_publish_route_body_calls_the_gate(self):
         """Import alone is not wiring; the request path must invoke it."""
         import inspect
 
         pr = _find_publish_module()
         src = inspect.getsource(pr.publish_skill)
-        assert "find_dangling_references(" in src, (
-            "publish_skill() does not call find_dangling_references — an imported "
+        assert "dangling_reference_warning(" in src, (
+            "publish_skill() does not call dangling_reference_warning — an imported "
             "but uncalled gate is exactly the state this test was written to prevent"
         )
+
+    def test_the_gate_itself_calls_the_detection_service(self):
+        """The chain must be unbroken all the way down to skill_refs."""
+        import inspect
+
+        from app.services import publish_reference_gate as g
+
+        assert hasattr(g, "find_dangling_references")
+        assert "find_dangling_references(" in inspect.getsource(g.dangling_reference_warning)
 
     def test_findings_reach_the_publisher_not_only_the_log(self):
         import inspect
 
         pr = _find_publish_module()
         src = inspect.getsource(pr.publish_skill)
-        assert "dangling_refs" in src and "warnings.append" in src, (
+        assert "warnings.append(dangling_warning)" in src, (
             "dangling references must be appended to the response warnings; a log "
             "line the publisher never reads is not a notification"
         )
 
     def test_gate_is_advisory_not_blocking(self):
-        """Deliberate: 7 pre-existing dangles must not brick unrelated republishes."""
+        """Deliberate: pre-existing dangles must not brick unrelated republishes."""
         import inspect
 
-        pr = _find_publish_module()
-        src = inspect.getsource(pr.publish_skill)
-        gate = src.split("DANGLING-REFERENCE GATE")[1].split("Un-archive")[0]
-        assert "HTTPException" not in gate, (
-            "the dangling-reference gate must WARN, not raise: the tarball is already "
-            "stored and the version row already exists at that point, so raising "
-            "leaves a half-published skill"
+        from app.services import publish_reference_gate as g
+
+        src = inspect.getsource(g)
+        assert "HTTPException" not in src and "raise " not in src, (
+            "the gate must WARN, not raise: the tarball is already stored and the "
+            "version row already exists at that point, so raising leaves a "
+            "half-published skill"
         )
 
     def test_gate_failure_cannot_break_a_publish(self):
         import inspect
 
-        pr = _find_publish_module()
-        src = inspect.getsource(pr.publish_skill)
-        gate = src.split("DANGLING-REFERENCE GATE")[1].split("Un-archive")[0]
-        assert "except Exception" in gate, (
+        from app.services import publish_reference_gate as g
+
+        assert "except Exception" in inspect.getsource(g.dangling_reference_warning), (
             "the gate must swallow its own failures — an unavailable check is "
             "reported, never fatal to the publish"
         )
+
+    def test_gate_returns_none_on_a_broken_db(self):
+        """Behavioural proof of the above, not just a source-text assertion."""
+        from app.services.publish_reference_gate import dangling_reference_warning
+
+        class ExplodingDB:
+            def query(self, *a, **k):
+                raise RuntimeError("db is down")
+
+        assert dangling_reference_warning("a-skill", "see b-skill", ExplodingDB()) is None
+
+    def test_gate_returns_none_for_clean_copy(self):
+        from app.services.publish_reference_gate import dangling_reference_warning
+
+        class DB:
+            def query(self, *a, **k):
+                return self
+
+            def filter(self, *a, **k):
+                return self
+
+            def all(self):
+                return [("b-skill",)]
+
+        assert dangling_reference_warning("a-skill", "see b-skill", DB()) is None
+
+    def test_gate_warning_shape_matches_existing_findings(self):
+        from app.services.publish_reference_gate import dangling_reference_warning
+
+        class DB:
+            def query(self, *a, **k):
+                return self
+
+            def filter(self, *a, **k):
+                return self
+
+            def all(self):
+                return []
+
+        w = dangling_reference_warning("a-skill", "see missing-skill", DB())
+        assert w is not None
+        assert w["severity"] == "warn"
+        assert w["source"] == "dangling_refs"
+        assert w["refs"] == ["missing-skill"]
+        assert "404" in w["message"]
 
 
 class TestDetectionSemantics:

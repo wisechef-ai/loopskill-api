@@ -33,7 +33,7 @@ from app.config import settings
 from app.database import get_db
 from app.models import Creator, Skill, SkillVersion
 from app.security_scan import scan_tarball
-from app.services.skill_refs import find_dangling_references
+from app.services.publish_reference_gate import dangling_reference_warning
 
 logger = logging.getLogger(__name__)
 
@@ -443,76 +443,13 @@ async def publish_skill(
 
     # ── DANGLING-REFERENCE GATE (2026-08-12) ────────────────────────────────
     # A published SKILL.md saying "see obviously-awesome" when no such slug is
-    # published sends a reader to a 404. `app/services/skill_refs.py` was
-    # written for exactly this and its own docstring calls itself "the
-    # dangling-reference publishing gate" — but nothing in the request path
-    # ever imported it. Its only callers were 6 unit tests and a manual script
-    # that is in no cron and no CI workflow. A gate nobody calls is a report,
-    # and a report nobody reads is decoration.
-    #
-    # Measured 2026-08-12 on the live catalog: 7 dangling references across 5
-    # published skills, found by two independent implementations (this service
-    # via scripts/audit_skill_references.py, and the fleet's own
-    # fdeloop0808-frontdoor predicate) agreeing exactly.
-    #
-    # WARN, NOT BLOCK — deliberately, and this is the whole design decision:
-    #   * The 7 existing dangles are pre-existing. A blocking gate would make
-    #     every one of those 5 skills unpublishable until unrelated copy is
-    #     rewritten — it would fail the next innocent republish of `clean-code`
-    #     for a defect that shipped weeks ago.
-    #   * A forward reference is legitimately valid-later: publishing a pack
-    #     A→B in two calls means A dangles for the seconds between them.
-    #   * The tarball is already stored and the version row already exists at
-    #     this point; raising here would leave a half-published skill.
-    # So it records, loudly and structurally, in the response and the log. The
-    # standing predicate (fdeloop0808-frontdoor) is what makes it enforcing —
-    # same split as goal-lint: pre-flight reports, standing goal enforces.
-    #
-    # Flip to blocking only when the live count is 0 AND publish-a-pack has an
-    # atomic multi-skill path; until both hold, blocking trades a real 404 for
-    # a worse failure mode.
-    dangling_refs: list[str] = []
-    if skill_md_text and is_public:
-        try:
-            published_slugs = {
-                row[0]
-                for row in db.query(Skill.slug)
-                .filter(Skill.is_public.is_(True), Skill.is_archived.is_(False))
-                .all()
-            }
-            published_slugs.add(slug)  # self is reachable by definition
-            dangles = find_dangling_references({slug: skill_md_text}, published_slugs)
-            dangling_refs = sorted(dangles.get(slug, set()))
-            if dangling_refs:
-                logger.warning(
-                    "publish: %s references %d unpublished skill(s) — readers hit a 404: %s",
-                    slug,
-                    len(dangling_refs),
-                    ", ".join(dangling_refs),
-                )
-        except Exception as exc:  # noqa: BLE001
-            # Never let the gate break a publish. It is advisory; the publish
-            # is the product. An unavailable check is reported, not fatal.
-            logger.warning("publish: dangling-reference check failed for %s: %s", slug, exc)
-
-    if dangling_refs:
-        # Same shape as the security/quality findings already carried here, so
-        # existing publisher clients render it with no change. The publisher is
-        # the one person who can fix the copy, and they are holding the tarball
-        # right now — a log line they will never read is not a notification.
-        warnings.append(
-            {
-                "severity": "warn",
-                "source": "dangling_refs",
-                "code": "unresolved_skill_reference",
-                "message": (
-                    f"SKILL.md points readers at {len(dangling_refs)} skill(s) that are not "
-                    f"published — they will hit a 404: {', '.join(dangling_refs)}. "
-                    "Publish them, or reword the reference."
-                ),
-                "refs": dangling_refs,
-            }
-        )
+    # published sends a reader to a 404. Policy and rationale live in
+    # app/services/publish_reference_gate.py (extracted rather than waived past
+    # the 600-line module ceiling). Advisory by design: warns, never blocks,
+    # and never raises — the publish is the product.
+    dangling_warning = dangling_reference_warning(slug, skill_md_text, db) if is_public else None
+    if dangling_warning:
+        warnings.append(dangling_warning)
 
     # Un-archive a previously-archived skill row when a fresh public version
     # lands. Without this, the portal build silently skips the slug (it
