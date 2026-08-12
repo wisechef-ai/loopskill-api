@@ -33,6 +33,7 @@ from app.config import settings
 from app.database import get_db
 from app.models import Creator, Skill, SkillVersion
 from app.security_scan import scan_tarball
+from app.services.publish_reference_gate import dangling_reference_warning
 
 logger = logging.getLogger(__name__)
 
@@ -439,6 +440,16 @@ async def publish_skill(
                 slug,
                 len(skill_md_text),
             )
+
+    # ── DANGLING-REFERENCE GATE (2026-08-12) ────────────────────────────────
+    # A published SKILL.md saying "see obviously-awesome" when no such slug is
+    # published sends a reader to a 404. Policy and rationale live in
+    # app/services/publish_reference_gate.py (extracted rather than waived past
+    # the 600-line module ceiling). Advisory by design: warns, never blocks,
+    # and never raises — the publish is the product.
+    dangling_warning = dangling_reference_warning(slug, skill_md_text, db) if is_public else None
+    if dangling_warning:
+        warnings.append(dangling_warning)
 
     # Un-archive a previously-archived skill row when a fresh public version
     # lands. Without this, the portal build silently skips the slug (it
