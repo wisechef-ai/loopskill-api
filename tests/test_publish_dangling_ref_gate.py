@@ -114,6 +114,17 @@ class TestGateIsActuallyWired:
 
         assert dangling_reference_warning("a-skill", "see b-skill", DB()) is None
 
+    @pytest.mark.parametrize("readme", [None, ""])
+    def test_gate_short_circuits_without_a_readme(self, readme):
+        """A tarball with no SKILL.md must not touch the db at all."""
+        from app.services.publish_reference_gate import dangling_reference_warning
+
+        class ExplodingDB:
+            def query(self, *a, **k):
+                raise AssertionError("db must not be queried when there is no readme")
+
+        assert dangling_reference_warning("a-skill", readme, ExplodingDB()) is None
+
     def test_gate_warning_shape_matches_existing_findings(self):
         from app.services.publish_reference_gate import dangling_reference_warning
 
@@ -144,12 +155,12 @@ class TestDetectionSemantics:
 
         readmes: dict[str, str | None] = {
             "clean-code": "For refactoring techniques, see refactoring-patterns. "
-                          "see `karpathy-coding-defaults` principle 3.",
+            "see `karpathy-coding-defaults` principle 3.",
             "domain-driven-design": "For complexity, see software-design-philosophy.",
             "github-issues": "- Authenticated with GitHub (see `github-auth` skill)",
             "hundred-million-offers": "For product positioning, see obviously-awesome. "
-                                      "For outbound sales, see predictable-revenue.",
-            "ollama-low-vram-model-pick": "see `cognee-retrieval-architecture` \"Embedding\"",
+            "For outbound sales, see predictable-revenue.",
+            "ollama-low-vram-model-pick": 'see `cognee-retrieval-architecture` "Embedding"',
         }
         published = set(readmes)  # the 5 sources are published; the 7 targets are not
         out = find_dangling_references(readmes, published)
