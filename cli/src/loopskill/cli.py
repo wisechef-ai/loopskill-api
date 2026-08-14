@@ -31,9 +31,15 @@ def _cmd_import(args: argparse.Namespace) -> int:
         Path(args.output).write_text(text, encoding="utf-8")
         total = sum(c["skill_count"] for c in lockfile["clients"].values())
         present = sum(1 for c in lockfile["clients"].values() if c["installed"])
+        # stdout, NOT stderr: with -o the lockfile goes to a FILE, so stdout
+        # carries no data payload and the human-readable summary belongs on it —
+        # same stream `loopskill diff` reports on. The README presents import and
+        # diff as one continuous transcript; splitting them across streams meant
+        # anyone capturing or piping stdout silently lost this line.
+        # The stderr path is still correct in the `else` branch below, where the
+        # lockfile JSON IS stdout and any status text would corrupt it.
         print(
             f"loopskill import: wrote {args.output} ({total} skill(s) across {present} client(s))",
-            file=sys.stderr,
         )
     else:
         sys.stdout.write(text)
