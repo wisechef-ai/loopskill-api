@@ -423,3 +423,54 @@ def test_cli_apply_dry_run_does_not_import_pull_eagerly():
             module_level_imports.update(n.name for n in node.names)
     assert "loopskill.pull" not in module_level_imports
     assert "loopskill.apply" not in module_level_imports
+
+
+def test_import_with_output_reports_on_stdout(tmp_path: Path, capsys):
+    """`import -o FILE` must summarise on STDOUT, not stderr.
+
+    THE BUG THIS PINS
+    -----------------
+    The summary used to go to stderr unconditionally, while `diff` reports on
+    stdout. README.md presents the two as ONE continuous transcript and
+    promises the reader *exactly* that output — so anyone who captured or piped
+    stdout (a CI step, `| tee`, a test harness) silently lost the import line
+    while a plain terminal hid the problem by interleaving both streams.
+
+    With `-o` the lockfile is written to a FILE, so stdout carries no data
+    payload and the human-readable line belongs there.
+    """
+    home = tmp_path / "home"
+    skill = home / ".claude" / "skills" / "demo"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: demo\ndescription: d\n---\nBody.\n", encoding="utf-8")
+    out_path = tmp_path / "machine.lock.json"
+
+    rc = cli.main(["import", "--home", str(home), "-o", str(out_path)])
+    assert rc == 0
+
+    captured = capsys.readouterr()
+    assert "loopskill import: wrote" in captured.out, (
+        "the import summary must be on stdout so the README transcript "
+        f"reproduces under capture; stdout was {captured.out!r}"
+    )
+    assert "loopskill import: wrote" not in captured.err
+
+
+def test_import_without_output_keeps_stdout_pure_json(tmp_path: Path, capsys):
+    """The counterpart invariant: with NO `-o`, the lockfile JSON *is* stdout,
+    so no status text may contaminate it. Guards against 'fixing' the stream
+    split by moving every message to stdout unconditionally."""
+    import json
+
+    home = tmp_path / "home"
+    skill = home / ".claude" / "skills" / "demo"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: demo\ndescription: d\n---\nBody.\n", encoding="utf-8")
+
+    rc = cli.main(["import", "--home", str(home)])
+    assert rc == 0
+
+    captured = capsys.readouterr()
+    parsed = json.loads(captured.out)  # must parse — nothing else on stdout
+    assert "clients" in parsed
+    assert "loopskill import:" not in captured.out
