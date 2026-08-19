@@ -744,6 +744,29 @@ def _cookbook_signals(db: Session, cb: Bundle, skills: list[dict]) -> dict:
 # test/CI installs via _install_counts_for (§4.2).
 
 
+def _bundle_requires_pro(skill_rows: list[tuple[BundleSkill, Skill]]) -> bool:
+    """True iff EVERY active member skill in this bundle is Pro-locked.
+
+    fi_first_impression_api: the discover feed and public bundle page gave a
+    visitor no way to tell "this bundle is entirely paid" without walking the
+    well-known index and checking every ``locked`` flag themselves — the
+    install.sh script's own "installed 0 skill(s)" silent-failure (see
+    bundle_install_script_routes.py) is the SAME missing signal one layer up.
+    Reuses the well-known index's OWN free/lock predicates
+    (``bundle_wellknown_routes._is_free`` / ``_is_redistributable_external``)
+    verbatim rather than re-deriving tier logic here, so the discover card and
+    the install script can never disagree about which member is free.
+
+    An EMPTY bundle (no active members) is NOT considered pro-locked — that's
+    "nothing here yet", a different condition from "everything is paywalled".
+    """
+    if not skill_rows:
+        return False
+    from app.bundle_wellknown_routes import _is_free, _is_redistributable_external
+
+    return all(not (_is_free(skill) or _is_redistributable_external(skill)) for _cs, skill in skill_rows)
+
+
 def _public_cb_card(db: Session, cb: Bundle) -> dict:
     """A compact, anonymous-safe public cookbook card for the discover feed."""
     skill_rows = _skills_for(db, cb.id, include_disabled=False)
@@ -783,6 +806,9 @@ def _public_cb_card(db: Session, cb: Bundle) -> dict:
         # install attribution is visible from week 1 (GTM build-plan mod #2).
         # portal_0610 R2: creator HANDLE (validatable), not the raw owner UUID.
         "ref": ref_value,
+        # fi_first_impression_api: honest "is this bundle entirely paid"
+        # signal, computed from member skill tiers — see _bundle_requires_pro.
+        "requires_pro": _bundle_requires_pro(skill_rows),
     }
 
 

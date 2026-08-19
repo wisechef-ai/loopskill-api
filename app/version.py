@@ -220,6 +220,32 @@ inert). No schema, no migration.
     keeps working unchanged as a fallback. Pure env-var resolution change,
     no schema, no migration. Verified against prod /api/healthz 0.9.35
     before bumping.
+
+0.9.37 - agent/tori/first-impression-api: first-impression fixes on the
+    cold-path a stranger actually hits (bundle discover -> install.sh).
+    (1) requires_pro on GET /api/bundles/discover cards and GET
+    /api/bundles/public/{slug} — computed from member skill tiers (reuses
+    bundle_wellknown_routes._is_free / _is_redistributable_external
+    verbatim, so discover/public-page/install.sh can never disagree on
+    which member is free). (2) install.sh: when a bundle's
+    installable-free count is 0, prints "This bundle requires Pro — 0 free
+    skills will be installed. See https://app.loopskill.io/pricing" as the
+    FIRST line (before any progress output) and exits 4 (distinct from the
+    pre-existing usage=2 / missing-python3=3 codes) — closes a live defect
+    where dev-agent-essentials/research-and-report (100% Pro) silently
+    printed "installed 0 skill(s)" with no explanation. (3) /api/mcp/healthz:
+    SERVER_NAME "recipes-mcp" -> "loopskill-mcp" (dead brand); SERVER_VERSION
+    now reads app.version.__version__ directly instead of a frozen "0.1.0"
+    literal, so the MCP identity handshake tracks real deploys. (4)
+    /api/skills/external bare-call default (empty enabled_sources) was
+    audited and left AS-IS — it is Adam's explicit isolation-namespace
+    directive (see federation.py's module docstring, "off by default"),
+    already has a pinned regression test
+    (test_evergreen_f2_external_route.py::test_toggle_off_by_default_returns_no_external),
+    and changing it would silently start querying live upstream federation
+    adapters (rate-limited GitHub search, etc.) on every anonymous cold
+    load with no user action — not a safe default flip. No schema, no
+    migration. Verified against prod /api/healthz 0.9.36 before bumping.
 """
 
-__version__ = "0.9.36"
+__version__ = "0.9.37"
