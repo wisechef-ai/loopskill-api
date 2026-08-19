@@ -266,9 +266,6 @@ inert). No schema, no migration.
     only); local-only bundle manifests are byte-identical (contract-pinned
     test). No schema change. Verified against prod /api/healthz 0.9.36
     before bumping.
-"""
-
-__version__ = "0.9.39"
 
 0.9.39 - fix(issue-155): Skill.title no longer lands title-less. Extracted
     the backfill script's derivation logic into app/skill_title.py (shared,
