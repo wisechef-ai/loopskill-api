@@ -35,6 +35,12 @@ from app.middleware._org_scope import resolve_org_membership as _resolve_org_mem
 from app.middleware.key_prefixes import API_KEY_PREFIX, FLEET_KEY_PREFIX  # noqa: F401 — compat re-export
 from app.middleware.key_prefixes import LOOPSKILL_KEY_PREFIX, USER_KEY_PREFIXES  # noqa: F401
 
+# agentreg_0819: the ONE extra gate a self-registered rec_agent_ key needs on
+# top of the ordinary user-key path — identity revocation, fail closed. Shared
+# verbatim with app/mcp/auth.py so REST and MCP cannot drift.
+from app.middleware._agent_identity import agent_key_is_blocked as _agent_key_is_blocked
+from app.middleware._agent_identity import is_agent_key as _is_agent_key
+
 # mesh0408e2e W2: entitlement is derived from subscription STATUS, never from
 # the raw tier column — a past_due/canceled Pro must not keep paid capability
 # just because the slug is still on the row.
@@ -94,6 +100,10 @@ def _auth_ctx_from_api_key(request) -> "AuthContext | None":
             .first()
         )
         if api_key_obj is None:
+            return None
+        # agentreg_0819: a revoked agent identity degrades to anonymous here
+        # (this helper only runs on PUBLIC routes, where "no key" is legal).
+        if _is_agent_key(key) and _agent_key_is_blocked(db, api_key_obj.user_id):
             return None
         user_obj = db.query(User).filter(User.id == api_key_obj.user_id).first()
         # W2: entitled tier, not the raw column — a lapsed subscription must not
@@ -193,9 +203,16 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
     # must be callable WITHOUT an account (self-serve) — anonymous callers are
     # still rate-limited by RateLimitMiddleware's per-IP bucket AND by the
     # feedback_ratelimit multi-window gate inside the route itself.
+    # agentreg_0819: POST /api/agents/register must be callable with NO
+    # credential — it is the endpoint that ISSUES the first one. It authenticates
+    # by Ed25519 proof-of-key instead of by session (app/services/
+    # agent_registration.py) and is bounded by the anonymous per-IP minute bucket
+    # plus its own per-IP/global 24h enrolment caps. Method-aware, so the rest of
+    # the /api/agents/* namespace stays closed.
     PUBLIC_POST_ONLY_PATHS = {
         "/api/intent-survey",
         "/api/federation/propose",
+        "/api/agents/register",
     }
     # Public skill-detail GETs match path-shape /api/skills/{slug} (no trailing path).
     # Distinguished from /api/skills/install (auth) and /api/skills/_download (auth)
@@ -501,6 +518,13 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 .first()
             )
             if api_key_obj:
+                # agentreg_0819: revocation gate for self-registered agents.
+                # Runs ONLY for rec_agent_ keys, so no human key pays for it.
+                if _is_agent_key(key) and _agent_key_is_blocked(db, api_key_obj.user_id):
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "Agent identity revoked or unknown"},
+                    )
                 # Issue #17: instead of committing to DB on every request,
                 # push to Redis-batched tracker (drained by crons/drain_last_used.py).
                 from datetime import datetime

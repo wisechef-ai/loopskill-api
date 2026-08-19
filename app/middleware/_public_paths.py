@@ -156,5 +156,14 @@ EXEMPT_PATHS: frozenset[str] = frozenset(
         # Unauthenticated BY DESIGN: verification must need no credential.
         "/.well-known/jwks.json",
         "/.well-known/oauth-authorization-server",
+        # agentreg_0819 — agent discovery. THE reason these were 401ing is this
+        # very allowlist: APIKeyMiddleware gates every path not listed here, and
+        # only the two mesh documents above were. These are what an agent reads
+        # BEFORE it holds any credential (llms.txt / MCP-directory entry point),
+        # so requiring one is a deadlock. Bodies are static, public-origin-derived
+        # JSON with no secrets and no per-caller data — see
+        # app/agent_wellknown_routes.py.
+        "/.well-known/agent.json",
+        "/.well-known/mcp.json",
     }
 )

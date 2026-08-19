@@ -2994,3 +2994,80 @@ class FederationRegistryProposal(Base):
         Index("idx_frp_signature", "signature"),
         Index("idx_frp_identity_created", "identity", "created_at"),
     )
+
+
+# ── Agent self-registration (agentreg_0819) ─────────────────────────────
+
+
+class AgentIdentity(Base):
+    """A self-registered autonomous agent, proven by Ed25519 key possession.
+
+    agentreg_0819. Created by ``POST /api/agents/register`` — no human OAuth
+    login. The pubkey IS the identity: registration is authorised by a
+    signature over a canonical string (see
+    ``app.services.agent_registration.canonical_registration_string``), so
+    nothing but possession of the private key is required.
+
+    ``user_id`` points at a SHADOW ``User`` row minted alongside the identity.
+    That shadow row is what ``APIKey.user_id`` (NOT NULL) and every ownership
+    column in this schema already key off, so an agent key resolves to a
+    perfectly ordinary ``AuthContext(scope="user", tier=None)`` and NO authz
+    predicate had to change. The shadow user carries no ``github_id`` /
+    ``google_id`` / ``email``, so it is unreachable from any OAuth flow.
+
+    ``revoked`` is the fail-closed kill switch: ``app.middleware._agent_identity``
+    rejects any ``rec_agent_`` key whose identity is missing or revoked, on both
+    the REST and the MCP validation paths.
+    """
+
+    __tablename__ = "agent_identities"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    # Base64 of the 32-byte raw Ed25519 public key (44 chars with padding).
+    pubkey = Column(String(128), nullable=False, unique=True, index=True)
+    agent_name = Column(String(64), nullable=False)
+    contact = Column(String(128), nullable=True)
+    # The shadow User this identity's API keys hang off. UNIQUE: one shadow
+    # user per agent identity, so the reverse lookup in the middleware
+    # (user_id -> identity) is unambiguous.
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    revoked = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # Textual so both IPv4 and IPv6 fit; used for the per-IP registration cap.
+    registration_ip = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("idx_agent_identities_ip_created", "registration_ip", "created_at"),
+        Index("idx_agent_identities_created", "created_at"),
+    )
+
+
+class AgentRegistrationNonce(Base):
+    """A consumed registration nonce — the replay wall.
+
+    agentreg_0819. A signature is only good once: the nonce is hashed and
+    inserted under a UNIQUE constraint, so a replayed request loses the race
+    at the database rather than in application logic.
+
+    DB-backed rather than Redis-backed on purpose. ``app.middleware.get_redis``
+    degrades to ``None`` whenever Redis is unreachable (see its 30s-backoff
+    fallback), and a replay wall that opens when the cache is down is not a
+    wall. Expired rows are swept opportunistically on each registration
+    attempt — see ``app.services.agent_registration.sweep_expired_nonces``.
+    """
+
+    __tablename__ = "agent_registration_nonces"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    # sha256 hex of the raw nonce string — the nonce itself is never stored.
+    nonce_hash = Column(String(64), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Retention horizon: max acceptable clock skew, doubled. Past this point a
+    # replay of the same nonce is already rejected by the timestamp gate.
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)

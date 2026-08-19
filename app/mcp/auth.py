@@ -74,6 +74,20 @@ def validate_key(key: str | None, db: Session) -> dict[str, Any]:
         .first()
     )
     if api_key_obj:
+        # agentreg_0819: identity-revocation gate for self-registered agents.
+        # MCP is the universal path — a REST-only revocation is not a
+        # revocation, so the SAME helper the middleware uses runs here. A
+        # revoked/unknown identity resolves to 'unauthorized', identical to a
+        # key that does not exist at all (no oracle for the revoked state).
+        from app.middleware._agent_identity import agent_key_is_blocked, is_agent_key
+
+        if is_agent_key(key) and agent_key_is_blocked(db, api_key_obj.user_id):
+            return {
+                "scope": "unauthorized",
+                "user_id": None,
+                "api_key_id": None,
+                "auth_ctx": AuthContext.anonymous(),
+            }
         # Resolve the caller's tenant the SAME way the REST path does
         # (app.middleware.api_key) — otherwise org-scoped features silently fail
         # closed over MCP (Lane C #4).
