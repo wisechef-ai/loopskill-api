@@ -246,6 +246,26 @@ inert). No schema, no migration.
     adapters (rate-limited GitHub search, etc.) on every anonymous cold
     load with no user action — not a safe default flip. No schema, no
     migration. Verified against prod /api/healthz 0.9.36 before bumping.
+
+0.9.38 - fix(issue-149, Option B, owner-approved 2026-08-19): the 3rd
+    owner-facing bundle read path — GET /api/cookbooks/{id}/manifest —
+    is now federated-aware, matching GET /api/cookbooks/{id} and POST
+    .../install (both already fixed by sp2607fix-1/#150). Before this,
+    a fleet owner syncing off the manifest silently lost every liked
+    federated skill (BundleSkill.skill_id IS NULL rows) that detail/install
+    already showed them — three endpoints, three different member counts
+    for the same bundle. Federated entries carry federated_slug (no local
+    Skill row exists, so `slug` is None) + federated/federated_source
+    discriminators, merged into the same global (install_order, added_at,
+    id) order the Composer contract requires. The 2 remaining public/
+    anonymous surfaces (_public_cb_card, public_cookbook_page) and both
+    .well-known routes stay explicitly LOCAL-ONLY pending §0b badging —
+    documented inline at each call site per the issue's own Option B scope,
+    not a regression. Pure additive response field (manifest YAML gains
+    federated/federated_source/federated_slug keys on federated entries
+    only); local-only bundle manifests are byte-identical (contract-pinned
+    test). No schema change. Verified against prod /api/healthz 0.9.36
+    before bumping.
 """
 
-__version__ = "0.9.37"
+__version__ = "0.9.38"

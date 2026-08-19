@@ -768,7 +768,16 @@ def _bundle_requires_pro(skill_rows: list[tuple[BundleSkill, Skill]]) -> bool:
 
 
 def _public_cb_card(db: Session, cb: Bundle) -> dict:
-    """A compact, anonymous-safe public cookbook card for the discover feed."""
+    """A compact, anonymous-safe public cookbook card for the discover feed.
+
+    issue-149 (Option B, owner-approved 2026-08-19): deliberately LOCAL-ONLY
+    (``_skills_for``, not ``_federated_skills_for``). Whether an unvetted
+    federated/community entry should appear on a public, anonymous marketing
+    surface is a product decision gated on badging (plan §0b) that has not
+    shipped — see the issue's decision-package options A/B/C. The Liked
+    bundle (today's only federated-row source) is private/non-publishable,
+    so this is a documented, not-yet-live inconsistency, not an oversight.
+    """
     skill_rows = _skills_for(db, cb.id, include_disabled=False)
     # portal_0610 R7: count installs ATTRIBUTED TO this bundle (InstallEvent
     # rows stamped with cookbook_id), NOT the sum of each member skill's global
@@ -908,6 +917,10 @@ def public_cookbook_page(slug: str, db: Session = Depends(get_db)):
     (``clone_line``, now honestly labelled as requiring a key via
     ``clone_line_requires_auth``/``clone_line_label``). Carries ?ref
     attribution.
+
+    issue-149 (Option B, owner-approved 2026-08-19): deliberately LOCAL-ONLY,
+    same reasoning as ``_public_cb_card`` — this is the other public/anonymous
+    surface gated on badging (plan §0b) before federated members appear here.
     """
     cb = db.query(Bundle).filter(Bundle.slug == slug).first()
     if not cb or cb.visibility != "public":
@@ -2466,22 +2479,59 @@ def cookbook_manifest(
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
-    """Return the install manifest for all skills in a cookbook."""
+    """Return the install manifest for all skills in a cookbook.
+
+    issue-149 (Option B, owner-approved 2026-08-19): this is one of the 5
+    non-public/owner-facing read paths that must be federated-aware — a
+    fleet owner running ``loopskill_sync``/an offline installer off this
+    manifest must see the same skill set ``GET /api/cookbooks/{id}`` and
+    ``POST .../install`` already show (sp2607fix-1). Federated rows
+    (``BundleSkill.skill_id IS NULL``) carry no local ``Skill`` row, so they
+    are represented by ``federated_slug`` (never a local ``slug``) plus the
+    same ``federated``/``federated_source`` discriminators the detail/install
+    payloads use, and no ``pinned_version`` (federated entries are never
+    version-pinned). Merged into the same global (install_order, added_at,
+    id) order the Composer contract requires (portal_0610 J2).
+    """
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id, allow_org_read=True)
     rows = _skills_for(db, cb.id, include_disabled=True)
+    fed_rows = _federated_skills_for(db, cb.id, include_disabled=True)
 
-    manifest = {
-        "name": cb.name,
-        "description": cb.description,
-        "skills": [
+    def _sort_key(join: BundleSkill) -> tuple[int, object, str]:
+        return (join.install_order or 0, join.added_at, str(join.id))
+
+    decorated: list[tuple[tuple[int, object, str], dict]] = [
+        (
+            _sort_key(cs),
             {
                 "slug": skill.slug,
                 "source": cs.source,
                 "pinned_version": cs.pinned_version,
-            }
-            for cs, skill in rows
-        ],
+            },
+        )
+        for cs, skill in rows
+    ]
+    decorated.extend(
+        (
+            _sort_key(join),
+            {
+                "slug": None,
+                "federated_slug": join.federated_slug,
+                "source": join.source,
+                "pinned_version": None,
+                "federated": True,
+                "federated_source": join.federated_source,
+            },
+        )
+        for join in fed_rows
+    )
+    decorated.sort(key=lambda pair: pair[0])
+
+    manifest = {
+        "name": cb.name,
+        "description": cb.description,
+        "skills": [entry for _key, entry in decorated],
     }
     body = yaml.safe_dump(manifest, sort_keys=False, default_flow_style=False)
     return Response(content=body, media_type="application/x-yaml")
