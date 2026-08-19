@@ -467,7 +467,7 @@ def test_fleet_subscribe_invalid_cookbook_id(fleet_db):
     fleet_id = fleet_result["fleet_id"]
 
     result = loopskill_fleet_subscribe(fleet_db, fleet_id=fleet_id, cookbook_id="bad", ctx=ctx)
-    assert result.get("error") == "invalid_cookbook_id"
+    assert result.get("error") == "invalid_bundle_id"
 
 
 def test_fleet_sync_invalid_fleet_id(fleet_db):

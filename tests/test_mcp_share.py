@@ -513,7 +513,7 @@ class TestShareToolsErrorPaths:
             db_session, cookbook_id="not-a-valid-uuid", ctx=_master_ctx()
         )
         assert "error" in result
-        assert result["error"] == "cookbook_not_found"
+        assert result["error"] == "bundle_not_found"
 
     def test_create_with_nonexistent_cookbook_returns_error(self, db_session):
         """Non-existent cookbook UUID → cookbook_not_found error."""
@@ -525,7 +525,7 @@ class TestShareToolsErrorPaths:
             ctx=_master_ctx(),
         )
         assert "error" in result
-        assert result["error"] == "cookbook_not_found"
+        assert result["error"] == "bundle_not_found"
 
     def test_create_with_invalid_scope_returns_error(self, db_session):
         """Invalid scope → error dict, not exception (covers lines 77-81)."""
@@ -561,7 +561,7 @@ class TestShareToolsErrorPaths:
             db_session, cookbook_id="bad-uuid-here", ctx=_master_ctx()
         )
         assert "error" in result
-        assert result["error"] == "cookbook_not_found"
+        assert result["error"] == "bundle_not_found"
 
     def test_revoke_with_ctx_none_defaults_to_master(self, db_session):
         """ctx=None defaults to master scope for revoke (covers line 133)."""
@@ -588,7 +588,7 @@ class TestShareToolsErrorPaths:
             ctx=_master_ctx(),
         )
         assert "error" in result
-        assert result["error"] == "cookbook_not_found"
+        assert result["error"] == "bundle_not_found"
 
     def test_revoke_forbidden_for_non_owner(self, db_session):
         """Non-owner gets forbidden error (covers line 140)."""
@@ -609,7 +609,7 @@ class TestShareToolsErrorPaths:
         # mesh_0408 W1b (codex PR #202, finding 3): the denial is now the same
         # cookbook_not_found an absent id gets — a distinct forbidden code was
         # an existence oracle.
-        assert result["error"] == "cookbook_not_found"
+        assert result["error"] == "bundle_not_found"
 
     def test_revoke_nonexistent_token_returns_error(self, db_session):
         """Non-existent token_id → error dict via exception (covers lines 144-148)."""
@@ -650,7 +650,7 @@ class TestShareToolsErrorPaths:
             ctx=_master_ctx(),
         )
         assert "error" in result
-        assert result["error"] == "cookbook_not_found"
+        assert result["error"] == "bundle_not_found"
 
     def test_rotate_forbidden_for_non_owner(self, db_session):
         """Non-owner gets forbidden error (covers line 176)."""
@@ -671,7 +671,7 @@ class TestShareToolsErrorPaths:
         # mesh_0408 W1b (codex PR #202, finding 3): the denial is now the same
         # cookbook_not_found an absent id gets — a distinct forbidden code was
         # an existence oracle.
-        assert result["error"] == "cookbook_not_found"
+        assert result["error"] == "bundle_not_found"
 
     def test_rotate_nonexistent_token_returns_error(self, db_session):
         """Non-existent token_id → error dict (covers lines 185-189)."""

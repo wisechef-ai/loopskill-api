@@ -454,7 +454,7 @@ def test_preflight_detects_missing_cookbook(db):
 
     report = run_preflight(db, "no-such-cookbook")
     assert report["ok"] is False
-    assert any("cookbook_not_found" in p for p in report["problems"])
+    assert any("bundle_not_found" in p for p in report["problems"])
 
 
 def test_preflight_port_conflict_check_on_pure_recipes():

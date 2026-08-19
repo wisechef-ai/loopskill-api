@@ -371,7 +371,7 @@ def test_handoff_wrong_owner_rejected(db_session):
         new_owner_user_id=str(user_b.id),
         mode="transfer",
     )
-    assert result.get("error") in ("forbidden", "cookbook_not_found"), result
+    assert result.get("error") in ("forbidden", "bundle_not_found"), result
 
 
 def test_handoff_unknown_cookbook_rejected(db_session):
@@ -387,7 +387,7 @@ def test_handoff_unknown_cookbook_rejected(db_session):
         new_owner_user_id=str(uuid4()),
         mode="transfer",
     )
-    assert result.get("error") in ("cookbook_not_found",), result
+    assert result.get("error") in ("bundle_not_found",), result
 
 
 def test_handoff_unknown_new_owner_rejected(db_session):

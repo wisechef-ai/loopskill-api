@@ -125,7 +125,7 @@ def portable_dir_name(skill_slug: str) -> str:
 def _resolve_public_cookbook(db: Session, slug: str) -> Bundle:
     cb = db.query(Bundle).filter(Bundle.slug == slug).first()
     if not cb or cb.visibility != "public":
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
     return cb
 
 
@@ -246,7 +246,7 @@ def cookbook_wellknown_skill_md(
 
     match = next((skill for _cs, skill in rows if skill.slug == skill_name), None)
     if match is None:
-        raise HTTPException(status_code=404, detail="skill_not_in_cookbook")
+        raise HTTPException(status_code=404, detail="skill_not_in_bundle")
 
     if _is_free(match) and (match.readme or "").strip():
         return PlainTextResponse(match.readme, media_type="text/markdown")

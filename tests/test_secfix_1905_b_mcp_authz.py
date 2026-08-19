@@ -311,7 +311,7 @@ class TestIssue7RecipifyCrossTenantRed:
         # mesh_0408 W1b (codex PR #202, finding 3): a distinct forbidden code was
         # an existence oracle — the denial is now the SAME answer an absent id
         # gets. The tests assert indistinguishability, not the old wording.
-        assert out.get("code") == "cookbook_not_found", (
+        assert out.get("code") == "bundle_not_found", (
             f"CROSS-TENANT EXPLOIT: user B wrote to user A's cookbook; got {out!r}"
         )
         absent = loopskill_skillify(
@@ -339,7 +339,7 @@ class TestIssue7RecipifyCrossTenantRed:
             target_cookbook_id=str(cb.id),
             ctx=anon_ctx,
         )
-        assert out.get("code") == "cookbook_not_found", (
+        assert out.get("code") == "bundle_not_found", (
             f"EXPLOIT: anonymous wrote to cookbook; got {out!r}"
         )
 
@@ -358,7 +358,7 @@ class TestIssue7RecipifyCrossTenantRed:
             target_cookbook_id=str(cb.id),
             ctx=owner_ctx,
         )
-        assert out.get("code") != "cookbook_not_found", (
+        assert out.get("code") != "bundle_not_found", (
             f"Owner should be able to write their own cookbook; got {out!r}"
         )
 
@@ -376,7 +376,7 @@ class TestIssue7RecipifyCrossTenantRed:
             target_cookbook_id=str(cb.id),
             ctx=master_ctx,
         )
-        assert out.get("code") != "cookbook_not_found", (
+        assert out.get("code") != "bundle_not_found", (
             f"Master should write to any cookbook; got {out!r}"
         )
 
@@ -682,7 +682,7 @@ class TestIssue13CookbookScopedKey:
             target_cookbook_id=str(cb_other.id),
             ctx=scoped_ctx,
         )
-        assert out.get("code") == "cookbook_not_found", (
+        assert out.get("code") == "bundle_not_found", (
             f"EXPLOIT: scoped key wrote to different cookbook; got {out!r}"
         )
 

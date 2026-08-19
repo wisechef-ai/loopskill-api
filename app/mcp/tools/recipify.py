@@ -86,7 +86,7 @@ def loopskill_skillify(
         # existence oracle — it confirms a guessed UUID is real. One answer for
         # both, matching the REST twin (recipify_routes) which already 404s.
         if cb is None or not authz.can_write_cookbook(ctx, cb):
-            return {"error": f"cookbook_not_found: {cb_id}", "code": "cookbook_not_found"}
+            return {"error": f"bundle_not_found: {cb_id}", "code": "bundle_not_found"}
     else:
         if owner_id is not None:
             # mesh_0408 W1 (P0), finding 2 — MCP twin of the REST fix in

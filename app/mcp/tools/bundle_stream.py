@@ -141,7 +141,7 @@ def _resolve_public_cookbook(db: Session, slug: str) -> Bundle:
     """Return a PUBLIC cookbook by slug or raise 404. Never leaks private ones."""
     cb = db.query(Bundle).filter(Bundle.slug == slug).first()
     if cb is None or cb.visibility != "public":
-        raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404)
+        raise CookbookInstallError("bundle_not_found", "bundle_not_found", status=404)
     return cb
 
 

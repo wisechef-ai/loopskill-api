@@ -319,7 +319,7 @@ def install_skill(
         if not getattr(auth_ctx, "allow_public_catalog", False):
             raise HTTPException(
                 status_code=403,
-                detail="Share tokens can only access cookbook routes",
+                detail="Share tokens can only access bundle routes",
             )
 
     # Visibility check

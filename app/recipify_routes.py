@@ -55,11 +55,11 @@ def _resolve_or_create_cookbook(db: Session, ctx: CookbookCtx, target_cookbook_i
     if target_cookbook_id is not None:
         cb = db.query(Bundle).filter(Bundle.id == target_cookbook_id).first()
         if cb is None:
-            raise HTTPException(status_code=404, detail="cookbook_not_found")
+            raise HTTPException(status_code=404, detail="bundle_not_found")
         # mesh_0408 W1 (P0): tenant-scoped owner-match — authoring into a
         # bundle that belongs to another client's org is a cross-tenant write.
         if not authz.owner_match_within_tenant(ctx, cb):
-            raise HTTPException(status_code=404, detail="cookbook_not_found")
+            raise HTTPException(status_code=404, detail="bundle_not_found")
         return cb
 
     # mesh_0408 W1: the implicit "my oldest bundle" target must stay inside the
