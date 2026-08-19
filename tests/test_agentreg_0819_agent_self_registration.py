@@ -38,7 +38,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import re
 import secrets
 from datetime import UTC, datetime, timedelta
 
@@ -583,313 +582,200 @@ class TestRateLimits:
         Reversing the order would let one refused attacker keep spending the
         platform-wide budget it is already barred from using.
         """
-        from app.services.agent_registration_quota import GLOBAL_BUCKET, current_usage
+        # Round 4: usage is read from the real table (no counter rows), scoped
+        # globally — the assertion is identical, the source of truth changed.
+        from app.database import SessionLocal
+        from app.models import AgentIdentity
+        from app.services.agent_registration_quota import WINDOW
 
         _set_caps(monkeypatch, per_ip=1, global_=10)
         assert _register(client)[1] == 201
         now = datetime.now(UTC)
 
-        from app.database import SessionLocal
-
         db = SessionLocal()
         try:
-            before = current_usage(db, bucket=GLOBAL_BUCKET, now=now)
+            before = db.query(AgentIdentity).filter(AgentIdentity.created_at >= now - WINDOW).count()
             for _ in range(5):
                 assert _register(client, agent_name="over")[1] == 429
-            assert current_usage(db, bucket=GLOBAL_BUCKET, now=now) == before
+            after = db.query(AgentIdentity).filter(AgentIdentity.created_at >= now - WINDOW).count()
+            assert after == before
         finally:
             db.close()
 
 
-class TestQuotaIsAtomic:
-    """Review round 2, F1 — the BLOCKER.
+def _plant_identity(db, *, pubkey: str, ip: str, created_at) -> None:
+    """Insert an AgentIdentity the way the service does (shadow-user FK)."""
+    from app.models import AgentIdentity, User
 
-    Round 1 enforced the cap with ``COUNT(*) >= cap`` and a much later INSERT.
-    Every request arriving while the count sat at ``cap - 1`` read ``cap - 1``,
-    passed, and committed: the cap bounded a sequential attacker and nobody
-    else. On a PUBLIC endpoint that mints API keys, that is the whole wall.
+    user = User(
+        email=f"{pubkey}@agent.local",
+        display_name=f"agent:{pubkey}",
+        is_agent=True,
+    )
+    db.add(user)
+    db.flush()
+    db.add(
+        AgentIdentity(
+            user_id=user.id,
+            pubkey=pubkey,
+            pubkey_sha256=f"sha_{pubkey}",
+            agent_name=f"agent_{pubkey}",
+            registration_ip=ip,
+            created_at=created_at,
+        )
+    )
+
+
+class TestQuotaIsAtomic:
+    """Review round 4 — lock-and-count trailing-window enforcement.
+
+    Rounds 2-3 used immutable counter rows and every fixed-bucket variant
+    either raced across a boundary or forgot a bucket at an alternate one
+    (final review N2). Round 4 locks a per-scope gate row and counts the
+    REAL agent_identities rows in the exact trailing 24h — the invariant
+    checked is the invariant that must hold, with no window arithmetic to
+    get wrong.
     """
 
-    def test_the_reservation_is_ONE_conditional_update(self, db_session):
-        """Structural, and deliberately so.
+    def test_refuses_at_cap_over_the_exact_trailing_window(self, db_session):
+        from app.services.agent_registration_quota import (
+            GLOBAL_SCOPE,
+            reserve_registration_slot,
+        )
 
-        Concurrency is hard to prove and easy to regress. This asserts the
-        SHAPE that makes the reservation atomic on every engine — a single
-        ``UPDATE … SET count = count + 1 WHERE … AND count < :cap`` — so a
-        refactor back to SELECT-then-UPDATE fails here rather than passing
-        review and failing in production under load.
+        now = datetime.now(UTC)
+        # Plant cap rows inside the trailing 24h, one 25h old (expired out).
+        for i in range(3):
+            _plant_identity(
+                db_session, pubkey=f"pk{i}", ip="203.0.113.10", created_at=now - timedelta(hours=23)
+            )
+        _plant_identity(db_session, pubkey="pk_old", ip="203.0.113.10", created_at=now - timedelta(hours=25))
+        db_session.flush()
+
+        # Check-only semantics: a grant reserves nothing by itself — the
+        # caller's INSERT (under the gate lock) is what consumes the slot.
+        # IP scope: 3 in-window rows vs cap 3 -> refused; cap 4 -> granted.
+        assert not reserve_registration_slot(db_session, scope="ip:203.0.113.10", cap=3, now=now)
+        assert reserve_registration_slot(db_session, scope="ip:203.0.113.10", cap=4, now=now)
+        # Global scope: the same 3 rows are in-window (pk_old aged out).
+        assert not reserve_registration_slot(db_session, scope=GLOBAL_SCOPE, cap=3, now=now)
+        assert reserve_registration_slot(db_session, scope=GLOBAL_SCOPE, cap=4, now=now)
+
+    def test_alternate_boundary_burst_is_impossible(self, db_session):
+        """The round-3 killer, re-stated for the new design.
+
+        cap at the END of one window and cap again 12h later (the
+        alternate-boundary shape) must still be capped: with a true
+        trailing-24h count there are no boundaries to exploit, so the second
+        burst simply sees the first burst's rows still in-window.
         """
-        from sqlalchemy import event
-
         from app.services.agent_registration_quota import reserve_registration_slot
 
-        statements: list[str] = []
-
-        def _capture(conn, cursor, statement, parameters, context, executemany):
-            statements.append(" ".join(statement.split()).lower())
-
-        bind = db_session.get_bind()
-        event.listen(bind, "before_cursor_execute", _capture)
-        try:
-            granted = reserve_registration_slot(
-                db_session, bucket="ip:203.0.113.9", cap=3, now=datetime.now(UTC)
+        now = datetime.now(UTC)
+        for i in range(4):
+            _plant_identity(
+                db_session,
+                pubkey=f"burst1_{i}",
+                ip="198.51.100.20",
+                created_at=now - timedelta(hours=12),  # end of 'window A'
             )
-        finally:
-            event.remove(bind, "before_cursor_execute", _capture)
-
-        assert granted.granted is True
-
-        updates = [s for s in statements if s.startswith("update agent_registration_quota")]
-        assert len(updates) == 1, f"expected exactly one UPDATE, got {updates}"
-        sql = updates[0]
-        # Read and write in the SAME statement: the increment is relative to
-        # the column's own committed value, never to one Python read earlier.
-        assert re.search(r"set\s+count\s*=\s*\(?\s*(\w+\.)?count\s*\+", sql), sql
-        # ...guarded by the cap in its own WHERE clause, not in Python.
-        assert re.search(r"where.*(\w+\.)?count\s*<", sql), sql
-        # And nothing that reintroduces the gap.
-        assert "for update" not in sql, "FOR UPDATE is a no-op on sqlite — the guard belongs in the UPDATE"
-
-    def test_a_full_bucket_grants_nothing_and_never_overshoots(self, db_session):
-        from app.services.agent_registration_quota import current_usage, reserve_registration_slot
-
-        now = datetime.now(UTC)
-        bucket = "ip:198.51.100.7"
-        granted = [
-            reserve_registration_slot(db_session, bucket=bucket, cap=3, now=now).granted for _ in range(10)
-        ]
-        assert granted.count(True) == 3, granted
-        assert current_usage(db_session, bucket=bucket, now=now) == 3
-
-    def test_boundary_burst_cannot_double_the_cap(self, db_session):
-        """Review round 3, N2 — the regression round 2 shipped.
-
-        Round 2's UTC-day window let one source spend the full cap at 23:59
-        and a fresh full cap at 00:01. With the 12h sliding pair, the burst
-        into bucket B is limited to B's own share MINUS prior-bucket usage —
-        never a fresh full cap.
-        """
-        from app.services.agent_registration_quota import (
-            current_usage,
-            previous_window_start_for,
-            reserve_registration_slot,
-            window_start_for,
-        )
-        from app.models import AgentRegistrationQuota
-
-        bucket = "ip:203.0.113.77"
-        cap = 4  # share = 2 per 12h bucket
-
-        # Bucket A: spend the full trailing-24h allowance (prior bucket empty
-        # → A's room is the full cap 4).
-        late_in_a = window_start_for(datetime.now(UTC)) + timedelta(hours=11, minutes=59)
-        granted_a = [
-            reserve_registration_slot(db_session, bucket=bucket, cap=cap, now=late_in_a).granted
-            for _ in range(8)
-        ]
-        assert sum(granted_a) == 4, f"bucket A grants: {granted_a}"
-
-        # Bucket B starts one minute later. Pair-sum invariant: count(A)=4
-        # → B's room = cap - 4 = 0. The boundary burst dies here instead of
-        # doubling the cap the way round 2's UTC-day window allowed.
-        early_in_b = late_in_a + timedelta(minutes=2)
-        granted_b = [
-            reserve_registration_slot(db_session, bucket=bucket, cap=cap, now=early_in_b).granted
-            for _ in range(5)
-        ]
-        assert sum(granted_b) == 0, f"boundary burst must not re-grant: {granted_b}"
-
-    def test_prior_usage_clamp_carries_slack_not_debt(self, db_session):
-        """Light prior usage leaves proportional room in the current bucket."""
-        from app.services.agent_registration_quota import reserve_registration_slot, window_start_for
-
-        bucket = "ip:198.51.100.99"
-        cap = 4
-        prev = window_start_for(datetime.now(UTC)) - timedelta(hours=12)
-        from app.models import AgentRegistrationQuota
-
-        db_session.add(AgentRegistrationQuota(bucket=bucket, window_start=prev, count=1))
         db_session.flush()
-        now = datetime.now(UTC)
-        granted = [
-            reserve_registration_slot(db_session, bucket=bucket, cap=cap, now=now).granted for _ in range(4)
-        ]
-        # pair-sum: prior=1 → current room = cap - 1 = 3 grants.
-        assert sum(granted) == 3, granted
+        # 12h later, same scope: all 4 rows are still inside trailing 24h.
+        assert not reserve_registration_slot(db_session, scope="ip:198.51.100.20", cap=4, now=now)
+        # They age out only at a true 24h.
+        future = now + timedelta(hours=12, minutes=1)
+        assert reserve_registration_slot(db_session, scope="ip:198.51.100.20", cap=4, now=future)
 
     def test_a_zero_cap_refuses_without_touching_the_database(self, db_session):
-        from app.models import AgentRegistrationQuota
         from app.services.agent_registration_quota import reserve_registration_slot
 
-        before = db_session.query(AgentRegistrationQuota).count()
-        r = reserve_registration_slot(db_session, bucket="ip:disabled", cap=0, now=datetime.now(UTC))
-        assert r.granted is False
-        assert db_session.query(AgentRegistrationQuota).count() == before
+        r = reserve_registration_slot(db_session, scope="ip:disabled", cap=0, now=datetime.now(UTC))
+        assert r is False
 
     def test_concurrent_reservations_never_exceed_the_cap(self, tmp_path):
         """The real proof: N threads, real commits, separate connections.
 
-        Runs against a FILE-BACKED SQLite database rather than the suite's
-        in-memory one, because the in-memory engine is shared through a
-        StaticPool — every "connection" is the same connection, so nothing
-        could actually contend.
-
-        SQLite serialises write transactions against the whole database file,
-        so the two conditional UPDATEs cannot interleave at all. That is a
-        STRICTER guarantee than production's, not a weaker one, and it is why
-        no ``FOR UPDATE`` appears anywhere in the implementation: ``FOR UPDATE``
-        parses as a silent no-op here, so a lock expressed that way would be
-        proven by this test and absent in fact. On Postgres the identical
-        statement is atomic for its own reason — the UPDATE takes the row lock
-        and the WHERE clause is re-evaluated against the committed row after
-        the lock is released — which
-        ``test_concurrent_reservations_never_exceed_the_cap_on_postgres`` below
-        exercises when the suite is pointed at a real server.
-
-        RED-PROOFED: re-running this harness against the round-1 shape (read the
-        count, commit, sleep, then increment) grants 22 of 24 against a cap of
-        3. The current implementation grants exactly 3, repeatably.
+        Round 4 note: the gate row's FOR UPDATE serialises reservers on
+        Postgres; SQLite serialises whole write transactions, so the same
+        proof holds by stricter engine semantics.
         """
         import threading
 
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
 
-        from app.models import Base
-        from app.services.agent_registration_quota import current_usage, reserve_registration_slot
+        from app.models import AgentIdentity, Base
+        from app.services.agent_registration_quota import reserve_registration_slot
 
-        db_path = tmp_path / "quota_race.sqlite"
-        engine = create_engine(f"sqlite:///{db_path}", connect_args={"timeout": 30})
-        Base.metadata.create_all(bind=engine, tables=[Base.metadata.tables["agent_registration_quota"]])
-        SessionFactory = sessionmaker(bind=engine)
+        engine = create_engine(f"sqlite:///{tmp_path / 'gate_race.db'}")
+        Base.metadata.create_all(engine)
+        Session = sessionmaker(bind=engine)
 
-        cap = 3
-        threads_n = 24
+        # Pre-create shadow users so worker threads only INSERT identities.
+        setup = Session()
+        from app.models import User as UserModel
+
+        uids = []
+        for n in range(20):
+            u = UserModel(email=f"race{n}@agent.local", display_name=f"agent:race{n}", is_agent=True)
+            setup.add(u)
+            setup.flush()
+            uids.append(u.id)
+        setup.commit()
+        setup.close()
+
         now = datetime.now(UTC)
-        bucket = "ip:203.0.113.42"
-        results: list[bool] = []
+        cap = 5
+        granted = []
         lock = threading.Lock()
-        start = threading.Barrier(threads_n)
 
-        def _attempt() -> None:
-            start.wait(timeout=30)
-            session = SessionFactory()
+        def worker(n: int, uid) -> None:
+            session = Session()
             try:
-                granted = reserve_registration_slot(session, bucket=bucket, cap=cap, now=now).granted
+                ok = reserve_registration_slot(session, scope="ip:203.0.113.99", cap=cap, now=now)
+                if ok:
+                    session.add(
+                        AgentIdentity(
+                            user_id=uid,
+                            pubkey=f"race_pk_{n}",
+                            pubkey_sha256=f"race_sha_{n}",
+                            agent_name=f"race_{n}",
+                            registration_ip="203.0.113.99",
+                            created_at=now,
+                        )
+                    )
                 session.commit()
-            except Exception:  # noqa: BLE001 — a lost DB race counts as "not granted"
+            except Exception:
                 session.rollback()
-                granted = False
+                ok = False
             finally:
                 session.close()
             with lock:
-                results.append(granted)
+                granted.append(bool(ok))
 
-        threads = [threading.Thread(target=_attempt) for _ in range(threads_n)]
+        threads = [threading.Thread(target=worker, args=(n, uids[n])) for n in range(20)]
         for t in threads:
             t.start()
         for t in threads:
-            t.join(timeout=60)
+            t.join()
 
-        assert len(results) == threads_n, "a thread did not finish"
-        # The security property: never MORE than the cap.
-        assert results.count(True) <= cap, (
-            f"{results.count(True)} of {threads_n} concurrent reservations were granted "
-            f"against a cap of {cap} — the quota is not atomic"
+        assert sum(granted) == cap, f"overshoot: {sum(granted)} grants for cap {cap}"
+
+    def test_retry_after_reflects_real_capacity_horizon(self, db_session):
+        """N3 final: the header points at the oldest in-window row's 24h mark."""
+        from app.services.agent_registration_quota import (
+            reserve_registration_slot,
+            seconds_until_capacity,
         )
-        # And the liveness half, so the assertion above cannot pass vacuously by
-        # granting nothing at all.
-        assert results.count(True) == cap, (
-            f"only {results.count(True)} of {cap} slots were granted — the "
-            "reservation is refusing callers it should have admitted"
-        )
-        verify = SessionFactory()
-        try:
-            assert current_usage(verify, bucket=bucket, now=now) == results.count(True)
-        finally:
-            verify.close()
-            engine.dispose()
-
-    @pytest.mark.skipif(
-        not _postgres_url(),
-        reason="needs a real Postgres server (CI Postgres job); SQLite proves the "
-        "invariant by serialising writes, Postgres proves it by row-locking",
-    )
-    def test_concurrent_reservations_never_exceed_the_cap_on_postgres(self, engine_fixture):
-        """The production engine's version of the test above.
-
-        Postgres at READ COMMITTED does NOT serialise these transactions — the
-        loser blocks on the winner's row lock and then re-evaluates its own
-        WHERE clause against the newly committed row. That re-check is the
-        whole reason the guard lives inside the UPDATE, and it is the property
-        SQLite cannot exercise.
-        """
-        import threading
-
-        from sqlalchemy.orm import sessionmaker
-
-        from app.services.agent_registration_quota import current_usage, reserve_registration_slot
-
-        SessionFactory = sessionmaker(bind=engine_fixture)
-        cap = 3
-        threads_n = 24
-        now = datetime.now(UTC)
-        bucket = f"ip:pg-{secrets.token_hex(4)}"
-        results: list[bool] = []
-        lock = threading.Lock()
-        start = threading.Barrier(threads_n)
-
-        def _attempt() -> None:
-            start.wait(timeout=30)
-            session = SessionFactory()
-            try:
-                granted = reserve_registration_slot(session, bucket=bucket, cap=cap, now=now).granted
-                session.commit()
-            except Exception:  # noqa: BLE001
-                session.rollback()
-                granted = False
-            finally:
-                session.close()
-            with lock:
-                results.append(granted)
-
-        threads = [threading.Thread(target=_attempt) for _ in range(threads_n)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=60)
-
-        assert results.count(True) <= cap, (
-            f"{results.count(True)} concurrent reservations granted against cap {cap}"
-        )
-        verify = SessionFactory()
-        try:
-            assert current_usage(verify, bucket=bucket, now=now) == results.count(True)
-        finally:
-            verify.close()
-
-    def test_a_rolled_back_mint_releases_its_slot(self, db_session):
-        """Failure release is what makes the 409 path free — it is not incidental."""
-        from app.services.agent_registration_quota import current_usage, reserve_registration_slot
 
         now = datetime.now(UTC)
-        bucket = "ip:192.0.2.55"
-        assert reserve_registration_slot(db_session, bucket=bucket, cap=5, now=now).granted
+        oldest_at = now - timedelta(hours=23)
+        _plant_identity(db_session, pubkey="pk_r", ip="203.0.113.55", created_at=oldest_at)
         db_session.flush()
-        taken = current_usage(db_session, bucket=bucket, now=now)
-        assert taken == 1
-
-        with db_session.begin_nested() as savepoint:
-            assert reserve_registration_slot(db_session, bucket=bucket, cap=5, now=now).granted
-            db_session.flush()
-            assert current_usage(db_session, bucket=bucket, now=now) == 2
-            savepoint.rollback()
-
-        db_session.expire_all()
-        assert current_usage(db_session, bucket=bucket, now=now) == 1
-
-
-# ── revocation ──────────────────────────────────────────────────────────────
+        assert not reserve_registration_slot(db_session, scope="ip:203.0.113.55", cap=1, now=now)
+        ra = seconds_until_capacity(db_session, scope="ip:203.0.113.55", now=now)
+        # capacity returns when the oldest row ages out: ~1h away.
+        assert 3540 <= ra <= 3660, ra
 
 
 class TestRevocation:

@@ -6,6 +6,7 @@ Plus supporting tables: creators, orgs, api_library.
 Bundle tables: bundles, bundle_skills, bundle_share_tokens, bundle_deployments.
 """
 
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -3068,6 +3069,34 @@ class AgentIdentity(Base):
         Index("idx_agent_identities_ip_created", "registration_ip", "created_at"),
         Index("idx_agent_identities_created", "created_at"),
     )
+
+
+class AgentRegistrationGate(Base):
+    """One serialisation row per registration scope (review round 4).
+
+    agentreg_0819 rounds 2-3 tried to bound enrolment with immutable counter
+    rows; the final review proved every fixed-bucket variant either racily
+    overshoots or forgets a bucket at an alternate boundary. Round 4 is dumber
+    and true: this row is LOCKED (SELECT ... FOR UPDATE) by every concurrent
+    reserver of its scope, and under that lock the service counts the real
+    ``agent_identities`` rows in the exact trailing 24h. No window arithmetic,
+    no boundaries — the checked invariant is the invariant that must hold.
+    On SQLite the lock is a no-op made safe by whole-DB write serialisation.
+
+    See app/services/agent_registration_quota.py for the full rationale.
+    """
+
+    __tablename__ = "agent_registration_gate"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    # "global", or "ip:<address>". One row = one serialisation domain.
+    scope = Column(String(128), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
+    # Written by EVERY reservation so the row lock is taken by an UPDATE (a
+    # real write) rather than a SELECT ... FOR UPDATE — which is a no-op on
+    # SQLite. The write holds Postgres's row lock / SQLite's database write
+    # lock from the decision until the caller's COMMIT.
+    last_reserved_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class AgentRegistrationNonce(Base):

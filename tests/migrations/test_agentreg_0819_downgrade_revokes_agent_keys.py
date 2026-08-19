@@ -114,7 +114,7 @@ class TestDowngradeTakesTheCredentialsWithIt:
         for expected in (
             "agent_identities",
             "agent_registration_nonces",
-            "agent_registration_quota",
+            "agent_registration_gate",
         ):
             assert expected in tables, f"{expected} missing after upgrade"
 
@@ -174,7 +174,7 @@ class TestDowngradeTakesTheCredentialsWithIt:
         for gone in (
             "agent_identities",
             "agent_registration_nonces",
-            "agent_registration_quota",
+            "agent_registration_gate",
         ):
             assert gone not in tables, f"{gone} survived the downgrade"
 
@@ -255,5 +255,5 @@ class TestDowngradeTakesTheCredentialsWithIt:
         command.upgrade(cfg, REVISION)
 
         tables = _table_names(engine)
-        assert {"agent_identities", "agent_registration_quota"} <= tables
+        assert {"agent_identities", "agent_registration_gate"} <= tables
         engine.dispose()

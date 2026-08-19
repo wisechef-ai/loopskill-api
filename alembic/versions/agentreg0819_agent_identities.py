@@ -140,11 +140,14 @@ def upgrade() -> None:
     op.create_index("ix_agent_reg_nonce_hash", "agent_registration_nonces", ["nonce_hash"])
     op.create_index("ix_agent_reg_nonce_expires", "agent_registration_nonces", ["expires_at"])
 
-    # F1 — the atomic enrolment-quota counter. See
-    # app/services/agent_registration_quota.py for why a counter row replaced
-    # COUNT(*) over agent_identities.
+    # Rounds 2-4 — the enrolment serialisation gate. One row per scope
+    # ("global" / "ip:<address>"); locked FOR UPDATE so concurrent reservers
+    # of a scope serialise, after which the service counts real
+    # agent_identities rows in the exact trailing 24h. The counter-row design
+    # this replaces could not express a true rolling window without a
+    # boundary race or an alternate-boundary bypass (final review, N2).
     op.create_table(
-        "agent_registration_quota",
+        "agent_registration_gate",
         sa.Column(
             "id",
             uuid_type,
@@ -152,15 +155,12 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.text("gen_random_uuid()") if is_pg else None,
         ),
-        sa.Column("bucket", sa.String(length=128), nullable=False),
-        sa.Column("window_start", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("count", sa.Integer(), nullable=False, server_default=sa.text("0")),
-        # The row IS the lock: one counter per (bucket, window) means two
-        # concurrent reservations contend on a single row instead of racing on
-        # a table-wide aggregate.
-        sa.UniqueConstraint("bucket", "window_start", name="uq_agent_reg_quota_bucket_window"),
+        sa.Column("scope", sa.String(length=128), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column("last_reserved_at", sa.DateTime(timezone=True), nullable=True),
+        sa.UniqueConstraint("scope", name="uq_agent_reg_gate_scope"),
     )
-    op.create_index("idx_agent_reg_quota_window", "agent_registration_quota", ["window_start"])
+    op.create_index("ix_agent_reg_gate_scope", "agent_registration_gate", ["scope"])
 
     # F5 — the durable agent marker on the shadow user. NOT NULL with a false
     # server_default so every existing human row is backfilled to false by the
@@ -225,8 +225,8 @@ def downgrade() -> None:
 
     op.drop_column("users", "is_agent")
 
-    op.drop_index("idx_agent_reg_quota_window", table_name="agent_registration_quota")
-    op.drop_table("agent_registration_quota")
+    op.drop_index("ix_agent_reg_gate_scope", table_name="agent_registration_gate")
+    op.drop_table("agent_registration_gate")
     op.drop_index("ix_agent_reg_nonce_expires", table_name="agent_registration_nonces")
     op.drop_index("ix_agent_reg_nonce_hash", table_name="agent_registration_nonces")
     op.drop_table("agent_registration_nonces")

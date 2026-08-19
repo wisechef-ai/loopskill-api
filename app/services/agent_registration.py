@@ -85,9 +85,10 @@ from app.services.agent_registration_proof import (  # noqa: F401
     verify_registration_signature,
 )
 from app.services.agent_registration_quota import (
-    GLOBAL_BUCKET,
-    ip_bucket,
+    GLOBAL_SCOPE,
+    gate_scope_for_ip,
     reserve_registration_slot,
+    seconds_until_capacity,
 )
 
 logger = logging.getLogger(__name__)
@@ -173,19 +174,6 @@ def consume_nonce(db: Session, nonce: str, *, now: datetime) -> None:
 # Seconds a caller is told to wait after a cap refusal. One hour, not the
 # remaining window: the exact reset instant is a free oracle on how much of the
 # platform-wide budget an attacker has already consumed.
-CAP_RETRY_AFTER_SECONDS = 3600  # legacy fallback; the live value is computed
-
-
-def _cap_retry_after(now: datetime | None = None) -> int:
-    """Seconds until the current quota bucket rolls (review round 3, N3).
-
-    Replaces the hardcoded 3600s that understated a just-after-boundary
-    refusal by ~23x. Delegates to the quota module so the refusal duration
-    and the window semantics can never drift apart again.
-    """
-    from app.services.agent_registration_quota import seconds_until_next_bucket
-
-    return seconds_until_next_bucket(now or datetime.now(UTC))
 
 
 # The stable log event key for the platform-wide cap. Grep/alert on this string
@@ -223,18 +211,18 @@ def enforce_registration_quota(db: Session, *, client_ip: str | None, now: datet
     """
     ip_cap = settings.AGENT_REGISTRATION_PER_IP_PER_DAY
     if client_ip:
-        ip_reservation = reserve_registration_slot(db, bucket=ip_bucket(client_ip), cap=ip_cap, now=now)
-        if not ip_reservation.granted:
+        ip_scope = gate_scope_for_ip(client_ip)
+        if not reserve_registration_slot(db, scope=ip_scope, cap=ip_cap, now=now):
             raise AgentRegistrationError(
                 429,
                 "ip_registration_limit",
                 f"this source has reached its cap of {ip_cap} agent registrations per day",
-                retry_after=_cap_retry_after(),
+                retry_after=seconds_until_capacity(db, scope=ip_scope, now=now),
             )
 
     global_cap = settings.AGENT_REGISTRATION_GLOBAL_PER_DAY
-    global_reservation = reserve_registration_slot(db, bucket=GLOBAL_BUCKET, cap=global_cap, now=now)
-    if not global_reservation.granted:
+    global_scope = GLOBAL_SCOPE
+    if not reserve_registration_slot(db, scope=global_scope, cap=global_cap, now=now):
         # Structured and stable: this is the line an alert rule keys off. If it
         # fires, self-registration is DOWN platform-wide until the UTC day rolls
         # or someone raises WR_AGENT_REGISTRATION_GLOBAL_PER_DAY.
@@ -255,7 +243,7 @@ def enforce_registration_quota(db: Session, *, client_ip: str | None, now: datet
             429,
             "global_registration_limit",
             f"the platform-wide cap of {global_cap} agent registrations per day is reached",
-            retry_after=_cap_retry_after(),
+            retry_after=seconds_until_capacity(db, scope=global_scope, now=now),
         )
 
 
