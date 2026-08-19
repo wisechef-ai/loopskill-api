@@ -171,9 +171,7 @@ class TestHappyPath:
         assert user.subscription_status is None
         assert user.subscription_tier is None
 
-    def test_the_minted_key_authenticates_and_resolves_to_free_user_scope(
-        self, client, db_session, app
-    ):
+    def test_the_minted_key_authenticates_and_resolves_to_free_user_scope(self, client, db_session, app):
         private, pubkey = _keypair()
         key = client.post(REGISTER_PATH, json=_payload(private, pubkey)).json()["api_key"]
 
@@ -269,10 +267,7 @@ class TestNonceReplay:
         """The nonce is global, not per-pubkey — a shared nonce pool is one pool."""
         nonce = secrets.token_hex(16)
         first, first_pub = _keypair()
-        assert (
-            client.post(REGISTER_PATH, json=_payload(first, first_pub, nonce=nonce)).status_code
-            == 201
-        )
+        assert client.post(REGISTER_PATH, json=_payload(first, first_pub, nonce=nonce)).status_code == 201
         second, second_pub = _keypair()
         r = client.post(REGISTER_PATH, json=_payload(second, second_pub, nonce=nonce))
         assert r.status_code == 401
@@ -391,16 +386,10 @@ class TestPubkeyCanonicality:
 
         raw = base64.b64decode(pubkey)
         fingerprint = hashlib.sha256(raw).hexdigest()
-        rows = (
-            db_session.query(AgentIdentity)
-            .filter(AgentIdentity.pubkey_sha256 == fingerprint)
-            .all()
-        )
+        rows = db_session.query(AgentIdentity).filter(AgentIdentity.pubkey_sha256 == fingerprint).all()
         assert len(rows) == 1, "one keypair, one identity"
 
-    def test_uniqueness_is_enforced_by_the_DATABASE_not_only_by_the_check(
-        self, client, db_session
-    ):
+    def test_uniqueness_is_enforced_by_the_DATABASE_not_only_by_the_check(self, client, db_session):
         """Defence in depth: bypass the service and the UNIQUE still refuses.
 
         The canonicality check and the raw-bytes UNIQUE are two independent
@@ -667,20 +656,73 @@ class TestQuotaIsAtomic:
         now = datetime.now(UTC)
         bucket = "ip:198.51.100.7"
         granted = [
-            reserve_registration_slot(db_session, bucket=bucket, cap=3, now=now).granted
-            for _ in range(10)
+            reserve_registration_slot(db_session, bucket=bucket, cap=3, now=now).granted for _ in range(10)
         ]
         assert granted.count(True) == 3, granted
         assert current_usage(db_session, bucket=bucket, now=now) == 3
+
+    def test_boundary_burst_cannot_double_the_cap(self, db_session):
+        """Review round 3, N2 — the regression round 2 shipped.
+
+        Round 2's UTC-day window let one source spend the full cap at 23:59
+        and a fresh full cap at 00:01. With the 12h sliding pair, the burst
+        into bucket B is limited to B's own share MINUS prior-bucket usage —
+        never a fresh full cap.
+        """
+        from app.services.agent_registration_quota import (
+            current_usage,
+            previous_window_start_for,
+            reserve_registration_slot,
+            window_start_for,
+        )
+        from app.models import AgentRegistrationQuota
+
+        bucket = "ip:203.0.113.77"
+        cap = 4  # share = 2 per 12h bucket
+
+        # Bucket A: spend the full trailing-24h allowance (prior bucket empty
+        # → A's room is the full cap 4).
+        late_in_a = window_start_for(datetime.now(UTC)) + timedelta(hours=11, minutes=59)
+        granted_a = [
+            reserve_registration_slot(db_session, bucket=bucket, cap=cap, now=late_in_a).granted
+            for _ in range(8)
+        ]
+        assert sum(granted_a) == 4, f"bucket A grants: {granted_a}"
+
+        # Bucket B starts one minute later. Pair-sum invariant: count(A)=4
+        # → B's room = cap - 4 = 0. The boundary burst dies here instead of
+        # doubling the cap the way round 2's UTC-day window allowed.
+        early_in_b = late_in_a + timedelta(minutes=2)
+        granted_b = [
+            reserve_registration_slot(db_session, bucket=bucket, cap=cap, now=early_in_b).granted
+            for _ in range(5)
+        ]
+        assert sum(granted_b) == 0, f"boundary burst must not re-grant: {granted_b}"
+
+    def test_prior_usage_clamp_carries_slack_not_debt(self, db_session):
+        """Light prior usage leaves proportional room in the current bucket."""
+        from app.services.agent_registration_quota import reserve_registration_slot, window_start_for
+
+        bucket = "ip:198.51.100.99"
+        cap = 4
+        prev = window_start_for(datetime.now(UTC)) - timedelta(hours=12)
+        from app.models import AgentRegistrationQuota
+
+        db_session.add(AgentRegistrationQuota(bucket=bucket, window_start=prev, count=1))
+        db_session.flush()
+        now = datetime.now(UTC)
+        granted = [
+            reserve_registration_slot(db_session, bucket=bucket, cap=cap, now=now).granted for _ in range(4)
+        ]
+        # pair-sum: prior=1 → current room = cap - 1 = 3 grants.
+        assert sum(granted) == 3, granted
 
     def test_a_zero_cap_refuses_without_touching_the_database(self, db_session):
         from app.models import AgentRegistrationQuota
         from app.services.agent_registration_quota import reserve_registration_slot
 
         before = db_session.query(AgentRegistrationQuota).count()
-        r = reserve_registration_slot(
-            db_session, bucket="ip:disabled", cap=0, now=datetime.now(UTC)
-        )
+        r = reserve_registration_slot(db_session, bucket="ip:disabled", cap=0, now=datetime.now(UTC))
         assert r.granted is False
         assert db_session.query(AgentRegistrationQuota).count() == before
 
@@ -733,9 +775,7 @@ class TestQuotaIsAtomic:
             start.wait(timeout=30)
             session = SessionFactory()
             try:
-                granted = reserve_registration_slot(
-                    session, bucket=bucket, cap=cap, now=now
-                ).granted
+                granted = reserve_registration_slot(session, bucket=bucket, cap=cap, now=now).granted
                 session.commit()
             except Exception:  # noqa: BLE001 — a lost DB race counts as "not granted"
                 session.rollback()
@@ -803,9 +843,7 @@ class TestQuotaIsAtomic:
             start.wait(timeout=30)
             session = SessionFactory()
             try:
-                granted = reserve_registration_slot(
-                    session, bucket=bucket, cap=cap, now=now
-                ).granted
+                granted = reserve_registration_slot(session, bucket=bucket, cap=cap, now=now).granted
                 session.commit()
             except Exception:  # noqa: BLE001
                 session.rollback()
@@ -867,9 +905,7 @@ class TestRevocation:
         revoke_identity(db_session, identity.id)
         return key, identity
 
-    def test_a_live_agent_key_works_on_the_route_the_revocation_test_uses(
-        self, client, db_session
-    ):
+    def test_a_live_agent_key_works_on_the_route_the_revocation_test_uses(self, client, db_session):
         """Control for the test below — otherwise a 401 could mean anything."""
         private, pubkey = _keypair()
         key = client.post(REGISTER_PATH, json=_payload(private, pubkey)).json()["api_key"]
@@ -1157,17 +1193,13 @@ class TestAgentKeyIsFenced:
         db_session.flush()
 
         body = {"entrypoint": "setup.sh"}
-        control = client.post(
-            f"/api/skills/{slug}/sandbox/run", headers={"x-api-key": master_key}, json=body
-        )
+        control = client.post(f"/api/skills/{slug}/sandbox/run", headers={"x-api-key": master_key}, json=body)
         assert control.status_code != 403, (
             "control: a sandbox-authorized caller must get PAST the authz gate "
             f"(got {control.status_code}: {control.text})"
         )
 
-        r = client.post(
-            f"/api/skills/{slug}/sandbox/run", headers={"x-api-key": agent_key}, json=body
-        )
+        r = client.post(f"/api/skills/{slug}/sandbox/run", headers={"x-api-key": agent_key}, json=body)
         assert r.status_code == 403, r.text
         assert "sandbox" in r.text.lower()
 
@@ -1198,18 +1230,14 @@ class TestWellKnownIsPublic:
 
     def test_published_canonical_string_matches_the_verifier(self, client):
         """Three copies of this string exist; drift breaks every client silently."""
-        published = client.get("/.well-known/agent.json").json()["registration"][
-            "canonical_string"
-        ]
+        published = client.get("/.well-known/agent.json").json()["registration"]["canonical_string"]
         assert published == canonical_registration_string(
             pubkey="{pubkey}",
             timestamp="{timestamp}",
             nonce="{nonce}",
             agent_name="{agent_name}",
         )
-        assert published == (
-            "loopskill-agent-register:v1:{pubkey}:{timestamp}:{nonce}:{agent_name}"
-        )
+        assert published == ("loopskill-agent-register:v1:{pubkey}:{timestamp}:{nonce}:{agent_name}")
 
     def test_route_docstring_documents_the_same_canonical_string(self):
         from app.agent_registration_routes import register_agent_route

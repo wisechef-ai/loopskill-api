@@ -173,7 +173,20 @@ def consume_nonce(db: Session, nonce: str, *, now: datetime) -> None:
 # Seconds a caller is told to wait after a cap refusal. One hour, not the
 # remaining window: the exact reset instant is a free oracle on how much of the
 # platform-wide budget an attacker has already consumed.
-CAP_RETRY_AFTER_SECONDS = 3600
+CAP_RETRY_AFTER_SECONDS = 3600  # legacy fallback; the live value is computed
+
+
+def _cap_retry_after(now: datetime | None = None) -> int:
+    """Seconds until the current quota bucket rolls (review round 3, N3).
+
+    Replaces the hardcoded 3600s that understated a just-after-boundary
+    refusal by ~23x. Delegates to the quota module so the refusal duration
+    and the window semantics can never drift apart again.
+    """
+    from app.services.agent_registration_quota import seconds_until_next_bucket
+
+    return seconds_until_next_bucket(now or datetime.now(UTC))
+
 
 # The stable log event key for the platform-wide cap. Grep/alert on this string
 # — it means enrolment is CLOSED for everyone until the window rolls, and the maintainer
@@ -216,7 +229,7 @@ def enforce_registration_quota(db: Session, *, client_ip: str | None, now: datet
                 429,
                 "ip_registration_limit",
                 f"this source has reached its cap of {ip_cap} agent registrations per day",
-                retry_after=CAP_RETRY_AFTER_SECONDS,
+                retry_after=_cap_retry_after(),
             )
 
     global_cap = settings.AGENT_REGISTRATION_GLOBAL_PER_DAY
@@ -242,7 +255,7 @@ def enforce_registration_quota(db: Session, *, client_ip: str | None, now: datet
             429,
             "global_registration_limit",
             f"the platform-wide cap of {global_cap} agent registrations per day is reached",
-            retry_after=CAP_RETRY_AFTER_SECONDS,
+            retry_after=_cap_retry_after(),
         )
 
 

@@ -3108,11 +3108,13 @@ class AgentRegistrationQuota(Base):
     conditional UPDATE — see
     ``app.services.agent_registration_quota.reserve_registration_slot``.
 
-    ``window_start`` is a FIXED UTC-day floor rather than a rolling 24h edge.
-    Rolling windows cannot be expressed as a row you can lock; fixed windows
-    can. The trade is real and bounded: at a day boundary a source may spend
-    its old and new allowance back to back (2x the cap in one instant, never
-    more), which is a far smaller hole than an unbounded concurrent breach.
+    ``window_start`` is a FIXED 12-hour UTC floor; the trailing-24h cap is
+    enforced over the PAIR (current + previous bucket), split pro-rata —
+    review round 3 (N2) closed round 2's UTC-day boundary burst (full cap at
+    23:59, full cap again at 00:01). With the sliding pair, a boundary burst
+    is limited to the current bucket's own share; worst-case trailing-24h
+    total is ``2 x share`` only for traffic exactly straddling a 12h
+    boundary — a strictly tighter envelope than the calendar-day trade.
     """
 
     __tablename__ = "agent_registration_quota"

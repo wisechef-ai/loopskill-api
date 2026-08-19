@@ -205,18 +205,23 @@ def downgrade() -> None:
     shadow_user_ids = [row[0] for row in bind.execute(sa.text("SELECT user_id FROM agent_identities"))]
 
     if shadow_user_ids:
-        # Hard DELETE, not is_active=false: a deactivated row can be flipped
-        # back on by any existing admin/support path, and after this migration
-        # nothing would recognise it as an agent key if it were.
-        bind.execute(
-            sa.text(
-                "DELETE FROM api_keys WHERE user_id IN "
-                "(SELECT user_id FROM agent_identities)"
+        # Review round 3 (N1): the api_keys DELETE runs in its OWN committed
+        # transaction, BEFORE the fallible shadow-user DELETE below. On
+        # Postgres the whole migration otherwise runs in ONE transaction, so
+        # a later FK failure on the users DELETE would roll the key deletion
+        # back with it — the exact "safe loud failure" the docstring below
+        # promised and the transaction model silently withdrew. Committing
+        # the neutralization first makes that promise transactionally true:
+        # if everything after this block fails, the credentials are already
+        # gone and the migration is re-runnable.
+        with op.get_context().autocommit_block():
+            # Hard DELETE, not is_active=false: a deactivated row can be
+            # flipped back on by any existing admin/support path, and after
+            # this migration nothing would recognise it as an agent key.
+            bind.execute(
+                sa.text("DELETE FROM api_keys WHERE user_id IN (SELECT user_id FROM agent_identities)")
             )
-        )
-        bind.execute(
-            sa.text("DELETE FROM users WHERE id IN (SELECT user_id FROM agent_identities)")
-        )
+        bind.execute(sa.text("DELETE FROM users WHERE id IN (SELECT user_id FROM agent_identities)"))
 
     op.drop_column("users", "is_agent")
 

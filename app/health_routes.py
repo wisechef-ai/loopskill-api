@@ -82,6 +82,10 @@ def healthz(db: Session = Depends(get_db)):
                 # the paid 'pro' / 'pro_plus' (legacy aliases 'cook' / 'operator' sunset 2026-06-10).
                 paid_after_last_webhook = db.execute(
                     select(func.count(User.id)).where(
+                        # is_agent: review round 3 (F6) — agent shadows can never be
+                        # paying humans; excluding them keeps the Stripe-lag probe
+                        # honest once self-registered agents exist.
+                        User.is_agent.is_(False),
                         User.subscription_tier.is_not(None),
                         User.subscription_tier != "free",
                         User.created_at >= cutoff,

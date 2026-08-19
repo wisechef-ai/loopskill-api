@@ -64,7 +64,7 @@ legitimate agent's allowance — the property the 409 path in
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
@@ -81,14 +81,43 @@ def ip_bucket(client_ip: str) -> str:
 
 
 def window_start_for(now: datetime) -> datetime:
-    """Floor ``now`` to the start of its UTC day — the quota window.
+    """Floor ``now`` to the start of its 12-hour UTC bucket — the quota window.
 
-    Fixed windows, not rolling ones: a rolling edge has no row to lock, and a
-    cap you cannot lock is a cap you cannot enforce concurrently. See the
-    ``AgentRegistrationQuota`` docstring for the (bounded) trade this accepts.
+    Review round 3 (N2): round 2's UTC-midnight window let an attacker spend
+    the full cap at 23:59 and again at 00:01 — 2x cap in two minutes. The
+    sliding window round 1 advertised is enforced here with TWO fixed 12-hour
+    buckets as one invariant: ``count(current) + count(previous) <= cap``
+    (see ``reserve_registration_slot``). A boundary burst inherits only the
+    room the pair-sum leaves — never a fresh full cap, and the trailing-24h
+    total never exceeds the cap at any boundary alignment. Strictly tighter
+    than the calendar-day trade round 2 shipped.
     """
     aware = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
-    return aware.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    utc = aware.astimezone(UTC)
+    floored_hour = (utc.hour // BUCKET_HOURS) * BUCKET_HOURS
+    return utc.replace(hour=floored_hour, minute=0, second=0, microsecond=0)
+
+
+BUCKET_HOURS = 12
+BUCKET_SPAN = timedelta(hours=BUCKET_HOURS)
+
+
+def previous_window_start_for(now: datetime) -> datetime:
+    """The bucket immediately before ``now``'s — half of the sliding pair."""
+    return window_start_for(now) - BUCKET_SPAN
+
+
+def seconds_until_next_bucket(now: datetime) -> int:
+    """Seconds until ``now``'s current bucket ends (Review round 3, N3).
+
+    Coarse on purpose: the refusal path uses this to compute ``Retry-After``
+    from the ACTUAL window boundary instead of a hardcoded 3600s that
+    understated a near-full-day refusal by 23x. Rounded up to the next whole
+    minute; never below 60.
+    """
+    boundary = window_start_for(now) + BUCKET_SPAN
+    delta = (boundary - now).total_seconds()
+    return max(60, int(delta // 60 * 60) + (60 if delta % 60 else 0))
 
 
 @dataclass(frozen=True)
@@ -152,7 +181,14 @@ def reserve_registration_slot(
         return Reservation(granted=False, bucket=bucket, cap=cap)
 
     window_start = window_start_for(now)
+    prev_window_start = previous_window_start_for(now)
+    # The sliding pair (review round 3, N2): the trailing-24h cap is enforced
+    # over current + previous 12h bucket as ONE invariant — count(A)+count(B)
+    # <= cap — so the current bucket's room is `cap - count(previous)`. A
+    # burst landing at the end of bucket A spends A's room; the first minute
+    # of bucket B inherits only what the pair-sum leaves — never a fresh cap.
     _ensure_counter_row(db, bucket=bucket, window_start=window_start)
+    _ensure_counter_row(db, bucket=bucket, window_start=prev_window_start)
 
     stmt = (
         update(AgentRegistrationQuota)
@@ -160,13 +196,35 @@ def reserve_registration_slot(
             AgentRegistrationQuota.bucket == bucket,
             AgentRegistrationQuota.window_start == window_start,
             # THE GUARD. It lives here, inside the write, and nowhere else.
-            AgentRegistrationQuota.count < cap,
+            # count(B) may grow only while count(B) < cap - count(A): the
+            # pair-sum stays under the cap, decided atomically per row.
+            AgentRegistrationQuota.count
+            < (cap - _prior_usage(db, bucket=bucket, window_start=prev_window_start, cap=cap)),
         )
         .values(count=AgentRegistrationQuota.count + 1)
         .execution_options(synchronize_session=False)
     )
     result = db.execute(stmt)
     return Reservation(granted=bool(result.rowcount == 1), bucket=bucket, cap=cap)
+
+
+def _prior_usage(db: Session, *, bucket: str, window_start: datetime, cap: int) -> int:
+    """Previous-bucket usage clamped to ``[0, cap]``.
+
+    Prior-window usage can never grow again (its window has passed), so a
+    plain read here cannot race the way round-1's ``COUNT(*)`` did; the
+    ONLY decision still lives inside the conditional UPDATE above.
+    """
+    row = (
+        db.query(AgentRegistrationQuota)
+        .filter(
+            AgentRegistrationQuota.bucket == bucket,
+            AgentRegistrationQuota.window_start == window_start,
+        )
+        .first()
+    )
+    prior = int(row.count) if row is not None else 0
+    return max(0, min(prior, cap))
 
 
 def current_usage(db: Session, *, bucket: str, now: datetime) -> int:
