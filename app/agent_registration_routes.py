@@ -118,9 +118,14 @@ def register_agent_route(
     ================  ==========================================================
     field             format
     ================  ==========================================================
-    ``pubkey``        standard base64 of the 32 RAW public-key bytes (not PEM)
+    ``pubkey``        standard base64 of the 32 RAW public-key bytes (not PEM),
+                      in its CANONICAL spelling — padded, zero trailing pad
+                      bits, i.e. exactly ``b64encode(raw)``. Alternate spellings
+                      that decode to the same key are refused, because they are
+                      a second wire form of one identity
     ``timestamp``     ISO-8601 UTC, within +/-5 min of server time
-    ``nonce``         lowercase hex, >= 16 bytes (32 hex chars); single use
+    ``nonce``         LOWERCASE hex, 16-64 bytes (32-128 chars), no whitespace;
+                      single use
     ``agent_name``    display name, <= 64 chars
     ``contact``       optional, <= 128 chars; NOT part of the signed string
     ``signature``     base64 Ed25519 signature over the canonical string
@@ -143,13 +148,48 @@ def register_agent_route(
     401     nonce_replayed                      this nonce was already consumed
     409     pubkey_already_registered           known key; the secret is NEVER
                                                 re-issued — see ``rotation``
-    429     ip_registration_limit /             per-IP or platform-wide 24h cap
-            global_registration_limit
+    429     ip_registration_limit /             per-IP or platform-wide daily
+            global_registration_limit           cap; carries ``Retry-After``
     ======  ==================================  =================================
 
     The issued key is free tier: search, free installs, bundle compose/publish,
     feedback, skill-error reports, registry proposals. It cannot reach
     checkout/billing, admin, or the sandbox.
+
+    THE PLATFORM-WIDE CAP IS A DELIBERATE AVAILABILITY TRADE
+    --------------------------------------------------------
+    ``global_registration_limit`` refuses EVERY caller once the platform-wide
+    daily total is reached, and that is a self-inflicted denial of service by
+    construction: with the shipped defaults (3 per IP, 20 global) seven source
+    addresses can exhaust the day's budget and lock out every honest agent
+    until the UTC day rolls. That is not an oversight; it is the trade, and it
+    is stated here so nobody has to rediscover it from the code.
+
+    What is on the other side of the trade: this endpoint mints real API keys to
+    anyone who can sign a string. Without a global ceiling the only bound on
+    key-minting is the per-IP cap, which a botnet defeats by definition — so the
+    failure mode without it is unbounded credential creation, shadow-user rows
+    and publisher identities, with no human to suspend and no payment
+    instrument to trace. Between "enrolment pauses for a day" and "the registry
+    fills with attacker-owned publishers", pausing is the recoverable one.
+
+    What makes it acceptable rather than merely defensible — three properties,
+    all of which must hold:
+
+    * **Loud.** Every refusal logs ``agent_registration_global_cap`` at WARNING
+      with a stable event key, so tripping it is an alertable incident and not
+      a silent outage discovered by a confused agent author.
+    * **Liftable in seconds, without a deploy.** The ceiling is
+      ``WR_AGENT_REGISTRATION_GLOBAL_PER_DAY``; raising it is an env change on
+      a running service, so the remediation time for a false positive is
+      minutes, not a release cycle.
+    * **Honest to the client.** 429 with ``Retry-After``, not a 403 that reads
+      like the caller did something wrong.
+
+    Nothing is exempt from it — no allowlist, no reputation carve-out. A
+    reputation system is the right long-term answer and is deliberately NOT
+    built here: it would be designed against zero real traffic. Revisit when
+    the volume is real enough to tell an attack from a launch.
     """
     try:
         result = register_agent(
@@ -163,9 +203,16 @@ def register_agent_route(
             client_ip=_client_ip(request),
         )
     except AgentRegistrationError as exc:
+        # Retry-After travels as a real HEADER, not only inside the JSON body:
+        # HTTP clients and agent frameworks back off on the header, and a
+        # capped-out caller that retries immediately is the thing the cap is
+        # trying to stop.
+        retry_after = exc.extra.get("retry_after")
+        headers = {"Retry-After": str(retry_after)} if retry_after is not None else None
         raise HTTPException(
             status_code=exc.status_code,
             detail={"error": exc.code, "detail": exc.message, **exc.extra},
+            headers=headers,
         ) from exc
 
     origin = public_origin()

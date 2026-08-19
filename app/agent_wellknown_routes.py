@@ -36,6 +36,7 @@ from app.middleware.key_prefixes import AGENT_KEY_PREFIX
 from app.services.agent_registration import (
     CANONICAL_VERSION,
     MAX_ACTIVE_KEYS_PER_IDENTITY,
+    MAX_NONCE_BYTES,
     MIN_NONCE_BYTES,
     canonical_registration_string,
 )
@@ -93,9 +94,16 @@ def build_agent_descriptor() -> dict:
             "canonical_string": CANONICAL_TEMPLATE,
             "signature_encoding": "base64",
             "request_fields": {
-                "pubkey": "base64 of the 32 RAW Ed25519 public key bytes (not PEM/DER)",
+                "pubkey": (
+                    "CANONICAL standard base64 of the 32 RAW Ed25519 public key bytes "
+                    "(not PEM/DER) — padded, zero trailing pad bits, i.e. exactly "
+                    "b64encode(raw); alternate spellings of the same key are refused"
+                ),
                 "timestamp": "ISO-8601 UTC, within the accepted skew window",
-                "nonce": f"hex, >= {MIN_NONCE_BYTES} bytes; single use, replay is refused",
+                "nonce": (
+                    f"LOWERCASE hex, {MIN_NONCE_BYTES}-{MAX_NONCE_BYTES} bytes, no whitespace; "
+                    "single use, replay is refused"
+                ),
                 "agent_name": "display name, <= 64 chars",
                 "contact": "optional, <= 128 chars — NOT part of the signed string",
                 "signature": "base64 Ed25519 signature over canonical_string",

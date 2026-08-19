@@ -37,11 +37,14 @@ Each negative test was confirmed to fail before its guard existed:
 from __future__ import annotations
 
 import base64
+import hashlib
+import re
 import secrets
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from fastapi import Request
 from fastapi.testclient import TestClient
 
 from app.services.agent_registration import canonical_registration_string
@@ -282,6 +285,161 @@ class TestNonceReplay:
         assert r.json()["detail"]["error"] == "invalid_nonce"
 
 
+class TestNonceCanonicality:
+    """Review round 2, F7 — ``bytes.fromhex`` is not a validator.
+
+    It accepts UPPERCASE, tolerates ASCII whitespace inside the string, and has
+    no upper bound. Each is a second spelling of one nonce, and the replay wall
+    hashes the STRING it was handed — so ``"AB…"`` and ``"ab…"`` burn two
+    different rows for what a reader would call one value.
+    """
+
+    @pytest.mark.parametrize(
+        ("nonce", "why"),
+        [
+            (secrets.token_hex(16).upper(), "uppercase is a second spelling of one nonce"),
+            (secrets.token_hex(8) + " " + secrets.token_hex(8), "inner whitespace"),
+            (" " + secrets.token_hex(16), "leading whitespace"),
+            (secrets.token_hex(16) + "\n", "trailing newline"),
+            ("a" * 33, "odd length — 33 hex chars is not a whole number of bytes"),
+            # 140 chars: past the 128-char semantic cap but inside the field's
+            # outer max_length, so this reaches the SERVICE rule rather than
+            # bouncing off Pydantic with a 422.
+            ("ab" * 70, "oversize: unauthenticated callers write this table"),
+            (secrets.token_hex(16) + "zz", "non-hex characters"),
+        ],
+    )
+    def test_non_canonical_nonce_is_400(self, client, nonce, why):
+        private, pubkey = _keypair()
+        r = client.post(REGISTER_PATH, json=_payload(private, pubkey, nonce=nonce))
+        assert r.status_code == 400, f"{why}: {r.text}"
+        assert r.json()["detail"]["error"] == "invalid_nonce", why
+
+    def test_the_canonical_lowercase_form_still_registers(self, client):
+        """Control — the rejections above must not be rejecting everything."""
+        private, pubkey = _keypair()
+        r = client.post(REGISTER_PATH, json=_payload(private, pubkey, nonce=secrets.token_hex(32)))
+        assert r.status_code == 201, r.text
+
+    def test_the_uppercase_form_of_a_burned_nonce_is_still_refused(self, client):
+        """The point of the rule: no alternate spelling gets a second use."""
+        nonce = secrets.token_hex(16)
+        first, first_pub = _keypair()
+        assert client.post(REGISTER_PATH, json=_payload(first, first_pub, nonce=nonce)).status_code == 201
+
+        second, second_pub = _keypair()
+        r = client.post(REGISTER_PATH, json=_payload(second, second_pub, nonce=nonce.upper()))
+        assert r.status_code == 400, r.text
+        assert r.json()["detail"]["error"] == "invalid_nonce"
+
+
+def _alt_pad_bit_spellings(pubkey_b64: str) -> list[str]:
+    """Every OTHER base64 string that decodes to the same 32 raw bytes.
+
+    32 bytes is 256 bits; 43 significant base64 characters carry 258. The final
+    significant character therefore has 4 real bits and 2 SLACK bits, so four
+    strings — differing only in those 2 bits — decode identically, and
+    ``b64decode(validate=True)`` accepts all four. Returns the three that are
+    not the canonical spelling.
+    """
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    assert pubkey_b64.endswith("=") and len(pubkey_b64) == 44, pubkey_b64
+    head, last = pubkey_b64[:42], pubkey_b64[42]
+    base_index = alphabet.index(last) & ~0b11
+    spellings = [f"{head}{alphabet[base_index | bits]}=" for bits in range(4)]
+    canonical = base64.b64encode(base64.b64decode(pubkey_b64)).decode()
+    return [s for s in spellings if s != canonical]
+
+
+class TestPubkeyCanonicality:
+    """Review round 2, F3 — base64 is not injective onto its own text.
+
+    Round 1 put UNIQUE on the pubkey TEXT and decoded with
+    ``b64decode(validate=True)``, which rejects out-of-alphabet characters but
+    NOT non-zero trailing pad bits. So four different strings decoded to one
+    key and each minted its own identity, shadow user and ``rec_agent_`` key —
+    the 409 key-stuffing wall was bypassable by re-spelling the same key.
+    """
+
+    def test_the_premise_holds_alternate_spellings_really_do_decode_alike(self):
+        """If this ever fails the rest of the class is testing nothing."""
+        _, pubkey = _keypair()
+        alts = _alt_pad_bit_spellings(pubkey)
+        assert len(alts) == 3, "expected exactly 3 non-canonical spellings"
+        for alt in alts:
+            assert alt != pubkey
+            assert base64.b64decode(alt, validate=True) == base64.b64decode(pubkey)
+
+    def test_every_alternate_spelling_is_rejected_outright(self, client):
+        private, pubkey = _keypair()
+        for alt in _alt_pad_bit_spellings(pubkey):
+            r = client.post(REGISTER_PATH, json=_payload(private, alt))
+            assert r.status_code == 400, f"{alt} was accepted: {r.text}"
+            assert r.json()["detail"]["error"] == "invalid_pubkey"
+
+    def test_a_respelling_cannot_mint_a_second_identity(self, client, db_session):
+        """The actual exploit: enrol, then re-enrol the same key under an alias."""
+        private, pubkey = _keypair()
+        assert client.post(REGISTER_PATH, json=_payload(private, pubkey)).status_code == 201
+
+        for alt in _alt_pad_bit_spellings(pubkey):
+            r = client.post(REGISTER_PATH, json=_payload(private, alt))
+            assert r.status_code != 201, f"{alt} minted a duplicate identity"
+            assert "rec_agent_" not in r.text, "no second secret may be issued for one key"
+
+        from app.models import AgentIdentity
+
+        raw = base64.b64decode(pubkey)
+        fingerprint = hashlib.sha256(raw).hexdigest()
+        rows = (
+            db_session.query(AgentIdentity)
+            .filter(AgentIdentity.pubkey_sha256 == fingerprint)
+            .all()
+        )
+        assert len(rows) == 1, "one keypair, one identity"
+
+    def test_uniqueness_is_enforced_by_the_DATABASE_not_only_by_the_check(
+        self, client, db_session
+    ):
+        """Defence in depth: bypass the service and the UNIQUE still refuses.
+
+        The canonicality check and the raw-bytes UNIQUE are two independent
+        fixes on purpose. This one proves the second is real by inserting
+        straight through the ORM, as a future code path that forgot the check
+        would.
+        """
+        from sqlalchemy.exc import IntegrityError
+
+        from app.models import AgentIdentity, User
+
+        private, pubkey = _keypair()
+        assert client.post(REGISTER_PATH, json=_payload(private, pubkey)).status_code == 201
+        fingerprint = hashlib.sha256(base64.b64decode(pubkey)).hexdigest()
+
+        shadow = User(display_name="agent:sneaky", is_agent=True)
+        db_session.add(shadow)
+        db_session.flush()
+        with pytest.raises(IntegrityError):
+            with db_session.begin_nested():
+                db_session.add(
+                    AgentIdentity(
+                        pubkey=_alt_pad_bit_spellings(pubkey)[0],
+                        pubkey_sha256=fingerprint,
+                        agent_name="sneaky",
+                        user_id=shadow.id,
+                        revoked=False,
+                    )
+                )
+                db_session.flush()
+
+    def test_whitespace_and_unpadded_pubkeys_are_rejected(self, client):
+        private, pubkey = _keypair()
+        for bad in (pubkey.rstrip("="), f" {pubkey}", f"{pubkey}\n", pubkey.replace("=", "")):
+            r = client.post(REGISTER_PATH, json=_payload(private, bad))
+            assert r.status_code == 400, f"{bad!r} was accepted: {r.text}"
+            assert r.json()["detail"]["error"] == "invalid_pubkey"
+
+
 class TestDuplicatePubkey:
     def test_reregistration_is_409_and_issues_no_secret(self, client):
         """The key-stuffing wall: a known pubkey never yields a fresh secret."""
@@ -298,6 +456,29 @@ class TestDuplicatePubkey:
 
 
 # ── the abuse wall ──────────────────────────────────────────────────────────
+
+
+def _MASTER_KEY() -> str:
+    """The configured master key — the non-agent control credential."""
+    from app.config import settings
+
+    return settings.API_KEY
+
+
+def _postgres_url() -> str | None:
+    """The suite's DB URL when it is pointed at a real Postgres server, else None.
+
+    conftest's ``engine_fixture`` honours TEST_DATABASE_URL / DATABASE_URL /
+    WR_DATABASE_URL; the Postgres-only concurrency test keys off the same
+    signal so it runs in the CI Postgres job and skips on a local SQLite run.
+    """
+    import os
+
+    for var in ("TEST_DATABASE_URL", "DATABASE_URL", "WR_DATABASE_URL"):
+        url = os.environ.get(var)
+        if url and url.startswith(("postgresql", "postgres://")):
+            return url
+    return None
 
 
 def _set_caps(monkeypatch, *, per_ip: int | None = None, global_: int | None = None) -> None:
@@ -342,6 +523,332 @@ class TestRateLimits:
 
         _, status = _register(client)
         assert status == 201, "the forged attempt must not have burned the cap"
+
+    def test_a_duplicate_pubkey_409_does_not_consume_quota(self, client, monkeypatch):
+        """Review round 2, F4. The most likely honest client bug is a retry.
+
+        Round 1 reserved the slot BEFORE the duplicate-pubkey check, so an agent
+        that re-sent its own registration spent its daily allowance collecting
+        409s. The 409 must be free; only a mint may charge.
+        """
+        _set_caps(monkeypatch, per_ip=2)
+        private, pubkey = _keypair()
+        assert client.post(REGISTER_PATH, json=_payload(private, pubkey)).status_code == 201
+
+        for _ in range(4):
+            again = client.post(REGISTER_PATH, json=_payload(private, pubkey))
+            assert again.status_code == 409, again.text
+
+        _, status = _register(client, agent_name="second-real-agent")
+        assert status == 201, "the 409s must not have burned the remaining slot"
+
+    def test_cap_refusals_carry_retry_after(self, client, monkeypatch):
+        """429 without Retry-After tells a retry loop nothing. F4."""
+        _set_caps(monkeypatch, per_ip=1)
+        assert _register(client)[1] == 201
+
+        private, pubkey = _keypair()
+        r = client.post(REGISTER_PATH, json=_payload(private, pubkey))
+        assert r.status_code == 429, r.text
+        assert int(r.headers["Retry-After"]) > 0
+        assert r.json()["detail"]["retry_after"] == int(r.headers["Retry-After"])
+
+    def test_the_global_cap_logs_a_stable_alertable_event(self, client, monkeypatch, caplog):
+        """F4 — a platform-wide lockout must be an INCIDENT, not a silent outage.
+
+        The global cap closes enrolment for every agent on earth, so the one
+        thing that makes it an acceptable trade is that tripping it is loud and
+        the ceiling is raiseable without a redeploy. ``agent_registration_global_cap``
+        is the stable key an alert rule fires on; renaming it silently is what
+        this test exists to prevent.
+        """
+        from app.services.agent_registration import GLOBAL_CAP_EVENT
+
+        _set_caps(monkeypatch, per_ip=100, global_=1)
+        assert _register(client)[1] == 201
+
+        with caplog.at_level("WARNING", logger="app.services.agent_registration"):
+            body, status = _register(client, agent_name="over")
+        assert status == 429
+        assert body["detail"]["error"] == "global_registration_limit"
+
+        hits = [r for r in caplog.records if GLOBAL_CAP_EVENT in r.getMessage()]
+        assert hits, f"no {GLOBAL_CAP_EVENT} warning was emitted"
+        assert hits[0].levelname == "WARNING"
+        assert getattr(hits[0], "event", None) == GLOBAL_CAP_EVENT, "structured field for alerting"
+        # The remediation must be discoverable from the log line alone.
+        assert "WR_AGENT_REGISTRATION_GLOBAL_PER_DAY" in hits[0].getMessage()
+
+    def test_the_global_cap_is_raiseable_without_a_redeploy(self, client, monkeypatch):
+        """The other half of the trade: reopening is an env change, not a release."""
+        _set_caps(monkeypatch, per_ip=100, global_=1)
+        assert _register(client)[1] == 201
+        assert _register(client, agent_name="blocked")[1] == 429
+
+        _set_caps(monkeypatch, global_=5)
+        assert _register(client, agent_name="after-raise")[1] == 201
+
+    def test_a_blocked_ip_does_not_drain_the_global_budget(self, client, monkeypatch):
+        """Per-IP is charged FIRST, so a capped source cannot lock out the world.
+
+        Reversing the order would let one refused attacker keep spending the
+        platform-wide budget it is already barred from using.
+        """
+        from app.services.agent_registration_quota import GLOBAL_BUCKET, current_usage
+
+        _set_caps(monkeypatch, per_ip=1, global_=10)
+        assert _register(client)[1] == 201
+        now = datetime.now(UTC)
+
+        from app.database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            before = current_usage(db, bucket=GLOBAL_BUCKET, now=now)
+            for _ in range(5):
+                assert _register(client, agent_name="over")[1] == 429
+            assert current_usage(db, bucket=GLOBAL_BUCKET, now=now) == before
+        finally:
+            db.close()
+
+
+class TestQuotaIsAtomic:
+    """Review round 2, F1 — the BLOCKER.
+
+    Round 1 enforced the cap with ``COUNT(*) >= cap`` and a much later INSERT.
+    Every request arriving while the count sat at ``cap - 1`` read ``cap - 1``,
+    passed, and committed: the cap bounded a sequential attacker and nobody
+    else. On a PUBLIC endpoint that mints API keys, that is the whole wall.
+    """
+
+    def test_the_reservation_is_ONE_conditional_update(self, db_session):
+        """Structural, and deliberately so.
+
+        Concurrency is hard to prove and easy to regress. This asserts the
+        SHAPE that makes the reservation atomic on every engine — a single
+        ``UPDATE … SET count = count + 1 WHERE … AND count < :cap`` — so a
+        refactor back to SELECT-then-UPDATE fails here rather than passing
+        review and failing in production under load.
+        """
+        from sqlalchemy import event
+
+        from app.services.agent_registration_quota import reserve_registration_slot
+
+        statements: list[str] = []
+
+        def _capture(conn, cursor, statement, parameters, context, executemany):
+            statements.append(" ".join(statement.split()).lower())
+
+        bind = db_session.get_bind()
+        event.listen(bind, "before_cursor_execute", _capture)
+        try:
+            granted = reserve_registration_slot(
+                db_session, bucket="ip:203.0.113.9", cap=3, now=datetime.now(UTC)
+            )
+        finally:
+            event.remove(bind, "before_cursor_execute", _capture)
+
+        assert granted.granted is True
+
+        updates = [s for s in statements if s.startswith("update agent_registration_quota")]
+        assert len(updates) == 1, f"expected exactly one UPDATE, got {updates}"
+        sql = updates[0]
+        # Read and write in the SAME statement: the increment is relative to
+        # the column's own committed value, never to one Python read earlier.
+        assert re.search(r"set\s+count\s*=\s*\(?\s*(\w+\.)?count\s*\+", sql), sql
+        # ...guarded by the cap in its own WHERE clause, not in Python.
+        assert re.search(r"where.*(\w+\.)?count\s*<", sql), sql
+        # And nothing that reintroduces the gap.
+        assert "for update" not in sql, "FOR UPDATE is a no-op on sqlite — the guard belongs in the UPDATE"
+
+    def test_a_full_bucket_grants_nothing_and_never_overshoots(self, db_session):
+        from app.services.agent_registration_quota import current_usage, reserve_registration_slot
+
+        now = datetime.now(UTC)
+        bucket = "ip:198.51.100.7"
+        granted = [
+            reserve_registration_slot(db_session, bucket=bucket, cap=3, now=now).granted
+            for _ in range(10)
+        ]
+        assert granted.count(True) == 3, granted
+        assert current_usage(db_session, bucket=bucket, now=now) == 3
+
+    def test_a_zero_cap_refuses_without_touching_the_database(self, db_session):
+        from app.models import AgentRegistrationQuota
+        from app.services.agent_registration_quota import reserve_registration_slot
+
+        before = db_session.query(AgentRegistrationQuota).count()
+        r = reserve_registration_slot(
+            db_session, bucket="ip:disabled", cap=0, now=datetime.now(UTC)
+        )
+        assert r.granted is False
+        assert db_session.query(AgentRegistrationQuota).count() == before
+
+    def test_concurrent_reservations_never_exceed_the_cap(self, tmp_path):
+        """The real proof: N threads, real commits, separate connections.
+
+        Runs against a FILE-BACKED SQLite database rather than the suite's
+        in-memory one, because the in-memory engine is shared through a
+        StaticPool — every "connection" is the same connection, so nothing
+        could actually contend.
+
+        SQLite serialises write transactions against the whole database file,
+        so the two conditional UPDATEs cannot interleave at all. That is a
+        STRICTER guarantee than production's, not a weaker one, and it is why
+        no ``FOR UPDATE`` appears anywhere in the implementation: ``FOR UPDATE``
+        parses as a silent no-op here, so a lock expressed that way would be
+        proven by this test and absent in fact. On Postgres the identical
+        statement is atomic for its own reason — the UPDATE takes the row lock
+        and the WHERE clause is re-evaluated against the committed row after
+        the lock is released — which
+        ``test_concurrent_reservations_never_exceed_the_cap_on_postgres`` below
+        exercises when the suite is pointed at a real server.
+
+        RED-PROOFED: re-running this harness against the round-1 shape (read the
+        count, commit, sleep, then increment) grants 22 of 24 against a cap of
+        3. The current implementation grants exactly 3, repeatably.
+        """
+        import threading
+
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        from app.models import Base
+        from app.services.agent_registration_quota import current_usage, reserve_registration_slot
+
+        db_path = tmp_path / "quota_race.sqlite"
+        engine = create_engine(f"sqlite:///{db_path}", connect_args={"timeout": 30})
+        Base.metadata.create_all(bind=engine, tables=[Base.metadata.tables["agent_registration_quota"]])
+        SessionFactory = sessionmaker(bind=engine)
+
+        cap = 3
+        threads_n = 24
+        now = datetime.now(UTC)
+        bucket = "ip:203.0.113.42"
+        results: list[bool] = []
+        lock = threading.Lock()
+        start = threading.Barrier(threads_n)
+
+        def _attempt() -> None:
+            start.wait(timeout=30)
+            session = SessionFactory()
+            try:
+                granted = reserve_registration_slot(
+                    session, bucket=bucket, cap=cap, now=now
+                ).granted
+                session.commit()
+            except Exception:  # noqa: BLE001 — a lost DB race counts as "not granted"
+                session.rollback()
+                granted = False
+            finally:
+                session.close()
+            with lock:
+                results.append(granted)
+
+        threads = [threading.Thread(target=_attempt) for _ in range(threads_n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=60)
+
+        assert len(results) == threads_n, "a thread did not finish"
+        # The security property: never MORE than the cap.
+        assert results.count(True) <= cap, (
+            f"{results.count(True)} of {threads_n} concurrent reservations were granted "
+            f"against a cap of {cap} — the quota is not atomic"
+        )
+        # And the liveness half, so the assertion above cannot pass vacuously by
+        # granting nothing at all.
+        assert results.count(True) == cap, (
+            f"only {results.count(True)} of {cap} slots were granted — the "
+            "reservation is refusing callers it should have admitted"
+        )
+        verify = SessionFactory()
+        try:
+            assert current_usage(verify, bucket=bucket, now=now) == results.count(True)
+        finally:
+            verify.close()
+            engine.dispose()
+
+    @pytest.mark.skipif(
+        not _postgres_url(),
+        reason="needs a real Postgres server (CI Postgres job); SQLite proves the "
+        "invariant by serialising writes, Postgres proves it by row-locking",
+    )
+    def test_concurrent_reservations_never_exceed_the_cap_on_postgres(self, engine_fixture):
+        """The production engine's version of the test above.
+
+        Postgres at READ COMMITTED does NOT serialise these transactions — the
+        loser blocks on the winner's row lock and then re-evaluates its own
+        WHERE clause against the newly committed row. That re-check is the
+        whole reason the guard lives inside the UPDATE, and it is the property
+        SQLite cannot exercise.
+        """
+        import threading
+
+        from sqlalchemy.orm import sessionmaker
+
+        from app.services.agent_registration_quota import current_usage, reserve_registration_slot
+
+        SessionFactory = sessionmaker(bind=engine_fixture)
+        cap = 3
+        threads_n = 24
+        now = datetime.now(UTC)
+        bucket = f"ip:pg-{secrets.token_hex(4)}"
+        results: list[bool] = []
+        lock = threading.Lock()
+        start = threading.Barrier(threads_n)
+
+        def _attempt() -> None:
+            start.wait(timeout=30)
+            session = SessionFactory()
+            try:
+                granted = reserve_registration_slot(
+                    session, bucket=bucket, cap=cap, now=now
+                ).granted
+                session.commit()
+            except Exception:  # noqa: BLE001
+                session.rollback()
+                granted = False
+            finally:
+                session.close()
+            with lock:
+                results.append(granted)
+
+        threads = [threading.Thread(target=_attempt) for _ in range(threads_n)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=60)
+
+        assert results.count(True) <= cap, (
+            f"{results.count(True)} concurrent reservations granted against cap {cap}"
+        )
+        verify = SessionFactory()
+        try:
+            assert current_usage(verify, bucket=bucket, now=now) == results.count(True)
+        finally:
+            verify.close()
+
+    def test_a_rolled_back_mint_releases_its_slot(self, db_session):
+        """Failure release is what makes the 409 path free — it is not incidental."""
+        from app.services.agent_registration_quota import current_usage, reserve_registration_slot
+
+        now = datetime.now(UTC)
+        bucket = "ip:192.0.2.55"
+        assert reserve_registration_slot(db_session, bucket=bucket, cap=5, now=now).granted
+        db_session.flush()
+        taken = current_usage(db_session, bucket=bucket, now=now)
+        assert taken == 1
+
+        with db_session.begin_nested() as savepoint:
+            assert reserve_registration_slot(db_session, bucket=bucket, cap=5, now=now).granted
+            db_session.flush()
+            assert current_usage(db_session, bucket=bucket, now=now) == 2
+            savepoint.rollback()
+
+        db_session.expire_all()
+        assert current_usage(db_session, bucket=bucket, now=now) == 1
 
 
 # ── revocation ──────────────────────────────────────────────────────────────
@@ -445,26 +952,190 @@ class TestRevocation:
 # ── what an agent key must NOT reach ────────────────────────────────────────
 
 
-class TestAgentKeyIsFenced:
+class TestTheAgentPrincipalIsDistinguishable:
+    """Review round 2, F5(a) — an agent must not read as a human.
+
+    Round 1 resolved a ``rec_agent_`` key to a ``AuthContext(scope="user")``
+    that was byte-identical to a free human's. That was defended as the design
+    (and the scope part IS the design — it is what keeps publishing reachable),
+    but it left NOTHING for a predicate to key off: the only agent signal was
+    the key prefix, a fact about the credential rather than about the actor,
+    invisible everywhere past the middleware.
+    """
+
     @pytest.fixture()
     def agent_key(self, client):
         private, pubkey = _keypair()
         return client.post(REGISTER_PATH, json=_payload(private, pubkey)).json()["api_key"]
 
-    def test_cannot_start_checkout(self, client, agent_key):
+    def test_the_shadow_user_carries_a_durable_marker(self, client, db_session):
+        private, pubkey = _keypair()
+        assert client.post(REGISTER_PATH, json=_payload(private, pubkey)).status_code == 201
+
+        from app.models import AgentIdentity, User
+
+        identity = db_session.query(AgentIdentity).filter(AgentIdentity.pubkey == pubkey).one()
+        user = db_session.query(User).filter(User.id == identity.user_id).one()
+        assert user.is_agent is True, "the marker must live in the DATABASE, not in a key prefix"
+
+    def test_a_human_user_is_not_marked(self, db_session):
+        """Control — the column must actually discriminate."""
+        from app.models import User
+
+        human = User(display_name="a real person")
+        db_session.add(human)
+        db_session.flush()
+        assert human.is_agent is False
+
+    def test_the_marker_reaches_auth_context_over_mcp(self, client, agent_key, db_session):
+        from app.mcp.auth import validate_key
+
+        ctx = validate_key(agent_key, db_session)["auth_ctx"]
+        assert ctx.scope == "user", "scope stays 'user' — that is deliberate, see the module docs"
+        assert ctx.is_agent is True, "MCP is the universal path; a REST-only marker is not a marker"
+
+    def test_the_marker_reaches_auth_context_over_rest(self, app, client, agent_key):
+        """Read it off a REAL request through the real middleware.
+
+        Constructing an AuthContext by hand would prove only that the dataclass
+        has the field. What matters is that ``APIKeyMiddleware`` stamps it, so
+        this mounts a probe route on the live app and inspects what the
+        middleware actually put on ``request.state``.
+        """
+        seen: list[object] = []
+
+        @app.get("/_test/agentreg-whoami")
+        def _whoami(request: Request) -> dict:
+            seen.append(getattr(request.state, "auth_ctx", None))
+            return {"ok": True}
+
+        r = client.get("/_test/agentreg-whoami", headers={"x-api-key": agent_key})
+        assert r.status_code == 200, r.text
+        ctx = seen[-1]
+        assert getattr(ctx, "scope", None) == "user"
+        assert getattr(ctx, "is_agent", None) is True
+
+        human_probe = client.get("/_test/agentreg-whoami", headers={"x-api-key": _MASTER_KEY()})
+        assert human_probe.status_code == 200
+        assert getattr(seen[-1], "is_agent", False) is False, "control: master is not an agent"
+
+    def test_a_human_key_is_not_marked_on_either_path(self, db_session):
+        from app.mcp.auth import validate_key
+        from app.models import APIKey, User
+
+        human = User(display_name="a real person")
+        db_session.add(human)
+        db_session.flush()
+        plaintext = "rec_live_" + secrets.token_urlsafe(24)
+        db_session.add(
+            APIKey(
+                user_id=human.id,
+                key_prefix=plaintext[:12],
+                key_hash=hashlib.sha256(plaintext.encode()).hexdigest(),
+                name="human",
+                is_active=True,
+            )
+        )
+        db_session.flush()
+
+        ctx = validate_key(plaintext, db_session)["auth_ctx"]
+        assert ctx.scope == "user"
+        assert ctx.is_agent is False, "a human key must never be marked as an agent"
+
+    def test_authz_denies_the_sandbox_to_an_agent_even_with_the_operator_flag(self):
+        """F5(b). The denial is AUTHORIZATION, not configuration.
+
+        Round 1's argument was "the mint sets is_sandbox_operator=False". That
+        is a property of one row at one moment; any future path that flips it
+        (admin tool, support script, backfill, bug) would have handed arbitrary
+        code execution to a principal nobody vouched for. So the predicate
+        refuses an agent regardless of the flag.
+        """
+        from app.auth_ctx import AuthContext
+        from app.authz import can_run_sandbox
+
+        from uuid import uuid4
+
+        agent = AuthContext(scope="user", user_id=uuid4(), is_agent=True, is_sandbox_operator=True)
+        assert can_run_sandbox(agent) is False
+
+        human = AuthContext(scope="user", user_id=uuid4(), is_sandbox_operator=True)
+        assert can_run_sandbox(human) is True, "control: the flag still works for a human"
+
+    def test_an_agent_that_somehow_reached_master_scope_still_cannot_run_the_sandbox(self):
+        """The clause is FIRST for a reason — the safe answer wins on any overlap."""
+        from app.auth_ctx import AuthContext
+        from app.authz import can_run_sandbox
+
+        assert can_run_sandbox(AuthContext(scope="master", is_agent=True)) is False
+        assert can_run_sandbox(AuthContext(scope="master")) is True
+
+
+class TestAgentKeyIsFenced:
+    """Review round 2, F5(c) — a fence test that accepts 404 proves NOTHING.
+
+    Round 1 asserted ``status in (401, 403, 404)``. 404 is what an unregistered
+    route returns, so those assertions would have passed identically against an
+    app where the route simply did not exist — i.e. they demonstrated no
+    boundary at all. Every test here now does two things: it establishes a
+    CONTROL (a non-agent credential reaches the route, so the path is real and
+    mounted), and only then asserts a SPECIFIC denial for the agent.
+    """
+
+    @pytest.fixture()
+    def agent_key(self, client):
+        private, pubkey = _keypair()
+        return client.post(REGISTER_PATH, json=_payload(private, pubkey)).json()["api_key"]
+
+    @pytest.fixture()
+    def master_key(self):
+        from app.config import settings
+
+        return settings.API_KEY
+
+    def test_cannot_start_checkout(self, client, agent_key, master_key):
+        """Agents must not create Stripe sessions — 403, explicitly."""
+        control = client.post("/api/checkout/pro", headers={"x-api-key": master_key})
+        assert control.status_code != 404, "control: the checkout route must exist and be reachable"
+
         r = client.post("/api/checkout/pro", headers={"x-api-key": agent_key})
-        assert r.status_code in (401, 403, 404), r.text
-        assert r.status_code != 200
+        assert r.status_code == 403, r.text
+        assert r.json()["detail"] == "agent_principals_cannot_transact"
 
-    def test_cannot_read_billing(self, client, agent_key):
+    def test_cannot_open_a_billing_portal_session(self, client, agent_key, master_key):
+        control = client.post("/api/billing/portal-session", headers={"x-api-key": master_key})
+        assert control.status_code != 404, "control: the portal route must exist"
+
+        r = client.post("/api/billing/portal-session", headers={"x-api-key": agent_key})
+        assert r.status_code == 403, r.text
+
+    def test_cannot_downgrade_a_subscription(self, client, agent_key, master_key):
+        control = client.post("/api/subscriptions/downgrade", headers={"x-api-key": master_key})
+        assert control.status_code != 404, "control: the downgrade route must exist"
+
+        r = client.post("/api/subscriptions/downgrade", headers={"x-api-key": agent_key})
+        assert r.status_code == 403, r.text
+
+    def test_cannot_read_billing(self, client, agent_key, master_key):
+        """A READ, so 401 (no session) is the honest answer — but never 404."""
+        control = client.get("/api/billing/me", headers={"x-api-key": master_key})
+        assert control.status_code != 404, "control: the billing route must exist"
+
         r = client.get("/api/billing/me", headers={"x-api-key": agent_key})
-        assert r.status_code in (401, 403, 404), r.text
+        assert r.status_code in (401, 402, 403), r.text
 
-    def test_cannot_hit_admin(self, client, agent_key):
+    def test_cannot_hit_admin(self, client, agent_key, master_key):
+        control = client.post("/api/admin/reindex-all", headers={"x-api-key": master_key})
+        assert control.status_code != 404, "control: the admin route must exist"
+        assert control.status_code != 403, "control: the master key must NOT be refused"
+
         r = client.post("/api/admin/reindex-all", headers={"x-api-key": agent_key})
         assert r.status_code == 403, r.text
 
-    def test_cannot_list_agent_identities(self, client, agent_key):
+    def test_cannot_list_agent_identities(self, client, agent_key, master_key):
+        control = client.get("/api/admin/agent-identities", headers={"x-api-key": master_key})
+        assert control.status_code == 200, control.text
+
         r = client.get("/api/admin/agent-identities", headers={"x-api-key": agent_key})
         assert r.status_code == 403, r.text
 
@@ -473,12 +1144,32 @@ class TestAgentKeyIsFenced:
         r = client.post("/api/api-keys", headers={"x-api-key": agent_key}, json={})
         assert r.status_code == 401, r.text
 
-    def test_cannot_run_the_sandbox(self, client, agent_key, db_session):
-        from app.authz import can_run_sandbox
-        from app.mcp.auth import validate_key
+    def test_cannot_run_the_sandbox_on_the_real_route(self, client, agent_key, master_key, db_session):
+        """Hit POST /api/skills/{slug}/sandbox/run itself, not just the predicate.
 
-        ctx = validate_key(agent_key, db_session)["auth_ctx"]
-        assert can_run_sandbox(ctx) is False
+        The predicate test above proves the rule; this proves the rule is WIRED
+        to the route an attacker would actually call.
+        """
+        from app.models import Skill
+
+        slug = f"sandbox-fence-{secrets.token_hex(4)}"
+        db_session.add(Skill(slug=slug, title="fence", description="fence", is_public=True))
+        db_session.flush()
+
+        body = {"entrypoint": "setup.sh"}
+        control = client.post(
+            f"/api/skills/{slug}/sandbox/run", headers={"x-api-key": master_key}, json=body
+        )
+        assert control.status_code != 403, (
+            "control: a sandbox-authorized caller must get PAST the authz gate "
+            f"(got {control.status_code}: {control.text})"
+        )
+
+        r = client.post(
+            f"/api/skills/{slug}/sandbox/run", headers={"x-api-key": agent_key}, json=body
+        )
+        assert r.status_code == 403, r.text
+        assert "sandbox" in r.text.lower()
 
 
 # ── public discovery ────────────────────────────────────────────────────────

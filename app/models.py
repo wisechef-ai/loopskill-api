@@ -106,6 +106,15 @@ class User(Base):
     # Set from ?ref= query param on /install or /pricing. Propagated to Stripe
     # checkout metadata so subscriptions can be attributed per platform.
     utm_ref = Column(String(32), nullable=True)
+    # ── agentreg_0819: the DURABLE agent marker ──────────────────────────
+    # True for the SHADOW user minted by POST /api/agents/register. Before this
+    # column existed an agent principal was indistinguishable from a human at
+    # every consumer of AuthContext — the only signal was the rec_agent_ key
+    # prefix, which is a credential-shaped fact, not an identity-shaped one, and
+    # therefore invisible to authz predicates and to any human-count surface.
+    # Stamped into AuthContext.is_agent on BOTH validate paths (REST middleware
+    # and app/mcp/auth.py) and read by authz.can_run_sandbox.
+    is_agent = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -3024,7 +3033,20 @@ class AgentIdentity(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     # Base64 of the 32-byte raw Ed25519 public key (44 chars with padding).
+    # DISPLAY/interop column. It is NOT the uniqueness basis — see below.
     pubkey = Column(String(128), nullable=False, unique=True, index=True)
+    # The real uniqueness basis: sha256 hex of the 32 RAW public-key bytes.
+    #
+    # Base64 is not injective onto its own text: the final character of a
+    # 44-char standard-base64 encoding of 32 bytes carries 4 significant bits
+    # and 2 slack bits, so "…9E=", "…9F=", "…9G=" and "…9H=" all decode to the
+    # SAME 32 bytes, and base64.b64decode(validate=True) accepts every one of
+    # them. With uniqueness on the TEXT alone, four spellings of one key minted
+    # four identities, four shadow users and four keys — the 409 key-stuffing
+    # wall was bypassable by re-spelling. Two independent fixes, both kept:
+    # the service rejects any non-canonical spelling outright, and THIS column
+    # makes the database itself unable to hold the same key twice.
+    pubkey_sha256 = Column(String(64), nullable=False, unique=True, index=True)
     agent_name = Column(String(64), nullable=False)
     contact = Column(String(128), nullable=True)
     # The shadow User this identity's API keys hang off. UNIQUE: one shadow
@@ -3071,3 +3093,43 @@ class AgentRegistrationNonce(Base):
     # Retention horizon: max acceptable clock skew, doubled. Past this point a
     # replay of the same nonce is already rejected by the timestamp gate.
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+
+
+class AgentRegistrationQuota(Base):
+    """One counter row per (bucket, window) — the DB-enforced enrolment cap.
+
+    agentreg_0819, review round 2 (F1). The first cut counted
+    ``agent_identities`` rows with ``COUNT(*)`` and compared the result to the
+    cap in Python. That is a check-then-act: N concurrent requests arriving
+    while the count sits at ``cap - 1`` ALL read ``cap - 1``, all pass, and all
+    commit. The cap was advisory under exactly the load an attacker creates.
+
+    A counter row replaces the count so the reservation can be a single
+    conditional UPDATE — see
+    ``app.services.agent_registration_quota.reserve_registration_slot``.
+
+    ``window_start`` is a FIXED UTC-day floor rather than a rolling 24h edge.
+    Rolling windows cannot be expressed as a row you can lock; fixed windows
+    can. The trade is real and bounded: at a day boundary a source may spend
+    its old and new allowance back to back (2x the cap in one instant, never
+    more), which is a far smaller hole than an unbounded concurrent breach.
+    """
+
+    __tablename__ = "agent_registration_quota"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    # "global", or "ip:<address>". Textual so a future bucket dimension (ASN,
+    # subnet, pubkey family) needs no schema change.
+    bucket = Column(String(128), nullable=False)
+    window_start = Column(DateTime(timezone=True), nullable=False)
+    # Reservations made in this window. Only ever incremented by the atomic
+    # conditional UPDATE; a rolled-back transaction releases its own increment.
+    count = Column(Integer, nullable=False, default=0, server_default=text("0"))
+
+    __table_args__ = (
+        # The row IS the lock. UNIQUE guarantees exactly one counter per
+        # (bucket, window), so two concurrent reservations contend on one row
+        # instead of racing on a table-wide aggregate.
+        UniqueConstraint("bucket", "window_start", name="uq_agent_reg_quota_bucket_window"),
+        Index("idx_agent_reg_quota_window", "window_start"),
+    )

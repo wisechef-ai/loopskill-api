@@ -79,15 +79,31 @@ def validate_key(key: str | None, db: Session) -> dict[str, Any]:
         # revocation, so the SAME helper the middleware uses runs here. A
         # revoked/unknown identity resolves to 'unauthorized', identical to a
         # key that does not exist at all (no oracle for the revoked state).
-        from app.middleware._agent_identity import agent_key_is_blocked, is_agent_key
+        from app.middleware._agent_identity import (
+            agent_key_is_blocked,
+            is_agent_key,
+            user_is_agent,
+        )
 
-        if is_agent_key(key) and agent_key_is_blocked(db, api_key_obj.user_id):
+        _is_agent_credential = is_agent_key(key)
+        if _is_agent_credential and agent_key_is_blocked(db, api_key_obj.user_id):
             return {
                 "scope": "unauthorized",
                 "user_id": None,
                 "api_key_id": None,
                 "auth_ctx": AuthContext.anonymous(),
             }
+        # agentreg_0819 (round 2, F5): stamp the durable agent marker so MCP
+        # callers carry the same principal distinction REST does — "MCP is the
+        # universal path; a REST-only fix is not a fix".
+        #
+        # Gated on the key prefix so no human MCP call pays for an extra query.
+        # That is sufficient, not a shortcut: registration is the only path that
+        # mints a key for an is_agent user, and it always uses the rec_agent_
+        # prefix — the same premise the revocation gate directly above already
+        # relies on. If a second agent credential type is ever added it must be
+        # added to is_agent_key(), which is why that predicate is shared.
+        _is_agent = bool(_is_agent_credential and user_is_agent(db, api_key_obj.user_id))
         # Resolve the caller's tenant the SAME way the REST path does
         # (app.middleware.api_key) — otherwise org-scoped features silently fail
         # closed over MCP (Lane C #4).
@@ -112,6 +128,7 @@ def validate_key(key: str | None, db: Session) -> dict[str, Any]:
             bundle_scope=api_key_obj.bundle_id,  # None if not scoped  # compat-alias
             org_id=org_id,
             is_org_owner=is_org_owner,
+            is_agent=_is_agent,
         )
         return {
             "scope": "user",

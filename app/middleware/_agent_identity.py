@@ -70,3 +70,40 @@ def agent_key_is_blocked(db: "Session", user_id: "UUID | None") -> bool:
     if identity is None:
         return True
     return bool(identity.revoked)
+
+
+def user_is_agent(db: "Session", user_id: "UUID | None") -> bool:
+    """True when ``user_id`` is a SHADOW agent user (``users.is_agent``).
+
+    agentreg_0819 review round 2, F5(a). This is what stamps
+    ``AuthContext.is_agent``, and it reads the durable column rather than the
+    ``rec_agent_`` key prefix: the prefix describes a credential, the column
+    describes the actor. A principal must not be able to stop being an agent by
+    acquiring a differently-shaped key.
+
+    Fails CLOSED, and here "closed" means TRUE. ``is_agent`` only ever REMOVES
+    capability (see ``authz.can_run_sandbox`` and the checkout gate), so an
+    unresolvable lookup answering "assume agent" costs a human at worst one
+    denied privileged action, whereas answering "assume human" would hand an
+    agent the privilege the flag exists to withhold. Note the asymmetry with
+    ``agent_key_is_blocked`` above, which fails closed to True for the opposite
+    reason — both choose the answer that grants less.
+
+    Callers on the hot path already hold the ``User`` row and should read
+    ``user_obj.is_agent`` directly; this exists for the paths that do not
+    (``app/mcp/auth.py``).
+    """
+    if user_id is None:
+        return False
+    from app.models import User
+
+    try:
+        row = db.query(User.is_agent).filter(User.id == user_id).first()
+    # Rationale: see the fail-closed note above — an unresolvable principal is
+    # treated as an agent, i.e. as the LESS privileged of the two.
+    except Exception:  # noqa: BLE001
+        logger.exception("agent-principal lookup failed; treating caller as an agent")
+        return True
+    if row is None:
+        return False
+    return bool(row[0])

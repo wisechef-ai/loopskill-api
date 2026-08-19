@@ -34,6 +34,7 @@ class AuthContext:
         is_sandbox_operator: True if the key has sandbox execution privileges.
         org_id: Tenant scope UUID (activate_0701 Phase TEN). None = personal scope.
         is_org_owner: True if this user is the org payer (can create client fleets).
+        is_agent: True if the principal is a SELF-REGISTERED AGENT, not a human.
     """
 
     scope: Scope
@@ -51,6 +52,22 @@ class AuthContext:
     # activate_0701/TEN: tenant scope (org boundary). None = personal scope.
     org_id: UUID | None = None
     is_org_owner: bool = False
+    # agentreg_0819 (review round 2, F5): the principal is a SELF-REGISTERED
+    # AGENT — a shadow User minted by POST /api/agents/register with no human
+    # behind it — rather than a person who completed an OAuth login.
+    #
+    # An agent resolves to scope="user" ON PURPOSE (that is what keeps the
+    # publisher/feedback/bundle surfaces reachable, which is the whole point of
+    # the feature), so scope cannot carry this distinction. Round 1 had no
+    # distinction at all: past the middleware, an agent principal and a free
+    # human were the same object, and any predicate that wants to treat them
+    # differently had nothing to read.
+    #
+    # Sourced from the DURABLE ``users.is_agent`` column, not from the
+    # ``rec_agent_`` key prefix, so it survives a future second credential type
+    # and cannot be shed by re-minting. Defaults False: every existing caller,
+    # every human key and every anonymous context keeps its exact behaviour.
+    is_agent: bool = False
 
     @classmethod
     def anonymous(cls) -> AuthContext:

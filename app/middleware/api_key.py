@@ -120,6 +120,9 @@ def _auth_ctx_from_api_key(request) -> "AuthContext | None":
             tier=tier,
             org_id=org_id,
             is_org_owner=is_org_owner,
+            # agentreg_0819 (round 2, F5): the durable agent marker. The User
+            # row is already loaded above, so this costs nothing.
+            is_agent=bool(getattr(user_obj, "is_agent", False)),
         )
     # Rationale: opportunistic auth on a public route must never crash the
     # request — any lookup failure degrades to anonymous (return None).
@@ -564,6 +567,11 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                     # activate_0701/TEN: tenant scope + org owner flag
                     org_id=_org_id,
                     is_org_owner=_is_org_owner,
+                    # agentreg_0819 (round 2, F5): the durable agent marker,
+                    # read off the User row this branch already loaded. Without
+                    # it every downstream consumer sees a self-registered agent
+                    # and a free human as the same principal.
+                    is_agent=bool(getattr(_user_obj, "is_agent", False)),
                 )
                 return await call_next(request)
         finally:
