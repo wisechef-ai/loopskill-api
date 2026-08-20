@@ -288,22 +288,37 @@ class TestNonceCanonicality:
     different rows for what a reader would call one value.
     """
 
+    # NOTE (xdist): parametrize values are evaluated at COLLECTION time, once per
+    # worker. A ``secrets.token_hex()`` literal in this list gives every worker a
+    # different test id, and xdist aborts the whole run with "Different tests were
+    # collected between gw0 and gwN". So the cases below are deterministic SHAPES;
+    # the random part is built inside the test body, where each worker is free to
+    # differ. Never put a random/time-dependent value in a parametrize list.
     @pytest.mark.parametrize(
-        ("nonce", "why"),
+        ("shape", "why"),
         [
-            (secrets.token_hex(16).upper(), "uppercase is a second spelling of one nonce"),
-            (secrets.token_hex(8) + " " + secrets.token_hex(8), "inner whitespace"),
-            (" " + secrets.token_hex(16), "leading whitespace"),
-            (secrets.token_hex(16) + "\n", "trailing newline"),
-            ("a" * 33, "odd length — 33 hex chars is not a whole number of bytes"),
+            ("uppercase", "uppercase is a second spelling of one nonce"),
+            ("inner-whitespace", "inner whitespace"),
+            ("leading-whitespace", "leading whitespace"),
+            ("trailing-newline", "trailing newline"),
+            ("odd-length", "odd length — 33 hex chars is not a whole number of bytes"),
             # 140 chars: past the 128-char semantic cap but inside the field's
             # outer max_length, so this reaches the SERVICE rule rather than
             # bouncing off Pydantic with a 422.
-            ("ab" * 70, "oversize: unauthenticated callers write this table"),
-            (secrets.token_hex(16) + "zz", "non-hex characters"),
+            ("oversize", "oversize: unauthenticated callers write this table"),
+            ("non-hex", "non-hex characters"),
         ],
     )
-    def test_non_canonical_nonce_is_400(self, client, nonce, why):
+    def test_non_canonical_nonce_is_400(self, client, shape, why):
+        nonce = {
+            "uppercase": lambda: secrets.token_hex(16).upper(),
+            "inner-whitespace": lambda: secrets.token_hex(8) + " " + secrets.token_hex(8),
+            "leading-whitespace": lambda: " " + secrets.token_hex(16),
+            "trailing-newline": lambda: secrets.token_hex(16) + "\n",
+            "odd-length": lambda: "a" * 33,
+            "oversize": lambda: "ab" * 70,
+            "non-hex": lambda: secrets.token_hex(16) + "zz",
+        }[shape]()
         private, pubkey = _keypair()
         r = client.post(REGISTER_PATH, json=_payload(private, pubkey, nonce=nonce))
         assert r.status_code == 400, f"{why}: {r.text}"
