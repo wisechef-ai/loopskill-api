@@ -169,6 +169,12 @@ def cookbook_wellknown_index(slug: str, db: Session = Depends(get_db)) -> JSONRe
     """agentskills.io discovery index for a public cookbook.
 
     Public (no auth). 404 unless the cookbook is visibility='public'.
+
+    issue-149 (Option B, owner-approved 2026-08-19): deliberately LOCAL-ONLY
+    (``_skills_for``, not the federated-aware sibling) — this is a public,
+    anonymous discovery surface gated on badging (plan §0b) before an
+    unvetted federated/community entry should appear here, same reasoning as
+    ``_public_cb_card``/``public_cookbook_page`` in app/bundle_routes.py.
     """
     # Local import avoids a circular import at module load (bundle_routes
     # imports this router's host module in some app-factory orderings).
@@ -225,6 +231,13 @@ def cookbook_wellknown_skill_md(
     authenticated single-skill install route uses), never persisted here
     either. A federated skill whose license does NOT permit redistribution
     still gets the non-leaking stub, exactly like a paid internal skill.
+
+    issue-149 (Option B, owner-approved 2026-08-19): deliberately LOCAL-ONLY
+    (``_skills_for``, not the federated-aware sibling) — same public/
+    anonymous-surface reasoning as ``cookbook_wellknown_index`` above and
+    ``_public_cb_card``/``public_cookbook_page`` in app/bundle_routes.py:
+    gated on badging (plan §0b) before an unvetted federated/community
+    entry should be served here.
     """
     from app.bundle_routes import _skills_for
 
