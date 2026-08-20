@@ -415,7 +415,7 @@ def test_site_reconcile(tenant_app, tenants, key_attr, bundle_attr, expect):
     assert r.status_code == expect, f"{key_attr} -> {bundle_attr}: {r.status_code} {r.text}"
     if expect == 404:
         # Deliverable 3: 404, never 403 — a 403 confirms the artifact EXISTS.
-        assert r.json()["error"] == "cookbook_not_found"
+        assert r.json()["error"] == "bundle_not_found"
 
 
 # ── 3. bundle_routes.py:356 — _resolve_owned_cookbook (~20 routes) ────────
@@ -551,7 +551,7 @@ def test_site_promotion_report(tenant_app, tenants, key_attr, bundle_attr, skill
     )
     assert r.status_code == expect, f"{key_attr} -> {bundle_attr}: {r.status_code} {r.text}"
     if expect == 404:
-        assert r.json()["error"] == "cookbook_not_found"
+        assert r.json()["error"] == "bundle_not_found"
 
 
 # ── 8. recipify_routes.py:58/64 — authoring target resolution ─────────────
@@ -572,7 +572,7 @@ def test_site_recipify_explicit_target_is_tenant_scoped(tenant_app, tenants):
     }
     r = tenant_app.post("/api/recipify", headers={"x-api-key": tenants.key_a}, json=body)
     assert r.status_code == 404, f"cross-tenant recipify target accepted: {r.status_code} {r.text}"
-    assert r.json()["detail"] == "cookbook_not_found"
+    assert r.json()["detail"] == "bundle_not_found"
 
 
 def test_site_recipify_implicit_target_never_crosses_tenant(tenant_app, tenants, db_session):

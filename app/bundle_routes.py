@@ -143,7 +143,7 @@ def _enforce_cbt_scope_for_cookbook_route(request: Request, cookbook_id: str) ->
     if token_cb_id != cid:
         raise HTTPException(
             status_code=403,
-            detail="Token scope mismatch (wrong cookbook)",
+            detail="Token scope mismatch (wrong bundle)",
         )
 
     if scope == "read" and request.method != "GET":
@@ -421,11 +421,11 @@ def _resolve_owned_cookbook(
     try:
         cid = UUID(cookbook_id)
     except (ValueError, TypeError):
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
 
     cb = db.query(Bundle).filter(Bundle.id == cid).first()
     if cb is None:
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
 
     # cookbook_share_2105 Phase D: cbt_token callers (share-token holders) own
     # the resolution path via bundle_scope match. _enforce_cbt_scope_for_cookbook_route  # compat-alias
@@ -449,7 +449,7 @@ def _resolve_owned_cookbook(
     ):
         return cb
 
-    raise HTTPException(status_code=404, detail="cookbook_not_found")
+    raise HTTPException(status_code=404, detail="bundle_not_found")
 
 
 def _skills_for(
@@ -924,7 +924,7 @@ def public_cookbook_page(slug: str, db: Session = Depends(get_db)):
     """
     cb = db.query(Bundle).filter(Bundle.slug == slug).first()
     if not cb or cb.visibility != "public":
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
 
     card = _public_cb_card(db, cb)
     skill_rows = _skills_for(db, cb.id, include_disabled=False)
@@ -993,7 +993,7 @@ def bundle_plugin_manifest(slug: str, db: Session = Depends(get_db)):
     """
     cb = db.query(Bundle).filter(Bundle.slug == slug).first()
     if not cb or cb.visibility != "public":
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
     return _build_plugin_manifest(cb)
 
 
@@ -1048,10 +1048,10 @@ def verify_cookbook(
     try:
         cb_uuid = UUID(cookbook_id)
     except (ValueError, TypeError) as exc:
-        raise HTTPException(status_code=404, detail="cookbook_not_found") from exc
+        raise HTTPException(status_code=404, detail="bundle_not_found") from exc
     cb = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
     if cb is None:
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
 
     verified_q = request.query_params.get("verified", "true").lower()
     cb.is_verified = verified_q not in ("false", "0", "no")
@@ -1104,7 +1104,7 @@ def create_cookbook(
     403 `{"reason": "pro_tier_limit"}` once the private cap is reached.
     """
     if ctx.is_master:
-        raise HTTPException(status_code=400, detail="master key cannot create user-owned cookbooks")
+        raise HTTPException(status_code=400, detail="master key cannot create user-owned bundles")
 
     name = (body.name or "").strip()
     if not name:
@@ -1213,7 +1213,7 @@ def list_cookbooks(
     # helper's `scope == "read" allows GET` branch, which on a COLLECTION route
     # would silently permit a scoped read of every bundle — the opposite of intent.
     if ctx.cbt_cookbook_id is not None:
-        raise HTTPException(status_code=403, detail="Share tokens cannot list cookbooks")
+        raise HTTPException(status_code=403, detail="Share tokens cannot list bundles")
 
     if ctx.is_master:
         return {"cookbooks": []}
@@ -1514,7 +1514,7 @@ def remove_skill_from_cookbook(
         .first()
     )
     if cs is None:
-        raise HTTPException(status_code=404, detail="skill_not_in_cookbook")
+        raise HTTPException(status_code=404, detail="skill_not_in_bundle")
 
     cs.source = "disabled"
     _touch_bundle_generation(db, cb.id)
@@ -1844,7 +1844,7 @@ def remove_personality_from_cookbook(
         .first()
     )
     if bp is None:
-        raise HTTPException(status_code=404, detail="personality_not_in_cookbook")
+        raise HTTPException(status_code=404, detail="personality_not_in_bundle")
 
     db.delete(bp)
     _touch_bundle_generation(db, cb.id)
@@ -2044,7 +2044,7 @@ def remove_loop_from_cookbook(
         .first()
     )
     if bl is None:
-        raise HTTPException(status_code=404, detail="loop_not_in_cookbook")
+        raise HTTPException(status_code=404, detail="loop_not_in_bundle")
 
     db.delete(bl)
     _touch_bundle_generation(db, cb.id)
@@ -2131,7 +2131,7 @@ def set_skill_pin(
         .first()
     )
     if cs is None:
-        raise HTTPException(status_code=404, detail="skill_not_in_cookbook")
+        raise HTTPException(status_code=404, detail="skill_not_in_bundle")
 
     # L5: pinning is curated-only. An external/federation skill has no SkillVersion
     # rows and no version contract → cannot be pinned.
@@ -2650,7 +2650,7 @@ def install_single_skill_from_cookbook(
         .first()
     )
     if cs is None:
-        raise HTTPException(status_code=404, detail="skill_not_in_cookbook")
+        raise HTTPException(status_code=404, detail="skill_not_in_bundle")
 
     # portal_0610 R1 (§6.6/§6.7-L10): tier-ACCESS gate, owner-tier-scoped.
     # An explicit single-skill install of an over-tier skill 403s (unlike the
@@ -2802,7 +2802,7 @@ def handoff_cookbook(
 
     if "error" in result:
         error = result["error"]
-        if error == "cookbook_not_found":
+        if error == "bundle_not_found":
             raise HTTPException(status_code=404, detail=error)
         if error == "forbidden":
             raise HTTPException(status_code=403, detail=error)

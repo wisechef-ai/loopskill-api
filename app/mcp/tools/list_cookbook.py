@@ -53,7 +53,7 @@ def loopskill_list_bundle(
         cb_uuid = _coerce_uuid(cookbook_id)
         cb = db.query(Bundle).filter(Bundle.id == cb_uuid).first() if cb_uuid is not None else None
         if cb is None or ctx is None or not authz.can_read_cookbook(ctx, cb, allow_org_read=True):
-            return {"error": "cookbook_not_found", "status": 404}
+            return {"error": "bundle_not_found", "status": 404}
         cookbook = cb
     else:
         owner = _coerce_uuid(user_id) if user_id is not None else (ctx.user_id if ctx is not None else None)

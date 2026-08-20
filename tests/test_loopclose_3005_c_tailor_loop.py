@@ -350,7 +350,7 @@ class TestCookbookAttach:
         db.commit()
 
         res = loopskill_bundle_attach(db, fork_id=str(fork.id), target_cookbook_id=str(cb.id), ctx=_pro_ctx(attacker))
-        assert res["code"] == "cookbook_not_found"  # no-oracle
+        assert res["code"] == "bundle_not_found"  # no-oracle
 
     def test_slug_override(self, db: Session, storage_dirs) -> None:
         from app.mcp.tools.fork_deploy import loopskill_bundle_attach

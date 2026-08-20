@@ -240,7 +240,7 @@ class TestMcpToolsAreTenantScoped:
             caller=_mcp_caller(db_session, tenants.key_b),
             db=db_session,
         )
-        assert out.get("error") == "cookbook_not_found", f"cross-tenant MCP bundle read: {out!r}"
+        assert out.get("error") == "bundle_not_found", f"cross-tenant MCP bundle read: {out!r}"
 
     def test_list_bundle_implicit_target_stays_in_tenant(self, tenants, db_session):
         """The no-argument call had no authz site at all — it just picked one.
@@ -295,11 +295,11 @@ class TestMcpToolsAreTenantScoped:
             db=db_session,
         )
         if denied:
-            assert out.get("code") == "cookbook_not_found", (
+            assert out.get("code") == "bundle_not_found", (
                 f"cross-tenant MCP bundle install {key_attr} -> {bundle_attr}: {out!r}"
             )
         else:
-            assert out.get("code") != "cookbook_not_found", (
+            assert out.get("code") != "bundle_not_found", (
                 f"CONTROL FAILED ({key_attr} -> {bundle_attr}): the owning tenant "
                 f"can no longer install its own bundle — void, not green: {out!r}"
             )

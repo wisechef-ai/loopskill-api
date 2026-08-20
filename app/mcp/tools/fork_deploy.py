@@ -347,10 +347,10 @@ def loopskill_bundle_attach(
 
         cb_id = UUID(str(target_cookbook_id))
     except (ValueError, TypeError):
-        return {"error": "cookbook_not_found", "code": "cookbook_not_found"}
+        return {"error": "bundle_not_found", "code": "bundle_not_found"}
     cb = db.query(Bundle).filter(Bundle.id == cb_id).first()
     if cb is None or not authz.can_write_cookbook(ctx, cb):
-        return {"error": "cookbook_not_found", "code": "cookbook_not_found"}
+        return {"error": "bundle_not_found", "code": "bundle_not_found"}
 
     # Read the fork tarball from disk.
     tar_path = Path(fork_version.tarball_path)

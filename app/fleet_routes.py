@@ -96,7 +96,7 @@ def _raise_for_tool_error(result: dict[str, Any]) -> dict[str, Any]:
         "forbidden": 403,
         "not_found": 404,
         "invalid_fleet_id": 422,
-        "invalid_cookbook_id": 422,
+        "invalid_bundle_id": 422,
         "invalid_channel": 422,
         "invalid_org_id": 422,
     }.get(err, 400)

@@ -84,7 +84,7 @@ def loopskill_sync(
     try:
         cb_uuid = UUID(cookbook_id)
     except (ValueError, AttributeError):
-        return {"error": "invalid_cookbook_id", "cookbook_id": cookbook_id}
+        return {"error": "invalid_bundle_id", "cookbook_id": cookbook_id}
 
     # Verify bundle exists
     cb = db.query(Bundle).filter(Bundle.id == cb_uuid).first()

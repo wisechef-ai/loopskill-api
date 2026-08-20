@@ -506,5 +506,5 @@ def test_dispatch_maps_error_envelope(db):
         {"link": "bundle://missing"},
         {"scope": "anonymous"},
     )
-    assert out["code"] == "cookbook_not_found"
+    assert out["code"] == "bundle_not_found"
     assert out["status"] == 404

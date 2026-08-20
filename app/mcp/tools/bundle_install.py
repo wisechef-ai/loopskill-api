@@ -104,7 +104,7 @@ def _resolve_cookbook(
             try:
                 target_id = UUID(cookbook_id)
             except (ValueError, TypeError) as exc:
-                raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404) from exc
+                raise CookbookInstallError("bundle_not_found", "bundle_not_found", status=404) from exc
             if target_id != ctx.bundle_scope:
                 raise CookbookInstallError(
                     "token_scope_mismatch",
@@ -113,7 +113,7 @@ def _resolve_cookbook(
                 )
         cb = db.query(Bundle).filter(Bundle.id == target_id).first()
         if cb is None:
-            raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404)
+            raise CookbookInstallError("bundle_not_found", "bundle_not_found", status=404)
         return cb
 
     # user / master path: explicit cookbook_id required
@@ -126,11 +126,11 @@ def _resolve_cookbook(
     try:
         target_id = UUID(cookbook_id)
     except (ValueError, TypeError) as exc:
-        raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404) from exc
+        raise CookbookInstallError("bundle_not_found", "bundle_not_found", status=404) from exc
 
     cb = db.query(Bundle).filter(Bundle.id == target_id).first()
     if cb is None:
-        raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404)
+        raise CookbookInstallError("bundle_not_found", "bundle_not_found", status=404)
 
     if ctx.scope == "master":
         return cb
@@ -143,7 +143,7 @@ def _resolve_cookbook(
         return cb
 
     # Default: 404 (no oracle for non-owners — keep parity with REST routes)
-    raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404)
+    raise CookbookInstallError("bundle_not_found", "bundle_not_found", status=404)
 
 
 def _resolve_version(db: Session, skill: Skill, pinned_version: str | None) -> SkillVersion | None:
@@ -217,7 +217,7 @@ def loopskill_bundle_install(
         # the bundle→skill membership for cbt_token callers.
         if not authz.can_install(ctx, skill, db=db):
             # No oracle: indistinguishable from "not in bundle" / "private".
-            raise CookbookInstallError("skill_not_in_cookbook", "skill_not_in_cookbook", status=404)
+            raise CookbookInstallError("skill_not_in_bundle", "skill_not_in_bundle", status=404)
 
         cs = (
             db.query(BundleSkill)
@@ -229,7 +229,7 @@ def loopskill_bundle_install(
             .first()
         )
         if cs is None:
-            raise CookbookInstallError("skill_not_in_cookbook", "skill_not_in_cookbook", status=404)
+            raise CookbookInstallError("skill_not_in_bundle", "skill_not_in_bundle", status=404)
 
         # federation_0604 Unit 2 — external skill: resolve real SKILL.md from
         # origin (never rehosted) via the SHARED resolver. No SkillVersion.

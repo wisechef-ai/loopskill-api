@@ -171,7 +171,7 @@ def loopskill_fleet_subscribe(
     try:
         cb_uuid = UUID(cookbook_id)
     except (ValueError, AttributeError):
-        return {"error": "invalid_cookbook_id", "cookbook_id": cookbook_id}
+        return {"error": "invalid_bundle_id", "cookbook_id": cookbook_id}
 
     # activate_0701/TEN: org-scoped bundle access — a fleet in org A cannot
     # subscribe to org B's private bundle. Cross-org = forbidden.
@@ -179,7 +179,7 @@ def loopskill_fleet_subscribe(
 
     bundle = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
     if bundle is None:
-        return {"error": "invalid_cookbook_id", "cookbook_id": cookbook_id}
+        return {"error": "invalid_bundle_id", "cookbook_id": cookbook_id}
     if not authz.can_access_bundle(ctx, bundle):
         return {"error": "forbidden", "cookbook_id": cookbook_id}
 

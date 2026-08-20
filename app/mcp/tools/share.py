@@ -60,12 +60,12 @@ def loopskill_share_create(
 
     cb = _load_cookbook(db, cookbook_id)
     if cb is None:
-        return {"error": "cookbook_not_found", "cookbook_id": cookbook_id}
+        return {"error": "bundle_not_found", "cookbook_id": cookbook_id}
 
     if not authz.can_write_cookbook(ctx, cb):
         # mesh_0408 W1b (codex PR #202, finding 3): same answer as the absent
         # case above — a distinct `cookbook_forbidden` was an existence oracle.
-        return {"error": "cookbook_not_found", "cookbook_id": cookbook_id}
+        return {"error": "bundle_not_found", "cookbook_id": cookbook_id}
 
     # Delegate to the service (raises HTTPException on invalid scope)
     try:
@@ -107,12 +107,12 @@ def loopskill_share_list(
 
     cb = _load_cookbook(db, cookbook_id)
     if cb is None:
-        return {"error": "cookbook_not_found", "cookbook_id": cookbook_id}
+        return {"error": "bundle_not_found", "cookbook_id": cookbook_id}
 
     if not authz.can_write_cookbook(ctx, cb):
         # mesh_0408 W1b (codex PR #202, finding 3): same answer as the absent
         # case above — a distinct `cookbook_forbidden` was an existence oracle.
-        return {"error": "cookbook_not_found", "cookbook_id": cookbook_id}
+        return {"error": "bundle_not_found", "cookbook_id": cookbook_id}
 
     tokens = _list_service(db, cookbook=cb)
     return {"tokens": tokens}
@@ -137,12 +137,12 @@ def loopskill_share_revoke(
 
     cb = _load_cookbook(db, cookbook_id)
     if cb is None:
-        return {"error": "cookbook_not_found", "cookbook_id": cookbook_id}
+        return {"error": "bundle_not_found", "cookbook_id": cookbook_id}
 
     if not authz.can_write_cookbook(ctx, cb):
         # mesh_0408 W1b (codex PR #202, finding 3): same answer as the absent
         # case above — a distinct `cookbook_forbidden` was an existence oracle.
-        return {"error": "cookbook_not_found", "cookbook_id": cookbook_id}
+        return {"error": "bundle_not_found", "cookbook_id": cookbook_id}
 
     try:
         _revoke_service(db, cookbook=cb, token_id=token_id)
@@ -174,12 +174,12 @@ def loopskill_share_rotate(
 
     cb = _load_cookbook(db, cookbook_id)
     if cb is None:
-        return {"error": "cookbook_not_found", "cookbook_id": cookbook_id}
+        return {"error": "bundle_not_found", "cookbook_id": cookbook_id}
 
     if not authz.can_write_cookbook(ctx, cb):
         # mesh_0408 W1b (codex PR #202, finding 3): same answer as the absent
         # case above — a distinct `cookbook_forbidden` was an existence oracle.
-        return {"error": "cookbook_not_found", "cookbook_id": cookbook_id}
+        return {"error": "bundle_not_found", "cookbook_id": cookbook_id}
 
     try:
         result = _rotate_service(

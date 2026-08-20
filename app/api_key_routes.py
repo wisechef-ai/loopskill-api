@@ -175,7 +175,7 @@ async def create_api_key(
         try:
             cookbook_id = UUID(str(body["cookbook_id"]))
         except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="invalid_cookbook_id")
+            raise HTTPException(status_code=400, detail="invalid_bundle_id")
 
         cb = (
             db.query(Bundle)  # compat-alias
@@ -183,7 +183,7 @@ async def create_api_key(
             .first()
         )
         if not cb:
-            raise HTTPException(status_code=404, detail="cookbook_not_found")
+            raise HTTPException(status_code=404, detail="bundle_not_found")
 
     # ── Label (prefer explicit `label`, fall back to `name`) ─────────────
     raw_label: str | None = body.get("label") or body.get("name")

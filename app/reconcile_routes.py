@@ -79,12 +79,12 @@ def reconcile_cookbook(
         cb_uuid = UUID(cookbook_id)
     except (ValueError, AttributeError):
         response.status_code = 404
-        return {"error": "cookbook_not_found"}
+        return {"error": "bundle_not_found"}
 
     cb = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
     if cb is None:
         response.status_code = 404
-        return {"error": "cookbook_not_found"}
+        return {"error": "bundle_not_found"}
 
     # Deployment read access: master, owner, or an active follower of a public
     # bundle. Follows intentionally grant reconcile only; all bundle mutation
@@ -97,7 +97,7 @@ def reconcile_cookbook(
     is_follower = not is_owner and authz.can_reconcile_cookbook(auth_ctx, cb, db=db)
     if not is_owner and not is_follower:
         response.status_code = 404
-        return {"error": "cookbook_not_found"}
+        return {"error": "bundle_not_found"}
     if is_follower and not body.dry_run:
         response.status_code = 403
         return {"error": "read_only_follow"}

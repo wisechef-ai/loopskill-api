@@ -304,6 +304,25 @@ inert). No schema, no migration.
     rather than hidden: the concurrency proof is a 20-thread SQLite test plus
     a code-level argument for Postgres — no live PG concurrency harness runs
     in CI yet.
+
+0.9.41 - fix(issue-157 Phase 1b): removed "cookbook" from every error-code
+    string an agent or API consumer reads back on a 4xx — `detail=` on
+    HTTPException routes AND the `{"error": ...}` dict shape used by
+    promotion/reconcile routes and MCP tool error returns (bundle install,
+    share tokens, fleet subscribe/sync, tailor handoff, streaming install,
+    recipify, preflight). Renamed 37 occurrences across 20 modules:
+    cookbook_not_found -> bundle_not_found, not_cookbook_owner ->
+    not_bundle_owner, skill_not_in_cookbook -> skill_not_in_bundle,
+    personality_not_in_cookbook -> personality_not_in_bundle,
+    loop_not_in_cookbook -> loop_not_in_bundle, invalid_cookbook_id ->
+    invalid_bundle_id, plus 3 free-text detail strings ("Token scope
+    mismatch (wrong cookbook)" etc). Wire-contract field names
+    (`cookbook_id` param, `/api/cookbooks/*` routes) are intentionally
+    untouched — those are Phase 3/4 per the issue's phasing (breaking,
+    needs a dual-emit window). Verified no portal src/ consumer keys off
+    any of these string VALUES (grep clean) before renaming — copy-only,
+    zero behaviour change. Verified against prod /api/healthz 0.9.36
+    before bumping.
 """
 
-__version__ = "0.9.40"
+__version__ = "0.9.41"

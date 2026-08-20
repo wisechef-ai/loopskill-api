@@ -311,7 +311,7 @@ class TestMiddlewarePathRestrictionNotRegressed:
 
         We spin up the REAL middleware stack and send a raw cbt_ token header to
         an /api/admin/* path. The middleware must return 403 with the canonical
-        'Share tokens can only access cookbook routes' message.
+        'Share tokens can only access bundle routes' message.
 
         Because the real middleware does a DB lookup for the cbt_ token, we create
         a minimal self-contained app with a fixed cbt-shaped key that will NOT match
