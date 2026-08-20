@@ -209,8 +209,9 @@ APIKeyMiddleware.dispatch()
 ```
 
 API keys are `rec_`-prefixed and passed in the `x-api-key` header. Most
-read endpoints (search, detail, discover) are unauthenticated; install,
-publish, run, and rate require a key.
+read endpoints (search, detail, discover) are unauthenticated. Free-tier
+skills install anonymously with no key (200 + tarball); installing a
+paid-tier skill, publishing, running, and rating all require a key.
 
 ---
 
