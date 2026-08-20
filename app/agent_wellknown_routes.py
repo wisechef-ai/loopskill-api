@@ -1,15 +1,25 @@
 """agentreg_0819 — public agent discovery documents.
 
-    GET /.well-known/agent.json   — what LoopSkill is and how an agent enrols
-    GET /.well-known/mcp.json     — the MCP server descriptor
+    GET /.well-known/agent.json     — what LoopSkill is and how an agent enrols
+    GET /.well-known/mcp.json       — the MCP server descriptor
+    GET /.well-known/ai-plugin.json — gap/gap-aiplugin: the 3rd standard
+                                       AI-plugin discovery convention
 
-Both are UNAUTHENTICATED by design and by necessity: they are what an agent
-reads BEFORE it has any credential, so requiring one is a deadlock. They were
-previously 401ing for a mundane reason — ``APIKeyMiddleware`` gates every path
-not on its allowlist, and ``app/middleware/_public_paths.py:EXEMPT_PATHS``
-listed only the two mesh ``.well-known`` documents. Adding these two exact
-paths there is the whole fix; ``/.well-known/*`` already reaches this FastAPI
-app through the edge (verified when the mesh documents shipped — see
+All three are UNAUTHENTICATED by design and by necessity: they are what an
+agent reads BEFORE it has any credential, so requiring one is a deadlock. The
+first two were previously 401ing for a mundane reason — ``APIKeyMiddleware``
+gates every path not on its allowlist, and
+``app/middleware/_public_paths.py:EXEMPT_PATHS`` listed only the two mesh
+``.well-known`` documents. ai-plugin.json (this route) never existed at all
+before ``gap/gap-aiplugin``: any request to it hit the SAME middleware wall —
+``APIKeyMiddleware`` 401s before routing even resolves whether a handler
+exists — so it 401'd live in prod (verified 2026-08-20,
+``curl https://app.loopskill.io/.well-known/ai-plugin.json`` ->
+``{"detail":"Invalid or missing x-api-key header"}``) with no breadcrumb for
+a cold agent that tries the ai-plugin convention instead of
+agent.json/mcp.json. Adding both the route below AND the exact path to
+``EXEMPT_PATHS`` is the whole fix; ``/.well-known/*`` already reaches this
+FastAPI app through the edge (verified when the mesh documents shipped — see
 ``app/mesh_wellknown_routes.py``'s deployment note).
 
 They carry NO secrets and no per-caller data: every value is either a static
@@ -22,6 +32,23 @@ The registration block restates the canonical string that
 own helper rather than typed out again, so the published spec cannot drift from
 the implementation — the failure mode that would otherwise break every client
 silently.
+
+HONESTY CONSTRAINT on ai-plugin.json's ``api`` block: ``GET /openapi.json``
+returns 404 live on this deployment (verified 2026-08-20 — a bare Caddy 404
+with no ``uvicorn`` response header, meaning the edge never proxies that path
+to this FastAPI app at all; there is deliberately no public machine-readable
+OpenAPI spec, see ``/docs/api-reference``, the hand-written substitute).
+``build_ai_plugin_manifest`` therefore does NOT point ``api.url`` at
+``/openapi.json`` (the exact "documented but broken" defect class this route
+exists to kill); it points at the MCP descriptor (``/.well-known/mcp.json``)
+and the MCP HTTP endpoint (``/api/mcp/http``) — surfaces that genuinely exist
+and 200 anonymously (mcp.json) or answer the MCP protocol (the HTTP
+endpoint). ``auth`` describes the real flow honestly: agents self-register
+via ``POST /api/agents/register`` (Ed25519 proof-of-key, no human OAuth) and
+then send ``x-api-key`` — not an OAuth manifest, because there is no OAuth
+here. It cross-links to ``/.well-known/agent.json`` so a cold agent that
+lands on ai-plugin.json first is routed to the full enrolment spec rather
+than dead-ending.
 """
 
 from __future__ import annotations
@@ -177,6 +204,62 @@ def build_mcp_descriptor() -> dict:
     }
 
 
+def build_ai_plugin_manifest() -> dict:
+    """The ``/.well-known/ai-plugin.json`` body. Pure — no request, no DB, no PII.
+
+    Follows the well-known ai-plugin convention (schema_version,
+    name_for_human/model, description_for_human/model, auth, api). ``api.url``
+    deliberately does NOT point at ``/openapi.json`` (404 on this deployment
+    by design — see module docstring); it points at the MCP descriptor
+    instead, which genuinely 200s. ``auth`` states the real self-registration
+    flow, not an OAuth shape this platform does not have.
+
+    ``logo_url``/``legal_info_url`` are conventional ai-plugin fields but are
+    deliberately OMITTED here: this backend owns no route that serves a logo
+    image or a legal/privacy page (those live on the separate Astro portal
+    in front of Caddy, not in this FastAPI app), and every URL this document
+    advertises must be a route this app actually serves — the no-404-links
+    promise the pinning test (``test_every_advertised_url_is_a_real_route``)
+    enforces by introspecting ``app.routes`` rather than trusting prose.
+    """
+    origin = public_origin()
+    return {
+        "schema_version": "v1",
+        "name_for_human": "LoopSkill",
+        "name_for_model": "loopskill",
+        "description_for_human": (
+            "Skill, loop and bundle marketplace for AI agents — and the control plane for AI agent fleets."
+        ),
+        "description_for_model": (
+            "Search, install and compose skills, loops and bundles; file "
+            "feedback; propose registries. Agents self-register for an API "
+            "key via POST /api/agents/register (Ed25519 proof-of-key, no "
+            "human OAuth) and then call the MCP server or REST API with "
+            "the issued x-api-key. See /.well-known/agent.json for the full "
+            "enrolment spec and /.well-known/mcp.json for the MCP "
+            "descriptor."
+        ),
+        "auth": {
+            "type": "none",
+            "instructions": (
+                "No OAuth flow exists on this platform. An agent proves "
+                "possession of an Ed25519 keypair to POST "
+                f"{origin}/api/agents/register and receives a scoped "
+                "rec_agent_ API key, sent thereafter as the x-api-key "
+                f"header. Full spec: {origin}/.well-known/agent.json"
+            ),
+        },
+        "api": {
+            "type": "mcp",
+            "url": f"{origin}/.well-known/mcp.json",
+            "endpoint": f"{origin}/api/mcp/http",
+            "transport": "streamable-http",
+            "is_user_authenticated": False,
+        },
+        "contact_email": "hi@wisechef.ai",
+    }
+
+
 @router.get("/.well-known/agent.json")
 def agent_descriptor() -> Response:
     """Public agent-discovery document. Unauthenticated by design."""
@@ -187,3 +270,12 @@ def agent_descriptor() -> Response:
 def mcp_descriptor() -> Response:
     """Public MCP server descriptor. Unauthenticated by design."""
     return _etagged_json(build_mcp_descriptor())
+
+
+@router.get("/.well-known/ai-plugin.json")
+def ai_plugin_manifest() -> Response:
+    """Public AI-plugin manifest (the 3rd standard discovery convention,
+    alongside agent.json/mcp.json). Unauthenticated by design — see module
+    docstring for the live 401 defect this closes.
+    """
+    return _etagged_json(build_ai_plugin_manifest())
