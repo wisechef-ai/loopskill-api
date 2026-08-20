@@ -1,12 +1,12 @@
 {
   "source": "app.main.app.routes + app.middleware.api_key.APIKeyMiddleware (dispatch tree replayed), derived at import time",
   "generator": "scripts/generate_route_manifest.py",
-  "route_count": 309,
+  "route_count": 310,
   "counts_by_classification": {
     "admin": 11,
     "authenticated": 190,
     "internal": 2,
-    "public": 106
+    "public": 107
   },
   "routes": [
     {
@@ -33,6 +33,20 @@
       ],
       "classification": "public",
       "summary": "Public agent-discovery document. Unauthenticated by design."
+    },
+    {
+      "method": "GET",
+      "path": "/.well-known/ai-plugin.json",
+      "name": "ai_plugin_manifest",
+      "module": "app.agent_wellknown_routes",
+      "tags": [
+        "agents",
+        "agents",
+        "well-known",
+        "well-known"
+      ],
+      "classification": "public",
+      "summary": "Public AI-plugin manifest (the 3rd standard discovery convention,"
     },
     {
       "method": "GET",
