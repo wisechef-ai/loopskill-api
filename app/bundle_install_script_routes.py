@@ -25,6 +25,20 @@ Verified end-to-end 2026-08-11 (pasted in the PR body):
   -> installed 0 skill(s); reports the 3 pro-tier members + the MCP line to
      unlock them (honest failure, not a silent no-op)
 
+fi_first_impression_api (2026-08-19): a live audit found the "reports the
+pro-tier members" claim above was true only for a MIXED bundle. An ALL-Pro
+bundle (dev-agent-essentials, research-and-report — every member locked)
+printed a bare "installed 0 skill(s)" with the locked-members footer, which
+reads exactly like the script ran correctly and the bundle is just empty —
+no visitor would infer "this bundle is entirely paid" from that line. Fixed:
+when the free-installable count is 0, the warning
+"This bundle requires Pro — 0 free skills will be installed. See
+https://app.loopskill.io/pricing" is now the FIRST line printed (before the
+"installing bundle ..." progress line, before mkdir), and the script exits
+4 (distinct from the pre-existing usage/missing-python3 codes 2/3) so an
+automated caller can branch on "this bundle needs a key" without parsing
+stdout.
+
 Dual-mounted at /api/bundles/install.sh (primary) and
 /api/cookbooks/install.sh (compat-alias) — mirrors every other bundle
 surface in this repo. Public (no auth) — same allowlist reasoning as /skill:
@@ -70,9 +84,6 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 3
 fi
 
-echo "LoopSkill: installing bundle '$SLUG' -> $DEST"
-mkdir -p "$DEST"
-
 PYTMP="$(mktemp)"
 trap 'rm -f "$PYTMP"' EXIT
 cat > "$PYTMP" <<'PYEOF'
@@ -83,14 +94,26 @@ base = f"{{api_base}}/api/bundles/public/{{slug}}/.well-known/skills"
 with urllib.request.urlopen(index_url) as r:
     data = json.load(r)
 skills = data.get("skills", [])
-installed, locked = [], []
-for s in skills:
+free = [s for s in skills if s.get("name") and not s.get("locked")]
+locked = [s.get("name") for s in skills if s.get("name") and s.get("locked")]
+
+# fi_first_impression_api: an audit against dev-agent-essentials and
+# research-and-report (2026-08-19) found this script silently printed
+# "installed 0 skill(s)" when EVERY member of a bundle is Pro-locked —
+# a cold-path visitor pasting the install line got a bare success-shaped
+# summary with zero indication anything was withheld. The check now runs
+# FIRST, before any progress output, so the warning is unmissable and the
+# script exits with a distinct code (4) an automated caller can branch on.
+if skills and not free:
+    print("This bundle requires Pro — 0 free skills will be installed. See https://app.loopskill.io/pricing")
+    sys.exit(4)
+
+print(f"LoopSkill: installing bundle '{{slug}}' -> {{dest}}")
+os.makedirs(dest, exist_ok=True)
+
+installed = []
+for s in free:
     name = s.get("name")
-    if not name:
-        continue
-    if s.get("locked"):
-        locked.append(name)
-        continue
     # bundles_0811: `name` is the WIRE KEY used to fetch; `dir_name` is the
     # filesystem-safe form to mkdir. Federated members are slugged
     # `ext:<source>:<slug>` and a colon is illegal in a Windows path, so
