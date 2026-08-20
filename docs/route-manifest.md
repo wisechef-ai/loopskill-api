@@ -3,7 +3,7 @@
 
 # Route Manifest (bundles_0811 P7)
 
-Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **304** distinct (method, path) surfaces.
+Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **309** distinct (method, path) surfaces.
 
 ## How classification works
 
@@ -21,19 +21,23 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 
 | Classification | Routes |
 |---|---|
-| admin | 9 |
+| admin | 11 |
 | authenticated | 190 |
 | internal | 2 |
-| public | 103 |
+| public | 106 |
 
 ## Full manifest
 
 | Method | Path | Classification | Module | Tags |
 |---|---|---|---|---|
 | GET | `/` | public | `app.main` | meta |
+| GET | `/.well-known/agent.json` | public | `app.agent_wellknown_routes` | agents, agents, well-known, well-known |
 | GET | `/.well-known/jwks.json` | public | `app.mesh_wellknown_routes` | mesh, mesh, well-known, well-known |
+| GET | `/.well-known/mcp.json` | public | `app.agent_wellknown_routes` | agents, agents, well-known, well-known |
 | GET | `/.well-known/oauth-authorization-server` | public | `app.mesh_wellknown_routes` | mesh, mesh, well-known, well-known |
 | GET | `/SKILL.md` | public | `app.skill_serve_routes` | skills |
+| GET | `/api/admin/agent-identities` | admin | `app.agent_registration_routes` | agents, agents |
+| POST | `/api/admin/agent-identities/{identity_id}/revoke` | admin | `app.agent_registration_routes` | agents, agents |
 | GET | `/api/admin/demand-brief` | admin | `app.demand_routes` | admin, admin |
 | POST | `/api/admin/loop-run-rollup` | admin | `app.admin_routes` | admin, admin |
 | POST | `/api/admin/payouts/run` | admin | `app.creator_routes` | creator, creator |
@@ -43,6 +47,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | PATCH | `/api/admin/skill-publish-requests/{request_id}/status` | admin | `app.admin_routes` | admin, admin |
 | GET | `/api/admin/skill-publish-requests/{request_id}/tarball` | admin | `app.admin_routes` | admin, admin |
 | POST | `/api/admin/sync-report-prune` | admin | `app.admin_routes` | admin, admin |
+| POST | `/api/agents/register` | public | `app.agent_registration_routes` | agents, agents |
 | GET | `/api/api-keys` | authenticated | `app.api_key_routes` | api-keys, api-keys |
 | POST | `/api/api-keys` | authenticated | `app.api_key_routes` | api-keys, api-keys |
 | DELETE | `/api/api-keys/{key_id}` | authenticated | `app.api_key_routes` | api-keys, api-keys |

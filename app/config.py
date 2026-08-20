@@ -232,6 +232,22 @@ class Settings(BaseSettings):
     # route's tuned budget (see metasearch_fanout._PER_SOURCE_DEADLINE_S notes).
     EXTERNAL_FANOUT_PER_SOURCE_DEADLINE_S: float = 2.5
 
+    # agentreg_0819 — self-serve agent registration (POST /api/agents/register).
+    # These are the ONLY abuse wall in front of an endpoint that mints a real
+    # API key with no human in the loop, so they are deliberately conservative
+    # and env-tunable (WR_AGENT_REGISTRATION_*) without a redeploy.
+    #
+    # Per-IP cap: a single source may enrol this many agents in a rolling 24h.
+    AGENT_REGISTRATION_PER_IP_PER_DAY: int = 3
+    # Global cap: total enrolments across ALL sources in a rolling 24h. The
+    # backstop against a distributed key-stuffing farm that defeats the per-IP
+    # cap by spreading across addresses.
+    AGENT_REGISTRATION_GLOBAL_PER_DAY: int = 20
+    # Maximum accepted clock skew (seconds) between the signed `timestamp` and
+    # server time. Also sets the nonce retention horizon (2x this), after which
+    # a replay is already refused by the timestamp gate.
+    AGENT_REGISTRATION_MAX_SKEW_SECONDS: int = 300
+
     model_config = {"env_file": ".env", "env_prefix": "WR_", "extra": "ignore"}
 
     @model_validator(mode="after")

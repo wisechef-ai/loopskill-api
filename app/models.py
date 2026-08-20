@@ -6,6 +6,7 @@ Plus supporting tables: creators, orgs, api_library.
 Bundle tables: bundles, bundle_skills, bundle_share_tokens, bundle_deployments.
 """
 
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -106,6 +107,15 @@ class User(Base):
     # Set from ?ref= query param on /install or /pricing. Propagated to Stripe
     # checkout metadata so subscriptions can be attributed per platform.
     utm_ref = Column(String(32), nullable=True)
+    # ── agentreg_0819: the DURABLE agent marker ──────────────────────────
+    # True for the SHADOW user minted by POST /api/agents/register. Before this
+    # column existed an agent principal was indistinguishable from a human at
+    # every consumer of AuthContext — the only signal was the rec_agent_ key
+    # prefix, which is a credential-shaped fact, not an identity-shaped one, and
+    # therefore invisible to authz predicates and to any human-count surface.
+    # Stamped into AuthContext.is_agent on BOTH validate paths (REST middleware
+    # and app/mcp/auth.py) and read by authz.can_run_sandbox.
+    is_agent = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -2993,4 +3003,164 @@ class FederationRegistryProposal(Base):
         ),
         Index("idx_frp_signature", "signature"),
         Index("idx_frp_identity_created", "identity", "created_at"),
+    )
+
+
+# ── Agent self-registration (agentreg_0819) ─────────────────────────────
+
+
+class AgentIdentity(Base):
+    """A self-registered autonomous agent, proven by Ed25519 key possession.
+
+    agentreg_0819. Created by ``POST /api/agents/register`` — no human OAuth
+    login. The pubkey IS the identity: registration is authorised by a
+    signature over a canonical string (see
+    ``app.services.agent_registration.canonical_registration_string``), so
+    nothing but possession of the private key is required.
+
+    ``user_id`` points at a SHADOW ``User`` row minted alongside the identity.
+    That shadow row is what ``APIKey.user_id`` (NOT NULL) and every ownership
+    column in this schema already key off, so an agent key resolves to a
+    perfectly ordinary ``AuthContext(scope="user", tier=None)`` and NO authz
+    predicate had to change. The shadow user carries no ``github_id`` /
+    ``google_id`` / ``email``, so it is unreachable from any OAuth flow.
+
+    ``revoked`` is the fail-closed kill switch: ``app.middleware._agent_identity``
+    rejects any ``rec_agent_`` key whose identity is missing or revoked, on both
+    the REST and the MCP validation paths.
+    """
+
+    __tablename__ = "agent_identities"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    # Base64 of the 32-byte raw Ed25519 public key (44 chars with padding).
+    # DISPLAY/interop column. It is NOT the uniqueness basis — see below.
+    pubkey = Column(String(128), nullable=False, unique=True, index=True)
+    # The real uniqueness basis: sha256 hex of the 32 RAW public-key bytes.
+    #
+    # Base64 is not injective onto its own text: the final character of a
+    # 44-char standard-base64 encoding of 32 bytes carries 4 significant bits
+    # and 2 slack bits, so "…9E=", "…9F=", "…9G=" and "…9H=" all decode to the
+    # SAME 32 bytes, and base64.b64decode(validate=True) accepts every one of
+    # them. With uniqueness on the TEXT alone, four spellings of one key minted
+    # four identities, four shadow users and four keys — the 409 key-stuffing
+    # wall was bypassable by re-spelling. Two independent fixes, both kept:
+    # the service rejects any non-canonical spelling outright, and THIS column
+    # makes the database itself unable to hold the same key twice.
+    pubkey_sha256 = Column(String(64), nullable=False, unique=True, index=True)
+    agent_name = Column(String(64), nullable=False)
+    contact = Column(String(128), nullable=True)
+    # The shadow User this identity's API keys hang off. UNIQUE: one shadow
+    # user per agent identity, so the reverse lookup in the middleware
+    # (user_id -> identity) is unambiguous.
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    revoked = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # Textual so both IPv4 and IPv6 fit; used for the per-IP registration cap.
+    registration_ip = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("idx_agent_identities_ip_created", "registration_ip", "created_at"),
+        Index("idx_agent_identities_created", "created_at"),
+    )
+
+
+class AgentRegistrationGate(Base):
+    """One serialisation row per registration scope (review round 4).
+
+    agentreg_0819 rounds 2-3 tried to bound enrolment with immutable counter
+    rows; the final review proved every fixed-bucket variant either racily
+    overshoots or forgets a bucket at an alternate boundary. Round 4 is dumber
+    and true: this row is LOCKED (SELECT ... FOR UPDATE) by every concurrent
+    reserver of its scope, and under that lock the service counts the real
+    ``agent_identities`` rows in the exact trailing 24h. No window arithmetic,
+    no boundaries — the checked invariant is the invariant that must hold.
+    On SQLite the lock is a no-op made safe by whole-DB write serialisation.
+
+    See app/services/agent_registration_quota.py for the full rationale.
+    """
+
+    __tablename__ = "agent_registration_gate"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    # "global", or "ip:<address>". One row = one serialisation domain.
+    scope = Column(String(128), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
+    # Written by EVERY reservation so the row lock is taken by an UPDATE (a
+    # real write) rather than a SELECT ... FOR UPDATE — which is a no-op on
+    # SQLite. The write holds Postgres's row lock / SQLite's database write
+    # lock from the decision until the caller's COMMIT.
+    last_reserved_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class AgentRegistrationNonce(Base):
+    """A consumed registration nonce — the replay wall.
+
+    agentreg_0819. A signature is only good once: the nonce is hashed and
+    inserted under a UNIQUE constraint, so a replayed request loses the race
+    at the database rather than in application logic.
+
+    DB-backed rather than Redis-backed on purpose. ``app.middleware.get_redis``
+    degrades to ``None`` whenever Redis is unreachable (see its 30s-backoff
+    fallback), and a replay wall that opens when the cache is down is not a
+    wall. Expired rows are swept opportunistically on each registration
+    attempt — see ``app.services.agent_registration.sweep_expired_nonces``.
+    """
+
+    __tablename__ = "agent_registration_nonces"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    # sha256 hex of the raw nonce string — the nonce itself is never stored.
+    nonce_hash = Column(String(64), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Retention horizon: max acceptable clock skew, doubled. Past this point a
+    # replay of the same nonce is already rejected by the timestamp gate.
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+
+
+class AgentRegistrationQuota(Base):
+    """One counter row per (bucket, window) — the DB-enforced enrolment cap.
+
+    agentreg_0819, review round 2 (F1). The first cut counted
+    ``agent_identities`` rows with ``COUNT(*)`` and compared the result to the
+    cap in Python. That is a check-then-act: N concurrent requests arriving
+    while the count sits at ``cap - 1`` ALL read ``cap - 1``, all pass, and all
+    commit. The cap was advisory under exactly the load an attacker creates.
+
+    A counter row replaces the count so the reservation can be a single
+    conditional UPDATE — see
+    ``app.services.agent_registration_quota.reserve_registration_slot``.
+
+    ``window_start`` is a FIXED 12-hour UTC floor; the trailing-24h cap is
+    enforced over the PAIR (current + previous bucket), split pro-rata —
+    review round 3 (N2) closed round 2's UTC-day boundary burst (full cap at
+    23:59, full cap again at 00:01). With the sliding pair, a boundary burst
+    is limited to the current bucket's own share; worst-case trailing-24h
+    total is ``2 x share`` only for traffic exactly straddling a 12h
+    boundary — a strictly tighter envelope than the calendar-day trade.
+    """
+
+    __tablename__ = "agent_registration_quota"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    # "global", or "ip:<address>". Textual so a future bucket dimension (ASN,
+    # subnet, pubkey family) needs no schema change.
+    bucket = Column(String(128), nullable=False)
+    window_start = Column(DateTime(timezone=True), nullable=False)
+    # Reservations made in this window. Only ever incremented by the atomic
+    # conditional UPDATE; a rolled-back transaction releases its own increment.
+    count = Column(Integer, nullable=False, default=0, server_default=text("0"))
+
+    __table_args__ = (
+        # The row IS the lock. UNIQUE guarantees exactly one counter per
+        # (bucket, window), so two concurrent reservations contend on one row
+        # instead of racing on a table-wide aggregate.
+        UniqueConstraint("bucket", "window_start", name="uq_agent_reg_quota_bucket_window"),
+        Index("idx_agent_reg_quota_window", "window_start"),
     )

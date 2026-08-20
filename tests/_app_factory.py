@@ -145,6 +145,10 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.composite_loop_routes", "router", ""),  # activate_0701 Phase A2
     ("app.composite_loop_deploy_routes", "router", ""),  # feat/composite-loop-deploy
     ("app.mesh_discovery_routes", "router", ""),  # mesh_0408 T3-A
+    # agentreg_0819 — POST /api/agents/register (public) + the master-key
+    # revoke surface, and the two public .well-known discovery documents.
+    ("app.agent_wellknown_routes", "router", ""),
+    ("app.agent_registration_routes", "router", ""),
 ]
 
 

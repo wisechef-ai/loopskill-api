@@ -375,12 +375,19 @@ def admin_pulse(
 
     comped_subscriptions = active_subscriptions - paying_operators if mrr_source == "stripe" else 0
 
-    # Free-sync paywall pressure.
+    # Free-sync paywall pressure. is_agent filter (review round 3, F6): agent
+    # shadows never use human free-sync; excluding them keeps admin counts human.
     free_sync_used_total = (
-        db.query(func.count(User.id)).filter(User.free_sync_used_at.isnot(None)).scalar() or 0
+        db.query(func.count(User.id))
+        .filter(User.is_agent.is_(False), User.free_sync_used_at.isnot(None))
+        .scalar()
+        or 0
     )
     free_sync_used_7d = (
-        db.query(func.count(User.id)).filter(User.free_sync_used_at >= cutoff_7d).scalar() or 0
+        db.query(func.count(User.id))
+        .filter(User.is_agent.is_(False), User.free_sync_used_at >= cutoff_7d)
+        .scalar()
+        or 0
     )
 
     # Fleet-deploy activity (the moat motion).

@@ -277,3 +277,71 @@ fallback — see "Cookbook share-tokens" above).
 | API key prefix | `lsk_` | `rec_` | `app/middleware/api_key.py` (`USER_KEY_PREFIXES = ("rec_", "lsk_")`, used by `_auth_ctx_from_api_key` and `APIKeyMiddleware.dispatch`) and `app/mcp/auth.py:validate_key`. **Minting still issues `rec_live_` keys** (`app/api_key_routes.py:KEY_PREFIX`) — switching the mint default is a separate follow-up, deliberately out of scope here because display truncation and prefix-format tests (`test_5b_backend.py`, `test_mcp_fleet.py`, etc.) currently assume `rec_live_`. This entry only widens the READ/validate path. |
 
 All five are regression-pinned in `tests/test_qa0208_dualaccept.py`.
+
+---
+
+## Agent self-registration (agentreg_0819, 2026-08-19)
+
+`POST /api/agents/register` is the FIRST key-minting path that does not require
+a human. Every other mint goes through `app/api_key_routes.py:_require_user`,
+which 401s without an OAuth session — so an autonomous agent arriving from
+`llms.txt` or an MCP directory could browse the catalog and nothing else.
+
+```
+POST /api/agents/register            public (PUBLIC_POST_ONLY_PATHS), Ed25519 proof-of-key
+POST /api/admin/agent-identities/{id}/revoke   master key only
+GET  /api/admin/agent-identities               master key only
+GET  /.well-known/agent.json         public (EXEMPT_PATHS)
+GET  /.well-known/mcp.json           public (EXEMPT_PATHS)
+```
+
+**The canonical string** (`app/services/agent_registration.py`) — the client
+signs the UTF-8 bytes of, verbatim:
+
+```
+loopskill-agent-register:v1:{pubkey}:{timestamp}:{nonce}:{agent_name}
+```
+
+It is stated in THREE places that must agree — the service, the route
+docstring, and `/.well-known/agent.json` — and
+`tests/test_agentreg_0819_agent_self_registration.py` pins all three against
+each other. `.well-known` builds its copy by CALLING the service's builder, so
+only the route docstring can drift. **If you change the format, bump
+`CANONICAL_VERSION`** rather than editing v1: an old client's v1 string must
+fail to verify against a v2 server, not silently sign less than it thinks.
+
+**Identity model — a SHADOW `User` row.** `agent_identities.user_id` is a
+UNIQUE FK to a `users` row minted at registration; the agent's `api_keys` hang
+off that. This was chosen over hanging keys directly off `agent_identities`
+because `api_keys.user_id` is NOT NULL and this codebase's master-key sentinel
+is literally `is_master = (api_key_user_id is None)` — a nullable key owner is
+one missing `is not None` away from an agent key reading as master. With the
+shadow row, an agent key produces the SAME `AuthContext(scope="user",
+tier=None)` a free human key does, so **`app/auth_ctx.py` and `app/authz.py`
+were not touched by this feature.** The shadow row has no `github_id` /
+`google_id` / `email`, so no OAuth flow can land on it.
+
+**Key prefix `rec_agent_`** (`app/middleware/key_prefixes.py`) is a NARROWING
+of the `rec_` user-key namespace, not a new one — it already satisfies
+`USER_KEY_PREFIXES`, so `app/middleware/api_key.py` and `app/mcp/auth.py`
+validate it unchanged. The prefix exists so both paths can cheaply spot an agent
+key and apply the ONE extra gate it needs.
+
+**When adding a new key-validation path, you MUST** call
+`app.middleware._agent_identity.agent_key_is_blocked(db, user_id)` for any key
+matching `is_agent_key(key)`. It fails CLOSED on a missing identity, a revoked
+identity, and any lookup failure. It lives in one module precisely so REST and
+MCP cannot drift — a REST-only revocation is not a revocation.
+
+**Abuse walls** (all `WR_AGENT_REGISTRATION_*` in `app/config.py`): per-IP and
+global rolling-24h enrolment caps, a ±5 min signed-timestamp window, and a
+single-use nonce enforced by a UNIQUE constraint on
+`agent_registration_nonces.nonce_hash`. The nonce store is DB-backed, NOT Redis:
+`app.middleware.get_redis` degrades to `None` when Redis is unreachable, and a
+replay wall that opens when the cache is down is not a wall.
+
+A registered key is FREE tier by construction (the shadow user has NULL
+subscription columns, so `revenue_truth.entitled_tier()` answers None) — no
+pricing or tier code is involved. It is minted with
+`is_sandbox_operator=False`, and checkout/billing are JWT-only surfaces an
+`x-api-key` never authenticates against, so the fences need no new predicates.

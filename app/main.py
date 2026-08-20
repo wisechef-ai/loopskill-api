@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.access_routes import router as access_router  # Phase E: access split
 from app.admin_routes import router as admin_router
+from app.agent_registration_routes import router as agent_registration_router  # agentreg_0819
+from app.agent_wellknown_routes import router as agent_wellknown_router  # agentreg_0819
 from app.version import __version__
 from app.demand_routes import router as demand_router
 from app.api_key_routes import router as api_key_router
@@ -214,6 +216,10 @@ def create_app() -> FastAPI:
     # (root-level, unauthenticated). Registered here too so ordering relative
     # to any future generic /.well-known/{path} catch-all stays explicit.
     app.include_router(mesh_wellknown_router, tags=["mesh", "well-known"])
+    # agentreg_0819 — /.well-known/agent.json + /.well-known/mcp.json (root-level,
+    # unauthenticated) and POST /api/agents/register + the admin revoke surface.
+    app.include_router(agent_wellknown_router, tags=["agents", "well-known"])
+    app.include_router(agent_registration_router, tags=["agents"])
     app.include_router(mesh_router, tags=["mesh"])
     from app.mesh_discovery_routes import router as mesh_discovery_router  # mesh_0408 T3-A
 

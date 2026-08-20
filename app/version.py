@@ -276,6 +276,34 @@ inert). No schema, no migration.
     name happens to equal the slug (a live bug in the pre-fix re-sync
     block). Two RED-proofed regression tests. No schema, no migration.
     Verified against prod /api/healthz 0.9.36 before bumping.
+
+0.9.40 - feat(identity): agent self-registration via Ed25519 proof-of-key.
+    POST /api/agents/register lets an inbound agent that discovered LoopSkill
+    machine-side enrol WITHOUT a human OAuth round-trip: it proves possession
+    of an Ed25519 private key (signature over a canonical challenge + a
+    single-use nonce) and receives a scoped, low-cap `rec_agent_` key. The
+    .well-known agent/mcp descriptors are unauthenticated so the discovery
+    step works before any credential exists. This is the only mechanism by
+    which an external creator can EXIST under the zero-outreach constraint
+    (creator-flywheel plan v2.1, Loop C) — every other enrolment path ends at
+    a human clicking OAuth.
+
+    Hardened over four adversarial review rounds (codex gpt-5.6-sol as the
+    independent seat). Round 4 replaced the round-3 sliding-window bucket
+    arithmetic — which sol proved bypassable across bucket boundaries — with
+    lock-and-count: take a write lock on the per-scope gate row, THEN count
+    the actual agent_identities rows in the trailing 24h under that lock, so
+    the count-then-insert window is closed by Postgres until COMMIT and the
+    alternate-boundary bypass is structurally impossible. Retry-After is the
+    real seconds until the oldest in-window row exits, computed from the same
+    clock as the refusal. Nonces are canonical-form-only (one spelling, one
+    burn); pubkeys are canonicalised before identity comparison; agent-issued
+    keys are fenced out of the human-facing surfaces.
+
+    Migration agentreg0819_agent_identities is reversible. Known gap, stated
+    rather than hidden: the concurrency proof is a 20-thread SQLite test plus
+    a code-level argument for Postgres — no live PG concurrency harness runs
+    in CI yet.
 """
 
-__version__ = "0.9.39"
+__version__ = "0.9.40"

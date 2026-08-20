@@ -1,12 +1,12 @@
 {
   "source": "app.main.app.routes + app.middleware.api_key.APIKeyMiddleware (dispatch tree replayed), derived at import time",
   "generator": "scripts/generate_route_manifest.py",
-  "route_count": 304,
+  "route_count": 309,
   "counts_by_classification": {
-    "admin": 9,
+    "admin": 11,
     "authenticated": 190,
     "internal": 2,
-    "public": 103
+    "public": 106
   },
   "routes": [
     {
@@ -22,6 +22,20 @@
     },
     {
       "method": "GET",
+      "path": "/.well-known/agent.json",
+      "name": "agent_descriptor",
+      "module": "app.agent_wellknown_routes",
+      "tags": [
+        "agents",
+        "agents",
+        "well-known",
+        "well-known"
+      ],
+      "classification": "public",
+      "summary": "Public agent-discovery document. Unauthenticated by design."
+    },
+    {
+      "method": "GET",
       "path": "/.well-known/jwks.json",
       "name": "mesh_jwks",
       "module": "app.mesh_wellknown_routes",
@@ -33,6 +47,20 @@
       ],
       "classification": "public",
       "summary": "The mesh Ed25519 public key ring. Unauthenticated \u2014 spec \u00a79.1."
+    },
+    {
+      "method": "GET",
+      "path": "/.well-known/mcp.json",
+      "name": "mcp_descriptor",
+      "module": "app.agent_wellknown_routes",
+      "tags": [
+        "agents",
+        "agents",
+        "well-known",
+        "well-known"
+      ],
+      "classification": "public",
+      "summary": "Public MCP server descriptor. Unauthenticated by design."
     },
     {
       "method": "GET",
@@ -58,6 +86,30 @@
       ],
       "classification": "public",
       "summary": "Serve the canonical, clean SKILL.md as text/plain (no redirect)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/agent-identities",
+      "name": "list_agent_identities",
+      "module": "app.agent_registration_routes",
+      "tags": [
+        "agents",
+        "agents"
+      ],
+      "classification": "admin",
+      "summary": "List self-registered agent identities, newest first. Master key only."
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/agent-identities/{identity_id}/revoke",
+      "name": "revoke_agent_identity",
+      "module": "app.agent_registration_routes",
+      "tags": [
+        "agents",
+        "agents"
+      ],
+      "classification": "admin",
+      "summary": "Revoke a self-registered agent identity. Master key only. Idempotent."
     },
     {
       "method": "GET",
@@ -166,6 +218,18 @@
       ],
       "classification": "admin",
       "summary": "Prune raw sync-report telemetry past retention (30d default)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/agents/register",
+      "name": "register_agent_route",
+      "module": "app.agent_registration_routes",
+      "tags": [
+        "agents",
+        "agents"
+      ],
+      "classification": "public",
+      "summary": "Self-register an autonomous agent by Ed25519 proof-of-key. No human."
     },
     {
       "method": "GET",
