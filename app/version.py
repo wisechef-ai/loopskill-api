@@ -323,6 +323,37 @@ inert). No schema, no migration.
     any of these string VALUES (grep clean) before renaming — copy-only,
     zero behaviour change. Verified against prod /api/healthz 0.9.36
     before bumping.
+
+0.9.42 - gap/gap-aiplugin: closed the last walled AI-plugin discovery
+    surface. GET /.well-known/ai-plugin.json — the 3rd standard AI-plugin
+    discovery convention alongside agent.json/mcp.json — 401'd live in prod
+    (verified 2026-08-20, `curl https://app.loopskill.io/.well-known/
+    ai-plugin.json` -> `{"detail":"Invalid or missing x-api-key header"}`)
+    because the route did not exist at all: any request to it hit
+    APIKeyMiddleware's allowlist wall before routing could even resolve
+    whether a handler existed. Added the route to the SAME module that
+    already serves agent.json/mcp.json (app/agent_wellknown_routes.py,
+    mirroring its _etagged_json/_CACHE_CONTROL conventions exactly) plus the
+    exact path to app/middleware/_public_paths.py:EXEMPT_PATHS — that
+    allowlist entry is the whole fix, same as the original agentreg_0819
+    defect. The manifest's `api.url` deliberately points at
+    /.well-known/mcp.json + /api/mcp/http (both genuinely exist and answer)
+    rather than /openapi.json, which 404s live on this deployment by design
+    (verified via curl: bare Caddy 404, no uvicorn header — the edge never
+    proxies that path here) — the exact "documented but broken" defect
+    class this route exists to kill. `auth` states the real self-registration
+    flow (Ed25519 proof-of-key via POST /api/agents/register, no OAuth) and
+    cross-links to /.well-known/agent.json for the full enrolment spec.
+    8 RED-proofed tests in tests/test_gap_aiplugin_wellknown.py (confirmed
+    to fail — 7 of 8 — with the EXEMPT_PATHS entry removed, matching the
+    live 401 defect byte-for-byte before the fix): 200-anonymous,
+    Cache-Control/ETag convention parity with agent.json/mcp.json,
+    ai-plugin schema-shape, no /openapi.json reference, cross-link to
+    agent.json, no-secrets-leak, EXEMPT_PATHS pinning, and a route-table
+    introspection test that every URL the manifest advertises is a route
+    that genuinely exists in app.routes (the no-404-links promise, pinned
+    against reality rather than hardcoded). No schema, no migration.
+    Verified against prod /api/healthz 0.9.41 before bumping.
 """
 
-__version__ = "0.9.41"
+__version__ = "0.9.42"

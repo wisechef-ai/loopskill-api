@@ -165,5 +165,14 @@ EXEMPT_PATHS: frozenset[str] = frozenset(
         # app/agent_wellknown_routes.py.
         "/.well-known/agent.json",
         "/.well-known/mcp.json",
+        # gap/gap-aiplugin — the 3rd standard AI-plugin discovery convention,
+        # alongside agent.json/mcp.json above. Same defect class: any path
+        # not on this allowlist 401s from APIKeyMiddleware BEFORE routing
+        # even resolves whether a handler exists, so ai-plugin.json 401'd
+        # live in prod (verified 2026-08-20) with no route registered at
+        # all. This entry + the new route in app/agent_wellknown_routes.py
+        # are the whole fix — a cold agent that tries the ai-plugin
+        # convention now gets the manifest instead of a dead end.
+        "/.well-known/ai-plugin.json",
     }
 )
