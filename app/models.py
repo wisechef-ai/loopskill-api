@@ -2719,6 +2719,16 @@ class Connector(Base):
     # so existing rows carry the value forward without a backfill migration.
     residency_tag = Column(String(32), nullable=True)  # "eu" | "non-eu" | null
     install_count = Column(Integer, default=0, nullable=False, server_default="0")
+    # conn_promote_0821: quality-gated staged->listed promotion (app/services/
+    # connector_promote.py). "trusted-source"/"editorial" human-published
+    # connectors (create_connector route) leave this NULL; any row minted by
+    # the automated promotion path is stamped "community-indexed" — NEVER
+    # "curated", that label is reserved for a future human editorial review
+    # this phase does not implement. in_metasearch defaults False so a
+    # promoted connector never rides the first-class metasearch fan-out
+    # (app/services/metasearch_fanout.py) without an explicit later decision.
+    trust_label = Column(String(32), nullable=True)
+    in_metasearch = Column(Boolean, nullable=False, default=False, server_default="false")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -2808,11 +2818,16 @@ class BundleConnector(Base):
 class ExternalConnector(Base):
     """A staged MCP-server candidate discovered from an open catalog.
 
-    NEVER auto-materializes into a real ``Connector`` row. ``review_required``
-    defaults True (server_default) and EVERY row lands with it True — the
-    daily walk (``connector_taps.stage_candidates``) never sets it False.
-    Promotion into a real ``Connector`` is a distinct, future, explicit action
-    outside this table's write path entirely.
+    NEVER auto-materializes into a real ``Connector`` row on the DISCOVERY
+    path (``connector_taps.stage_candidates`` never flips ``review_required``
+    and never writes a ``Connector`` row itself). Promotion into a real
+    ``Connector`` IS implemented (conn_promote_0821,
+    ``app/services/connector_promote.py`` / ``scripts/connector_promote.py``)
+    but is a SEPARATE, explicit, deterministically-gated action — never a
+    side effect of staging/walking. A row that fails a gate stays
+    ``review_required=True`` forever with ``promotion_status``/
+    ``promotion_reason`` recording why, until a re-run finds it now passes
+    (e.g. the upstream repo added a LICENSE file).
     """
 
     __tablename__ = "external_connectors"
@@ -2838,8 +2853,20 @@ class ExternalConnector(Base):
     # construction — connector_taps.py has no adapter for either.
     trust_tier = Column(String(32), nullable=False)
     # ALWAYS True on insert (server_default). Staging is not publishing —
-    # this column is the review gate; nothing in this phase ever flips it.
+    # this column is the review gate; nothing in the DISCOVERY path ever
+    # flips it. The PROMOTION path (connector_promote.py) is the only writer
+    # that ever sets it False, and only after every gate passes.
     review_required = Column(Boolean, nullable=False, default=True, server_default="true")
+    # conn_promote_0821: promotion outcome bookkeeping. NULL = never attempted
+    # (or the most recent walk re-upserted the row, resetting review state).
+    # promoted_connector_id is set iff promotion_status == "promoted" and
+    # points at the real Connector row that was minted from this candidate.
+    promotion_status = Column(String(16), nullable=True)  # "promoted" | "rejected" | null
+    promotion_reason = Column(Text, nullable=True)  # gate failure reasons, "; "-joined
+    promoted_at = Column(DateTime(timezone=True), nullable=True)
+    promoted_connector_id = Column(
+        UUID(as_uuid=True), ForeignKey("connectors.id", ondelete="SET NULL"), nullable=True
+    )
     discovered_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
