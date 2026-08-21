@@ -39,6 +39,15 @@ from app.referral import (
     resolve_referral_cookie,
 )
 from app.services.bundle_quota import quota_status
+from app.services.signup_attribution import (
+    capture_signup_attribution as _capture_signup_attribution,
+)
+from app.services.signup_attribution import (
+    stamp_utm_ctx_cookie as _stamp_utm_ctx_cookie,
+)
+from app.services.signup_attribution import (
+    _UTM_CTX_COOKIE_NAME,
+)
 from app.tier_labels import _is_paid_tier, _is_pro_plus_tier
 from app.tier_labels import api_key_cap as _tier_api_key_cap
 
@@ -125,11 +134,26 @@ def _stamp_referral_cookie(response, ref: str | None) -> None:
 
 
 @router.get("/github/login")
-async def github_login(request: Request, next: str | None = None, ref: str | None = None):
+async def github_login(
+    request: Request,
+    next: str | None = None,
+    ref: str | None = None,
+    utm_source: str | None = None,
+    utm_medium: str | None = None,
+    utm_campaign: str | None = None,
+    utm_content: str | None = None,
+):
     """Initiate GitHub OAuth flow. Preserves optional `next` query param via cookie.
 
     Optional `ref=CODE` query param is stamped as a 30-day cookie so the
     referral attribution survives the OAuth round-trip (WIS-660).
+
+    money-path-3 P1-c: optional `utm_source`/`utm_medium`/`utm_campaign`/
+    `utm_content` query params are stamped as a short-lived `recipes_utm_ctx`
+    cookie so first-touch UTM context survives the OAuth round-trip the same
+    way `ref` already does. The portal (or any caller of this link) forwards
+    whatever UTM context IT already has on its own current page — this route
+    doesn't originate UTM context, it only relays it through the OAuth hop.
     """
     if not settings.GITHUB_CLIENT_ID:
         raise HTTPException(status_code=503, detail="GitHub OAuth not configured")
@@ -158,6 +182,15 @@ async def github_login(request: Request, next: str | None = None, ref: str | Non
             samesite="lax",
         )
     _stamp_referral_cookie(response, ref)
+    _stamp_utm_ctx_cookie(
+        response,
+        request=request,
+        utm_source=utm_source,
+        utm_medium=utm_medium,
+        utm_campaign=utm_campaign,
+        utm_content=utm_content,
+        secure=settings.COOKIES_SECURE,
+    )
     return response
 
 
@@ -193,6 +226,12 @@ async def github_callback(
         # Rationale: referral code processing must never block sign-in; log and continue
         except Exception:  # noqa: BLE001 — never block sign-in on referral failure
             logger.exception("Referral processing failed for user %s (non-fatal)", user.id)
+        # money-path-3: capture first-touch UTM/ref attribution, write-once.
+        try:
+            _capture_signup_attribution(request, user, db)
+        # Rationale: attribution capture must never block sign-in; log and continue
+        except Exception:  # noqa: BLE001 — never block sign-in on attribution failure
+            logger.exception("Signup attribution capture failed for user %s (non-fatal)", user.id)
         jwt_token = create_jwt(user)
         next_url = request.cookies.get("oauth_next")
         logger.info(f"GitHub auth success: user={user.id} ({user.display_name}) next={next_url!r}")
@@ -202,6 +241,15 @@ async def github_callback(
         # Clear both referral cookie names once we've persisted attribution.
         resp.delete_cookie(REFERRAL_COOKIE_NAME, path="/")
         resp.delete_cookie(LEGACY_REFERRAL_COOKIE_NAME, path="/")
+        # codex re-review (PR #250 round 2): CONSUME-ONCE. The recipes_utm_ctx
+        # cookie exists solely to carry first-touch UTM context across the
+        # OAuth round-trip; it has now been read (successfully or not — the
+        # try/except above swallows resolver failures either way) and must be
+        # deleted so it cannot mis-attribute a DIFFERENT account created
+        # within its 600s TTL from the same browser (e.g. a second, unrelated
+        # signup on a shared/kiosk machine, or the same user signing up a
+        # second account before the cookie naturally expires).
+        resp.delete_cookie(_UTM_CTX_COOKIE_NAME, path="/")
         return resp
     except AuthError as e:
         logger.error(f"GitHub auth failed: {e}")
@@ -212,10 +260,23 @@ async def github_callback(
 
 
 @router.get("/google/login")
-async def google_login(request: Request, next: str | None = None, ref: str | None = None):
+async def google_login(
+    request: Request,
+    next: str | None = None,
+    ref: str | None = None,
+    utm_source: str | None = None,
+    utm_medium: str | None = None,
+    utm_campaign: str | None = None,
+    utm_content: str | None = None,
+):
     """Initiate Google OAuth flow. Preserves optional `next` query param via cookie.
 
     Optional `ref=CODE` query param is stamped as a 30-day cookie (WIS-660).
+
+    money-path-3 P1-c: optional `utm_source`/`utm_medium`/`utm_campaign`/
+    `utm_content` query params are stamped as a short-lived `recipes_utm_ctx`
+    cookie so first-touch UTM context survives the OAuth round-trip — see
+    ``github_login`` for the full contract this mirrors.
     """
     if not settings.GOOGLE_CLIENT_ID:
         raise HTTPException(status_code=503, detail="Google OAuth not configured")
@@ -243,6 +304,15 @@ async def google_login(request: Request, next: str | None = None, ref: str | Non
             samesite="lax",
         )
     _stamp_referral_cookie(response, ref)
+    _stamp_utm_ctx_cookie(
+        response,
+        request=request,
+        utm_source=utm_source,
+        utm_medium=utm_medium,
+        utm_campaign=utm_campaign,
+        utm_content=utm_content,
+        secure=settings.COOKIES_SECURE,
+    )
     return response
 
 
@@ -278,6 +348,12 @@ async def google_callback(
         # Rationale: referral code processing must never block sign-in; log and continue
         except Exception:  # noqa: BLE001 — never block sign-in on referral failure
             logger.exception("Referral processing failed for user %s (non-fatal)", user.id)
+        # money-path-3: capture first-touch UTM/ref attribution, write-once.
+        try:
+            _capture_signup_attribution(request, user, db)
+        # Rationale: attribution capture must never block sign-in; log and continue
+        except Exception:  # noqa: BLE001 — never block sign-in on attribution failure
+            logger.exception("Signup attribution capture failed for user %s (non-fatal)", user.id)
         jwt_token = create_jwt(user)
         next_url = request.cookies.get("oauth_next")
         logger.info(f"Google auth success: user={user.id} ({user.display_name}) next={next_url!r}")
@@ -286,6 +362,9 @@ async def google_callback(
             resp.delete_cookie("oauth_next", path="/")
         resp.delete_cookie(REFERRAL_COOKIE_NAME, path="/")
         resp.delete_cookie(LEGACY_REFERRAL_COOKIE_NAME, path="/")
+        # codex re-review (PR #250 round 2): consume-once — see the matching
+        # comment in github_callback for the full rationale.
+        resp.delete_cookie(_UTM_CTX_COOKIE_NAME, path="/")
         return resp
     except AuthError as e:
         logger.error(f"Google auth failed: {e}")

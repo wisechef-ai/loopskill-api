@@ -156,8 +156,8 @@ loop's success check under enforced bounds and hands you a verdict.
 
 ## What's actually in this codebase (and the honest answer to "why so big")
 
-298 app Python files, 72,015 lines of app code, 108 Alembic migrations,
-418 test files, **2 GitHub stars, 0 forks** (measured 2026-08-20 via `gh
+299 app Python files, 72,545 lines of app code, 109 Alembic migrations,
+419 test files, **2 GitHub stars, 0 forks** (measured 2026-08-21 via `gh
 repo view wisechef-ai/loopskill-api --json stargazerCount,forkCount`).
 
 That ratio is real and it isn't a good one. [Issue
