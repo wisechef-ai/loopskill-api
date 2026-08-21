@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "loopskill-mcp"
+version = "0.9.42"
+description = "Thin stdio MCP bridge for LoopSkill (app.loopskill.io) — proxies local MCP stdio clients (Claude Desktop, Hermes, Codex CLI) to the hosted LoopSkill StreamableHTTP MCP endpoint."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "LoopSkill / WiseChef AI" }]
+keywords = ["mcp", "model-context-protocol", "loopskill", "agent", "skills"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+# Pinned to the same major.minor range as this repo's own requirements.txt
+# (mcp[cli]>=1.28.1,<1.29.0). mcp 2.0.0 rewrote the lowlevel Server API
+# (list_tools()/call_tool() decorators removed) — pinning below that keeps
+# this bridge's server.py contract matching the API this repo's own
+# app/mcp/server.py is written against, rather than silently drifting onto
+# an incompatible major on a fresh install.
+dependencies = [
+    "mcp>=1.28.1,<1.29.0",
+    "httpx>=0.27",
+]
+
+[project.urls]
+Homepage = "https://app.loopskill.io"
+Documentation = "https://app.loopskill.io/docs"
+Repository = "https://github.com/wisechef-ai/loopskill-api"
+Issues = "https://github.com/wisechef-ai/loopskill-api/issues"
+
+[project.scripts]
+loopskill-mcp = "loopskill_mcp.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "build>=1.2", "twine>=5"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+    "network: test reaches the live app.loopskill.io endpoint (skippable, not run by default gates)",
+]
