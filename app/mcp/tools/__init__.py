@@ -60,6 +60,9 @@ from app.mcp.tools.composite_loop_catalog import (
     loopskill_search_composite_loops,
 )
 
+# flywheel P1 F1.1 — closes the compose→publish MCP dead-end.
+from app.mcp.tools.bundle_publish import loopskill_publish_bundle
+
 __all__ = [
     "loopskill_search",
     "loopskill_install",
@@ -117,4 +120,6 @@ __all__ = [
     "loopskill_connector_publish",
     # bundles_0811 Phase P3.5: self-serve federation registry proposals
     "loopskill_propose_registry",
+    # flywheel P1 F1.1: closes the compose→publish MCP dead-end
+    "loopskill_publish_bundle",
 ]

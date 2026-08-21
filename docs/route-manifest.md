@@ -3,7 +3,7 @@
 
 # Route Manifest (bundles_0811 P7)
 
-Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **311** distinct (method, path) surfaces.
+Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **312** distinct (method, path) surfaces.
 
 ## How classification works
 
@@ -22,7 +22,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | Classification | Routes |
 |---|---|
 | admin | 11 |
-| authenticated | 191 |
+| authenticated | 192 |
 | internal | 2 |
 | public | 107 |
 
@@ -205,6 +205,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | GET | `/api/cookbooks/{slug}/plugin.json` | public | `app.bundle_routes` | bundles, cookbooks, cookbooks |
 | GET | `/api/creator/earnings` | authenticated | `app.creator_routes` | creator, creator |
 | GET | `/api/creator/payouts` | authenticated | `app.creator_routes` | creator, creator |
+| GET | `/api/creators/me/stats` | authenticated | `app.creators_routes` | creator, creators |
 | GET | `/api/federation/filter` | public | `app.federation_filter_routes` | federation, federation, filters, filters |
 | GET | `/api/federation/filter/facets` | public | `app.federation_filter_routes` | federation, federation, filters, filters |
 | POST | `/api/federation/propose` | public | `app.federation_propose_routes` | federation, federation |

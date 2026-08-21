@@ -485,7 +485,8 @@ def loopskill_compose_bundle_from_links(
         "skills": member_out,
         "links": per_link,
         "next": (
-            "Publish this cookbook (set visibility='public' + a slug) to get a shareable "
-            "bundle:// link, then loopskill_install_from_bundle installs the whole stack in one call."
+            f"Publish this bundle to get a shareable bundle:// link — call "
+            f"loopskill_publish_bundle(bundle_id={cb.id!s}); it's idempotent and free on "
+            f"every tier. Then loopskill_install_from_bundle installs the whole stack in one call."
         ),
     }

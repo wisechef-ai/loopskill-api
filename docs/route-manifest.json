@@ -1,10 +1,10 @@
 {
   "source": "app.main.app.routes + app.middleware.api_key.APIKeyMiddleware (dispatch tree replayed), derived at import time",
   "generator": "scripts/generate_route_manifest.py",
-  "route_count": 311,
+  "route_count": 312,
   "counts_by_classification": {
     "admin": 11,
-    "authenticated": 191,
+    "authenticated": 192,
     "internal": 2,
     "public": 107
   },
@@ -2213,6 +2213,18 @@
       ],
       "classification": "authenticated",
       "summary": "Get payout history for the authenticated creator."
+    },
+    {
+      "method": "GET",
+      "path": "/api/creators/me/stats",
+      "name": "get_creator_stats",
+      "module": "app.creators_routes",
+      "tags": [
+        "creator",
+        "creators"
+      ],
+      "classification": "authenticated",
+      "summary": "Per-bundle install counts for bundles the caller owns."
     },
     {
       "method": "GET",

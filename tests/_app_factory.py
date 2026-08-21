@@ -71,6 +71,7 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.auth_routes", "router", ""),
     ("app.sandbox.routes", "router", ""),
     ("app.creator_routes", "router", ""),
+    ("app.creators_routes", "router", ""),  # flywheel P1 F1.3
     ("app.publisher_routes", "router", ""),
     ("app.checkout_routes", "router", ""),
     ("app.api_key_routes", "router", ""),
