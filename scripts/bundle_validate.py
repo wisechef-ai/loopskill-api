@@ -54,6 +54,7 @@ _PROBE_COOLDOWN_S = 20  # anon rate-limit backoff between bundle probes
 # Tier names that an anonymous visitor cannot install. Editorial starter
 # bundles must be installable free — a pro member in a "starter" bundle is the
 # phantom-bundle signature (June seed had exactly this).
+# legacy alias map (cook/operator are pre-Phase-5 slugs; see app/tier_labels.py)
 _NON_FREE_TIERS = {"pro", "pro_plus", "cook", "operator"}
 
 # Words that describe capabilities; used only for the WARN-grade G5 heuristic.

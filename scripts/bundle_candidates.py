@@ -32,6 +32,7 @@ from collections import defaultdict
 DEFAULT_BASE = "https://app.loopskill.io"
 _TIMEOUT = 20
 _COOLDOWN = 3  # polite pacing between search pages (anon rate limits are real)
+# legacy alias map (cook/operator are pre-Phase-5 slugs; see app/tier_labels.py)
 _NON_FREE_TIERS = {"pro", "pro_plus", "cook", "operator"}
 _STOP = {
     "skill",
