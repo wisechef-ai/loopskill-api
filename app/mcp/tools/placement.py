@@ -226,6 +226,34 @@ def loopskill_force_move(
     }
 
 
+def loopskill_reconcile_precheck(
+    db: Session,
+    fleet_id: str,
+    ctx: AuthContext | None = None,
+) -> dict[str, Any]:
+    """Pre-validate every LIVE placement's compatibility before a reconcile applies.
+
+    fleetos_1607 gap-close (2026-08-07): a member loop can go stale/incompatible
+    AFTER assign (manifest re-declared with a new requirement, or the member
+    re-pinged with fewer capabilities) with nothing re-checking it — a
+    reconcile could keep applying against a fleet member that no longer
+    satisfies the loop's declared requires{}. This re-runs the same
+    capability/secret preflight ``loopskill_assign`` used, across every live
+    placement, and returns the NAMED incompatibilities so an operator (or an
+    automated reconcile loop, which should call this FIRST) sees drift before
+    it silently propagates. Manager-capability gated, same as the rest of the
+    placement surface.
+    """
+    if ctx is None:
+        ctx = AuthContext(scope="master")
+    fleet = _resolve_fleet(db, fleet_id)
+    if fleet is None:
+        return {"error": "fleet_not_found", "code": 404}
+    if not authz.can_manage_fleet(ctx, fleet):
+        return _forbidden()
+    return placement_svc.reconcile_precheck(db, fleet.id)
+
+
 # Sentinel returned by dispatch when this module doesn't handle the tool name.
 # Shared with fleet_write so a single delegated-dispatch chain can compare
 # against one sentinel object across every handler.
@@ -236,6 +264,7 @@ _PLACEMENT_TOOLS = {
     "loopskill_evacuate",
     "loopskill_placements",
     "loopskill_force_move",
+    "loopskill_reconcile_precheck",
 }
 
 
@@ -269,6 +298,12 @@ def dispatch_placement(name: str, db: Session, args: dict[str, Any], ctx: AuthCo
             db,
             fleet_id=args.get("fleet_id", ""),
             include_removed=bool(args.get("include_removed", False)),
+            ctx=ctx,
+        )
+    if name == "loopskill_reconcile_precheck":
+        return loopskill_reconcile_precheck(
+            db,
+            fleet_id=args.get("fleet_id", ""),
             ctx=ctx,
         )
     # loopskill_force_move
