@@ -43,6 +43,14 @@ ignore_missing_imports = true
 # harness paces ~60s of simulated polling by design).
 timeout = 120
 timeout_method = "thread"
+# packaging/loopskill-mcp is a self-contained, independently-pip-installable
+# sub-package with its own pyproject.toml + venv + test suite (see
+# packaging/loopskill-mcp/README.md "Development"). Its tests import the
+# `loopskill_mcp` package, which is never installed into the root repo's
+# venv/CI job — collecting it here would hard-fail root `pytest` with
+# ModuleNotFoundError. Same posture as excluding `.venv`: it's a distinct
+# distributable unit, not part of this repo's own app test suite.
+addopts = "--ignore=packaging"
 markers = [
     "sandbox_linux_only: sandbox tests that require Linux (firejail/bwrap); skipped on macOS/darwin",
     "network: test is a genuine integration probe and may reach the public internet (exempt from the conftest outbound-network guard; non-hermetic, should not gate a merge)",

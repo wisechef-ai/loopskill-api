@@ -58,7 +58,12 @@ def _migrations(root: Path) -> int:
 
 
 def _test_files(root: Path) -> int:
-    skip = {".venv", "node_modules", "__pycache__"}
+    # `packaging/` holds self-contained, independently-installable
+    # sub-packages (see packaging/loopskill-mcp/) with their own test
+    # suites, excluded from root pytest collection via the root
+    # pyproject.toml's `addopts = "--ignore=packaging"` — excluded here for
+    # the same reason: they are not part of this repo's own app test count.
+    skip = {".venv", "node_modules", "__pycache__", "packaging"}
     return len([p for p in root.rglob("test_*.py") if not (skip & set(p.parts))])
 
 
