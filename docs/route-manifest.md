@@ -205,6 +205,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | GET | `/api/cookbooks/{slug}/plugin.json` | public | `app.bundle_routes` | bundles, cookbooks, cookbooks |
 | GET | `/api/creator/earnings` | authenticated | `app.creator_routes` | creator, creator |
 | GET | `/api/creator/payouts` | authenticated | `app.creator_routes` | creator, creator |
+| GET | `/api/creators/me/stats` | authenticated | `app.creators_routes` | creator, creators |
 | GET | `/api/federation/filter` | public | `app.federation_filter_routes` | federation, federation, filters, filters |
 | GET | `/api/federation/filter/facets` | public | `app.federation_filter_routes` | federation, federation, filters, filters |
 | POST | `/api/federation/propose` | public | `app.federation_propose_routes` | federation, federation |

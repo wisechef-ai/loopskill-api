@@ -18,6 +18,7 @@ from app.mcp.tools.fleet_ingest import dispatch_ingest
 from app.mcp.tools.federation_propose import dispatch_federation_propose
 from app.mcp.tools.harvest import dispatch_harvest
 from app.mcp.tools.placement import dispatch_placement
+from app.mcp.tools.bundle_publish import dispatch_bundle_publish  # flywheel P1 F1.1
 
 # Ordered chain of delegated dispatchers. Append future phase dispatchers here
 # rather than growing server.py's _dispatch god node.
@@ -27,6 +28,7 @@ _CHAIN = (
     dispatch_harvest,
     dispatch_ingest,
     dispatch_federation_propose,
+    dispatch_bundle_publish,  # flywheel P1 F1.1
 )
 
 

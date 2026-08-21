@@ -2216,6 +2216,18 @@
     },
     {
       "method": "GET",
+      "path": "/api/creators/me/stats",
+      "name": "get_creator_stats",
+      "module": "app.creators_routes",
+      "tags": [
+        "creator",
+        "creators"
+      ],
+      "classification": "authenticated",
+      "summary": "Per-bundle install counts for bundles the caller owns."
+    },
+    {
+      "method": "GET",
       "path": "/api/federation/filter",
       "name": "get_federation_filter",
       "module": "app.federation_filter_routes",

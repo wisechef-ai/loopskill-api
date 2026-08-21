@@ -26,6 +26,7 @@ from app.bundle_routes import router as cookbook_router  # compat-alias
 from app.bundle_wellknown_routes import router as cookbook_wellknown_router  # compat-alias
 from app.creator_routes import router as creator_router
 from app.credits_routes import router as credits_router
+from app.creators_routes import router as creators_stats_router  # flywheel P1 F1.3
 from app.discord_bot import bot as discord_bot
 from app.feedback_routes import router as feedback_router
 from app.feedback_status_routes import router as feedback_status_router
@@ -195,6 +196,7 @@ def create_app() -> FastAPI:
     app.include_router(bootcamp_router, prefix="/api", tags=["bootcamp"])  # bootcamp_0607
     app.include_router(sandbox_router, tags=["sandbox"])
     app.include_router(creator_router, tags=["creator"])
+    app.include_router(creators_stats_router, tags=["creator"])  # flywheel P1 F1.3
     app.include_router(publisher_router, tags=["publisher"])
     app.include_router(checkout_router, tags=["billing"])
     app.include_router(api_key_router, tags=["api-keys"])
