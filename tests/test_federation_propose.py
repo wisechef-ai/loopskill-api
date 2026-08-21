@@ -399,9 +399,26 @@ def test_all_14_preexisting_sources_survive_config_move():
         "github-gstack",
         "github-marketing",
         "github-superpowers",
+        # maturity_0821 curated expansion (13 sources, 2026-08-21 — vault:
+        # research/2026-08-21-federation-source-expansion.md). Every addition
+        # to federation_sources.yaml must be pinned here too: this test is the
+        # anti-drift contract, so growth is an explicit two-place edit.
+        "github-agentskillexchange",
+        "github-journal-skills",
+        "github-alirezarezvani-skills",
+        "github-wshobson-agents",
+        "github-jimliu-baoyu-skills",
+        "github-runcomfy-skills",
+        "github-kdense-scientific-skills",
+        "github-orchestra-research-skills",
+        "github-atc-agentic-toolkit",
+        "github-thedotmack-claude-mem",
+        "github-skill-seekers",
+        "github-hoangnguyen-skills-standard",
+        "github-litestar-skills",
     }
     assert set(LIVE_SOURCES) == expected, f"drift: {set(LIVE_SOURCES) ^ expected}"
-    assert len(LIVE_SOURCES) == 14
+    assert len(LIVE_SOURCES) == 27
 
 
 # ── Test 8: the REST endpoint mirrors the MCP tool contract ──────────────────

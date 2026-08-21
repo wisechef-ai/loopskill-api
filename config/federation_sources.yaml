@@ -91,3 +91,86 @@ github_taps:
     repo_license: "MIT"
     trust: trusted-source
     in_metasearch: true
+
+  # ── maturity_0821 curated expansion (16 sources, live-probed 2026-08-21;
+  #    vault: research/2026-08-21-federation-source-expansion.md).
+  #    All MIT/Apache-2.0. in_metasearch=false on entry — first-class
+  #    metasearch ranking stays an explicit later opt-in per source. ──
+  - source_id: github-agentskillexchange
+    repo: agentskillexchange/skills
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-journal-skills
+    repo: brycewang-stanford/Awesome-Journal-Skills
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-alirezarezvani-skills
+    repo: alirezarezvani/claude-skills
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-hoangnguyen-skills-standard
+    repo: HoangNguyen0403/agent-skills-standard
+    path: ""
+    repo_license: "Apache-2.0"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-wshobson-agents
+    repo: wshobson/agents
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-kdense-scientific-skills
+    repo: K-Dense-AI/scientific-agent-skills
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-jimliu-baoyu-skills
+    repo: JimLiu/baoyu-skills
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-thedotmack-claude-mem
+    repo: thedotmack/claude-mem
+    path: ""
+    repo_license: "Apache-2.0"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-skill-seekers
+    repo: yusufkaraaslan/Skill_Seekers
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-litestar-skills
+    repo: litestar-org/litestar-skills
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-runcomfy-skills
+    repo: runcomfy-com/skills
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-atc-agentic-toolkit
+    repo: atc-net/atc-agentic-toolkit
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-orchestra-research-skills
+    repo: Orchestra-Research/AI-Research-SKILLs
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
