@@ -48,6 +48,8 @@ from app.services.signup_attribution import (
 from app.services.signup_attribution import (
     _UTM_CTX_COOKIE_NAME,
 )
+from app.services.first_key import ensure_first_api_key
+from app.services.first_key_reveal import REVEAL_COOKIE_NAME, REVEAL_TTL_SECONDS, store_reveal
 from app.tier_labels import _is_paid_tier, _is_pro_plus_tier
 from app.tier_labels import api_key_cap as _tier_api_key_cap
 
@@ -71,12 +73,24 @@ def _build_redirect_uri(request: Request, provider: str) -> str:
     return f"{scheme}://{host}/api/auth/{provider}/callback"
 
 
-def _make_success_redirect(jwt_token: str, next_url: str | None = None) -> RedirectResponse:
+def _make_success_redirect(
+    jwt_token: str,
+    next_url: str | None = None,
+    reveal_token: str | None = None,
+) -> RedirectResponse:
     """Create a redirect response with JWT cookie set.
 
     next_url: if provided AND starts with one of the SAFE_NEXT_PREFIXES,
     redirect there after setting cookie (for /signin?next=... flows).
     Otherwise default to /library?auth=success.
+
+    reveal_token: flywheel F1.2 — when this login just auto-minted the
+    user's first API key, an opaque one-time reveal token is stamped as a
+    short-lived HttpOnly cookie so the portal's post-signup card can fetch
+    the plaintext ONCE over the normal authed session
+    (GET /api/auth/first-key-reveal). The plaintext itself never rides this
+    redirect (no query param, no response body) — same "never in a URL"
+    posture as every other secret in this module.
     """
     # rev 7.3: added /referrals so logged-in users coming from /referrals → /signin
     # land back where they started, not on /library. Same rationale as the existing
@@ -105,6 +119,16 @@ def _make_success_redirect(jwt_token: str, next_url: str | None = None) -> Redir
         samesite="lax",
         path="/",
     )
+    if reveal_token:
+        response.set_cookie(
+            key=REVEAL_COOKIE_NAME,
+            value=reveal_token,
+            max_age=REVEAL_TTL_SECONDS,
+            httponly=True,
+            secure=settings.COOKIES_SECURE,
+            samesite="lax",
+            path="/",
+        )
     return response
 
 
@@ -217,6 +241,19 @@ async def github_callback(
         github_data = await exchange_github_code(code)
         user = find_or_create_user_by_github(db, github_data)
         ensure_liked_bundle(db, user.id)
+        # flywheel F1.2: auto-mint the user's first API key. Idempotent
+        # (no-ops for a returning user who already has any key row),
+        # non-blocking (never raises past ensure_first_api_key), and tier-
+        # cap-respecting. See app.services.first_key for the full contract.
+        minted_key = ensure_first_api_key(db, user)
+        reveal_token = None
+        if minted_key is not None:
+            reveal_token = store_reveal(
+                user.id,
+                minted_key.plaintext,  # type: ignore[attr-defined]
+                minted_key.key_prefix,
+                minted_key.label or minted_key.name or "first-key (auto)",
+            )
         # WIS-660: capture referral attribution + give every user their own code.
         try:
             ref_code = resolve_referral_cookie(request)
@@ -235,7 +272,7 @@ async def github_callback(
         jwt_token = create_jwt(user)
         next_url = request.cookies.get("oauth_next")
         logger.info(f"GitHub auth success: user={user.id} ({user.display_name}) next={next_url!r}")
-        resp = _make_success_redirect(jwt_token, next_url=next_url)
+        resp = _make_success_redirect(jwt_token, next_url=next_url, reveal_token=reveal_token)
         if next_url:
             resp.delete_cookie("oauth_next", path="/")
         # Clear both referral cookie names once we've persisted attribution.
@@ -339,6 +376,17 @@ async def google_callback(
         google_data = await exchange_google_code(code)
         user = find_or_create_user_by_google(db, google_data)
         ensure_liked_bundle(db, user.id)
+        # flywheel F1.2: auto-mint the user's first API key (same contract as
+        # the GitHub callback above — see app.services.first_key).
+        minted_key = ensure_first_api_key(db, user)
+        reveal_token = None
+        if minted_key is not None:
+            reveal_token = store_reveal(
+                user.id,
+                minted_key.plaintext,  # type: ignore[attr-defined]
+                minted_key.key_prefix,
+                minted_key.label or minted_key.name or "first-key (auto)",
+            )
         # WIS-660: capture referral attribution + give every user their own code.
         try:
             ref_code = resolve_referral_cookie(request)
@@ -357,7 +405,7 @@ async def google_callback(
         jwt_token = create_jwt(user)
         next_url = request.cookies.get("oauth_next")
         logger.info(f"Google auth success: user={user.id} ({user.display_name}) next={next_url!r}")
-        resp = _make_success_redirect(jwt_token, next_url=next_url)
+        resp = _make_success_redirect(jwt_token, next_url=next_url, reveal_token=reveal_token)
         if next_url:
             resp.delete_cookie("oauth_next", path="/")
         resp.delete_cookie(REFERRAL_COOKIE_NAME, path="/")
@@ -416,13 +464,32 @@ async def get_me(
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
+    from app.models import APIKey
+
     _quota = quota_status(db, user.id, user.subscription_tier)
+    # flywheel F1.2 — has_api_keys / connection_verified. Reuses the existing
+    # last_used_at column (app.last_used_tracker) rather than adding new
+    # telemetry: APIKeyMiddleware.dispatch stamps last_used_at on EVERY
+    # authenticated x-api-key request, and the MCP StreamableHTTP mount +
+    # SSE routes are both wrapped by that same middleware (they are ordinary
+    # FastAPI routes / a Starlette Mount inside the ASGI app, not a bypass),
+    # so an MCP tool call updates the identical column a REST call would.
+    # This is deliberately REST-inclusive, not narrowly MCP-scoped: the
+    # growth signal this flywheel step cares about is "the user's agent
+    # authenticated at all", and gating it to MCP-only would just mean
+    # re-deriving the same fact through a second code path for no product
+    # benefit. Documented per the F1.2 spec's instrumentation requirement.
+    _active_keys = db.query(APIKey).filter(APIKey.user_id == user.id, APIKey.is_active == True).all()  # noqa: E712
+    _has_api_keys = len(_active_keys) > 0
+    _connection_verified = any(k.last_used_at is not None for k in _active_keys)
     return {
         "id": str(user.id),
         "email": user.email,
         "display_name": user.display_name,
         "avatar_url": user.avatar_url,
         "created_at": user.created_at.isoformat() if user.created_at else None,
+        "has_api_keys": _has_api_keys,
+        "connection_verified": _connection_verified,
         # Subscription state — embedded so every page that calls /api/auth/me
         # knows the user's current plan without a second round-trip to /billing/me.
         # Fixes auth-aware UI being plan-blind across Nav.astro, pricing page,
@@ -518,4 +585,5 @@ async def logout():
     response.delete_cookie(JWT_COOKIE_NAME, path="/")
     response.delete_cookie("oauth_state", path="/")
     response.delete_cookie("oauth_next", path="/")
+    response.delete_cookie(REVEAL_COOKIE_NAME, path="/")
     return response
