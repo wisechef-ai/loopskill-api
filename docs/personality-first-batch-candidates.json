@@ -1,0 +1,242 @@
+[
+  {
+    "slug": "git-workflow-copilot",
+    "name": "Git Workflow Copilot",
+    "role": "Reviews diffs, drafts PR descriptions from the actual commit range, and keeps commit history and branch hygiene clean end to end.",
+    "target_user": "Solo developers and small teams shipping PRs daily without a dedicated reviewer",
+    "member_skills": ["pr-draft", "code-review", "clean-code", "test-driven-development"],
+    "why": "\"git\" was the #1 tied unserved catalog-search query (11 hits, sustained daily 2026-08-11 -> 08-21, missing_skill_queries table) with zero catalog skill or persona currently targeting it; dev-tools + code-review categories supply 4 real, live member skills."
+  },
+  {
+    "slug": "security-reviewer",
+    "name": "Security Reviewer",
+    "role": "Runs an adversarial pass over a diff or infra change before merge or deploy, flagging injection, auth, and secret-handling risk.",
+    "target_user": "Teams shipping to production without a dedicated AppSec function",
+    "member_skills": ["critical-code-reviewer", "code-review", "clean-architecture"],
+    "why": "\"security\" query logged 11 hits sustained 2026-08-11 -> 08-21 in missing_skill_queries with zero matching catalog skill; critical-code-reviewer + code-review are the closest live grounded fit, flagged here as a partial-coverage persona pending a dedicated security-scan skill."
+  },
+  {
+    "slug": "test-coverage-guardian",
+    "name": "Test Coverage Guardian",
+    "role": "Writes the failing test before the implementation and enforces TDD discipline across a codebase or PR queue.",
+    "target_user": "Engineering leads trying to enforce test discipline on a team",
+    "member_skills": ["test-driven-development", "clean-code", "code-review"],
+    "why": "\"test\" query logged 11 hits sustained 2026-08-11 -> 08-21; test-driven-development is a direct, currently-unwrapped catalog skill (dev-tools category)."
+  },
+  {
+    "slug": "image-asset-producer",
+    "name": "Image Asset Producer",
+    "role": "Generates and edits marketing and product images on request, and sources reaction GIFs and looping video clips for content drops.",
+    "target_user": "Solo marketers and indie founders who need visual assets fast without a design team",
+    "member_skills": ["nano-banana-pro", "gif-search", "ascii-video", "p5js"],
+    "why": "\"image\" query logged 11 hits sustained 2026-08-11 -> 08-21; content, dev-tools, and marketing categories supply 4 real live generation/search skills with no persona wrapper today."
+  },
+  {
+    "slug": "voice-content-producer",
+    "name": "Voice Content Producer",
+    "role": "Turns a written script into narrated voiceover audio for video, podcast intros, or IVR-style prompts.",
+    "target_user": "Content creators producing video or podcast narration without hiring a VO artist",
+    "member_skills": ["elevenlabs-pro", "local-tts-kokoro", "songwriting-and-ai-music"],
+    "why": "\"voice\" query logged 11 hits sustained daily 2026-08-11 -> 08-21; productivity, marketing, and content categories carry 3 real audio-generation skills with zero persona wrapper today."
+  },
+  {
+    "slug": "inbox-triage-assistant",
+    "name": "Inbox Triage Assistant",
+    "role": "Summarizes a backlog of email threads, drafts replies in the user's voice, and flags what actually needs a same-day response.",
+    "target_user": "Founders and ops leads drowning in unread email",
+    "member_skills": ["summarize-cli", "copywriting", "humanizer"],
+    "why": "\"email\" query logged 10 hits 2026-08-12 -> 08-21; no catalog skill directly addresses email — this persona is an honest partial-fit built from the nearest real skills, flagged as a signal for a future dedicated email/inbox skill rather than a full solution."
+  },
+  {
+    "slug": "web-research-scraper",
+    "name": "Web Research Scraper",
+    "role": "Pulls and structures web data across multiple sources for a single competitive or market-research question, then cross-checks the findings.",
+    "target_user": "Analysts running repeated competitive or market research pulls",
+    "member_skills": ["tavily-search", "grok-search", "agent-browser", "hub-search-claude-code"],
+    "why": "\"scrape\" (10 hits, 2026-08-12 -> 08-21), \"search\" (8 hits), and \"browser\" (1 hit) unserved queries all point at the same job; research + automation + data categories supply 4 real live search/browse skills."
+  },
+  {
+    "slug": "document-digitizer",
+    "name": "Document Digitizer",
+    "role": "OCRs a stack of scanned documents or PDFs, extracts the text, and produces a clean summarized digest.",
+    "target_user": "Ops teams processing paper forms, invoices, or scanned contracts",
+    "member_skills": ["ocr-and-documents", "nano-pdf", "summarize-cli"],
+    "why": "\"pdf\" query logged 10 hits 2026-08-12 -> 08-21; marketing and productivity categories carry a direct real ocr-and-documents + nano-pdf pairing with zero persona wrapper today."
+  },
+  {
+    "slug": "conversion-copywriter",
+    "name": "Conversion Copywriter",
+    "role": "Writes landing-page and email copy built around a specific offer, following value-equation and irresistible-offer structure.",
+    "target_user": "Solo founders launching a paid offer without a copywriter on staff",
+    "member_skills": ["copywriting", "hundred-million-offers", "creative-ideation"],
+    "why": "\"copywriting\" query logged 7 hits 2026-07-13 -> 08-10; the copywriting skill exists in the live catalog (uncategorized) but has no persona wrapper pairing it with the offer-construction and ideation skills a real launch needs."
+  },
+  {
+    "slug": "ai-text-humanizer",
+    "name": "AI Text Humanizer",
+    "role": "Rewrites AI-drafted copy to strip robotic tells and match a specific human voice before it ships.",
+    "target_user": "Writers and marketers publishing AI-assisted drafts who need them to read as human-written",
+    "member_skills": ["humanizer", "copywriting", "summarize-cli"],
+    "why": "\"humanizer\" query logged 4 hits 2026-07-26 -> 08-10, directly naming a catalog skill that exists but has never been wrapped into a persona pairing it with copy/summarization."
+  },
+  {
+    "slug": "infra-bootstrap-engineer",
+    "name": "Infra Bootstrap Engineer",
+    "role": "Stands up a fresh agent's memory stack and OS-level automation guardrails from a clean box in one pass.",
+    "target_user": "Operators provisioning a new self-hosted agent instance",
+    "member_skills": ["super-memory", "agentic-os", "musk-5-step-algorithm"],
+    "why": "Grounded directly in the automation category (8 live skills) — super-memory is the single highest-installed skill in the entire catalog (361 installs), yet has no persona pairing it with the OS-guardrail and first-principles-questioning skills operators reach for at the same setup moment."
+  },
+  {
+    "slug": "diagram-and-spec-drafter",
+    "name": "Diagram & Spec Drafter",
+    "role": "Turns a verbal system description into an architecture diagram plus a written DESIGN.md-style spec in the same sitting.",
+    "target_user": "Engineers who need to document a system before building it",
+    "member_skills": ["design-md", "excalidraw", "architecture-diagram"],
+    "why": "Grounded in the automation category — design-md, excalidraw, and architecture-diagram are three live, currently-unpaired skills that are always used together in practice (spec then diagram)."
+  },
+  {
+    "slug": "offer-and-launch-strategist",
+    "name": "Offer & Launch Strategist",
+    "role": "Builds the core offer for a launch — pricing, bonuses, guarantee — before a single word of marketing copy is written.",
+    "target_user": "Early-stage founders about to launch a paid product",
+    "member_skills": ["hundred-million-offers", "copywriting", "creative-ideation"],
+    "why": "Grounded in the marketing category (8 live skills); hundred-million-offers has no existing persona pairing it with the copywriting + ideation skills a real launch sequence needs."
+  },
+  {
+    "slug": "explainer-video-producer",
+    "name": "Explainer Video Producer",
+    "role": "Storyboards and renders a short animated explainer or math/algorithm walkthrough video from a written outline.",
+    "target_user": "Educators and product marketers who need an explainer video without a video team",
+    "member_skills": ["manim-video", "ascii-video", "p5js"],
+    "why": "Grounded in the marketing + dev-tools categories; manim-video, ascii-video, and p5js are three live, currently-unpaired rendering skills that map directly to the same production job."
+  },
+  {
+    "slug": "system-architecture-planner",
+    "name": "System Architecture Planner",
+    "role": "Maps a codebase's module boundaries, proposes a domain-driven refactor, and produces the visual dependency graph to back it up.",
+    "target_user": "Tech leads planning a refactor or a new service boundary",
+    "member_skills": ["architecture-diagram", "clean-architecture", "domain-driven-design", "repo-viz"],
+    "why": "Grounded in the ops category (8 live skills); these 4 skills are already co-installed in practice for architecture work but have never been packaged as a single persona."
+  },
+  {
+    "slug": "brand-rollout-coordinator",
+    "name": "Brand Rollout Coordinator",
+    "role": "Sequences a multi-repo brand or design-system rollout and coordinates the fleet of agents executing it.",
+    "target_user": "Teams rolling a brand refresh across several repos or properties at once",
+    "member_skills": ["brand-rollout-meta-repo", "plan-for-goal", "multi-agent-discord-coordination"],
+    "why": "Grounded in the ops category; brand-rollout-meta-repo is a live catalog skill with no persona wrapper pairing it with the planning + multi-agent-coordination skills the rollout job actually needs."
+  },
+  {
+    "slug": "ruthless-plan-critic",
+    "name": "Ruthless Plan Critic",
+    "role": "Stress-tests a plan or strategy document in attack mode before it ships, then hands back a corrected, defensible version.",
+    "target_user": "Founders and PMs who want their plan pressure-tested before presenting it",
+    "member_skills": ["ruthless-mentor", "plan-for-goal", "critical-code-reviewer"],
+    "why": "Grounded in the ops category; ruthless-mentor (11 installs, one of the higher-traction skills in the catalog) has no persona pairing it with plan-for-goal despite both being written for the same review moment."
+  },
+  {
+    "slug": "startup-diligence-analyst",
+    "name": "Startup Diligence Analyst",
+    "role": "Runs structured due diligence on a startup idea or market — competitive landscape, prediction-market signal, and sourced research.",
+    "target_user": "Investors and founders validating a startup idea before committing",
+    "member_skills": ["startup-architect", "polymarket", "tavily-search", "grok-search"],
+    "why": "Grounded in the research category (7 live skills); startup-architect and polymarket are both live but never paired with the search skills a real diligence pass needs."
+  },
+  {
+    "slug": "github-issue-triager",
+    "name": "GitHub Issue Triager",
+    "role": "Works a GitHub issue backlog, labels and prioritizes, and drafts the PR that closes the highest-value item.",
+    "target_user": "Maintainers with an issue backlog and no dedicated triage time",
+    "member_skills": ["github-issues", "pr-draft", "code-review"],
+    "why": "Grounded in the research category; github-issues is a live catalog skill never paired with the pr-draft + code-review skills that close the loop on a triaged issue."
+  },
+  {
+    "slug": "academic-lit-reviewer",
+    "name": "Academic Lit Reviewer",
+    "role": "Pulls and cross-references arXiv papers on a topic, then writes a structured literature-review summary with citations.",
+    "target_user": "Researchers doing a literature review before writing a paper or proposal",
+    "member_skills": ["arxiv", "tavily-search", "llm-wiki-hermes"],
+    "why": "Grounded in the data category (6 live skills); arxiv is a live skill never paired with the wiki-building skill that turns a one-off search into a durable knowledge base."
+  },
+  {
+    "slug": "local-model-ops-advisor",
+    "name": "Local Model Ops Advisor",
+    "role": "Picks the right local model for the available VRAM, sets up llama.cpp inference, and wires local transcription.",
+    "target_user": "Developers running LLMs on their own hardware instead of a cloud API",
+    "member_skills": ["llama-cpp", "ollama-low-vram-model-pick", "faster-whisper"],
+    "why": "Grounded in the data + marketing categories; these 3 skills are always used together in a real local-inference setup but have never been packaged as one persona."
+  },
+  {
+    "slug": "knowledge-wiki-curator",
+    "name": "Knowledge Wiki Curator",
+    "role": "Turns scattered research and brainstorm notes into an interlinked, queryable markdown knowledge base.",
+    "target_user": "Teams accumulating research notes that need to become a searchable knowledge base",
+    "member_skills": ["llm-wiki-hermes", "brainstorming", "hub-search-claude-code"],
+    "why": "Grounded in the data category and the \"data\" unserved query (7 hits, 2026-08-11 -> 08-21); llm-wiki-hermes is a live skill (11 installs) never paired with the brainstorming + search skills that feed it."
+  },
+  {
+    "slug": "infographic-storyteller",
+    "name": "Infographic Storyteller",
+    "role": "Turns a dense dataset or argument into a single well-laid-out infographic, iterating on layout and style.",
+    "target_user": "Content marketers who need a shareable data visual without a designer",
+    "member_skills": ["baoyu-infographic", "creative-ideation", "ascii-video"],
+    "why": "Grounded in the productivity category; baoyu-infographic is a live skill never paired with the ideation skill that shapes the underlying argument before layout starts."
+  },
+  {
+    "slug": "codebase-onboarding-guide",
+    "name": "Codebase Onboarding Guide",
+    "role": "Walks a new engineer through an unfamiliar codebase's structure, module boundaries, and dependency graph.",
+    "target_user": "Engineering managers onboarding a new hire onto a large codebase",
+    "member_skills": ["codebase-inspection", "repo-viz", "clean-architecture"],
+    "why": "Grounded in the productivity + ops categories; codebase-inspection and repo-viz are both live skills solving the same onboarding moment but have never been paired into one persona."
+  },
+  {
+    "slug": "frontend-prototyper",
+    "name": "Frontend Prototyper",
+    "role": "Builds a working React/Tailwind UI prototype from a rough description, with a spec doc and a hand-drawn wireframe alongside it.",
+    "target_user": "Product designers and PMs who need a clickable prototype fast",
+    "member_skills": ["frontend-design", "design-md", "excalidraw"],
+    "why": "Grounded in the dev-tools category; frontend-design is a live skill never paired with the spec + wireframe skills a real prototyping pass uses together."
+  },
+  {
+    "slug": "social-post-formatter",
+    "name": "Social Post Formatter",
+    "role": "Drafts and posts a thread or tweet with an on-brand GIF or reaction image attached, in the account's established voice.",
+    "target_user": "Solo creators and small teams running their own X/Twitter account",
+    "member_skills": ["xitter", "gif-search", "copywriting", "humanizer"],
+    "why": "Grounded in the dev-tools category; xitter is a live posting skill never paired with the copywriting/humanizer/gif-search skills a real social post uses together."
+  },
+  {
+    "slug": "refactor-cleanup-specialist",
+    "name": "Refactor Cleanup Specialist",
+    "role": "Refactors a messy module toward small, well-named functions, backed by tests written first.",
+    "target_user": "Teams paying down tech debt on a legacy module",
+    "member_skills": ["clean-code", "critical-code-reviewer", "test-driven-development"],
+    "why": "Grounded in the code-review category (3 live skills, currently unpaired into any persona) and the \"code\"/\"review\" unserved queries."
+  },
+  {
+    "slug": "meeting-notes-summarizer",
+    "name": "Meeting Notes Summarizer",
+    "role": "Condenses a raw meeting transcript into a structured summary with decisions and action items, then formats it as a shareable PDF.",
+    "target_user": "Teams that record meetings but never review the raw transcript",
+    "member_skills": ["summarize-cli", "humanizer", "nano-pdf"],
+    "why": "Grounded in the content + productivity categories; summarize-cli is a live skill never paired with the PDF-export skill that makes the output shareable."
+  },
+  {
+    "slug": "executive-communicator",
+    "name": "Executive Communicator",
+    "role": "Structures a memo or update using the Minto Pyramid Principle so the conclusion leads, not the reasoning.",
+    "target_user": "Managers writing status updates or decision memos to leadership",
+    "member_skills": ["minto", "ruthless-mentor", "humanizer"],
+    "why": "Grounded in the agency category — minto is the ONLY skill in that category and has zero persona wrapper today despite being a direct fit for exec-facing writing."
+  },
+  {
+    "slug": "self-hosted-llm-infra-builder",
+    "name": "Self-Hosted LLM Infra Builder",
+    "role": "Builds and validates a self-hosted LLM mesh on Linux, including local inference wiring, from a bare box.",
+    "target_user": "Teams standing up their own LLM infrastructure instead of paying per-token API fees",
+    "member_skills": ["buzz-mesh-linux-build", "llama-cpp", "super-memory"],
+    "why": "Grounded in the uncategorized-but-live buzz-mesh-linux-build skill, paired with the local-inference and memory-stack skills that always accompany a real self-hosted build."
+  }
+]
