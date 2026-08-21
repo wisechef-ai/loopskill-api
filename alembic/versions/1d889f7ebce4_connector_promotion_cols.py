@@ -55,19 +55,26 @@ def upgrade() -> None:
     op.add_column("external_connectors", sa.Column("promotion_status", sa.String(16), nullable=True))
     op.add_column("external_connectors", sa.Column("promotion_reason", sa.Text(), nullable=True))
     op.add_column("external_connectors", sa.Column("promoted_at", sa.DateTime(timezone=True), nullable=True))
-    op.add_column(
-        "external_connectors",
-        sa.Column(
-            "promoted_connector_id",
-            uuid_type,
-            sa.ForeignKey("connectors.id", ondelete="SET NULL"),
-            nullable=True,
-        ),
-    )
+    # FK column via batch mode: SQLite cannot ALTER-add a constraint in place
+    # (NotImplementedError: No support for ALTER of constraints); batch mode
+    # copy-and-moves the table. On Postgres this degrades to a plain ALTER.
+    with op.batch_alter_table("external_connectors") as batch:
+        batch.add_column(sa.Column("promoted_connector_id", uuid_type, nullable=True))
+        batch.create_foreign_key(
+            "fk_external_connectors_promoted_connector_id",
+            "connectors",
+            ["promoted_connector_id"],
+            ["id"],
+            ondelete="SET NULL",
+        )
 
 
 def downgrade() -> None:
-    op.drop_column("external_connectors", "promoted_connector_id")
+    # Same batch-mode requirement in reverse: dropping the FK'd column on
+    # SQLite requires the copy-and-move strategy with the constraint named.
+    with op.batch_alter_table("external_connectors") as batch:
+        batch.drop_constraint("fk_external_connectors_promoted_connector_id", type_="foreignkey")
+        batch.drop_column("promoted_connector_id")
     op.drop_column("external_connectors", "promoted_at")
     op.drop_column("external_connectors", "promotion_reason")
     op.drop_column("external_connectors", "promotion_status")
