@@ -1,10 +1,10 @@
 {
   "source": "app.main.app.routes + app.middleware.api_key.APIKeyMiddleware (dispatch tree replayed), derived at import time",
   "generator": "scripts/generate_route_manifest.py",
-  "route_count": 310,
+  "route_count": 311,
   "counts_by_classification": {
     "admin": 11,
-    "authenticated": 190,
+    "authenticated": 191,
     "internal": 2,
     "public": 107
   },
@@ -305,6 +305,18 @@
       ],
       "classification": "authenticated",
       "summary": "Handle GitHub OAuth callback. Exchange code for profile + JWT."
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/first-key-reveal",
+      "name": "first_key_reveal",
+      "module": "app.first_key_routes",
+      "tags": [
+        "auth",
+        "auth"
+      ],
+      "classification": "authenticated",
+      "summary": "One-time reveal of the plaintext of the auto-minted first API key."
     },
     {
       "method": "GET",

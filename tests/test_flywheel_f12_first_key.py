@@ -20,6 +20,7 @@ from app import auth_routes
 from app.database import get_db
 from app.models import APIKey, User
 from app.services.first_key import FIRST_KEY_LABEL, ensure_first_api_key
+from app import first_key_routes
 
 
 # ── ensure_first_api_key: unit tests (db_session fixture, real SQLite) ─────
@@ -155,6 +156,7 @@ def test_oauth_callback_mints_first_key_and_sets_reveal_cookie(
 
     app = FastAPI()
     app.include_router(auth_routes.router)
+    app.include_router(first_key_routes.router)
     app.dependency_overrides[get_db] = lambda: object()
     with TestClient(app) as client:
         client.cookies.set("oauth_state", "valid")
@@ -192,6 +194,7 @@ def test_oauth_callback_returning_user_sets_no_reveal_cookie(monkeypatch, provid
 
     app = FastAPI()
     app.include_router(auth_routes.router)
+    app.include_router(first_key_routes.router)
     app.dependency_overrides[get_db] = lambda: object()
     with TestClient(app) as client:
         client.cookies.set("oauth_state", "valid")
@@ -226,6 +229,7 @@ def test_oauth_callback_mint_exception_never_blocks_signin(monkeypatch):
 
     app = FastAPI()
     app.include_router(auth_routes.router)
+    app.include_router(first_key_routes.router)
     app.dependency_overrides[get_db] = lambda: object()
     with TestClient(app, raise_server_exceptions=False) as client:
         client.cookies.set("oauth_state", "valid")
@@ -248,6 +252,7 @@ def test_first_key_reveal_requires_auth():
     """No wr_jwt cookie / bearer token -> 401, not a leak of any kind."""
     app = FastAPI()
     app.include_router(auth_routes.router)
+    app.include_router(first_key_routes.router)
     app.dependency_overrides[get_db] = lambda: object()
     with TestClient(app) as client:
         r = client.get("/api/auth/first-key-reveal")
@@ -262,6 +267,7 @@ def test_first_key_reveal_404_with_no_cookie(monkeypatch):
 
     app = FastAPI()
     app.include_router(auth_routes.router)
+    app.include_router(first_key_routes.router)
     app.dependency_overrides[get_db] = lambda: object()
     with TestClient(app) as client:
         r = client.get("/api/auth/first-key-reveal")
@@ -291,6 +297,7 @@ def test_first_key_reveal_returns_key_and_config_blocks_once(monkeypatch):
 
     app = FastAPI()
     app.include_router(auth_routes.router)
+    app.include_router(first_key_routes.router)
     app.dependency_overrides[get_db] = lambda: object()
     with TestClient(app) as client:
         client.cookies.set(auth_routes.REVEAL_COOKIE_NAME, "reveal-tok")

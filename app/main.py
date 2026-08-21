@@ -14,6 +14,7 @@ from app.version import __version__
 from app.demand_routes import router as demand_router
 from app.api_key_routes import router as api_key_router
 from app.auth_routes import router as auth_router
+from app.first_key_routes import router as first_key_router
 from app.bundle_deployment_routes import router as cookbook_deploy_router  # compat-alias
 from app.bundle_fork_claim_routes import router as bundle_fork_claim_router  # bundles0811-P1
 from app.bundle_install_script_routes import router as bundle_install_script_router  # bundles0811-P1
@@ -190,6 +191,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_router, tags=["admin"])
     app.include_router(demand_router, tags=["admin"])  # demandbrief_3005: content-direction feed
     app.include_router(auth_router, tags=["auth"])
+    app.include_router(first_key_router, tags=["auth"])  # flywheel F1.2: one-time first-key reveal
     app.include_router(bootcamp_router, prefix="/api", tags=["bootcamp"])  # bootcamp_0607
     app.include_router(sandbox_router, tags=["sandbox"])
     app.include_router(creator_router, tags=["creator"])

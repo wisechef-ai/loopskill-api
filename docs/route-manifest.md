@@ -3,7 +3,7 @@
 
 # Route Manifest (bundles_0811 P7)
 
-Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **310** distinct (method, path) surfaces.
+Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **311** distinct (method, path) surfaces.
 
 ## How classification works
 
@@ -22,7 +22,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | Classification | Routes |
 |---|---|
 | admin | 11 |
-| authenticated | 190 |
+| authenticated | 191 |
 | internal | 2 |
 | public | 107 |
 
@@ -54,6 +54,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | DELETE | `/api/api-keys/{key_id}` | authenticated | `app.api_key_routes` | api-keys, api-keys |
 | GET | `/api/api-library/{slug}` | authenticated | `app.recipe_routes` | api-library, recipes, recipes |
 | GET | `/api/auth/callback` | authenticated | `app.creator_routes` | creator, creator |
+| GET | `/api/auth/first-key-reveal` | authenticated | `app.first_key_routes` | auth, auth |
 | GET | `/api/auth/github` | authenticated | `app.creator_routes` | creator, creator |
 | GET | `/api/auth/github/callback` | authenticated | `app.auth_routes` | auth, auth |
 | GET | `/api/auth/github/login` | authenticated | `app.auth_routes` | auth, auth |
