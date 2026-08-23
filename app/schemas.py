@@ -243,9 +243,15 @@ class InstallResponse(BaseModel):
     manifest: dict | None = None  # F-API-14: category, tags, tier from skill.toml
     # spotify_0608 Ph E — install-provenance carrier. RANDOM opaque token mapping
     # server-side → this install event → (skill, version, bundle). Pass it back
-    # in loopskill_feedback / loopskill_report_skill_error so the report routes to the
-    # correct creator repo. Carries NO client-readable metadata.
+    # in loopskill_feedback / loopskill_report_skill_error so the report routes to
+    # the correct creator repo. Carries NO client-readable metadata.
     provenance_id: str | None = None
+    # bhint0823 (t_8ccbdbc5) — bundle fast-path onboarding hint. None on the
+    # overwhelming majority of installs; present only when the caller's recent
+    # direct-install pattern (>=3 skills from one IP inside 24h, all members of
+    # a single public bundle) says they are hand-replicating a bundle one
+    # request at a time. Purely additive — no existing field changed.
+    bundle_hint: dict | None = None
 
 
 # ── Health ──────────────────────────────────────────────────────────────

@@ -471,6 +471,25 @@ def install_skill(
         resp_headers["X-RateLimit-Limit"] = str(install_limit)
         resp_headers["X-RateLimit-Remaining"] = str(remaining)
 
+    # bhint0823 (t_8ccbdbc5) — bundle fast-path onboarding hint. Only direct
+    # installs can be "hand-walking a bundle" (a bundle-attributed install is
+    # already on the fast path), and the trigger requires >=3 direct installs
+    # from this IP in 24h, so the common case pays nothing: compute_bundle_hint
+    # returns None on the client_ip-missing branch before any query runs.
+    # Fail-quiet by design — a hinting regression must never 500 an install.
+    bundle_hint = None
+    if validated_bundle_id is None:
+        # Rationale: observability/onboarding hint only; an internal failure
+        # (DB hiccup mid-hint) must not fail an install that already committed.
+        try:
+            from app.services.bundle_hint import compute_bundle_hint
+
+            bundle_hint = compute_bundle_hint(db, client_ip=getattr(_event, "client_ip", None))
+        except Exception:  # noqa: BLE001
+            bundle_hint = None
+    if bundle_hint is not None:
+        resp_headers["X-LoopSkill-Bundle-Hint"] = bundle_hint["slug"]
+
     resp = InstallResponse(
         slug=slug,
         version=latest.semver,
@@ -480,6 +499,7 @@ def install_skill(
         expires_at=datetime.now(UTC) + timedelta(hours=1),
         manifest=_build_manifest(latest, skill),
         provenance_id=provenance_id,
+        bundle_hint=bundle_hint,
     )
     if resp_headers or ref:
         from fastapi.responses import JSONResponse as _JR
