@@ -127,7 +127,6 @@ def record_install_with_provenance(
     Returns (install_event, provenance_id). The event is flushed so its id is
     available for the ProvenanceRecord FK.
     """
-    from app.models import APIKey
 
     api_key_id = None
     client_ip = None
@@ -159,12 +158,14 @@ def record_install_with_provenance(
     db.add(event)
 
     # Ph B §4.2 integrity: bump the denormalised public counter ONLY for organic
-    # installs. A test/CI key (is_test) records the event but does NOT inflate
-    # the public counter. Anonymous installs (no key) are organic and DO bump.
-    is_test = False
-    if api_key_id is not None:
-        is_test = bool(db.query(APIKey.is_test).filter(APIKey.id == api_key_id).scalar())
-    if not is_test:
+    # installs. chef_0823 (t_4a38fed9): organic = the ONE shared definition from
+    # app/install_integrity.py — is_test keys, self-registered agent probes
+    # (User.is_agent), and internal-IP sources (the server's own CI runner,
+    # dogfood boxes) record the event but do NOT inflate the public counter.
+    # Anonymous external installs are organic and DO bump.
+    from app.install_integrity import install_is_organic
+
+    if install_is_organic(db, api_key_id=api_key_id, client_ip=client_ip):
         db.query(Skill).filter(Skill.id == skill.id).update(
             {Skill.install_count: Skill.install_count + 1},
             synchronize_session=False,

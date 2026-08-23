@@ -112,17 +112,28 @@ def get_creator_stats(
     # (perf discipline, loopskill-api-endpoint-development skill).
     counts_by_bundle: dict[Any, tuple[int, int]] = {}
     if bundle_ids:
-        # Same organic/synthetic split as app/_skill_helpers.py:_install_counts_for
-        # (case-based sum, not a filtered second query — one round trip).
+        # Same organic/synthetic split as the ONE shared predicate in
+        # app/install_integrity.py (chef_0823/t_4a38fed9): is_test keys,
+        # agent-probe keys (User.is_agent), and internal-IP installs are all
+        # non-external (case-based sum, not a filtered second query — one
+        # round trip).
+        from app.install_integrity import organic_install_predicate
+        from app.models import User
+
+        # Build the organic CASE from the shared predicate list directly.
+        # and_() is critical — case(*[(c, 1) for c in preds]) would OR the
+        # conditions (first true wins); organic requires ALL to hold.
+        from sqlalchemy import and_
+
+        organic_case = case((and_(*organic_install_predicate()), 1), else_=0)
         rows = (
             db.query(
                 InstallEvent.bundle_id,
                 func.count(InstallEvent.id).label("total"),
-                func.sum(case((func.coalesce(APIKey.is_test, False).is_(False), 1), else_=0)).label(
-                    "external"
-                ),
+                func.sum(organic_case).label("external"),
             )
             .outerjoin(APIKey, APIKey.id == InstallEvent.api_key_id)
+            .outerjoin(User, User.id == APIKey.user_id)
             .filter(InstallEvent.bundle_id.in_(bundle_ids))
             .group_by(InstallEvent.bundle_id)
             .all()
@@ -146,11 +157,12 @@ def get_creator_stats(
         "bundles": bundles_out,
         "generated_at": datetime.now(UTC).isoformat(),
         "internal_exclusion_rule": (
-            "installs_external excludes InstallEvent rows whose api_key_id "
-            "resolves to an APIKey with is_test=true (the codebase-wide "
-            "internal/test/CI/fleet-harness marker — see "
-            "app/billable_units.py:SYNTHETIC_MARKER); anonymous installs "
-            "(api_key_id IS NULL) are always counted as external. "
+            "installs_external uses the ONE shared organic predicate "
+            "(app/install_integrity.py): rows are excluded when their api_key "
+            "is_test=true, when the key belongs to a self-registered agent "
+            "(User.is_agent), or when client_ip is an internal source (the "
+            "server's own CI runner or a known dogfood IP). Anonymous external "
+            "installs (api_key_id IS NULL, external IP) are counted. "
             "installs_total is the raw, unfiltered count."
         ),
     }

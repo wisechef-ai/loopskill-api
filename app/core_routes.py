@@ -98,11 +98,33 @@ def post_telemetry(
     # not a Python read-modify-write) so concurrent installs cannot lose
     # writes. Same DB transaction as the telemetry insert — either both land
     # or neither does.
+    #
+    # chef_0823 (t_4a38fed9): the bump now honours the ONE shared organic
+    # definition (app/install_integrity.py) — telemetry installs from is_test
+    # keys, agent-probe keys, or internal IPs record the event but do NOT
+    # inflate the public counter, matching the InstallEvent writers exactly.
     if body.event_type == "install" and skill_id is not None:
-        db.query(Skill).filter(Skill.id == skill_id).update(
-            {Skill.install_count: Skill.install_count + 1},
-            synchronize_session=False,
-        )
+        from app.install_integrity import install_is_organic
+
+        tel_client_ip = None
+        try:
+            from app.config import settings
+            from app.utils.client_ip import _real_client_ip
+
+            tel_client_ip = _real_client_ip(request, settings.TRUSTED_PROXY_CIDRS)
+        # Rationale: client_ip is observability-only; never fail a telemetry
+        # POST on an IP parse error — mirrors the InstallEvent writers (Issue #22).
+        except Exception:  # noqa: BLE001
+            tel_client_ip = None
+        if install_is_organic(
+            db,
+            api_key_id=getattr(request.state, "api_key_id", None),
+            client_ip=tel_client_ip,
+        ):
+            db.query(Skill).filter(Skill.id == skill_id).update(
+                {Skill.install_count: Skill.install_count + 1},
+                synchronize_session=False,
+            )
 
     db.commit()
     db.refresh(event)
@@ -121,23 +143,27 @@ def marketplace_stats(db: Session = Depends(get_db)):
     """
     from sqlalchemy import func as _f
 
-    from app.models import APIKey
+    from app.install_integrity import organic_install_predicate
+    from app.models import APIKey, User
 
     # portal_0610 R5: exclude archived skills from public counts (was counting
     # is_archived=True rows → /api/stats total_skills disagreed with search).
     _public_skill = (Skill.is_public == True, Skill.is_archived == False)  # noqa: E712
 
-    # portal_0610 B3: exclude synthetic (test/CI) installs from public stats —
-    # the same §4.2 exclusion already applied to discover/leaderboard, now also
-    # on /api/stats (total_installs, installs_7d, top_installed). An install is
-    # organic when api_key_id is NULL (anon) OR its APIKey.is_test is false.
-    _organic = _f.coalesce(APIKey.is_test, False).is_(False)
+    # chef_0823 (t_4a38fed9): the ONE organic predicate, shared with every
+    # other install-count surface — see app/install_integrity.py. Extends the
+    # portal_0610 B3 is_test filter with (a) the server's own public IP (CI
+    # self-installs from the on-host deploy runner arrive anonymous), and
+    # (b) the key-owner User.is_agent marker (self-registered agent probes
+    # are not humans, but their keys default is_test=false).
+    _organic = organic_install_predicate()
 
     total_skills = db.query(_f.count(Skill.id)).filter(*_public_skill).scalar() or 0
     total_installs = (
         db.query(_f.count(InstallEvent.id))
         .outerjoin(APIKey, APIKey.id == InstallEvent.api_key_id)
-        .filter(_organic)
+        .outerjoin(User, User.id == APIKey.user_id)
+        .filter(*_organic)
         .scalar()
         or 0
     )
@@ -174,7 +200,8 @@ def marketplace_stats(db: Session = Depends(get_db)):
         db.query(InstallEvent.skill_slug, _f.count(InstallEvent.id).label("installs"))
         .join(Skill, Skill.slug == InstallEvent.skill_slug)
         .outerjoin(APIKey, APIKey.id == InstallEvent.api_key_id)
-        .filter(_organic, *_public_skill)
+        .outerjoin(User, User.id == APIKey.user_id)
+        .filter(*_organic, *_public_skill)
         .group_by(InstallEvent.skill_slug)
         .order_by(_f.count(InstallEvent.id).desc())
         .limit(10)
@@ -187,7 +214,8 @@ def marketplace_stats(db: Session = Depends(get_db)):
     installs_7d = (
         db.query(_f.count(InstallEvent.id))
         .outerjoin(APIKey, APIKey.id == InstallEvent.api_key_id)
-        .filter(InstallEvent.created_at >= recent_window, _organic)
+        .outerjoin(User, User.id == APIKey.user_id)
+        .filter(InstallEvent.created_at >= recent_window, *_organic)
         .scalar()
         or 0
     )

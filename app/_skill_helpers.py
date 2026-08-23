@@ -92,11 +92,17 @@ def _install_counts_for(db: Session, skill_ids: list) -> dict:
     One round-trip aggregation — small marketplace (≤200 skills) so a
     grouped query is cheaper than a LATERAL per row.
 
-    spotify_0608 Ph B (§4.2): EXCLUDES synthetic installs. An install counts as
-    organic when its api_key_id is NULL (anonymous) OR its APIKey.is_test is
-    false. Only installs explicitly keyed to a test/CI/internal key are dropped.
-    This keeps the public-ranking / leaderboard / GTM-signal counts honest.
+    spotify_0608 Ph B (§4.2): EXCLUDES synthetic installs. chef_0823
+    (t_4a38fed9): "synthetic" is now the ONE shared predicate from
+    app/install_integrity.py — is_test keys, self-registered agent keys
+    (User.is_agent), and installs from internal IPs (server's own address =
+    CI runner; dogfood IPs) are all dropped. Anonymous installs remain
+    organic. This keeps the public-ranking / leaderboard / GTM-signal counts
+    honest.
     """
+    from app.install_integrity import organic_install_predicate
+    from app.models import User
+
     if not skill_ids:
         return {}
     since_7d = datetime.now(UTC) - timedelta(days=7)
@@ -107,11 +113,10 @@ def _install_counts_for(db: Session, skill_ids: list) -> dict:
             func.sum(case((InstallEvent.created_at >= since_7d, 1), else_=0)).label("last_7d"),
         )
         .outerjoin(APIKey, APIKey.id == InstallEvent.api_key_id)
+        .outerjoin(User, User.id == APIKey.user_id)
         .filter(
             InstallEvent.skill_id.in_(skill_ids),
-            # Anonymous installs (no key) are organic; keyed installs are organic
-            # unless the key is flagged is_test. coalesce so NULL→organic.
-            func.coalesce(APIKey.is_test, False).is_(False),
+            *organic_install_predicate(),
         )
         .group_by(InstallEvent.skill_id)
         .all()
@@ -130,11 +135,16 @@ def _cookbook_install_counts(db: Session, cookbook_id) -> tuple[int, int]:
 
     The honest count is "installs that came THROUGH this cookbook" — InstallEvent
     rows stamped with this cookbook_id (the cookbook install paths set it via
-    provenance). Organic-only: the same §4.2 is_test exclusion as
-    ``_install_counts_for``. A cookbook whose skills were all installed via the
-    direct /api/skills/install path (cookbook_id NULL) correctly shows 0 — those
+    provenance). Organic-only: the ONE shared organic predicate from
+    app/install_integrity.py (chef_0823/t_4a38fed9) — is_test keys, agent-probe
+    keys (User.is_agent), and internal-IP installs are all excluded. A
+    cookbook whose skills were all installed via the direct
+    /api/skills/install path (cookbook_id NULL) correctly shows 0 — those
     installs were not attributable to the cookbook.
     """
+    from app.install_integrity import organic_install_predicate
+    from app.models import User
+
     since_7d = datetime.now(UTC) - timedelta(days=7)
     row = (
         db.query(
@@ -142,9 +152,10 @@ def _cookbook_install_counts(db: Session, cookbook_id) -> tuple[int, int]:
             func.sum(case((InstallEvent.created_at >= since_7d, 1), else_=0)).label("last_7d"),
         )
         .outerjoin(APIKey, APIKey.id == InstallEvent.api_key_id)
+        .outerjoin(User, User.id == APIKey.user_id)
         .filter(
             InstallEvent.bundle_id == cookbook_id,  # compat-alias
-            func.coalesce(APIKey.is_test, False).is_(False),
+            *organic_install_predicate(),
         )
         .one()
     )
@@ -451,13 +462,16 @@ def _record_install_event(
     # spotify_0608 Ph B (§4.2 install-count integrity): the InstallEvent row is
     # ALWAYS written (audit/provenance), but the denormalized Skill.install_count
     # — which feeds public-ranking surfaces such as trending — is bumped ONLY
-    # for organic installs. A test/CI/internal key (is_test=true) records the
-    # event but does NOT inflate the public counter. Anonymous installs
-    # (no key) are organic and DO bump.
-    if api_key_id is not None:
-        is_test = db.query(APIKey.is_test).filter(APIKey.id == api_key_id).scalar()
-        if is_test:
-            return
+    # for organic installs. chef_0823 (t_4a38fed9): "organic" is now the ONE
+    # shared definition from app/install_integrity.py — in addition to
+    # is_test keys, self-registered agent probes (User.is_agent) and installs
+    # from internal IPs (the server's own CI runner, dogfood boxes) record
+    # the event but do NOT inflate the public counter. Anonymous external
+    # installs remain organic and DO bump.
+    from app.install_integrity import install_is_organic
+
+    if not install_is_organic(db, api_key_id=api_key_id, client_ip=client_ip):
+        return
 
     # Atomic SQL-level bump — concurrent installs cannot lose writes.
     # Same pattern as install_routes.loopskill_install (RCP-13).

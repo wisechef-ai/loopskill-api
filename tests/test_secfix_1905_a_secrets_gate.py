@@ -7,10 +7,12 @@ Tests:
   - OAUTH_REDIRECT_BASE missing in prod raises RuntimeError
   - All secrets set → boots cleanly
 """
+
 import pytest
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def make_prod_settings(**overrides):
     """Instantiate Settings with a non-sqlite DATABASE_URL + clean secrets.
@@ -30,12 +32,14 @@ def make_prod_settings(**overrides):
         HEARTBEAT_PEPPER="wr-fleet-pepper-PRODUCTION-OK",
         OAUTH_REDIRECT_BASE="https://recipes.wisechef.ai",
         COOKIES_SECURE=True,
+        SERVER_PUBLIC_IP="203.0.113.10",
     )
     defaults.update(overrides)
     return Settings(_env_file=None, **defaults)
 
 
 # ── PoV commit tests (must FAIL on main, PASS after fix) ──────────────────
+
 
 def test_pov_default_jwt_secret_raises_in_prod():
     """PROOF OF VULNERABILITY: Settings with default JWT_SECRET + postgres URL
@@ -56,6 +60,7 @@ def test_pov_default_jwt_secret_raises_in_prod():
             HEARTBEAT_PEPPER="wr-fleet-pepper-PRODUCTION-OK",
             OAUTH_REDIRECT_BASE="https://recipes.wisechef.ai",
             COOKIES_SECURE=True,
+            SERVER_PUBLIC_IP="203.0.113.10",
         )
 
 
@@ -112,6 +117,7 @@ def test_pov_default_heartbeat_pepper_raises_in_prod():
 
 # ── Issue #4 (OAUTH_REDIRECT_BASE required in prod) ──────────────────────
 
+
 def test_pov_missing_oauth_redirect_base_raises_in_prod():
     """PROOF OF VULNERABILITY: empty OAUTH_REDIRECT_BASE in prod must raise."""
     from app.config import Settings
@@ -126,6 +132,7 @@ def test_pov_missing_oauth_redirect_base_raises_in_prod():
             HEARTBEAT_PEPPER="wr-fleet-pepper-PRODUCTION-OK",
             OAUTH_REDIRECT_BASE="",
             COOKIES_SECURE=True,
+            SERVER_PUBLIC_IP="203.0.113.10",
         )
 
 
@@ -143,10 +150,12 @@ def test_pov_http_oauth_redirect_base_raises_in_prod():
             HEARTBEAT_PEPPER="wr-fleet-pepper-PRODUCTION-OK",
             OAUTH_REDIRECT_BASE="http://recipes.wisechef.ai",
             COOKIES_SECURE=True,
+            SERVER_PUBLIC_IP="203.0.113.10",
         )
 
 
 # ── Passing cases (green after fix, AND must also pass before fix) ────────
+
 
 def test_sqlite_env_tolerates_defaults():
     """SQLite (dev) env should NOT raise even with default change-me values."""
@@ -172,3 +181,34 @@ def test_prod_settings_with_all_secrets_set_boots_cleanly():
     assert s.DATABASE_URL.startswith("postgresql://")
     assert s.JWT_SECRET == "wr-jwt-secret-PRODUCTION-OK"
     assert s.OAUTH_REDIRECT_BASE == "https://recipes.wisechef.ai"
+
+
+# ── chef_0823 (t_4a38fed9): SERVER_PUBLIC_IP install-integrity gate ─────────
+
+
+def test_prod_missing_server_public_ip_raises():
+    """Fail-closed: a non-sqlite deployment that has not told the app its own
+    public IPv4 must refuse to boot — otherwise the deploy runner's anonymous
+    CI installs are counted as organic marketplace installs (the exact bug
+    t_4a38fed9 fixes)."""
+    with pytest.raises(RuntimeError, match="SERVER_PUBLIC_IP"):
+        make_prod_settings(SERVER_PUBLIC_IP="")
+
+
+def test_prod_with_server_public_ip_boots_cleanly():
+    """The gate is satisfied by WR_SERVER_PUBLIC_IP; boot proceeds."""
+    s = make_prod_settings(SERVER_PUBLIC_IP="77.42.92.141")
+    assert s.SERVER_PUBLIC_IP == "77.42.92.141"
+
+
+def test_sqlite_dev_without_server_public_ip_still_boots():
+    """Dev (sqlite) keeps zero-config boot — the gate is prod-only."""
+    from app.config import Settings
+
+    s = Settings(
+        _env_file=None,
+        DATABASE_URL="sqlite:///./test.db",
+        OAUTH_REDIRECT_BASE="",
+        COOKIES_SECURE=False,
+    )
+    assert s.SERVER_PUBLIC_IP == ""
