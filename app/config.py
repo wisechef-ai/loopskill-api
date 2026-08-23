@@ -2,8 +2,10 @@
 
 import os
 
-from pydantic import model_validator
-from pydantic_settings import BaseSettings
+from typing import Annotated
+
+from pydantic import field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode
 
 # Default (insecure) values that MUST be rotated in any non-sqlite environment.
 _DEFAULT_API_KEY = "rec_dev_wiserecipes_local_testing_key"
@@ -271,9 +273,35 @@ class Settings(BaseSettings):
     # organic marketplace installs.
     SERVER_PUBLIC_IP: str = ""
     # Additional known-internal (dogfood/office/VPN) source IPs to exclude
-    # from public install counts at read time. Comma-separated. Optional —
-    # self-hosters with no internal dogfood leave it empty.
-    KNOWN_INTERNAL_IPS: list[str] = []
+    # from public install counts at read time. Optional — self-hosters with
+    # no internal dogfood leave it empty.
+    KNOWN_INTERNAL_IPS: Annotated[list[str], NoDecode] = []
+
+    @field_validator("KNOWN_INTERNAL_IPS", mode="before")
+    @classmethod
+    def _parse_internal_ips(cls, value: object) -> object:
+        """Accept plain comma-separated strings from env (pydantic-settings
+        would otherwise JSON-decode list fields, so ``WR_KNOWN_INTERNAL_IPS=
+        195.128.172.227`` crashes the app at boot with SettingsError).
+
+        Accepted forms: "", "a,b ,c", JSON arrays ('["a","b"]'). Normalized
+        to a stripped, deduped list of non-empty strings.
+        """
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return []
+            if value.startswith("["):
+                import json
+
+                value = json.loads(value)
+            else:
+                value = value.split(",")
+        if isinstance(value, (list, tuple)):
+            items = [str(item).strip() for item in value]
+            items = [item for item in items if item]
+            return list(dict.fromkeys(items))  # dedupe, preserve order
+        return value
 
     model_config = {"env_file": ".env", "env_prefix": "WR_", "extra": "ignore"}
 

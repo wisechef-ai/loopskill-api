@@ -452,3 +452,47 @@ def test_migration_refuses_without_server_ip(monkeypatch):
 
     with pytest.raises(RuntimeError, match="WR_SERVER_PUBLIC_IP"):
         mod._internal_ips()
+
+
+# ── Regression: env-var string parsing for KNOWN_INTERNAL_IPS ───────────────
+# Prod incident 2026-08-23 06:03: WR_KNOWN_INTERNAL_IPS=195.128.172.227 in the
+# .env crashed the app at boot with SettingsError (pydantic-settings JSON-
+# decodes list fields; a bare IP is not JSON). The field_validator must accept
+# plain comma-separated strings, JSON arrays, and empty values.
+
+
+def _boot_settings(monkeypatch, internal_ips: str):
+    """Construct Settings() the way prod does — via env vars."""
+    from app.config import Settings
+
+    monkeypatch.setenv("WR_KNOWN_INTERNAL_IPS", internal_ips)
+    monkeypatch.setenv("WR_SERVER_PUBLIC_IP", "77.42.92.141")
+    monkeypatch.setenv("WR_DATABASE_URL", "sqlite://")
+    monkeypatch.setenv("WR_COOKIES_SECURE", "false")
+    return Settings()
+
+
+def test_known_internal_ips_env_string_parses(monkeypatch):
+    """WR_KNOWN_INTERNAL_IPS as a plain comma-separated string must boot."""
+    s = _boot_settings(monkeypatch, "195.128.172.227, 10.0.0.5 ,195.128.172.227")
+    assert s.KNOWN_INTERNAL_IPS == ["195.128.172.227", "10.0.0.5"]  # stripped + deduped
+
+
+def test_known_internal_ips_env_json_array_parses(monkeypatch):
+    """JSON-array form (pydantic-native) keeps working."""
+    s = _boot_settings(monkeypatch, '["195.128.172.227"]')
+    assert s.KNOWN_INTERNAL_IPS == ["195.128.172.227"]
+
+
+def test_known_internal_ips_env_empty_is_empty_list(monkeypatch):
+    """Empty value must yield [] (no crash, no phantom entries)."""
+    s = _boot_settings(monkeypatch, "")
+    assert s.KNOWN_INTERNAL_IPS == []
+
+
+def test_settings_boot_with_env_string(monkeypatch):
+    """Full Settings() construction from env vars — the exact prod scenario:
+    plain IP string in env must produce a bootable Settings, not SettingsError."""
+    s = _boot_settings(monkeypatch, "195.128.172.227")
+    assert s.KNOWN_INTERNAL_IPS == ["195.128.172.227"]
+    assert s.SERVER_PUBLIC_IP == "77.42.92.141"
