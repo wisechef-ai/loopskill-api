@@ -47,7 +47,7 @@ a visitor must be able to fetch the installer BEFORE they have a key.
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import PlainTextResponse
 
 router = APIRouter(tags=["bundles"])
@@ -145,8 +145,36 @@ def render_install_script(api_base: str) -> str:
     return _INSTALL_SCRIPT_TEMPLATE.format(api_base=api_base.rstrip("/"))
 
 
-def _serve_install_script() -> PlainTextResponse:
+def _serve_install_script(request: Request) -> PlainTextResponse:
     from app import config
+
+    # bhint-tel0824 (t_55a1a333): the install.sh pull IS the conversion event
+    # for the bundle fast-path hint — the hint's install_all line is the only
+    # surface that prints this URL verbatim. Server-side attribution only:
+    # a converted_pull telemetry row is written iff this exact client_ip was
+    # shown a hint for this slug within 7d (see bundle_hint_telemetry).
+    # Anonymous organic pulls by never-hinted visitors record NOTHING.
+    # Fail-quiet: a telemetry hiccup must never break serving the script.
+    # Rationale: observability-only; the script itself has no auth to fail.
+    try:
+        from app.database import SessionLocal
+        from app.services.bundle_hint_telemetry import maybe_record_hint_conversion
+
+        slug = request.query_params.get("slug") or request.headers.get("x-loopskill-bundle-hint-slug")
+        if slug:
+            from app.utils.client_ip import _real_client_ip
+
+            db = SessionLocal()
+            try:
+                maybe_record_hint_conversion(
+                    db,
+                    client_ip=_real_client_ip(request, config.settings.TRUSTED_PROXY_CIDRS),
+                    bundle_slug=slug,
+                )
+            finally:
+                db.close()
+    except Exception:  # noqa: BLE001
+        pass
 
     body = render_install_script(config.public_origin())
     return PlainTextResponse(
@@ -160,9 +188,9 @@ _h = APIRouter()
 
 
 @_h.get("/install.sh", include_in_schema=False)
-def bundle_install_script() -> PlainTextResponse:
+def bundle_install_script(request: Request) -> PlainTextResponse:
     """Serve the auth-free bundle installer script. No auth (see module docstring)."""
-    return _serve_install_script()
+    return _serve_install_script(request)
 
 
 # Dual-mount: /api/bundles is primary, /api/cookbooks is the backward-compat

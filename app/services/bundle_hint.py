@@ -170,5 +170,11 @@ def compute_bundle_hint(
     return {
         "slug": slug,
         "matched": f"{len(recent_skill_ids)} of {total}",
-        "install_all": f"curl -fsSL {api_base}/api/bundles/install.sh | bash -s -- {slug}",
+        # bhint-tel0824 (t_55a1a333): the fetch URL carries ?slug=<slug> as an
+        # attribution beacon — the handler ignores unknown query params (the
+        # script still receives the slug via bash argv), but the serve path
+        # uses it to write a converted_pull telemetry row when the pulling
+        # client_ip was hinted this slug within 7d. Without the beacon every
+        # hinted pull is slug-less and conversion is unmeasurable.
+        "install_all": f"curl -fsSL {api_base}/api/bundles/install.sh?slug={slug} | bash -s -- {slug}",
     }

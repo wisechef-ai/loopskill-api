@@ -477,16 +477,13 @@ def install_skill(
     # from this IP in 24h, so the common case pays nothing: compute_bundle_hint
     # returns None on the client_ip-missing branch before any query runs.
     # Fail-quiet by design — a hinting regression must never 500 an install.
-    bundle_hint = None
-    if validated_bundle_id is None:
-        # Rationale: observability/onboarding hint only; an internal failure
-        # (DB hiccup mid-hint) must not fail an install that already committed.
-        try:
-            from app.services.bundle_hint import compute_bundle_hint
+    # bhint-tel0824 (t_55a1a333): every fire is counted (bundle_hint.shown)
+    # and every failure counted + logged (bundle_hint.error) — see
+    # app/services/bundle_hint_telemetry.py (extracted here to stay under the
+    # W0.2 600-line god-object gate).
+    from app.services.bundle_hint_telemetry import observe_hint_after_install
 
-            bundle_hint = compute_bundle_hint(db, client_ip=getattr(_event, "client_ip", None))
-        except Exception:  # noqa: BLE001
-            bundle_hint = None
+    bundle_hint = observe_hint_after_install(db, validated_bundle_id=validated_bundle_id, event=_event)
     if bundle_hint is not None:
         resp_headers["X-LoopSkill-Bundle-Hint"] = bundle_hint["slug"]
 
