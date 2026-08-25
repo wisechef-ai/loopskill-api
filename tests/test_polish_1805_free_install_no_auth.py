@@ -121,6 +121,24 @@ def test_private_skill_install_no_auth_does_not_leak(middleware_client, db_sessi
     assert resp.status_code in (401, 404)
 
 
+def test_null_tier_skill_install_no_auth_returns_non_401(middleware_client, db_session):
+    """docsdrift_0821 (install probe #271) — a skill with tier=NULL must be
+    installable anonymously, matching ``authz.tier_rank_allows_install``'s
+    NULL-floors-to-free policy (already the rule for skill_files_routes'
+    ``skill_is_free_to_read``, fdeloop_0808 Phase A). Live repro: agentic-os
+    (tier unset) 401'd on anonymous install despite appearing free-tier in
+    the public catalog. Two tier policies must not disagree about NULL.
+    """
+    _seed_skill(db_session, slug="null-tier-install-probe", tier=None, is_public=True)
+
+    resp = middleware_client.get("/api/skills/install?slug=null-tier-install-probe")
+
+    assert resp.status_code != 401, (
+        f"NULL-tier (unset) skills MUST be installable without auth, matching the "
+        f"free-floor policy — got {resp.status_code}: {resp.text[:200]}"
+    )
+
+
 def test_search_endpoint_remains_public(middleware_client, db_session):
     """Regression: polish_1805 must not affect the existing public /search endpoint."""
     resp = middleware_client.get("/api/skills/search?page_size=5")
