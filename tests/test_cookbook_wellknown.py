@@ -162,6 +162,11 @@ class TestWellKnownSkillMd:
         assert "name: paid-skill" in r.text
         assert "locked: true" in r.text
         assert "loopskill_bundle_install" in r.text
+        # docsdrift_0821 item 14: this unauthenticated public-facing stub must
+        # not teach the retired "Recipes" brand.
+        assert "Recipes" not in r.text
+        assert "  loopskill:" in r.text
+        assert "LoopSkill" in r.text
 
     def test_skill_not_in_cookbook_404(self, db_session):
         _seed_public_cookbook(db_session)

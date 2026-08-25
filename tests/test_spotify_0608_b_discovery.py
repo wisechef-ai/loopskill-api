@@ -229,6 +229,21 @@ def test_discover_pagination(db):
     assert len(resp.json()["cookbooks"]) == 2
 
 
+def test_discover_dual_emits_bundles_key(db):
+    """docsdrift_0821 item 15 — /discover must carry the canonical `bundles`
+    key alongside the legacy `cookbooks` key (same cards, same order) so
+    integrators can migrate off the retired vocabulary without a breaking
+    change (qa0208-w3 dual-accept doctrine)."""
+    u = _mk_user(db)
+    _mk_cookbook(db, u, "dual-emit-cb", name="Dual Emit")
+    client = TestClient(_public_app(db))
+    resp = client.get("/api/cookbooks/discover?sort=newest")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "bundles" in body
+    assert body["bundles"] == body["cookbooks"]
+
+
 # ── public cookbook page ──────────────────────────────────────────────────
 
 
