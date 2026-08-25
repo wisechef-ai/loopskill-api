@@ -418,37 +418,29 @@ inert). No schema, no migration.
     utm_ctx cookie producer's full login->callback round-trip. No schema
     change. Verified against prod /api/healthz 0.9.37 before bumping.
 
-0.9.44 - fix(issue-289): federation-registry-propose workflow now dedups
-    against config/federation_sources.yaml BEFORE opening any GitHub issue.
-    Issue #288 was a live instance of the defect this closes: the
-    auto-proposal bot re-filed `[federation-registry] anthropics/skills`
-    when github-anthropic (repo: anthropics/skills) has been a registered
-    github_taps entry since decision #13 (2026-08-11) — each duplicate cost
-    a full triage cycle (read config, cross-reference, comment, close).
-
-    app/services/federation_sources_config.py:find_registered_github_repo
-    does a case-insensitive lookup of the proposed repo_slug against every
-    live github_taps row (reuses the existing github_tap_rows() SSOT reader,
-    zero new state). Wired into loopskill_propose_registry (the ONE function
-    both POST /api/federation/propose and the loopskill_propose_registry MCP
-    tool call — app/mcp/tools/federation_propose.py) BEFORE the rate-limiter
-    write and the DB insert, so an already-registered proposal costs the
-    caller nothing (no rate-limit spend, no DB row, no GitHub issue) and is
-    reported back honestly: `{"status": "already_registered",
-    "existing_source_id": "github-anthropic", "review_channel_open": false}`.
-
-    3 new tests (already-registered short-circuit, case-insensitive match,
-    regression guard that a genuinely new repo still dispatches normally) —
-    RED-proofed: both new-behavior tests fail on pre-fix code
-    (`assert 'pending_review' == 'already_registered'`), pass after the fix.
-    Breaker pass: empty/None input, 100k-char input, whitespace+case
-    boundary match, near-miss no-false-positive (skills2/skill/xanthropics),
-    and injection-shaped strings (path traversal, shell metacharacters) —
-    all handled without raising or false-matching. No schema, no migration,
-    no .github/workflows change (the dedup check lives in the shared Python
-    choke point both proposal surfaces already funnel through — a smaller,
-    more central fix than the issue's own suggested workflow-file edit).
-    Verified against prod /api/healthz 0.9.43 before bumping.
+0.9.45 - fix(issue-282): trigram/GIN expression index on federation_hub_skills.
+    app/services/unified_search.py::search_federated_group searches
+    title/slug/description with a bounded ILIKE, correct today (LIMIT<=20)
+    but a sequential scan over ~90k prod federated-catalog rows on a
+    per-keystroke anonymous endpoint (/api/search) is the wrong long-term
+    shape. New alembic migration issue282_fed_trgm installs pg_trgm and
+    adds 3 GIN indexes (title/slug/description); Postgres-only, SQLite
+    leg is a documented no-op (no trigram support, fine at fixture
+    scale) — matches the existing pgvector migration's cross-dialect
+    posture. RED-proofed by hand against a real 90k-row Postgres:
+    pre-fix Seq Scan at ~1010ms, post-fix Bitmap Index Scan at ~0.8ms
+    (~1200x). No application code changed — search_federated_group's
+    ILIKE queries are byte-for-byte identical; only the execution plan
+    changes (pinned by test_query_results_identical_regardless_of_plan,
+    which forces a seq-scan plan via enable_indexscan=off and asserts
+    identical rows). tests/migrations/test_issue282_fed_hub_trgm.py:
+    SQLite no-op + full-chain + single-head checks always run; the 3
+    Postgres-only tests (index-scan proof, result-identity, downgrade/
+    re-upgrade reversibility) self-skip without a reachable
+    TEST_DATABASE_URL, exercised on the CI matrix's postgres leg. No
+    behavioural change to search_federated_group; no schema change
+    beyond the 3 additive indexes. Verified against prod /api/healthz
+    0.9.43 before bumping.
 """
 
-__version__ = "0.9.44"
+__version__ = "0.9.45"
