@@ -46,7 +46,7 @@ class TestTapList:
         # maturity_0821 — +13 curated taps (see federation_sources.yaml block
         # comment + vault research/2026-08-21-federation-source-expansion.md).
         # Growth is a deliberate two-place edit: yaml + this pin.
-        assert len(GITHUB_TAPS) == 20
+        assert len(GITHUB_TAPS) == 21
         assert set(GITHUB_FACET_SOURCES) == {
             "github-anthropic", "github-openai", "github-huggingface",
             "github-nvidia", "github-gstack", "github-superpowers",
@@ -59,6 +59,7 @@ class TestTapList:
             "github-atc-agentic-toolkit", "github-thedotmack-claude-mem",
             "github-skill-seekers", "github-hoangnguyen-skills-standard",
             "github-litestar-skills",
+            "github-awesome-agent-skills",
         }
 
     def test_per_skill_license_repos_have_no_repo_license(self):

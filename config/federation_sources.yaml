@@ -174,3 +174,15 @@ github_taps:
     repo_license: "MIT"
     trust: curated-community
     in_metasearch: false
+
+  # Harness-agnostic agent-infrastructure skills (self-hosted inference, GPU
+  # serving, deploy). Every performance claim in these skills is measured on
+  # named hardware with a recorded date, and every shipped script is cold-run
+  # tested against a live system before publish — so they carry first-class
+  # metasearch ranking.
+  - source_id: github-awesome-agent-skills
+    repo: wisechef-ai/awesome-agent-skills
+    path: "skills/"
+    repo_license: "MIT"
+    trust: trusted-source
+    in_metasearch: true

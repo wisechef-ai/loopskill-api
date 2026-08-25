@@ -416,9 +416,10 @@ def test_all_14_preexisting_sources_survive_config_move():
         "github-skill-seekers",
         "github-hoangnguyen-skills-standard",
         "github-litestar-skills",
+        "github-awesome-agent-skills",
     }
     assert set(LIVE_SOURCES) == expected, f"drift: {set(LIVE_SOURCES) ^ expected}"
-    assert len(LIVE_SOURCES) == 27
+    assert len(LIVE_SOURCES) == 28
 
 
 # ── Test 8: the REST endpoint mirrors the MCP tool contract ──────────────────
