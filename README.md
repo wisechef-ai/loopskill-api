@@ -61,7 +61,7 @@ loopskill diff /tmp/loopskill-demo/machine-a.lock.json - --home /tmp/loopskill-d
 ```
 
 ```
-loopskill 0.2.0
+loopskill 0.3.0
 loopskill import: wrote /tmp/loopskill-demo/machine-a.lock.json (2 skill(s) across 1 client(s))
 loopskill diff: /tmp/loopskill-demo/machine-a.lock.json  vs  <live scan>
 
