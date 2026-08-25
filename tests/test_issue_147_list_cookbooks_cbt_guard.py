@@ -90,4 +90,4 @@ def test_non_cbt_master_ctx_still_short_circuits() -> None:
 
     result = list_cookbooks(db=_ExplodingSession(), ctx=ctx)
 
-    assert result == {"cookbooks": []}
+    assert result == {"cookbooks": [], "bundles": []}
