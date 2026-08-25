@@ -127,6 +127,53 @@ def _cmd_apply(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_sync(args: argparse.Namespace) -> int:
+    """`sync` = pull the bundle's CURRENT skills, then converge dest to it.
+
+    Mirrors the server-side MCP tool `loopskill_sync` (app/mcp/tools/
+    loopskill_sync.py) as closely as a stateless, unauthenticated CLI can:
+    both compute what is out of date relative to a source of truth and
+    report a changeset before writing (`--dry-run` here / `dry_run=True`
+    there), and both default to APPLYING the update — dry-run is opt-in via
+    `--dry-run`, not opt-out via `--write`, matching the MCP tool's
+    `dry_run: bool = False` default (Adam directive 2026-05-07, cited in
+    that module's docstring: "default dry_run=False is NON-NEGOTIABLE").
+    This is the one meaningful behavioural difference from `apply` (which
+    stays opt-in-to-write via `--write`, unchanged) — `sync` exists
+    specifically to be the "make it match" one-shot command.
+
+    Server-side semantics this CLI form does NOT (and cannot) replicate:
+    the MCP tool diffs against a per-skill `pinned_version` column recorded
+    at install time. This CLI has no local install-time state to diff
+    against — every invocation re-pulls the bundle's current published
+    content and diffs it by sha256 against whatever is on disk right now
+    (the exact mechanism `apply`'s `plan_apply` already uses). That is a
+    strictly offline-friendlier and equally-correct notion of "outdated":
+    "does the file on disk match the bundle's current content" rather than
+    "does a server-side pin column match the bundle's current content" —
+    same observable outcome (dest converges to the bundle), no hidden
+    server-side state the CLI would need an account to read.
+    """
+    from loopskill.apply import execute_apply, format_plan, plan_apply
+    from loopskill.pull import DEFAULT_API_BASE, pull_bundle
+
+    api_base = args.api_base or DEFAULT_API_BASE
+    try:
+        skills = pull_bundle(args.slug, api_base=api_base)
+    except RuntimeError as exc:
+        print(f"loopskill sync: {exc}", file=sys.stderr)
+        return 1
+
+    dest = Path(args.dest).expanduser() if args.dest else Path.home() / ".claude" / "skills"
+    actions = plan_apply(skills, dest)
+    dry_run = args.dry_run
+    print(format_plan(actions, dry_run=dry_run))
+
+    if not dry_run:
+        execute_apply(skills, dest, actions)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the top-level argparse parser."""
     parser = argparse.ArgumentParser(
@@ -174,6 +221,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_apply.add_argument("--dest", help="target skills directory (default: ~/.claude/skills)")
     p_apply.add_argument("--write", action="store_true", help="actually write files (default: dry-run)")
     p_apply.set_defaults(func=_cmd_apply)
+
+    p_sync = sub.add_parser(
+        "sync",
+        help=(
+            "pull a bundle's current skills and converge dest to match "
+            "(network; writes by default — mirrors the loopskill_sync MCP tool)"
+        ),
+    )
+    p_sync.add_argument("slug", help="bundle slug, e.g. loopskill-essentials")
+    p_sync.add_argument("--api-base", help="registry API origin (default: app.loopskill.io)")
+    p_sync.add_argument("--dest", help="target skills directory (default: ~/.claude/skills)")
+    p_sync.add_argument(
+        "--dry-run", action="store_true", help="preview the changeset only; default is to write"
+    )
+    p_sync.set_defaults(func=_cmd_sync)
 
     return parser
 

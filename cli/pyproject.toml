@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "loopskill"
-version = "0.2.0"
+version = "0.3.0"
 description = "Skill-portability CLI: import/diff/pull/apply across AI-agent skill directories. import/diff are offline by construction — no account, no network."
 readme = "README.md"
 requires-python = ">=3.9"
