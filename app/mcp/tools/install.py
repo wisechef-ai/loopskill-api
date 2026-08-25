@@ -16,6 +16,7 @@ Stream 4 additions:
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
@@ -28,6 +29,111 @@ from app.config import settings
 from app import config
 from app.models import InstallEvent, Skill, SkillDerivedEdge
 from app.routes import _build_manifest
+
+
+def _split_federated_ref(raw: str, known_sources: frozenset[str]) -> tuple[str, str] | None:
+    """Parse a federated install ref into ``(source, slug)`` — or None.
+
+    Issue #277 Fix A. TWO accepted forms, colon-form parsed first (it is the
+    canonical ``install_ref`` metasearch emits, e.g. ``hermes-hub:drift``):
+
+      ``source:rest``   — split on the FIRST ':'; ``rest`` may itself contain
+                          ':' (ext: catalog slugs) — everything after the
+                          first colon is the slug.
+      ``source--rest``  — legacy prefix form used by github-tap slugs (the
+                          issue's own acceptance criterion names it); split on
+                          the FIRST '--'.
+
+    The left token must be an EXACT member of ``known_sources`` — never a
+    prefix/alternation regex, so ``github`` can never swallow
+    ``github-enterprise--x``. The right token is charset-validated inside
+    ``resolve_external_install_full`` (traversal guard). Callers MUST only
+    reach here AFTER an internal-Skill exact-match lookup has missed, so an
+    internal slug that happens to contain '--' can never be hijacked.
+    """
+    candidate = raw.strip()
+    for sep in (":", "--"):
+        if sep not in candidate:
+            continue
+        left, _, rest = candidate.partition(sep)
+        if left and rest and left in known_sources:
+            return left, rest
+        # A separator that didn't yield a known source is not necessarily a
+        # federated ref at all (internal slugs contain '--') — keep trying the
+        # next form, and finally return None so the caller says not_found.
+    return None
+
+
+def _record_external_install_with_provenance(
+    db: Any,
+    source: str,
+    slug: str,
+    api_key_id: Any | None,
+    *,
+    attributed: bool,
+    ext: Any | None = None,
+    scan_verdict: Any | None = None,
+) -> str | None:
+    """Best-effort provenance for an external install via the MCP transport.
+
+    Mirrors the REST route (skill_routes.install_external_skill): materialize
+    the private pointer Skill row to satisfy the non-null InstallEvent FK,
+    then record + mint provenance through the SAME canonical entry point so
+    MCP-transport installs are indistinguishable in analytics. The event's
+    ``skill_slug`` is the pointer slug (``ext:source:slug``) — deliberately
+    distinct from any internal slug so downstream stats never confuse the two.
+
+    codex review (#277, findings 2+3):
+      * ``ext`` — when the caller already holds the RESOLVED descriptor it
+        MUST be passed through; materializing from scratch would re-walk the
+        upstream and defeat the allow_live_resolve=False quota guarantee.
+      * caller identity — the recorder is consulted for the organic/self-test
+        counter decision using whatever api_key_id it can see; a post-hoc
+        stamp would let test/agent keys inflate the public counter. We
+        pre-stamp via a lightweight request shim so the recorder's
+        install_is_organic() decision sees the REAL caller identity.
+
+    Never raises: observability must not block an install payload.
+    """
+    try:
+        from app.services.bundle_external import materialize_external_skill
+        from app.services.provenance import (
+            ATTR_ATTRIBUTED,
+            ATTR_UNATTRIBUTED,
+            record_install_with_provenance,
+        )
+
+        mat = materialize_external_skill(db, source, slug, ext=ext, scan_verdict=scan_verdict)
+        if mat is None:
+            return None
+        # Identity shim: the recorder reads request.state.api_key_id; give it
+        # the MCP caller's real key BEFORE it decides counter eligibility.
+        _req = SimpleNamespace(state=SimpleNamespace(api_key_id=api_key_id))
+        _ev, prov_id = record_install_with_provenance(
+            db,
+            skill=mat,
+            version_semver="external",
+            request=_req,
+            source="external",
+            cookbook_id=None,
+            attribution=ATTR_ATTRIBUTED if attributed else ATTR_UNATTRIBUTED,
+        )
+        db.commit()
+        return prov_id
+    # Rationale: provenance is best-effort observability on the MCP external
+    # path — a materialize/record hiccup must never block the install payload.
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "MCP external install provenance failed for %s/%s", source, slug, exc_info=True
+        )
+        try:
+            db.rollback()
+        # Rationale: rollback failure must also never block the payload.
+        except Exception:  # noqa: BLE001
+            pass
+        return None
 
 
 def _split_slug_version(raw: str) -> tuple[str, str | None]:
@@ -80,6 +186,75 @@ def loopskill_install(
         ctx = AuthContext(scope="master")
 
     skill = db.query(Skill).filter(Skill.slug == base_slug).first()
+
+    # ── Issue #277 Fix A: federated branch — AFTER the internal miss ──────
+    # Internal rows always win (an internal slug containing '--' can never be
+    # hijacked into the federation parser). Only on a miss do we try to read
+    # the ref as federated.
+    if skill is None:
+        from app.services.external_install_resolver import (
+            ExternalSourceUnavailable,
+            known_external_sources,
+            resolve_external_install_full,
+        )
+
+        fed = _split_federated_ref(base_slug, known_external_sources())
+        if fed is not None:
+            fed_source, fed_slug = fed
+            # Quota asymmetry (design council, #277): MCP callers bypass the
+            # anonymous per-IP limiter, and github-* adapters resolve by LIVE
+            # api.github.com walks (60/hr shared box-wide). A storm of bogus
+            # MCP refs must not drain that budget — so on a cache miss we do
+            # NOT live-walk github sources; we answer from the cache only.
+            # The REST route (behind the per-IP limiter) keeps live fallback.
+            allow_live = not fed_source.startswith("github-")
+            try:
+                res = resolve_external_install_full(db, fed_source, fed_slug, allow_live_resolve=allow_live)
+            except ExternalSourceUnavailable:
+                # MCP has no 503; a transient outage degrades to the same
+                # honest not_found used everywhere else (no oracle, no timing).
+                return {"error": "not_found", "slug": base_slug}
+
+            if res.kind == "not_found":
+                return {"error": "not_found", "slug": base_slug}
+
+            payload = dict(res.payload or {})
+            if res.kind == "fetch_origin":
+                prov_id = _record_external_install_with_provenance(
+                    db,
+                    fed_source,
+                    fed_slug,
+                    api_key_id,
+                    attributed=True,
+                    ext=res.skill,
+                    scan_verdict=res.scan_verdict,
+                )
+                payload["provenance_id"] = prov_id
+                payload["hint"] = (
+                    "Federated fetch-origin install: write `content` to your "
+                    "agent's skills directory (install_command shows the human "
+                    "copy-paste form)."
+                )
+            elif res.kind == "register_mcp":
+                prov_id = _record_external_install_with_provenance(
+                    db,
+                    fed_source,
+                    fed_slug,
+                    api_key_id,
+                    attributed=True,
+                    ext=res.skill,
+                    scan_verdict=res.scan_verdict,
+                )
+                payload["provenance_id"] = prov_id
+            elif res.kind == "deep_link":
+                prov_id = _record_external_install_with_provenance(
+                    db, fed_source, fed_slug, api_key_id, attributed=False, ext=res.skill
+                )
+                if prov_id is not None:
+                    payload["provenance_id"] = prov_id
+            # wiring_missing: returned as-is — the payload IS the explanation.
+            return payload
+
     if not skill:
         return {"error": "not_found", "slug": base_slug}
 

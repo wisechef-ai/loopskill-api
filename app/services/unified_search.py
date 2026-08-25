@@ -183,3 +183,126 @@ def search_connectors_group(db: Session, q: str, limit: int) -> list[dict]:
         }
         for c in rows
     ]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Issue #277 Fix B — the federated group + the pointer-visibility contract.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def search_federated_group(db: Session, q: str, limit: int) -> tuple[list[dict], str]:
+    """Federated skills matching ``q`` — CACHE-ONLY, never a live fan-out.
+
+    Why cache-only (decision, design council 2026-08-25): ``/api/search`` fires
+    per keystroke from the portal browse surface and is anonymous; the prod box
+    shares ONE 60/hr GitHub budget across all users. A live fan-out here is the
+    known incident class (superset_0606 Phase F). The reindex cron owns cache
+    freshness; this read path never writes it.
+
+    Search surface, in order:
+      1. ``federation_hub_skills`` — the hub snapshot table (slug/title/
+         description ILIKE, bounded). Primary because it is the only
+         row-per-skill indexed store with titles.
+      2. ``federation_index_cache.first_page`` rows for sources with no hub
+         presence — JSON scan in Python, capped per source.
+
+    Visibility contract (issue #277 break #2, RESOLVED BY DOCUMENTATION):
+    materialized pointer ``Skill`` rows (``ext:source:slug``) are PRIVATE BY
+    DESIGN — they are per-cookbook install artifacts, not catalog entries.
+    They must NEVER appear in the ``skills`` group (its is_public filter is
+    correct), and this function is the ONLY sanctioned federated search
+    surface. Do not "fix" visibility by flipping is_public on pointers.
+
+    Returns ``(rows, cache_status)`` where cache_status is ``"warm"`` when any
+    federated source had data to search, ``"cold"`` when both stores were
+    empty (so the portal can distinguish "no matches" from "index
+    unavailable" instead of rendering a silently empty section).
+    """
+    like = f"%{q}%"
+    rows: list[dict] = []
+    saw_data = False
+
+    # 1. hub snapshot table
+    from app.models import FederationHubSkill
+
+    hub_rows = (
+        db.query(FederationHubSkill)
+        .filter(
+            FederationHubSkill.title.ilike(like)
+            | FederationHubSkill.slug.ilike(like)
+            | FederationHubSkill.description.ilike(like)
+        )
+        .order_by(FederationHubSkill.title.asc())
+        .limit(limit)
+        .all()
+    )
+    if db.query(FederationHubSkill.id).limit(1).first() is not None:
+        saw_data = True
+    for r in hub_rows:
+        origin = r.origin_url or ""
+        if origin and not origin.lower().startswith(("http://", "https://")):
+            origin = ""  # upstream-controlled scheme — never hand back a link
+        rows.append(
+            {
+                "slug": r.slug,
+                "title": (r.title or "").strip() or r.slug,
+                "description": _truncate(r.description),
+                "source": r.source or "hermes-hub",
+                "install_ref": f"{r.source or 'hermes-hub'}:{r.slug}",
+                "origin_url": origin,
+                "deployable": False,
+            }
+        )
+
+    # 2. first_page cache rows (bounded JSON scan). codex review (#277,
+    # findings 5+6):
+    #   * bulk-load ALL cached first pages in ONE query — a db.get() per
+    #     source was 29 SQL statements for one zero-result search on a
+    #     per-keystroke endpoint.
+    #   * hermes-hub is excluded from the cache scan ONLY when the hub table
+    #     has usable rows. A populated first_page with an empty hub table is a
+    #     real, searchable state (hub snapshot lag) and must read warm.
+    if len(rows) < limit:
+        from app.models import FederationIndexCache
+        from app.services.federation_sources_config import adapter_source_ids, github_tap_rows
+
+        sources = set(adapter_source_ids()) | {str(r["source_id"]) for r in github_tap_rows()}
+        if not saw_data:
+            sources.add("hermes-hub")
+        cache_rows = {
+            c.source: c.first_page
+            for c in db.query(FederationIndexCache).filter(FederationIndexCache.source.in_(sources)).all()
+            if isinstance(c.first_page, list)
+        }
+        ql = q.lower()
+        for source in sorted(sources):
+            if len(rows) >= limit:
+                break
+            page = cache_rows.get(source) or []
+            if page:
+                saw_data = True
+            for row in page:
+                if not isinstance(row, dict):
+                    continue
+                title = str(row.get("title") or row.get("slug") or "")
+                desc = str(row.get("description") or "")
+                slug = str(row.get("slug") or "")
+                if ql in title.lower() or ql in desc.lower() or ql in slug.lower():
+                    origin = str(row.get("origin_url") or "")
+                    if origin and not origin.lower().startswith(("http://", "https://")):
+                        origin = ""
+                    rows.append(
+                        {
+                            "slug": slug,
+                            "title": title or slug,
+                            "description": _truncate(desc or None),
+                            "source": source,
+                            "install_ref": f"{source}:{slug}",
+                            "origin_url": origin,
+                            "deployable": bool(row.get("install_path") == "fetch_origin"),
+                        }
+                    )
+                    if len(rows) >= limit:
+                        break
+
+    return rows[:limit], ("warm" if saw_data else "cold")

@@ -36,6 +36,7 @@ from app.database import get_db
 from app.services.unified_search import (
     search_bundles_group,
     search_connectors_group,
+    search_federated_group,
     search_loops_group,
     search_personalities_group,
     search_skills_group,
@@ -87,6 +88,7 @@ def unified_search(
     connectors) plus one small grouped aggregate for bundle skill_count — see
     app/services/unified_search.py for the per-type query + ordering detail.
     """
+    federated_rows, federated_status = search_federated_group(db, q, limit)
     return {
         "query": q,
         "skills": search_skills_group(db, q, limit),
@@ -94,4 +96,11 @@ def unified_search(
         "bundles": search_bundles_group(db, q, limit),
         "personalities": search_personalities_group(db, q, limit),
         "connectors": search_connectors_group(db, q, limit),
+        # Issue #277 Fix B: sixth group, cache-only (never a live federation
+        # fan-out from this per-keystroke endpoint — see the service docstring).
+        # federated_cache_status distinguishes "no matches" (warm, []) from
+        # "index unavailable" (cold) so the portal never renders a silently
+        # empty section.
+        "federated": federated_rows,
+        "federated_cache_status": federated_status,
     }
