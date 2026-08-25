@@ -13,6 +13,12 @@ on:
       - "alembic/**"
       - "scripts/**"
       - "tools/**"
+      # config/ holds runtime SSOT data the app reads at import time —
+      # federation_sources.yaml (the self-serve GitHub-tap registry) is the
+      # canonical case. A config-only change is a REAL production change with
+      # no Python diff, so omitting this path made such merges land green on
+      # main and silently never deploy.
+      - "config/**"
       - "requirements.txt"
       - "pyproject.toml"
       - ".github/workflows/deploy.yml"
