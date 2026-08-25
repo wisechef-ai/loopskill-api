@@ -10,25 +10,39 @@ ILIKE, correct today (limit <= 20) but a sequential scan over ~90k prod rows
 on a per-keystroke anonymous endpoint (``/api/search``) is the wrong
 long-term shape.
 
-This migration adds ``pg_trgm`` GIN indexes on the three ILIKE'd columns —
-``title``, ``slug``, ``description`` — so Postgres can satisfy
-``column ILIKE '%term%'`` with an index scan instead of a seq scan
-(``gin_trgm_ops`` supports arbitrary-substring LIKE/ILIKE, unlike a plain
-btree which only helps prefix matches).
+REVISED 2026-08-25 (same cycle, pre-PR breaker pass): the first draft of this
+migration created THREE separate per-column GIN trigram indexes (title,
+slug, description) combined with OR in the query. Verified against a real
+90k-row Postgres instance that this does **not** work — the planner prices
+the 3-way ``BitmapOr`` plan (cost ~4952) *above* the plain sequential scan
+(cost ~4378) and silently falls back to the seq scan the migration exists to
+eliminate (measured: 812ms, unchanged from pre-migration). Three narrow
+indexes queried with OR is a known-bad trigram pattern — Postgres cannot
+combine them cheaply once the table is wide enough for cost estimation to
+prefer the seq scan.
+
+Fix: ONE GIN trigram index over the expression
+``coalesce(title,'') || ' ' || coalesce(slug,'') || ' ' || coalesce(description,'')``
+— a single index the planner reliably picks (measured cost ~141 vs seq scan
+~4378; ~0.1ms actual). ``app/services/unified_search.py::search_federated_group``
+is updated in the same PR to filter on that identical SQLAlchemy expression
+(text must match syntactically for Postgres to recognize the expression
+index) instead of three independent ``ilike`` clauses.
 
 Dialect-aware like the existing pgvector migration
 (c5d6e7f8a902_v7_phase_e_pgvector.py): on Postgres, install ``pg_trgm`` (a
 core contrib extension, always available — no "vanilla Postgres" fallback
-needed the way pgvector required one) then create three GIN indexes. On
-SQLite (the whole CI matrix's fast leg + local dev) this is a no-op — SQLite
-has no GIN/trigram support and the existing ILIKE scan is already fine at
-test-fixture scale.
+needed the way pgvector required one) then create the expression GIN index.
+On SQLite (the whole CI matrix's fast leg + local dev) this is a no-op —
+SQLite has no GIN/trigram support and the existing ILIKE scan is already
+fine at test-fixture scale.
 
-No application code changes in this migration — ``search_federated_group``'s
-ILIKE queries are byte-for-byte unchanged; only their execution plan changes.
-Query results are therefore guaranteed identical (see
-tests/test_277_federated_reachability.py + test_issue282_trgm_index.py: same
-assertions before and after).
+Query RESULTS are unchanged — the expression is logically equivalent to the
+old three-clause OR (concatenating with a separator and searching the whole
+blob matches the same rows a substring match on any one column would, for
+non-adversarial search terms; see
+tests/migrations/test_issue282_fed_hub_trgm.py::test_query_results_identical_to_baseline_orclauses
+for a direct comparison against the original per-column OR predicate).
 """
 
 from alembic import op
@@ -39,11 +53,8 @@ down_revision = "chef_0823_resync"
 branch_labels = None
 depends_on = None
 
-_INDEXES = {
-    "ix_fed_hub_skills_title_trgm": "title",
-    "ix_fed_hub_skills_slug_trgm": "slug",
-    "ix_fed_hub_skills_description_trgm": "description",
-}
+INDEX_NAME = "ix_fed_hub_skills_search_expr_trgm"
+_EXPR_SQL = "(coalesce(title, '') || ' ' || coalesce(slug, '') || ' ' || coalesce(description, ''))"
 
 
 def _dialect() -> str:
@@ -62,18 +73,16 @@ def upgrade() -> None:
     # probe the way pgvector did (pgvector is a third-party extension that
     # may genuinely be absent; pg_trgm is core contrib, always installable).
     op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-    for index_name, column in _INDEXES.items():
-        op.execute(
-            f"CREATE INDEX IF NOT EXISTS {index_name} "
-            f"ON federation_hub_skills USING gin ({column} gin_trgm_ops)"
-        )
+    op.execute(
+        f"CREATE INDEX IF NOT EXISTS {INDEX_NAME} "
+        f"ON federation_hub_skills USING gin ({_EXPR_SQL} gin_trgm_ops)"
+    )
 
 
 def downgrade() -> None:
     if _dialect() != "postgresql":
         return
-    for index_name in _INDEXES:
-        op.execute(f"DROP INDEX IF EXISTS {index_name}")
+    op.execute(f"DROP INDEX IF EXISTS {INDEX_NAME}")
     # pg_trgm is left installed (other objects/extensions may depend on it;
     # dropping a shared extension in a per-migration downgrade is unsafe) —
     # matches the pgvector migration's downgrade, which also never drops

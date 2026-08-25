@@ -423,24 +423,44 @@ inert). No schema, no migration.
     title/slug/description with a bounded ILIKE, correct today (LIMIT<=20)
     but a sequential scan over ~90k prod federated-catalog rows on a
     per-keystroke anonymous endpoint (/api/search) is the wrong long-term
-    shape. New alembic migration issue282_fed_trgm installs pg_trgm and
-    adds 3 GIN indexes (title/slug/description); Postgres-only, SQLite
-    leg is a documented no-op (no trigram support, fine at fixture
-    scale) — matches the existing pgvector migration's cross-dialect
-    posture. RED-proofed by hand against a real 90k-row Postgres:
-    pre-fix Seq Scan at ~1010ms, post-fix Bitmap Index Scan at ~0.8ms
-    (~1200x). No application code changed — search_federated_group's
-    ILIKE queries are byte-for-byte identical; only the execution plan
-    changes (pinned by test_query_results_identical_regardless_of_plan,
-    which forces a seq-scan plan via enable_indexscan=off and asserts
-    identical rows). tests/migrations/test_issue282_fed_hub_trgm.py:
-    SQLite no-op + full-chain + single-head checks always run; the 3
-    Postgres-only tests (index-scan proof, result-identity, downgrade/
-    re-upgrade reversibility) self-skip without a reachable
-    TEST_DATABASE_URL, exercised on the CI matrix's postgres leg. No
-    behavioural change to search_federated_group; no schema change
-    beyond the 3 additive indexes. Verified against prod /api/healthz
-    0.9.43 before bumping.
+    shape.
+
+    Same-cycle breaker-pass correction: the first draft added THREE
+    separate per-column GIN trigram indexes (title/slug/description)
+    queried with OR. Verified against a real 90k-row Postgres that this
+    does NOT work — the planner prices the 3-way BitmapOr plan (cost
+    ~4952) above the plain seq scan (cost ~4378) and silently falls back
+    to it (measured 812ms, unindexed — the exact bug the migration exists
+    to fix). RED-proofed and pinned by
+    TestRedProofLegacyThreeIndexDesignWasBroken, which builds those 3
+    indexes by hand and shows the OR query still seq-scans.
+
+    Shipped fix: ONE GIN trigram index over the expression
+    coalesce(title,'') || ' ' || coalesce(slug,'') || ' ' ||
+    coalesce(description,''). search_federated_group's hub-table query is
+    updated to filter on the syntactically-identical SQLAlchemy expression
+    (text must match for Postgres to recognize the expression index)
+    instead of three independent .ilike() clauses. Measured: seq scan
+    812ms -> index scan ~0.1-15ms (~50-8000x depending on cache warmth).
+    Query-result equivalence to the original three-clause OR predicate
+    verified over 4 parametrized search terms
+    (TestQueryResultEquivalence). SQLite leg is a documented no-op (no
+    trigram support, fine at fixture scale) — matches the existing
+    pgvector migration's cross-dialect posture.
+
+    tests/migrations/test_issue282_fed_hub_trgm.py (13 tests): SQLite
+    no-op + full-chain + single-head checks always run; the 8
+    Postgres-only tests (RED-proof, index-scan-via-real-ORM-path, e2e
+    search_federated_group, downgrade/re-upgrade reversibility, 4x
+    result-equivalence) self-skip without a reachable TEST_DATABASE_URL,
+    exercised on the CI matrix's postgres leg. All 13 verified GREEN
+    locally against a real Postgres instance
+    (postgresql://loopskill@localhost:15940/loopskill_test282,
+    90k-row seed). No schema change beyond the 1 additive expression
+    index. Existing SQLite-backed suites (test_unified_search.py,
+    test_277_federated_reachability.py, 53 tests) unaffected — verified
+    green, unchanged. Verified against prod /api/healthz 0.9.43 before
+    bumping.
 """
 
 __version__ = "0.9.45"
