@@ -47,10 +47,39 @@ async def first_key_reveal(
     surface loudly.
     """
     from app.auth_routes import get_current_user_optional
+    from app.services.connect_agent_telemetry import (
+        EVENT_REVEALED,
+        EVENT_SHOWN,
+        record_connect_agent_event,
+    )
 
     user = get_current_user_optional(request, db)
     if user is None:
         raise HTTPException(status_code=401, detail="login_required")
+
+    # catel_0826 (t_76db433e): this fetch is the /library connect-agent card's
+    # exclusive API call, and the card's gate order (dismissed? → has_api_keys?
+    # → connection_verified? → this fetch → un-hide) means an authed hit here
+    # is exactly "the card is rendering for an eligible member". Counted
+    # server-side per the bhint-tel0824 funnel-event rule (never through
+    # POST /api/telemetry — its event_type enum stays closed). Fail-quiet:
+    # never breaks the reveal response.
+    try:
+        from app.config import settings
+        from app.utils.client_ip import _real_client_ip
+
+        _shown_ip = _real_client_ip(request, settings.TRUSTED_PROXY_CIDRS)
+    # Rationale: client_ip is observability-only; never fail the reveal on it.
+    except Exception:  # noqa: BLE001
+        _shown_ip = None
+    record_connect_agent_event(
+        db,
+        event_type=EVENT_SHOWN,
+        user_id=str(user.id),
+        payload={"surface": "/library", "endpoint": "/api/auth/first-key-reveal"},
+        client_ip=_shown_ip,
+        commit=True,  # this route returns/raises without another commit — the row would be lost
+    )
 
     reveal_token = request.cookies.get(REVEAL_COOKIE_NAME)
     if not reveal_token:
@@ -71,6 +100,18 @@ async def first_key_reveal(
     # Hermes YAML / Claude Desktop JSON presentation is identical, not a
     # second hand-rolled formatter drifting out of sync with the first.
     config_blocks = build_config_blocks(token=payload["key"], cookbook_id=None, server_url=_MCP_ENDPOINT)
+
+    # catel_0826 (t_76db433e): one-time reveal succeeded — the second
+    # micro-funnel event. Successful branch ONLY (payload non-None); the
+    # generic-copy / no-key branch never records it. Fail-quiet.
+    record_connect_agent_event(
+        db,
+        event_type=EVENT_REVEALED,
+        user_id=str(user.id),
+        payload={"surface": "/library", "prefix": payload["prefix"], "label": payload["label"]},
+        client_ip=_shown_ip,
+        commit=True,
+    )
 
     resp = JSONResponse(
         content={
