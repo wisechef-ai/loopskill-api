@@ -220,6 +220,93 @@ def test_propose_duplicate_within_24h_is_deduped_not_double_filed(db_session):
     assert db_session.query(FederationRegistryProposal).count() == 1
 
 
+def test_propose_already_registered_repo_reports_back_no_issue(db_session):
+    """issue #289: a proposal for a repo ALREADY LIVE in
+    config/federation_sources.yaml (e.g. anthropics/skills, registered as
+    github-anthropic since decision #13) must be reported back honestly and
+    must NOT open a duplicate GitHub issue, touch the rate limiter, or
+    persist a DB row — each duplicate previously cost a full triage cycle
+    (issue #288 was exactly this: a bot re-proposed anthropics/skills)."""
+    already_live = PreflightResult(
+        repo_slug="anthropics/skills",
+        repo_exists=True,
+        skill_md_count=17,
+        license_detected=None,
+        default_branch="main",
+    )
+    with (
+        patch("app.mcp.tools.federation_propose.preflight_repo", return_value=already_live),
+        patch(
+            "app.mcp.tools.federation_propose.github_dispatch.dispatch_event",
+            return_value=DISPATCH_OK,
+        ) as mock_dispatch,
+    ):
+        result = loopskill_propose_registry(
+            db_session,
+            repo_url="https://github.com/anthropics/skills",
+        )
+
+    assert result["ok"] is True, result
+    assert result["status"] == "already_registered"
+    assert result["existing_source_id"] == "github-anthropic"
+    assert result["review_channel_open"] is False
+    assert result["issue_url"] == ""
+    mock_dispatch.assert_not_called()
+
+    from app.models import FederationRegistryProposal
+
+    # No DB row — the already-registered check short-circuits before persist.
+    assert db_session.query(FederationRegistryProposal).count() == 0
+
+
+def test_propose_already_registered_repo_is_case_insensitive(db_session):
+    """GitHub repo slugs are case-insensitive; a proposal spelled with
+    different casing than the registered entry must still be caught."""
+    already_live = PreflightResult(
+        repo_slug="Anthropics/Skills",
+        repo_exists=True,
+        skill_md_count=17,
+        license_detected=None,
+        default_branch="main",
+    )
+    with (
+        patch("app.mcp.tools.federation_propose.preflight_repo", return_value=already_live),
+        patch(
+            "app.mcp.tools.federation_propose.github_dispatch.dispatch_event",
+            return_value=DISPATCH_OK,
+        ) as mock_dispatch,
+    ):
+        result = loopskill_propose_registry(
+            db_session,
+            repo_url="https://github.com/Anthropics/Skills",
+        )
+
+    assert result["ok"] is True, result
+    assert result["status"] == "already_registered"
+    assert result["existing_source_id"] == "github-anthropic"
+    mock_dispatch.assert_not_called()
+
+
+def test_propose_new_unregistered_repo_still_dispatches_normally(db_session):
+    """Regression guard: the already-registered check must NOT false-positive
+    on a genuinely new repo — the normal dispatch path stays intact."""
+    with (
+        patch("app.mcp.tools.federation_propose.preflight_repo", return_value=_viable_preflight()),
+        patch(
+            "app.mcp.tools.federation_propose.github_dispatch.dispatch_event",
+            return_value=DISPATCH_OK,
+        ) as mock_dispatch,
+    ):
+        result = loopskill_propose_registry(
+            db_session,
+            repo_url=SAMPLE_REPO,
+        )
+
+    assert result["ok"] is True, result
+    assert result["status"] == "pending_review"
+    mock_dispatch.assert_called_once()
+
+
 def test_propose_duplicate_uses_dedup_gate_not_a_second_mechanism(db_session):
     """The dedupe signature must be sha256(identity|repo_slug) recorded via
     app.feedback_ratelimit.check_and_record — proving there is exactly ONE

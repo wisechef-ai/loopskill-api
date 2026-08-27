@@ -53,3 +53,21 @@ def github_tap_rows() -> tuple[dict, ...]:
 def reset_cache_for_tests() -> None:
     """Clear the lru_cache so tests can monkeypatch FEDERATION_SOURCES_YAML."""
     _raw_config.cache_clear()
+
+
+def find_registered_github_repo(repo_slug: str) -> str | None:
+    """Return the existing ``source_id`` if ``repo_slug`` is already a live
+    ``github_taps`` entry, else ``None``.
+
+    Case-insensitive (GitHub repo slugs are case-insensitive) — issue #289:
+    the federation-registry-propose workflow had no dedup check against this
+    file, so the SAME repo could be (and was, issue #288) re-proposed by
+    different submitters, costing a full triage cycle each time.
+    """
+    normalized = (repo_slug or "").strip().lower()
+    if not normalized:
+        return None
+    for row in github_tap_rows():
+        if str(row.get("repo", "")).strip().lower() == normalized:
+            return str(row["source_id"])
+    return None

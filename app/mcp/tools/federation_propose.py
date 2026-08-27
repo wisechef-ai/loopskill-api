@@ -36,6 +36,7 @@ from app.auth_ctx import AuthContext
 from app.mcp.tools.fleet_write import _NOT_HANDLED
 from app.models import FederationRegistryProposal
 from app.services.federation_propose import preflight_repo
+from app.services.federation_sources_config import find_registered_github_repo
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +98,29 @@ def loopskill_propose_registry(
 
     repo_slug = preflight.repo_slug or repo_url
     proposed_source_id = source_id or (repo_slug.split("/")[-1] if "/" in repo_slug else repo_slug)
+
+    # ── 1b. Already-registered check — issue #289 ───────────────────────────
+    # Before touching the rate limiter or opening any GitHub issue: is this
+    # repo already a LIVE github_taps entry in config/federation_sources.yaml?
+    # Without this, the SAME repo gets re-proposed by different submitters
+    # (issue #288 was exactly this: anthropics/skills, live since decision
+    # #13, re-proposed by the auto-proposal bot) — each duplicate costs a
+    # full triage cycle. Reported back honestly, no issue, no DB row, no
+    # rate-limiter write (this is not abuse, so it must not spend the
+    # caller's rate-limit budget).
+    existing_source_id = find_registered_github_repo(repo_slug)
+    if existing_source_id is not None:
+        return {
+            "ok": True,
+            "proposal_id": "",
+            "repo_slug": repo_slug,
+            "status": "already_registered",
+            "existing_source_id": existing_source_id,
+            "review_channel_open": False,
+            "issue_url": "",
+            "preflight": preflight.to_dict(),
+            "deduped": False,
+        }
 
     # ── 2. Dedupe on (identity, repo) — SAME gate as publish_request ───────
     identity = f"api_key:{api_key_id}" if api_key_id else (f"agent:{agent_id}" if agent_id else "anon")
