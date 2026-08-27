@@ -1,7 +1,7 @@
 """Self-contained test for transparency router."""
+
 from __future__ import annotations
 
-import os
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -11,7 +11,18 @@ from app.database import get_db
 
 
 @pytest.fixture()
-def client(db_session):
+def client(db_session, monkeypatch):
+    # Hermeticity: _compute_median_issue_resolution_h() makes a REAL network
+    # call to api.github.com whenever GITHUB_TOKEN/GITHUB_DISPATCH_PAT is
+    # present in the environment (see transparency_routes.py). Any dev/CI
+    # shell that happens to export a GitHub token (gh auth, agentic runners)
+    # turns every test in this file into a live network test, which
+    # conftest.py's net_guard correctly blocks -- but as a hard failure, not
+    # a skip. Strip both so this suite's result never depends on what the
+    # invoking environment happens to have exported.
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_DISPATCH_PAT", raising=False)
+
     app = FastAPI()
     app.include_router(transparency_router)
 
