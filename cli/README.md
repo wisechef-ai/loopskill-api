@@ -112,6 +112,20 @@ loopskill apply loopskill-essentials --dest ~/.claude/skills --write    # actual
 executes anything it downloads — LoopSkill (or any backend you point it at)
 is a control plane here, never a runner.
 
+### `loopskill sync` (network — writes by default)
+
+Pull a bundle's current skills and converge `--dest` to match, in one
+command. This is the CLI counterpart to the server-side `loopskill_sync` MCP
+tool: **it writes by default** (`--dry-run` is opt-in) — the one place this
+CLI's default differs from `apply`'s dry-run-unless-`--write` convention.
+Otherwise identical mechanics to `apply` (same idempotency guarantee, same
+locked-skill skip, same local-disk-only execution boundary):
+
+```
+loopskill sync loopskill-essentials --dest ~/.claude/skills             # writes immediately
+loopskill sync loopskill-essentials --dest ~/.claude/skills --dry-run   # preview only
+```
+
 ## Lockfile format
 
 ```json

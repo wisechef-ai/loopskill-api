@@ -474,3 +474,206 @@ def test_import_without_output_keeps_stdout_pure_json(tmp_path: Path, capsys):
     parsed = json.loads(captured.out)  # must parse — nothing else on stdout
     assert "clients" in parsed
     assert "loopskill import:" not in captured.out
+
+
+# ─────────────────────────── sync (issue #284) ───────────────────────────
+#
+# `loopskill sync` mirrors app/mcp/tools/loopskill_sync.py's contract as
+# closely as a stateless CLI can: pull a bundle's current content, converge
+# `dest` to it, and — the one behavioural difference from `apply` — WRITE BY
+# DEFAULT (dry-run is opt-in via --dry-run), matching the MCP tool's
+# `dry_run: bool = False` "NON-NEGOTIABLE" default. All tests here monkeypatch
+# `loopskill.pull.pull_bundle` so no real network call is made; that keeps
+# these tests exercising the CLI's own logic without depending on
+# app.loopskill.io being reachable in CI.
+
+
+def _fake_pull_bundle_factory(skills):
+    """Return a stand-in for `loopskill.pull.pull_bundle` with a fixed result,
+    and a mutable call-log list so tests can assert on how it was invoked."""
+    calls: list[dict] = []
+
+    def _fake(slug, *, api_base):
+        calls.append({"slug": slug, "api_base": api_base})
+        return skills
+
+    return _fake, calls
+
+
+def test_sync_help_works_from_clean_install():
+    """Issue #284 acceptance criterion #1: `loopskill sync --help` must work.
+
+    Exercised here via cli.main() (fast, in-process); the PR body also
+    records a real `pip install -e .` + `loopskill sync --help` run from a
+    throwaway venv, which is the literal `uvx loopskill sync --help` shape
+    the issue asks for.
+    """
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["sync", "--help"])
+    assert exc_info.value.code == 0
+
+
+def test_sync_is_registered_as_a_subcommand():
+    parser = cli.build_parser()
+    # argparse exposes registered subcommand names via the subparsers action.
+    subparsers_action = next(
+        a for a in parser._actions if isinstance(a, __import__("argparse")._SubParsersAction)
+    )
+    assert "sync" in subparsers_action.choices
+
+
+def test_sync_writes_by_default_no_flag_needed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """THE core behavioural contract: unlike `apply` (dry-run unless --write),
+    `sync` with NO flags actually writes — matching loopskill_sync's
+    dry_run=False default."""
+    import loopskill.pull as pull_mod
+
+    skills = [PulledSkill(name="alpha", content=b"# Alpha content", locked=False)]
+    fake, calls = _fake_pull_bundle_factory(skills)
+    monkeypatch.setattr(pull_mod, "pull_bundle", fake)
+
+    dest = tmp_path / "skills"
+    rc = cli.main(["sync", "demo-bundle", "--dest", str(dest)])
+    assert rc == 0
+    assert (dest / "alpha" / "SKILL.md").read_bytes() == b"# Alpha content"
+    assert len(calls) == 1
+    assert calls[0]["slug"] == "demo-bundle"
+
+
+def test_sync_dry_run_writes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import loopskill.pull as pull_mod
+
+    skills = [PulledSkill(name="alpha", content=b"# Alpha content", locked=False)]
+    fake, _ = _fake_pull_bundle_factory(skills)
+    monkeypatch.setattr(pull_mod, "pull_bundle", fake)
+
+    dest = tmp_path / "skills"
+    rc = cli.main(["sync", "demo-bundle", "--dest", str(dest), "--dry-run"])
+    assert rc == 0
+    assert not dest.exists()  # --dry-run must never touch disk
+
+
+def test_sync_report_uses_would_verb_on_dry_run_and_did_verb_when_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+):
+    import loopskill.pull as pull_mod
+
+    skills = [PulledSkill(name="alpha", content=b"# Alpha content", locked=False)]
+    fake, _ = _fake_pull_bundle_factory(skills)
+    monkeypatch.setattr(pull_mod, "pull_bundle", fake)
+
+    dest = tmp_path / "skills"
+    cli.main(["sync", "demo-bundle", "--dest", str(dest), "--dry-run"])
+    dry_out = capsys.readouterr().out
+    assert "would create" in dry_out
+
+    cli.main(["sync", "demo-bundle", "--dest", str(dest)])
+    write_out = capsys.readouterr().out
+    assert "did create" in write_out
+
+
+def test_sync_is_idempotent_second_run_is_noop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Same idempotency guarantee as `apply`: running `sync` twice against
+    unchanged bundle content plans (and performs) zero create/update writes
+    on the second run."""
+    import loopskill.pull as pull_mod
+
+    skills = [PulledSkill(name="alpha", content=b"# Alpha content", locked=False)]
+    fake, _ = _fake_pull_bundle_factory(skills)
+    monkeypatch.setattr(pull_mod, "pull_bundle", fake)
+
+    dest = tmp_path / "skills"
+    cli.main(["sync", "demo-bundle", "--dest", str(dest)])
+    alpha_path = dest / "alpha" / "SKILL.md"
+    mtime_before = alpha_path.stat().st_mtime_ns
+
+    cli.main(["sync", "demo-bundle", "--dest", str(dest)])
+    assert alpha_path.stat().st_mtime_ns == mtime_before
+
+
+def test_sync_skips_locked_skills_never_writes_them(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    import loopskill.pull as pull_mod
+
+    skills = [
+        PulledSkill(name="alpha", content=b"# Alpha content", locked=False),
+        PulledSkill(name="paid-skill", content=b"", locked=True),
+    ]
+    fake, _ = _fake_pull_bundle_factory(skills)
+    monkeypatch.setattr(pull_mod, "pull_bundle", fake)
+
+    dest = tmp_path / "skills"
+    cli.main(["sync", "demo-bundle", "--dest", str(dest)])
+    assert (dest / "alpha" / "SKILL.md").is_file()
+    assert not (dest / "paid-skill").exists()
+
+
+def test_sync_propagates_pull_failure_as_clean_exit_not_traceback(monkeypatch: pytest.MonkeyPatch, capsys):
+    """Network/parse failures in pull_bundle must surface as a clean
+    stderr message + exit code 1, mirroring `apply`'s existing contract —
+    never an uncaught traceback from a CLI a human runs interactively."""
+    import loopskill.pull as pull_mod
+
+    def _fail(slug, *, api_base):
+        raise RuntimeError(f"could not reach bundle index at {api_base}")
+
+    monkeypatch.setattr(pull_mod, "pull_bundle", _fail)
+
+    rc = cli.main(["sync", "nonexistent-bundle"])
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert "loopskill sync:" in captured.err
+    assert "could not reach" in captured.err
+
+
+def test_sync_default_dest_matches_apply_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """No --dest given: sync must default to the SAME path apply defaults to
+    (~/.claude/skills) — one converged-destination convention across both
+    commands, not two competing defaults."""
+    import loopskill.pull as pull_mod
+
+    skills = [PulledSkill(name="alpha", content=b"# Alpha content", locked=False)]
+    fake, _ = _fake_pull_bundle_factory(skills)
+    monkeypatch.setattr(pull_mod, "pull_bundle", fake)
+
+    fake_home = tmp_path / "home"
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+    cli.main(["sync", "demo-bundle"])
+    assert (fake_home / ".claude" / "skills" / "alpha" / "SKILL.md").is_file()
+
+
+def test_sync_empty_bundle_is_a_clean_noop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Boundary: a bundle with zero skills must not crash and must report
+    zero actions, not error."""
+    import loopskill.pull as pull_mod
+
+    fake, _ = _fake_pull_bundle_factory([])
+    monkeypatch.setattr(pull_mod, "pull_bundle", fake)
+
+    dest = tmp_path / "skills"
+    rc = cli.main(["sync", "empty-bundle", "--dest", str(dest)])
+    assert rc == 0
+    assert not dest.exists()
+
+
+def test_sync_custom_api_base_is_forwarded_to_pull(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """A self-hosted --api-base must reach pull_bundle unchanged — sync must
+    not hardcode app.loopskill.io the way pull/apply don't."""
+    import loopskill.pull as pull_mod
+
+    skills = [PulledSkill(name="alpha", content=b"# Alpha content", locked=False)]
+    fake, calls = _fake_pull_bundle_factory(skills)
+    monkeypatch.setattr(pull_mod, "pull_bundle", fake)
+
+    dest = tmp_path / "skills"
+    cli.main(
+        [
+            "sync",
+            "demo-bundle",
+            "--dest",
+            str(dest),
+            "--api-base",
+            "https://self-hosted.example.com",
+        ]
+    )
+    assert calls[0]["api_base"] == "https://self-hosted.example.com"
