@@ -53,6 +53,34 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_settings_singleton():
+    """Reset the ``app.config`` Settings lru_cache singleton around every test.
+
+    Issue #298: ``app.config._get_settings_cached`` is an
+    ``lru_cache(maxsize=1)``. Whichever test first touches
+    ``app.config.settings`` (directly, or transitively via a lazy import
+    such as ``install_integrity.internal_network_ips``) constructs and
+    caches it under THAT test's env. Any later test that mutates
+    ``WR_DATABASE_URL`` / ``WR_COOKIES_SECURE`` via ``monkeypatch.setenv``
+    or ``patch.dict`` then silently observes the stale cached instance
+    instead of one built from its own env — an inconsistent DB-URL /
+    COOKIES_SECURE pair can trip the issue-#11 production gate on tests
+    that never touched that env var themselves. This was flaky and
+    shard-order-dependent under ``pytest -n auto --dist loadfile``
+    (test_secfix_1905_d_search_skills_n_plus_1.py on the postgres CI leg).
+
+    Clearing the cache before AND after each test guarantees every test
+    (and the next one) constructs its own Settings from its own env,
+    regardless of xdist worker/shard distribution or execution order.
+    """
+    from app.config import _get_settings_cached
+
+    _get_settings_cached.cache_clear()
+    yield
+    _get_settings_cached.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def _block_outbound_network(request, monkeypatch):
     """Fail fast on any non-loopback network call made from a test.
 
