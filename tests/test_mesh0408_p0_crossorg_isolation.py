@@ -460,7 +460,7 @@ def test_site_bundle_list_is_tenant_scoped(tenant_app, tenants):
     ):
         r = tenant_app.get("/api/cookbooks", headers={"x-api-key": getattr(tenants, key_attr)})
         assert r.status_code == 200, r.text
-        ids = {c["id"] for c in r.json()["cookbooks"]}
+        ids = {c["id"] for c in r.json()["bundles"]}
         assert str(mine.id) in ids, (
             f"CONTROL FAILED for {key_attr}: own tenant's bundle missing from the "
             "list — this suite is void, not green"

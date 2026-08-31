@@ -131,7 +131,7 @@ def test_bundle_list_lazily_provisions_and_liked_cannot_be_deleted(db_session):
 
     with TestClient(_bundle_app(db_session, owner.id)) as client:
         listed = client.get("/api/bundles")
-        liked_id = next(row["id"] for row in listed.json()["cookbooks"] if row["name"] == "Liked")
+        liked_id = next(row["id"] for row in listed.json()["bundles"] if row["name"] == "Liked")
         protected = client.delete(f"/api/bundles/{liked_id}")
         deleted = client.delete(f"/api/bundles/{ordinary.id}")
 

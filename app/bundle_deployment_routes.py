@@ -193,7 +193,8 @@ async def list_deploy_cookbooks(
         .order_by(Bundle.created_at.desc())
         .all()
     )
-    return {"cookbooks": [_cookbook_dict(c) for c in rows]}
+    # issue #157 Phase 3: response key renamed `cookbooks` -> `bundles` (owner-approved breaking change).
+    return {"bundles": [_cookbook_dict(c) for c in rows]}
 
 
 @_h.post("/{cookbook_id}/skills/add")  # compat-alias

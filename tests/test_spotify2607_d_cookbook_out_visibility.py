@@ -120,7 +120,7 @@ def test_list_cookbooks_includes_visibility(vis_client):
     _create(vis_client, "List Visibility Test")
     listing = vis_client.get("/api/cookbooks")
     assert listing.status_code == 200, listing.text
-    rows = listing.json()["cookbooks"]
+    rows = listing.json()["bundles"]
     assert rows, "expected at least one cookbook"
     row = next(r for r in rows if r["name"] == "List Visibility Test")
     assert row.get("visibility") == "private"
@@ -258,7 +258,7 @@ def test_detail_and_list_tolerate_null_slug(vis_client, db_session):
 
     listing = vis_client.get("/api/cookbooks")
     assert listing.status_code == 200, listing.text
-    row = next(c for c in listing.json()["cookbooks"] if c["id"] == created["id"])
+    row = next(c for c in listing.json()["bundles"] if c["id"] == created["id"])
     assert row.get("slug") is None
     assert row.get("visibility") == "private"
 
