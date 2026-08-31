@@ -4,7 +4,7 @@ import os
 
 from typing import Annotated
 
-from pydantic import field_validator, model_validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode
 
 # Default (insecure) values that MUST be rotated in any non-sqlite environment.
@@ -17,8 +17,10 @@ _DEFAULT_HEARTBEAT_PEPPER = "wr-fleet-pepper-change-me"
 def _assert_production_secrets(settings: "Settings") -> None:
     """Raise RuntimeError if any default change-me secret is present in a non-sqlite env.
 
-    Called from Settings.__init__ via model_validator so the process refuses
-    to boot rather than silently running with exploitable defaults.
+    Called from run_production_boot_checks() during the FastAPI lifespan
+    startup so the process refuses to SERVE (issue #283) rather than silently
+    running with exploitable defaults — while importing app modules stays
+    side-effect free.
 
     Also enforces OAUTH_REDIRECT_BASE requirements in non-sqlite envs:
     - Must be non-empty
@@ -305,21 +307,33 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env", "env_prefix": "WR_", "extra": "ignore"}
 
-    @model_validator(mode="after")
-    def _run_production_checks(self) -> "Settings":
-        """Run all production-safety checks after all fields are resolved."""
-        # Issue #11 — COOKIES_SECURE=False only valid in sqlite (dev) env
-        if not self.COOKIES_SECURE and "sqlite" not in self.DATABASE_URL:
-            raise RuntimeError(
-                "COOKIES_SECURE=False is only allowed when DATABASE_URL contains 'sqlite' "
-                "(local dev). Set WR_COOKIES_SECURE=true in production."
-            )
-        # Issues #1 + #4 — secrets gate
-        _assert_production_secrets(self)
-        return self
-
 
 settings = Settings()
+
+
+def run_production_boot_checks(config: "Settings | None" = None) -> "Settings":
+    """Run all production-safety checks at SERVE time (issue #283).
+
+    Called from the FastAPI lifespan hook (app.main.lifespan) so the process
+    refuses to SERVE with insecure configuration — but importing app modules
+    (tests, scripts, CLIs) stays side-effect free and never trips the gate.
+
+    Preserves, verbatim, the checks that used to run in Settings' pydantic
+    model_validator before the gate moved out of import time:
+      - Issue #11 — COOKIES_SECURE=False only valid in sqlite (dev) env
+      - Issues #1 + #4 — default change-me secrets / prod-required vars
+    """
+    cfg = config if config is not None else settings
+
+    # Issue #11 — COOKIES_SECURE=False only valid in sqlite (dev) env
+    if not cfg.COOKIES_SECURE and "sqlite" not in cfg.DATABASE_URL:
+        raise RuntimeError(
+            "COOKIES_SECURE=False is only allowed when DATABASE_URL contains 'sqlite' "
+            "(local dev). Set WR_COOKIES_SECURE=true in production."
+        )
+    # Issues #1 + #4 — secrets gate
+    _assert_production_secrets(cfg)
+    return cfg
 
 
 # Brand default for install / download URLs when nothing is configured.
