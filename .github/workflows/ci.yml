@@ -102,3 +102,78 @@ jobs:
           gitleaks version
       - name: Scan working tree
         run: gitleaks detect --source . --config .gitleaks.toml --no-git --no-banner --redact
+
+  cli-release-drift-check:
+    name: CLI release drift check (warn-only)
+    # Guards against the class of bug that shipped loopskill 0.3.0's `sync`
+    # subcommand to main while PyPI kept serving 0.2.0 with no workflow to
+    # close the gap (see publish-cli.yml). This job is DELIBERATELY
+    # warn-only, never build-blocking:
+    #   - Right after a version-bump PR merges, no tag/release exists yet by
+    #     design — tagging is a separate, deliberate follow-up step. Failing
+    #     the build here would just train people to ignore red X's on main.
+    #   - It queries the public PyPI API. A PyPI outage or rate-limit must
+    #     never turn an unrelated merge red, so any network/parse failure is
+    #     caught and treated as "cannot verify" (exit 0, informational
+    #     notice) rather than a failure. This is a fail-OPEN check.
+    # It exists purely to make the drift LOUD (workflow summary + ::warning
+    # annotation) instead of silent, so a maintainer notices "CLI version
+    # bumped, nothing published yet" instead of finding out from a user.
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need full tag history to check for a matching release tag
+
+      - name: Read cli/pyproject.toml version
+        id: cliver
+        run: |
+          set -euo pipefail
+          VERSION=$(python3 -c "
+          import tomllib
+          with open('cli/pyproject.toml', 'rb') as f:
+              print(tomllib.load(f)['project']['version'])
+          ")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "cli/pyproject.toml version: $VERSION"
+
+      - name: Check for matching release tag
+        id: tagcheck
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.cliver.outputs.version }}"
+          if git tag --list "loopskill-v${VERSION}" | grep -q .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check PyPI for the version (fail-open on network error)
+        id: pypicheck
+        if: steps.tagcheck.outputs.found == 'false'
+        run: |
+          set +e
+          RESPONSE=$(curl -fsS --max-time 10 https://pypi.org/pypi/loopskill/json 2>/tmp/curl_err)
+          CURL_STATUS=$?
+          set -e
+          if [ "$CURL_STATUS" -ne 0 ]; then
+            echo "::notice::Could not reach PyPI to verify release status (network error) — skipping drift check this run (fail-open, not a failure). $(cat /tmp/curl_err)"
+            echo "checked=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          PYPI_VERSION=$(echo "$RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('info',{}).get('version','?'))" 2>/dev/null || echo "?")
+          if [ "$PYPI_VERSION" = "?" ]; then
+            echo "::notice::Could not parse PyPI response — skipping drift check this run (fail-open, not a failure)."
+            echo "checked=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "checked=true" >> "$GITHUB_OUTPUT"
+          echo "pypi_version=$PYPI_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Warn if version bumped with no tag/release
+        if: steps.tagcheck.outputs.found == 'false' && steps.pypicheck.outputs.checked == 'true' && steps.pypicheck.outputs.pypi_version != steps.cliver.outputs.version
+        run: |
+          echo "::warning::cli/pyproject.toml is at ${{ steps.cliver.outputs.version }} on main, but PyPI still serves ${{ steps.pypicheck.outputs.pypi_version }} and no 'loopskill-v${{ steps.cliver.outputs.version }}' tag exists yet. Push that tag (or run publish-cli.yml via workflow_dispatch) to ship this version to users."
+          echo "### :warning: CLI release drift" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`cli/pyproject.toml\` version \`${{ steps.cliver.outputs.version }}\` is not yet published (PyPI: \`${{ steps.pypicheck.outputs.pypi_version }}\`) and has no matching \`loopskill-v${{ steps.cliver.outputs.version }}\` tag." >> "$GITHUB_STEP_SUMMARY"
