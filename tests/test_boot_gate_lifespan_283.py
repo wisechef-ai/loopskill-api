@@ -1,45 +1,63 @@
-"""Issue #283 — boot gate runs at SERVE time, not import time.
+"""Issue #283 — boot gate fires on CONSTRUCTION/SERVE, never on import.
 
-Two guarantees:
-1. Importing the app bare (no env stubs at all) must succeed side-effect free.
-2. Serving the app in production mode with default change-me secrets must
-   fail loudly via the FastAPI lifespan hook.
+Guarantees:
+1. Importing app modules bare (no env stubs) succeeds side-effect free, and
+   the lazy ``settings`` singleton is NOT constructed by the import itself.
+2. Serving the app in production mode with default change-me secrets fails
+   loudly: the lifespan hook runs ``run_production_boot_checks()`` which
+   constructs Settings (gate lives in Settings.__init__ — secfix_1905
+   contract) and lets the RuntimeError propagate out of startup.
 """
 
 import asyncio
 import os
+import sys
 
 import pytest
 
 
 def test_bare_import_succeeds_without_env_stubs(monkeypatch):
-    """Importing app.main with NO env stubs must not raise (issue #283)."""
-    # Ensure no production-style env overrides are set — bare environment.
+    """Importing app.config + a leaf service module with NO env stubs must not
+    raise, and must not construct the settings singleton (issue #283)."""
     for var in list(os.environ):
         if var.startswith("WR_"):
             monkeypatch.delenv(var, raising=False)
+
     import importlib
 
     import app.config as config
-    import app.main as main
 
-    importlib.reload(config)
-    importlib.reload(main)
-    # Gate function exists and is callable but was NOT run at import time.
+    config = importlib.reload(config)
+    # Import a transitive consumer of app.database -> app.config (the exact
+    # reproduction from the issue body).
+    from app.services.external_install_resolver import validate_external_slug  # noqa: F401
+
+    # PEP 562 __getattr__ only fires on cache miss: if import had constructed
+    # the singleton, 'settings' would be a real entry in __dict__.
+    assert "settings" not in vars(config), "settings singleton was constructed at import time"
+    # The lazy accessors exist.
+    assert callable(config.get_settings)
     assert callable(config.run_production_boot_checks)
 
 
 def test_gate_fires_on_serve_in_prod_mode_with_bad_secrets(monkeypatch):
-    """Lifespan must raise loudly when serving with default secrets in prod."""
+    """Lifespan must raise loudly when serving with default secrets in prod.
+
+    The gate lives in Settings.__init__ (secfix_1905); the lifespan calls
+    run_production_boot_checks() which constructs Settings on first use.
+    With a prod DATABASE_URL and change-me secrets, startup must abort.
+    """
     import app.config as config
     import app.main as main
 
-    # Prod mode: postgres DB + secure cookies, secrets left at change-me
-    # defaults. Rebind the singleton the lifespan reads (conftest pins the
-    # real one to a sqlite test DB, which the gate exempts).
     monkeypatch.setenv("WR_DATABASE_URL", "postgresql://u:p@localhost/db")
     monkeypatch.setenv("WR_COOKIES_SECURE", "true")
-    monkeypatch.setattr(config, "settings", config.Settings())
+    # Drop any ambient WR_* secrets so the gate sees change-me defaults.
+    for var in ("WR_API_KEY", "WR_SIGNING_SECRET", "WR_JWT_SECRET", "WR_HEARTBEAT_PEPPER"):
+        monkeypatch.delenv(var, raising=False)
+    # Reset the lazy cache so run_production_boot_checks() constructs fresh
+    # Settings under the patched env (conftest may have cached a sqlite one).
+    config._get_settings_cached.cache_clear()
 
     from fastapi import FastAPI
 
@@ -55,3 +73,7 @@ def test_gate_fires_on_serve_in_prod_mode_with_bad_secrets(monkeypatch):
         pass
     else:
         pytest.fail("lifespan did not raise RuntimeError with default secrets")
+    finally:
+        config._get_settings_cached.cache_clear()
+        # Drop stale imported modules so later tests re-import cleanly.
+        sys.modules.pop("app.main", None)

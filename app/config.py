@@ -4,7 +4,9 @@ import os
 
 from typing import Annotated
 
-from pydantic import field_validator
+from functools import lru_cache
+
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode
 
 # Default (insecure) values that MUST be rotated in any non-sqlite environment.
@@ -14,13 +16,15 @@ _DEFAULT_JWT_SECRET = "wr-jwt-secret-change-me"
 _DEFAULT_HEARTBEAT_PEPPER = "wr-fleet-pepper-change-me"
 
 
-def _assert_production_secrets(settings: "Settings") -> None:
+def _assert_production_secrets(cfg: "Settings") -> None:
     """Raise RuntimeError if any default change-me secret is present in a non-sqlite env.
 
-    Called from run_production_boot_checks() during the FastAPI lifespan
-    startup so the process refuses to SERVE (issue #283) rather than silently
-    running with exploitable defaults — while importing app modules stays
-    side-effect free.
+    Called from Settings.__init__ via the _run_production_checks model
+    validator so the process refuses to construct a production Settings
+    with exploitable defaults (secfix_1905 contract — direct Settings()
+    construction in prod mode raises), while the module-level ``settings``
+    singleton stays LAZY (issue #283) so importing app modules never
+    constructs it and thus never fires the gate at import time.
 
     Also enforces OAUTH_REDIRECT_BASE requirements in non-sqlite envs:
     - Must be non-empty
@@ -28,17 +32,17 @@ def _assert_production_secrets(settings: "Settings") -> None:
 
     SQLite envs (local dev) are exempt — default values are fine there.
     """
-    if "sqlite" in settings.DATABASE_URL:
+    if "sqlite" in cfg.DATABASE_URL:
         return  # dev environment — allow defaults
 
     insecure: list[str] = []
-    if settings.API_KEY == _DEFAULT_API_KEY:
+    if cfg.API_KEY == _DEFAULT_API_KEY:
         insecure.append("API_KEY")
-    if settings.SIGNING_SECRET == _DEFAULT_SIGNING_SECRET:
+    if cfg.SIGNING_SECRET == _DEFAULT_SIGNING_SECRET:
         insecure.append("SIGNING_SECRET")
-    if settings.JWT_SECRET == _DEFAULT_JWT_SECRET:
+    if cfg.JWT_SECRET == _DEFAULT_JWT_SECRET:
         insecure.append("JWT_SECRET")
-    if settings.HEARTBEAT_PEPPER == _DEFAULT_HEARTBEAT_PEPPER:
+    if cfg.HEARTBEAT_PEPPER == _DEFAULT_HEARTBEAT_PEPPER:
         insecure.append("HEARTBEAT_PEPPER")
 
     if insecure:
@@ -54,7 +58,7 @@ def _assert_production_secrets(settings: "Settings") -> None:
     # public install counts. Without it, /api/stats counts every deploy
     # verification as an organic install (118 of 432 in the 2026-08-23
     # analysis window). Refuse to boot rather than publish inflated numbers.
-    if not settings.SERVER_PUBLIC_IP:
+    if not cfg.SERVER_PUBLIC_IP:
         raise RuntimeError(
             "Refusing to boot in production: SERVER_PUBLIC_IP is empty. "
             "Set WR_SERVER_PUBLIC_IP to this host's public IPv4 so CI "
@@ -62,7 +66,7 @@ def _assert_production_secrets(settings: "Settings") -> None:
         )
 
     # Issue #4 — OAUTH_REDIRECT_BASE must be non-empty and https:// in prod
-    base = settings.OAUTH_REDIRECT_BASE
+    base = cfg.OAUTH_REDIRECT_BASE
     if not base:
         raise RuntimeError(
             "Refusing to boot in production: OAUTH_REDIRECT_BASE is empty. "
@@ -80,12 +84,12 @@ def _assert_production_secrets(settings: "Settings") -> None:
     # must be set for each paid tier.  If both are empty the checkout flow is
     # broken and users cannot subscribe.
     _price_pairs = [
-        ("STRIPE_PRICE_PRO", settings.STRIPE_PRICE_PRO, "STRIPE_PRICE_COOK", settings.STRIPE_PRICE_COOK),
+        ("STRIPE_PRICE_PRO", cfg.STRIPE_PRICE_PRO, "STRIPE_PRICE_COOK", cfg.STRIPE_PRICE_COOK),
         (
             "STRIPE_PRICE_PRO_PLUS",
-            settings.STRIPE_PRICE_PRO_PLUS,
+            cfg.STRIPE_PRICE_PRO_PLUS,
             "STRIPE_PRICE_OPERATOR",
-            settings.STRIPE_PRICE_OPERATOR,
+            cfg.STRIPE_PRICE_OPERATOR,
         ),
     ]
     missing_prices: list[str] = []
@@ -307,23 +311,58 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env", "env_prefix": "WR_", "extra": "ignore"}
 
+    @model_validator(mode="after")
+    def _run_production_checks(self) -> "Settings":
+        """Run all production-safety checks after all fields are resolved."""
+        # Issue #11 — COOKIES_SECURE=False only valid in sqlite (dev) env
+        if not self.COOKIES_SECURE and "sqlite" not in self.DATABASE_URL:
+            raise RuntimeError(
+                "COOKIES_SECURE=False is only allowed when DATABASE_URL contains 'sqlite' "
+                "(local dev). Set WR_COOKIES_SECURE=true in production."
+            )
+        # Issues #1 + #4 — secrets gate
+        _assert_production_secrets(self)
+        return self
 
-settings = Settings()
+
+def get_settings() -> "Settings":
+    """Construct the Settings singleton on FIRST access (issue #283).
+
+    The module-level ``settings`` name is served via PEP 562 module
+    ``__getattr__`` below, so ``import app.config`` (or importing any app
+    module) no longer constructs Settings at import time — the production
+    gate in Settings.__init__ fires only when something actually touches
+    ``settings`` / calls ``get_settings()``. Bare library imports, ad-hoc
+    scripts, and pure-function verification (the issue #283 acceptance
+    case) stay side-effect free; constructing/caching happens on first
+    attribute access instead.
+    """
+    return _get_settings_cached()
+
+
+@lru_cache(maxsize=1)
+def _get_settings_cached() -> "Settings":
+    return Settings()
+
+
+def __getattr__(name: str):
+    """PEP 562 — lazy module-level ``settings`` singleton (issue #283)."""
+    if name == "settings":
+        return _get_settings_cached()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def run_production_boot_checks(config: "Settings | None" = None) -> "Settings":
     """Run all production-safety checks at SERVE time (issue #283).
 
-    Called from the FastAPI lifespan hook (app.main.lifespan) so the process
-    refuses to SERVE with insecure configuration — but importing app modules
-    (tests, scripts, CLIs) stays side-effect free and never trips the gate.
-
-    Preserves, verbatim, the checks that used to run in Settings' pydantic
-    model_validator before the gate moved out of import time:
-      - Issue #11 — COOKIES_SECURE=False only valid in sqlite (dev) env
-      - Issues #1 + #4 — default change-me secrets / prod-required vars
+    Belt-and-braces only: the gate itself still lives in
+    Settings.__init__ (_run_production_checks model validator — the
+    secfix_1905 contract that direct Settings() construction in prod mode
+    raises). This wrapper exists so the FastAPI lifespan hook can force
+    construction + validation at startup, guaranteeing the process refuses
+    to SERVE misconfigured even if nothing touched ``settings`` earlier.
     """
-    cfg = config if config is not None else settings
+    cfg = config if config is not None else get_settings()
 
     # Issue #11 — COOKIES_SECURE=False only valid in sqlite (dev) env
     if not cfg.COOKIES_SECURE and "sqlite" not in cfg.DATABASE_URL:
@@ -352,7 +391,7 @@ def public_origin() -> str:
     Trailing slashes are stripped so callers can append paths directly.
     """
     origin = (
-        (settings.PUBLIC_ORIGIN or "").strip()
+        (get_settings().PUBLIC_ORIGIN or "").strip()
         or os.environ.get("LOOPSKILL_PUBLIC_ORIGIN", "").strip()
         or os.environ.get("RECIPES_PUBLIC_ORIGIN", "").strip()
         or LOOPSKILL_DEFAULT_ORIGIN

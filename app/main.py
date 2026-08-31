@@ -21,7 +21,7 @@ from app.bundle_install_script_routes import router as bundle_install_script_rou
 from app.canary import router as canary_router
 from app.bootcamp_routes import router as bootcamp_router  # bootcamp_0607
 from app.checkout_routes import router as checkout_router
-from app.config import run_production_boot_checks, settings
+from app.config import get_settings, run_production_boot_checks
 from app.bundle_routes import router as cookbook_router  # compat-alias
 from app.bundle_wellknown_routes import router as cookbook_wellknown_router  # compat-alias
 from app.creator_routes import router as creator_router
@@ -162,7 +162,7 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "PATCH", "DELETE"],
         allow_headers=["x-api-key", "authorization", "content-type"],
     )
-    app.add_middleware(RateLimitMiddleware, max_requests=settings.RATE_LIMIT_PER_MINUTE)
+    app.add_middleware(RateLimitMiddleware, max_requests=get_settings().RATE_LIMIT_PER_MINUTE)
     app.add_middleware(APIKeyMiddleware)
     app.add_middleware(CookbookHostMiddleware)
 
