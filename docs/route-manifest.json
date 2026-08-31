@@ -1,10 +1,10 @@
 {
   "source": "app.main.app.routes + app.middleware.api_key.APIKeyMiddleware (dispatch tree replayed), derived at import time",
   "generator": "scripts/generate_route_manifest.py",
-  "route_count": 313,
+  "route_count": 315,
   "counts_by_classification": {
     "admin": 11,
-    "authenticated": 193,
+    "authenticated": 195,
     "internal": 2,
     "public": 107
   },
@@ -549,6 +549,19 @@
       ],
       "classification": "authenticated",
       "summary": "Poll a bundle-apply job \u2014 the control-plane view of member convergence."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundle-deploy/{cookbook_id}/rollback",
+      "name": "rollback_cookbook",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "bundle-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "Clear a bundle stuck in a FAILED apply job with one atomic reset."
     },
     {
       "method": "POST",
@@ -1471,6 +1484,19 @@
       ],
       "classification": "authenticated",
       "summary": "Poll a bundle-apply job \u2014 the control-plane view of member convergence."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbook-deploy/{cookbook_id}/rollback",
+      "name": "rollback_cookbook",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "cookbook-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "Clear a bundle stuck in a FAILED apply job with one atomic reset."
     },
     {
       "method": "POST",
