@@ -23,7 +23,6 @@ from app.services.federation import (
     route_install,
 )
 from app.services.federation_adapters import get_adapter
-from app.services.federation_install import get_origin_fetcher
 from app.services.federation_live import LIVE_FETCH
 from app.services.federation_scan import QUALITY_AS_IS, scan_external_body
 
@@ -300,6 +299,11 @@ def resolve_external_install_full(
         return ExternalInstallResolution(kind="register_mcp", payload=payload, skill=ext)
 
     if ext.install_path == InstallPath.FETCH_ORIGIN:
+        # Lazily resolve the fetcher against its home module so test
+        # monkeypatching of app.services.federation_install.get_origin_fetcher
+        # is honoured (same contract the pre-#281 inline route had).
+        from app.services.federation_install import get_origin_fetcher
+
         fetcher = get_origin_fetcher(source)
         if fetcher is None:
             detail = {
