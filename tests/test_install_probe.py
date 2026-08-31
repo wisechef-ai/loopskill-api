@@ -34,6 +34,25 @@ def _load(name: str, path: Path):
 
 ip = _load("ip", REPO / "scripts" / "install_probe.py")
 
+class _FrozenTime:
+    """Stand-in for the probe module's `time` reference: real clock, no sleeping.
+
+    docsdrift_0831: the probe script does a plain `import time`, so patching
+    attributes on `ip.time` mutates the GLOBAL stdlib module and disables
+    time.sleep process-wide (it took down every timer-based test in the CI
+    matrix). Tests patch the MODULE attribute `ip.time` instead, and
+    monkeypatch restores it on teardown.
+    """
+
+    def __getattr__(self, name):
+        import time as _stdlib_time
+
+        return getattr(_stdlib_time, name)
+
+    @staticmethod
+    def sleep(*_args) -> None:
+        return None
+
 BASE = "https://x.test"
 
 
@@ -138,7 +157,13 @@ def patch_get(monkeypatch):
     def _install(router: Router):
         monkeypatch.setattr(ip, "_get", router.get)
         monkeypatch.setattr(ip, "_get_bytes", router.get_bytes)
-        monkeypatch.setattr(ip.time, "sleep", lambda *_: None)
+        # docsdrift_0831: ip.time IS the stdlib time module (the probe script
+        # does `import time`), so `monkeypatch.setattr(ip.time, ...)` mutated
+        # the GLOBAL module and disabled time.sleep for every later test in
+        # the same worker — the whole CI matrix (ttlcache, breaker cooldown,
+        # fan-out budgets) failed with timers that never elapsed. Patch the
+        # MODULE attribute instead; monkeypatch restores it on teardown.
+        monkeypatch.setattr(ip, "time", _FrozenTime())
         return router
 
     return _install
@@ -474,7 +499,7 @@ def test_federated_bundle_member_resolves(patch_get):
 # ── Rate-limit warning discipline (429-aware) ───────────────────────────
 
 
-def test_skill_detail_rate_limited_is_warning(patch_get):
+def test_skill_detail_rate_limited_is_warning(patch_get, monkeypatch):
     router = Router(search=[_skill_row("paced")])
 
     def paced_get(url):
@@ -482,8 +507,8 @@ def test_skill_detail_rate_limited_is_warning(patch_get):
             return 429, "Rate limit exceeded"
         return router.get(url)
 
-    ip._get = paced_get
-    ip.time.sleep = lambda *_: None
+    monkeypatch.setattr(ip, "_get", paced_get)
+    monkeypatch.setattr(ip, "time", _FrozenTime())
     rep = ip._validate_skill(BASE, "paced", {"paced"})
     assert any("rate-limited" in w for w in rep.warnings)
     assert rep.passed  # a WARN never counts as a FAIL
