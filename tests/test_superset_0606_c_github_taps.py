@@ -45,8 +45,9 @@ class TestTapList:
         # marketing_0712 — 7th facet (github-marketing) added.
         # maturity_0821 — +13 curated taps (see federation_sources.yaml block
         # comment + vault research/2026-08-21-federation-source-expansion.md).
+        # pr294 — +1 curated tap (github-marketing-os).
         # Growth is a deliberate two-place edit: yaml + this pin.
-        assert len(GITHUB_TAPS) == 21
+        assert len(GITHUB_TAPS) == 22
         assert set(GITHUB_FACET_SOURCES) == {
             "github-anthropic", "github-openai", "github-huggingface",
             "github-nvidia", "github-gstack", "github-superpowers",
@@ -60,6 +61,8 @@ class TestTapList:
             "github-skill-seekers", "github-hoangnguyen-skills-standard",
             "github-litestar-skills",
             "github-awesome-agent-skills",
+            # pr294 curated-community tap (Yuzzyuk/marketing-os)
+            "github-marketing-os",
         }
 
     def test_per_skill_license_repos_have_no_repo_license(self):
