@@ -54,4 +54,5 @@ addopts = "--ignore=packaging"
 markers = [
     "sandbox_linux_only: sandbox tests that require Linux (firejail/bwrap); skipped on macOS/darwin",
     "network: test is a genuine integration probe and may reach the public internet (exempt from the conftest outbound-network guard; non-hermetic, should not gate a merge)",
+    "postgres_only: test requires a real reachable Postgres (TEST_DATABASE_URL/DATABASE_URL); self-skips when none is configured, matching the CI matrix's postgres leg",
 ]
