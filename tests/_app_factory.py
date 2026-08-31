@@ -71,13 +71,36 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.auth_routes", "router", ""),
     ("app.sandbox.routes", "router", ""),
     ("app.creator_routes", "router", ""),
+    ("app.creators_routes", "router", ""),  # flywheel P1 F1.3
     ("app.publisher_routes", "router", ""),
     ("app.checkout_routes", "router", ""),
     ("app.api_key_routes", "router", ""),
     ("app.feedback_routes", "router", ""),
     ("app.canary", "router", ""),
     ("app.forks_routes", "router", ""),
+    # bundles0811-P1: MUST register BEFORE app.bundle_routes, mirroring
+    # app.main.create_app's ordering exactly (see its inline comment).
+    # GET /{cookbook_id} on bundle_routes is a single-segment catch-all
+    # (FastAPI/Starlette is first-match) — /install.sh is also single-segment,
+    # so registering it after bundle_routes made "install.sh" match
+    # {cookbook_id} first and 401 with "auth_required" instead of ever
+    # reaching the installer route. Caught live by
+    # test_install_script_route_is_public_no_auth_header (bundles0811-P1
+    # test suite) — this factory previously mounted these two AFTER
+    # bundle_routes, the opposite of create_app's wiring, so every anonymous
+    # test against these two routers was silently exercising the wrong
+    # handler.
+    ("app.bundle_install_script_routes", "router", ""),
+    # bundles0811-P1 (F3) — fork preview/claim. Same ordering constraint.
+    ("app.bundle_fork_claim_routes", "router", ""),
     ("app.bundle_routes", "router", ""),
+    # bundles0811-P1: was missing entirely — GET /api/bundles/public/{slug}/
+    # .well-known/skills/index.json (+ /SKILL.md) 404'd through build_test_app,
+    # so the well-known bridge (the install script's own data source) was
+    # silently untestable via this factory. Mounted right after bundle_routes,
+    # mirroring create_app's own ordering comment (must register after the
+    # generic /public/{slug} route so the more specific path wins).
+    ("app.bundle_wellknown_routes", "router", ""),
     ("app.promotion_routes", "router", ""),
     ("app.graph_routes", "router", ""),
     ("app.bundle_deployment_routes", "router", ""),
@@ -123,6 +146,11 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.composite_loop_routes", "router", ""),  # activate_0701 Phase A2
     ("app.composite_loop_deploy_routes", "router", ""),  # feat/composite-loop-deploy
     ("app.mesh_discovery_routes", "router", ""),  # mesh_0408 T3-A
+    # agentreg_0819 — POST /api/agents/register (public) + the master-key
+    # revoke surface, and the two public .well-known discovery documents.
+    ("app.first_key_routes", "router", ""),
+    ("app.agent_wellknown_routes", "router", ""),
+    ("app.agent_registration_routes", "router", ""),
 ]
 
 

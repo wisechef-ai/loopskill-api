@@ -24,7 +24,7 @@ from app.discord_bot.role_sync import role_for_user, sync_role_for_user
 def test_lifespan_noop_without_token(monkeypatch, caplog):
     """If DISCORD_BOT_TOKEN is absent, start_bot() returns None and logs."""
     monkeypatch.delenv("DISCORD_BOT_TOKEN", raising=False)
-    caplog.set_level(logging.INFO, logger="wiserecipes.discord")
+    caplog.set_level(logging.INFO, logger="loopskill.discord")
     task = asyncio.run(bot_module.start_bot())
     assert task is None
     assert any(

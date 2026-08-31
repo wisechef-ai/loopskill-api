@@ -39,6 +39,7 @@ from app.auth_ctx import AuthContext
 from app.database import SessionLocal, get_db
 from app.mcp.auth import validate_key
 from app.mcp._alias_map import normalize_tool_name
+from app.version import __version__ as _APP_VERSION
 
 # Submodule re-exports — backward compat for all existing imports
 from app.mcp.registry import _tool_definitions  # noqa: F401
@@ -467,10 +468,14 @@ from app.mcp.streaming import (  # noqa: F401
     run_stdio,
 )
 
-logger = logging.getLogger("wiserecipes.mcp")
+logger = logging.getLogger("loopskill.mcp")
 
-SERVER_NAME = "recipes-mcp"
-SERVER_VERSION = "0.1.0"
+# fi_first_impression_api (2026-08-19): dead-brand rename + version fix —
+# "recipes-mcp"/"0.1.0" never reflected the real deploy. Now single-sourced
+# from app.version.__version__ (imported at module top), same as every
+# other identity surface (health_routes.py).
+SERVER_NAME = "loopskill-mcp"
+SERVER_VERSION = _APP_VERSION
 
 
 def build_mcp_server(db_factory: Callable[[], Session] = SessionLocal) -> Server:

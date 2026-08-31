@@ -1,0 +1,3870 @@
+{
+  "source": "app.main.app.routes + app.middleware.api_key.APIKeyMiddleware (dispatch tree replayed), derived at import time",
+  "generator": "scripts/generate_route_manifest.py",
+  "route_count": 312,
+  "counts_by_classification": {
+    "admin": 11,
+    "authenticated": 192,
+    "internal": 2,
+    "public": 107
+  },
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/",
+      "name": "root",
+      "module": "app.main",
+      "tags": [
+        "meta"
+      ],
+      "classification": "public",
+      "summary": ""
+    },
+    {
+      "method": "GET",
+      "path": "/.well-known/agent.json",
+      "name": "agent_descriptor",
+      "module": "app.agent_wellknown_routes",
+      "tags": [
+        "agents",
+        "agents",
+        "well-known",
+        "well-known"
+      ],
+      "classification": "public",
+      "summary": "Public agent-discovery document. Unauthenticated by design."
+    },
+    {
+      "method": "GET",
+      "path": "/.well-known/ai-plugin.json",
+      "name": "ai_plugin_manifest",
+      "module": "app.agent_wellknown_routes",
+      "tags": [
+        "agents",
+        "agents",
+        "well-known",
+        "well-known"
+      ],
+      "classification": "public",
+      "summary": "Public AI-plugin manifest (the 3rd standard discovery convention,"
+    },
+    {
+      "method": "GET",
+      "path": "/.well-known/jwks.json",
+      "name": "mesh_jwks",
+      "module": "app.mesh_wellknown_routes",
+      "tags": [
+        "mesh",
+        "mesh",
+        "well-known",
+        "well-known"
+      ],
+      "classification": "public",
+      "summary": "The mesh Ed25519 public key ring. Unauthenticated \u2014 spec \u00a79.1."
+    },
+    {
+      "method": "GET",
+      "path": "/.well-known/mcp.json",
+      "name": "mcp_descriptor",
+      "module": "app.agent_wellknown_routes",
+      "tags": [
+        "agents",
+        "agents",
+        "well-known",
+        "well-known"
+      ],
+      "classification": "public",
+      "summary": "Public MCP server descriptor. Unauthenticated by design."
+    },
+    {
+      "method": "GET",
+      "path": "/.well-known/oauth-authorization-server",
+      "name": "mesh_oauth_metadata",
+      "module": "app.mesh_wellknown_routes",
+      "tags": [
+        "mesh",
+        "mesh",
+        "well-known",
+        "well-known"
+      ],
+      "classification": "public",
+      "summary": "RFC 8414 authorization server metadata for mesh credentials. Spec \u00a79."
+    },
+    {
+      "method": "GET",
+      "path": "/SKILL.md",
+      "name": "serve_canonical_skill",
+      "module": "app.skill_serve_routes",
+      "tags": [
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "Serve the canonical, clean SKILL.md as text/plain (no redirect)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/agent-identities",
+      "name": "list_agent_identities",
+      "module": "app.agent_registration_routes",
+      "tags": [
+        "agents",
+        "agents"
+      ],
+      "classification": "admin",
+      "summary": "List self-registered agent identities, newest first. Master key only."
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/agent-identities/{identity_id}/revoke",
+      "name": "revoke_agent_identity",
+      "module": "app.agent_registration_routes",
+      "tags": [
+        "agents",
+        "agents"
+      ],
+      "classification": "admin",
+      "summary": "Revoke a self-registered agent identity. Master key only. Idempotent."
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/demand-brief",
+      "name": "demand_brief",
+      "module": "app.demand_routes",
+      "tags": [
+        "admin",
+        "admin"
+      ],
+      "classification": "admin",
+      "summary": "Master-key-gated content-marketing direction feed for Chef's content factory."
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/loop-run-rollup",
+      "name": "admin_loop_run_rollup",
+      "module": "app.admin_routes",
+      "tags": [
+        "admin",
+        "admin"
+      ],
+      "classification": "admin",
+      "summary": "Trigger idempotent daily rollup of LoopRun rows into LoopRunDailyRollup."
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/payouts/run",
+      "name": "run_payouts",
+      "module": "app.creator_routes",
+      "tags": [
+        "creator",
+        "creator"
+      ],
+      "classification": "admin",
+      "summary": "Trigger monthly payout calculation. Requires admin API key."
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/promotion-sweep",
+      "name": "promotion_sweep",
+      "module": "app.promotion_routes",
+      "tags": [
+        "promotion",
+        "promotion"
+      ],
+      "classification": "admin",
+      "summary": "Master-only batch promotion sweep across all canary-reported versions."
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/pulse",
+      "name": "admin_pulse",
+      "module": "app.admin_routes",
+      "tags": [
+        "admin",
+        "admin"
+      ],
+      "classification": "admin",
+      "summary": "Return the north-star demand scoreboard. Master-key only."
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/reindex-all",
+      "name": "admin_reindex_all",
+      "module": "app.admin_routes",
+      "tags": [
+        "admin",
+        "admin"
+      ],
+      "classification": "admin",
+      "summary": "Reindex BM25 search_vector for every non-archived skill."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/admin/skill-publish-requests/{request_id}/status",
+      "name": "admin_update_publish_request_status",
+      "module": "app.admin_routes",
+      "tags": [
+        "admin",
+        "admin"
+      ],
+      "classification": "admin",
+      "summary": "Approve or reject a pending skill-publish request."
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/skill-publish-requests/{request_id}/tarball",
+      "name": "admin_get_publish_request_tarball",
+      "module": "app.admin_routes",
+      "tags": [
+        "admin",
+        "admin"
+      ],
+      "classification": "admin",
+      "summary": "Return the raw tarball bytes for a SkillPublishRequest."
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/sync-report-prune",
+      "name": "admin_sync_report_prune",
+      "module": "app.admin_routes",
+      "tags": [
+        "admin",
+        "admin"
+      ],
+      "classification": "admin",
+      "summary": "Prune raw sync-report telemetry past retention (30d default)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/agents/register",
+      "name": "register_agent_route",
+      "module": "app.agent_registration_routes",
+      "tags": [
+        "agents",
+        "agents"
+      ],
+      "classification": "public",
+      "summary": "Self-register an autonomous agent by Ed25519 proof-of-key. No human."
+    },
+    {
+      "method": "GET",
+      "path": "/api/api-keys",
+      "name": "list_api_keys",
+      "module": "app.api_key_routes",
+      "tags": [
+        "api-keys",
+        "api-keys"
+      ],
+      "classification": "authenticated",
+      "summary": "List the authenticated user's API keys (no plaintext)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/api-keys",
+      "name": "create_api_key",
+      "module": "app.api_key_routes",
+      "tags": [
+        "api-keys",
+        "api-keys"
+      ],
+      "classification": "authenticated",
+      "summary": "Create a new API key for the authenticated user."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/api-keys/{key_id}",
+      "name": "revoke_api_key",
+      "module": "app.api_key_routes",
+      "tags": [
+        "api-keys",
+        "api-keys"
+      ],
+      "classification": "authenticated",
+      "summary": "Revoke an API key. Idempotent \u2014 already-revoked or missing keys return 204."
+    },
+    {
+      "method": "GET",
+      "path": "/api/api-library/{slug}",
+      "name": "get_api_library_entry",
+      "module": "app.recipe_routes",
+      "tags": [
+        "api-library",
+        "recipes",
+        "recipes"
+      ],
+      "classification": "authenticated",
+      "summary": "Return API library entry detail."
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/callback",
+      "name": "github_callback",
+      "module": "app.creator_routes",
+      "tags": [
+        "creator",
+        "creator"
+      ],
+      "classification": "authenticated",
+      "summary": "Handle GitHub OAuth callback. Exchange code for profile + JWT."
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/first-key-reveal",
+      "name": "first_key_reveal",
+      "module": "app.first_key_routes",
+      "tags": [
+        "auth",
+        "auth"
+      ],
+      "classification": "authenticated",
+      "summary": "One-time reveal of the plaintext of the auto-minted first API key."
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/github",
+      "name": "github_auth_redirect",
+      "module": "app.creator_routes",
+      "tags": [
+        "creator",
+        "creator"
+      ],
+      "classification": "authenticated",
+      "summary": "Redirect to GitHub OAuth authorization page."
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/github/callback",
+      "name": "github_callback",
+      "module": "app.auth_routes",
+      "tags": [
+        "auth",
+        "auth"
+      ],
+      "classification": "authenticated",
+      "summary": "Handle GitHub OAuth callback. Exchanges code, creates user, sets JWT cookie."
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/github/login",
+      "name": "github_login",
+      "module": "app.auth_routes",
+      "tags": [
+        "auth",
+        "auth"
+      ],
+      "classification": "authenticated",
+      "summary": "Initiate GitHub OAuth flow. Preserves optional `next` query param via cookie."
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/google/callback",
+      "name": "google_callback",
+      "module": "app.auth_routes",
+      "tags": [
+        "auth",
+        "auth"
+      ],
+      "classification": "authenticated",
+      "summary": "Handle Google OAuth callback. Exchanges code, creates user, sets JWT cookie."
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/google/login",
+      "name": "google_login",
+      "module": "app.auth_routes",
+      "tags": [
+        "auth",
+        "auth"
+      ],
+      "classification": "authenticated",
+      "summary": "Initiate Google OAuth flow. Preserves optional `next` query param via cookie."
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "name": "logout",
+      "module": "app.auth_routes",
+      "tags": [
+        "auth",
+        "auth"
+      ],
+      "classification": "authenticated",
+      "summary": "Clear the JWT cookie and any auth-related cookies. Idempotent."
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "name": "get_me",
+      "module": "app.auth_routes",
+      "tags": [
+        "auth",
+        "auth"
+      ],
+      "classification": "authenticated",
+      "summary": "Return the current authenticated user from JWT cookie or Authorization header."
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/token",
+      "name": "exchange_token",
+      "module": "app.creator_routes",
+      "tags": [
+        "creator",
+        "creator"
+      ],
+      "classification": "authenticated",
+      "summary": "Exchange GitHub OAuth code for a JWT + user profile (API-friendly)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/billing/me",
+      "name": "billing_me",
+      "module": "app.checkout_routes",
+      "tags": [
+        "billing",
+        "checkout"
+      ],
+      "classification": "authenticated",
+      "summary": "Current authenticated user's subscription state."
+    },
+    {
+      "method": "POST",
+      "path": "/api/billing/portal-session",
+      "name": "create_billing_portal_session",
+      "module": "app.checkout_routes",
+      "tags": [
+        "billing",
+        "checkout"
+      ],
+      "classification": "authenticated",
+      "summary": "Create a Stripe Customer Portal session for self-serve billing."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bootcamp",
+      "name": "list_bootcamp_tracks",
+      "module": "app.bootcamp_routes",
+      "tags": [
+        "bootcamp",
+        "bootcamp"
+      ],
+      "classification": "public",
+      "summary": "List all bootcamp tracks as summary cards (counts computed from LIVE tiers)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bootcamp/{track_id}",
+      "name": "get_bootcamp_track",
+      "module": "app.bootcamp_routes",
+      "tags": [
+        "bootcamp",
+        "bootcamp"
+      ],
+      "classification": "public",
+      "summary": "Return one track with steps enriched from the live catalog."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundle-apply/jobs/{job_id}",
+      "name": "get_apply_job",
+      "module": "app.bundle_converge_routes",
+      "tags": [
+        "bundle-apply",
+        "bundle-apply"
+      ],
+      "classification": "authenticated",
+      "summary": "Poll a job's state \u2014 agent-readable counterpart of the portal endpoint."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundle-apply/jobs/{job_id}/report",
+      "name": "report_apply_outcome",
+      "module": "app.bundle_converge_routes",
+      "tags": [
+        "bundle-apply",
+        "bundle-apply"
+      ],
+      "classification": "authenticated",
+      "summary": "Record what the member ACTUALLY achieved for one skill in the job."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundle-apply/{slug}/start",
+      "name": "start_apply",
+      "module": "app.bundle_converge_routes",
+      "tags": [
+        "bundle-apply",
+        "bundle-apply"
+      ],
+      "classification": "authenticated",
+      "summary": "Open a convergence job for the caller's bundle and return its targets."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundle-deploy/create",
+      "name": "create_deploy_cookbook",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "bundle-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "Create a new white-label deployment cookbook for the authenticated Pro user."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundle-deploy/list",
+      "name": "list_deploy_cookbooks",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "bundle-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "List all deployment cookbooks owned by the authenticated Pro user."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundle-deploy/{cookbook_id}/apply",
+      "name": "apply_cookbook",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "bundle-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "Kick off an atomic install across all cookbook deployments (ordered)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundle-deploy/{cookbook_id}/jobs/{job_id}",
+      "name": "cookbook_job_status",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "bundle-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "Poll a bundle-apply job \u2014 the control-plane view of member convergence."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundle-deploy/{cookbook_id}/skills/add",
+      "name": "add_deployment",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "bundle-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "Add a skill or fork as an ordered deployment in the specified cookbook."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundle-deploy/{cookbook_id}/skills/{skill_id}",
+      "name": "remove_deployment",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "bundle-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "Remove a skill/fork deployment from the specified cookbook."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundle-deploy/{slug}/manifest",
+      "name": "cookbook_deploy_manifest",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "bundle-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "Public manifest \u2014 no auth, no secrets."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundle-deploy/{slug}/preflight",
+      "name": "bundle_preflight",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "bundle-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "Pre-flight green-light check for `recipes apply bundle://<slug>`."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles",
+      "name": "list_cookbooks",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "List the caller's cookbooks: owned + (org-scoped-bundle-reads) org bundles."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles",
+      "name": "create_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Create a new bundle. It is born **private**; publish it with"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/discover",
+      "name": "discover_cookbooks",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "public",
+      "summary": "Public, ranked feed of public cookbooks. No auth required."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/fork/claim",
+      "name": "claim_bundle_fork",
+      "module": "app.bundle_fork_claim_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "bundles"
+      ],
+      "classification": "public",
+      "summary": "Finalize a previewed fork. Auth required \u2014 THE save step (plan step 2)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/install.sh",
+      "name": "bundle_install_script",
+      "module": "app.bundle_install_script_routes",
+      "tags": [
+        "bundles",
+        "bundles"
+      ],
+      "classification": "public",
+      "summary": "Serve the auth-free bundle installer script. No auth (see module docstring)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/leaderboard",
+      "name": "cookbook_leaderboard",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "public",
+      "summary": "Public reputation leaderboards. No auth."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/public/{slug}",
+      "name": "public_cookbook_page",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "public",
+      "summary": "Public cookbook page by slug. No auth. 404 unless visibility='public'."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/public/{slug}/.well-known/skills/index.json",
+      "name": "cookbook_wellknown_index",
+      "module": "app.bundle_wellknown_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "well-known",
+        "well-known"
+      ],
+      "classification": "public",
+      "summary": "agentskills.io discovery index for a public cookbook."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/public/{slug}/.well-known/skills/{skill_name}/SKILL.md",
+      "name": "cookbook_wellknown_skill_md",
+      "module": "app.bundle_wellknown_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "well-known",
+        "well-known"
+      ],
+      "classification": "public",
+      "summary": "Serve one skill's SKILL.md from a public cookbook bundle."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/public/{slug}/fork/preview",
+      "name": "preview_bundle_fork",
+      "module": "app.bundle_fork_claim_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "bundles"
+      ],
+      "classification": "public",
+      "summary": "Show what forking this public bundle would produce. No auth, no write."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{bundle_id}/connectors",
+      "name": "declare_connector_in_bundle",
+      "module": "app.connector_routes",
+      "tags": [
+        "connectors",
+        "connectors"
+      ],
+      "classification": "authenticated",
+      "summary": "Declare a connector in a bundle (mirrors the BundleSkill add pattern)."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundles/{bundle_id}/connectors/{slug}",
+      "name": "undeclare_connector_from_bundle",
+      "module": "app.connector_routes",
+      "tags": [
+        "connectors",
+        "connectors"
+      ],
+      "classification": "authenticated",
+      "summary": "Remove a connector declaration from a bundle."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{bundle_id}/drift",
+      "name": "compute_drift",
+      "module": "app.bundle_lock_routes",
+      "tags": [
+        "bundle-lock",
+        "bundle-lock",
+        "bundle-lock"
+      ],
+      "classification": "authenticated",
+      "summary": "Three-way per-skill drift verdict vs the current lock."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundles/{bundle_id}/follow",
+      "name": "unfollow_bundle",
+      "module": "app.follow_routes",
+      "tags": [
+        "bundles",
+        "bundles"
+      ],
+      "classification": "authenticated",
+      "summary": "Idempotently remove a saved bundle reference."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{bundle_id}/follow",
+      "name": "follow_bundle",
+      "module": "app.follow_routes",
+      "tags": [
+        "bundles",
+        "bundles"
+      ],
+      "classification": "authenticated",
+      "summary": "Idempotently follow a public bundle without copying its content."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{bundle_id}/lock",
+      "name": "get_lock",
+      "module": "app.bundle_lock_routes",
+      "tags": [
+        "bundle-lock",
+        "bundle-lock",
+        "bundle-lock"
+      ],
+      "classification": "authenticated",
+      "summary": "Read the current lock. Public for public bundles; else owner/master."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{bundle_id}/lock",
+      "name": "mint_lock",
+      "module": "app.bundle_lock_routes",
+      "tags": [
+        "bundle-lock",
+        "bundle-lock",
+        "bundle-lock"
+      ],
+      "classification": "authenticated",
+      "summary": "Mint a new immutable bundle-lock revision. Owner/master only."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{bundle_id}/lock/history",
+      "name": "lock_history",
+      "module": "app.bundle_lock_routes",
+      "tags": [
+        "bundle-lock",
+        "bundle-lock",
+        "bundle-lock"
+      ],
+      "classification": "authenticated",
+      "summary": "All lock revisions (audit trail). Owner/master."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundles/{cookbook_id}",
+      "name": "delete_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Delete an owned cookbook unless it is a protected system primitive."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{cookbook_id}",
+      "name": "get_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Return a single cookbook by ID, including its skill list."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/bundles/{cookbook_id}",
+      "name": "update_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Rename or update description on a cookbook the caller owns."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{cookbook_id}/feedback-config",
+      "name": "get_feedback_config",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "J8 \u2014 read where this cookbook's feedback routes (for the inbox panel)."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/bundles/{cookbook_id}/feedback-config",
+      "name": "set_feedback_config",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "J8 \u2014 bind (or clear) per-cookbook feedback routing from the cockpit."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/handoff",
+      "name": "handoff_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Transfer or fork a cookbook to a new owner."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/install",
+      "name": "install_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Idempotent: re-running returns the same payload. Disabled skills are skipped."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundles/{cookbook_id}/loops/{slug}",
+      "name": "remove_loop_from_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Remove a composite loop from the specified cookbook."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/loops/{slug}",
+      "name": "add_loop_to_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Add a composite loop to the specified cookbook. Idempotent."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{cookbook_id}/manifest",
+      "name": "cookbook_manifest",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Return the install manifest for all skills in a cookbook."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/personalities/bulk",
+      "name": "add_personalities_bulk",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Add MANY personalities to a bundle in ONE call \u2014 the bulk twin of"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/personalities/bulk_remove",
+      "name": "remove_personalities_bulk",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Remove MANY personalities from a bundle in ONE call. Unknown/absent"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundles/{cookbook_id}/personalities/{slug}",
+      "name": "remove_personality_from_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Remove a personality from the specified cookbook."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/personalities/{slug}",
+      "name": "add_personality_to_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Add a personality to the specified cookbook. Idempotent."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/reconcile",
+      "name": "reconcile_cookbook",
+      "module": "app.reconcile_routes",
+      "tags": [
+        "reconcile",
+        "reconcile"
+      ],
+      "classification": "authenticated",
+      "summary": "Conditional reconcile poll (see module docstring)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/reconcile-report",
+      "name": "reconcile_report",
+      "module": "app.promotion_routes",
+      "tags": [
+        "promotion",
+        "promotion"
+      ],
+      "classification": "authenticated",
+      "summary": "Record a canary reconcile outcome and opportunistically promote."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/bundles/{cookbook_id}/reorder",
+      "name": "reorder_cookbook_skills",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "portal_0610 J2 / L3 \u2014 persist the Composer's skill order."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{cookbook_id}/share-tokens",
+      "name": "list_share_tokens",
+      "module": "app.share_token_routes",
+      "tags": [
+        "share",
+        "share-tokens"
+      ],
+      "classification": "authenticated",
+      "summary": "List all share tokens for a cookbook (metadata only, no plaintext)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/share-tokens",
+      "name": "create_share_token",
+      "module": "app.share_token_routes",
+      "tags": [
+        "share",
+        "share-tokens"
+      ],
+      "classification": "authenticated",
+      "summary": "Create a new share token. Plaintext token returned exactly once."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundles/{cookbook_id}/share-tokens/{token_id}",
+      "name": "revoke_share_token",
+      "module": "app.share_token_routes",
+      "tags": [
+        "share",
+        "share-tokens"
+      ],
+      "classification": "authenticated",
+      "summary": "Soft-delete a share token (sets is_active=False)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/share-tokens/{token_id}/rotate",
+      "name": "rotate_share_token",
+      "module": "app.share_token_routes",
+      "tags": [
+        "share",
+        "share-tokens"
+      ],
+      "classification": "authenticated",
+      "summary": "Deactivate old token and create a new one with the same name/scope."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/skills",
+      "name": "add_skill_to_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Add a skill to the specified cookbook."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/skills/bulk",
+      "name": "add_skills_bulk",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Add MANY skills (local and/or federated, mixed) to a bundle in ONE call."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/skills/bulk_remove",
+      "name": "remove_skills_bulk",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Soft-delete MANY skills (local and/or federated) from a bundle in ONE"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundles/{cookbook_id}/skills/{slug}",
+      "name": "remove_skill_from_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Remove a skill from the specified cookbook."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{cookbook_id}/skills/{slug}/install",
+      "name": "install_single_skill_from_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Install ONE skill from a cookbook by slug."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/bundles/{cookbook_id}/skills/{slug}/pin",
+      "name": "set_skill_pin",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "portal_0610 J2 / L5 \u2014 pin a curated skill to a specific version, or clear"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{cookbook_id}/sync",
+      "name": "cookbook_sync",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Return skills updated since the given timestamp for sync."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{cookbook_id}/sync/sse",
+      "name": "cookbook_sync_sse",
+      "module": "app.sse_routes",
+      "tags": [
+        "live-sync",
+        "sse"
+      ],
+      "classification": "authenticated",
+      "summary": "Stream Server-Sent Events for real-time cookbook sync updates."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/verify",
+      "name": "verify_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Assign / revoke the verified-maintainer badge on a cookbook (admin only)."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/bundles/{cookbook_id}/visibility",
+      "name": "set_cookbook_visibility",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "portal_0610 J2 \u2014 flip a cookbook public/private from the Composer."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundles/{slug}/like",
+      "name": "unlike_bundle",
+      "module": "app.artifact_like_routes",
+      "tags": [
+        "bundles",
+        "engagement",
+        "engagement"
+      ],
+      "classification": "authenticated",
+      "summary": "Unlike a bundle by slug (removes the follow)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{slug}/like",
+      "name": "like_bundle",
+      "module": "app.artifact_like_routes",
+      "tags": [
+        "bundles",
+        "engagement",
+        "engagement"
+      ],
+      "classification": "authenticated",
+      "summary": "Like a bundle by slug."
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{slug}/plugin.json",
+      "name": "bundle_plugin_manifest",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "public",
+      "summary": "Agent Plugins v1.0.0 manifest for a PUBLIC bundle. No auth."
+    },
+    {
+      "method": "GET",
+      "path": "/api/checkout/{tier}",
+      "name": "checkout_get_redirect",
+      "module": "app.checkout_routes",
+      "tags": [
+        "billing",
+        "checkout"
+      ],
+      "classification": "authenticated",
+      "summary": "Redirect browser GETs on the POST-only checkout route to /pricing."
+    },
+    {
+      "method": "POST",
+      "path": "/api/checkout/{tier}",
+      "name": "create_subscription_checkout",
+      "module": "app.checkout_routes",
+      "tags": [
+        "billing",
+        "checkout"
+      ],
+      "classification": "authenticated",
+      "summary": "Create a Stripe Checkout Session for the given subscription tier."
+    },
+    {
+      "method": "GET",
+      "path": "/api/composite-loops",
+      "name": "list_composite_loops",
+      "module": "app.composite_loop_routes",
+      "tags": [
+        "composite-loops"
+      ],
+      "classification": "public",
+      "summary": "Browse public, non-archived composite loops (keyset-paginated)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/composite-loops",
+      "name": "publish_composite_loop",
+      "module": "app.composite_loop_routes",
+      "tags": [
+        "composite-loops"
+      ],
+      "classification": "public",
+      "summary": "Publish a composite loop. Auth required; the composition is validated server-side."
+    },
+    {
+      "method": "GET",
+      "path": "/api/composite-loops/{slug}",
+      "name": "get_composite_loop",
+      "module": "app.composite_loop_routes",
+      "tags": [
+        "composite-loops"
+      ],
+      "classification": "public",
+      "summary": "Composite loop detail including the full composition."
+    },
+    {
+      "method": "POST",
+      "path": "/api/composite-loops/{slug}/deploy",
+      "name": "deploy_composite_loop",
+      "module": "app.composite_loop_deploy_routes",
+      "tags": [
+        "composite-loops",
+        "composite-loops"
+      ],
+      "classification": "public",
+      "summary": "Deploy a published composite loop to one fleet member."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/composite-loops/{slug}/like",
+      "name": "unlike_composite_loop_alias",
+      "module": "app.artifact_like_routes",
+      "tags": [
+        "engagement",
+        "engagement"
+      ],
+      "classification": "public",
+      "summary": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/composite-loops/{slug}/like",
+      "name": "like_composite_loop_alias",
+      "module": "app.artifact_like_routes",
+      "tags": [
+        "engagement",
+        "engagement"
+      ],
+      "classification": "public",
+      "summary": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/composite-loops/{slug}/versions",
+      "name": "publish_composite_loop_version",
+      "module": "app.composite_loop_routes",
+      "tags": [
+        "composite-loops"
+      ],
+      "classification": "public",
+      "summary": "Publish a frozen version of a composite loop. Auth required."
+    },
+    {
+      "method": "GET",
+      "path": "/api/connectors",
+      "name": "browse_connectors",
+      "module": "app.connector_routes",
+      "tags": [
+        "connectors",
+        "connectors"
+      ],
+      "classification": "public",
+      "summary": "Public browse \u2014 anonymous-safe. Keyset-paginated by created_at desc."
+    },
+    {
+      "method": "POST",
+      "path": "/api/connectors",
+      "name": "create_connector",
+      "module": "app.connector_routes",
+      "tags": [
+        "connectors",
+        "connectors"
+      ],
+      "classification": "public",
+      "summary": "Create a new Connector (auth: user/master). 409 on duplicate slug."
+    },
+    {
+      "method": "GET",
+      "path": "/api/connectors/{slug}",
+      "name": "get_connector",
+      "module": "app.connector_routes",
+      "tags": [
+        "connectors",
+        "connectors"
+      ],
+      "classification": "public",
+      "summary": "Public detail \u2014 connector + its versions."
+    },
+    {
+      "method": "POST",
+      "path": "/api/connectors/{slug}/versions",
+      "name": "publish_connector_version",
+      "module": "app.connector_routes",
+      "tags": [
+        "connectors",
+        "connectors"
+      ],
+      "classification": "public",
+      "summary": "Publish a new ConnectorVersion (auth + secret-lint validation)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbook-deploy/create",
+      "name": "create_deploy_cookbook",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "cookbook-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "Create a new white-label deployment cookbook for the authenticated Pro user."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbook-deploy/list",
+      "name": "list_deploy_cookbooks",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "cookbook-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "List all deployment cookbooks owned by the authenticated Pro user."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbook-deploy/{cookbook_id}/apply",
+      "name": "apply_cookbook",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "cookbook-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "Kick off an atomic install across all cookbook deployments (ordered)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbook-deploy/{cookbook_id}/jobs/{job_id}",
+      "name": "cookbook_job_status",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "cookbook-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "Poll a bundle-apply job \u2014 the control-plane view of member convergence."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbook-deploy/{cookbook_id}/skills/add",
+      "name": "add_deployment",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "cookbook-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "Add a skill or fork as an ordered deployment in the specified cookbook."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbook-deploy/{cookbook_id}/skills/{skill_id}",
+      "name": "remove_deployment",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "cookbook-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "Remove a skill/fork deployment from the specified cookbook."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbook-deploy/{slug}/manifest",
+      "name": "cookbook_deploy_manifest",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "cookbook-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "Public manifest \u2014 no auth, no secrets."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbook-deploy/{slug}/preflight",
+      "name": "bundle_preflight",
+      "module": "app.bundle_deployment_routes",
+      "tags": [
+        "bundle-deploy",
+        "cookbook-deploy",
+        "cookbook-deploy"
+      ],
+      "classification": "authenticated",
+      "summary": "Pre-flight green-light check for `recipes apply bundle://<slug>`."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks",
+      "name": "list_cookbooks",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "List the caller's cookbooks: owned + (org-scoped-bundle-reads) org bundles."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks",
+      "name": "create_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Create a new bundle. It is born **private**; publish it with"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/discover",
+      "name": "discover_cookbooks",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "public",
+      "summary": "Public, ranked feed of public cookbooks. No auth required."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/fork/claim",
+      "name": "claim_bundle_fork",
+      "module": "app.bundle_fork_claim_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "public",
+      "summary": "Finalize a previewed fork. Auth required \u2014 THE save step (plan step 2)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/install.sh",
+      "name": "bundle_install_script",
+      "module": "app.bundle_install_script_routes",
+      "tags": [
+        "bundles",
+        "bundles"
+      ],
+      "classification": "public",
+      "summary": "Serve the auth-free bundle installer script. No auth (see module docstring)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/leaderboard",
+      "name": "cookbook_leaderboard",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "public",
+      "summary": "Public reputation leaderboards. No auth."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/public/{slug}",
+      "name": "public_cookbook_page",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "public",
+      "summary": "Public cookbook page by slug. No auth. 404 unless visibility='public'."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/public/{slug}/.well-known/skills/index.json",
+      "name": "cookbook_wellknown_index",
+      "module": "app.bundle_wellknown_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "well-known",
+        "well-known"
+      ],
+      "classification": "public",
+      "summary": "agentskills.io discovery index for a public cookbook."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/public/{slug}/.well-known/skills/{skill_name}/SKILL.md",
+      "name": "cookbook_wellknown_skill_md",
+      "module": "app.bundle_wellknown_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "well-known",
+        "well-known"
+      ],
+      "classification": "public",
+      "summary": "Serve one skill's SKILL.md from a public cookbook bundle."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/public/{slug}/fork/preview",
+      "name": "preview_bundle_fork",
+      "module": "app.bundle_fork_claim_routes",
+      "tags": [
+        "bundles",
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "public",
+      "summary": "Show what forking this public bundle would produce. No auth, no write."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{bundle_id}/connectors",
+      "name": "declare_connector_in_bundle",
+      "module": "app.connector_routes",
+      "tags": [
+        "connectors",
+        "connectors"
+      ],
+      "classification": "authenticated",
+      "summary": "Declare a connector in a bundle (mirrors the BundleSkill add pattern)."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbooks/{bundle_id}/connectors/{slug}",
+      "name": "undeclare_connector_from_bundle",
+      "module": "app.connector_routes",
+      "tags": [
+        "connectors",
+        "connectors"
+      ],
+      "classification": "authenticated",
+      "summary": "Remove a connector declaration from a bundle."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{bundle_id}/drift",
+      "name": "compute_drift",
+      "module": "app.bundle_lock_routes",
+      "tags": [
+        "bundle-lock",
+        "bundle-lock",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Three-way per-skill drift verdict vs the current lock."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbooks/{bundle_id}/follow",
+      "name": "unfollow_bundle",
+      "module": "app.follow_routes",
+      "tags": [
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Idempotently remove a saved bundle reference."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{bundle_id}/follow",
+      "name": "follow_bundle",
+      "module": "app.follow_routes",
+      "tags": [
+        "bundles",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Idempotently follow a public bundle without copying its content."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{bundle_id}/lock",
+      "name": "get_lock",
+      "module": "app.bundle_lock_routes",
+      "tags": [
+        "bundle-lock",
+        "bundle-lock",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Read the current lock. Public for public bundles; else owner/master."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{bundle_id}/lock",
+      "name": "mint_lock",
+      "module": "app.bundle_lock_routes",
+      "tags": [
+        "bundle-lock",
+        "bundle-lock",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Mint a new immutable bundle-lock revision. Owner/master only."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{bundle_id}/lock/history",
+      "name": "lock_history",
+      "module": "app.bundle_lock_routes",
+      "tags": [
+        "bundle-lock",
+        "bundle-lock",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "All lock revisions (audit trail). Owner/master."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbooks/{cookbook_id}",
+      "name": "delete_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Delete an owned cookbook unless it is a protected system primitive."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{cookbook_id}",
+      "name": "get_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Return a single cookbook by ID, including its skill list."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/cookbooks/{cookbook_id}",
+      "name": "update_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Rename or update description on a cookbook the caller owns."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{cookbook_id}/feedback-config",
+      "name": "get_feedback_config",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "J8 \u2014 read where this cookbook's feedback routes (for the inbox panel)."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/cookbooks/{cookbook_id}/feedback-config",
+      "name": "set_feedback_config",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "J8 \u2014 bind (or clear) per-cookbook feedback routing from the cockpit."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/handoff",
+      "name": "handoff_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Transfer or fork a cookbook to a new owner."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/install",
+      "name": "install_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Idempotent: re-running returns the same payload. Disabled skills are skipped."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbooks/{cookbook_id}/loops/{slug}",
+      "name": "remove_loop_from_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Remove a composite loop from the specified cookbook."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/loops/{slug}",
+      "name": "add_loop_to_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Add a composite loop to the specified cookbook. Idempotent."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{cookbook_id}/manifest",
+      "name": "cookbook_manifest",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Return the install manifest for all skills in a cookbook."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/personalities/bulk",
+      "name": "add_personalities_bulk",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Add MANY personalities to a bundle in ONE call \u2014 the bulk twin of"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/personalities/bulk_remove",
+      "name": "remove_personalities_bulk",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Remove MANY personalities from a bundle in ONE call. Unknown/absent"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbooks/{cookbook_id}/personalities/{slug}",
+      "name": "remove_personality_from_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Remove a personality from the specified cookbook."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/personalities/{slug}",
+      "name": "add_personality_to_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Add a personality to the specified cookbook. Idempotent."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/reconcile",
+      "name": "reconcile_cookbook",
+      "module": "app.reconcile_routes",
+      "tags": [
+        "reconcile",
+        "reconcile"
+      ],
+      "classification": "authenticated",
+      "summary": "Conditional reconcile poll (see module docstring)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/reconcile-report",
+      "name": "reconcile_report",
+      "module": "app.promotion_routes",
+      "tags": [
+        "promotion",
+        "promotion"
+      ],
+      "classification": "authenticated",
+      "summary": "Record a canary reconcile outcome and opportunistically promote."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/cookbooks/{cookbook_id}/reorder",
+      "name": "reorder_cookbook_skills",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "portal_0610 J2 / L3 \u2014 persist the Composer's skill order."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{cookbook_id}/share-tokens",
+      "name": "list_share_tokens",
+      "module": "app.share_token_routes",
+      "tags": [
+        "share",
+        "share-tokens"
+      ],
+      "classification": "authenticated",
+      "summary": "List all share tokens for a cookbook (metadata only, no plaintext)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/share-tokens",
+      "name": "create_share_token",
+      "module": "app.share_token_routes",
+      "tags": [
+        "share",
+        "share-tokens"
+      ],
+      "classification": "authenticated",
+      "summary": "Create a new share token. Plaintext token returned exactly once."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbooks/{cookbook_id}/share-tokens/{token_id}",
+      "name": "revoke_share_token",
+      "module": "app.share_token_routes",
+      "tags": [
+        "share",
+        "share-tokens"
+      ],
+      "classification": "authenticated",
+      "summary": "Soft-delete a share token (sets is_active=False)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/share-tokens/{token_id}/rotate",
+      "name": "rotate_share_token",
+      "module": "app.share_token_routes",
+      "tags": [
+        "share",
+        "share-tokens"
+      ],
+      "classification": "authenticated",
+      "summary": "Deactivate old token and create a new one with the same name/scope."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/skills",
+      "name": "add_skill_to_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Add a skill to the specified cookbook."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/skills/bulk",
+      "name": "add_skills_bulk",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Add MANY skills (local and/or federated, mixed) to a bundle in ONE call."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/skills/bulk_remove",
+      "name": "remove_skills_bulk",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Soft-delete MANY skills (local and/or federated) from a bundle in ONE"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbooks/{cookbook_id}/skills/{slug}",
+      "name": "remove_skill_from_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Remove a skill from the specified cookbook."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{cookbook_id}/skills/{slug}/install",
+      "name": "install_single_skill_from_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Install ONE skill from a cookbook by slug."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/cookbooks/{cookbook_id}/skills/{slug}/pin",
+      "name": "set_skill_pin",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "portal_0610 J2 / L5 \u2014 pin a curated skill to a specific version, or clear"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{cookbook_id}/sync",
+      "name": "cookbook_sync",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Return skills updated since the given timestamp for sync."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{cookbook_id}/sync/sse",
+      "name": "cookbook_sync_sse",
+      "module": "app.sse_routes",
+      "tags": [
+        "live-sync",
+        "sse"
+      ],
+      "classification": "authenticated",
+      "summary": "Stream Server-Sent Events for real-time cookbook sync updates."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/verify",
+      "name": "verify_cookbook",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "Assign / revoke the verified-maintainer badge on a cookbook (admin only)."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/cookbooks/{cookbook_id}/visibility",
+      "name": "set_cookbook_visibility",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "authenticated",
+      "summary": "portal_0610 J2 \u2014 flip a cookbook public/private from the Composer."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbooks/{slug}/like",
+      "name": "unlike_bundle",
+      "module": "app.artifact_like_routes",
+      "tags": [
+        "cookbooks",
+        "engagement",
+        "engagement"
+      ],
+      "classification": "authenticated",
+      "summary": "Unlike a bundle by slug (removes the follow)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{slug}/like",
+      "name": "like_bundle",
+      "module": "app.artifact_like_routes",
+      "tags": [
+        "cookbooks",
+        "engagement",
+        "engagement"
+      ],
+      "classification": "authenticated",
+      "summary": "Like a bundle by slug."
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{slug}/plugin.json",
+      "name": "bundle_plugin_manifest",
+      "module": "app.bundle_routes",
+      "tags": [
+        "bundles",
+        "cookbooks",
+        "cookbooks"
+      ],
+      "classification": "public",
+      "summary": "Agent Plugins v1.0.0 manifest for a PUBLIC bundle. No auth."
+    },
+    {
+      "method": "GET",
+      "path": "/api/creator/earnings",
+      "name": "creator_earnings",
+      "module": "app.creator_routes",
+      "tags": [
+        "creator",
+        "creator"
+      ],
+      "classification": "authenticated",
+      "summary": "Get earnings summary for the authenticated creator."
+    },
+    {
+      "method": "GET",
+      "path": "/api/creator/payouts",
+      "name": "creator_payouts",
+      "module": "app.creator_routes",
+      "tags": [
+        "creator",
+        "creator"
+      ],
+      "classification": "authenticated",
+      "summary": "Get payout history for the authenticated creator."
+    },
+    {
+      "method": "GET",
+      "path": "/api/creators/me/stats",
+      "name": "get_creator_stats",
+      "module": "app.creators_routes",
+      "tags": [
+        "creator",
+        "creators"
+      ],
+      "classification": "authenticated",
+      "summary": "Per-bundle install counts for bundles the caller owns."
+    },
+    {
+      "method": "GET",
+      "path": "/api/federation/filter",
+      "name": "get_federation_filter",
+      "module": "app.federation_filter_routes",
+      "tags": [
+        "federation",
+        "federation",
+        "filters",
+        "filters"
+      ],
+      "classification": "public",
+      "summary": "Carve the ~154k-row federated index by source/license/trust_level/tag."
+    },
+    {
+      "method": "GET",
+      "path": "/api/federation/filter/facets",
+      "name": "get_federation_filter_facets",
+      "module": "app.federation_filter_routes",
+      "tags": [
+        "federation",
+        "federation",
+        "filters",
+        "filters"
+      ],
+      "classification": "public",
+      "summary": "The distinct source / trust_level values worth offering as filter"
+    },
+    {
+      "method": "POST",
+      "path": "/api/federation/propose",
+      "name": "post_federation_propose",
+      "module": "app.federation_propose_routes",
+      "tags": [
+        "federation",
+        "federation"
+      ],
+      "classification": "public",
+      "summary": "Propose a new federation registry source for review."
+    },
+    {
+      "method": "POST",
+      "path": "/api/feedback/incident",
+      "name": "post_incident",
+      "module": "app.feedback_routes",
+      "tags": [
+        "feedback",
+        "feedback"
+      ],
+      "classification": "authenticated",
+      "summary": "Submit an incident report for a skill execution failure."
+    },
+    {
+      "method": "GET",
+      "path": "/api/feedback/{row_id}",
+      "name": "get_feedback_status",
+      "module": "app.feedback_status_routes",
+      "tags": [
+        "feedback-status"
+      ],
+      "classification": "authenticated",
+      "summary": "Return the current status and issue_url for a feedback or recipify-request row."
+    },
+    {
+      "method": "GET",
+      "path": "/api/fleets",
+      "name": "list_fleets",
+      "module": "app.fleet_routes",
+      "tags": [
+        "fleets",
+        "fleets"
+      ],
+      "classification": "authenticated",
+      "summary": "GET /api/fleets \u2014 list the caller's fleets + subscriptions."
+    },
+    {
+      "method": "POST",
+      "path": "/api/fleets",
+      "name": "create_fleet",
+      "module": "app.fleet_routes",
+      "tags": [
+        "fleets",
+        "fleets"
+      ],
+      "classification": "authenticated",
+      "summary": "POST /api/fleets \u2014 create a named fleet. Returns the plaintext fleet_key ONCE."
+    },
+    {
+      "method": "GET",
+      "path": "/api/fleets/{fleet_id}/convergence",
+      "name": "get_fleet_convergence",
+      "module": "app.dashboard_routes",
+      "tags": [
+        "dashboard"
+      ],
+      "classification": "authenticated",
+      "summary": "Per-assignment convergence (mesh_0408 T1-B\u2032)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/fleets/{fleet_id}/dashboard",
+      "name": "get_fleet_dashboard",
+      "module": "app.dashboard_routes",
+      "tags": [
+        "dashboard"
+      ],
+      "classification": "authenticated",
+      "summary": "Fleet dashboard: drift + voice + cron + cost per member."
+    },
+    {
+      "method": "GET",
+      "path": "/api/fleets/{fleet_id}/inventory",
+      "name": "get_fleet_inventory",
+      "module": "app.fleet_console_routes",
+      "tags": [
+        "fleet-console"
+      ],
+      "classification": "authenticated",
+      "summary": "The whole fleet as one matrix \u2014 per-member drift summary + extras."
+    },
+    {
+      "method": "GET",
+      "path": "/api/fleets/{fleet_id}/members",
+      "name": "list_members",
+      "module": "app.fleet_member_routes",
+      "tags": [
+        "fleet-members",
+        "fleet-members"
+      ],
+      "classification": "authenticated",
+      "summary": "Keyset-paginated list of a fleet's active members."
+    },
+    {
+      "method": "POST",
+      "path": "/api/fleets/{fleet_id}/members",
+      "name": "enroll_member",
+      "module": "app.fleet_member_routes",
+      "tags": [
+        "fleet-members",
+        "fleet-members"
+      ],
+      "classification": "authenticated",
+      "summary": "Enroll one agent as a FleetMember, minting a dedicated API key."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/fleets/{fleet_id}/members/{member_id}",
+      "name": "remove_member",
+      "module": "app.fleet_member_routes",
+      "tags": [
+        "fleet-members",
+        "fleet-members"
+      ],
+      "classification": "authenticated",
+      "summary": "Deactivate a member AND revoke its APIKey. Idempotent (always 200)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/fleets/{fleet_id}/members/{member_id}/state",
+      "name": "get_member_state",
+      "module": "app.fleet_console_routes",
+      "tags": [
+        "fleet-console"
+      ],
+      "classification": "authenticated",
+      "summary": "One agent's reality: installed skills + drift vs declared + extras."
+    },
+    {
+      "method": "POST",
+      "path": "/api/fleets/{fleet_id}/subscribe",
+      "name": "subscribe_fleet",
+      "module": "app.fleet_routes",
+      "tags": [
+        "fleets",
+        "fleets"
+      ],
+      "classification": "authenticated",
+      "summary": "POST /api/fleets/{id}/subscribe \u2014 subscribe a cookbook on a channel (idempotent)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/fleets/{fleet_id}/sync",
+      "name": "sync_fleet_route",
+      "module": "app.fleet_routes",
+      "tags": [
+        "fleets",
+        "fleets"
+      ],
+      "classification": "authenticated",
+      "summary": "POST /api/fleets/{id}/sync \u2014 sync every subscribed cookbook. dry_run previews."
+    },
+    {
+      "method": "GET",
+      "path": "/api/fleets/{fleet_id}/voice-inbox",
+      "name": "get_voice_inbox",
+      "module": "app.voice_routes",
+      "tags": [
+        "voice-inbox"
+      ],
+      "classification": "authenticated",
+      "summary": "Aggregated voice inbox: skill_errors + loop_failures + recipify + feedback."
+    },
+    {
+      "method": "POST",
+      "path": "/api/fleets/{fleet_id}/voice-inbox/{item_type}/{item_id}/resolve",
+      "name": "resolve_voice_item",
+      "module": "app.voice_routes",
+      "tags": [
+        "voice-inbox"
+      ],
+      "classification": "authenticated",
+      "summary": "Mark a voice inbox item as resolved."
+    },
+    {
+      "method": "GET",
+      "path": "/api/forks/_download",
+      "name": "download_fork",
+      "module": "app.forks_routes",
+      "tags": [
+        "forks",
+        "forks"
+      ],
+      "classification": "public",
+      "summary": "Verify the HMAC token and stream the tarball. Public \u2014 auth lives in"
+    },
+    {
+      "method": "POST",
+      "path": "/api/forks/create",
+      "name": "create_fork",
+      "module": "app.forks_routes",
+      "tags": [
+        "forks",
+        "forks"
+      ],
+      "classification": "authenticated",
+      "summary": "Create a new private fork of an existing skill."
+    },
+    {
+      "method": "GET",
+      "path": "/api/forks/list",
+      "name": "list_forks",
+      "module": "app.forks_routes",
+      "tags": [
+        "forks",
+        "forks"
+      ],
+      "classification": "authenticated",
+      "summary": "List all forks owned by the authenticated pro_plus user."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/forks/{fork_id}",
+      "name": "delete_fork",
+      "module": "app.forks_routes",
+      "tags": [
+        "forks",
+        "forks"
+      ],
+      "classification": "authenticated",
+      "summary": "Soft-delete: visibility is set to NULL and readme is cleared. The row"
+    },
+    {
+      "method": "GET",
+      "path": "/api/forks/{fork_id}/install",
+      "name": "install_fork",
+      "module": "app.forks_routes",
+      "tags": [
+        "forks",
+        "forks"
+      ],
+      "classification": "authenticated",
+      "summary": "Issue an HMAC-signed download URL with 5-min TTL for the latest version."
+    },
+    {
+      "method": "POST",
+      "path": "/api/forks/{fork_id}/version",
+      "name": "upload_fork_version",
+      "module": "app.forks_routes",
+      "tags": [
+        "forks",
+        "forks"
+      ],
+      "classification": "authenticated",
+      "summary": "Upload a new version tarball to an existing fork."
+    },
+    {
+      "method": "GET",
+      "path": "/api/graph/coverage",
+      "name": "graph_coverage",
+      "module": "app.graph_routes",
+      "tags": [
+        "graph",
+        "graph"
+      ],
+      "classification": "public",
+      "summary": "Per-edge-type eligible/covered/coverage_pct/last_built_at \u2014 computed live."
+    },
+    {
+      "method": "GET",
+      "path": "/api/graph/neighborhood",
+      "name": "graph_neighborhood",
+      "module": "app.graph_routes",
+      "tags": [
+        "graph",
+        "graph"
+      ],
+      "classification": "public",
+      "summary": "Lazy, paginated neighbor listing for one skill. ADVISORY ONLY."
+    },
+    {
+      "method": "GET",
+      "path": "/api/graph/related",
+      "name": "graph_related",
+      "module": "app.graph_routes",
+      "tags": [
+        "graph",
+        "graph"
+      ],
+      "classification": "public",
+      "summary": "Return edges of one type rooted at one skill."
+    },
+    {
+      "method": "GET",
+      "path": "/api/graph/replacements",
+      "name": "list_replacements",
+      "module": "app.graph_routes",
+      "tags": [
+        "graph",
+        "graph"
+      ],
+      "classification": "public",
+      "summary": "Public list of curator-confirmed replacements (audit transparency)."
+    },
+    {
+      "method": "POST",
+      "path": "/api/graph/replacements",
+      "name": "create_replacement",
+      "module": "app.graph_routes",
+      "tags": [
+        "graph",
+        "graph"
+      ],
+      "classification": "public",
+      "summary": "Create a skill replacement record (master-only)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "name": "health_status",
+      "module": "app.transparency_routes",
+      "tags": [
+        "transparency",
+        "transparency"
+      ],
+      "classification": "public",
+      "summary": "Public liveness status \u2014 no auth, no DB dependency."
+    },
+    {
+      "method": "GET",
+      "path": "/api/health/transparency",
+      "name": "transparency",
+      "module": "app.transparency_routes",
+      "tags": [
+        "transparency",
+        "transparency"
+      ],
+      "classification": "public",
+      "summary": "Public scorecard. Cached 60s, no auth."
+    },
+    {
+      "method": "GET",
+      "path": "/api/healthz",
+      "name": "healthz",
+      "module": "app.health_routes",
+      "tags": [
+        "meta",
+        "meta",
+        "meta"
+      ],
+      "classification": "public",
+      "summary": "Database liveness + Stripe webhook lag probe."
+    },
+    {
+      "method": "POST",
+      "path": "/api/intent-survey",
+      "name": "submit_intent_survey",
+      "module": "app.intent_survey_routes",
+      "tags": [
+        "intent-survey",
+        "surveys"
+      ],
+      "classification": "public",
+      "summary": "Persist one anonymous survey response. Returns {ok, id}."
+    },
+    {
+      "method": "GET",
+      "path": "/api/intent-survey/results",
+      "name": "intent_survey_results",
+      "module": "app.intent_survey_routes",
+      "tags": [
+        "intent-survey",
+        "surveys"
+      ],
+      "classification": "authenticated",
+      "summary": "Aggregate counts grouped by q1 and q4. Email/free-text never returned."
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/internal/feedback/{row_id}/issue-url",
+      "name": "patch_issue_url",
+      "module": "app.internal_routes",
+      "tags": [
+        "internal"
+      ],
+      "classification": "internal",
+      "summary": "Update issue_url and set feedback_status='filed' on the matching row."
+    },
+    {
+      "method": "GET",
+      "path": "/api/library",
+      "name": "get_library",
+      "module": "app.library_routes",
+      "tags": [
+        "library"
+      ],
+      "classification": "authenticated",
+      "summary": "Return the caller's Liked bundle as typed shelves."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/library/like",
+      "name": "unlike_artifact",
+      "module": "app.library_routes",
+      "tags": [
+        "library"
+      ],
+      "classification": "authenticated",
+      "summary": "Idempotently remove one artifact from the caller's Liked bundle."
+    },
+    {
+      "method": "POST",
+      "path": "/api/library/like",
+      "name": "like_artifact",
+      "module": "app.library_routes",
+      "tags": [
+        "library"
+      ],
+      "classification": "authenticated",
+      "summary": "Idempotently add one artifact to the caller's Liked bundle."
+    },
+    {
+      "method": "GET",
+      "path": "/api/loops",
+      "name": "list_verifiers",
+      "module": "app.verifier_routes",
+      "tags": [
+        "verifiers"
+      ],
+      "classification": "public",
+      "summary": "Browse public, non-archived verifiers."
+    },
+    {
+      "method": "POST",
+      "path": "/api/loops",
+      "name": "publish_verifier",
+      "module": "app.verifier_routes",
+      "tags": [
+        "verifiers"
+      ],
+      "classification": "public",
+      "summary": "Publish a verifier. Auth required; the safety contract is validated server-side."
+    },
+    {
+      "method": "GET",
+      "path": "/api/loops/packs",
+      "name": "list_loop_packs",
+      "module": "app.loop_pack_routes",
+      "tags": [
+        "loop-packs"
+      ],
+      "classification": "public",
+      "summary": "List curated loop packs (summary \u2014 no member resolution)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/loops/packs/{pack_slug}",
+      "name": "get_loop_pack",
+      "module": "app.loop_pack_routes",
+      "tags": [
+        "loop-packs"
+      ],
+      "classification": "public",
+      "summary": "Curated loop pack detail with live-resolved members."
+    },
+    {
+      "method": "GET",
+      "path": "/api/loops/{slug}",
+      "name": "get_verifier",
+      "module": "app.verifier_routes",
+      "tags": [
+        "verifiers"
+      ],
+      "classification": "public",
+      "summary": "Verifier detail including the full safety-bounded execution contract."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/loops/{slug}/like",
+      "name": "unlike_loop",
+      "module": "app.artifact_like_routes",
+      "tags": [
+        "engagement",
+        "engagement"
+      ],
+      "classification": "public",
+      "summary": "Unlike a composite loop by slug."
+    },
+    {
+      "method": "POST",
+      "path": "/api/loops/{slug}/like",
+      "name": "like_loop",
+      "module": "app.artifact_like_routes",
+      "tags": [
+        "engagement",
+        "engagement"
+      ],
+      "classification": "public",
+      "summary": "Like a composite loop by slug."
+    },
+    {
+      "method": "POST",
+      "path": "/api/loops/{slug}/rate",
+      "name": "rate_verifier",
+      "module": "app.verifier_routes",
+      "tags": [
+        "verifiers"
+      ],
+      "classification": "public",
+      "summary": "Record a 1\u20135 star rating for a verifier and return the updated aggregate."
+    },
+    {
+      "method": "POST",
+      "path": "/api/loops/{slug}/run",
+      "name": "run_verifier",
+      "module": "app.verifier_routes",
+      "tags": [
+        "verifiers"
+      ],
+      "classification": "public",
+      "summary": "Execute a verifier's verification under its enforced bounds; return pass/fail."
+    },
+    {
+      "method": "GET",
+      "path": "/api/marketing/counts",
+      "name": "marketing_counts",
+      "module": "app.marketing_routes",
+      "tags": [
+        "marketing",
+        "marketing"
+      ],
+      "classification": "public",
+      "summary": "Live catalog counts \u2014 drift-proof source for every public surface."
+    },
+    {
+      "method": "GET",
+      "path": "/api/marketing/snapshot",
+      "name": "marketing_snapshot",
+      "module": "app.marketing_routes",
+      "tags": [
+        "marketing",
+        "marketing"
+      ],
+      "classification": "public",
+      "summary": "Full marketing SSOT \u2014 counts merged with config/recipes-marketing.yaml."
+    },
+    {
+      "method": "GET",
+      "path": "/api/mcp/healthz",
+      "name": "mcp_healthz",
+      "module": "app.mcp.server",
+      "tags": [
+        "mcp",
+        "mcp"
+      ],
+      "classification": "public",
+      "summary": "Return MCP server health info including registered tool names."
+    },
+    {
+      "method": "POST",
+      "path": "/api/mcp/messages/",
+      "name": "mcp_messages",
+      "module": "app.mcp.server",
+      "tags": [
+        "mcp",
+        "mcp"
+      ],
+      "classification": "authenticated",
+      "summary": "POST endpoint paired with the SSE channel. Auth re-checked here so"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mcp/sse",
+      "name": "mcp_sse",
+      "module": "app.mcp.server",
+      "tags": [
+        "mcp",
+        "mcp"
+      ],
+      "classification": "authenticated",
+      "summary": "SSE transport endpoint. Long-lived connection \u2014 client posts to"
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/credits",
+      "name": "list_my_credits",
+      "module": "app.credits_routes",
+      "tags": [
+        "credits",
+        "credits"
+      ],
+      "classification": "authenticated",
+      "summary": "Return the authenticated user's subscriber credits, newest first."
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/library",
+      "name": "my_library",
+      "module": "app.engagement_routes",
+      "tags": [
+        "engagement",
+        "engagement"
+      ],
+      "classification": "authenticated",
+      "summary": "User's library: likes + favourites + owned bundles + followed bundles."
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/referral-code",
+      "name": "get_referral_code",
+      "module": "app.referral_routes",
+      "tags": [
+        "referral",
+        "referrals"
+      ],
+      "classification": "authenticated",
+      "summary": "Return the authenticated user's referral code."
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/referrals",
+      "name": "list_referrals",
+      "module": "app.referral_routes",
+      "tags": [
+        "referral",
+        "referrals"
+      ],
+      "classification": "authenticated",
+      "summary": "List referred users and referral earnings for the authenticated user."
+    },
+    {
+      "method": "POST",
+      "path": "/api/mesh/credentials",
+      "name": "mint_mesh_credential",
+      "module": "app.mesh_routes",
+      "tags": [
+        "mesh",
+        "mesh"
+      ],
+      "classification": "authenticated",
+      "summary": "Mint one scoped, audience-bound mesh credential for the calling member."
+    },
+    {
+      "method": "GET",
+      "path": "/api/my/loop-assignments",
+      "name": "my_loop_assignments",
+      "module": "app.loop_assignment_routes",
+      "tags": [
+        "loop-assignments",
+        "loop-assignments"
+      ],
+      "classification": "authenticated",
+      "summary": "Return the calling member's schedulable loop assignments + manifests."
+    },
+    {
+      "method": "GET",
+      "path": "/api/orgs",
+      "name": "list_orgs",
+      "module": "app.org_routes",
+      "tags": [
+        "orgs",
+        "orgs"
+      ],
+      "classification": "authenticated",
+      "summary": "GET /api/orgs \u2014 list orgs the caller is a member of."
+    },
+    {
+      "method": "POST",
+      "path": "/api/orgs",
+      "name": "create_org",
+      "module": "app.org_routes",
+      "tags": [
+        "orgs",
+        "orgs"
+      ],
+      "classification": "authenticated",
+      "summary": "POST /api/orgs \u2014 create an org + OrgMembership(role='owner')."
+    },
+    {
+      "method": "GET",
+      "path": "/api/orgs/{org_id}/a2a-directory",
+      "name": "a2a_directory",
+      "module": "app.mesh_discovery_routes",
+      "tags": [
+        "a2a-directory",
+        "a2a-directory",
+        "mesh",
+        "mesh"
+      ],
+      "classification": "authenticated",
+      "summary": "List A2A-reachable members of ONE org, gated by a mesh-directory credential."
+    },
+    {
+      "method": "POST",
+      "path": "/api/orgs/{org_id}/members",
+      "name": "add_org_member",
+      "module": "app.org_routes",
+      "tags": [
+        "orgs",
+        "orgs"
+      ],
+      "classification": "authenticated",
+      "summary": "POST /api/orgs/{id}/members \u2014 add a member (org owner only)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/personalities",
+      "name": "list_personalities",
+      "module": "app.personality_routes",
+      "tags": [
+        "personalities",
+        "personalities"
+      ],
+      "classification": "public",
+      "summary": "Browse public, non-archived personalities."
+    },
+    {
+      "method": "POST",
+      "path": "/api/personalities",
+      "name": "publish_personality",
+      "module": "app.personality_routes",
+      "tags": [
+        "personalities",
+        "personalities"
+      ],
+      "classification": "public",
+      "summary": "Publish a personality. Auth required."
+    },
+    {
+      "method": "GET",
+      "path": "/api/personalities/external",
+      "name": "list_external_personalities",
+      "module": "app.personality_routes",
+      "tags": [
+        "personalities",
+        "personalities"
+      ],
+      "classification": "public",
+      "summary": "Browse linked, second-class external personalities without prompt bodies."
+    },
+    {
+      "method": "GET",
+      "path": "/api/personalities/external/{slug}/install",
+      "name": "install_external_personality",
+      "module": "app.personality_routes",
+      "tags": [
+        "personalities",
+        "personalities"
+      ],
+      "classification": "public",
+      "summary": "FETCH_ORIGIN an external personality and leak-scan its prompt boundary."
+    },
+    {
+      "method": "GET",
+      "path": "/api/personalities/{slug}",
+      "name": "get_personality",
+      "module": "app.personality_routes",
+      "tags": [
+        "personalities",
+        "personalities"
+      ],
+      "classification": "public",
+      "summary": "Personality detail: system prompt + structured config."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/personalities/{slug}/like",
+      "name": "unlike_personality",
+      "module": "app.artifact_like_routes",
+      "tags": [
+        "engagement",
+        "engagement"
+      ],
+      "classification": "public",
+      "summary": "Unlike a personality by slug."
+    },
+    {
+      "method": "POST",
+      "path": "/api/personalities/{slug}/like",
+      "name": "like_personality",
+      "module": "app.artifact_like_routes",
+      "tags": [
+        "engagement",
+        "engagement"
+      ],
+      "classification": "public",
+      "summary": "Like a personality by slug. Writes to the typed Liked bundle."
+    },
+    {
+      "method": "POST",
+      "path": "/api/recall",
+      "name": "post_recall",
+      "module": "app.recall_routes",
+      "tags": [
+        "recall",
+        "recall"
+      ],
+      "classification": "authenticated",
+      "summary": "Perform a hybrid BM25 + vector skill recall and return ranked results."
+    },
+    {
+      "method": "GET",
+      "path": "/api/recipes/{slug}",
+      "name": "get_recipe",
+      "module": "app.recipe_routes",
+      "tags": [
+        "recipes",
+        "recipes",
+        "recipes"
+      ],
+      "classification": "authenticated",
+      "summary": "Return public recipe detail."
+    },
+    {
+      "method": "POST",
+      "path": "/api/recipify",
+      "name": "recipify",
+      "module": "app.recipify_routes",
+      "tags": [
+        "recipify",
+        "recipify"
+      ],
+      "classification": "authenticated",
+      "summary": "Validate and store a new SKILL.md draft as a CookbookSkill."
+    },
+    {
+      "method": "GET",
+      "path": "/api/search",
+      "name": "unified_search",
+      "module": "app.search_routes",
+      "tags": [
+        "search",
+        "search"
+      ],
+      "classification": "public",
+      "summary": "Search skills, loops, bundles, personalities, and connectors in one"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/_download",
+      "name": "download_tarball",
+      "module": "app.install_routes",
+      "tags": [
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "Verify signed token and return tarball info."
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/_publish",
+      "name": "publish_skill",
+      "module": "app.publisher_routes",
+      "tags": [
+        "publisher",
+        "publisher",
+        "publisher"
+      ],
+      "classification": "authenticated",
+      "summary": "Publish a new skill version (private by default)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/access",
+      "name": "skill_access",
+      "module": "app.access_routes",
+      "tags": [
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "Check whether the calling subscriber can access a skill."
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/external",
+      "name": "get_external_skills",
+      "module": "app.skill_routes",
+      "tags": [
+        "federation",
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "evergreen_0206 Phase F2/F3 + superset_0606 Phase B \u2014 the live external"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/external/{source}/{slug}/install",
+      "name": "install_external_skill",
+      "module": "app.skill_routes",
+      "tags": [
+        "federation",
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "evergreen_0206 Phase F2 \u2014 REAL fetch-origin install for an external skill."
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/external/{source}/{slug}/source-link",
+      "name": "external_source_link",
+      "module": "app.skill_routes",
+      "tags": [
+        "federation",
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "portal_0610 J4 / \u00a76.5 DEFECT-1+2+3 \u2014 a VALIDATED, reachable source link"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/graph",
+      "name": "get_full_skill_graph",
+      "module": "app.skill_routes",
+      "tags": [
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "Full marketplace skill graph dump for portal-side visualisation (Stage 3, G17)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/install",
+      "name": "install_skill",
+      "module": "app.install_routes",
+      "tags": [
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "Return a signed URL for downloading the skill tarball."
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/metasearch",
+      "name": "metasearch",
+      "module": "app.metasearch_routes",
+      "tags": [
+        "metasearch",
+        "metasearch",
+        "metasearch",
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "Unified metasearch: one ranked list across curated + live external sources."
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/metasearch/deploy",
+      "name": "metasearch_fleet_deploy",
+      "module": "app.metasearch_deploy_routes",
+      "tags": [
+        "fleet-deploy",
+        "fleet-deploy",
+        "fleet-deploy",
+        "metasearch",
+        "metasearch",
+        "metasearch",
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "Deploy an external metasearch result to a fleet with a deploy-time content pin."
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/metasearch/install",
+      "name": "metasearch_install",
+      "module": "app.metasearch_routes",
+      "tags": [
+        "metasearch",
+        "metasearch",
+        "metasearch",
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "Resolve ONE metasearch card to an installable/previewable SKILL.md body."
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/search",
+      "name": "search_skills",
+      "module": "app.skill_routes",
+      "tags": [
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "Full-text skill search with hybrid recall fallback."
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/trending",
+      "name": "trending_skills",
+      "module": "app.skill_routes",
+      "tags": [
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "Trending = most telemetry install events in the given period."
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}",
+      "name": "get_skill_detail",
+      "module": "app.skill_routes",
+      "tags": [
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "Full skill detail with versions and resolved related skills."
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/{slug}/_archive",
+      "name": "archive_skill",
+      "module": "app.publisher_routes",
+      "tags": [
+        "publisher",
+        "publisher",
+        "publisher"
+      ],
+      "classification": "authenticated",
+      "summary": "Soft-archive a skill \u2014 sets is_archived=True and NULLs search_vector."
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}/external",
+      "name": "get_skill_external",
+      "module": "app.skill_routes",
+      "tags": [
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "authenticated",
+      "summary": "v6 Phase A: Return external_resources JSON for a skill."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/skills/{slug}/favourite",
+      "name": "unfavourite_track",
+      "module": "app.engagement_routes",
+      "tags": [
+        "engagement",
+        "engagement"
+      ],
+      "classification": "authenticated",
+      "summary": "Remove a track from library. Requires user scope."
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/{slug}/favourite",
+      "name": "favourite_track",
+      "module": "app.engagement_routes",
+      "tags": [
+        "engagement",
+        "engagement"
+      ],
+      "classification": "authenticated",
+      "summary": "Save a track to library (favourite). Requires user scope."
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}/file",
+      "name": "get_skill_file",
+      "module": "app.skill_files_routes",
+      "tags": [
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "Return the content of a single file from the skill tarball."
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}/files",
+      "name": "get_skill_files",
+      "module": "app.skill_files_routes",
+      "tags": [
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "Return the tarball file manifest for a skill."
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}/graph",
+      "name": "get_skill_graph",
+      "module": "app.skill_routes",
+      "tags": [
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "Return the Stage-1 declared edges + Stage-2 derived edges for a skill."
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}/install-events",
+      "name": "get_skill_install_events",
+      "module": "app.skill_files_routes",
+      "tags": [
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "authenticated",
+      "summary": "Return install event counts bucketed by day for a sparkline chart."
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/skills/{slug}/like",
+      "name": "unlike_track",
+      "module": "app.engagement_routes",
+      "tags": [
+        "engagement",
+        "engagement"
+      ],
+      "classification": "authenticated",
+      "summary": "Unlike a track. Requires user scope."
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/{slug}/like",
+      "name": "like_track",
+      "module": "app.engagement_routes",
+      "tags": [
+        "engagement",
+        "engagement"
+      ],
+      "classification": "authenticated",
+      "summary": "Like a track (local skill or federated). Requires user scope."
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}/related",
+      "name": "get_skill_related",
+      "module": "app.skill_routes",
+      "tags": [
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "Return up to 10 public skills the author declared as related."
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}/runtime",
+      "name": "get_skill_runtime",
+      "module": "app.skill_files_routes",
+      "tags": [
+        "skills",
+        "skills",
+        "skills"
+      ],
+      "classification": "authenticated",
+      "summary": "Return runtime/toolchain detection info for a skill."
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/{slug}/sandbox/run",
+      "name": "sandbox_run",
+      "module": "app.sandbox.routes",
+      "tags": [
+        "sandbox",
+        "sandbox"
+      ],
+      "classification": "authenticated",
+      "summary": "Execute a skill's entrypoint inside a bubblewrap sandbox."
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}/sandbox/status",
+      "name": "sandbox_status",
+      "module": "app.sandbox.routes",
+      "tags": [
+        "sandbox",
+        "sandbox"
+      ],
+      "classification": "authenticated",
+      "summary": "Check if a skill supports sandbox execution and return its profile."
+    },
+    {
+      "method": "GET",
+      "path": "/api/stats",
+      "name": "marketplace_stats",
+      "module": "app.core_routes",
+      "tags": [
+        "meta"
+      ],
+      "classification": "public",
+      "summary": "Public marketplace transparency stats \u2014 totals, top categories, top skills."
+    },
+    {
+      "method": "GET",
+      "path": "/api/stats/patches",
+      "name": "get_patch_stats",
+      "module": "app.canary",
+      "tags": [
+        "canary",
+        "stats"
+      ],
+      "classification": "public",
+      "summary": "Return patch success/failure stats for the requested time period."
+    },
+    {
+      "method": "GET",
+      "path": "/api/stripe/dashboard",
+      "name": "stripe_dashboard_link",
+      "module": "app.creator_routes",
+      "tags": [
+        "creator",
+        "creator"
+      ],
+      "classification": "authenticated",
+      "summary": "KILLED \u2014 Stripe Express dashboard removed in top1pct_1105 Phase C."
+    },
+    {
+      "method": "POST",
+      "path": "/api/stripe/onboard",
+      "name": "stripe_onboard",
+      "module": "app.creator_routes",
+      "tags": [
+        "creator",
+        "creator"
+      ],
+      "classification": "authenticated",
+      "summary": "KILLED \u2014 Stripe Connect creator onboarding removed in top1pct_1105 Phase C."
+    },
+    {
+      "method": "GET",
+      "path": "/api/stripe/status",
+      "name": "stripe_status",
+      "module": "app.creator_routes",
+      "tags": [
+        "creator",
+        "creator"
+      ],
+      "classification": "authenticated",
+      "summary": "KILLED \u2014 Stripe Connect status removed in top1pct_1105 Phase C."
+    },
+    {
+      "method": "POST",
+      "path": "/api/stripe/webhook",
+      "name": "stripe_webhook",
+      "module": "app.creator_routes",
+      "tags": [
+        "creator",
+        "creator"
+      ],
+      "classification": "internal",
+      "summary": "Handle Stripe webhook events."
+    },
+    {
+      "method": "POST",
+      "path": "/api/subscriptions/downgrade",
+      "name": "downgrade_subscription",
+      "module": "app.checkout_routes",
+      "tags": [
+        "billing",
+        "checkout"
+      ],
+      "classification": "authenticated",
+      "summary": "Switch a Pro+ subscriber to Pro with proration."
+    },
+    {
+      "method": "POST",
+      "path": "/api/sync-report",
+      "name": "post_sync_report",
+      "module": "app.sync_report_routes",
+      "tags": [
+        "sync-report",
+        "sync-report"
+      ],
+      "classification": "authenticated",
+      "summary": "Ingest one batched sync-report from a fleet member."
+    },
+    {
+      "method": "POST",
+      "path": "/api/telemetry",
+      "name": "post_telemetry",
+      "module": "app.core_routes",
+      "tags": [
+        "telemetry"
+      ],
+      "classification": "authenticated",
+      "summary": "Record a telemetry event."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/feedback",
+      "name": "post_feedback",
+      "module": "app.feedback_v1_routes",
+      "tags": [
+        "feedback",
+        "feedback-v1"
+      ],
+      "classification": "authenticated",
+      "summary": "Submit a feedback entry for a skill or recipe."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/fleet/weekly",
+      "name": "fleet_weekly",
+      "module": "app.heartbeat_routes",
+      "tags": [
+        "fleet",
+        "heartbeat"
+      ],
+      "classification": "authenticated",
+      "summary": "Aggregate distinct devices per ISO week. NO drill-down \u2014 by design."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/heartbeat",
+      "name": "post_heartbeat",
+      "module": "app.heartbeat_routes",
+      "tags": [
+        "fleet",
+        "heartbeat"
+      ],
+      "classification": "public",
+      "summary": "Record a heartbeat ping from an installed agent."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/recipify-request",
+      "name": "post_recipify_request",
+      "module": "app.feedback_v1_routes",
+      "tags": [
+        "feedback",
+        "feedback-v1"
+      ],
+      "classification": "authenticated",
+      "summary": "Submit a recipify (skill creation) request."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skill-error",
+      "name": "post_skill_error",
+      "module": "app.skill_error_routes",
+      "tags": [
+        "skill-errors",
+        "skill-errors"
+      ],
+      "classification": "authenticated",
+      "summary": "Submit a skill execution error report with optional PII redaction."
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skill-error/health",
+      "name": "skill_error_health",
+      "module": "app.skill_error_routes",
+      "tags": [
+        "skill-errors",
+        "skill-errors"
+      ],
+      "classification": "authenticated",
+      "summary": "Health check for the error reporting subsystem."
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skill-patch",
+      "name": "post_skill_patch",
+      "module": "app.skill_patch_routes",
+      "tags": [
+        "skill-patch",
+        "skill-patches"
+      ],
+      "classification": "authenticated",
+      "summary": "Submit a working skill patch and open a draft PR on wisechef-ai/recipes-api."
+    },
+    {
+      "method": "POST",
+      "path": "/api/vat/calculate",
+      "name": "vat_calculate",
+      "module": "app.creator_routes",
+      "tags": [
+        "creator",
+        "creator"
+      ],
+      "classification": "authenticated",
+      "summary": "Calculate VAT MOSS for a given amount and buyer location."
+    },
+    {
+      "method": "POST",
+      "path": "/api/vat/moss-report",
+      "name": "vat_moss_report",
+      "module": "app.creator_routes",
+      "tags": [
+        "creator",
+        "creator"
+      ],
+      "classification": "authenticated",
+      "summary": "Generate a VAT MOSS report for the current period (admin endpoint)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/verifiers",
+      "name": "list_verifiers",
+      "module": "app.verifier_routes",
+      "tags": [
+        "verifiers"
+      ],
+      "classification": "public",
+      "summary": "Browse public, non-archived verifiers."
+    },
+    {
+      "method": "POST",
+      "path": "/api/verifiers",
+      "name": "publish_verifier",
+      "module": "app.verifier_routes",
+      "tags": [
+        "verifiers"
+      ],
+      "classification": "public",
+      "summary": "Publish a verifier. Auth required; the safety contract is validated server-side."
+    },
+    {
+      "method": "GET",
+      "path": "/api/verifiers/{slug}",
+      "name": "get_verifier",
+      "module": "app.verifier_routes",
+      "tags": [
+        "verifiers"
+      ],
+      "classification": "public",
+      "summary": "Verifier detail including the full safety-bounded execution contract."
+    },
+    {
+      "method": "POST",
+      "path": "/api/verifiers/{slug}/rate",
+      "name": "rate_verifier",
+      "module": "app.verifier_routes",
+      "tags": [
+        "verifiers"
+      ],
+      "classification": "public",
+      "summary": "Record a 1\u20135 star rating for a verifier and return the updated aggregate."
+    },
+    {
+      "method": "POST",
+      "path": "/api/verifiers/{slug}/run",
+      "name": "run_verifier",
+      "module": "app.verifier_routes",
+      "tags": [
+        "verifiers"
+      ],
+      "classification": "public",
+      "summary": "Execute a verifier's verification under its enforced bounds; return pass/fail."
+    },
+    {
+      "method": "GET",
+      "path": "/api/wisechef/demo-cta",
+      "name": "demo_cta",
+      "module": "app.marketing_routes",
+      "tags": [
+        "wisechef"
+      ],
+      "classification": "authenticated",
+      "summary": "WiseChef cross-sell CTA for the Recipes marketplace."
+    },
+    {
+      "method": "POST",
+      "path": "/api/wisechef/demo-request",
+      "name": "submit_demo_request",
+      "module": "app.marketing_routes",
+      "tags": [
+        "wisechef"
+      ],
+      "classification": "authenticated",
+      "summary": "Submit a demo request from the Recipes marketplace."
+    },
+    {
+      "method": "GET",
+      "path": "/fb/{skill_slug}",
+      "name": "_platform_redirect",
+      "module": "app.utm_redirects",
+      "tags": [
+        "skills"
+      ],
+      "classification": "public",
+      "summary": ""
+    },
+    {
+      "method": "GET",
+      "path": "/fleet/SKILL.md",
+      "name": "serve_fleet_skill",
+      "module": "app.fleet_skill_serve_routes",
+      "tags": [
+        "fleet"
+      ],
+      "classification": "public",
+      "summary": "Serve the fleet-control-plane SKILL.md as text/plain (no redirect)."
+    },
+    {
+      "method": "GET",
+      "path": "/fleet/skill",
+      "name": "serve_fleet_skill",
+      "module": "app.fleet_skill_serve_routes",
+      "tags": [
+        "fleet"
+      ],
+      "classification": "public",
+      "summary": "Serve the fleet-control-plane SKILL.md as text/plain (no redirect)."
+    },
+    {
+      "method": "GET",
+      "path": "/fleet/skill/",
+      "name": "serve_fleet_skill",
+      "module": "app.fleet_skill_serve_routes",
+      "tags": [
+        "fleet"
+      ],
+      "classification": "public",
+      "summary": "Serve the fleet-control-plane SKILL.md as text/plain (no redirect)."
+    },
+    {
+      "method": "GET",
+      "path": "/ig/{skill_slug}",
+      "name": "_platform_redirect",
+      "module": "app.utm_redirects",
+      "tags": [
+        "skills"
+      ],
+      "classification": "public",
+      "summary": ""
+    },
+    {
+      "method": "GET",
+      "path": "/li/{skill_slug}",
+      "name": "_platform_redirect",
+      "module": "app.utm_redirects",
+      "tags": [
+        "skills"
+      ],
+      "classification": "public",
+      "summary": ""
+    },
+    {
+      "method": "GET",
+      "path": "/skill",
+      "name": "serve_canonical_skill",
+      "module": "app.skill_serve_routes",
+      "tags": [
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "Serve the canonical, clean SKILL.md as text/plain (no redirect)."
+    },
+    {
+      "method": "GET",
+      "path": "/skill/",
+      "name": "serve_canonical_skill",
+      "module": "app.skill_serve_routes",
+      "tags": [
+        "skills"
+      ],
+      "classification": "public",
+      "summary": "Serve the canonical, clean SKILL.md as text/plain (no redirect)."
+    },
+    {
+      "method": "GET",
+      "path": "/x/{skill_slug}",
+      "name": "_platform_redirect",
+      "module": "app.utm_redirects",
+      "tags": [
+        "skills"
+      ],
+      "classification": "public",
+      "summary": ""
+    },
+    {
+      "method": "GET",
+      "path": "/yt/{skill_slug}",
+      "name": "_platform_redirect",
+      "module": "app.utm_redirects",
+      "tags": [
+        "skills"
+      ],
+      "classification": "public",
+      "summary": ""
+    }
+  ]
+}

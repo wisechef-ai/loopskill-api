@@ -6,6 +6,7 @@ Plus supporting tables: creators, orgs, api_library.
 Bundle tables: bundles, bundle_skills, bundle_share_tokens, bundle_deployments.
 """
 
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -42,7 +43,7 @@ class LikedBundleNotPublishableError(ValueError):
     The Liked bundle is a Spotify-style auto-created SYSTEM collection.
     Publishing a user's entire saved-likes set is a privacy incident, not a
     feature (Spotify shipped a version of this mistake and it reached the
-    press — plan §0a). Raised by ``Bundle._reject_liked_bundle_publish``
+    press — plan §0a). Raised by ``Bundle._validate_visibility``
     (an ORM-level ``@validates`` hook) so EVERY write path is protected, not
     just one route — a bare-metal script, an MCP tool, or a future route can
     never accidentally publish someone's Liked bundle. ``app/bundle_routes.py``
@@ -106,6 +107,29 @@ class User(Base):
     # Set from ?ref= query param on /install or /pricing. Propagated to Stripe
     # checkout metadata so subscriptions can be attributed per platform.
     utm_ref = Column(String(32), nullable=True)
+    # ── agentreg_0819: the DURABLE agent marker ──────────────────────────
+    # True for the SHADOW user minted by POST /api/agents/register. Before this
+    # column existed an agent principal was indistinguishable from a human at
+    # every consumer of AuthContext — the only signal was the rec_agent_ key
+    # prefix, which is a credential-shaped fact, not an identity-shaped one, and
+    # therefore invisible to authz predicates and to any human-count surface.
+    # Stamped into AuthContext.is_agent on BOTH validate paths (REST middleware
+    # and app/mcp/auth.py) and read by authz.can_run_sandbox.
+    is_agent = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # ── money-path-3 (2026-08-12 audit, Fix #3): FIRST-TOUCH signup
+    # attribution — captured inside the OAuth callback that creates this row
+    # (see app._skill_helpers.resolve_signup_attribution + auth_routes.py),
+    # not weeks later at paid-conversion time like ``utm_ref`` above. Deliberately
+    # a SEPARATE column, not a repurposing of ``utm_ref``: ``utm_ref`` is a
+    # narrow allowlisted platform code written by the Stripe webhook path,
+    # while this is a JSON blob of {utm_source, utm_medium, utm_campaign,
+    # utm_content, ref, captured_at} written by the signup path — different
+    # writers, different lifecycles, different validation rules. Conflating
+    # them would make either writer's "don't overwrite if already set" guard
+    # block the other's legitimate write.
+    # WRITE-ONCE: the auth callback only sets this when it is still NULL
+    # (first-touch semantics — never overwritten by a later login/session).
+    signup_attribution = Column(JSON, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -948,19 +972,51 @@ class Bundle(Base):
     is_verified = Column(Boolean, nullable=False, default=False, server_default="0")
 
     @validates("visibility")
-    def _reject_liked_bundle_publish(self, _key: str, value: str) -> str:
-        """spotify_2607 Phase A (§0a) — the Liked bundle can never be published.
+    def _validate_visibility(self, _key: str, value: str) -> str:
+        """Visibility write-path guard. TWO independent checks, ONE hook —
 
-        ORM-level guard so EVERY write path is protected (not just one route):
-        a direct model mutation, a future MCP tool, or a maintenance script
-        all go through ``Column.__set__`` -> this hook. ``self.is_liked`` is
-        already loaded on any row fetched via ``ensure_liked_bundle`` /
-        ``_resolve_owned_cookbook`` before a caller ever reaches ``.visibility
-        = ...``, so the check sees the correct flag regardless of attribute
-        assignment order at construction time (``ensure_liked_bundle`` sets
-        both ``is_liked`` and ``visibility='private'`` in the SAME
-        constructor call, which never round-trips through this hook with a
-        stale ``is_liked``).
+        SQLAlchemy raises ``InvalidRequestError`` if the same mapped attribute
+        carries more than one ``@validates`` method, so both checks that used
+        to be logically separate concerns live in this single function.
+
+        1. spotify_2607 Phase A (§0a) — the Liked bundle can never be
+           published. ORM-level guard so EVERY write path is protected (not
+           just one route): a direct model mutation, a future MCP tool, or a
+           maintenance script all go through ``Column.__set__`` -> this hook.
+           ``self.is_liked`` is already loaded on any row fetched via
+           ``ensure_liked_bundle`` / ``_resolve_owned_cookbook`` before a
+           caller ever reaches ``.visibility = ...``, so the check sees the
+           correct flag regardless of attribute assignment order at
+           construction time (``ensure_liked_bundle`` sets both ``is_liked``
+           and ``visibility='private'`` in the SAME constructor call, which
+           never round-trips through this hook with a stale ``is_liked``).
+
+        2. bundles0811-P1 (F5) — public-with-no-slug is structurally
+           impossible. The cold-path trace (2026-08-11) found a live public
+           bundle (``agent_marketing``, 25 skills) with ``slug IS NULL`` —
+           public in name, unreachable in practice, because every public
+           route (``GET /api/bundles/public/{slug}``,
+           ``GET /bundles/p?slug=``) is slug-addressed. That row predates
+           this validator (backfilled by the migration in this same PR);
+           this hook stops a NEW one from ever being created, on ANY write
+           path, because every one of them sets ``Bundle.visibility``
+           through this same ORM attribute.
+
+           Mirrors ``bundle_routes._ensure_bundle_slug`` (the route-level
+           convenience already used by ``POST /api/cookbooks`` and
+           ``PATCH /{id}/visibility``) exactly — same slugify + collision-
+           suffix discipline — so the two paths can never disagree about
+           what slug a given name produces. That route-level call remains in
+           place (it also advances the generation token via
+           ``_touch_bundle_generation``); this validator is the backstop
+           that makes the invariant true even when a caller bypasses the
+           route entirely.
+
+           A session-bound collision check runs when a session is available
+           (the common case — the object is being flushed); a not-yet-
+           attached object degrades to the un-collision-checked base slug,
+           matching the one instant where a real collision truly cannot be
+           observed yet.
         """
         if getattr(self, "is_liked", False) and value != "private":
             raise LikedBundleNotPublishableError(
@@ -968,6 +1024,27 @@ class Bundle(Base):
                 "Publishing your entire saved-likes set would leak everything you've ever "
                 "hearted — add the skills you want to share to a regular bundle instead."
             )
+
+        if value == "public" and not self.slug:
+            from sqlalchemy.orm import object_session
+
+            from app.bundle_deployment_routes import _slugify
+
+            base_slug = _slugify(self.name or "")
+            slug = base_slug
+            session = object_session(self)
+            if session is not None:
+                suffix = 0
+                q = session.query(Bundle).filter(Bundle.slug == slug)
+                if self.id is not None:
+                    q = q.filter(Bundle.id != self.id)
+                while q.first() is not None:
+                    suffix += 1
+                    slug = f"{base_slug}-{suffix}"
+                    q = session.query(Bundle).filter(Bundle.slug == slug)
+                    if self.id is not None:
+                        q = q.filter(Bundle.id != self.id)
+            self.slug = slug
         return value
 
     # activate_0701/TEN: tenant boundary for bundles. NULL = personal scope
@@ -2102,6 +2179,30 @@ class MissingSkillQuery(Base):
     count = Column(Integer, nullable=False, default=1, server_default="1")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
+    # fdeloop_0808 Phase A — declare the functional unique index the upsert
+    # depends on, so it exists in `Base.metadata` and not only in the migration.
+    #
+    # It was previously created ONLY by topshelf_2605_h. Tests build their
+    # schema with `Base.metadata.create_all`, which therefore produced a table
+    # with NO functional index — so `ON CONFLICT (lower(query), day)` had
+    # nothing to infer and every upsert wrote zero rows. Both engines were
+    # affected; SQLite hid it because that branch takes a SELECT-then-write
+    # path, so only the postgres CI leg surfaced it.
+    #
+    # `sqlite_where=None` is not needed: SQLite accepts a functional index too,
+    # and creating it there additionally makes the two engines agree about what
+    # "duplicate" means. The migration remains the source of truth for prod;
+    # this makes the test schema match it. `if_not_exists` keeps create_all
+    # idempotent against a DB the migration already touched.
+    __table_args__ = (
+        Index(
+            "uq_missing_skill_queries_query_day",
+            func.lower(query),
+            day,
+            unique=True,
+        ),
+    )
+
 
 # ── Federation index cache (superset_0606 Phase B) ──────────────────────────
 
@@ -2187,6 +2288,18 @@ class FederationHubSkill(Base):
     duplicate_of = Column(String(64), nullable=True)  # upstream source id if duplicate
     repo = Column(String(512), nullable=True)
     path = Column(String(512), nullable=True)
+    # bundles0811 P3.6 — recorded, never enforced (plan §0 decision/Q3): the
+    # live Hub snapshot does not populate this field for any of its 90,605
+    # rows today (verified 2026-08-11), so this column starts universally
+    # NULL. It exists so (a) filtering by license is a real, testable,
+    # DB-level capability the moment any source starts shipping it — a
+    # future snapshot version or a per-skill origin resolution (P3's tree
+    # walker) populating this needs zero further migration — and (b) no
+    # code path anywhere gates or blocks on it, matching the license
+    # columns already on Skill/Verifier/Personality. NEVER a redistribution
+    # gate: `install_path` (fetch_origin vs deep_link) already carries that
+    # decision independently.
+    license = Column(String(64), nullable=True)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
@@ -2606,6 +2719,16 @@ class Connector(Base):
     # so existing rows carry the value forward without a backfill migration.
     residency_tag = Column(String(32), nullable=True)  # "eu" | "non-eu" | null
     install_count = Column(Integer, default=0, nullable=False, server_default="0")
+    # conn_promote_0821: quality-gated staged->listed promotion (app/services/
+    # connector_promote.py). "trusted-source"/"editorial" human-published
+    # connectors (create_connector route) leave this NULL; any row minted by
+    # the automated promotion path is stamped "community-indexed" — NEVER
+    # "curated", that label is reserved for a future human editorial review
+    # this phase does not implement. in_metasearch defaults False so a
+    # promoted connector never rides the first-class metasearch fan-out
+    # (app/services/metasearch_fanout.py) without an explicit later decision.
+    trust_label = Column(String(32), nullable=True)
+    in_metasearch = Column(Boolean, nullable=False, default=False, server_default="false")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -2695,11 +2818,16 @@ class BundleConnector(Base):
 class ExternalConnector(Base):
     """A staged MCP-server candidate discovered from an open catalog.
 
-    NEVER auto-materializes into a real ``Connector`` row. ``review_required``
-    defaults True (server_default) and EVERY row lands with it True — the
-    daily walk (``connector_taps.stage_candidates``) never sets it False.
-    Promotion into a real ``Connector`` is a distinct, future, explicit action
-    outside this table's write path entirely.
+    NEVER auto-materializes into a real ``Connector`` row on the DISCOVERY
+    path (``connector_taps.stage_candidates`` never flips ``review_required``
+    and never writes a ``Connector`` row itself). Promotion into a real
+    ``Connector`` IS implemented (conn_promote_0821,
+    ``app/services/connector_promote.py`` / ``scripts/connector_promote.py``)
+    but is a SEPARATE, explicit, deterministically-gated action — never a
+    side effect of staging/walking. A row that fails a gate stays
+    ``review_required=True`` forever with ``promotion_status``/
+    ``promotion_reason`` recording why, until a re-run finds it now passes
+    (e.g. the upstream repo added a LICENSE file).
     """
 
     __tablename__ = "external_connectors"
@@ -2725,8 +2853,20 @@ class ExternalConnector(Base):
     # construction — connector_taps.py has no adapter for either.
     trust_tier = Column(String(32), nullable=False)
     # ALWAYS True on insert (server_default). Staging is not publishing —
-    # this column is the review gate; nothing in this phase ever flips it.
+    # this column is the review gate; nothing in the DISCOVERY path ever
+    # flips it. The PROMOTION path (connector_promote.py) is the only writer
+    # that ever sets it False, and only after every gate passes.
     review_required = Column(Boolean, nullable=False, default=True, server_default="true")
+    # conn_promote_0821: promotion outcome bookkeeping. NULL = never attempted
+    # (or the most recent walk re-upserted the row, resetting review state).
+    # promoted_connector_id is set iff promotion_status == "promoted" and
+    # points at the real Connector row that was minted from this candidate.
+    promotion_status = Column(String(16), nullable=True)  # "promoted" | "rejected" | null
+    promotion_reason = Column(Text, nullable=True)  # gate failure reasons, "; "-joined
+    promoted_at = Column(DateTime(timezone=True), nullable=True)
+    promoted_connector_id = Column(
+        UUID(as_uuid=True), ForeignKey("connectors.id", ondelete="SET NULL"), nullable=True
+    )
     discovered_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -2865,3 +3005,203 @@ class BundlePersonality(Base):
     added_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (Index("ix_bundle_pers_bundle", "bundle_id"),)
+
+
+class FederationRegistryProposal(Base):
+    """Self-serve proposal to add a new federation source registry.
+
+    bundles_0811 Phase P3.5 (locked decision #10). Created via
+    POST /api/federation/propose or the loopskill_propose_registry MCP tool.
+    Dispatches a GitHub repository_dispatch event of type
+    'federation-registry-propose'. ACCEPTING a proposal means appending an
+    entry to config/federation_sources.yaml — this row is a durable record of
+    the request, not itself a registration; see app/services/federation.py.
+    """
+
+    __tablename__ = "federation_registry_proposals"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    repo_url = Column(Text, nullable=False)
+    proposed_source_id = Column(Text, nullable=False)
+    contact = Column(Text, nullable=True)
+    why = Column(Text, nullable=True)
+    identity = Column(Text, nullable=False)  # rate-limit identity (api_key:*/agent:*/ip:*/anon)
+    signature = Column(Text, nullable=False)  # sha256(identity|repo_url) — the 24h dedupe key
+    # Pre-flight evidence, attached to the GitHub issue body verbatim.
+    repo_exists = Column(Boolean, nullable=True)
+    skill_md_count = Column(Integer, nullable=True)
+    license_detected = Column(Text, nullable=True)
+    preflight_summary = Column(JSON, nullable=True)
+    # status: pending | accepted | rejected
+    status = Column(String(32), nullable=False, default="pending")
+    issue_url = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','accepted','rejected')",
+            name="ck_frp_status",
+        ),
+        Index("idx_frp_signature", "signature"),
+        Index("idx_frp_identity_created", "identity", "created_at"),
+    )
+
+
+# ── Agent self-registration (agentreg_0819) ─────────────────────────────
+
+
+class AgentIdentity(Base):
+    """A self-registered autonomous agent, proven by Ed25519 key possession.
+
+    agentreg_0819. Created by ``POST /api/agents/register`` — no human OAuth
+    login. The pubkey IS the identity: registration is authorised by a
+    signature over a canonical string (see
+    ``app.services.agent_registration.canonical_registration_string``), so
+    nothing but possession of the private key is required.
+
+    ``user_id`` points at a SHADOW ``User`` row minted alongside the identity.
+    That shadow row is what ``APIKey.user_id`` (NOT NULL) and every ownership
+    column in this schema already key off, so an agent key resolves to a
+    perfectly ordinary ``AuthContext(scope="user", tier=None)`` and NO authz
+    predicate had to change. The shadow user carries no ``github_id`` /
+    ``google_id`` / ``email``, so it is unreachable from any OAuth flow.
+
+    ``revoked`` is the fail-closed kill switch: ``app.middleware._agent_identity``
+    rejects any ``rec_agent_`` key whose identity is missing or revoked, on both
+    the REST and the MCP validation paths.
+    """
+
+    __tablename__ = "agent_identities"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    # Base64 of the 32-byte raw Ed25519 public key (44 chars with padding).
+    # DISPLAY/interop column. It is NOT the uniqueness basis — see below.
+    pubkey = Column(String(128), nullable=False, unique=True, index=True)
+    # The real uniqueness basis: sha256 hex of the 32 RAW public-key bytes.
+    #
+    # Base64 is not injective onto its own text: the final character of a
+    # 44-char standard-base64 encoding of 32 bytes carries 4 significant bits
+    # and 2 slack bits, so "…9E=", "…9F=", "…9G=" and "…9H=" all decode to the
+    # SAME 32 bytes, and base64.b64decode(validate=True) accepts every one of
+    # them. With uniqueness on the TEXT alone, four spellings of one key minted
+    # four identities, four shadow users and four keys — the 409 key-stuffing
+    # wall was bypassable by re-spelling. Two independent fixes, both kept:
+    # the service rejects any non-canonical spelling outright, and THIS column
+    # makes the database itself unable to hold the same key twice.
+    pubkey_sha256 = Column(String(64), nullable=False, unique=True, index=True)
+    agent_name = Column(String(64), nullable=False)
+    contact = Column(String(128), nullable=True)
+    # The shadow User this identity's API keys hang off. UNIQUE: one shadow
+    # user per agent identity, so the reverse lookup in the middleware
+    # (user_id -> identity) is unambiguous.
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    revoked = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # Textual so both IPv4 and IPv6 fit; used for the per-IP registration cap.
+    registration_ip = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        Index("idx_agent_identities_ip_created", "registration_ip", "created_at"),
+        Index("idx_agent_identities_created", "created_at"),
+    )
+
+
+class AgentRegistrationGate(Base):
+    """One serialisation row per registration scope (review round 4).
+
+    agentreg_0819 rounds 2-3 tried to bound enrolment with immutable counter
+    rows; the final review proved every fixed-bucket variant either racily
+    overshoots or forgets a bucket at an alternate boundary. Round 4 is dumber
+    and true: this row is LOCKED (SELECT ... FOR UPDATE) by every concurrent
+    reserver of its scope, and under that lock the service counts the real
+    ``agent_identities`` rows in the exact trailing 24h. No window arithmetic,
+    no boundaries — the checked invariant is the invariant that must hold.
+    On SQLite the lock is a no-op made safe by whole-DB write serialisation.
+
+    See app/services/agent_registration_quota.py for the full rationale.
+    """
+
+    __tablename__ = "agent_registration_gate"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    # "global", or "ip:<address>". One row = one serialisation domain.
+    scope = Column(String(128), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
+    # Written by EVERY reservation so the row lock is taken by an UPDATE (a
+    # real write) rather than a SELECT ... FOR UPDATE — which is a no-op on
+    # SQLite. The write holds Postgres's row lock / SQLite's database write
+    # lock from the decision until the caller's COMMIT.
+    last_reserved_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class AgentRegistrationNonce(Base):
+    """A consumed registration nonce — the replay wall.
+
+    agentreg_0819. A signature is only good once: the nonce is hashed and
+    inserted under a UNIQUE constraint, so a replayed request loses the race
+    at the database rather than in application logic.
+
+    DB-backed rather than Redis-backed on purpose. ``app.middleware.get_redis``
+    degrades to ``None`` whenever Redis is unreachable (see its 30s-backoff
+    fallback), and a replay wall that opens when the cache is down is not a
+    wall. Expired rows are swept opportunistically on each registration
+    attempt — see ``app.services.agent_registration.sweep_expired_nonces``.
+    """
+
+    __tablename__ = "agent_registration_nonces"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    # sha256 hex of the raw nonce string — the nonce itself is never stored.
+    nonce_hash = Column(String(64), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Retention horizon: max acceptable clock skew, doubled. Past this point a
+    # replay of the same nonce is already rejected by the timestamp gate.
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+
+
+class AgentRegistrationQuota(Base):
+    """One counter row per (bucket, window) — the DB-enforced enrolment cap.
+
+    agentreg_0819, review round 2 (F1). The first cut counted
+    ``agent_identities`` rows with ``COUNT(*)`` and compared the result to the
+    cap in Python. That is a check-then-act: N concurrent requests arriving
+    while the count sits at ``cap - 1`` ALL read ``cap - 1``, all pass, and all
+    commit. The cap was advisory under exactly the load an attacker creates.
+
+    A counter row replaces the count so the reservation can be a single
+    conditional UPDATE — see
+    ``app.services.agent_registration_quota.reserve_registration_slot``.
+
+    ``window_start`` is a FIXED 12-hour UTC floor; the trailing-24h cap is
+    enforced over the PAIR (current + previous bucket), split pro-rata —
+    review round 3 (N2) closed round 2's UTC-day boundary burst (full cap at
+    23:59, full cap again at 00:01). With the sliding pair, a boundary burst
+    is limited to the current bucket's own share; worst-case trailing-24h
+    total is ``2 x share`` only for traffic exactly straddling a 12h
+    boundary — a strictly tighter envelope than the calendar-day trade.
+    """
+
+    __tablename__ = "agent_registration_quota"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    # "global", or "ip:<address>". Textual so a future bucket dimension (ASN,
+    # subnet, pubkey family) needs no schema change.
+    bucket = Column(String(128), nullable=False)
+    window_start = Column(DateTime(timezone=True), nullable=False)
+    # Reservations made in this window. Only ever incremented by the atomic
+    # conditional UPDATE; a rolled-back transaction releases its own increment.
+    count = Column(Integer, nullable=False, default=0, server_default=text("0"))
+
+    __table_args__ = (
+        # The row IS the lock. UNIQUE guarantees exactly one counter per
+        # (bucket, window), so two concurrent reservations contend on one row
+        # instead of racing on a table-wide aggregate.
+        UniqueConstraint("bucket", "window_start", name="uq_agent_reg_quota_bucket_window"),
+        Index("idx_agent_reg_quota_window", "window_start"),
+    )

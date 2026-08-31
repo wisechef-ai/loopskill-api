@@ -8,11 +8,16 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.access_routes import router as access_router  # Phase E: access split
 from app.admin_routes import router as admin_router
+from app.agent_registration_routes import router as agent_registration_router  # agentreg_0819
+from app.agent_wellknown_routes import router as agent_wellknown_router  # agentreg_0819
 from app.version import __version__
 from app.demand_routes import router as demand_router
 from app.api_key_routes import router as api_key_router
 from app.auth_routes import router as auth_router
+from app.first_key_routes import router as first_key_router
 from app.bundle_deployment_routes import router as cookbook_deploy_router  # compat-alias
+from app.bundle_fork_claim_routes import router as bundle_fork_claim_router  # bundles0811-P1
+from app.bundle_install_script_routes import router as bundle_install_script_router  # bundles0811-P1
 from app.canary import router as canary_router
 from app.bootcamp_routes import router as bootcamp_router  # bootcamp_0607
 from app.checkout_routes import router as checkout_router
@@ -21,6 +26,7 @@ from app.bundle_routes import router as cookbook_router  # compat-alias
 from app.bundle_wellknown_routes import router as cookbook_wellknown_router  # compat-alias
 from app.creator_routes import router as creator_router
 from app.credits_routes import router as credits_router
+from app.creators_routes import router as creators_stats_router  # flywheel P1 F1.3
 from app.discord_bot import bot as discord_bot
 from app.feedback_routes import router as feedback_router
 from app.feedback_status_routes import router as feedback_status_router
@@ -186,15 +192,25 @@ def create_app() -> FastAPI:
     app.include_router(admin_router, tags=["admin"])
     app.include_router(demand_router, tags=["admin"])  # demandbrief_3005: content-direction feed
     app.include_router(auth_router, tags=["auth"])
+    app.include_router(first_key_router, tags=["auth"])  # flywheel F1.2: one-time first-key reveal
     app.include_router(bootcamp_router, prefix="/api", tags=["bootcamp"])  # bootcamp_0607
     app.include_router(sandbox_router, tags=["sandbox"])
     app.include_router(creator_router, tags=["creator"])
+    app.include_router(creators_stats_router, tags=["creator"])  # flywheel P1 F1.3
     app.include_router(publisher_router, tags=["publisher"])
     app.include_router(checkout_router, tags=["billing"])
     app.include_router(api_key_router, tags=["api-keys"])
     app.include_router(feedback_router, tags=["feedback"])
     app.include_router(canary_router, tags=["canary"])
     app.include_router(forks_router, tags=["forks"])
+    # bundles0811-P1: MUST register BEFORE cookbook_router. GET /{cookbook_id}
+    # on cookbook_router is a single-segment catch-all (FastAPI/Starlette is
+    # first-match); /install.sh is also single-segment, so registering it
+    # after cookbook_router would make "install.sh" match {cookbook_id} first.
+    app.include_router(bundle_install_script_router, tags=["bundles"])
+    # bundles0811-P1 (F3): fork preview/claim. Registered before cookbook_router
+    # for the same reason as install_script_router above.
+    app.include_router(bundle_fork_claim_router, tags=["bundles"])
     app.include_router(cookbook_router, tags=["cookbooks"])
     # Well-known bundle bridge MUST register AFTER cookbook_router so the more
     # specific /public/{slug}/.well-known/... paths are matched (FastAPI is
@@ -204,6 +220,10 @@ def create_app() -> FastAPI:
     # (root-level, unauthenticated). Registered here too so ordering relative
     # to any future generic /.well-known/{path} catch-all stays explicit.
     app.include_router(mesh_wellknown_router, tags=["mesh", "well-known"])
+    # agentreg_0819 — /.well-known/agent.json + /.well-known/mcp.json (root-level,
+    # unauthenticated) and POST /api/agents/register + the admin revoke surface.
+    app.include_router(agent_wellknown_router, tags=["agents", "well-known"])
+    app.include_router(agent_registration_router, tags=["agents"])
     app.include_router(mesh_router, tags=["mesh"])
     from app.mesh_discovery_routes import router as mesh_discovery_router  # mesh_0408 T3-A
 
@@ -232,6 +252,9 @@ def create_app() -> FastAPI:
     app.include_router(skill_patch_router, tags=["skill-patches"])
     app.include_router(recall_router, tags=["recall"])
     app.include_router(recipify_router, tags=["recipify"])
+    from app.federation_propose_routes import router as federation_propose_router  # bundles_0811 P3.5
+
+    app.include_router(federation_propose_router, tags=["federation"])
     from app.fleet_routes import router as fleet_router  # portal_0610 J3
     from app.fleet_member_routes import router as fleet_member_router  # activate_0701 Phase 1
 
@@ -306,6 +329,12 @@ def create_app() -> FastAPI:
     from app.search_routes import router as search_router
 
     app.include_router(search_router, prefix="/api", tags=["search"])
+
+    # bundles0811 P3.6 — filters over the federated index (source, license,
+    # trust_level, tag), feeding directly into the bulk bundle-add endpoint.
+    from app.federation_filter_routes import router as federation_filter_router
+
+    app.include_router(federation_filter_router, tags=["federation", "filters"])
 
     # Phase 1 (v7.1): Mount StreamableHTTP ASGI sub-app at /api/mcp/http.
     # Must happen after include_router(mcp_router) so the session manager's

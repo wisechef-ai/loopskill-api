@@ -9,6 +9,24 @@ documented fallback so existing clients never break. See AGENTS.md
 
 from __future__ import annotations
 
+# bundles_0811 P8: the recipe catalog was relocated to wisechef-ai/loopskill-recipes.
+# These tests validate CONTENT that no longer lives in this repo. Skipped here
+# rather than DELETED — the coverage is real and belongs with the content, so it
+# travels to the catalog repo instead of quietly disappearing. If someone restores
+# a recipes/ dir here, the guard lifts and these run again.
+import pytest as _pytest
+from pathlib import Path as _Path
+
+_CATALOG = _Path(__file__).resolve().parent.parent / "recipes"
+pytestmark = _pytest.mark.skipif(
+    not _CATALOG.exists(),
+    reason=(
+        "recipe catalog relocated to wisechef-ai/loopskill-recipes (bundles_0811 P8); "
+        "this suite validates catalog CONTENT and runs there"
+    ),
+)
+
+
 import hashlib
 import importlib.util
 import sys

@@ -13,6 +13,8 @@ from typing import Any, Callable
 from app.services import clawhub_url
 from app.services.federation import ExternalSkill, InstallPath, SourceAdapter
 from app.services.federation_fetch import is_redistributable as _canonical_is_redistributable
+from app.services.federation_hub_install import derive_hub_origin_url
+from app.services.federation_relevance import relevance_order_clauses
 
 
 def _is_redistributable(license_id: str | None) -> bool:
@@ -50,7 +52,17 @@ class HermesHubAdapter(SourceAdapter):
             source=self.source_id,
             # Hub skills are SKILL.md → fetch-origin when redistributable, else deep-link.
             install_path=InstallPath.FETCH_ORIGIN if redist else InstallPath.DEEP_LINK,
-            origin_url=row.get("url", f"https://hermes-agent.nousresearch.com/skills/{row['slug']}"),
+            # bundles0811 P3 item 2: the old fallback
+            # (hermes-agent.nousresearch.com/skills/<slug>) is a synthesised URL
+            # that 404s — see derive_hub_origin_url's docstring. Prefer the
+            # row's own url, then derive from repo/path (real coordinates),
+            # then fall back to the bundled-catalog path shape (this branch's
+            # rows come from the HTML-catalog callback, which always has repo
+            # coordinates only via `path`, not a `repo` field, so the derived
+            # form isn't reachable here — keep the historical bundled-skill URL
+            # for THIS specific fallback path, which does resolve for the
+            # MIT hermes-agent repo's bundled skills).
+            origin_url=row.get("url") or f"https://hermes-agent.nousresearch.com/skills/{row['slug']}",
             license=license_id,
             redistributable=redist,
             description=row.get("description", ""),
@@ -66,7 +78,20 @@ class HermesHubAdapter(SourceAdapter):
             title=skill.title or skill.slug,
             source=self.source_id,
             install_path=install_path,
-            origin_url=skill.origin_url or f"https://hermes-agent.nousresearch.com/skills/{skill.slug}",
+            # bundles0811 P3 item 2: this is the 90,605-row hub snapshot path —
+            # the one that actually had the 404ing synthesised fallback in
+            # prod. Priority: the row's own resolved origin_url, then DERIVE
+            # from repo+path (the row's real coordinates, per the P3 ground
+            # truth — repo/path are the true filesystem location, not a
+            # slug), then the repo root page, and ONLY as a last resort (no
+            # repo at all) the historical bundled-skill URL — which resolves
+            # ONLY for genuine hermes-agent-bundled skills, never as a guess
+            # for an arbitrary federated slug.
+            origin_url=(
+                skill.origin_url
+                or derive_hub_origin_url(repo=skill.repo, path=skill.path)
+                or f"https://hermes-agent.nousresearch.com/skills/{skill.slug}"
+            ),
             license=None,
             redistributable=install_path == InstallPath.FETCH_ORIGIN,
             description=skill.description or "",
@@ -94,7 +119,28 @@ class HermesHubAdapter(SourceAdapter):
                             FederationHubSkill.slug.ilike(like),
                         )
                     )
-                rows = db_q.order_by(FederationHubSkill.title).limit(limit).all()
+                rows = (
+                    db_q.order_by(
+                        # fdeloop_0808 Phase B — RELEVANCE BEFORE TRUNCATION.
+                        #
+                        # This was `order_by(FederationHubSkill.title).limit(limit)`.
+                        # Against the live 90,605-row snapshot, `q=seo` matches 676
+                        # rows; the LIMIT kept the 25 that sorted first
+                        # alphabetically, so the row slugged exactly `seo` — and
+                        # `ai-seo`, `seopro`, `seo-geo` — were unreachable at any
+                        # page size the UI uses. The downstream ranker cannot
+                        # recover a row SQL already discarded, which is why fixing
+                        # `metasearch.rank()` would not have fixed this.
+                        #
+                        # Title stays as the stable tiebreak WITHIN a tier, so
+                        # equally-relevant rows keep their previous deterministic
+                        # order and an empty query behaves exactly as before.
+                        *relevance_order_clauses(FederationHubSkill, q),
+                        FederationHubSkill.title,
+                    )
+                    .limit(limit)
+                    .all()
+                )
                 if rows:
                     return [self._map_hub_skill(r) for r in rows]
             finally:

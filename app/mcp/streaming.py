@@ -24,7 +24,7 @@ from starlette.routing import Mount
 from app.auth_ctx import AuthContext
 from app.config import settings
 
-logger = logging.getLogger("wiserecipes.mcp")
+logger = logging.getLogger("loopskill.mcp")
 
 
 _sse_transport = SseServerTransport("/api/mcp/messages/")

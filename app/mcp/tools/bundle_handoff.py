@@ -93,11 +93,11 @@ def loopskill_bundle_handoff(
     try:
         cid = UUID(cookbook_id)
     except (ValueError, TypeError):
-        return {"error": "cookbook_not_found", "message": "Invalid cookbook_id."}
+        return {"error": "bundle_not_found", "message": "Invalid cookbook_id."}
 
     cb = db.query(Bundle).filter(Bundle.id == cid).first()
     if cb is None:
-        return {"error": "cookbook_not_found", "message": "Cookbook not found."}
+        return {"error": "bundle_not_found", "message": "Cookbook not found."}
 
     # Base catalog cannot be handed off (would violate invariants)
     if cb.is_base:
@@ -111,7 +111,7 @@ def loopskill_bundle_handoff(
         # mesh_0408 W1b (codex PR #202, finding 3): byte-identical to the
         # not-found answer above. "Only the owner may hand off this cookbook"
         # told an unauthorized caller their guessed UUID names a real bundle.
-        return {"error": "cookbook_not_found", "message": "Cookbook not found."}
+        return {"error": "bundle_not_found", "message": "Cookbook not found."}
 
     # ── resolve new owner ────────────────────────────────────────────────────
     if not new_owner_user_id and not new_owner_email:

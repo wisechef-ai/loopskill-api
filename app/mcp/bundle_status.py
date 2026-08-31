@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 from app.authz import owner_match_within_tenant_clause
 from app.models import Bundle, BundleSkill, Skill
 
-logger = logging.getLogger("wiserecipes.bundle_status")
+logger = logging.getLogger("loopskill.bundle_status")
 
 _TTL = 60  # seconds
 

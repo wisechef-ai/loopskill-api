@@ -60,7 +60,7 @@ def test_cbt_scoped_ctx_is_rejected_at_handler_level() -> None:
         list_cookbooks(db=_ExplodingSession(), ctx=ctx)
 
     assert exc_info.value.status_code == 403
-    assert "Share tokens cannot list cookbooks" in str(exc_info.value.detail)
+    assert "Share tokens cannot list bundles" in str(exc_info.value.detail)
 
 
 def test_cbt_rejection_precedes_the_master_branch() -> None:
@@ -90,4 +90,4 @@ def test_non_cbt_master_ctx_still_short_circuits() -> None:
 
     result = list_cookbooks(db=_ExplodingSession(), ctx=ctx)
 
-    assert result == {"cookbooks": []}
+    assert result == {"cookbooks": [], "bundles": []}

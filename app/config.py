@@ -2,8 +2,10 @@
 
 import os
 
-from pydantic import model_validator
-from pydantic_settings import BaseSettings
+from typing import Annotated
+
+from pydantic import field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode
 
 # Default (insecure) values that MUST be rotated in any non-sqlite environment.
 _DEFAULT_API_KEY = "rec_dev_wiserecipes_local_testing_key"
@@ -42,6 +44,19 @@ def _assert_production_secrets(settings: "Settings") -> None:
             f"Refusing to boot in production with default change-me secret(s): "
             f"{', '.join(insecure)}. "
             f"Set proper values via environment variables (WR_{{NAME}})."
+        )
+
+    # chef_0823 (t_4a38fed9) — install-integrity fail-closed gate: the server
+    # must know its own public IPv4 so CI self-installs (deploy runner on this
+    # host, anonymous installs from its own address) can be also excluded from
+    # public install counts. Without it, /api/stats counts every deploy
+    # verification as an organic install (118 of 432 in the 2026-08-23
+    # analysis window). Refuse to boot rather than publish inflated numbers.
+    if not settings.SERVER_PUBLIC_IP:
+        raise RuntimeError(
+            "Refusing to boot in production: SERVER_PUBLIC_IP is empty. "
+            "Set WR_SERVER_PUBLIC_IP to this host's public IPv4 so CI "
+            "self-installs are excluded from public install stats."
         )
 
     # Issue #4 — OAUTH_REDIRECT_BASE must be non-empty and https:// in prod
@@ -231,6 +246,62 @@ class Settings(BaseSettings):
     # WR_EXTERNAL_FANOUT_PER_SOURCE_DEADLINE_S; default mirrors the metasearch
     # route's tuned budget (see metasearch_fanout._PER_SOURCE_DEADLINE_S notes).
     EXTERNAL_FANOUT_PER_SOURCE_DEADLINE_S: float = 2.5
+
+    # agentreg_0819 — self-serve agent registration (POST /api/agents/register).
+    # These are the ONLY abuse wall in front of an endpoint that mints a real
+    # API key with no human in the loop, so they are deliberately conservative
+    # and env-tunable (WR_AGENT_REGISTRATION_*) without a redeploy.
+    #
+    # Per-IP cap: a single source may enrol this many agents in a rolling 24h.
+    AGENT_REGISTRATION_PER_IP_PER_DAY: int = 3
+    # Global cap: total enrolments across ALL sources in a rolling 24h. Global
+    # backstop against a distributed key-stuffing farm that defeats the per-IP
+    # cap by spreading across addresses.
+    AGENT_REGISTRATION_GLOBAL_PER_DAY: int = 20
+    # Maximum accepted clock skew (seconds) between the signed `timestamp` and
+    # server time. Also sets the nonce retention horizon (2x this), after which
+    # a replay is already refused by the timestamp gate.
+    AGENT_REGISTRATION_MAX_SKEW_SECONDS: int = 300
+
+    # chef_0823 (t_4a38fed9) — install-integrity internal-IP set. The deploy
+    # pipeline's self-hosted runner executes ON this host, so CI install
+    # traffic arrives with client_ip == the server's own public IPv4 and no
+    # API key — indistinguishable from organic anonymous installs unless the
+    # server knows its own address. Boot-gated in production (fail-closed,
+    # pitfall #24 posture): a non-sqlite deployment without WR_SERVER_PUBLIC_IP
+    # refuses to boot rather than silently counting its own CI traffic as
+    # organic marketplace installs.
+    SERVER_PUBLIC_IP: str = ""
+    # Additional known-internal (dogfood/office/VPN) source IPs to exclude
+    # from public install counts at read time. Optional — self-hosters with
+    # no internal dogfood leave it empty.
+    KNOWN_INTERNAL_IPS: Annotated[list[str], NoDecode] = []
+
+    @field_validator("KNOWN_INTERNAL_IPS", mode="before")
+    @classmethod
+    def _parse_internal_ips(cls, value: object) -> object:
+        """Accept plain comma-separated strings from env (pydantic-settings
+        would otherwise JSON-decode list fields, so ``WR_KNOWN_INTERNAL_IPS=
+        195.128.172.227`` crashes the app at boot with SettingsError).
+
+        Accepted forms: "", "a,b ,c", JSON arrays ('["a","b"]'). Normalized
+        to a stripped, deduped list of non-empty strings.
+        """
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return []
+            if value.startswith("["):
+                import json
+
+                value = json.loads(value)
+            else:
+                value = value.split(",")
+        if isinstance(value, (list, tuple)):
+            items = [str(item).strip() for item in value]
+            items = [item for item in items if item]
+            return list(dict.fromkeys(items))  # dedupe, preserve order
+        return value
 
     model_config = {"env_file": ".env", "env_prefix": "WR_", "extra": "ignore"}
 

@@ -104,7 +104,7 @@ def _resolve_cookbook(
             try:
                 target_id = UUID(cookbook_id)
             except (ValueError, TypeError) as exc:
-                raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404) from exc
+                raise CookbookInstallError("bundle_not_found", "bundle_not_found", status=404) from exc
             if target_id != ctx.bundle_scope:
                 raise CookbookInstallError(
                     "token_scope_mismatch",
@@ -113,7 +113,7 @@ def _resolve_cookbook(
                 )
         cb = db.query(Bundle).filter(Bundle.id == target_id).first()
         if cb is None:
-            raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404)
+            raise CookbookInstallError("bundle_not_found", "bundle_not_found", status=404)
         return cb
 
     # user / master path: explicit cookbook_id required
@@ -126,11 +126,11 @@ def _resolve_cookbook(
     try:
         target_id = UUID(cookbook_id)
     except (ValueError, TypeError) as exc:
-        raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404) from exc
+        raise CookbookInstallError("bundle_not_found", "bundle_not_found", status=404) from exc
 
     cb = db.query(Bundle).filter(Bundle.id == target_id).first()
     if cb is None:
-        raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404)
+        raise CookbookInstallError("bundle_not_found", "bundle_not_found", status=404)
 
     if ctx.scope == "master":
         return cb
@@ -143,7 +143,7 @@ def _resolve_cookbook(
         return cb
 
     # Default: 404 (no oracle for non-owners — keep parity with REST routes)
-    raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404)
+    raise CookbookInstallError("bundle_not_found", "bundle_not_found", status=404)
 
 
 def _resolve_version(db: Session, skill: Skill, pinned_version: str | None) -> SkillVersion | None:
@@ -217,7 +217,7 @@ def loopskill_bundle_install(
         # the bundle→skill membership for cbt_token callers.
         if not authz.can_install(ctx, skill, db=db):
             # No oracle: indistinguishable from "not in bundle" / "private".
-            raise CookbookInstallError("skill_not_in_cookbook", "skill_not_in_cookbook", status=404)
+            raise CookbookInstallError("skill_not_in_bundle", "skill_not_in_bundle", status=404)
 
         cs = (
             db.query(BundleSkill)
@@ -229,7 +229,7 @@ def loopskill_bundle_install(
             .first()
         )
         if cs is None:
-            raise CookbookInstallError("skill_not_in_cookbook", "skill_not_in_cookbook", status=404)
+            raise CookbookInstallError("skill_not_in_bundle", "skill_not_in_bundle", status=404)
 
         # federation_0604 Unit 2 — external skill: resolve real SKILL.md from
         # origin (never rehosted) via the SHARED resolver. No SkillVersion.
@@ -330,6 +330,53 @@ def loopskill_bundle_install(
         )
         if version is not None:
             installed.append((skill, version.semver, len(skills_payload) - 1))
+
+    # bundles0811 P3 item 5 — MCP/REST parity. The plain INNER JOIN above
+    # structurally drops federated BundleSkill rows (skill_id NULL), exactly
+    # the bug sp2607fix-1 fixed for the REST bulk-install path
+    # (app/bundle_routes.py::install_cookbook). Mirror that fix here: a
+    # sibling query for skill_id IS NULL rows, each resolved to an install
+    # INSTRUCTION via the same P3 resolver REST uses — one shared contract,
+    # not two independently-drifting ones.
+    fed_rows = (
+        db.query(BundleSkill)
+        .filter(
+            BundleSkill.bundle_id == cb.id,
+            BundleSkill.skill_id.is_(None),
+            BundleSkill.federated_source.isnot(None),
+            BundleSkill.federated_slug.isnot(None),
+            BundleSkill.source != "disabled",
+        )
+        .all()
+    )
+    if fed_rows:
+        from app.services.federated_titles import federated_title_for, resolve_federated_hub_titles
+        from app.services.federation_hub_install import resolve_install_instruction
+
+        hub_by_slug = resolve_federated_hub_titles(db, (r.federated_slug for r in fed_rows))
+        for join in fed_rows:
+            hub = hub_by_slug.get(join.federated_slug)
+            instr = resolve_install_instruction(
+                repo=getattr(hub, "repo", None),
+                path=getattr(hub, "path", None),
+                origin_url=getattr(hub, "origin_url", None),
+                slug=join.federated_slug,
+            )
+            skills_payload.append(
+                {
+                    "slug": join.federated_slug,
+                    "version": None,
+                    "tarball_url": None,
+                    "checksum_sha256": None,
+                    "source": join.source,
+                    "title": federated_title_for(hub, join.federated_slug),
+                    "origin_url": getattr(hub, "origin_url", None),
+                    "federated": True,
+                    "federated_source": join.federated_source,
+                    "provenance": "community",
+                    "install_instruction": instr.to_dict(),
+                }
+            )
 
     # spotify_0608 Ph E — record install events + mint a PER-SKILL provenance_id
     # for MCP-driven bulk installs (R4 nit (a): provenance rides per-skill under

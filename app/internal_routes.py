@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import FeedbackSubmission, RecipifyRequest
+from app.models import FederationRegistryProposal, FeedbackSubmission, RecipifyRequest
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api/internal", tags=["internal"])
 
 class IssueUrlPatch(BaseModel):
     issue_url: str
-    table: Literal["feedback", "recipify"]
+    table: Literal["feedback", "recipify", "federation"]
 
 
 # ── Auth helper ────────────────────────────────────────────────────────────
@@ -62,6 +62,8 @@ def patch_issue_url(
     """
     if body.table == "feedback":
         row = db.query(FeedbackSubmission).filter(FeedbackSubmission.id == row_id).first()
+    elif body.table == "federation":
+        row = db.query(FederationRegistryProposal).filter(FederationRegistryProposal.id == row_id).first()
     else:
         row = db.query(RecipifyRequest).filter(RecipifyRequest.id == row_id).first()
 
@@ -69,7 +71,11 @@ def patch_issue_url(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Row not found")
 
     row.issue_url = body.issue_url
-    row.feedback_status = "filed"
+    # FederationRegistryProposal tracks lifecycle via `status`
+    # (pending/accepted/rejected), not `feedback_status` — leave it untouched
+    # here; it only changes when a maintainer accepts/rejects the proposal.
+    if body.table != "federation":
+        row.feedback_status = "filed"
     db.commit()
 
     logger.info(

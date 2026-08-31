@@ -18,7 +18,7 @@ import redis
 
 from app.config import settings
 
-logger = logging.getLogger("wiserecipes.middleware")
+logger = logging.getLogger("loopskill.middleware")
 
 
 API_KEY_PREFIX = "rec_"

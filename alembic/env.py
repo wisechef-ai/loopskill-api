@@ -17,7 +17,7 @@ config = context.config
 # Set up Python logging from alembic.ini.
 # disable_existing_loggers=False is REQUIRED: fileConfig() defaults to disabling
 # every logger not named in alembic.ini, which silently kills application loggers
-# (e.g. wiserecipes.discord) for the rest of the process. That's harmless in a
+# (e.g. loopskill.discord) for the rest of the process. That's harmless in a
 # standalone `alembic` CLI invocation but corrupts in-process callers — the test
 # suite (command.upgrade in migration tests) and the bootstrap.py upgrade path —
 # by clobbering loggers other tests/code rely on. Keep app loggers intact.

@@ -208,6 +208,247 @@ inert). No schema, no migration.
     separately). This is Phase 1 of 5 from issue #157 — the words agents
     and users actually read, for ~5% of the total work. Verified against
     prod /api/healthz 0.9.34 before bumping.
+
+0.9.36 - fix(issue-219 item 1): LOOPSKILL_API_KEY dual-accept for the
+    agent-side loop-apply tooling. tools/recipes_cli.py already had this
+    (qa0208-w3); scripts/install-loop-apply.sh and
+    meta-skills/recipes-auto-improve/incident_reporter.py still hard-read
+    the legacy RECIPES_API_KEY name only, so a user who exported only
+    LOOPSKILL_API_KEY (the branded name docs/MCP config use everywhere
+    else) got a confusing "set RECIPES_API_KEY" error with a perfectly
+    valid key. LOOPSKILL_API_KEY now wins when both are set; RECIPES_API_KEY
+    keeps working unchanged as a fallback. Pure env-var resolution change,
+    no schema, no migration. Verified against prod /api/healthz 0.9.35
+    before bumping.
+
+0.9.37 - agent/tori/first-impression-api: first-impression fixes on the
+    cold-path a stranger actually hits (bundle discover -> install.sh).
+    (1) requires_pro on GET /api/bundles/discover cards and GET
+    /api/bundles/public/{slug} — computed from member skill tiers (reuses
+    bundle_wellknown_routes._is_free / _is_redistributable_external
+    verbatim, so discover/public-page/install.sh can never disagree on
+    which member is free). (2) install.sh: when a bundle's
+    installable-free count is 0, prints "This bundle requires Pro — 0 free
+    skills will be installed. See https://app.loopskill.io/pricing" as the
+    FIRST line (before any progress output) and exits 4 (distinct from the
+    pre-existing usage=2 / missing-python3=3 codes) — closes a live defect
+    where dev-agent-essentials/research-and-report (100% Pro) silently
+    printed "installed 0 skill(s)" with no explanation. (3) /api/mcp/healthz:
+    SERVER_NAME "recipes-mcp" -> "loopskill-mcp" (dead brand); SERVER_VERSION
+    now reads app.version.__version__ directly instead of a frozen "0.1.0"
+    literal, so the MCP identity handshake tracks real deploys. (4)
+    /api/skills/external bare-call default (empty enabled_sources) was
+    audited and left AS-IS — it is Adam's explicit isolation-namespace
+    directive (see federation.py's module docstring, "off by default"),
+    already has a pinned regression test
+    (test_evergreen_f2_external_route.py::test_toggle_off_by_default_returns_no_external),
+    and changing it would silently start querying live upstream federation
+    adapters (rate-limited GitHub search, etc.) on every anonymous cold
+    load with no user action — not a safe default flip. No schema, no
+    migration. Verified against prod /api/healthz 0.9.36 before bumping.
+
+0.9.38 - fix(issue-149, Option B, owner-approved 2026-08-19): the 3rd
+    owner-facing bundle read path — GET /api/cookbooks/{id}/manifest —
+    is now federated-aware, matching GET /api/cookbooks/{id} and POST
+    .../install (both already fixed by sp2607fix-1/#150). Before this,
+    a fleet owner syncing off the manifest silently lost every liked
+    federated skill (BundleSkill.skill_id IS NULL rows) that detail/install
+    already showed them — three endpoints, three different member counts
+    for the same bundle. Federated entries carry federated_slug (no local
+    Skill row exists, so `slug` is None) + federated/federated_source
+    discriminators, merged into the same global (install_order, added_at,
+    id) order the Composer contract requires. The 2 remaining public/
+    anonymous surfaces (_public_cb_card, public_cookbook_page) and both
+    .well-known routes stay explicitly LOCAL-ONLY pending §0b badging —
+    documented inline at each call site per the issue's own Option B scope,
+    not a regression. Pure additive response field (manifest YAML gains
+    federated/federated_source/federated_slug keys on federated entries
+    only); local-only bundle manifests are byte-identical (contract-pinned
+    test). No schema change. Verified against prod /api/healthz 0.9.36
+    before bumping.
+
+0.9.39 - fix(issue-155): Skill.title no longer lands title-less. Extracted
+    the backfill script's derivation logic into app/skill_title.py (shared,
+    tested) and wired it into the publish path: a NEW skill whose manifest
+    name equals its slug now gets a derived title instead of title==slug;
+    a REPUBLISH of an existing skill no longer regresses a good editorial
+    title back to a slug-shaped value just because that publish's manifest
+    name happens to equal the slug (a live bug in the pre-fix re-sync
+    block). Two RED-proofed regression tests. No schema, no migration.
+    Verified against prod /api/healthz 0.9.36 before bumping.
+
+0.9.40 - feat(identity): agent self-registration via Ed25519 proof-of-key.
+    POST /api/agents/register lets an inbound agent that discovered LoopSkill
+    machine-side enrol WITHOUT a human OAuth round-trip: it proves possession
+    of an Ed25519 private key (signature over a canonical challenge + a
+    single-use nonce) and receives a scoped, low-cap `rec_agent_` key. The
+    .well-known agent/mcp descriptors are unauthenticated so the discovery
+    step works before any credential exists. This is the only mechanism by
+    which an external creator can EXIST under the zero-outreach constraint
+    (creator-flywheel plan v2.1, Loop C) — every other enrolment path ends at
+    a human clicking OAuth.
+
+    Hardened over four adversarial review rounds (codex gpt-5.6-sol as the
+    independent seat). Round 4 replaced the round-3 sliding-window bucket
+    arithmetic — which sol proved bypassable across bucket boundaries — with
+    lock-and-count: take a write lock on the per-scope gate row, THEN count
+    the actual agent_identities rows in the trailing 24h under that lock, so
+    the count-then-insert window is closed by Postgres until COMMIT and the
+    alternate-boundary bypass is structurally impossible. Retry-After is the
+    real seconds until the oldest in-window row exits, computed from the same
+    clock as the refusal. Nonces are canonical-form-only (one spelling, one
+    burn); pubkeys are canonicalised before identity comparison; agent-issued
+    keys are fenced out of the human-facing surfaces.
+
+    Migration agentreg0819_agent_identities is reversible. Known gap, stated
+    rather than hidden: the concurrency proof is a 20-thread SQLite test plus
+    a code-level argument for Postgres — no live PG concurrency harness runs
+    in CI yet.
+
+0.9.41 - fix(issue-157 Phase 1b): removed "cookbook" from every error-code
+    string an agent or API consumer reads back on a 4xx — `detail=` on
+    HTTPException routes AND the `{"error": ...}` dict shape used by
+    promotion/reconcile routes and MCP tool error returns (bundle install,
+    share tokens, fleet subscribe/sync, tailor handoff, streaming install,
+    recipify, preflight). Renamed 37 occurrences across 20 modules:
+    cookbook_not_found -> bundle_not_found, not_cookbook_owner ->
+    not_bundle_owner, skill_not_in_cookbook -> skill_not_in_bundle,
+    personality_not_in_cookbook -> personality_not_in_bundle,
+    loop_not_in_cookbook -> loop_not_in_bundle, invalid_cookbook_id ->
+    invalid_bundle_id, plus 3 free-text detail strings ("Token scope
+    mismatch (wrong cookbook)" etc). Wire-contract field names
+    (`cookbook_id` param, `/api/cookbooks/*` routes) are intentionally
+    untouched — those are Phase 3/4 per the issue's phasing (breaking,
+    needs a dual-emit window). Verified no portal src/ consumer keys off
+    any of these string VALUES (grep clean) before renaming — copy-only,
+    zero behaviour change. Verified against prod /api/healthz 0.9.36
+    before bumping.
+
+0.9.42 - gap/gap-aiplugin: closed the last walled AI-plugin discovery
+    surface. GET /.well-known/ai-plugin.json — the 3rd standard AI-plugin
+    discovery convention alongside agent.json/mcp.json — 401'd live in prod
+    (verified 2026-08-20, `curl https://app.loopskill.io/.well-known/
+    ai-plugin.json` -> `{"detail":"Invalid or missing x-api-key header"}`)
+    because the route did not exist at all: any request to it hit
+    APIKeyMiddleware's allowlist wall before routing could even resolve
+    whether a handler existed. Added the route to the SAME module that
+    already serves agent.json/mcp.json (app/agent_wellknown_routes.py,
+    mirroring its _etagged_json/_CACHE_CONTROL conventions exactly) plus the
+    exact path to app/middleware/_public_paths.py:EXEMPT_PATHS — that
+    allowlist entry is the whole fix, same as the original agentreg_0819
+    defect. The manifest's `api.url` deliberately points at
+    /.well-known/mcp.json + /api/mcp/http (both genuinely exist and answer)
+    rather than /openapi.json, which 404s live on this deployment by design
+    (verified via curl: bare Caddy 404, no uvicorn header — the edge never
+    proxies that path here) — the exact "documented but broken" defect
+    class this route exists to kill. `auth` states the real self-registration
+    flow (Ed25519 proof-of-key via POST /api/agents/register, no OAuth) and
+    cross-links to /.well-known/agent.json for the full enrolment spec.
+    8 RED-proofed tests in tests/test_gap_aiplugin_wellknown.py (confirmed
+    to fail — 7 of 8 — with the EXEMPT_PATHS entry removed, matching the
+    live 401 defect byte-for-byte before the fix): 200-anonymous,
+    Cache-Control/ETag convention parity with agent.json/mcp.json,
+    ai-plugin schema-shape, no /openapi.json reference, cross-link to
+    agent.json, no-secrets-leak, EXEMPT_PATHS pinning, and a route-table
+    introspection test that every URL the manifest advertises is a route
+    that genuinely exists in app.routes (the no-404-links promise, pinned
+    against reality rather than hardcoded). No schema, no migration.
+    Verified against prod /api/healthz 0.9.41 before bumping.
+
+0.9.43 - fix(money-path-3): first-touch UTM/ref attribution capture at
+    signup. 2026-08-12 money-path audit found post→signup attribution
+    entirely dark: the short-link redirector (app/utm_redirects.py) sets a
+    ref cookie at click time and app/referral.py captures referral codes at
+    signup, but nothing captured UTM/ref context AT signup — User.utm_ref
+    was only ever written weeks later, at Stripe paid-conversion webhook
+    time, and only if the cookie happened to survive that long. Adds
+    User.signup_attribution (new nullable JSON column, additive migration
+    bd8afe172c89 — deliberately NOT a repurposing of utm_ref, which has a
+    different writer/lifecycle/validation shape) + app/services/
+    signup_attribution.py:resolve_signup_attribution (validates + bounds
+    utm_source/medium/campaign/content + ref, cookie-wins-over-query
+    first-touch precedence, never raises). Wired into both OAuth callbacks
+    (auth_routes.py) as a write-once, best-effort side effect — attribution
+    capture can never block sign-in, including when all non-essential
+    cookies are blocked or the attribution commit itself fails. No change
+    to Stripe/webhook code, pricing, or the existing utm_ref column.
+    Verified against prod /api/healthz 0.9.36 before bumping.
+
+0.9.38 - fix(money-path-3 review): codex REQUEST_CHANGES on PR #250 — 7
+    findings, all reproduced with evidence before fixing. WRITE-ONCE is now
+    ATOMIC: the read-then-write `if user.signup_attribution` race (two
+    concurrent callbacks for a brand-new user could both read NULL and the
+    second write would silently clobber the true first touch) is replaced
+    by a conditional `UPDATE ... WHERE signup_attribution IS NULL` checked
+    via rowcount — portable across Postgres and SQLite, no dialect-specific
+    locking. A commit failure inside the attribution write is now caught
+    and immediately followed by db.rollback() in the SAME function, so a
+    DB hiccup there can no longer poison the session and 500 the rest of
+    the signup request (create_jwt reads user attributes right after) —
+    reproduced with a genuine SQLAlchemy IntegrityError through the real
+    OAuth callback request path, not a mock. The `recipes_utm_ctx` cookie
+    (JSON UTM context) previously had NO producer anywhere in this repo —
+    a callback-only capture with a documented-but-dead cookie path. Fixed
+    the part that IS in this repo's power: /api/auth/{github,google}/login
+    now accept optional utm_source/utm_medium/utm_campaign/utm_content
+    query params and stamp them into the SAME short-lived cookie the
+    callback already reads, mirroring exactly how ?ref= already survives
+    the OAuth round-trip (WIS-660). The landing-page capture step itself is
+    the PORTAL's responsibility (a different repo) — documented as a
+    portal-side contract (forward its own page's UTM query params onto the
+    "Sign in" link) rather than shipped as a silent dead path. The
+    `creator:<handle>` ref-cookie trust bypass (a stale comment claimed
+    pre-validation at cookie-set time, but the cookie is client-writable
+    with no signature — a forger could mint `recipes_utm_ref=creator:
+    anything` directly) is fixed: resolve_signup_attribution now takes an
+    optional `db` and RE-VALIDATES creator: refs against the live
+    Creator.handle table (same lookup _resolve_ref_value already uses);
+    without a db handle the claim is unverifiable and is dropped, fail
+    closed. `if user.signup_attribution` (falsy-overwrite: an empty dict
+    `{}` — a valid "recorded, nothing to attribute" state — read as
+    absent) is eliminated by construction: the new atomic UPDATE checks
+    `IS NULL` at the SQL layer, where `{}` is NOT NULL and correctly blocks
+    a second write. The `recipes_utm_ctx` cookie is now size-bounded
+    (2048 bytes) BEFORE json.loads ever runs, closing a per-request
+    unbounded-parse DoS lever on a fully client-controlled value. 15 new
+    tests added (39 total in the money-path-3 suite): write-once race
+    no-op, commit-failure recovery + signup-still-succeeds, existing-{}
+    not overwritten, forged/unverifiable/real creator: ref, oversized ctx
+    cookie discarded pre-parse, Google OAuth callback variant, and the
+    utm_ctx cookie producer's full login->callback round-trip. No schema
+    change. Verified against prod /api/healthz 0.9.37 before bumping.
+
+0.9.44 - fix(issue-289): federation-registry-propose workflow now dedups
+    against config/federation_sources.yaml BEFORE opening any GitHub issue.
+    Issue #288 was a live instance of the defect this closes: the
+    auto-proposal bot re-filed `[federation-registry] anthropics/skills`
+    when github-anthropic (repo: anthropics/skills) has been a registered
+    github_taps entry since decision #13 (2026-08-11) — each duplicate cost
+    a full triage cycle (read config, cross-reference, comment, close).
+
+    app/services/federation_sources_config.py:find_registered_github_repo
+    does a case-insensitive lookup of the proposed repo_slug against every
+    live github_taps row (reuses the existing github_tap_rows() SSOT reader,
+    zero new state). Wired into loopskill_propose_registry (the ONE function
+    both POST /api/federation/propose and the loopskill_propose_registry MCP
+    tool call — app/mcp/tools/federation_propose.py) BEFORE the rate-limiter
+    write and the DB insert, so an already-registered proposal costs the
+    caller nothing (no rate-limit spend, no DB row, no GitHub issue) and is
+    reported back honestly: `{"status": "already_registered",
+    "existing_source_id": "github-anthropic", "review_channel_open": false}`.
+
+    3 new tests (already-registered short-circuit, case-insensitive match,
+    regression guard that a genuinely new repo still dispatches normally) —
+    RED-proofed: both new-behavior tests fail on pre-fix code
+    (`assert 'pending_review' == 'already_registered'`), pass after the fix.
+    Breaker pass: empty/None input, 100k-char input, whitespace+case
+    boundary match, near-miss no-false-positive (skills2/skill/xanthropics),
+    and injection-shaped strings (path traversal, shell metacharacters) —
+    all handled without raising or false-matching. No schema, no migration,
+    no .github/workflows change (the dedup check lives in the shared Python
+    choke point both proposal surfaces already funnel through — a smaller,
+    more central fix than the issue's own suggested workflow-file edit).
+    Verified against prod /api/healthz 0.9.43 before bumping.
 """
 
-__version__ = "0.9.35"
+__version__ = "0.9.44"

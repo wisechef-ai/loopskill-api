@@ -413,10 +413,29 @@ def can_run_sandbox(ctx: AuthContext) -> bool:
     """Return True if ctx may execute sandbox runs.
 
     Access rules:
+    - Self-registered AGENT principal: NEVER allowed (checked first)
     - Master scope: always allowed
     - is_sandbox_operator flag: allowed regardless of scope
     - All other cases: False
+
+    agentreg_0819 (review round 2, F5b) — why the agent clause is first and
+    unconditional. Round 1 argued that an agent could not run the sandbox
+    because ``POST /api/agents/register`` mints its key with
+    ``is_sandbox_operator=False``. That is a property of one row at one moment,
+    not a rule: any future path that flips the flag on an agent's key (an admin
+    tool, a support script, a bulk backfill, a bug) silently hands arbitrary
+    code execution to a principal that arrived with no human vouching for it
+    and no account to suspend. The whole value of a self-registration endpoint
+    is that enrolment is cheap; executing attacker-chosen code must not be.
+
+    So the denial is expressed as authorization rather than as configuration:
+    an agent cannot run the sandbox even if its key carries the paid-tier flag.
+    Placing the clause BEFORE the master check is deliberate too — a shadow
+    agent user is never master scope, so it costs nothing today, and if that
+    ever stops being true the ordering means the safe answer still wins.
     """
+    if getattr(ctx, "is_agent", False):
+        return False
     if ctx.scope == "master":
         return True
     if ctx.is_sandbox_operator:

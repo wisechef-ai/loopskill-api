@@ -229,6 +229,24 @@ def test_spotify1507_true_affiliate_still_rejected() -> None:
     assert "no_external_promo" in rules
 
 
+def test_loopskill_own_domain_passes() -> None:
+    """fleetos_1607 gap-close (2026-08-07): the platform's own marketplace skill
+    (recipes/loopskill / docs/recipes-skill SKILL.md) documents ITS OWN MCP
+    transport and signin URL on app.loopskill.io. Citing your own product's own
+    API endpoints is not third-party promo — it's the skill describing itself.
+    Root cause of `loopskill` (slug c62fb0f1) never resolving a live tarball:
+    it could never pass its own discipline gate to be published."""
+    body = CLEAN_SKILL_MD + (
+        "\nMCP transport: POST https://app.loopskill.io/api/mcp/http/\n"
+        "Sign in at https://app.loopskill.io/signin to generate an API key.\n"
+    )
+    result = lint_skill(body, recipe_yaml=CLEAN_RECIPE_YAML)
+    rules = {v["rule"] for v in result["violations"]}
+    assert "no_external_promo" not in rules, [
+        v for v in result["violations"] if v["rule"] == "no_external_promo"
+    ]
+
+
 # ── Rule: no_report_back_without_placeholder ───────────────────────────────
 
 

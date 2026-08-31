@@ -17,3 +17,14 @@ LOOPSKILL_KEY_PREFIX = "lsk_"  # canonical
 USER_KEY_PREFIXES: tuple[str, ...] = (API_KEY_PREFIX, LOOPSKILL_KEY_PREFIX)
 API_KEY_LENGTH = 36  # rec_ (4) + 32 hex chars
 FLEET_KEY_PREFIX = "rec_fleet_"  # Phase E: fleet API keys (distinct from rec_live_, cbt_)
+
+# agentreg_0819: keys minted by POST /api/agents/register for a self-registered
+# autonomous agent. It is a NARROWING of the rec_ user-key namespace, not a new
+# one — it already satisfies ``USER_KEY_PREFIXES``, so every existing validate
+# path (app/middleware/api_key.py, app/mcp/auth.py) accepts it unchanged and
+# resolves it to the same ``AuthContext(scope="user")`` as a rec_live_ key.
+#
+# The prefix exists so the two paths can cheaply recognise an agent key and add
+# the ONE extra gate agent keys need: the identity-revocation check in
+# ``app.middleware._agent_identity``. Distinct from rec_live_ and rec_fleet_.
+AGENT_KEY_PREFIX = "rec_agent_"

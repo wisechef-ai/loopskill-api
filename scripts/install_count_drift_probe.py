@@ -140,9 +140,24 @@ def _open_session():
 
 
 def compute_truth(db) -> dict[str, int]:
-    """Return {slug: max(telemetry_installs, install_events)} per slug."""
+    """Return {slug: max(telemetry_installs, organic_install_events)} per slug.
+
+    chef_0823 (t_4a38fed9): InstallEvent truth now uses the ONE shared organic
+    predicate (app/install_integrity.py) — the same definition that gates the
+    denormalised Skill.install_count bump. Without this, the counter re-sync
+    (which drops internal/CI/agent-probe installs) would file hourly drift
+    reports forever. Telemetry rows carry no client_ip provenance reliable
+    enough to filter identically, so telemetry counts stay raw — the probe
+    takes max(), and telemetry only ever pushes truth UP, never down.
+    """
     from sqlalchemy import func  # noqa: WPS433 — lazy
-    from app.models import InstallEvent, TelemetryEvent  # noqa: WPS433 — lazy
+    from app.install_integrity import organic_install_predicate  # noqa: WPS433 — lazy
+    from app.models import (  # noqa: WPS433 — lazy
+        APIKey,
+        InstallEvent,
+        TelemetryEvent,
+        User,
+    )
 
     truth: dict[str, int] = {}
     for slug, count in (
@@ -155,6 +170,9 @@ def compute_truth(db) -> dict[str, int]:
             truth[slug] = max(truth.get(slug, 0), count or 0)
     for slug, count in (
         db.query(InstallEvent.skill_slug, func.count())
+        .outerjoin(APIKey, APIKey.id == InstallEvent.api_key_id)
+        .outerjoin(User, User.id == APIKey.user_id)
+        .filter(*organic_install_predicate())
         .group_by(InstallEvent.skill_slug)
         .all()
     ):

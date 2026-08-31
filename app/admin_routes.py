@@ -278,6 +278,12 @@ class PulseOut(BaseModel):
     billable_units: list[OrgBillableUnitsOut]
     billable_units_period_start: str
     billable_units_period_end: str
+    # ── bundles0811-P1 (§0 lock #2) — "Success = bundle COUNT and bundle
+    # AUTHORS, not skill count." Replaces skill-count-shaped vanity metrics
+    # on this dashboard with the two numbers the lock names explicitly.
+    bundles_total: int  # every bundle regardless of visibility (private+public)
+    bundles_public_total: int  # public subset — the shareable, forkable kind
+    bundle_authors_total: int  # DISTINCT bundle_owner across ALL bundles (the "AUTHORS" half of lock #2)
     generated_at: str
 
 
@@ -369,12 +375,19 @@ def admin_pulse(
 
     comped_subscriptions = active_subscriptions - paying_operators if mrr_source == "stripe" else 0
 
-    # Free-sync paywall pressure.
+    # Free-sync paywall pressure. is_agent filter (review round 3, F6): agent
+    # shadows never use human free-sync; excluding them keeps admin counts human.
     free_sync_used_total = (
-        db.query(func.count(User.id)).filter(User.free_sync_used_at.isnot(None)).scalar() or 0
+        db.query(func.count(User.id))
+        .filter(User.is_agent.is_(False), User.free_sync_used_at.isnot(None))
+        .scalar()
+        or 0
     )
     free_sync_used_7d = (
-        db.query(func.count(User.id)).filter(User.free_sync_used_at >= cutoff_7d).scalar() or 0
+        db.query(func.count(User.id))
+        .filter(User.is_agent.is_(False), User.free_sync_used_at >= cutoff_7d)
+        .scalar()
+        or 0
     )
 
     # Fleet-deploy activity (the moat motion).
@@ -391,6 +404,24 @@ def admin_pulse(
     # Billable-candidate units per org (instrumentation only — see
     # app.billable_units; no price, no usage record, lock #24).
     units = billable_units(db, org_id=org_id)
+
+    # bundles0811-P1 (§0 lock #2) — bundle count + distinct bundle-author
+    # count. This is deliberately NOT scoped by org_id (unlike
+    # billable_units above): lock #2's "success" metric is account-wide by
+    # definition — a per-org filter would understate it the same way the
+    # skill-count vanity metric it replaces overstated supply-side activity.
+    from app.models import Bundle as _Bundle
+
+    bundles_total = db.query(func.count(_Bundle.id)).scalar() or 0
+    bundles_public_total = (
+        db.query(func.count(_Bundle.id)).filter(_Bundle.visibility == "public").scalar() or 0
+    )
+    bundle_authors_total = (
+        db.query(func.count(func.distinct(_Bundle.bundle_owner)))
+        .filter(_Bundle.bundle_owner.isnot(None))
+        .scalar()
+        or 0
+    )
 
     logger.info(
         "admin pulse: paying=%d real_cash_mrr=%s comped=%d active=%d fleet_subs=%d source=%s",
@@ -429,6 +460,9 @@ def admin_pulse(
         ],
         billable_units_period_start=units.period_start.isoformat(),
         billable_units_period_end=units.period_end.isoformat(),
+        bundles_total=int(bundles_total),
+        bundles_public_total=int(bundles_public_total),
+        bundle_authors_total=int(bundle_authors_total),
         generated_at=now.isoformat(),
     )
 

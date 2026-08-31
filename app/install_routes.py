@@ -70,6 +70,33 @@ if _RETIREMENT_FILE.exists():
             if len(_parts) == 2:
                 _RETIRED_SKILLS[_parts[0]] = _parts[1]
 
+# bundles_0811 P3 follow-up — accepted prefixes for a `<prefix>:<slug>` install
+# ref against the federated hub.
+#
+# `hermes-hub` is the HUB NAMESPACE: all 90,605 federation_hub_skills rows live
+# under it whatever their origin. The others are the `upstream_source` values a
+# user actually SEES on a search result card, so typing what you were shown must
+# work. Verified on prod 2026-08-11: distinct upstream_source = browse-sh,
+# claude-marketplace, clawhub, github, lobehub, official, skills-sh — and
+# `hermes-hub` is deliberately NOT one of them.
+#
+# Safe because hub slugs are globally unique (90,605 rows / 90,605 distinct
+# slugs), so the prefix is a hint, never a disambiguator. `ext:` is excluded by
+# the caller: it names a MATERIALIZED local pointer row, not a hub row.
+_FEDERATED_SLUG_PREFIXES: frozenset[str] = frozenset(
+    {
+        "hermes-hub",
+        "browse-sh",
+        "claude-marketplace",
+        "clawhub",
+        "github",
+        "github-oss",
+        "lobehub",
+        "official",
+        "skills-sh",
+    }
+)
+
 
 def _resolve_validated_bundle(db: Session, bundle_id: str, skill: Skill) -> UUID:
     """Validate a caller-supplied bundle_id for mesh0408 Q-031.
@@ -118,6 +145,68 @@ def _resolve_validated_bundle(db: Session, bundle_id: str, skill: Skill) -> UUID
     return bid
 
 
+def _install_federated_hermes_hub_ref(fed_slug: str, db: Session):
+    """Resolve `hermes-hub:<slug>` to an install INSTRUCTION. Never bytes.
+
+    bundles0811 P3 item 3. Looks up the FederationHubSkill row by slug for
+    its repo/path (the row's TRUE coordinates), then resolves a fetchable
+    SKILL.md URL via the P3 instruction resolver — a plain string, never a
+    fetched body. LoopSkill stores/fetches zero federated bytes here.
+
+    Returns a raw ``JSONResponse`` (bypassing ``InstallResponse``'s
+    required version/tarball_url fields, which a federated entry has no
+    tarball/version for) in the same key shape as
+    ``resolve_external_install`` (bundle_external.py) plus an
+    ``install_command`` so an agent has a copy-paste path, matching the
+    public ``/skills/external/{source}/{slug}/install`` route's contract.
+    """
+    from fastapi.responses import JSONResponse
+
+    from app.models import FederationHubSkill
+    from app.services.federation_hub_install import resolve_install_instruction
+
+    hub_row = db.query(FederationHubSkill).filter(FederationHubSkill.slug == fed_slug).first()
+    if hub_row is None:
+        raise HTTPException(status_code=404, detail=f"External skill '{fed_slug}' not found in hermes-hub")
+
+    # bundles0811 P3 item 4 (Q3): licence is RECORDED when the source's
+    # ingested `extra` payload carries one, never used to gate anything
+    # below — an unknown/missing licence resolves EXACTLY the same
+    # instruction as any other. No branch in this function reads it.
+    hub_extra = hub_row.extra if isinstance(hub_row.extra, dict) else {}
+    recorded_license = hub_extra.get("license") if hub_extra else None
+
+    instr = resolve_install_instruction(
+        repo=hub_row.repo,
+        path=hub_row.path,
+        origin_url=hub_row.origin_url,
+        slug=fed_slug,
+        license=recorded_license,
+    )
+    if not instr.url:
+        raise HTTPException(status_code=404, detail=f"External skill '{fed_slug}' has no resolvable location")
+
+    leaf = fed_slug.rsplit("--", 1)[-1].rsplit("/", 1)[-1]
+    payload: dict = {
+        "slug": f"hermes-hub:{fed_slug}",
+        "source": "hermes-hub",
+        "namespace": "external",
+        "quality": "community · as-is",
+        **instr.to_dict(),
+    }
+    if instr.kind == "fetch":
+        payload["install_command"] = (
+            f"mkdir -p ~/.claude/skills/{leaf} && curl -fsSL {instr.url} -o ~/.claude/skills/{leaf}/SKILL.md"
+        )
+    else:
+        payload["install_command"] = None
+        payload["agent_instructions"] = (
+            "LoopSkill did not resolve a direct SKILL.md location for this skill. "
+            f"Visit the origin to find it yourself: {instr.url}"
+        )
+    return JSONResponse(content=payload)
+
+
 @router.get("/skills/install", response_model=InstallResponse, tags=["skills"])
 def install_skill(
     request: Request,
@@ -151,6 +240,32 @@ def install_skill(
         slug, _v = slug.split("@", 1)
         version = (_v or "").strip() or None
     slug = slug.strip()
+
+    # bundles0811 P3 item 3 — a `<source>:<slug>` ref (e.g.
+    # "hermes-hub:1password") names a FEDERATED entry, not a local Skill row.
+    # No local Skill can ever legitimately carry a colon in its slug (the
+    # only colon-bearing convention in this codebase is the `ext:` prefix on
+    # a MATERIALIZED pointer row, which is excluded below), so this check is
+    # safe to run before the local-Skill lookup rather than only as a 404
+    # fallback. Resolved via the P3 instruction resolver — zero bytes
+    # fetched or stored here, unlike the bundle-scoped fetch-origin routes.
+    # bundles_0811 P3 follow-up: `hermes-hub` is the HUB NAMESPACE, not an
+    # upstream source. Every one of the 90,605 federation_hub_skills rows lives
+    # under it regardless of where it came from (verified on prod: distinct
+    # upstream_source = browse-sh, claude-marketplace, clawhub, github, lobehub,
+    # official, skills-sh — `hermes-hub` is not among them), and slugs are
+    # globally unique (90,605 rows / 90,605 distinct slugs).
+    #
+    # So `hermes-hub:<slug>` already resolves a skills-sh or github row — but a
+    # user who read `source: "skills-sh"` off a search result and typed
+    # `skills-sh:<slug>` got a bare "Skill not found", which reads as "we don't
+    # have it" when we do. Because slugs are globally unique, accepting any
+    # known upstream source as an ALIAS for the hub namespace is unambiguous.
+    if ":" in slug and not slug.startswith("ext:"):
+        fed_source, _sep, fed_slug = slug.partition(":")
+        if fed_source in _FEDERATED_SLUG_PREFIXES:
+            return _install_federated_hermes_hub_ref(fed_slug, db)
+
     skill = db.query(Skill).filter(Skill.slug == slug).first()
     if not skill:
         # WIS-903: check retired skill registry
@@ -204,7 +319,7 @@ def install_skill(
         if not getattr(auth_ctx, "allow_public_catalog", False):
             raise HTTPException(
                 status_code=403,
-                detail="Share tokens can only access cookbook routes",
+                detail="Share tokens can only access bundle routes",
             )
 
     # Visibility check
@@ -356,6 +471,22 @@ def install_skill(
         resp_headers["X-RateLimit-Limit"] = str(install_limit)
         resp_headers["X-RateLimit-Remaining"] = str(remaining)
 
+    # bhint0823 (t_8ccbdbc5) — bundle fast-path onboarding hint. Only direct
+    # installs can be "hand-walking a bundle" (a bundle-attributed install is
+    # already on the fast path), and the trigger requires >=3 direct installs
+    # from this IP in 24h, so the common case pays nothing: compute_bundle_hint
+    # returns None on the client_ip-missing branch before any query runs.
+    # Fail-quiet by design — a hinting regression must never 500 an install.
+    # bhint-tel0824 (t_55a1a333): every fire is counted (bundle_hint.shown)
+    # and every failure counted + logged (bundle_hint.error) — see
+    # app/services/bundle_hint_telemetry.py (extracted here to stay under the
+    # W0.2 600-line god-object gate).
+    from app.services.bundle_hint_telemetry import observe_hint_after_install
+
+    bundle_hint = observe_hint_after_install(db, validated_bundle_id=validated_bundle_id, event=_event)
+    if bundle_hint is not None:
+        resp_headers["X-LoopSkill-Bundle-Hint"] = bundle_hint["slug"]
+
     resp = InstallResponse(
         slug=slug,
         version=latest.semver,
@@ -365,6 +496,7 @@ def install_skill(
         expires_at=datetime.now(UTC) + timedelta(hours=1),
         manifest=_build_manifest(latest, skill),
         provenance_id=provenance_id,
+        bundle_hint=bundle_hint,
     )
     if resp_headers or ref:
         from fastapi.responses import JSONResponse as _JR

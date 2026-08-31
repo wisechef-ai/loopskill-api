@@ -19,7 +19,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     """Attach every domain-exception handler to ``app``."""
     # spotify_2607 Phase A (§0a) — the Liked bundle is a private SYSTEM
     # collection that can never be published. The guard lives at the ORM layer
-    # (Bundle._reject_liked_bundle_publish, an @validates hook) so it protects
+    # (Bundle._validate_visibility, an @validates hook) so it protects
     # EVERY write path, not just PATCH /visibility — this handler just turns
     # that model-layer raise into a well-formed 422 instead of a bare 500.
     from app.models import LikedBundleNotPublishableError

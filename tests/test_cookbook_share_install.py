@@ -258,12 +258,12 @@ class TestCookbookManifestWithCbtToken:
         cb_b = _make_cookbook(db_session, owner.id, name="B")
         db_session.commit()
 
-        # Token scoped to A, requesting B → 403 wrong cookbook (existing gate)
+        # Token scoped to A, requesting B → 403 wrong bundle (existing gate)
         app = _build_cbt_app(db_session, scope="edit", cookbook_id=cb_a.id)
         client = TestClient(app)
         resp = client.get(f"/api/cookbooks/{cb_b.id}/manifest")
         assert resp.status_code == 403
-        assert "wrong cookbook" in resp.text.lower()
+        assert "wrong bundle" in resp.text.lower()
 
 
 # ─────────────────────────── 3. bulk install ───────────────────────────
@@ -550,7 +550,7 @@ class TestMcpCookbookInstallErrorContract:
         ctx = AuthContext(scope="cbt_token", bundle_scope=cb_a.id)
         with pytest.raises(CookbookInstallError) as exc_info:
             loopskill_bundle_install(ctx=ctx, db=db_session, slug="b-only")
-        assert exc_info.value.code == "skill_not_in_cookbook"
+        assert exc_info.value.code == "skill_not_in_bundle"
         assert exc_info.value.status == 404
 
     def test_mcp_bulk_payload_skill_url_uses_install_salt(self, db_session):
@@ -634,7 +634,7 @@ class TestMcpCookbookInstallEdgeCases:
         ctx = AuthContext(scope="cbt_token", bundle_scope=cb.id)
         with pytest.raises(CookbookInstallError) as exc_info:
             loopskill_bundle_install(ctx=ctx, db=db_session, cookbook_id="not-a-uuid")
-        assert exc_info.value.code == "cookbook_not_found"
+        assert exc_info.value.code == "bundle_not_found"
         assert exc_info.value.status == 404
 
     def test_mcp_user_scope_without_cookbook_id_raises_cookbook_id_required(self, db_session):
@@ -676,7 +676,7 @@ class TestMcpCookbookInstallEdgeCases:
         ctx_a = AuthContext(scope="user", user_id=owner_a.id)
         with pytest.raises(CookbookInstallError) as exc_info:
             loopskill_bundle_install(ctx=ctx_a, db=db_session, cookbook_id=str(cb_b.id))
-        assert exc_info.value.code == "cookbook_not_found"
+        assert exc_info.value.code == "bundle_not_found"
         assert exc_info.value.status == 404
 
     def test_mcp_single_skill_unknown_slug_raises_skill_not_found(self, db_session):
@@ -722,7 +722,7 @@ class TestMcpCookbookInstallEdgeCases:
         ctx = AuthContext(scope="cbt_token", bundle_scope=orphan_cookbook_id)
         with pytest.raises(CookbookInstallError) as exc_info:
             loopskill_bundle_install(ctx=ctx, db=db_session)
-        assert exc_info.value.code == "cookbook_not_found"
+        assert exc_info.value.code == "bundle_not_found"
         assert exc_info.value.status == 404
 
     def test_mcp_user_scope_invalid_uuid_returns_cookbook_not_found(self, db_session):
@@ -740,7 +740,7 @@ class TestMcpCookbookInstallEdgeCases:
         ctx_user = AuthContext(scope="user", user_id=owner.id)
         with pytest.raises(CookbookInstallError) as exc_info:
             loopskill_bundle_install(ctx=ctx_user, db=db_session, cookbook_id="🚨-not-a-uuid")
-        assert exc_info.value.code == "cookbook_not_found"
+        assert exc_info.value.code == "bundle_not_found"
         assert exc_info.value.status == 404
 
 

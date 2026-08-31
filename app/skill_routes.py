@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -36,8 +36,9 @@ from app._skill_helpers import (
     _skill_to_out,
 )
 from app.database import get_db
-from app.models import MissingSkillQuery, Skill, SkillAlias, TelemetryEvent
+from app.models import Skill, SkillAlias, TelemetryEvent
 from app.schemas import SkillDetailOut, SkillOut, SkillSearchResult
+from app.services.demand_capture import record_missing_skill_query
 from app.tier_labels import _is_paid_tier
 
 logger = logging.getLogger(__name__)
@@ -278,48 +279,13 @@ def search_skills(
     # topshelf_2605/H.1 — log zero-result queries for VOC digest.
     # Only fires when q is provided AND the final merged results list is empty
     # AND this is the first page (avoid double-counting paginated traversal).
-    # Wrapped in try/except so a DB hiccup never breaks the search response.
+    # fdeloop_0808 Phase A: the inline upsert that used to live here moved to
+    # ``app.services.demand_capture`` so the federated paths share ONE writer
+    # and ONE normalisation. Two callers normalising differently would either
+    # violate the (lower(query), day) unique index or split the count and
+    # under-report demand.
     if q and not final_outs and page == 1:
-        try:
-            from sqlalchemy.dialects.postgresql import insert as pg_insert
-
-            today = date.today()
-            bind = db.get_bind()
-            if bind.dialect.name == "postgresql":
-                # Postgres: atomic upsert — increment count on duplicate day.
-                stmt = pg_insert(MissingSkillQuery).values(
-                    query=q,
-                    user_id=None,
-                    day=today,
-                    count=1,
-                )
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=[
-                        func.lower(MissingSkillQuery.query),
-                        MissingSkillQuery.day,
-                    ],
-                    set_={"count": MissingSkillQuery.count + 1},
-                )
-                db.execute(stmt)
-            else:
-                # SQLite (tests): simple SELECT-then-upsert path.
-                existing = (
-                    db.query(MissingSkillQuery)
-                    .filter(
-                        func.lower(MissingSkillQuery.query) == q.lower(),
-                        MissingSkillQuery.day == today,
-                    )
-                    .first()
-                )
-                if existing:
-                    existing.count += 1
-                else:
-                    db.add(MissingSkillQuery(query=q, user_id=None, day=today, count=1))
-            db.commit()
-        # Rationale: VOC logging must never break the search response
-        except Exception:  # noqa: BLE001
-            logger.debug("missing_skill_query upsert failed — ignored", exc_info=True)
-            db.rollback()
+        record_missing_skill_query(db, q)
 
     return SkillSearchResult(
         results=final_outs,
@@ -552,7 +518,7 @@ def get_external_skills(
     from app.services.external_fanout import run_external_fanout
     from app.services.federation import ExternalSkill, LIVE_SOURCES, merge_search, route_install
     from app.services.federation_adapters import get_adapter
-    from app.services.federation_live import LIVE_FETCH
+    from app.services.federation_live import LIVE_FETCH, STRUCTURALLY_EMPTY_SOURCES
 
     auth_ctx = getattr(request.state, "auth_ctx", None)
     caller_is_master = getattr(auth_ctx, "scope", None) == "master"
@@ -607,6 +573,15 @@ def get_external_skills(
             # spotify_1507 Phase C2: deduped count + snapshot freshness (hermes-hub only).
             "deduped_indexed": None,
             "snapshot_generated_at": None,
+            # P3.9 (bundles_0811): tell the truth about WHY a source is at 0.
+            # `structurally_empty` is set from the STRUCTURALLY_EMPTY_SOURCES
+            # registry (e.g. well-known — discovery-by-URL, no catalog to walk)
+            # and is a BY-DESIGN steady state, never a failing source. It is
+            # computed from the static registry, not from indexed_count, so an
+            # admin surface can distinguish "zero and fine" from "zero and
+            # broken" without guessing from the number alone.
+            "structurally_empty": source_id in STRUCTURALLY_EMPTY_SOURCES,
+            "last_error": None,
         }
         if is_enabled or (force_refresh and source_id in requested):
             has_query = bool((q or "").strip())
@@ -633,6 +608,10 @@ def get_external_skills(
                     # spotify_1507 Phase C2: surface deduped count + freshness.
                     block["deduped_indexed"] = existing.get("deduped_indexed")
                     block["snapshot_generated_at"] = existing.get("snapshot_generated_at")
+                    # P3.9: surface the real last-walk error honestly (e.g.
+                    # clawhub's "page 220: status=503") rather than hiding it
+                    # behind a bare zero/None count.
+                    block["last_error"] = existing.get("last_error")
                     if is_enabled:
                         all_external.extend(found)
 
@@ -664,6 +643,8 @@ def get_external_skills(
                 # spotify_1507 Phase C2: surface deduped count + snapshot freshness.
                 block["deduped_indexed"] = cached.get("deduped_indexed")
                 block["snapshot_generated_at"] = cached.get("snapshot_generated_at")
+                # P3.9: same honest last_error surfacing as the enabled path.
+                block["last_error"] = cached.get("last_error")
         per_source[source_id] = block
 
     # The concurrent fan-out: every source needing a live fetch runs in
@@ -711,6 +692,8 @@ def get_external_skills(
                     block["stale"] = existing.get("stale")
                     block["deduped_indexed"] = existing.get("deduped_indexed")
                     block["snapshot_generated_at"] = existing.get("snapshot_generated_at")
+                    # P3.9: honest last-walk error, not hidden behind a bare count.
+                    block["last_error"] = existing.get("last_error")
                 else:
                     # Codex review MUST-FIX 4 (CONFIRMED): the OLD code turned an
                     # adapter exception into `found = []` and therefore ALWAYS
@@ -793,6 +776,8 @@ def get_external_skills(
                 # spotify_1507 Phase C2: surface deduped count + freshness.
                 block["deduped_indexed"] = existing.get("deduped_indexed")
                 block["snapshot_generated_at"] = existing.get("snapshot_generated_at")
+                # P3.9: honest last-walk error, not hidden behind a bare count.
+                block["last_error"] = existing.get("last_error")
 
     # The isolation wall: internal=[] (this surface is external-only); the toggle
     # is "on" iff at least one source is enabled. merge_search enforces that no
@@ -852,6 +837,22 @@ def get_external_skills(
             "degraded_sources": degraded_sources,
         }
     )
+
+    # fdeloop_0808 Phase A — demand capture on the FEDERATED path.
+    #
+    # ``MissingSkillQuery`` used to be written only from ``search_skills``, the
+    # first-party path over ~55 curated skills. This route is what the portal's
+    # library and browse pages call, and it fans out across the ~91k federated
+    # catalog — three orders of magnitude more surface, recording nothing. A
+    # zero-result search HERE is the strongest demand signal the platform has:
+    # the user looked in the biggest index we know about and still found
+    # nothing.
+    #
+    # Guarded on `enabled` so a toggle-off request (which returns [] by design,
+    # not by absence) never mints a phantom demand row.
+    if q and enabled and not merged.external:
+        record_missing_skill_query(db, q)
+
     return payload
 
 

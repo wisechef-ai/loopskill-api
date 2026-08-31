@@ -20,7 +20,7 @@ from pathlib import Path
 
 import yaml
 
-logger = logging.getLogger("wiserecipes.seeker")
+logger = logging.getLogger("loopskill.seeker")
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 

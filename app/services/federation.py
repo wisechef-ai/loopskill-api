@@ -1,9 +1,17 @@
 """Federation install router + source adapters — evergreen_0206 Phase F.
 
-The funnel half of the control plane: make ~88k external skills installable (or
+The funnel half of the control plane: make external skills installable (or
 honestly deep-linkable) through one uniform surface, so agents discover Recipes
 via the external catalog (SEO / agent-discovery) and convert on the maintenance
 moat (B-E).
+
+Federation is a set of LIVE LOOKUPS into other people's catalogs, never an
+owned index (P3.9, bundles_0811). github-oss in particular is GitHub
+code-search rate-limited to 10 req/min — a long-tail per-query lookup, not a
+bulk crawl. No count derived from any federation source should be read as
+"skills we host"; see app/services/federation_cache.py's honest
+indexed-vs-installable distinction and docs/runbooks/
+github-federation-token-rotation.md for the rate-limit reality.
 
 Three install paths (be honest about installable-vs-indexed):
   1. OSS / SKILL.md / git  → fetch-from-origin, license preserved
@@ -49,19 +57,17 @@ INTERNAL_SOURCE = "recipes"
 # superset_0606 Phase C: the 6 GitHub provider facets (the big steal) are
 # appended from the curated tap-list — one parameterized adapter, distinct
 # source ids so they browse as named facets mirroring the Hub's facet UI.
+#
+# bundles_0811 Phase P3.5 (locked decision #10): both halves now come from
+# config/federation_sources.yaml (adapter_sources + github_taps) via
+# app.services.federation_sources_config — NOT a hardcoded Python tuple.
+# Accepting a self-serve-proposed GitHub-hosted registry is therefore a config
+# edit; see tests/test_federation_propose.py for the RED-proof.
 def _live_sources() -> tuple[str, ...]:
+    from app.services.federation_sources_config import adapter_source_ids
     from app.services.github_taps import GITHUB_FACET_SOURCES
 
-    return (
-        "hermes-hub",
-        "skills-sh",
-        "well-known",
-        "clawhub",
-        "lobehub",
-        "browse-sh",
-        "github-oss",
-        *GITHUB_FACET_SOURCES,
-    )
+    return (*adapter_source_ids(), *GITHUB_FACET_SOURCES)
 
 
 LIVE_SOURCES = _live_sources()
@@ -96,6 +102,24 @@ class ExternalSkill:
             "slug": self.slug,
             "title": self.title,
             "source": self.source,
+            # bundles_0811 — the identifier a caller can ACT on.
+            #
+            # Every federated search row previously shipped a bare `slug` and no
+            # install ref, so an anonymous caller had nothing to feed
+            # `GET /api/skills/install`. Worse, the shapes disagree by source:
+            # skills-sh and github-oss return upstream double-dash ids
+            # (`mvanhorn--cli-printing-press--printing-press`) while the hub
+            # snapshot stores hyphen slugs (`skills-sh-mvanhorn-cli-...`), so a
+            # user pasting what they were SHOWN got "not found" for a row we
+            # hold. Measured 2026-08-11: 180/180 rows across 6 queries had no
+            # install ref; 120 of them displayed a slug the install route
+            # rejected.
+            #
+            # `install_ref` is the SAME `{source}:{slug}` contract metasearch
+            # already builds (services/metasearch.py) and the install route
+            # already accepts (install_routes._FEDERATED_SLUG_PREFIXES), so this
+            # adds no new vocabulary — it stops withholding one that exists.
+            "install_ref": f"{self.source}:{self.slug}",
             "install_path": self.install_path.value,
             "origin_url": self.origin_url,
             "license": self.license,

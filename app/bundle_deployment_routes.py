@@ -135,10 +135,10 @@ def _resolve_cookbook_or_404(db: Session, cookbook_id: str, user: User) -> Bundl
     try:
         cb_uuid = UUID(cookbook_id)
     except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="invalid_cookbook_id")
+        raise HTTPException(status_code=400, detail="invalid_bundle_id")
     cb = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
     if not cb:
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
     if cb.bundle_owner != user.id:
         raise HTTPException(status_code=403, detail="forbidden")
     return cb
@@ -493,9 +493,9 @@ async def cookbook_deploy_manifest(
     """
     cb = db.query(Bundle).filter(Bundle.slug == slug).first()
     if not cb:
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
     if cb.visibility == "private":
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
 
     rows = (
         db.query(BundleDeployment)

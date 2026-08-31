@@ -323,7 +323,7 @@ class TestShareTokens:
             # Try to access cookbook B
             resp = client.get(f"/api/cookbooks/{cb_b.id}")
             assert resp.status_code == 403, resp.text
-            assert "wrong cookbook" in resp.json()["detail"].lower()
+            assert "wrong bundle" in resp.json()["detail"].lower()
 
     # (g) test_cbt_token_blocks_publish
     def test_cbt_token_blocks_publish(self, db_session):

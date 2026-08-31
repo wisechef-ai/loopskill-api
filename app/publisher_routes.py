@@ -33,6 +33,8 @@ from app.config import settings
 from app.database import get_db
 from app.models import Creator, Skill, SkillVersion
 from app.security_scan import scan_tarball
+from app.services.publish_reference_gate import dangling_reference_warning
+from app.skill_title import resolve_title_for_new_skill, resolve_title_for_republish
 
 logger = logging.getLogger(__name__)
 
@@ -362,14 +364,16 @@ async def publish_skill(
             _create_ctx = AuthContext(scope="user", user_id=api_key_user_id_for_create)
             creator_for_new_skill = _resolve_or_create_creator(_create_ctx, db)
 
+        # Extract SKILL.md once (reused for readme + title below).
+        _new_skill_readme = _extract_skill_md_from_tarball(tarball_bytes)
         skill_obj = Skill(
             id=uuid4(),
             slug=slug,
-            title=skill_name,
+            title=resolve_title_for_new_skill(slug, skill_name, _new_skill_readme),  # issue #155
             description=skill_description,
             license=skill_section.get("license"),
             tier=(skill_section.get("tier") or "").strip() or None,
-            readme=_extract_skill_md_from_tarball(tarball_bytes),
+            readme=_new_skill_readme,
             is_public=is_public,
             creator_id=creator_for_new_skill.id if creator_for_new_skill else None,
         )
@@ -406,6 +410,8 @@ async def publish_skill(
     if is_public and not skill_obj.is_public:
         skill_obj.is_public = True
 
+    skill_md_text = _extract_skill_md_from_tarball(tarball_bytes)  # extracted once, reused below
+
     # Description, license, title: re-sync from skill_section every publish.
     # Only overwrite when the new value is non-empty AND differs — preserves
     # editorial overrides from quality_1705 backfills until those are
@@ -416,8 +422,10 @@ async def publish_skill(
     new_license = (skill_section.get("license") or "").strip()
     if new_license and new_license != (skill_obj.license or "").strip():
         skill_obj.license = new_license
-    new_title = (skill_name or "").strip()
-    if new_title and new_title != (skill_obj.title or "").strip():
+    # issue #155: see app/skill_title.resolve_title_for_republish — avoids
+    # regressing a good title back to slug-shaped on republish.
+    new_title = resolve_title_for_republish(slug, skill_obj.title, skill_name, skill_md_text)
+    if new_title:
         skill_obj.title = new_title
     new_tier = (skill_section.get("tier") or "").strip()
     if new_tier and new_tier != (skill_obj.tier or "").strip():
@@ -429,7 +437,6 @@ async def publish_skill(
     # and the portal renders the Day-1 placeholder. Best-effort: a tarball
     # without SKILL.md or that fails to decode is logged but does NOT block
     # the publish (versioned tarball is the canonical artifact).
-    skill_md_text = _extract_skill_md_from_tarball(tarball_bytes)
     if skill_md_text:
         current_readme = (skill_obj.readme or "").strip()
         if skill_md_text.strip() != current_readme:
@@ -439,6 +446,16 @@ async def publish_skill(
                 slug,
                 len(skill_md_text),
             )
+
+    # ── DANGLING-REFERENCE GATE (2026-08-12) ────────────────────────────────
+    # A published SKILL.md saying "see obviously-awesome" when no such slug is
+    # published sends a reader to a 404. Policy and rationale live in
+    # app/services/publish_reference_gate.py (extracted rather than waived past
+    # the 600-line module ceiling). Advisory by design: warns, never blocks,
+    # and never raises — the publish is the product.
+    dangling_warning = dangling_reference_warning(slug, skill_md_text, db) if is_public else None
+    if dangling_warning:
+        warnings.append(dangling_warning)
 
     # Un-archive a previously-archived skill row when a fresh public version
     # lands. Without this, the portal build silently skips the slug (it

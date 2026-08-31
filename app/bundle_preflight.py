@@ -50,7 +50,7 @@ def run_preflight(
         return {
             "ok": False,
             "cookbook_slug": cookbook_slug,
-            "problems": [f"cookbook_not_found:{cookbook_slug}"],
+            "problems": [f"bundle_not_found:{cookbook_slug}"],
             "checks": {},
         }
     rows = (

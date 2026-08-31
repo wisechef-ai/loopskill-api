@@ -132,13 +132,43 @@ def failed_after_edges(
     # is small (incidents per skill ≪ 10k) and this avoids dialect
     # differences in interval arithmetic between Postgres and SQLite (the
     # latter has no native INTERVAL type).
+    #
+    # bundles_0811 P6: `incident_reports` exists in TWO shapes and this query
+    # only ever addressed one of them.
+    #
+    #   models.py IncidentReport (the REAL, shipped schema) keys by `skill_id`
+    #   tests/test_graph_extension.py::_ensure_incident_reports_table drops that
+    #   table and recreates a `skill_slug`-shaped one for derivation tests
+    #
+    # The query hardcoded `skill_slug`, so against the real schema it raised
+    # UndefinedColumn — invisible since v1.0.0 because the bare `except` below
+    # swallowed it and returned []. On Postgres a failed statement ABORTS THE
+    # WHOLE TRANSACTION, so swallowing was not enough: every later query in the
+    # same session died with InFailedSqlTransaction. That is why P6's
+    # neighborhood endpoint — the first caller to reach this on the Postgres CI
+    # leg — failed at an unrelated `db.query(Skill)` several frames away.
+    # SQLite tolerates the sequence, which is why it never reproduced locally.
+    #
+    # Detect the shape rather than assuming either one, and roll back on failure
+    # so a swallowed error can never poison the caller's session.
+    if _column_exists(db, "incident_reports", "skill_slug"):
+        incident_sql = f"SELECT {ts_col} FROM incident_reports WHERE skill_slug = :slug"
+    elif _column_exists(db, "incident_reports", "skill_id"):
+        incident_sql = (
+            f"SELECT i.{ts_col} FROM incident_reports i "
+            "JOIN skills s ON s.id = i.skill_id WHERE s.slug = :slug"
+        )
+    else:
+        return []
+
     try:
-        incident_rows = db.execute(
-            text(f"SELECT {ts_col} FROM incident_reports WHERE skill_slug = :slug"),
-            {"slug": skill_slug},
-        ).fetchall()
-    # Rationale: incident_reports table may not exist on older schema; return empty list
+        incident_rows = db.execute(text(incident_sql), {"slug": skill_slug}).fetchall()
+    # Rationale: incident_reports may be absent or differently shaped on an older
+    # schema. Roll back first — on Postgres the failed statement has already
+    # aborted the transaction, and returning [] without a rollback hands the
+    # caller a session in which every subsequent query fails.
     except Exception:  # noqa: BLE001
+        db.rollback()
         return []
 
     if not incident_rows:

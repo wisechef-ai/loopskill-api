@@ -1,0 +1,196 @@
+# SSOT for federation registry sources — bundles_0811 Phase P3.5.
+#
+# Locked decision #10 (Adam 2026-08-10): adding a new federation registry
+# must be SELF-SERVE-PROPOSABLE and accepting a proposal must be a DATA EDIT,
+# not a code change. Before this file existed, the full 14-source list was a
+# Python tuple in app/services/federation.py (LIVE_SOURCES) built by
+# concatenating this file's `adapter_sources` with the GitHub-tap facets that
+# used to live in app/services/github_taps.py as a hardcoded tuple.
+#
+# Two source classes:
+#
+#   adapter_sources — bespoke non-GitHub sources, each backed by a hand-written
+#   SourceAdapter subclass in app/services/federation_adapters.py (different
+#   wire protocol per source: hermes-hub's envelope, clawhub's API, lobehub's
+#   agent JSON, well-known's discovery convention, skills.sh's search API,
+#   github-oss's code-search). A wholly new non-GitHub protocol still needs an
+#   adapter class written in Python — that is inherent, the wire format
+#   differs — but its final ENABLEMENT/registration into the live source list
+#   is this file, not federation.py.
+#
+#   github_taps — GitHub repo + path + license + trust tuples served by the
+#   ONE parameterized GitHubTapAdapter (app/services/federation_adapters.py).
+#   THIS is the pure self-serve path: accepting a self-serve
+#   POST /api/federation/propose (or loopskill_propose_registry) submission
+#   for a GitHub-hosted skill collection is exactly appending one entry here.
+#   NO PYTHON CHANGE required.
+#
+# To change display/pricing-style behaviour: edit ONLY this file. Verified by
+# tests/test_federation_propose.py::test_all_14_preexisting_sources_survive.
+#
+# Order matches the pre-P3.5 hardcoded tuple exactly (github-oss LAST, per
+# Adam's original wiring call — it stays dark until GITHUB_TOKEN lands, so it
+# was deliberately ordered after the sources that work anonymously).
+version: 1
+
+adapter_sources:
+  - hermes-hub
+  - skills-sh
+  - well-known
+  - clawhub
+  - lobehub
+  - browse-sh
+  - github-oss
+
+github_taps:
+  # Per-skill license repos (anthropics + openai ship a LICENSE.txt per skill
+  # dir; repo_license=null forces per-skill resolution — decision #13 step 1).
+  - source_id: github-anthropic
+    repo: anthropics/skills
+    path: "skills/"
+    repo_license: null
+    trust: trusted-source
+    in_metasearch: false
+  - source_id: github-openai
+    repo: openai/skills
+    path: "skills/.curated/"
+    repo_license: null
+    trust: curated-community
+    in_metasearch: false
+  # Whole-repo single-license repos — every skill is fetch-origin installable.
+  - source_id: github-huggingface
+    repo: huggingface/skills
+    path: "skills/"
+    repo_license: "Apache-2.0"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-nvidia
+    repo: NVIDIA/skills
+    path: "skills/"
+    repo_license: "Apache-2.0 AND CC-BY-4.0"
+    trust: trusted-source
+    in_metasearch: false
+  - source_id: github-gstack
+    repo: garrytan/gstack
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-superpowers
+    repo: obra/superpowers
+    path: "skills/"
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  # Corey Haines' marketing skill pack (47 skills, MIT). in_metasearch=true ->
+  # first-class ranking; live-fetch (no SHA pin) so daily upstream edits
+  # surface at query+install time.
+  - source_id: github-marketing
+    repo: coreyhaines31/marketingskills
+    path: "skills/"
+    repo_license: "MIT"
+    trust: trusted-source
+    in_metasearch: true
+
+  # ── maturity_0821 curated expansion (16 sources, live-probed 2026-08-21;
+  #    vault: research/2026-08-21-federation-source-expansion.md).
+  #    All MIT/Apache-2.0. in_metasearch=false on entry — first-class
+  #    metasearch ranking stays an explicit later opt-in per source. ──
+  - source_id: github-agentskillexchange
+    repo: agentskillexchange/skills
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-journal-skills
+    repo: brycewang-stanford/Awesome-Journal-Skills
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-alirezarezvani-skills
+    repo: alirezarezvani/claude-skills
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-hoangnguyen-skills-standard
+    repo: HoangNguyen0403/agent-skills-standard
+    path: ""
+    repo_license: "Apache-2.0"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-wshobson-agents
+    repo: wshobson/agents
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-kdense-scientific-skills
+    repo: K-Dense-AI/scientific-agent-skills
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-jimliu-baoyu-skills
+    repo: JimLiu/baoyu-skills
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-thedotmack-claude-mem
+    repo: thedotmack/claude-mem
+    path: ""
+    repo_license: "Apache-2.0"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-skill-seekers
+    repo: yusufkaraaslan/Skill_Seekers
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-litestar-skills
+    repo: litestar-org/litestar-skills
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-runcomfy-skills
+    repo: runcomfy-com/skills
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-atc-agentic-toolkit
+    repo: atc-net/atc-agentic-toolkit
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+  - source_id: github-orchestra-research-skills
+    repo: Orchestra-Research/AI-Research-SKILLs
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
+
+  # Harness-agnostic agent-infrastructure skills (self-hosted inference, GPU
+  # serving, deploy). Every performance claim in these skills is measured on
+  # named hardware with a recorded date, and every shipped script is cold-run
+  # tested against a live system before publish — so they carry first-class
+  # metasearch ranking.
+  - source_id: github-awesome-agent-skills
+    repo: wisechef-ai/awesome-agent-skills
+    path: "skills/"
+    repo_license: "MIT"
+    trust: trusted-source
+    in_metasearch: true
+  # Accepted 2026-08-31 (issue #257, submission b80f5019): single MIT-licensed
+  # mega-skill, actively maintained, 192 stars. curated-community tap.
+  - source_id: github-marketing-os
+    repo: Yuzzyuk/marketing-os
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: true

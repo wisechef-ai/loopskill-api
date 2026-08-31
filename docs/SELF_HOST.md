@@ -4,6 +4,33 @@ LoopSkill is the GitOps fleet control plane for AI agents. Declare desired state
 server-side; agents pull and converge. This guide walks a cold clone to a working
 fleet loop using only the docs below.
 
+## Fastest path: two commands, zero config
+
+The repo ships a zero-config Docker stack (SQLite, no secrets required; Redis is
+optional — the app degrades gracefully to in-memory rate limiting without it):
+
+```bash
+git clone https://github.com/wisechef-ai/loopskill-api.git && cd loopskill-api
+docker compose up -d
+curl http://localhost:8200/api/healthz     # → {"status":"ok","db":"ok",...}
+```
+
+That is a running control plane. Use it to evaluate LoopSkill before committing
+to any of the setup below.
+
+**Which path do you want?**
+
+| You want | Use |
+|---|---|
+| To try it / evaluate / develop against it | `docker compose up -d` (above) |
+| A production-grade stack (Postgres + Redis) | `docker-compose.prod.yml` |
+| Full manual control, no Docker | The venv walkthrough below |
+
+The manual walkthrough is the reference for what the containers do, and it is the
+path to follow when running LoopSkill for real on your own host. Everything after
+§1 (owner key, fleets, reconcile, loops) applies **identically** whichever way you
+booted — only the boot step differs.
+
 ## Quick Start (cold clone → fleet → reconcile → outcome records)
 
 ### 1. Clone + boot
@@ -34,6 +61,40 @@ export WR_DATABASE_URL="postgresql://user@localhost/loopskill"
 # set the callback URL to $WR_OAUTH_REDIRECT_BASE/api/auth/github/callback.
 export WR_GITHUB_CLIENT_ID="Ov23li..."
 export WR_GITHUB_CLIENT_SECRET="..."
+
+# OPTIONAL but high-leverage: GitHub code-search federation.
+#
+# The `github-oss` federated source discovers public skills across GitHub by
+# code-searching `filename:SKILL.md`. GitHub's own search index has millions of
+# matches for that filename, but `github-oss` is NOT a bulk crawl of them and
+# never will be: GitHub's code-search API rate-limits authenticated callers to
+# 10 requests/minute (not the 5,000/hr the REST API otherwise allows), so this
+# source is a LIVE LONG-TAIL LOOKUP resolved per query — it answers "does GitHub
+# have a skill matching this search term right now", never "we have indexed
+# GitHub's skills". Do not read the periodic reindex cron's indexed_count as an
+# owned catalog size; it is a small per-page sample, not the reachable set.
+#
+# WITHOUT a token, this source degrades to a GRACEFUL EMPTY: it logs one info
+# line and indexes zero rows, with `last_error = NULL` in
+# `federation_index_cache`. It looks healthy and returns nothing — verified on
+# prod 2026-08-10, where github-oss had been indexing 0 for want of this single
+# variable.
+#
+# A fine-grained token with PUBLIC READ-ONLY scope is sufficient; no repo write,
+# no org access. Either name is accepted.
+export GITHUB_TOKEN="github_pat_..."   # or GH_TOKEN
+
+# Verify it took effect after boot:
+#   select source, indexed_count, last_error from federation_index_cache
+#     where source = 'github-oss';
+# indexed_count = 0 AND last_error IS NULL means the token is missing or unset
+# in the SERVER's environment (systemd EnvironmentFile, not just your shell).
+# See docs/runbooks/github-federation-token-rotation.md for the full silent-
+# symptom rundown, verification SQL, and the annual rotation steps.
+#
+# Note: `well-known` legitimately indexes 0 — it is discovery-by-URL and has no
+# central catalog to crawl. See STRUCTURALLY_EMPTY_SOURCES in
+# app/services/federation_live.py. Do not chase it as a bug.
 
 # Run migrations
 alembic upgrade head

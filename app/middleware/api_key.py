@@ -22,6 +22,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.config import settings
 from app.middleware._public_paths import EXEMPT_PATHS as _EXEMPT_PATHS
 from app.middleware._public_paths import PUBLIC_PREFIXES as _PUBLIC_PREFIXES
+from app.middleware._public_paths import is_public_plugin_manifest_path as _is_plugin_manifest_path
+from app.middleware._jwt_cookie_auth import auth_ctx_from_jwt_cookie as _auth_ctx_from_jwt_cookie  # noqa: F401
+from app.middleware._jwt_cookie_auth import try_jwt_cookie_auth as _try_jwt_cookie_auth  # noqa: F401
 
 # mesh_0408 W1: tenant resolution lives in _org_scope so this module stays
 # under the 600-line god-object cap. Re-exported under the historical
@@ -32,98 +35,24 @@ from app.middleware._org_scope import resolve_org_membership as _resolve_org_mem
 from app.middleware.key_prefixes import API_KEY_PREFIX, FLEET_KEY_PREFIX  # noqa: F401 — compat re-export
 from app.middleware.key_prefixes import LOOPSKILL_KEY_PREFIX, USER_KEY_PREFIXES  # noqa: F401
 
+# agentreg_0819: the ONE extra gate a self-registered rec_agent_ key needs on
+# top of the ordinary user-key path — identity revocation, fail closed. Shared
+# verbatim with app/mcp/auth.py so REST and MCP cannot drift.
+from app.middleware._agent_identity import agent_key_is_blocked as _agent_key_is_blocked
+from app.middleware._agent_identity import is_agent_key as _is_agent_key
+
 # mesh0408e2e W2: entitlement is derived from subscription STATUS, never from
 # the raw tier column — a past_due/canceled Pro must not keep paid capability
 # just because the slug is still on the row.
 from app.revenue_truth import entitled_tier
 
-logger = logging.getLogger("wiserecipes.middleware")
+logger = logging.getLogger("loopskill.middleware")
 
 
 # Shared Redis client (lazy init)
 _redis_client = None
 _redis_available = None
 _redis_next_retry_at: float = 0.0  # F-API-05: backoff timestamp
-
-
-def _auth_ctx_from_jwt_cookie(request) -> "AuthContext":
-    """Return an AuthContext populated from the wr_jwt cookie / Bearer token.
-
-    Used on public skill-detail GETs where no x-api-key is present.  If the
-    cookie is absent or invalid, returns AuthContext.anonymous() so downstream
-    handlers always have a valid auth_ctx to inspect.
-
-    Resolution order:
-      1. ``wr_jwt`` cookie (browser portal sessions)
-      2. ``Authorization: Bearer <token>`` (SPA clients, backward compat)
-
-    Issue #25 (secfix_1905/H): extracted from the deleted _resolve_caller_tier
-    helper so that JWT-cookie callers on public routes are properly hydrated
-    into auth_ctx without the route needing a separate DB call.
-    """
-    from app.auth_ctx import AuthContext
-
-    token = request.cookies.get("wr_jwt")
-    if not token:
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.lower().startswith("bearer "):
-            token = auth_header[7:].strip()
-    if not token:
-        return AuthContext.anonymous()
-
-    try:
-        from app.auth_routes import verify_jwt  # local import to avoid cycles
-
-        payload = verify_jwt(token)
-    # Rationale: any JWT validation failure must not crash public skill-detail — return anonymous
-    except Exception:  # noqa: BLE001
-        return AuthContext.anonymous()
-
-    if not payload:
-        return AuthContext.anonymous()
-
-    from uuid import UUID
-
-    try:
-        user_id = UUID(payload["sub"])
-    except (ValueError, KeyError, TypeError):
-        return AuthContext.anonymous()
-
-    from app.database import SessionLocal
-    from app.models import User
-
-    db = SessionLocal()
-    try:
-        user = db.query(User).filter(User.id == user_id).first()
-        # BUGFIX (2026-07-19): identity mustn't gate on subscription status
-        # (old code 401'd fresh signups). `tier` alone stays conditional.
-        if user:
-            org_id, is_org_owner = _resolve_org_membership(db, user_id)
-            tier = user.subscription_tier if user.subscription_status in ("active", "trialing") else None
-            return AuthContext(
-                scope="user", user_id=user_id, tier=tier, org_id=org_id, is_org_owner=is_org_owner
-            )
-    finally:
-        db.close()
-
-    return AuthContext.anonymous()
-
-
-def _try_jwt_cookie_auth(request) -> bool:
-    """Authenticate an authed route via the wr_jwt cookie. Returns success.
-
-    Portal/OAuth users carry a ``wr_jwt`` cookie, not an ``x-api-key`` header.
-    On a valid user-scope cookie, stamp ``auth_ctx`` + ``api_key_user_id`` so
-    cookie auth and key auth converge (cookbook routes read api_key_user_id).
-    The id is the real user UUID (never ``None``), so admin routes still reject.
-    """
-    jwt_ctx = _auth_ctx_from_jwt_cookie(request)
-    if jwt_ctx is not None and getattr(jwt_ctx, "scope", None) == "user":
-        request.state.auth_ctx = jwt_ctx
-        request.state.api_key_user_id = jwt_ctx.user_id
-        request.state.api_key_id = None
-        return True
-    return False
 
 
 def _auth_ctx_from_api_key(request) -> "AuthContext | None":
@@ -172,6 +101,10 @@ def _auth_ctx_from_api_key(request) -> "AuthContext | None":
         )
         if api_key_obj is None:
             return None
+        # agentreg_0819: a revoked agent identity degrades to anonymous here
+        # (this helper only runs on PUBLIC routes, where "no key" is legal).
+        if _is_agent_key(key) and _agent_key_is_blocked(db, api_key_obj.user_id):
+            return None
         user_obj = db.query(User).filter(User.id == api_key_obj.user_id).first()
         # W2: entitled tier, not the raw column — a lapsed subscription must not
         # keep paid capability just because the slug is still on the row.
@@ -187,6 +120,9 @@ def _auth_ctx_from_api_key(request) -> "AuthContext | None":
             tier=tier,
             org_id=org_id,
             is_org_owner=is_org_owner,
+            # agentreg_0819 (round 2, F5): the durable agent marker. The User
+            # row is already loaded above, so this costs nothing.
+            is_agent=bool(getattr(user_obj, "is_agent", False)),
         )
     # Rationale: opportunistic auth on a public route must never crash the
     # request — any lookup failure degrades to anonymous (return None).
@@ -266,8 +202,20 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
 
     # Phase A — POST /api/intent-survey is anonymous; GET /api/intent-survey/results
     # is admin-gated at the route level via x-api-key. Method-aware allowlist.
+    # bundles_0811 Phase P3.5 (locked decision #10): POST /api/federation/propose
+    # must be callable WITHOUT an account (self-serve) — anonymous callers are
+    # still rate-limited by RateLimitMiddleware's per-IP bucket AND by the
+    # feedback_ratelimit multi-window gate inside the route itself.
+    # agentreg_0819: POST /api/agents/register must be callable with NO
+    # credential — it is the endpoint that ISSUES the first one. It authenticates
+    # by Ed25519 proof-of-key instead of by session (app/services/
+    # agent_registration.py) and is bounded by the anonymous per-IP minute bucket
+    # plus its own per-IP/global 24h enrolment caps. Method-aware, so the rest of
+    # the /api/agents/* namespace stays closed.
     PUBLIC_POST_ONLY_PATHS = {
         "/api/intent-survey",
+        "/api/federation/propose",
+        "/api/agents/register",
     }
     # Public skill-detail GETs match path-shape /api/skills/{slug} (no trailing path).
     # Distinguished from /api/skills/install (auth) and /api/skills/_download (auth)
@@ -307,6 +255,11 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 request.state.auth_ctx = _auth_ctx_from_jwt_cookie(request)
             return await call_next(request)
 
+        # fdeloop_0808 Ph D: public Agent Plugins manifest read. Rationale and
+        # the no-leak contract live with the predicate in _public_paths.py.
+        if _is_plugin_manifest_path(path, request.method):
+            return await call_next(request)
+
         # Method-aware public POST endpoints (intent-survey: anonymous submit only)
         if request.method == "POST" and path in self.PUBLIC_POST_ONLY_PATHS:
             return await call_next(request)
@@ -320,6 +273,24 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         # segment) rather than a PUBLIC_PREFIXES entry, which would also
         # expose the x-api-key-gated /api/orgs CRUD routes.
         if request.method == "GET" and path.startswith("/api/orgs/") and path.endswith("/a2a-directory"):
+            return await call_next(request)
+
+        # bundles_0811 — PATCH /api/internal/feedback/{id}/issue-url authenticates
+        # with X-Internal-Token, NOT x-api-key. Without this branch the middleware
+        # 401s the request before app/internal_routes.py::_verify_token ever runs,
+        # so the endpoint has been UNREACHABLE since it shipped: the CI workflow
+        # that writes a created issue's URL back always got
+        # {"detail":"Invalid or missing x-api-key header"} and every proposal row
+        # kept issue_url = NULL.
+        #
+        # Skipping the x-api-key gate here does not weaken auth — it routes to the
+        # correct one. `_verify_token` fails CLOSED: an unset or empty
+        # INTERNAL_PATCH_TOKEN, or any mismatch, raises 403. Same reasoning as the
+        # a2a-directory branch above.
+        #
+        # Scoped to the exact prefix rather than a PUBLIC_PREFIXES entry so no
+        # other /api/internal/* route inherits the exemption by accident.
+        if path.startswith("/api/internal/"):
             return await call_next(request)
 
         # Public skill-detail GETs (/api/skills/{slug}) — match LarryBrain catalog
@@ -550,6 +521,13 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 .first()
             )
             if api_key_obj:
+                # agentreg_0819: revocation gate for self-registered agents.
+                # Runs ONLY for rec_agent_ keys, so no human key pays for it.
+                if _is_agent_key(key) and _agent_key_is_blocked(db, api_key_obj.user_id):
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "Agent identity revoked or unknown"},
+                    )
                 # Issue #17: instead of committing to DB on every request,
                 # push to Redis-batched tracker (drained by crons/drain_last_used.py).
                 from datetime import datetime
@@ -589,6 +567,11 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                     # activate_0701/TEN: tenant scope + org owner flag
                     org_id=_org_id,
                     is_org_owner=_is_org_owner,
+                    # agentreg_0819 (round 2, F5): the durable agent marker,
+                    # read off the User row this branch already loaded. Without
+                    # it every downstream consumer sees a self-registered agent
+                    # and a free human as the same principal.
+                    is_agent=bool(getattr(_user_obj, "is_agent", False)),
                 )
                 return await call_next(request)
         finally:

@@ -27,6 +27,7 @@ from app.subscription_service import (
     downgrade_pro_plus_to_pro,
 )
 from app.services.bundle_quota import quota_status
+from app.tier_labels import api_key_cap as _tier_api_key_cap
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["checkout"])
@@ -51,6 +52,49 @@ _reconcile_last_attempt: TTLCache[str, float] = TTLCache(maxsize=10_000, ttl=_RE
 _HEALTHY_STATUSES = frozenset({"active", "trialing"})
 
 
+def _reject_agent_principals(request: Request, user: User | None = None) -> None:
+    """403 a self-registered agent before any Stripe object is created.
+
+    agentreg_0819 (review round 2, F5c). ``POST /api/agents/register`` enrols an
+    autonomous agent with no human in the loop, and its shadow ``User`` carries
+    ``is_agent=True``. Such a principal must never open a Stripe Checkout or
+    Customer Portal session: those flows exist to collect a real payment
+    instrument from a real person who can consent to a recurring charge, and a
+    self-enrolled agent is by construction neither.
+
+    Today an agent ALSO fails ``get_current_user_optional`` — it has no OAuth
+    session and never can. So this gate is not currently what stops it; it is
+    what stops it LEGIBLY, and what keeps stopping it if these routes ever start
+    accepting an ``x-api-key``. A 401 ``login_required`` tells an agent to go
+    get a session, which is advice it cannot act on and should not act on. 403
+    says "not for this kind of caller", which is the truth, and it makes the
+    boundary assertable — ``tests/test_agentreg_0819_agent_self_registration.py``
+    no longer accepts "401 or 404" as evidence of a fence, because a route that
+    does not exist answers exactly the same way.
+
+    Three sources are checked because these paths sit behind
+    ``JWT_AUTH_PREFIXES``, which returns from ``APIKeyMiddleware`` BEFORE any
+    ``auth_ctx`` is stamped — so reading ``request.state`` alone would find
+    nothing and silently pass:
+
+    1. the resolved ``User`` (the durable ``is_agent`` column), when the caller
+       reached us with a session at all;
+    2. ``request.state.auth_ctx``, for any future path that does stamp one;
+    3. the ``x-api-key`` header, resolved through the middleware's own helper —
+       this is the branch that actually fires today.
+    """
+    if user is not None and bool(getattr(user, "is_agent", False)):
+        raise HTTPException(status_code=403, detail="agent_principals_cannot_transact")
+
+    ctx = getattr(request.state, "auth_ctx", None)
+    if ctx is None:
+        from app.middleware.api_key import _auth_ctx_from_api_key
+
+        ctx = _auth_ctx_from_api_key(request)
+    if getattr(ctx, "is_agent", False):
+        raise HTTPException(status_code=403, detail="agent_principals_cannot_transact")
+
+
 @router.post("/checkout/{tier}")
 async def create_subscription_checkout(
     tier: str,
@@ -62,7 +106,11 @@ async def create_subscription_checkout(
 
     Requires the user to be authenticated (JWT cookie set by /api/auth/{provider}/callback).
     Anonymous users get 401 with a hint to log in.
+
+    A self-registered agent principal (``AuthContext.is_agent``) gets 403 — see
+    :func:`_reject_agent_principals`. Agents must not create Stripe sessions.
     """
+    _reject_agent_principals(request, user)
     if user is None:
         raise HTTPException(
             status_code=401,
@@ -245,6 +293,12 @@ async def billing_me(
         "cookbook_limit": _quota["limit"],  # compat-alias
         "max_private_bundles": _quota["limit"],
         "private_bundles_used": _quota["used"],
+        # api_key_cap — SSOT in config/tiers.yaml (bundles_0811 P2.5), read
+        # through the SAME helper app/api_key_routes.py enforces with
+        # (app.tier_labels.api_key_cap). account.astro's #key-tier-note
+        # currently hardcodes "Pro: 1 key." — the portal must render THIS
+        # field instead: GET /api/billing/me -> api_key_cap (int).
+        "api_key_cap": _tier_api_key_cap(user.subscription_tier),
         "subscription_current_period_end": (
             user.subscription_current_period_end.isoformat() if user.subscription_current_period_end else None
         ),
@@ -253,13 +307,16 @@ async def billing_me(
 
 @router.post("/subscriptions/downgrade")
 async def downgrade_subscription(
+    request: Request,
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
     """Switch a Pro+ subscriber to Pro with proration.
 
     Requires authentication. Returns 400 if the caller isn't currently on pro_plus.
+    A self-registered agent principal gets 403 — see :func:`_reject_agent_principals`.
     """
+    _reject_agent_principals(request, user)
     if user is None:
         raise HTTPException(status_code=401, detail="login_required")
     try:
@@ -278,9 +335,14 @@ async def downgrade_subscription(
 
 @router.post("/billing/portal-session")
 async def create_billing_portal_session(
+    request: Request,
     user: User | None = Depends(get_current_user_optional),
 ):
-    """Create a Stripe Customer Portal session for self-serve billing."""
+    """Create a Stripe Customer Portal session for self-serve billing.
+
+    A self-registered agent principal gets 403 — see :func:`_reject_agent_principals`.
+    """
+    _reject_agent_principals(request, user)
     if user is None:
         raise HTTPException(status_code=401, detail="login_required")
     if not user.stripe_customer_id:

@@ -43,11 +43,23 @@ def _clear_fed_cache():
 class TestTapList:
     def test_facets_locked(self):
         # marketing_0712 — 7th facet (github-marketing) added.
-        assert len(GITHUB_TAPS) == 7
+        # maturity_0821 — +13 curated taps (see federation_sources.yaml block
+        # comment + vault research/2026-08-21-federation-source-expansion.md).
+        # Growth is a deliberate two-place edit: yaml + this pin.
+        assert len(GITHUB_TAPS) == 21
         assert set(GITHUB_FACET_SOURCES) == {
             "github-anthropic", "github-openai", "github-huggingface",
             "github-nvidia", "github-gstack", "github-superpowers",
             "github-marketing",
+            # maturity_0821 curated expansion
+            "github-agentskillexchange", "github-journal-skills",
+            "github-alirezarezvani-skills", "github-wshobson-agents",
+            "github-jimliu-baoyu-skills", "github-runcomfy-skills",
+            "github-kdense-scientific-skills", "github-orchestra-research-skills",
+            "github-atc-agentic-toolkit", "github-thedotmack-claude-mem",
+            "github-skill-seekers", "github-hoangnguyen-skills-standard",
+            "github-litestar-skills",
+            "github-awesome-agent-skills",
         }
 
     def test_per_skill_license_repos_have_no_repo_license(self):

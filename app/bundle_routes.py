@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -73,6 +74,16 @@ ALLOWED_SOURCES = {"forked", "custom-added", "overridden", "disabled"}
 # Pro tier skill cap per bundle — a runaway-guard, not a product limiter (large
 # curated packs run to ~50 skills).
 BUNDLE_SKILL_CAP = 1000
+
+# bundles0811 P3.6 — bulk add/remove ceiling per request. 500 comfortably
+# covers the phase's own demo ("select 40 marketing skills") and every
+# scale-of-management scenario in the plan (curating a themed bundle from a
+# filtered federated-index page); it is a runaway-guard against a client
+# accidentally posting the ENTIRE 154k-row index in one call, not a product
+# limiter. A caller that needs more paginates the filter and calls again —
+# bulk-add is idempotent (see add_skills_bulk), so repeating a call that
+# straddles a batch boundary is safe.
+BUNDLE_BULK_MAX_ITEMS = 500
 
 
 def _touch_bundle_generation(db: Session, cookbook_id: UUID) -> None:  # compat-alias
@@ -132,7 +143,7 @@ def _enforce_cbt_scope_for_cookbook_route(request: Request, cookbook_id: str) ->
     if token_cb_id != cid:
         raise HTTPException(
             status_code=403,
-            detail="Token scope mismatch (wrong cookbook)",
+            detail="Token scope mismatch (wrong bundle)",
         )
 
     if scope == "read" and request.method != "GET":
@@ -274,6 +285,55 @@ class SkillAddIn(BaseModel):
     external_source: str | None = None
 
 
+# bundles0811 P3.6 — bulk add/remove ────────────────────────────────────────
+#
+# A bulk item is EITHER a local skill (``slug``, no ``federated_source``) OR
+# a federated identity (``federated_source`` + ``federated_slug``, ``slug``
+# ignored) — the same XOR the ``bundle_skills`` CHECK constraint already
+# enforces at the DB layer (see BundleSkill's docstring in app/models.py).
+# This mirrors ``SkillAddIn``'s local/external split but as a batch member,
+# and deliberately reuses the federated identity pair BundleSkill already
+# carries rather than inventing a third vocabulary for "which skill".
+class BulkSkillItem(BaseModel):
+    slug: str | None = None
+    source: str | None = "custom-added"
+    federated_source: str | None = None
+    federated_slug: str | None = None
+
+    def is_federated(self) -> bool:
+        return bool(self.federated_source and self.federated_slug)
+
+
+class BulkAddIn(BaseModel):
+    items: list[BulkSkillItem]
+
+
+class BulkRemoveItem(BaseModel):
+    slug: str | None = None
+    federated_source: str | None = None
+    federated_slug: str | None = None
+
+    def is_federated(self) -> bool:
+        return bool(self.federated_source and self.federated_slug)
+
+
+class BulkRemoveIn(BaseModel):
+    items: list[BulkRemoveItem]
+
+
+class BulkItemResult(BaseModel):
+    """Per-item outcome — bulk endpoints NEVER fail the whole batch on one
+    bad row (task requirement). ``identity`` echoes back whichever of
+    slug/federated pair the caller sent, so a client can correlate a result
+    to its request item without re-deriving the XOR itself."""
+
+    identity: str
+    ok: bool
+    reactivated: bool = False
+    federated: bool = False
+    error: str | None = None
+
+
 def _as_slug_list(val: object) -> list[str]:
     """Normalize a skill's related_skills field (jsonb list / JSON string / None) to list[str]."""
     if val is None:
@@ -361,11 +421,11 @@ def _resolve_owned_cookbook(
     try:
         cid = UUID(cookbook_id)
     except (ValueError, TypeError):
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
 
     cb = db.query(Bundle).filter(Bundle.id == cid).first()
     if cb is None:
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
 
     # cookbook_share_2105 Phase D: cbt_token callers (share-token holders) own
     # the resolution path via bundle_scope match. _enforce_cbt_scope_for_cookbook_route  # compat-alias
@@ -389,7 +449,7 @@ def _resolve_owned_cookbook(
     ):
         return cb
 
-    raise HTTPException(status_code=404, detail="cookbook_not_found")
+    raise HTTPException(status_code=404, detail="bundle_not_found")
 
 
 def _skills_for(
@@ -684,8 +744,40 @@ def _cookbook_signals(db: Session, cb: Bundle, skills: list[dict]) -> dict:
 # test/CI installs via _install_counts_for (§4.2).
 
 
+def _bundle_requires_pro(skill_rows: list[tuple[BundleSkill, Skill]]) -> bool:
+    """True iff EVERY active member skill in this bundle is Pro-locked.
+
+    fi_first_impression_api: the discover feed and public bundle page gave a
+    visitor no way to tell "this bundle is entirely paid" without walking the
+    well-known index and checking every ``locked`` flag themselves — the
+    install.sh script's own "installed 0 skill(s)" silent-failure (see
+    bundle_install_script_routes.py) is the SAME missing signal one layer up.
+    Reuses the well-known index's OWN free/lock predicates
+    (``bundle_wellknown_routes._is_free`` / ``_is_redistributable_external``)
+    verbatim rather than re-deriving tier logic here, so the discover card and
+    the install script can never disagree about which member is free.
+
+    An EMPTY bundle (no active members) is NOT considered pro-locked — that's
+    "nothing here yet", a different condition from "everything is paywalled".
+    """
+    if not skill_rows:
+        return False
+    from app.bundle_wellknown_routes import _is_free, _is_redistributable_external
+
+    return all(not (_is_free(skill) or _is_redistributable_external(skill)) for _cs, skill in skill_rows)
+
+
 def _public_cb_card(db: Session, cb: Bundle) -> dict:
-    """A compact, anonymous-safe public cookbook card for the discover feed."""
+    """A compact, anonymous-safe public cookbook card for the discover feed.
+
+    issue-149 (Option B, owner-approved 2026-08-19): deliberately LOCAL-ONLY
+    (``_skills_for``, not ``_federated_skills_for``). Whether an unvetted
+    federated/community entry should appear on a public, anonymous marketing
+    surface is a product decision gated on badging (plan §0b) that has not
+    shipped — see the issue's decision-package options A/B/C. The Liked
+    bundle (today's only federated-row source) is private/non-publishable,
+    so this is a documented, not-yet-live inconsistency, not an oversight.
+    """
     skill_rows = _skills_for(db, cb.id, include_disabled=False)
     # portal_0610 R7: count installs ATTRIBUTED TO this bundle (InstallEvent
     # rows stamped with cookbook_id), NOT the sum of each member skill's global
@@ -723,6 +815,9 @@ def _public_cb_card(db: Session, cb: Bundle) -> dict:
         # install attribution is visible from week 1 (GTM build-plan mod #2).
         # portal_0610 R2: creator HANDLE (validatable), not the raw owner UUID.
         "ref": ref_value,
+        # fi_first_impression_api: honest "is this bundle entirely paid"
+        # signal, computed from member skill tiers — see _bundle_requires_pro.
+        "requires_pro": _bundle_requires_pro(skill_rows),
     }
 
 
@@ -772,20 +867,72 @@ def discover_cookbooks(
         cards.sort(key=lambda c: (c["installs_7d"], c["installs_total"]), reverse=True)
         cards = cards[offset : offset + limit]
 
-    return {"cookbooks": cards, "limit": limit, "offset": offset, "sort": sort}
+    result = {"cookbooks": cards, "limit": limit, "offset": offset, "sort": sort}
+    # docsdrift_0821 item 15: the flagship public-discovery endpoint's response
+    # key still names the retired "cookbooks" concept everywhere else in the
+    # product has moved to "bundles". Dual-emit both keys for one release so
+    # any existing integrator parsing `cookbooks` keeps working uninterrupted
+    # while new/updated clients can switch to the canonical `bundles` key
+    # (mirrors the qa0208-w3 dual-accept doctrine in AGENTS.md).
+    result["bundles"] = cards
+    return result
+
+
+def _public_install_block(cb: Bundle, api_base: str) -> dict:
+    """bundles0811-P1 (F1/F2) — the auth-free install block for a public bundle.
+
+    THE FIX: the cold-path trace (2026-08-11) found ``clone_line`` was the
+    ONLY "take it" affordance on a public bundle page, and it is an MCP call
+    that 401s for every anonymous caller (``POST /api/mcp/http/`` requires an
+    x-api-key, keyed or not — see issue #217's auth contract). Meanwhile the
+    path that genuinely works anonymously
+    (``GET /api/bundles/public/{slug}/.well-known/skills/index.json`` +
+    per-skill ``SKILL.md``, both already public per ``bundle_wellknown_routes``)
+    was never surfaced as a copy-pasteable command.
+
+    Returns:
+      install_command             — one shell line, verified end-to-end
+                                     (curl | bash) against a live bundle;
+                                     see PR body for the transcript. Installs
+                                     every FREE-tier member with zero auth;
+                                     reports (never silently drops) any
+                                     paid-tier members by name.
+      install_command_requires_auth — always False; this is the honesty
+                                     signal the portal renders against.
+      clone_line                  — UNCHANGED (byte-identical to before this
+                                     change — do not break any existing
+                                     copier of this field).
+      clone_line_requires_auth    — True. clone_line is the MCP path, and
+                                     MCP always requires an x-api-key.
+      clone_line_label            — human-readable, so the portal never has
+                                     to hardcode the auth caveat itself.
+    """
+    return {
+        "install_command": (f"curl -fsSL {api_base}/api/bundles/install.sh | bash -s -- {cb.slug}"),
+        "install_command_requires_auth": False,
+        "clone_line_requires_auth": True,
+        "clone_line_label": "Authenticated (MCP) install — requires a free LoopSkill API key",
+    }
 
 
 @_h.get("/public/{slug}")
 def public_cookbook_page(slug: str, db: Session = Depends(get_db)):
     """Public cookbook page by slug. No auth. 404 unless visibility='public'.
 
-    Returns the cookbook card + its ordered skill list + a ONE-LINE clone hint
-    so an agent can compose it via MCP from the public page (GTM gate, Ph F will
-    render this). Carries ?ref attribution.
+    Returns the cookbook card + its ordered skill list + BOTH install paths:
+    an auth-free copy-pasteable shell command (``install_command`` — F1/F2,
+    the headline fix of bundles0811-P1) and the pre-existing MCP one-liner
+    (``clone_line``, now honestly labelled as requiring a key via
+    ``clone_line_requires_auth``/``clone_line_label``). Carries ?ref
+    attribution.
+
+    issue-149 (Option B, owner-approved 2026-08-19): deliberately LOCAL-ONLY,
+    same reasoning as ``_public_cb_card`` — this is the other public/anonymous
+    surface gated on badging (plan §0b) before federated members appear here.
     """
     cb = db.query(Bundle).filter(Bundle.slug == slug).first()
     if not cb or cb.visibility != "public":
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
 
     card = _public_cb_card(db, cb)
     skill_rows = _skills_for(db, cb.id, include_disabled=False)
@@ -793,11 +940,69 @@ def public_cookbook_page(slug: str, db: Session = Depends(get_db)):
     for entry, (cs, _skill) in zip(card["skills"], skill_rows, strict=True):
         entry["source"] = cs.source
         entry["pinned_version"] = cs.pinned_version
-    # One copy-paste MCP line (the entire top-of-funnel). ?ref makes the install
-    # attributable to the creator from the public page.
+    # One copy-paste MCP line (unchanged — do not alter this field's content,
+    # only its labelling via the new clone_line_* keys below). ?ref makes the
+    # install attributable to the creator from the public page.
     ref_q = f"?ref={card['ref']}" if card["ref"] else ""
     card["clone_line"] = f'loopskill_bundle_install from "bundle://{cb.slug}{ref_q}"'
+    card.update(_public_install_block(cb, config.public_origin()))
     return card
+
+
+# ── fdeloop_0808 Phase D — Agent Plugins v1.0.0 manifest ────────────────────
+# GET /api/bundles/{slug}/plugin.json (+ /api/cookbooks/* compat alias) emits
+# a spec-valid Agent Plugins manifest for a PUBLIC bundle. See the schema
+# fetched into tests/fixtures/agent_plugins_v1_0_0_schema.json for the
+# authoritative contract (source URL + fetch date in that file's header).
+#
+# DRIFT FROM THE ORIGINAL PLAN (documented here, not just in the PR body):
+# the plan assumed Agent Plugins fields map onto existing Bundle columns
+# (keywords, license, homepage, repository, version, author). None of those
+# columns exist on Bundle — only name, description, and slug do. The schema
+# is CLOSED (additionalProperties: false) and only requires $schema + name,
+# so this helper emits the minimal, honest subset it can populate truthfully
+# and OMITS everything else rather than inventing placeholder values.
+_AGENT_PLUGINS_SCHEMA_URL = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+
+
+def _build_plugin_manifest(bundle: Bundle) -> dict:
+    """Build an Agent Plugins v1.0.0 manifest dict for a PUBLIC bundle.
+
+    Deliberately NOT a reuse of app._skill_helpers._build_manifest — that
+    helper parses skill.toml into a category/tags/tier dict for the
+    completely unrelated skill-install response contract. This helper's
+    output shape is dictated entirely by the external Agent Plugins schema.
+
+    ``name`` is derived from ``bundle.slug`` rather than ``bundle.name``:
+    the schema's ``name`` pattern is a strict slug shape
+    (``^(?!.*(?:--|\\.\\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$``, max 64 chars)
+    that a free-text display name will not generally satisfy, while
+    ``bundle.slug`` is already produced by ``_slugify``/``_ensure_bundle_slug``
+    to a compatible kebab-case shape. ``description`` is included only when
+    non-blank — an absent or whitespace-only description is OMITTED, never
+    emitted as ``null`` or ``""``.
+    """
+    manifest: dict = {
+        "$schema": _AGENT_PLUGINS_SCHEMA_URL,
+        "name": bundle.slug,
+    }
+    description = (bundle.description or "").strip()
+    if description:
+        manifest["description"] = description
+    return manifest
+
+
+@_h.get("/{slug}/plugin.json")  # compat-alias
+def bundle_plugin_manifest(slug: str, db: Session = Depends(get_db)):
+    """Agent Plugins v1.0.0 manifest for a PUBLIC bundle. No auth.
+
+    404 (never 403) for a private/team bundle or an unknown slug — mirrors
+    ``public_cookbook_page``'s no-leak contract exactly.
+    """
+    cb = db.query(Bundle).filter(Bundle.slug == slug).first()
+    if not cb or cb.visibility != "public":
+        raise HTTPException(status_code=404, detail="bundle_not_found")
+    return _build_plugin_manifest(cb)
 
 
 # ── spotify_0608 Ph G — reputation surfaces ──────────────────────────────
@@ -851,10 +1056,10 @@ def verify_cookbook(
     try:
         cb_uuid = UUID(cookbook_id)
     except (ValueError, TypeError) as exc:
-        raise HTTPException(status_code=404, detail="cookbook_not_found") from exc
+        raise HTTPException(status_code=404, detail="bundle_not_found") from exc
     cb = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
     if cb is None:
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
 
     verified_q = request.query_params.get("verified", "true").lower()
     cb.is_verified = verified_q not in ("false", "0", "no")
@@ -907,7 +1112,7 @@ def create_cookbook(
     403 `{"reason": "pro_tier_limit"}` once the private cap is reached.
     """
     if ctx.is_master:
-        raise HTTPException(status_code=400, detail="master key cannot create user-owned cookbooks")
+        raise HTTPException(status_code=400, detail="master key cannot create user-owned bundles")
 
     name = (body.name or "").strip()
     if not name:
@@ -1016,10 +1221,10 @@ def list_cookbooks(
     # helper's `scope == "read" allows GET` branch, which on a COLLECTION route
     # would silently permit a scoped read of every bundle — the opposite of intent.
     if ctx.cbt_cookbook_id is not None:
-        raise HTTPException(status_code=403, detail="Share tokens cannot list cookbooks")
+        raise HTTPException(status_code=403, detail="Share tokens cannot list bundles")
 
     if ctx.is_master:
-        return {"cookbooks": []}
+        return {"cookbooks": [], "bundles": []}
 
     from app.liked_service import ensure_liked_bundle
 
@@ -1033,7 +1238,9 @@ def list_cookbooks(
     if ctx.org_id is not None:
         owned_or_org = owned_or_org | (Bundle.org_id == ctx.org_id)
     rows = db.query(Bundle).filter(owned_or_org).order_by(Bundle.created_at.desc()).all()
-    return {"cookbooks": [_to_cb_out(r) for r in rows]}
+    cb_out = [_to_cb_out(r) for r in rows]
+    # docsdrift_0821 item 15: dual-emit alongside `cookbooks` — see /discover.
+    return {"cookbooks": cb_out, "bundles": cb_out}
 
 
 @_h.delete("/{cookbook_id}", status_code=204)  # compat-alias
@@ -1317,13 +1524,267 @@ def remove_skill_from_cookbook(
         .first()
     )
     if cs is None:
-        raise HTTPException(status_code=404, detail="skill_not_in_cookbook")
+        raise HTTPException(status_code=404, detail="skill_not_in_bundle")
 
     cs.source = "disabled"
     _touch_bundle_generation(db, cb.id)
     sync_bundle_lock(db, cb, created_by=ctx.user_id)
     db.commit()
     return {"cookbook_id": str(cb.id), "slug": slug, "source": "disabled", "deleted": True}
+
+
+# ── bundles0811 P3.6 — bulk add/remove, ONE operation for many members ──────
+#
+# Lock #9 (plan §0): "the platform's job is MANAGING LARGE NUMBERS of skills /
+# bundles / personalities / MCPs — not curating a catalog." With ~154,000
+# indexed skills, one-click-per-skill does not scale; a search result or a
+# federated-index filter (see federation_filter_routes.py) must be actionable
+# in ONE call. This mirrors add_skill_to_cookbook/remove_skill_from_cookbook
+# item-by-item (same authz predicate via _resolve_owned_cookbook, same
+# idempotency contract, same tier cap) but commits ONCE for the whole batch —
+# a single sync_bundle_lock + one DB round trip, not N.
+#
+# Partial-failure semantics: a bad item (unresolvable slug, unknown external
+# source, tier-cap overflow) is recorded as a per-item failure and does NOT
+# abort the other items in the batch — each item's DB work runs inside its
+# own SAVEPOINT (db.begin_nested()) so one IntegrityError/failure rolls back
+# only that item, not the whole transaction (same pattern already used by
+# app.heartbeat_routes.post_heartbeat / app.liked_service.ensure_liked_bundle
+# for the identical "N inserts, some may collide" shape).
+#
+# Idempotency: re-adding an existing (local or federated) member updates its
+# `source` and reports reactivated=True — exactly add_skill_to_cookbook's
+# existing single-item contract, applied per item.
+
+
+def _bulk_add_one_local(db: Session, cb: Bundle, item: "BulkSkillItem", ctx: CookbookCtx) -> BulkItemResult:
+    """Resolve + add ONE local-or-external-materialized skill. Never raises —
+    every failure mode becomes a BulkItemResult(ok=False, error=...)."""
+    identity = item.slug or ""
+    source = item.source or "custom-added"
+    if source not in ALLOWED_SOURCES:
+        return BulkItemResult(identity=identity, ok=False, error="invalid_source")
+    if not item.slug:
+        return BulkItemResult(identity=identity, ok=False, error="missing_slug")
+
+    skill = db.query(Skill).filter(Skill.slug == item.slug).first()
+    if skill is None:
+        return BulkItemResult(identity=identity, ok=False, error="skill_not_found")
+
+    existing = (
+        db.query(BundleSkill).filter(BundleSkill.bundle_id == cb.id, BundleSkill.skill_id == skill.id).first()
+    )
+    if existing is not None:
+        existing.source = source
+        return BulkItemResult(identity=identity, ok=True, reactivated=True)
+
+    # WIS-902: same Pro-tier skill cap the single-item route enforces —
+    # counted fresh per item so a batch that would cross the cap partway
+    # through fails ONLY the items past the ceiling, not the whole request.
+    if ctx.tier in ("pro", "cook"):  # cook=legacy alias, remove after 2026-06-10
+        active_count = (
+            db.query(BundleSkill)
+            .filter(BundleSkill.bundle_id == cb.id, BundleSkill.source != "disabled")
+            .count()
+        )
+        if active_count >= BUNDLE_SKILL_CAP:
+            return BulkItemResult(identity=identity, ok=False, error="pro_skill_cap")
+
+    try:
+        with db.begin_nested():
+            db.add(BundleSkill(bundle_id=cb.id, skill_id=skill.id, source=source))
+    except IntegrityError:
+        # Concurrent add of the same (bundle, skill) pair inside this batch,
+        # or a race with another request — the unique constraint already
+        # protects the row; report it as a reactivation, not a failure.
+        return BulkItemResult(identity=identity, ok=True, reactivated=True)
+    return BulkItemResult(identity=identity, ok=True, reactivated=False)
+
+
+def _bulk_add_one_federated(db: Session, cb: Bundle, item: "BulkSkillItem") -> BulkItemResult:
+    """Add ONE federated (source, slug) identity directly to bundle_skills —
+    no materialized Skill row (mirrors library_service.set_federated_like_in_bundle).
+    Never resolves/fetches origin content (control-plane lock #5): the
+    identity is recorded as-is, exactly like the existing federated-like path."""
+    identity = f"{item.federated_source}:{item.federated_slug}"
+    existing = (
+        db.query(BundleSkill)
+        .filter(
+            BundleSkill.bundle_id == cb.id,
+            BundleSkill.federated_source == item.federated_source,
+            BundleSkill.federated_slug == item.federated_slug,
+        )
+        .first()
+    )
+    if existing is not None:
+        existing.source = item.source or "custom-added"
+        return BulkItemResult(identity=identity, ok=True, reactivated=True, federated=True)
+
+    try:
+        with db.begin_nested():
+            db.add(
+                BundleSkill(
+                    bundle_id=cb.id,
+                    skill_id=None,
+                    federated_source=item.federated_source,
+                    federated_slug=item.federated_slug,
+                    source=item.source or "custom-added",
+                )
+            )
+    except IntegrityError:
+        return BulkItemResult(identity=identity, ok=True, reactivated=True, federated=True)
+    return BulkItemResult(identity=identity, ok=True, reactivated=False, federated=True)
+
+
+@_h.post("/{cookbook_id}/skills/bulk", status_code=200)  # compat-alias
+def add_skills_bulk(
+    cookbook_id: str,
+    body: BulkAddIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """Add MANY skills (local and/or federated, mixed) to a bundle in ONE call.
+
+    Bulk = the demo (plan §P3.6 gate 4): "select N skills → new bundle" must
+    be one operation, not N HTTP calls. Authorization reuses the exact same
+    ownership predicate every other bundle-mutation route uses
+    (``_resolve_owned_cookbook`` → ``authz.owner_match_within_tenant``) — a
+    non-owner gets the same 404-no-existence-leak every other route returns,
+    resolved ONCE for the whole batch.
+
+    Partial-failure: each item is attempted independently; the response
+    always has one ``BulkItemResult`` per input item, `ok` per item, and the
+    whole request only 4xxs on a REQUEST-level problem (bad auth, oversized
+    batch, cookbook not found) — never because one item was unresolvable.
+
+    Idempotency: re-posting the same batch (including a batch that partially
+    landed) updates already-present members' `source` and reports
+    ``reactivated=True`` for them; it never duplicates a row (both a DB-level
+    UniqueConstraint AND an in-request existing-row check enforce this).
+    """
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+
+    if not body.items:
+        raise HTTPException(status_code=422, detail="empty_batch")
+    if len(body.items) > BUNDLE_BULK_MAX_ITEMS:
+        raise HTTPException(
+            status_code=422,
+            detail={"reason": "batch_too_large", "max_items": BUNDLE_BULK_MAX_ITEMS, "got": len(body.items)},
+        )
+
+    results: list[BulkItemResult] = []
+    for item in body.items:
+        if item.is_federated():
+            results.append(_bulk_add_one_federated(db, cb, item))
+        else:
+            results.append(_bulk_add_one_local(db, cb, item, ctx))
+
+    _touch_bundle_generation(db, cb.id)
+    # ONE lock-sync + ONE commit for the whole batch — this is what makes it
+    # "one operation", not the item count. sync_bundle_lock flushes internally
+    # so every SAVEPOINT above is already visible to the resolver by here.
+    sync_bundle_lock(db, cb, created_by=ctx.user_id)
+    db.commit()
+
+    added = sum(1 for r in results if r.ok and not r.reactivated)
+    reactivated = sum(1 for r in results if r.ok and r.reactivated)
+    failed = sum(1 for r in results if not r.ok)
+    return {
+        "cookbook_id": str(cb.id),
+        "total": len(results),
+        "added": added,
+        "reactivated": reactivated,
+        "failed": failed,
+        "results": [r.model_dump() for r in results],
+    }
+
+
+@_h.post("/{cookbook_id}/skills/bulk_remove", status_code=200)  # compat-alias
+def remove_skills_bulk(
+    cookbook_id: str,
+    body: BulkRemoveIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """Soft-delete MANY skills (local and/or federated) from a bundle in ONE
+    call — the bulk twin of ``remove_skill_from_cookbook`` (same
+    ``source='disabled'`` soft-delete semantics, so a bulk-remove is always
+    reversible via a bulk-add of the same items). Partial-failure and
+    idempotency semantics mirror ``add_skills_bulk``.
+    """
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+
+    if not body.items:
+        raise HTTPException(status_code=422, detail="empty_batch")
+    if len(body.items) > BUNDLE_BULK_MAX_ITEMS:
+        raise HTTPException(
+            status_code=422,
+            detail={"reason": "batch_too_large", "max_items": BUNDLE_BULK_MAX_ITEMS, "got": len(body.items)},
+        )
+
+    results: list[BulkItemResult] = []
+    for item in body.items:
+        if item.is_federated():
+            identity = f"{item.federated_source}:{item.federated_slug}"
+            cs = (
+                db.query(BundleSkill)
+                .filter(
+                    BundleSkill.bundle_id == cb.id,
+                    BundleSkill.federated_source == item.federated_source,
+                    BundleSkill.federated_slug == item.federated_slug,
+                )
+                .first()
+            )
+            if cs is None:
+                # Already absent — DELETE is idempotent by definition; a
+                # missing row is a successful no-op, not a failure.
+                results.append(BulkItemResult(identity=identity, ok=True, federated=True))
+                continue
+            cs.source = "disabled"
+            results.append(BulkItemResult(identity=identity, ok=True, federated=True))
+            continue
+
+        identity = item.slug or ""
+        if not item.slug:
+            results.append(BulkItemResult(identity=identity, ok=False, error="missing_slug"))
+            continue
+        skill = db.query(Skill).filter(Skill.slug == item.slug).first()
+        if skill is None:
+            # Unknown slug: nothing to remove. Idempotent no-op, not a failure
+            # — this mirrors "already absent" for the federated branch above,
+            # not the single-item route's 404 (a bulk caller re-posting the
+            # same filter result after a skill was retired must not have that
+            # one stale entry sink the whole batch's success reporting).
+            results.append(BulkItemResult(identity=identity, ok=True))
+            continue
+        cs = (
+            db.query(BundleSkill)
+            .filter(BundleSkill.bundle_id == cb.id, BundleSkill.skill_id == skill.id)
+            .first()
+        )
+        if cs is None:
+            results.append(BulkItemResult(identity=identity, ok=True))
+            continue
+        cs.source = "disabled"
+        results.append(BulkItemResult(identity=identity, ok=True))
+
+    _touch_bundle_generation(db, cb.id)
+    sync_bundle_lock(db, cb, created_by=ctx.user_id)
+    db.commit()
+
+    removed = sum(1 for r in results if r.ok)
+    failed = sum(1 for r in results if not r.ok)
+    return {
+        "cookbook_id": str(cb.id),
+        "total": len(results),
+        "removed": removed,
+        "failed": failed,
+        "results": [r.model_dump() for r in results],
+    }
 
 
 # ── spotify_2607 Phase C — mixed bundles: personality + composite-loop
@@ -1393,12 +1854,146 @@ def remove_personality_from_cookbook(
         .first()
     )
     if bp is None:
-        raise HTTPException(status_code=404, detail="personality_not_in_cookbook")
+        raise HTTPException(status_code=404, detail="personality_not_in_bundle")
 
     db.delete(bp)
     _touch_bundle_generation(db, cb.id)
     db.commit()
     return {"cookbook_id": str(cb.id), "slug": slug, "deleted": True}
+
+
+# ── bundles0811 P3.6 (gate closure) — bulk personality add/remove ──────────
+#
+# The docs/decisions/2026-08-11-bundles0811-p36-personalities-mcp-scope.md
+# decision: personalities already have a bundle-membership primitive
+# (BundlePersonality, single identity column, no XOR — simpler than
+# BundleSkill). The bulk-operation VERB generalizes with zero schema change;
+# this mirrors add_skills_bulk/remove_skills_bulk exactly (same request-level
+# 422s, same one-commit-per-batch contract, same idempotent-reactivation
+# semantics collapsed to "already present" since BundlePersonality carries
+# no `source` enum to update).
+
+
+class BulkPersonalityItem(BaseModel):
+    slug: str
+
+
+class BulkPersonalityAddIn(BaseModel):
+    items: list[BulkPersonalityItem]
+
+
+class BulkPersonalityRemoveIn(BaseModel):
+    items: list[BulkPersonalityItem]
+
+
+@_h.post("/{cookbook_id}/personalities/bulk", status_code=200)
+def add_personalities_bulk(
+    cookbook_id: str,
+    body: BulkPersonalityAddIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """Add MANY personalities to a bundle in ONE call — the bulk twin of
+    add_personality_to_cookbook. Same partial-failure and one-commit
+    contract as add_skills_bulk."""
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+
+    if not body.items:
+        raise HTTPException(status_code=422, detail="empty_batch")
+    if len(body.items) > BUNDLE_BULK_MAX_ITEMS:
+        raise HTTPException(
+            status_code=422,
+            detail={"reason": "batch_too_large", "max_items": BUNDLE_BULK_MAX_ITEMS, "got": len(body.items)},
+        )
+
+    results: list[BulkItemResult] = []
+    for item in body.items:
+        identity = item.slug
+        personality = db.query(Personality).filter(Personality.slug == identity).first()
+        if personality is None:
+            results.append(BulkItemResult(identity=identity, ok=False, error="personality_not_found"))
+            continue
+        existing = (
+            db.query(BundlePersonality)
+            .filter(
+                BundlePersonality.bundle_id == cb.id,
+                BundlePersonality.personality_id == personality.id,
+            )
+            .first()
+        )
+        if existing is not None:
+            results.append(BulkItemResult(identity=identity, ok=True, reactivated=True))
+            continue
+        db.add(BundlePersonality(bundle_id=cb.id, personality_id=personality.id))
+        results.append(BulkItemResult(identity=identity, ok=True))
+
+    _touch_bundle_generation(db, cb.id)
+    db.commit()
+
+    added = sum(1 for r in results if r.ok and not r.reactivated)
+    reactivated = sum(1 for r in results if r.ok and r.reactivated)
+    failed = sum(1 for r in results if not r.ok)
+    return {
+        "cookbook_id": str(cb.id),
+        "total": len(results),
+        "added": added,
+        "reactivated": reactivated,
+        "failed": failed,
+        "results": [r.model_dump() for r in results],
+    }
+
+
+@_h.post("/{cookbook_id}/personalities/bulk_remove", status_code=200)
+def remove_personalities_bulk(
+    cookbook_id: str,
+    body: BulkPersonalityRemoveIn,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: CookbookCtx = Depends(require_cookbook_tier),
+):
+    """Remove MANY personalities from a bundle in ONE call. Unknown/absent
+    entries are idempotent no-ops (mirrors remove_skills_bulk)."""
+    _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
+    cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
+
+    if not body.items:
+        raise HTTPException(status_code=422, detail="empty_batch")
+    if len(body.items) > BUNDLE_BULK_MAX_ITEMS:
+        raise HTTPException(
+            status_code=422,
+            detail={"reason": "batch_too_large", "max_items": BUNDLE_BULK_MAX_ITEMS, "got": len(body.items)},
+        )
+
+    results: list[BulkItemResult] = []
+    for item in body.items:
+        identity = item.slug
+        personality = db.query(Personality).filter(Personality.slug == identity).first()
+        if personality is None:
+            results.append(BulkItemResult(identity=identity, ok=True))
+            continue
+        bp = (
+            db.query(BundlePersonality)
+            .filter(
+                BundlePersonality.bundle_id == cb.id,
+                BundlePersonality.personality_id == personality.id,
+            )
+            .first()
+        )
+        if bp is not None:
+            db.delete(bp)
+        results.append(BulkItemResult(identity=identity, ok=True))
+
+    _touch_bundle_generation(db, cb.id)
+    db.commit()
+    return {
+        "cookbook_id": str(cb.id),
+        "total": len(results),
+        "removed": sum(1 for r in results if r.ok),
+        "failed": 0,
+        "results": [r.model_dump() for r in results],
+    }
 
 
 @_h.post("/{cookbook_id}/loops/{slug}", status_code=201)  # compat-alias
@@ -1459,7 +2054,7 @@ def remove_loop_from_cookbook(
         .first()
     )
     if bl is None:
-        raise HTTPException(status_code=404, detail="loop_not_in_cookbook")
+        raise HTTPException(status_code=404, detail="loop_not_in_bundle")
 
     db.delete(bl)
     _touch_bundle_generation(db, cb.id)
@@ -1546,7 +2141,7 @@ def set_skill_pin(
         .first()
     )
     if cs is None:
-        raise HTTPException(status_code=404, detail="skill_not_in_cookbook")
+        raise HTTPException(status_code=404, detail="skill_not_in_bundle")
 
     # L5: pinning is curated-only. An external/federation skill has no SkillVersion
     # rows and no version contract → cannot be pinned.
@@ -1778,6 +2373,20 @@ def install_cookbook(
         hub_by_slug = resolve_federated_hub_titles(db, (r.federated_slug for r in fed_rows))
         for join in fed_rows:
             hub = hub_by_slug.get(join.federated_slug)
+            # bundles0811 P3 item 5 — MCP/REST parity: every federated entry
+            # carries the resolved install INSTRUCTION (never bytes), same
+            # shape loopskill_bundle_install (MCP) now emits. hermes-hub is
+            # the only source with repo/path coordinates today; any other
+            # federated_source degrades honestly to an origin-only
+            # instruction via the same resolver (no coordinates -> origin).
+            from app.services.federation_hub_install import resolve_install_instruction
+
+            instr = resolve_install_instruction(
+                repo=getattr(hub, "repo", None),
+                path=getattr(hub, "path", None),
+                origin_url=getattr(hub, "origin_url", None),
+                slug=join.federated_slug,
+            )
             skills_payload.append(
                 {
                     "slug": join.federated_slug,
@@ -1800,6 +2409,7 @@ def install_cookbook(
                     "federated": True,
                     "federated_source": join.federated_source,
                     "provenance": "community",
+                    "install_instruction": instr.to_dict(),
                 }
             )
 
@@ -1879,22 +2489,59 @@ def cookbook_manifest(
     db: Session = Depends(get_db),
     ctx: CookbookCtx = Depends(require_cookbook_tier),
 ):
-    """Return the install manifest for all skills in a cookbook."""
+    """Return the install manifest for all skills in a cookbook.
+
+    issue-149 (Option B, owner-approved 2026-08-19): this is one of the 5
+    non-public/owner-facing read paths that must be federated-aware — a
+    fleet owner running ``loopskill_sync``/an offline installer off this
+    manifest must see the same skill set ``GET /api/cookbooks/{id}`` and
+    ``POST .../install`` already show (sp2607fix-1). Federated rows
+    (``BundleSkill.skill_id IS NULL``) carry no local ``Skill`` row, so they
+    are represented by ``federated_slug`` (never a local ``slug``) plus the
+    same ``federated``/``federated_source`` discriminators the detail/install
+    payloads use, and no ``pinned_version`` (federated entries are never
+    version-pinned). Merged into the same global (install_order, added_at,
+    id) order the Composer contract requires (portal_0610 J2).
+    """
     _enforce_cbt_scope_for_cookbook_route(request, cookbook_id)
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id, allow_org_read=True)
     rows = _skills_for(db, cb.id, include_disabled=True)
+    fed_rows = _federated_skills_for(db, cb.id, include_disabled=True)
 
-    manifest = {
-        "name": cb.name,
-        "description": cb.description,
-        "skills": [
+    def _sort_key(join: BundleSkill) -> tuple[int, object, str]:
+        return (join.install_order or 0, join.added_at, str(join.id))
+
+    decorated: list[tuple[tuple[int, object, str], dict]] = [
+        (
+            _sort_key(cs),
             {
                 "slug": skill.slug,
                 "source": cs.source,
                 "pinned_version": cs.pinned_version,
-            }
-            for cs, skill in rows
-        ],
+            },
+        )
+        for cs, skill in rows
+    ]
+    decorated.extend(
+        (
+            _sort_key(join),
+            {
+                "slug": None,
+                "federated_slug": join.federated_slug,
+                "source": join.source,
+                "pinned_version": None,
+                "federated": True,
+                "federated_source": join.federated_source,
+            },
+        )
+        for join in fed_rows
+    )
+    decorated.sort(key=lambda pair: pair[0])
+
+    manifest = {
+        "name": cb.name,
+        "description": cb.description,
+        "skills": [entry for _key, entry in decorated],
     }
     body = yaml.safe_dump(manifest, sort_keys=False, default_flow_style=False)
     return Response(content=body, media_type="application/x-yaml")
@@ -2013,7 +2660,7 @@ def install_single_skill_from_cookbook(
         .first()
     )
     if cs is None:
-        raise HTTPException(status_code=404, detail="skill_not_in_cookbook")
+        raise HTTPException(status_code=404, detail="skill_not_in_bundle")
 
     # portal_0610 R1 (§6.6/§6.7-L10): tier-ACCESS gate, owner-tier-scoped.
     # An explicit single-skill install of an over-tier skill 403s (unlike the
@@ -2165,7 +2812,7 @@ def handoff_cookbook(
 
     if "error" in result:
         error = result["error"]
-        if error == "cookbook_not_found":
+        if error == "bundle_not_found":
             raise HTTPException(status_code=404, detail=error)
         if error == "forbidden":
             raise HTTPException(status_code=403, detail=error)

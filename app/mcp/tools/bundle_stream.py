@@ -141,7 +141,7 @@ def _resolve_public_cookbook(db: Session, slug: str) -> Bundle:
     """Return a PUBLIC cookbook by slug or raise 404. Never leaks private ones."""
     cb = db.query(Bundle).filter(Bundle.slug == slug).first()
     if cb is None or cb.visibility != "public":
-        raise CookbookInstallError("cookbook_not_found", "cookbook_not_found", status=404)
+        raise CookbookInstallError("bundle_not_found", "bundle_not_found", status=404)
     return cb
 
 
@@ -485,7 +485,8 @@ def loopskill_compose_bundle_from_links(
         "skills": member_out,
         "links": per_link,
         "next": (
-            "Publish this cookbook (set visibility='public' + a slug) to get a shareable "
-            "bundle:// link, then loopskill_install_from_bundle installs the whole stack in one call."
+            f"Publish this bundle to get a shareable bundle:// link — call "
+            f"loopskill_publish_bundle(bundle_id={cb.id!s}); it's idempotent and free on "
+            f"every tier. Then loopskill_install_from_bundle installs the whole stack in one call."
         ),
     }

@@ -154,12 +154,20 @@ class TestBundleQuotaGateHonoursSubscriptionStatus:
 
 class TestApiKeyCapHonoursSubscriptionStatus:
     def test_lapsed_pro_gets_free_key_cap(self, db_session):
-        from app.api_key_routes import DEFAULT_CAP, KEY_CAP
+        # bundles_0811 P2.5: the KEY_CAP/DEFAULT_CAP dict literals in
+        # app/api_key_routes.py were replaced by the config/tiers.yaml SSOT,
+        # read through app.tier_labels.api_key_cap(). The guarantee under test
+        # is unchanged: a past_due Pro is entitled to FREE, so it gets Free's
+        # cap (1), not Pro's (10).
         from app.revenue_truth import entitled_tier_or_free
+        from app.tier_labels import api_key_cap
 
         u = _user(db_session, subscription_tier="pro", subscription_status="past_due")
         tier = entitled_tier_or_free(u)
-        assert KEY_CAP.get(tier, DEFAULT_CAP) == KEY_CAP.get("free", DEFAULT_CAP)
+        assert api_key_cap(tier) == api_key_cap("free")
+        # Pin the asymmetry too — otherwise this passes if every tier collapses
+        # to one value, which is the exact defect P2.5 fixed.
+        assert api_key_cap("pro") > api_key_cap("free")
 
 
 class TestFleetCtxHonoursSubscriptionStatus:
@@ -243,6 +251,12 @@ class TestNoGateReadsTheRawTierColumn:
             "subscriber_credit_service.py",  # credit grant, checks status separately
             "role_sync.py",  # Discord role sync, checks status separately
             "api_key.py",  # middleware, gates on status correctly
+            # fdeloop_0808 Ph D: extracted VERBATIM out of api_key.py to keep
+            # that module under the 600-line god-object cap. It carries the same
+            # inline `subscription_status in ("active","trialing")` guard the
+            # allowance above was granted for — the code did not change, only
+            # the file it lives in.
+            "_jwt_cookie_auth.py",
             "recall_routes.py",  # routed through entitled_tier_or_free
             "fleet_routes.py",  # routed through entitled_tier_or_free
             "bundle_routes.py",  # routed through entitled_tier_or_free

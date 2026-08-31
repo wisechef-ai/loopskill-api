@@ -118,23 +118,23 @@ def _get_cookbook_and_check_scope(
         try:
             cid = UUID(cookbook_id)
         except (ValueError, TypeError):
-            raise HTTPException(status_code=404, detail="cookbook_not_found")
+            raise HTTPException(status_code=404, detail="bundle_not_found")
 
         if token_cookbook_id != cid:
             raise HTTPException(
                 status_code=403,
-                detail="Token scope mismatch (wrong cookbook)",
+                detail="Token scope mismatch (wrong bundle)",
             )
 
     # Load the bundle
     try:
         cid = UUID(cookbook_id)
     except (ValueError, TypeError):
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
 
     cb = db.query(Bundle).filter(Bundle.id == cid).first()
     if cb is None:
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
 
     # Enforce scope rules (read-only, _publish)
     enforce_cbt_scope(request)
@@ -167,14 +167,14 @@ def _require_owner(request: Request, db: Session, cookbook_id: str) -> Bundle:
     try:
         cid = UUID(cookbook_id)
     except (ValueError, TypeError):
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
 
     cb = db.query(Bundle).filter(Bundle.id == cid).first()
     if cb is None:
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
 
     if not is_master and cb.bundle_owner != api_key_user_id:
-        raise HTTPException(status_code=403, detail="not_cookbook_owner")
+        raise HTTPException(status_code=403, detail="not_bundle_owner")
 
     return cb
 
@@ -273,17 +273,17 @@ def _create_share_token_service(
     try:
         cid = UUID(cookbook_id)
     except (ValueError, TypeError):
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
 
     cb = db.query(Bundle).filter(Bundle.id == cid).first()
     if cb is None:
-        raise HTTPException(status_code=404, detail="cookbook_not_found")
+        raise HTTPException(status_code=404, detail="bundle_not_found")
 
     if ctx.scope != "master":
         # Owner check — cbt_token callers cannot mint child tokens (would
         # be a privilege loop). Only user-owner or master may create.
         if ctx.scope != "user" or ctx.user_id is None or cb.bundle_owner != ctx.user_id:
-            raise HTTPException(status_code=404, detail="cookbook_not_found")
+            raise HTTPException(status_code=404, detail="bundle_not_found")
 
     created_by = ctx.user_id if ctx.scope == "user" else None
     return _create_service(

@@ -69,7 +69,7 @@ def serve_canonical_skill() -> PlainTextResponse:
 
     Mounted at /skill, /skill/, and /SKILL.md — the same three paths the old
     Caddy 302-to-GitHub rule covered, so every existing link keeps working.
-    An agent runs `curl -sL https://recipes.wisechef.ai/skill -o SKILL.md` and
+    An agent runs `curl -sL https://app.loopskill.io/skill -o SKILL.md` and
     gets a file it can load directly with the correct MCP tool names.
     """
     body = _canonical_skill_md()

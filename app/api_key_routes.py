@@ -1,11 +1,17 @@
 """API key management routes — generate, list, revoke.
 
 Phase C (top1pct_1105):
-- Multi-key support with tier cap enforcement (Free/Pro = 1, Pro+ = 20)
+- Multi-key support with tier cap enforcement (Free = 1, Pro = 10, Pro+ = 20)
 - Per-cookbook scoping: optional cookbook_id on create
 - Human label: optional label field (persisted as both `name` and `label`)
 - GET /api-keys returns install_count_total + install_count_7d per key
 - REMOVED: "revoke-before-create" one-per-user policy → replaced by cap check
+
+bundles_0811 Phase P2.5 (2026-08-11): the tier→cap map used to be a Python
+dict literal here (`KEY_CAP`) — that was the verified defect: Pro shared
+Free's cap of 1, so a $9.95/mo customer got the same single key as a free
+user. Every tier number now lives in config/tiers.yaml, read via
+app.tier_labels.api_key_cap(); this module holds no cap literal.
 
 Original WIS-640: users need a `rec_*` key to use the meta-skill or any /api/* route.
 Key format: rec_live_<32 random urlsafe chars>
@@ -27,6 +33,7 @@ from app.auth_routes import get_current_user_optional
 from app.database import get_db
 from app.models import APIKey, Bundle, InstallEvent, User
 from app.revenue_truth import entitled_tier_or_free
+from app.tier_labels import api_key_cap as _tier_api_key_cap
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["api-keys"])
@@ -34,18 +41,6 @@ router = APIRouter(prefix="/api", tags=["api-keys"])
 
 KEY_PREFIX = "rec_live_"
 KEY_BODY_LEN = 32  # urlsafe chars after prefix
-
-# Tier → max active keys cap
-KEY_CAP: dict[str, int] = {
-    "free": 1,
-    "pro": 1,
-    # Legacy aliases — sunset 2026-06-10
-    "cook": 1,  # legacy alias → pro
-    "pro_plus": 20,
-    "operator": 20,  # legacy alias → pro_plus
-    "studio": 20,  # legacy alias → pro_plus
-}
-DEFAULT_CAP = 1  # fallback for unknown/null tiers
 
 
 def _generate_key() -> tuple[str, str, str]:
@@ -137,9 +132,10 @@ async def create_api_key(
 ):
     """Create a new API key for the authenticated user.
 
-    Phase C policy:
-    - Free / Pro (legacy cook)  : max 1 active key
-    - Pro+ (legacy operator)    : max 20 active keys
+    Phase C policy (caps read from config/tiers.yaml SSOT, bundles_0811 P2.5):
+    - Free                       : max 1 active key
+    - Pro (legacy cook)          : max 10 active keys
+    - Pro+ (legacy operator)     : max 20 active keys
     - Optional cookbook_id: must belong to the calling user
     - Optional label: human-readable name ≤100 chars
 
@@ -160,7 +156,7 @@ async def create_api_key(
     # ── Tier cap enforcement ──────────────────────────────────────────────
     # The ENTITLED tier, so a lapsed Pro cannot keep minting keys at the Pro cap.
     tier = entitled_tier_or_free(user)
-    cap = KEY_CAP.get(tier, DEFAULT_CAP)
+    cap = _tier_api_key_cap(tier)
 
     active_count = (
         db.query(APIKey)
@@ -179,7 +175,7 @@ async def create_api_key(
         try:
             cookbook_id = UUID(str(body["cookbook_id"]))
         except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="invalid_cookbook_id")
+            raise HTTPException(status_code=400, detail="invalid_bundle_id")
 
         cb = (
             db.query(Bundle)  # compat-alias
@@ -187,7 +183,7 @@ async def create_api_key(
             .first()
         )
         if not cb:
-            raise HTTPException(status_code=404, detail="cookbook_not_found")
+            raise HTTPException(status_code=404, detail="bundle_not_found")
 
     # ── Label (prefer explicit `label`, fall back to `name`) ─────────────
     raw_label: str | None = body.get("label") or body.get("name")

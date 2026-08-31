@@ -1,12 +1,15 @@
 """Daily version-staleness sweep (Phase F.8).
 
-Walks every ``recipe.yaml`` in the catalog (here, every file under
-``recipes/<slug>/recipe.yaml``), pulls each pinned binary's
-``release_source``, and routes the diff:
+Walks every ``recipe.yaml`` under the catalog root passed via ``--catalog``,
+pulls each pinned binary's ``release_source``, and routes the diff:
 
   * patch within SemVer → auto-merge PR (mocked: prints intent)
   * minor                → publisher dashboard flag, 14 day ACK window
   * major                → human response always required
+
+As of bundles0811-P8 the catalog no longer lives in this repo (it moved to
+wisechef-ai/loopskill-recipes to keep loopskill-api lean); ``--catalog`` is
+now REQUIRED and must point at a checkout of that repo.
 
 Designed to be stdlib + httpx only. The systemd timer is in
 ``deploy/recipes-version-staleness-check.{service,timer}``.
@@ -216,8 +219,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--catalog",
         type=Path,
-        default=Path(__file__).resolve().parents[2] / "recipes",
-        help="Root directory containing recipe.yaml files (default: <repo>/recipes).",
+        required=True,
+        help=(
+            "Root directory containing recipe.yaml files. Required — as of "
+            "bundles0811-P8 the catalog no longer lives in this repo; it was "
+            "split into wisechef-ai/loopskill-recipes to keep loopskill-api "
+            "lean. Point this flag at a checkout of that repo, e.g. "
+            "/opt/loopskill-recipes."
+        ),
     )
     ap.add_argument("--json", action="store_true", help="Emit findings as JSON.")
     args = ap.parse_args(argv)

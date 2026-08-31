@@ -89,6 +89,7 @@ def reindex_source(db, source_id: str, *, dry_run: bool = False) -> dict:
         }
 
     from app.services import federation_cache as fcache
+    from app.services import federation_live
     from app.services.federation import route_install
     from app.services.federation_adapters import get_adapter
     from app.services.federation_live import LIVE_FETCH
@@ -177,6 +178,21 @@ def reindex_source(db, source_id: str, *, dry_run: bool = False) -> dict:
     installable = sum(1 for s in found if route_install(s).allowed)
     first_page = [s.to_dict() for s in found[:FIRST_PAGE_CAP]]
 
+    # P3.9 (bundles_0811): a token-gated source (github-oss) at indexed=0 is
+    # SILENT by construction — the adapter's own graceful-empty degrade never
+    # raises, so the except-block above never fires and last_error would
+    # otherwise stay NULL, indistinguishable from a healthy zero-result walk.
+    # Record the real cause explicitly so `select ... where last_error is not
+    # null` (or a human eyeballing the admin surface) can tell "auth
+    # vanished" from "walk ran clean and found nothing today".
+    reindex_last_error: str | None = None
+    if indexed == 0 and federation_live.token_gated_source_missing_auth(source_id):
+        reindex_last_error = (
+            f"{source_id}: GITHUB_TOKEN/GH_TOKEN not set — token-gated source silently "
+            "returned zero (see docs/runbooks/github-federation-token-rotation.md)"
+        )
+        logger.warning("reindex: %s", reindex_last_error)
+
     if not dry_run:
         fcache.write_source_cache(
             db,
@@ -185,8 +201,12 @@ def reindex_source(db, source_id: str, *, dry_run: bool = False) -> dict:
             installable_count=installable,
             first_page=first_page,
             ttl_seconds=fcache.TTL_DAILY,
+            last_error=reindex_last_error,
         )
-    return {"source": source_id, "status": "ok", "indexed": indexed, "installable": installable}
+    report = {"source": source_id, "status": "ok", "indexed": indexed, "installable": installable}
+    if reindex_last_error:
+        report["error"] = reindex_last_error
+    return report
 
 
 def main() -> int:

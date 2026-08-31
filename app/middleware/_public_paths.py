@@ -63,6 +63,27 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     "/api/bundles/public/",
     "/api/cookbooks/discover",  # compat-alias
     "/api/cookbooks/public/",  # compat-alias
+    # bundles0811-P1 (F1/F2) — the auth-free bundle installer script. Must be
+    # public: a visitor fetches this BEFORE they have any key. Read-only,
+    # serves a static asset, no write verb on this path.
+    "/api/bundles/install.sh",
+    "/api/cookbooks/install.sh",  # compat-alias
+    # bundles0811-P1 (F3) — fork claim (the SAVE step). This IS a write verb,
+    # but the handler (app/bundle_fork_claim_routes.py:claim_bundle_fork)
+    # deliberately self-enforces auth by reading request.state.auth_ctx and
+    # returning its own {"reason": "sign_in_required", "next": "/signin"}
+    # 401 body — the loopskill-api-endpoint-development skill's documented
+    # pattern ("On a PUBLIC_PREFIXES path... read request.state.auth_ctx
+    # directly and 401 if it's None/anonymous", mirrors
+    # composite_loop_routes.publish_composite_loop). Without this entry the
+    # middleware's OWN bare 401 ("Invalid or missing x-api-key header") fires
+    # first and the handler's friendly sign-in-required body is unreachable
+    # dead code — caught live by
+    # test_fork_claim_401s_anonymously_with_same_token_echoed_in_the_retry_contract.
+    # Opportunistic auth still applies: a valid x-api-key or wr_jwt cookie is
+    # honoured (stamped onto auth_ctx) so an authenticated claim succeeds.
+    "/api/bundles/fork/claim",
+    "/api/cookbooks/fork/claim",  # compat-alias
     # spotify_0608 Ph G — public reputation leaderboards (verify stays auth-gated).
     "/api/bundles/leaderboard",
     "/api/cookbooks/leaderboard",  # compat-alias
@@ -79,7 +100,30 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     # method-agnostic prefix does not expose anything the per-type public
     # routes don't already expose. There is no write verb on this path.
     "/api/search",
+    # bundles0811 P3.6 — federated-index filter is a public discovery surface
+    # (same posture as /api/skills/external and /api/bundles/discover). It
+    # returns NO bundle-membership data and mutates nothing; writing a result
+    # into a bundle happens at the bulk-add endpoint, which IS auth-gated.
+    "/api/federation/filter",
 )
+
+
+# fdeloop_0808 Phase D — public plugin.json manifest surface. Matches
+# GET /api/bundles/{slug}/plugin.json (and the /api/cookbooks/* compat
+# alias) WITHOUT exposing the rest of the bundle-detail CRUD surface, which
+# stays auth-gated. Kept as a function (not a plain prefix string) because a
+# bare "/plugin.json" suffix match is needed, not a prefix match — a prefix
+# entry would also have to special-case every other bundle sub-route.
+def is_public_plugin_manifest_path(path: str, method: str) -> bool:
+    """True for a public-bundle Agent Plugins manifest GET.
+
+    Visibility is enforced by the route handler itself (404 for a private or
+    unknown slug — see app/bundle_routes.py:_build_plugin_manifest and its
+    caller); this only decides whether the request needs an x-api-key at all.
+    """
+    if method != "GET":
+        return False
+    return path.startswith(("/api/bundles/", "/api/cookbooks/")) and path.endswith("/plugin.json")
 
 
 # Exact paths that skip API-key auth entirely.
@@ -112,5 +156,23 @@ EXEMPT_PATHS: frozenset[str] = frozenset(
         # Unauthenticated BY DESIGN: verification must need no credential.
         "/.well-known/jwks.json",
         "/.well-known/oauth-authorization-server",
+        # agentreg_0819 — agent discovery. THE reason these were 401ing is this
+        # very allowlist: APIKeyMiddleware gates every path not listed here, and
+        # only the two mesh documents above were. These are what an agent reads
+        # BEFORE it holds any credential (llms.txt / MCP-directory entry point),
+        # so requiring one is a deadlock. Bodies are static, public-origin-derived
+        # JSON with no secrets and no per-caller data — see
+        # app/agent_wellknown_routes.py.
+        "/.well-known/agent.json",
+        "/.well-known/mcp.json",
+        # gap/gap-aiplugin — the 3rd standard AI-plugin discovery convention,
+        # alongside agent.json/mcp.json above. Same defect class: any path
+        # not on this allowlist 401s from APIKeyMiddleware BEFORE routing
+        # even resolves whether a handler exists, so ai-plugin.json 401'd
+        # live in prod (verified 2026-08-20) with no route registered at
+        # all. This entry + the new route in app/agent_wellknown_routes.py
+        # are the whole fix — a cold agent that tries the ai-plugin
+        # convention now gets the manifest instead of a dead end.
+        "/.well-known/ai-plugin.json",
     }
 )

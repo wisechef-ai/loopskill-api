@@ -36,6 +36,7 @@ from app._skill_helpers import _install_counts_for, _skill_to_out
 from app.database import get_db
 from app.models import Skill, TelemetryEvent
 from app.services.clawhub_owner_prime import prime_clawhub_owner_cache
+from app.services.demand_capture import record_missing_skill_query
 from app.services.metasearch import merge_unified, unify_curated, unify_external
 from app.services.metasearch_card_contract import RenderContractMeta, apply_card_contract
 from app.services.metasearch_fanout import DEFAULT_FANOUT_SOURCES, fan_out
@@ -114,6 +115,29 @@ def _record_funnel_event(db: Session, request: Request, *, q: str | None, result
             logger.warning("metasearch funnel rollback also failed", exc_info=True)
 
 
+def _record_demand_signal(db: Session, q: str | None, result: dict) -> None:
+    """fdeloop_0808 Phase A — a zero-result metasearch is a demand signal.
+
+    ``_record_funnel_event`` already logs EVERY query as telemetry; this is the
+    narrower, actionable slice that ``/api/admin/demand-brief`` reads: queries
+    that came back with nothing across curated + every federated source. Sharing
+    ``demand_capture`` with the first-party and ``/external`` paths keeps one
+    normalisation behind the ``(lower(query), day)`` unique index.
+
+    A query is only counted when at least one source ANSWERED. If every source
+    degraded (timeout, breaker open), zero results means "we failed", not "the
+    catalog lacks this" — recording it would poison the brief with our own
+    outages.
+    """
+    if not q:
+        return
+    if result.get("result_count"):
+        return
+    if not result.get("sources_ok"):
+        return
+    record_missing_skill_query(db, q)
+
+
 @router.get("/metasearch", tags=["skills", "metasearch"])
 def metasearch(
     request: Request,
@@ -158,6 +182,7 @@ def metasearch(
         result = merge_unified(
             curated,
             external,
+            query=q,
             sources_ok=["recipes", *fanout.sources_ok],
             sources_degraded=fanout.sources_degraded,
         )
@@ -200,6 +225,7 @@ def metasearch(
             "cache": entry.to_response_meta(),
         }
         _record_funnel_event(db, request, q=q, result=payload)
+        _record_demand_signal(db, q, payload)
         return payload
 
     # Cache miss (we computed): build the full response with the live ranking.
@@ -222,6 +248,7 @@ def metasearch(
     # Funnel event reflects the DELIVERED response (post-contract, post-slice), not
     # the pre-contract candidate set (council SHOULD 2) — the user's real result.
     _record_funnel_event(db, request, q=q, result=payload)
+    _record_demand_signal(db, q, payload)
     return payload
 
 

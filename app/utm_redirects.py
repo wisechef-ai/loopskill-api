@@ -27,9 +27,8 @@ for _platform in ("x", "li", "ig", "yt", "fb"):
         @utm_router.get(f"/{ref_val}/{{skill_slug}}", include_in_schema=False)
         def _platform_redirect(skill_slug: str, ref_val: str = ref_val):
             # marketing_1205: set cookie BEFORE redirect so it lands on the
-            # visitor on the same recipes.wisechef.ai origin, then 302 to the
-            # public portal skill page (statically served by Caddy from
-            # /home/wisechef/recipes-portal/dist/skills/<slug>/index.html).
+            # visitor on the same origin, then 302 to the public portal skill
+            # page (statically served from the loopskill-portal dist root).
             resp = RedirectResponse(
                 url=f"/skills/{skill_slug}?ref={ref_val}",
                 status_code=302,

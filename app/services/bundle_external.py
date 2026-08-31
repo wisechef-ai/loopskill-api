@@ -37,6 +37,7 @@ shareable across cookbooks).
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 from uuid import uuid4
 
@@ -70,6 +71,47 @@ logger = logging.getLogger(__name__)
 EXTERNAL_SLUG_PREFIX = "ext"
 EXTERNAL_TIER = "external"
 EXTERNAL_VARIANT = "external"
+
+
+class ExternalSourceUnavailable(Exception):
+    """A live ``adapter.resolve()`` call raised — a transient source outage,
+    distinct from an honest "doesn't exist". Raised only by
+    ``resolve_external_install_full`` (issue #277 Fix A); the REST route
+    translates this into a 503, matching the pre-refactor contract. The MCP
+    branch (which disables live fallback for github-* sources entirely — see
+    ``app/mcp/tools/install.py``) degrades this to the same honest not_found
+    it uses everywhere else — MCP has no 503-equivalent and no oracle-safe way
+    to distinguish "outage" from "doesn't exist" without leaking timing info.
+    """
+
+
+@dataclass(frozen=True)
+class ExternalInstallResolution:
+    """Typed resolve result — the ONE shape both the REST route
+    (``GET /skills/external/{source}/{slug}/install``) and the MCP
+    ``loopskill_install`` federated branch build their responses from, so the
+    two transports cannot structurally disagree (issue #277 Fix A).
+
+    kind:
+      "fetch_origin"   — payload carries a real ``content`` body (200).
+      "deep_link"      — payload carries ``agent_instructions``, no body (200
+                         — feat/deep-link-install-contract: an honest success,
+                         not an error; the fetch is the caller's to do).
+      "register_mcp"   — payload carries an ``mcp_config`` block (200).
+      "wiring_missing" — payload is the ``{reason, install_path, origin_url,
+                         license}`` 409 detail (routed+allowed but no
+                         fetcher/endpoint is wired for this source yet).
+      "not_found"      — payload is None; skill/source unresolvable (404).
+    """
+
+    kind: str
+    payload: dict[str, Any] | None
+    skill: "ExternalSkill | None" = None
+    # The scan verdict computed over the bytes in the payload (fetch_origin
+    # only). Callers record provenance via materialize_external_skill — pass
+    # this through so the pointer row's cached badge is the SAME scan, and no
+    # second origin fetch happens (codex #277 finding 3).
+    scan_verdict: Any | None = None
 
 
 def external_slug(source: str, slug: str) -> str:
@@ -134,7 +176,14 @@ def _resolve_external(source: str, slug: str) -> ExternalSkill | None:
         return None
 
 
-def materialize_external_skill(db: "Session", source: str, slug: str) -> "Skill | None":
+def materialize_external_skill(
+    db: "Session",
+    source: str,
+    slug: str,
+    *,
+    ext: "ExternalSkill | None" = None,
+    scan_verdict: Any | None = None,
+) -> "Skill | None":
     """Materialize a federated skill as a thin, PRIVATE ``Skill`` row.
 
     Idempotent: the same (source, slug) maps to one row (slug
@@ -145,6 +194,14 @@ def materialize_external_skill(db: "Session", source: str, slug: str) -> "Skill 
     The row is a POINTER: ``external_resources`` carries the re-resolution
     descriptor so install can fetch the body from origin. No SKILL.md content
     is stored here — federation never rehosts.
+
+    VISIBILITY CONTRACT (issue #277 break #2, resolved here): pointer rows are
+    PRIVATE (``is_public=False``) BY DESIGN and must stay that way. They are
+    per-cookbook install artifacts, NOT catalog entries — flipping them public
+    would corrupt catalog counts, tier logic, and could surface private
+    selections. The federated search surface is the federation INDEX
+    (``federation_hub_skills`` + ``federation_index_cache`` via
+    ``unified_search.search_federated_group``), never these rows.
     """
     from app.models import Skill
 
@@ -153,7 +210,13 @@ def materialize_external_skill(db: "Session", source: str, slug: str) -> "Skill 
     if existing is not None:
         return existing
 
-    ext = _resolve_external(source, slug)
+    # codex review (#277, finding 3): callers that ALREADY hold a resolved
+    # descriptor (the #277 shared resolver, which may have served it from
+    # cache precisely to avoid a live walk) pass it here — a second
+    # _resolve_external would re-walk the upstream and defeat the
+    # allow_live_resolve=False quota guarantee.
+    if ext is None:
+        ext = _resolve_external(source, slug)
     if ext is None:
         return None
 
@@ -162,7 +225,14 @@ def materialize_external_skill(db: "Session", source: str, slug: str) -> "Skill 
     # is cached in the descriptor so reads never re-scan. Deep-link / mcp /
     # non-redistributable sources never fetch a body and stay honestly
     # ``unscanned`` (the scan_on_add decision tree owns that distinction).
-    verdict = scan_on_add(ext, get_origin_fetcher(source), slug)
+    #
+    # codex review (#277, finding 3): when the caller already scanned the body
+    # it fetched (the #277 resolver does — scan_external_body over the SAME
+    # bytes it is about to hand the agent), pass the verdict in. A fresh
+    # scan_on_add would fetch the origin a SECOND time for the same install,
+    # which on github sources burns the shared CDN/api budget the cache-first
+    # path exists to protect.
+    verdict = scan_verdict if scan_verdict is not None else scan_on_add(ext, get_origin_fetcher(source), slug)
 
     descriptor: dict[str, Any] = {
         "federation_source": source,

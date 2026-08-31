@@ -79,19 +79,19 @@ def reconcile_report(
         cb_uuid = UUID(cookbook_id)
     except (ValueError, AttributeError):
         response.status_code = 404
-        return {"error": "cookbook_not_found"}
+        return {"error": "bundle_not_found"}
 
     cb = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
     if cb is None:
         response.status_code = 404
-        return {"error": "cookbook_not_found"}
+        return {"error": "bundle_not_found"}
 
     # mesh_0408 W1 (P0): tenant-scoped owner-match — a member key deployed at
     # one client must not be able to drive another client's promotion gate.
     is_owner = authz.owner_match_within_tenant(auth_ctx, cb)
     if not is_owner:
         response.status_code = 404
-        return {"error": "cookbook_not_found"}
+        return {"error": "bundle_not_found"}
 
     # Resolve the skill by slug AND confirm it's declared in this bundle
     # (a report can only concern a skill the bundle actually ships).
@@ -110,7 +110,7 @@ def reconcile_report(
     )
     if cs is None:
         response.status_code = 404
-        return {"error": "skill_not_in_cookbook"}
+        return {"error": "skill_not_in_bundle"}
 
     # Persist the canary outcome (the promotion engine reads these events).
     from app.services.fleet_members import resolve_member_for_key

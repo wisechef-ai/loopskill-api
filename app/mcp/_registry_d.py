@@ -94,6 +94,29 @@ def _phase_d_tools() -> list[types.Tool]:
                 },
             },
         ),
+        types.Tool(
+            name="loopskill_publish_bundle",
+            description=(
+                "Publish a bundle you own — flips it from private to public "
+                "and mints its shareable bundle:// slug. Closes the loop "
+                "loopskill_compose_bundle_from_links tells you to close: "
+                "compose, then publish, in MCP only (no REST client needed). "
+                "Idempotent — publishing an already-public bundle returns "
+                "success with its current state, not an error. Publishing "
+                "never counts against your private-bundle tier cap (public "
+                "bundles are unlimited on every tier)."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["bundle_id"],
+                "properties": {
+                    "bundle_id": {
+                        "type": "string",
+                        "description": "UUID of the bundle to publish (must be owned by the caller).",
+                    },
+                },
+            },
+        ),
     ]
 
 
