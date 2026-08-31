@@ -860,291 +860,88 @@ def get_external_skills(
 def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)):
     """evergreen_0206 Phase F2 — REAL fetch-origin install for an external skill.
 
-    Closes the cold-path: makes the external install CTA actually work instead of
-    being aspirational. The install ROUTER decides the path; this endpoint
-    EXECUTES the redistributable one (fetch-origin) by streaming the real,
-    MIT-licensed SKILL.md from origin, with license + attribution preserved.
+    Issue #281 — the REST route is now a THIN TRANSPORT over the shared typed
+    resolver ``resolve_external_install_full`` (the same one code path the MCP
+    ``loopskill_install`` federated branch uses since #277/#280). The resolver
+    owns resolve/route/fetch/sanitize; this endpoint only maps the typed
+    result onto the HTTP contract the existing contract tests pin:
 
-    Returns, per the router's decision:
-      - fetch_origin → {install_path, raw_url, content, license, install_command}
-        (the agent writes ``content`` to its skills dir; the command is the
-        copy-paste curl form for a human).
-      - deep_link / non-redistributable → 409 with the origin link (never
-        rehosted — license/ToS wall).
-      - unknown source / unresolvable slug → 404 (honest, never fabricated).
+      - fetch_origin   → 200 with content (+ provenance, attributed)
+      - deep_link      → 200 with agent_instructions, installed:false
+                         (+ provenance, unattributed)
+      - register_mcp   → 200 with mcp_config (+ provenance, attributed)
+      - wiring_missing → 409 {reason, install_path, origin_url, license}
+      - not_found      → 404
+      - ExternalSourceUnavailable → 503 (live resolve failed = source outage)
+
+    REST keeps ``allow_live_resolve=True`` — it sits behind the anonymous
+    per-IP limiter; the github-* quota asymmetry is MCP-only (documented in
+    the resolver). #280's security hardening (http(s)-only URL guard,
+    dropped install_command on URL rejection, strict REGISTER_MCP endpoint
+    guard, slug traversal guard) now applies to REST too — that was the
+    point of the unification.
     """
-    from app.services import federation_cache as fcache
-    from app.services.federation import ExternalSkill, INTERNAL_SOURCE, InstallPath, route_install
-    from app.services.federation_adapters import get_adapter
-    from app.services.federation_install import get_origin_fetcher
-    from app.services.federation_live import LIVE_FETCH
+    from app.services.bundle_external import ExternalSourceUnavailable
+    from app.services.external_install_resolver import resolve_external_install_full
+    from app.services.provenance import (
+        ATTR_ATTRIBUTED,
+        ATTR_UNATTRIBUTED,
+        record_install_with_provenance,
+    )
 
-    # The federation surface is external-only — refuse the internal namespace.
-    if source == INTERNAL_SOURCE:
-        raise HTTPException(status_code=404, detail="Not an external source")
+    try:
+        res = resolve_external_install_full(db, source, slug, allow_live_resolve=True)
+    # Rationale: a source outage must 503, not 500 (pre-refactor contract).
+    except ExternalSourceUnavailable:
+        raise HTTPException(status_code=503, detail="External source unavailable") from None
 
-    fetch = LIVE_FETCH.get(source)
-    adapter = get_adapter(source, fetch=fetch)
-    if adapter is None:
-        raise HTTPException(status_code=404, detail=f"Unknown external source '{source}'")
-
-    # superset_0606 Phase F — cache-first resolve. The prod box shares ONE anon
-    # GitHub budget (60/hr) across all users, so a live adapter.resolve() (which
-    # re-walks the tap to find the row) fails under load — exactly when a user
-    # tries to install a facet skill they just browsed. The reindex cron already
-    # cached the row in first_page; resolve from there first, falling back to a
-    # live walk only when the slug isn't in the cached page (deep catalog).
-    skill = None
-    for row in fcache.read_first_page(db, source):
-        if isinstance(row, dict) and row.get("slug") == slug:
-            skill = ExternalSkill.from_dict(row)
-            break
-
-    if skill is None:
-        try:
-            skill = adapter.resolve(slug)
-        # Rationale: a source outage must 503, not 500.
-        except Exception:  # noqa: BLE001
-            logger.warning("external resolve failed: %s/%s", source, slug, exc_info=True)
-            raise HTTPException(status_code=503, detail="External source unavailable") from None
-    if skill is None:
+    if res.kind == "not_found":
         raise HTTPException(status_code=404, detail=f"External skill '{slug}' not found in {source}")
 
-    decision = route_install(skill)
-    if not decision.allowed:
-        # Deep-link / non-redistributable: never rehosted — hand back the
-        # origin as a SUCCESS payload the caller can act on.
-        #
-        # feat/deep-link-install-contract (2026-07-17): this used to raise a
-        # 409 whose detail happened to carry origin_url — agents had to treat
-        # an HTTP error as success-with-homework (Adam's 'when I point the
-        # agent to a skill on loopskill, the agent should be able to install
-        # it'). Now the honest answer is a 200: LoopSkill's part of the job —
-        # resolving WHERE the skill lives and HOW to get it — succeeded; the
-        # fetch is simply the agent's to perform, directly from origin. The
-        # license posture is unchanged: content is NEVER rehosted, and the
-        # agent's fetch from origin is its own relationship with the source.
-        return {
-            "slug": skill.slug,
-            "source": skill.source,
-            "install_path": skill.install_path.value,
-            "installed": False,
-            "reason": decision.reason,
-            "license": skill.license,
-            "origin_url": skill.origin_url,
-            "namespace": "external",
-            "quality": "community · as-is",
-            "agent_instructions": (
-                "LoopSkill does not redistribute this skill (license unknown or "
-                "restricted). To install it, fetch the skill definition yourself "
-                f"directly from its origin page: {skill.origin_url} — locate the "
-                "SKILL.md (or equivalent) there and save it into your agent's "
-                "skills directory. Attribute the original author; respect the "
-                "origin's license and terms."
-            ),
-        }
+    if res.kind == "wiring_missing":
+        # Routed+allowed but no fetcher/endpoint is wired (or the endpoint
+        # failed the strict guard) — honest 409 with the origin link rather
+        # than a fabricated body/config.
+        raise HTTPException(status_code=409, detail=res.payload)
 
-    if skill.install_path == InstallPath.FETCH_ORIGIN:
-        origin_fetch = get_origin_fetcher(source)
-        if origin_fetch is None:
-            # FETCH_ORIGIN routed but no origin fetcher wired for this source yet
-            # — honest 409 with the origin link rather than a fake body.
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "reason": f"fetch-origin install not yet wired for source '{source}'",
-                    "install_path": skill.install_path.value,
-                    "origin_url": skill.origin_url,
-                    "license": skill.license,
-                },
-            )
-        # superset_0606 Phase F — pass the resolved skill's origin_url to the
-        # fetcher (as a row) so the github-tap fetcher can derive the raw CDN URL
-        # WITHOUT a live api.github.com walk. Fetchers that don't accept a row
-        # (hermes/browse-sh/well-known/lobehub/skills-sh) ignore the kwarg via
-        # the TypeError fallback — keeps the generic registry contract intact.
-        fetch_row = {
-            "slug": skill.slug,
-            "origin_url": skill.origin_url,
-            "source": skill.source,
-        }
-        try:
-            got = origin_fetch(slug, row=fetch_row)
-        except TypeError:
-            got = origin_fetch(slug)
-        if got is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"SKILL.md for '{slug}' could not be fetched from origin",
-            )
-        raw_url, content = got
-        # Mirror the source's home-dir layout. For namespaced slugs (host--task,
-        # owner--repo) the leaf name is the human-facing skill name.
-        leaf = slug.rsplit("--", 1)[-1]
-        # spotify_0608 Ph E — provenance on the public external install. This is
-        # a FETCH_ORIGIN install (real body streamed) so it's 'attributed'. We
-        # materialize a private pointer Skill row (idempotent) to satisfy the
-        # InstallEvent FK, then record + mint provenance. No bundle context
-        # here (cookbook_id stays NULL — this is the bare federation route).
-        prov_id = None
-        try:
-            from app.services.bundle_external import materialize_external_skill
-            from app.services.provenance import (
-                ATTR_ATTRIBUTED,
-                record_install_with_provenance,
-            )
+    payload = dict(res.payload or {})
 
-            mat = materialize_external_skill(db, source, slug)
-            if mat is not None:
-                _ev, prov_id = record_install_with_provenance(
-                    db,
-                    skill=mat,
-                    version_semver="external",
-                    request=None,
-                    source="external",
-                    cookbook_id=None,
-                    attribution=ATTR_ATTRIBUTED,
-                )
-                db.commit()
-        # Rationale: provenance is best-effort observability on the public
-        # federation route — a materialize/record hiccup must never block the
-        # actual install (the agent still gets real content below).
-        except Exception:  # noqa: BLE001
-            logger.warning("external install provenance failed for %s/%s", source, slug, exc_info=True)
-            db.rollback()
-        return {
-            "slug": skill.slug,
-            "source": skill.source,
-            "install_path": skill.install_path.value,
-            # feat/deep-link-install-contract: discriminator mirroring the
-            # deep-link payload's installed=False — one field tells an agent
-            # whether `content` carries the body or the fetch is theirs to do.
-            "installed": True,
-            "license": skill.license,
-            "origin_url": skill.origin_url,
-            "raw_url": raw_url,
-            "content": content,
-            "namespace": "external",
-            "quality": "community · as-is",
-            "provenance_id": prov_id,
-            # Copy-paste form for a human; an agent uses `content` directly.
-            "install_command": f"mkdir -p ~/.claude/skills/{leaf} && "
-            f"curl -fsSL {raw_url} -o ~/.claude/skills/{leaf}/SKILL.md",
-        }
-
-    # REGISTER_MCP — federated MCP-server skill. There is no SKILL.md body to
-    # stream; "installing" means handing back a paste-ready MCP client-config
-    # block pointing at the server's own endpoint. This is an ATTRIBUTED install
-    # (we hand the agent a concrete, runnable server config), mirroring the
-    # FETCH_ORIGIN provenance branch above.
-    if skill.install_path == InstallPath.REGISTER_MCP:
-        from app.services.federation_mcp import build_mcp_server_config
-
-        try:
-            cfg = build_mcp_server_config(skill)
-        except ValueError:
-            # No registrable endpoint — honest 409 with the origin link rather
-            # than a fabricated config (mirrors the fetch-origin-not-wired 409).
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "reason": (
-                        f"register-mcp skill '{slug}' has no registrable "
-                        "MCP endpoint (origin_url is not a server URL)"
-                    ),
-                    "install_path": skill.install_path.value,
-                    "origin_url": skill.origin_url,
-                    "license": skill.license,
-                },
-            ) from None
-
-        prov_id = None
-        try:
-            from app.services.bundle_external import materialize_external_skill
-            from app.services.provenance import (
-                ATTR_ATTRIBUTED,
-                record_install_with_provenance,
-            )
-
-            mat = materialize_external_skill(db, source, slug)
-            if mat is not None:
-                _ev, prov_id = record_install_with_provenance(
-                    db,
-                    skill=mat,
-                    version_semver="external",
-                    request=None,
-                    source="external",
-                    cookbook_id=None,
-                    attribution=ATTR_ATTRIBUTED,
-                )
-                db.commit()
-        # Rationale: provenance is best-effort observability; never block the
-        # real MCP-config response on a materialize/record hiccup.
-        except Exception:  # noqa: BLE001
-            logger.warning("register-mcp provenance failed for %s/%s", source, slug, exc_info=True)
-            db.rollback()
-
-        return {
-            "slug": skill.slug,
-            "source": skill.source,
-            "install_path": skill.install_path.value,
-            "license": skill.license,
-            "origin_url": skill.origin_url,
-            "namespace": "external",
-            "quality": "community · as-is",
-            "provenance_id": prov_id,
-            "server_key": cfg["server_key"],
-            "endpoint": cfg["endpoint"],
-            "mcp_config": cfg["mcp_config"],
-            "hermes_yaml": cfg["hermes_yaml"],
-            "claude_desktop_json": cfg["claude_desktop_json"],
-            "install_command": cfg["install_command"],
-        }
-
-    # Other allowed paths have no file body to stream yet — surface the routed
-    # decision honestly rather than pretend.
-    # spotify_0608 Ph E — honest 'unattributed' provenance: a deep-link / non-fetch
-    # install has no body, so we cannot attribute deeper than "this source/slug was
-    # handed to an agent." We STILL mint a provenance_id (no hard-fail) mapping to
-    # an InstallEvent stamped attribution='unattributed'. This is distinct from a
-    # TRANSIENT FETCH_ORIGIN fetch failure (those 404/409 above and never reach here).
+    # Provenance (best-effort observability — never blocks the install):
+    #   fetch_origin / register_mcp → attributed (a real body/config is handed
+    #   over); deep_link → unattributed (no body, only the origin pointer).
+    # ``res.skill`` is passed through so materialization never re-walks the
+    # upstream, and the pointer row reuses the SAME scan verdict (codex #277
+    # finding 3). No bundle context here (cookbook_id stays NULL).
     prov_id = None
-    try:
-        from app.services.bundle_external import materialize_external_skill
-        from app.services.provenance import (
-            ATTR_UNATTRIBUTED,
-            record_install_with_provenance,
-        )
+    if res.kind in ("fetch_origin", "register_mcp", "deep_link"):
+        attributed = res.kind != "deep_link"
+        try:
+            from app.services.bundle_external import materialize_external_skill
 
-        mat = materialize_external_skill(db, source, slug)
-        if mat is not None:
-            _ev, prov_id = record_install_with_provenance(
-                db,
-                skill=mat,
-                version_semver="external",
-                request=None,
-                source="external",
-                cookbook_id=None,
-                attribution=ATTR_UNATTRIBUTED,
+            mat = materialize_external_skill(
+                db, source, slug, ext=res.skill, scan_verdict=res.scan_verdict
             )
-            db.commit()
-    # Rationale: provenance is best-effort observability; never block the honest
-    # deep-link response on a provenance write hiccup.
-    except Exception:  # noqa: BLE001
-        logger.warning("deep-link provenance failed for %s/%s", source, slug, exc_info=True)
-        db.rollback()
-    return {
-        "slug": skill.slug,
-        "source": skill.source,
-        "install_path": skill.install_path.value,
-        "license": skill.license,
-        "origin_url": skill.origin_url,
-        "namespace": "external",
-        "quality": "community · as-is",
-        "provenance_id": prov_id,
-        "attribution": "unattributed",
-        "note": "This install path is not yet executable here; use the origin link.",
-    }
+            if mat is not None:
+                _ev, prov_id = record_install_with_provenance(
+                    db,
+                    skill=mat,
+                    version_semver="external",
+                    request=None,
+                    source="external",
+                    cookbook_id=None,
+                    attribution=ATTR_ATTRIBUTED if attributed else ATTR_UNATTRIBUTED,
+                )
+                db.commit()
+        # Rationale: a materialize/record hiccup must never block the actual
+        # install payload (pre-refactor behavior on all three paths).
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "external install provenance failed for %s/%s", source, slug, exc_info=True
+            )
+            db.rollback()
+    if prov_id is not None:
+        payload.setdefault("provenance_id", prov_id)
+    return payload
 
 
 def _federation_class(skill) -> str:
