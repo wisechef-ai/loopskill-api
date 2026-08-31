@@ -21,7 +21,7 @@ from app.bundle_install_script_routes import router as bundle_install_script_rou
 from app.canary import router as canary_router
 from app.bootcamp_routes import router as bootcamp_router  # bootcamp_0607
 from app.checkout_routes import router as checkout_router
-from app.config import settings
+from app.config import get_settings, run_production_boot_checks
 from app.bundle_routes import router as cookbook_router  # compat-alias
 from app.bundle_wellknown_routes import router as cookbook_wellknown_router  # compat-alias
 from app.creator_routes import router as creator_router
@@ -86,6 +86,12 @@ async def lifespan(app: FastAPI):
     Bot is a no-op when DISCORD_BOT_TOKEN is empty (server doesn't exist
     yet at deploy time) — see app/discord_bot/bot.py.
     """
+    # Issue #283 — production-secrets gate now runs at SERVE time, not import
+    # time. The logic itself is unchanged (moved out of Settings' pydantic
+    # model_validator); raising here makes uvicorn refuse to serve an app
+    # configured with default change-me secrets in production, while plain
+    # `import app.*` (tests, scripts, tooling) stays side-effect free.
+    run_production_boot_checks()
     # Phase 4: boot-time Stripe webhook smoke test (fail-soft).
     await verify_stripe_webhook_endpoint()
     bot_task = await discord_bot.start_bot()
@@ -156,7 +162,7 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "PATCH", "DELETE"],
         allow_headers=["x-api-key", "authorization", "content-type"],
     )
-    app.add_middleware(RateLimitMiddleware, max_requests=settings.RATE_LIMIT_PER_MINUTE)
+    app.add_middleware(RateLimitMiddleware, max_requests=get_settings().RATE_LIMIT_PER_MINUTE)
     app.add_middleware(APIKeyMiddleware)
     app.add_middleware(CookbookHostMiddleware)
 
