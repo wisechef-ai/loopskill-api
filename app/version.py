@@ -417,6 +417,38 @@ inert). No schema, no migration.
     cookie discarded pre-parse, Google OAuth callback variant, and the
     utm_ctx cookie producer's full login->callback round-trip. No schema
     change. Verified against prod /api/healthz 0.9.37 before bumping.
+
+0.9.44 - fix(issue-289): federation-registry-propose workflow now dedups
+    against config/federation_sources.yaml BEFORE opening any GitHub issue.
+    Issue #288 was a live instance of the defect this closes: the
+    auto-proposal bot re-filed `[federation-registry] anthropics/skills`
+    when github-anthropic (repo: anthropics/skills) has been a registered
+    github_taps entry since decision #13 (2026-08-11) — each duplicate cost
+    a full triage cycle (read config, cross-reference, comment, close).
+
+    app/services/federation_sources_config.py:find_registered_github_repo
+    does a case-insensitive lookup of the proposed repo_slug against every
+    live github_taps row (reuses the existing github_tap_rows() SSOT reader,
+    zero new state). Wired into loopskill_propose_registry (the ONE function
+    both POST /api/federation/propose and the loopskill_propose_registry MCP
+    tool call — app/mcp/tools/federation_propose.py) BEFORE the rate-limiter
+    write and the DB insert, so an already-registered proposal costs the
+    caller nothing (no rate-limit spend, no DB row, no GitHub issue) and is
+    reported back honestly: `{"status": "already_registered",
+    "existing_source_id": "github-anthropic", "review_channel_open": false}`.
+
+    3 new tests (already-registered short-circuit, case-insensitive match,
+    regression guard that a genuinely new repo still dispatches normally) —
+    RED-proofed: both new-behavior tests fail on pre-fix code
+    (`assert 'pending_review' == 'already_registered'`), pass after the fix.
+    Breaker pass: empty/None input, 100k-char input, whitespace+case
+    boundary match, near-miss no-false-positive (skills2/skill/xanthropics),
+    and injection-shaped strings (path traversal, shell metacharacters) —
+    all handled without raising or false-matching. No schema, no migration,
+    no .github/workflows change (the dedup check lives in the shared Python
+    choke point both proposal surfaces already funnel through — a smaller,
+    more central fix than the issue's own suggested workflow-file edit).
+    Verified against prod /api/healthz 0.9.43 before bumping.
 """
 
-__version__ = "0.9.43"
+__version__ = "0.9.44"

@@ -27,6 +27,15 @@ TWO distinct bugs, both covered here:
 
 The durability behaviour is deliberately PRESERVED: a failed dispatch still
 records the proposal. What changes is that the caller is told the truth.
+
+issue #289 update (2026-08-27): the original prod incident used
+anthropics/skills as the probe repo. That repo is now a genuinely registered
+github_taps entry (github-anthropic, decision #13), so it now correctly
+short-circuits through the NEW already-registered dedup check before ever
+reaching the dispatch-honesty branches this file exists to test. Switched
+the fixture repo to an unregistered synthetic slug so this file keeps
+testing dispatch mechanics in isolation from the registry-dedup concern
+(covered separately by tests/test_federation_propose.py).
 """
 
 from __future__ import annotations
@@ -36,6 +45,10 @@ from unittest.mock import patch
 from app.mcp.tools import federation_propose as fp
 from app.services.federation_propose import PreflightResult
 
+# Deliberately NOT a repo present in config/federation_sources.yaml's
+# github_taps — see the issue #289 update note above.
+_UNREGISTERED_REPO = "dispatch-honesty-fixture-org/probe-skills"
+
 
 def _preflight() -> PreflightResult:
     """A real PreflightResult, not a hand-rolled stub.
@@ -44,14 +57,14 @@ def _preflight() -> PreflightResult:
     instead of silently drifting from what the route consumes.
     """
     return PreflightResult(
-        repo_slug="anthropics/skills",
+        repo_slug=_UNREGISTERED_REPO,
         repo_exists=True,
         skill_md_count=18,
         license_detected=None,
     )
 
 
-def _call(monkeypatch, db_session, *, dispatch_returns, repo="anthropics/skills"):
+def _call(monkeypatch, db_session, *, dispatch_returns, repo=_UNREGISTERED_REPO):
     """Run a proposal with dispatch_event stubbed to a given outcome.
 
     Only the network edges are stubbed: the repo pre-flight (a live GitHub call)
@@ -65,7 +78,7 @@ def _call(monkeypatch, db_session, *, dispatch_returns, repo="anthropics/skills"
         return fp.loopskill_propose_registry(
             db_session,
             repo_url=f"https://github.com/{repo}",
-            source_id="anthropics-skills",
+            source_id="dispatch-honesty-fixture",
             contact="probe@example.com",
             why="terminal gate step 8",
         )
@@ -147,8 +160,8 @@ class TestDedupePathIsAlsoHonest:
         with patch.object(fp.github_dispatch, "dispatch_event", return_value=None):
             second = fp.loopskill_propose_registry(
                 db_session,
-                repo_url="https://github.com/anthropics/skills",
-                source_id="anthropics-skills",
+                repo_url=f"https://github.com/{_UNREGISTERED_REPO}",
+                source_id="dispatch-honesty-fixture",
                 contact="probe@example.com",
                 why="terminal gate step 8",
             )
