@@ -180,8 +180,8 @@ def reconcile_precheck(db: Session, fleet_id: UUID) -> dict[str, Any]:
     ``preflight_member`` against that drift; a stale-but-live placement would
     silently keep routing to a now-incompatible host until it broke at
     runtime. This walks every live (assigned/active/draining) placement and
-    re-runs the same preflight the initial assign used, so an operator (or an
-    automated reconcile loop) can see incompatibilities BEFORE applying
+    re-runs the same preflight the initial assign used, so a fleet
+    admin (or an automated reconcile loop) can see incompatibilities BEFORE applying
     further placement changes — not after a loop fails on a host it can no
     longer satisfy.
 

@@ -239,8 +239,8 @@ def loopskill_reconcile_precheck(
     reconcile could keep applying against a fleet member that no longer
     satisfies the loop's declared requires{}. This re-runs the same
     capability/secret preflight ``loopskill_assign`` used, across every live
-    placement, and returns the NAMED incompatibilities so an operator (or an
-    automated reconcile loop, which should call this FIRST) sees drift before
+    placement, and returns the NAMED incompatibilities so a fleet
+    admin (or an automated reconcile loop, which should call this FIRST) sees drift before
     it silently propagates. Manager-capability gated, same as the rest of the
     placement surface.
     """
