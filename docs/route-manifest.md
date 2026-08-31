@@ -3,7 +3,7 @@
 
 # Route Manifest (bundles_0811 P7)
 
-Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **313** distinct (method, path) surfaces.
+Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **315** distinct (method, path) surfaces.
 
 ## How classification works
 
@@ -22,7 +22,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | Classification | Routes |
 |---|---|
 | admin | 11 |
-| authenticated | 193 |
+| authenticated | 195 |
 | internal | 2 |
 | public | 107 |
 
@@ -74,6 +74,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | GET | `/api/bundle-deploy/list` | authenticated | `app.bundle_deployment_routes` | bundle-deploy, bundle-deploy, cookbook-deploy |
 | POST | `/api/bundle-deploy/{cookbook_id}/apply` | authenticated | `app.bundle_deployment_routes` | bundle-deploy, bundle-deploy, cookbook-deploy |
 | GET | `/api/bundle-deploy/{cookbook_id}/jobs/{job_id}` | authenticated | `app.bundle_deployment_routes` | bundle-deploy, bundle-deploy, cookbook-deploy |
+| POST | `/api/bundle-deploy/{cookbook_id}/rollback` | authenticated | `app.bundle_deployment_routes` | bundle-deploy, bundle-deploy, cookbook-deploy |
 | POST | `/api/bundle-deploy/{cookbook_id}/skills/add` | authenticated | `app.bundle_deployment_routes` | bundle-deploy, bundle-deploy, cookbook-deploy |
 | DELETE | `/api/bundle-deploy/{cookbook_id}/skills/{skill_id}` | authenticated | `app.bundle_deployment_routes` | bundle-deploy, bundle-deploy, cookbook-deploy |
 | GET | `/api/bundle-deploy/{slug}/manifest` | authenticated | `app.bundle_deployment_routes` | bundle-deploy, bundle-deploy, cookbook-deploy |
@@ -147,6 +148,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | GET | `/api/cookbook-deploy/list` | authenticated | `app.bundle_deployment_routes` | bundle-deploy, cookbook-deploy, cookbook-deploy |
 | POST | `/api/cookbook-deploy/{cookbook_id}/apply` | authenticated | `app.bundle_deployment_routes` | bundle-deploy, cookbook-deploy, cookbook-deploy |
 | GET | `/api/cookbook-deploy/{cookbook_id}/jobs/{job_id}` | authenticated | `app.bundle_deployment_routes` | bundle-deploy, cookbook-deploy, cookbook-deploy |
+| POST | `/api/cookbook-deploy/{cookbook_id}/rollback` | authenticated | `app.bundle_deployment_routes` | bundle-deploy, cookbook-deploy, cookbook-deploy |
 | POST | `/api/cookbook-deploy/{cookbook_id}/skills/add` | authenticated | `app.bundle_deployment_routes` | bundle-deploy, cookbook-deploy, cookbook-deploy |
 | DELETE | `/api/cookbook-deploy/{cookbook_id}/skills/{skill_id}` | authenticated | `app.bundle_deployment_routes` | bundle-deploy, cookbook-deploy, cookbook-deploy |
 | GET | `/api/cookbook-deploy/{slug}/manifest` | authenticated | `app.bundle_deployment_routes` | bundle-deploy, cookbook-deploy, cookbook-deploy |
