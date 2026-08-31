@@ -171,7 +171,7 @@ def test_discover_engagement_sort_by_followers(db_session):
     client = TestClient(_app(db_session, owner))
     r = client.get("/api/bundles/discover?sort=engagement")
     assert r.status_code == 200, r.text
-    cards = r.json()["cookbooks"]
+    cards = r.json()["bundles"]
     names = [c["name"] for c in cards]
     # private excluded
     assert "Private" not in names
