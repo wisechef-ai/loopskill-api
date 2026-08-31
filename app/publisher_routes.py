@@ -372,7 +372,9 @@ async def publish_skill(
             title=resolve_title_for_new_skill(slug, skill_name, _new_skill_readme),  # issue #155
             description=skill_description,
             license=skill_section.get("license"),
-            tier=(skill_section.get("tier") or "").strip() or None,
+            # Default "free", never NULL: the portal renders NULL as paid, and
+            # strategy (2026-08-31) is all public skills free.
+            tier=(skill_section.get("tier") or "").strip() or "free",
             readme=_new_skill_readme,
             is_public=is_public,
             creator_id=creator_for_new_skill.id if creator_for_new_skill else None,
