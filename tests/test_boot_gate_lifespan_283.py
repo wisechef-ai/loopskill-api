@@ -16,19 +16,19 @@ import subprocess
 import sys
 
 # Serve probe: import app.main, run the lifespan, expect RuntimeError.
+# NOTE: app.main is the SERVE entry — its module scope wires middleware via
+# get_settings(), so the gate may fire at import OR at lifespan. Both count.
 PROBE = """
 import asyncio, sys
-import app.config as config
-import app.main as main
-from fastapi import FastAPI
-
-app = FastAPI(lifespan=main.lifespan)
-
-async def _serve():
-    async with app.router.lifespan_context(app):
-        pass
-
 try:
+    from fastapi import FastAPI
+    import app.main as main
+    app = FastAPI(lifespan=main.lifespan)
+
+    async def _serve():
+        async with app.router.lifespan_context(app):
+            pass
+
     asyncio.run(_serve())
 except RuntimeError as e:
     print("GATE_FIRED:", str(e)[:80])
