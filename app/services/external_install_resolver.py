@@ -2,10 +2,11 @@
 
 Split out of ``bundle_external.py`` when the resolver pushed that module past
 the 600-line god-module gate (test_w0_2_pyfile_size_discipline) — the gate is
-correct, splitting beats waiving. Everything here is ADDITIVE to the legacy
-``resolve_external_install`` in bundle_external; that function and the REST
-route are intentionally untouched (their contracts are pinned by existing
-tests — see the NOTE in resolve_external_install_full's docstring).
+correct, splitting beats waiving. Issue #281: the REST route
+``skill_routes.install_external_skill`` now consumes
+``resolve_external_install_full`` too, so this is THE one code path for every
+transport (REST, MCP, bundle/well-known readers go through the legacy thin
+shim below).
 """
 
 from __future__ import annotations
@@ -22,8 +23,19 @@ from app.services.federation import (
     route_install,
 )
 from app.services.federation_adapters import get_adapter
-from app.services.federation_install import get_origin_fetcher
 from app.services.federation_live import LIVE_FETCH
+
+
+def get_origin_fetcher(source: str):
+    # Lazily delegate to the defining module so monkeypatching EITHER
+    # app.services.federation_install.get_origin_fetcher (defining module,
+    # superset_0606_f contract) OR this module's attribute (test_277
+    # contract) is honoured at call time.
+    from app.services import federation_install as _fi
+
+    return _fi.get_origin_fetcher(source)
+
+
 from app.services.federation_scan import QUALITY_AS_IS, scan_external_body
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -178,14 +190,8 @@ def resolve_external_install_full(
     *,
     allow_live_resolve: bool = True,
 ) -> ExternalInstallResolution:
-    """Typed resolve consumed by the MCP federated branch (issue #277 Fix A).
-
-    NOTE (codex review 2026-08-25): the REST route
-    ``skill_routes.install_external_skill`` still runs its own inline
-    implementation and is intentionally NOT refactored onto this resolver in
-    the same PR — REST behavior is unchanged and pinned by its existing
-    contract tests. Unifying REST onto this path is a follow-up.
-
+    """Typed resolve consumed by the MCP federated branch and (since #281) the
+    REST route ``skill_routes.install_external_skill``.
 
     Cache-first (federation_index_cache first_page — what the reindex cron
     wrote), then a live ``adapter.resolve`` fallback when
@@ -262,8 +268,9 @@ def resolve_external_install_full(
                 kind="wiring_missing",
                 payload={
                     "reason": (
-                        f"register-mcp skill '{slug}' has an invalid or unsafe "
-                        "MCP endpoint (not http(s), no hostname, or control chars)"
+                        f"register-mcp skill '{slug}' has no registrable "
+                        "MCP endpoint (invalid or unsafe: not http(s), no "
+                        "hostname, or control chars)"
                     ),
                     "install_path": ext.install_path.value,
                     "origin_url": _safe_origin_url(ext.origin_url),

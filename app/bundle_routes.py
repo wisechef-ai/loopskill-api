@@ -867,15 +867,10 @@ def discover_cookbooks(
         cards.sort(key=lambda c: (c["installs_7d"], c["installs_total"]), reverse=True)
         cards = cards[offset : offset + limit]
 
-    result = {"cookbooks": cards, "limit": limit, "offset": offset, "sort": sort}
-    # docsdrift_0821 item 15: the flagship public-discovery endpoint's response
-    # key still names the retired "cookbooks" concept everywhere else in the
-    # product has moved to "bundles". Dual-emit both keys for one release so
-    # any existing integrator parsing `cookbooks` keeps working uninterrupted
-    # while new/updated clients can switch to the canonical `bundles` key
-    # (mirrors the qa0208-w3 dual-accept doctrine in AGENTS.md).
-    result["bundles"] = cards
-    return result
+    # issue #157 Phase 3: the response key is now `bundles` only. The
+    # transitional dual-emit (docsdrift_0821 item 15) is retired — the portal
+    # and every first-party consumer read `bundles` as of the Phase 2+3 flip.
+    return {"bundles": cards, "limit": limit, "offset": offset, "sort": sort}
 
 
 def _public_install_block(cb: Bundle, api_base: str) -> dict:
@@ -1224,7 +1219,7 @@ def list_cookbooks(
         raise HTTPException(status_code=403, detail="Share tokens cannot list bundles")
 
     if ctx.is_master:
-        return {"cookbooks": [], "bundles": []}
+        return {"bundles": []}
 
     from app.liked_service import ensure_liked_bundle
 
@@ -1239,8 +1234,8 @@ def list_cookbooks(
         owned_or_org = owned_or_org | (Bundle.org_id == ctx.org_id)
     rows = db.query(Bundle).filter(owned_or_org).order_by(Bundle.created_at.desc()).all()
     cb_out = [_to_cb_out(r) for r in rows]
-    # docsdrift_0821 item 15: dual-emit alongside `cookbooks` — see /discover.
-    return {"cookbooks": cb_out, "bundles": cb_out}
+    # issue #157 Phase 3: `bundles` key only (dual-emit retired) — see /discover.
+    return {"bundles": cb_out}
 
 
 @_h.delete("/{cookbook_id}", status_code=204)  # compat-alias

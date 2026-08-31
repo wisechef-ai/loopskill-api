@@ -183,7 +183,7 @@ def test_discover_returns_only_public(db):
     client = TestClient(_public_app(db))
     resp = client.get("/api/cookbooks/discover")
     assert resp.status_code == 200, resp.text
-    slugs = [c["slug"] for c in resp.json()["cookbooks"]]
+    slugs = [c["slug"] for c in resp.json()["bundles"]]
     assert "pub-one" in slugs
     assert "priv-one" not in slugs
 
@@ -212,11 +212,11 @@ def test_discover_ranks_by_real_installs_excluding_test(db):
     client = TestClient(_public_app(db))
     resp = client.get("/api/cookbooks/discover?sort=installs")
     assert resp.status_code == 200, resp.text
-    cards = {c["slug"]: c for c in resp.json()["cookbooks"]}
+    cards = {c["slug"]: c for c in resp.json()["bundles"]}
     assert cards["high"]["installs_total"] == 2
     assert cards["low"]["installs_total"] == 0
     # high ranks first
-    assert resp.json()["cookbooks"][0]["slug"] == "high"
+    assert resp.json()["bundles"][0]["slug"] == "high"
 
 
 def test_discover_pagination(db):
@@ -226,14 +226,14 @@ def test_discover_pagination(db):
     client = TestClient(_public_app(db))
     resp = client.get("/api/cookbooks/discover?sort=newest&limit=2&offset=0")
     assert resp.status_code == 200
-    assert len(resp.json()["cookbooks"]) == 2
+    assert len(resp.json()["bundles"]) == 2
 
 
-def test_discover_dual_emits_bundles_key(db):
-    """docsdrift_0821 item 15 — /discover must carry the canonical `bundles`
-    key alongside the legacy `cookbooks` key (same cards, same order) so
-    integrators can migrate off the retired vocabulary without a breaking
-    change (qa0208-w3 dual-accept doctrine)."""
+def test_discover_bundles_key_only(db):
+    """issue #157 Phase 3 — /discover carries ONLY the canonical `bundles`
+    key. The transitional dual-emit of the legacy `cookbooks` key
+    (docsdrift_0821 item 15) is retired; the owner-approved breaking flip
+    shipped once every first-party consumer (portal Phase 2) read `bundles`."""
     u = _mk_user(db)
     _mk_cookbook(db, u, "dual-emit-cb", name="Dual Emit")
     client = TestClient(_public_app(db))
@@ -241,7 +241,8 @@ def test_discover_dual_emits_bundles_key(db):
     assert resp.status_code == 200
     body = resp.json()
     assert "bundles" in body
-    assert body["bundles"] == body["cookbooks"]
+    assert "cookbooks" not in body  # dual-emit retired (issue #157 Phase 3)
+    assert isinstance(body["bundles"], list)
 
 
 # ── public cookbook page ──────────────────────────────────────────────────

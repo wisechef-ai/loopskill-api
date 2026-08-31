@@ -87,7 +87,7 @@ def test_discover_flags_all_pro_bundle_as_requires_pro(app_client, db_session):
 
     resp = app_client.get("/api/bundles/discover")
     assert resp.status_code == 200, resp.text
-    cards = {c["slug"]: c for c in resp.json()["cookbooks"]}
+    cards = {c["slug"]: c for c in resp.json()["bundles"]}
     assert cards["all-pro-discover"]["requires_pro"] is True
 
 
@@ -98,7 +98,7 @@ def test_discover_does_not_flag_mixed_bundle(app_client, db_session):
     db_session.commit()
 
     resp = app_client.get("/api/bundles/discover")
-    cards = {c["slug"]: c for c in resp.json()["cookbooks"]}
+    cards = {c["slug"]: c for c in resp.json()["bundles"]}
     assert cards["mixed-discover"]["requires_pro"] is False
 
 
@@ -108,7 +108,7 @@ def test_discover_does_not_flag_all_free_bundle(app_client, db_session):
     db_session.commit()
 
     resp = app_client.get("/api/bundles/discover")
-    cards = {c["slug"]: c for c in resp.json()["cookbooks"]}
+    cards = {c["slug"]: c for c in resp.json()["bundles"]}
     assert cards["all-free-discover"]["requires_pro"] is False
 
 
@@ -118,7 +118,7 @@ def test_discover_empty_bundle_is_not_requires_pro(app_client, db_session):
     db_session.commit()
 
     resp = app_client.get("/api/bundles/discover")
-    cards = {c["slug"]: c for c in resp.json()["cookbooks"]}
+    cards = {c["slug"]: c for c in resp.json()["bundles"]}
     assert cards["empty-discover"]["requires_pro"] is False
 
 
@@ -131,7 +131,7 @@ def test_discover_disabled_member_excluded_from_the_computation(app_client, db_s
     db_session.commit()
 
     resp = app_client.get("/api/bundles/discover")
-    cards = {c["slug"]: c for c in resp.json()["cookbooks"]}
+    cards = {c["slug"]: c for c in resp.json()["bundles"]}
     assert cards["disabled-pro-discover"]["requires_pro"] is False
 
 

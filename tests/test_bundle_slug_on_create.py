@@ -156,7 +156,7 @@ def test_public_bundle_reachable_on_public_surfaces(slug_client, db_session: Ses
 
     discover = slug_client.get("/api/cookbooks/discover?sort=newest&limit=50")
     assert discover.status_code == 200, discover.text
-    slugs = [c["slug"] for c in discover.json()["cookbooks"]]
+    slugs = [c["slug"] for c in discover.json()["bundles"]]
     assert "essentials-kill-test" in slugs
 
     public_page = slug_client.get("/api/cookbooks/public/essentials-kill-test")

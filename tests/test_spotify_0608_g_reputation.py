@@ -236,5 +236,5 @@ def test_public_card_is_verified_flag_on_discover(db):
     _mk_cb(db, owner, "disc-verif", verified=True)
     with TestClient(_app(db)) as c:
         body = c.get("/api/cookbooks/discover").json()
-    card = next(e for e in body["cookbooks"] if e["slug"] == "disc-verif")
+    card = next(e for e in body["bundles"] if e["slug"] == "disc-verif")
     assert card["is_verified"] is True
