@@ -4,16 +4,38 @@ Guarantees:
 1. Importing app modules bare (no env stubs) succeeds side-effect free, and
    the lazy ``settings`` singleton is NOT constructed by the import itself.
 2. Serving the app in production mode with default change-me secrets fails
-   loudly: the lifespan hook runs ``run_production_boot_checks()`` which
-   constructs Settings (gate lives in Settings.__init__ — secfix_1905
-   contract) and lets the RuntimeError propagate out of startup.
+   loudly (lifespan -> run_production_boot_checks -> Settings.__init__ gate).
+
+Test 2 runs in a SUBPROCESS: the gate test must construct Settings under a
+poisoned prod environment, and the lru_cache'd singleton would otherwise leak
+that construction into every later test in this pytest-xdist worker.
 """
 
-import asyncio
 import os
+import subprocess
 import sys
 
-import pytest
+# Serve probe: import app.main, run the lifespan, expect RuntimeError.
+PROBE = """
+import asyncio, sys
+import app.config as config
+import app.main as main
+from fastapi import FastAPI
+
+app = FastAPI(lifespan=main.lifespan)
+
+async def _serve():
+    async with app.router.lifespan_context(app):
+        pass
+
+try:
+    asyncio.run(_serve())
+except RuntimeError as e:
+    print("GATE_FIRED:", str(e)[:80])
+    sys.exit(0)
+print("NO GATE")
+sys.exit(3)
+"""
 
 
 def test_bare_import_succeeds_without_env_stubs(monkeypatch):
@@ -35,45 +57,34 @@ def test_bare_import_succeeds_without_env_stubs(monkeypatch):
     # PEP 562 __getattr__ only fires on cache miss: if import had constructed
     # the singleton, 'settings' would be a real entry in __dict__.
     assert "settings" not in vars(config), "settings singleton was constructed at import time"
-    # The lazy accessors exist.
     assert callable(config.get_settings)
     assert callable(config.run_production_boot_checks)
 
 
-def test_gate_fires_on_serve_in_prod_mode_with_bad_secrets(monkeypatch):
-    """Lifespan must raise loudly when serving with default secrets in prod.
+def test_gate_fires_on_serve_in_prod_mode_with_bad_secrets(tmp_path):
+    """Serving with default change-me secrets in prod mode must abort startup.
 
-    The gate lives in Settings.__init__ (secfix_1905); the lifespan calls
-    run_production_boot_checks() which constructs Settings on first use.
-    With a prod DATABASE_URL and change-me secrets, startup must abort.
+    Runs in a clean subprocess (hermetic env: no WR_* secrets, prod DB URL,
+    secure cookies) so the poisoned construction can never leak into this
+    worker's cached settings singleton.
     """
-    import app.config as config
-    import app.main as main
-
-    monkeypatch.setenv("WR_DATABASE_URL", "postgresql://u:p@localhost/db")
-    monkeypatch.setenv("WR_COOKIES_SECURE", "true")
-    # Drop any ambient WR_* secrets so the gate sees change-me defaults.
-    for var in ("WR_API_KEY", "WR_SIGNING_SECRET", "WR_JWT_SECRET", "WR_HEARTBEAT_PEPPER"):
-        monkeypatch.delenv(var, raising=False)
-    # Reset the lazy cache so run_production_boot_checks() constructs fresh
-    # Settings under the patched env (conftest may have cached a sqlite one).
-    config._get_settings_cached.cache_clear()
-
-    from fastapi import FastAPI
-
-    app = FastAPI(lifespan=main.lifespan)
-
-    async def _serve():
-        async with app.router.lifespan_context(app):
-            pass
-
-    try:
-        asyncio.run(_serve())
-    except RuntimeError:
-        pass
-    else:
-        pytest.fail("lifespan did not raise RuntimeError with default secrets")
-    finally:
-        config._get_settings_cached.cache_clear()
-        # Drop stale imported modules so later tests re-import cleanly.
-        sys.modules.pop("app.main", None)
+    env = {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": os.environ.get("HOME", "/tmp"),
+        "WR_DATABASE_URL": "postgresql://u:p@localhost/db",
+        "WR_COOKIES_SECURE": "true",
+        # No WR_API_KEY / SIGNING_SECRET / JWT_SECRET / HEARTBEAT_PEPPER:
+        # the gate must see the change-me defaults and refuse.
+    }
+    r = subprocess.run(
+        [sys.executable, "-c", PROBE],
+        env=env,
+        cwd=os.getcwd(),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert r.returncode == 0 and "GATE_FIRED" in r.stdout, (
+        f"gate did not fire on serve: rc={r.returncode} out={r.stdout[-200:]} err={r.stderr[-400:]}"
+    )
+    assert "change-me secret" in r.stdout, r.stdout
