@@ -256,7 +256,7 @@ class TestListDetail:
         with TestClient(app) as client:
             r = client.get("/api/cookbooks")
         assert r.status_code == 200
-        ids = {c["id"] for c in r.json()["cookbooks"]}
+        ids = {c["id"] for c in r.json()["bundles"]}
         assert str(cb_mine.id) in ids
         assert str(cb_other.id) not in ids
 
@@ -714,7 +714,7 @@ class TestOrgScopedBundleReads:
         with TestClient(app) as client:
             r = client.get("/api/cookbooks")
         assert r.status_code == 200
-        ids = {c["id"] for c in r.json()["cookbooks"]}
+        ids = {c["id"] for c in r.json()["bundles"]}
         assert str(cb.id) in ids
 
     def test_org_member_reads_org_bundle_detail(self, db_session):
@@ -769,5 +769,5 @@ class TestOrgScopedBundleReads:
         with TestClient(app) as client:
             rl = client.get("/api/cookbooks")
             rd = client.get(f"/api/cookbooks/{personal.id}")
-        assert str(personal.id) not in {c["id"] for c in rl.json()["cookbooks"]}
+        assert str(personal.id) not in {c["id"] for c in rl.json()["bundles"]}
         assert rd.status_code == 404

@@ -293,7 +293,7 @@ def test_bundle_in_org_b_not_readable_by_caller_scoped_to_org_a(middleware_clien
     db_session.commit()
     list_resp = middleware_client.get("/api/cookbooks", headers={"x-api-key": other_key})
     assert list_resp.status_code == 200
-    seen_ids = {c["id"] for c in list_resp.json()["cookbooks"]}
+    seen_ids = {c["id"] for c in list_resp.json()["bundles"]}
     assert str(bundle_b.id) not in seen_ids
 
     # And confirm the read filter DOES admit an org_b member (proves the
@@ -304,7 +304,7 @@ def test_bundle_in_org_b_not_readable_by_caller_scoped_to_org_a(middleware_clien
     db_session.commit()
     list_resp_b = middleware_client.get("/api/cookbooks", headers={"x-api-key": org_b_member_key})
     assert list_resp_b.status_code == 200
-    seen_ids_b = {c["id"] for c in list_resp_b.json()["cookbooks"]}
+    seen_ids_b = {c["id"] for c in list_resp_b.json()["bundles"]}
     assert str(bundle_b.id) in seen_ids_b, (
         "an org_b member must see org_b's bundle via the org-scoped read "
         "filter — this is the assertion that proves the filter is no "
