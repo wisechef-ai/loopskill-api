@@ -302,7 +302,19 @@ def install_skill(
         if not skill.is_public:
             # Don't even tell anonymous callers that private skills exist.
             raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
-        if (skill.tier or "").lower() != "free":
+        # docsdrift_0821: this used to be its own inline
+        # ``(skill.tier or "").lower() != "free"`` check, which says a NULL
+        # tier is NOT free — disagreeing with the canonical
+        # ``authz.tier_rank_allows_install``, which floors an unknown/NULL
+        # tier to free (rank 1) and already fixed the identical fork for
+        # ``skill_files_routes.skill_is_free_to_read`` (fdeloop_0808 Phase A).
+        # Live repro 2026-08-21 (install probe #271): ``agentic-os`` has
+        # tier=NULL, appears free-tier in the public catalog/stats, but
+        # anonymous install 401'd. Route through the single-sourced policy
+        # so a NULL tier resolves the SAME way on every anonymous surface.
+        from app.authz import tier_rank_allows_install
+
+        if not tier_rank_allows_install(None, skill.tier):
             raise HTTPException(
                 status_code=401,
                 detail="Authentication required to install this skill. Free skills install with no key.",
