@@ -12,17 +12,18 @@ from importlib.metadata import version as _pkg_version
 import pytest
 
 
-def test_stripe_pinned_to_15_3_0():
-    """requirements.txt pins stripe to the 15.3.x minor range, NOT >=15.
+def test_stripe_pinned_to_15_6_minor_range():
+    """requirements.txt pins stripe to the 15.6.x minor range, NOT >=15.
 
     Per F5 mitigation in the v7.1 plan: don't allow Stripe to silently
     upgrade us into the SDK 16.x territory (which has more dict-vs-object
-    serialization surprises). Allow deliberate patch bumps within 15.3.x
-    (e.g. dependabot 15.3.0 -> 15.3.1), but gate on minor/major bumps.
+    serialization surprises). Allow deliberate patch bumps within 15.6.x
+    (e.g. dependabot 15.6.0 -> 15.6.1), but gate on minor/major bumps.
+    Owner-approved minor bump 15.3.1 -> 15.6.0 (2026-08-31, PR #165).
     """
     installed = _pkg_version("stripe")
-    assert installed.startswith("15.3."), (
-        f"Expected stripe==15.3.x (per requirements.txt pin), got {installed}. "
+    assert installed.startswith("15.6."), (
+        f"Expected stripe==15.6.x (per requirements.txt pin), got {installed}. "
         f"This means requirements.txt was loosened or the venv is stale."
     )
 
@@ -40,7 +41,7 @@ def test_stripe_version_accessible_via_metadata_not_dunder():
     # The correct path:
     from stripe._version import VERSION
 
-    assert VERSION.startswith("15.3.")
+    assert VERSION.startswith("15.6.")
 
 
 def test_webhook_construct_event_with_signed_payload(monkeypatch):
