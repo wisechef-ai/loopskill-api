@@ -1,10 +1,10 @@
 {
   "source": "app.main.app.routes + app.middleware.api_key.APIKeyMiddleware (dispatch tree replayed), derived at import time",
   "generator": "scripts/generate_route_manifest.py",
-  "route_count": 312,
+  "route_count": 313,
   "counts_by_classification": {
     "admin": 11,
-    "authenticated": 192,
+    "authenticated": 193,
     "internal": 2,
     "public": 107
   },
@@ -2392,6 +2392,18 @@
       ],
       "classification": "authenticated",
       "summary": "One agent's reality: installed skills + drift vs declared + extras."
+    },
+    {
+      "method": "POST",
+      "path": "/api/fleets/{fleet_id}/reconcile-precheck",
+      "name": "reconcile_precheck_route",
+      "module": "app.fleet_routes",
+      "tags": [
+        "fleets",
+        "fleets"
+      ],
+      "classification": "authenticated",
+      "summary": "POST /api/fleets/{id}/reconcile-precheck \u2014 pre-apply gate for the reconcile step."
     },
     {
       "method": "POST",

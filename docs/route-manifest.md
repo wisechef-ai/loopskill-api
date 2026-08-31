@@ -3,7 +3,7 @@
 
 # Route Manifest (bundles_0811 P7)
 
-Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **312** distinct (method, path) surfaces.
+Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **313** distinct (method, path) surfaces.
 
 ## How classification works
 
@@ -22,7 +22,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | Classification | Routes |
 |---|---|
 | admin | 11 |
-| authenticated | 192 |
+| authenticated | 193 |
 | internal | 2 |
 | public | 107 |
 
@@ -220,6 +220,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | POST | `/api/fleets/{fleet_id}/members` | authenticated | `app.fleet_member_routes` | fleet-members, fleet-members |
 | DELETE | `/api/fleets/{fleet_id}/members/{member_id}` | authenticated | `app.fleet_member_routes` | fleet-members, fleet-members |
 | GET | `/api/fleets/{fleet_id}/members/{member_id}/state` | authenticated | `app.fleet_console_routes` | fleet-console |
+| POST | `/api/fleets/{fleet_id}/reconcile-precheck` | authenticated | `app.fleet_routes` | fleets, fleets |
 | POST | `/api/fleets/{fleet_id}/subscribe` | authenticated | `app.fleet_routes` | fleets, fleets |
 | POST | `/api/fleets/{fleet_id}/sync` | authenticated | `app.fleet_routes` | fleets, fleets |
 | GET | `/api/fleets/{fleet_id}/voice-inbox` | authenticated | `app.voice_routes` | voice-inbox |

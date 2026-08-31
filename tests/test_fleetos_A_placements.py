@@ -379,3 +379,99 @@ def test_placement_tool_member_key_403_through_server(db_session):
     caller = {"scope": "fleet", "fleet_id": fleet.id}
     res = _dispatch("loopskill_placements", db_session, {"fleet_id": str(fleet.id)}, caller)
     assert res["code"] == 403
+
+
+# ── reconcile pre-apply gate (fleetos_1607 gap-close, 2026-08-07) ────────────
+
+
+def test_reconcile_precheck_clean_fleet_ok(db_session):
+    """No live placements → ok=True, checked=0, no false-positive drift."""
+    owner = uuid4()
+    fleet = _mk_fleet(db_session, owner_id=owner)
+    db_session.commit()
+    ctx = AuthContext(scope="user", user_id=owner)
+    res = ptool.loopskill_reconcile_precheck(db_session, str(fleet.id), ctx=ctx)
+    assert res["ok"] is True
+    assert res["checked"] == 0
+    assert res["incompatible"] == []
+
+
+def test_reconcile_precheck_detects_post_assign_drift(db_session):
+    """The keystone case: a placement was FINE at assign time, then the
+    manifest was re-declared with a new requirement the member can't satisfy.
+    Precheck must surface it — nothing else re-runs preflight after assign."""
+    owner = uuid4()
+    fleet = _mk_fleet(db_session, owner_id=owner)
+    m1 = _mk_member(db_session, fleet, "a")
+    _advertise(db_session, m1, os="linux")
+    _mk_manifest(db_session, "loop-x", requires={})
+    db_session.commit()
+
+    # assign succeeds — member satisfies the (empty) requirements at this point
+    p = psvc.assign(db_session, fleet.id, "loop-x", m1.id)
+    assert p.status == "active"
+
+    # manifest drifts: now requires a package the member never advertised
+    manifest = db_session.query(LoopManifest).filter_by(loop_id="loop-x").one()
+    manifest.requires = {"packages": ["cuda"]}
+    db_session.commit()
+
+    ctx = AuthContext(scope="user", user_id=owner)
+    res = ptool.loopskill_reconcile_precheck(db_session, str(fleet.id), ctx=ctx)
+    assert res["ok"] is False
+    assert res["checked"] == 1
+    assert len(res["incompatible"]) == 1
+    entry = res["incompatible"][0]
+    assert entry["loop_key"] == "loop-x"
+    assert any("cuda" in x for x in entry["missing"])
+
+
+def test_reconcile_precheck_ignores_removed_placements(db_session):
+    """A removed (evacuated) placement isn't live — drift on it doesn't count."""
+    owner = uuid4()
+    fleet = _mk_fleet(db_session, owner_id=owner)
+    m1 = _mk_member(db_session, fleet, "a")
+    _advertise(db_session, m1, os="linux")
+    _mk_manifest(db_session, "loop-x", requires={})
+    db_session.commit()
+
+    psvc.assign(db_session, fleet.id, "loop-x", m1.id)
+    psvc.evacuate(db_session, fleet.id, "loop-x")
+
+    manifest = db_session.query(LoopManifest).filter_by(loop_id="loop-x").one()
+    manifest.requires = {"packages": ["cuda"]}
+    db_session.commit()
+
+    ctx = AuthContext(scope="user", user_id=owner)
+    res = ptool.loopskill_reconcile_precheck(db_session, str(fleet.id), ctx=ctx)
+    assert res["ok"] is True
+    assert res["checked"] == 0
+
+
+def test_reconcile_precheck_member_key_403(db_session):
+    """Manager-capability gated, same as the rest of the placement surface."""
+    fleet = _mk_fleet(db_session)
+    m1 = _mk_member(db_session, fleet, "a")
+    _advertise(db_session, m1, os="linux")
+    db_session.commit()
+    member_ctx = AuthContext(scope="fleet", fleet_id=fleet.id)
+    res = ptool.loopskill_reconcile_precheck(db_session, str(fleet.id), ctx=member_ctx)
+    assert res["code"] == 403
+
+
+def test_reconcile_precheck_dispatches_through_server(db_session):
+    """Reachable through the real MCP dispatch chain, not just callable in isolation."""
+    from app.mcp.server import _dispatch
+
+    owner = uuid4()
+    fleet = _mk_fleet(db_session, owner_id=owner)
+    m1 = _mk_member(db_session, fleet, "a")
+    _advertise(db_session, m1, os="linux")
+    _mk_manifest(db_session, "loop-x", requires={})
+    db_session.commit()
+    psvc.assign(db_session, fleet.id, "loop-x", m1.id)
+
+    caller = {"scope": "user", "user_id": owner}
+    res = _dispatch("loopskill_reconcile_precheck", db_session, {"fleet_id": str(fleet.id)}, caller)
+    assert res["ok"] is True
+    assert res["checked"] == 1
