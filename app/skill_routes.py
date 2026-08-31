@@ -918,9 +918,7 @@ def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)
         try:
             from app.services.bundle_external import materialize_external_skill
 
-            mat = materialize_external_skill(
-                db, source, slug, ext=res.skill, scan_verdict=res.scan_verdict
-            )
+            mat = materialize_external_skill(db, source, slug, ext=res.skill, scan_verdict=res.scan_verdict)
             if mat is not None:
                 _ev, prov_id = record_install_with_provenance(
                     db,
@@ -935,9 +933,7 @@ def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)
         # Rationale: a materialize/record hiccup must never block the actual
         # install payload (pre-refactor behavior on all three paths).
         except Exception:  # noqa: BLE001
-            logger.warning(
-                "external install provenance failed for %s/%s", source, slug, exc_info=True
-            )
+            logger.warning("external install provenance failed for %s/%s", source, slug, exc_info=True)
             db.rollback()
     if prov_id is not None:
         payload.setdefault("provenance_id", prov_id)
