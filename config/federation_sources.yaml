@@ -186,3 +186,11 @@ github_taps:
     repo_license: "MIT"
     trust: trusted-source
     in_metasearch: true
+  # Accepted 2026-08-31 (issue #257, submission b80f5019): single MIT-licensed
+  # mega-skill, actively maintained, 192 stars. curated-community tap.
+  - source_id: github-marketing-os
+    repo: Yuzzyuk/marketing-os
+    path: ""
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: true
