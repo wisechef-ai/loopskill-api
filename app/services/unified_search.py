@@ -225,13 +225,26 @@ def search_federated_group(db: Session, q: str, limit: int) -> tuple[list[dict],
     # 1. hub snapshot table
     from app.models import FederationHubSkill
 
+    # issue #282: filter on ONE expression matching the migration's GIN
+    # trigram index exactly (coalesce/concat of title+slug+description) —
+    # NOT three independent .ilike() clauses OR'd together. Verified against
+    # a 90k-row Postgres instance that the three-clause OR form makes the
+    # planner price the resulting BitmapOr plan above a plain sequential
+    # scan and silently fall back to it (812ms, unindexed). The single
+    # concatenated expression is what the migration's index is built on, so
+    # Postgres recognizes and uses it (0.1-15ms, index scan). See
+    # alembic/versions/issue282_fed_hub_trgm.py and
+    # tests/migrations/test_issue282_fed_hub_trgm.py for the measured proof.
+    _search_blob = (
+        func.coalesce(FederationHubSkill.title, "")
+        + " "
+        + func.coalesce(FederationHubSkill.slug, "")
+        + " "
+        + func.coalesce(FederationHubSkill.description, "")
+    )
     hub_rows = (
         db.query(FederationHubSkill)
-        .filter(
-            FederationHubSkill.title.ilike(like)
-            | FederationHubSkill.slug.ilike(like)
-            | FederationHubSkill.description.ilike(like)
-        )
+        .filter(_search_blob.ilike(like))
         .order_by(FederationHubSkill.title.asc())
         .limit(limit)
         .all()
