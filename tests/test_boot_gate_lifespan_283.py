@@ -31,10 +31,15 @@ def test_bare_import_succeeds_without_env_stubs(monkeypatch):
 
 def test_gate_fires_on_serve_in_prod_mode_with_bad_secrets(monkeypatch):
     """Lifespan must raise loudly when serving with default secrets in prod."""
+    import app.config as config
+    import app.main as main
+
+    # Prod mode: postgres DB + secure cookies, secrets left at change-me
+    # defaults. Rebind the singleton the lifespan reads (conftest pins the
+    # real one to a sqlite test DB, which the gate exempts).
     monkeypatch.setenv("WR_DATABASE_URL", "postgresql://u:p@localhost/db")
     monkeypatch.setenv("WR_COOKIES_SECURE", "true")
-    # Leave SECRET_* at the default change-me values -> gate must trip.
-    import app.main as main
+    monkeypatch.setattr(config, "settings", config.Settings())
 
     from fastapi import FastAPI
 
