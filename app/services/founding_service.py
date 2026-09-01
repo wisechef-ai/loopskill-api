@@ -215,10 +215,14 @@ def grant_founding_membership(user: User, db: Session) -> dict[str, Any]:
     the same already-seated user.
 
     Fail-closed on the cap: takes ``MAX(founding_slot_number) + 1`` as the
-    candidate seat and commits. If a concurrent grant already committed a
-    slot with same the number (the same MAX+1 read under a race), commit
-    raises IntegrityError on the UNIQUE constraint; the caller must treat
-    that — and an explicit cap check — as sold-out and refund the charge.
+    candidate seat and commits. Two callers can race for the SAME slot
+    number (both read the same stale MAX before either commits); on
+    Postgres/SQLite that collision raises IntegrityError on the UNIQUE
+    index, which is NOT itself "sold out" — it just means the loser must
+    re-read the (now-advanced) MAX and try the next slot. We retry up to
+    ``cap`` times (bounded by construction: each failed attempt proves at
+    least one more seat was taken, so the retry count can never exceed the
+    cap) before concluding the cap is genuinely exhausted.
 
     ``needs_reconcile`` shape parity: sets exactly the four fields specified
     (subscription_tier='pro', subscription_status='active', period_end=NULL)
@@ -236,35 +240,37 @@ def grant_founding_membership(user: User, db: Session) -> dict[str, Any]:
         raise FoundingSoldOutError("founding_not_configured")
 
     cap = founding_slot_cap()
-    # MAX(slot)+1, not count()+1 — count() undercounts if a row were ever
-    # deleted, which would let a later grant re-issue an already-refunded
-    # slot number. MAX is the seat-number source of truth per the skill's
-    # over-sell-protection pattern.
-    current_max = db.execute(select(func.max(User.founding_slot_number))).scalar_one() or 0
-    if current_max >= cap:
-        raise FoundingSoldOutError("founding_sold_out")
 
-    next_slot = current_max + 1
-    if next_slot > cap:
-        raise FoundingSoldOutError("founding_sold_out")
+    for _attempt in range(cap + 1):
+        current_max = db.execute(select(func.max(User.founding_slot_number))).scalar_one() or 0
+        if current_max >= cap:
+            raise FoundingSoldOutError("founding_sold_out")
 
-    user.founding_member = True
-    user.founding_slot_number = next_slot
-    user.subscription_tier = founding_grants_tier()
-    user.subscription_status = "active"
-    user.subscription_current_period_end = None
-    user.subscription_id = None
-    try:
-        db.commit()
-    except IntegrityError:
-        # Lost the race for `next_slot` — another concurrent grant committed
-        # it first. Roll back and refuse; the caller refunds the charge.
-        db.rollback()
-        raise FoundingSoldOutError("founding_sold_out") from None
+        next_slot = current_max + 1
+        user.founding_member = True
+        user.founding_slot_number = next_slot
+        user.subscription_tier = founding_grants_tier()
+        user.subscription_status = "active"
+        user.subscription_current_period_end = None
+        user.subscription_id = None
+        try:
+            db.commit()
+        except IntegrityError:
+            # Lost the race for `next_slot` specifically — another
+            # concurrent grant committed it first. This is NOT "sold out"
+            # by itself (the cap may still have room); retry with a fresh
+            # MAX() read. Only genuine cap exhaustion raises.
+            db.rollback()
+            continue
 
-    db.refresh(user)
-    logger.info("Granted founding seat #%s to user %s", user.founding_slot_number, user.id)
-    return {"granted": True, "replay": False, "slot": user.founding_slot_number}
+        db.refresh(user)
+        logger.info("Granted founding seat #%s to user %s", user.founding_slot_number, user.id)
+        return {"granted": True, "replay": False, "slot": user.founding_slot_number}
+
+    # Exhausted our bounded retry budget — by construction this can only
+    # happen if `cap` other grants each won a race in front of us, i.e. the
+    # cap is genuinely full.
+    raise FoundingSoldOutError("founding_sold_out")
 
 
 def handle_founding_checkout_completed(event: dict, db: Session) -> dict:
