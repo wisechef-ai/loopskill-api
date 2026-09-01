@@ -29,6 +29,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy import false as sa_false
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, relationship, validates
 
@@ -132,6 +133,20 @@ class User(Base):
     signup_attribution = Column(JSON, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # ── feat/founding — one-time Founding Member SKU ($49, capped 100) ────
+    # founding_member: durable marker, independent of subscription_tier so a
+    # later downgrade/reconcile can never silently erase the fact this user
+    # bought a founding seat. Uses sa.false() (NOT sa.text("false")) for the
+    # server_default — the raw string "false" reads back truthy under SQLite
+    # test fixtures (stripe-one-time-sku-on-subscription-rail Trap 2).
+    founding_member = Column(Boolean, nullable=False, default=False, server_default=sa_false())
+    # founding_slot_number: the DB-authoritative over-sell guard. UNIQUE +
+    # assigned MAX(slot)+1 at grant time under a lock (see
+    # app/services/founding_service.py:grant_founding_membership) — a
+    # pre-flight "seats left?" check alone is advisory and can be raced past
+    # by two concurrent buyers. NULL until a seat is actually granted.
+    founding_slot_number = Column(Integer, nullable=True, unique=True, index=True)
 
     api_keys = relationship("APIKey", back_populates="user", cascade="all, delete-orphan")
     payouts = relationship("CreatorPayout", back_populates="creator")

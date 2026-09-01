@@ -461,6 +461,59 @@ inert). No schema, no migration.
     test_277_federated_reachability.py, 53 tests) unaffected — verified
     green, unchanged. Verified against prod /api/healthz 0.9.43 before
     bumping.
+
+0.9.47 - feat(founding): $49 one-time Founding Member SKU, capped 100 seats.
+    A launch-day Stripe Checkout mode=payment offer (NOT a subscription)
+    that grants permanent Pro (subscription_tier='pro', status='active',
+    period_end=NULL) - same row shape scripts/grant_comp_tier.py already
+    writes for a comp'd Pro grant, so it can never trip the billing/me
+    reconciler's needs_reconcile re-sync.
+
+    Follows the stripe-one-time-sku-on-subscription-rail skill pattern
+    end-to-end: the SKU lives as a sibling founding: key OUTSIDE
+    config/tiers.yaml's tiers: map (invisible to every existing tier
+    loader - recipes_stripe_sync.py, recipes_claims_reconcile.py,
+    tier_labels._tiers(), subscription_service._load_tiers_yaml() - so it
+    can never be created as a recurring subscription); the new static
+    POST /api/checkout/founding route is registered ABOVE the
+    parameterized POST /api/checkout/{tier} route (FastAPI matches in
+    definition order - a route-shadowing trap) plus a belt-and-suspenders
+    404 guard inside {tier} itself; the webhook's mode=payment branch
+    (keyed on BOTH mode=="payment" AND metadata.kind=="founding") is
+    routed BEFORE the pre-existing "skip non-subscription session" guard
+    without breaking it (regression-pinned).
+
+    Over-sell protection is DB-authoritative, not advisory: a new UNIQUE
+    users.founding_slot_number column (migration founding0901_seats,
+    additive-only) is assigned MAX(slot)+1 under commit; a lost race
+    raises IntegrityError, which the grant path catches and the caller
+    auto-refunds via stripe.Refund.create (best-effort, idempotency-keyed,
+    never raises so a refund failure can't make Stripe retry the whole
+    webhook). Seats remaining is counted from that same column (never the
+    boolean flag alone), so a half-written row can't under-count and let
+    the cap be exceeded - GET /api/founding/remaining (public,
+    aggregate-only, added to PUBLIC_PREFIXES) is the pricing page's live
+    '{n} of 100 left' counter.
+
+    app/services/founding_service.py is the SSOT for the $49 price and the
+    100 seat cap - both read from config/tiers.yaml's founding: block only,
+    enforced by a tokenizer-based guard test that fails if either literal
+    reappears as a bare NUMBER token in the service/route files.
+    config/tiers.schema.json extended with a founding sibling definition
+    (additionalProperties: false at the top level otherwise rejects it).
+
+    New tests in tests/test_founding_member.py: webhook idempotency (replay
+    returns the same slot, no double-grant), cap enforcement under 20-thread
+    SQLite concurrency (exactly slot_cap grants succeed, rest sold-out +
+    refunded), grant shape parity with scripts/grant_comp_tier.py, route
+    shadowing regression (POST /api/checkout/founding never reaches the
+    {tier} handler), non-founding mode=payment sessions still hit the
+    original "skip non-subscription session" path unchanged, SSOT guard
+    (no bare 49/100 literal outside tiers.yaml), and the public remaining
+    endpoint's fail-closed shape when unconfigured. Migration
+    founding0901_seats is additive-only (2 nullable-safe columns + 1 unique
+    index), single alembic head held. Verified against prod /api/healthz
+    0.9.46 before bumping.
 """
 
-__version__ = "0.9.46"
+__version__ = "0.9.47"

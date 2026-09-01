@@ -25,8 +25,18 @@ from app.subscription_service import (
     _apply_subscription_state,
     create_checkout_session,
     downgrade_pro_plus_to_pro,
+    get_or_create_customer,
 )
 from app.services.bundle_quota import quota_status
+from app.services.founding_service import (
+    FoundingSoldOutError,
+    create_founding_checkout_session,
+    founding_configured,
+    founding_display_name,
+    founding_price_usd,
+    founding_seats_remaining,
+    founding_slot_cap,
+)
 from app.tier_labels import api_key_cap as _tier_api_key_cap
 
 logger = logging.getLogger(__name__)
@@ -95,6 +105,80 @@ def _reject_agent_principals(request: Request, user: User | None = None) -> None
         raise HTTPException(status_code=403, detail="agent_principals_cannot_transact")
 
 
+@router.post("/checkout/founding")
+async def create_founding_member_checkout(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    """Create a Stripe Checkout Session (mode=payment) for the $49 one-time
+    Founding Member SKU, capped at ``config/tiers.yaml``'s founding.slot_cap
+    seats.
+
+    MUST be registered ABOVE ``POST /api/checkout/{tier}`` in this module —
+    FastAPI matches routes in definition order, and a parameterized route
+    registered first would swallow ``founding`` as a ``{tier}`` value
+    (stripe-one-time-sku-on-subscription-rail Trap 1).
+
+    A self-registered agent principal gets 403 — see :func:`_reject_agent_principals`.
+    Fails closed (409) once the cap is reached; the AUTHORITATIVE guard lives
+    in app.services.founding_service.grant_founding_membership at webhook
+    time — this pre-flight check just avoids sending a doomed visitor to
+    Stripe at all.
+    """
+    _reject_agent_principals(request, user)
+    if user is None:
+        raise HTTPException(status_code=401, detail="login_required")
+
+    body = {}
+    try:
+        body = await request.json()
+    # Rationale: request body is optional JSON; malformed body → use defaults
+    except Exception:  # noqa: BLE001
+        pass
+    success_url = body.get("success_url") if isinstance(body, dict) else None
+    cancel_url = body.get("cancel_url") if isinstance(body, dict) else None
+
+    try:
+        result = create_founding_checkout_session(
+            user=user,
+            db=db,
+            get_or_create_customer=get_or_create_customer,
+            success_url=success_url,
+            cancel_url=cancel_url,
+        )
+    except FoundingSoldOutError as e:
+        logger.info("Founding checkout refused for user %s: %s", user.id, e)
+        raise HTTPException(status_code=409, detail=str(e))
+    # Rationale: unexpected Stripe/DB error during checkout; surface as 500
+    except Exception:  # noqa: BLE001
+        logger.exception("Unexpected founding checkout error for user %s", user.id)
+        raise HTTPException(status_code=500, detail="checkout_error")
+
+    return result
+
+
+@router.get("/founding/remaining")
+async def founding_remaining(db: Session = Depends(get_db)):
+    """Public seat counter for the pricing page's '{n} of 100 left' badge.
+
+    No auth (added to PUBLIC_PREFIXES) — aggregate count only, no PII.
+    Returns a fixed, honest shape even when the SKU isn't configured on this
+    deployment, so the portal's client-side island can hide itself rather
+    than render a broken counter (portal build-time-fetch-ban contract:
+    this is a client-side fetch with its own fail-closed hide-on-error path).
+    """
+    if not founding_configured():
+        return {"configured": False, "remaining": 0, "cap": 0, "price_usd": 0}
+    return {
+        "configured": True,
+        "remaining": founding_seats_remaining(db),
+        "cap": founding_slot_cap(),
+        "price_usd": founding_price_usd(),
+        "display_name": founding_display_name(),
+    }
+
+
 @router.post("/checkout/{tier}")
 async def create_subscription_checkout(
     tier: str,
@@ -116,6 +200,13 @@ async def create_subscription_checkout(
             status_code=401,
             detail="login_required",
         )
+
+    # feat/founding: the founding SKU has its own static route (registered
+    # ABOVE this one) with its own one-time-payment checkout builder. Belt
+    # and suspenders — even if this route were ever reordered above the
+    # static one, `founding` must never be looked up as a subscription tier.
+    if tier == "founding":
+        raise HTTPException(status_code=404, detail="use_founding_endpoint:POST /api/checkout/founding")
 
     # Legacy tier URL alias rewrite — keeps old /api/checkout/cook etc. working.
     # RCP-INCIDENT-2026-05-11 backwards-compat shim, remove after 2026-06-10

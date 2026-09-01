@@ -1,12 +1,12 @@
 {
   "source": "app.main.app.routes + app.middleware.api_key.APIKeyMiddleware (dispatch tree replayed), derived at import time",
   "generator": "scripts/generate_route_manifest.py",
-  "route_count": 315,
+  "route_count": 317,
   "counts_by_classification": {
     "admin": 11,
-    "authenticated": 195,
+    "authenticated": 196,
     "internal": 2,
-    "public": 107
+    "public": 108
   },
   "routes": [
     {
@@ -1282,6 +1282,18 @@
       "summary": "Agent Plugins v1.0.0 manifest for a PUBLIC bundle. No auth."
     },
     {
+      "method": "POST",
+      "path": "/api/checkout/founding",
+      "name": "create_founding_member_checkout",
+      "module": "app.checkout_routes",
+      "tags": [
+        "billing",
+        "checkout"
+      ],
+      "classification": "authenticated",
+      "summary": "Create a Stripe Checkout Session (mode=payment) for the $49 one-time"
+    },
+    {
       "method": "GET",
       "path": "/api/checkout/{tier}",
       "name": "checkout_get_redirect",
@@ -2548,6 +2560,18 @@
       ],
       "classification": "authenticated",
       "summary": "Upload a new version tarball to an existing fork."
+    },
+    {
+      "method": "GET",
+      "path": "/api/founding/remaining",
+      "name": "founding_remaining",
+      "module": "app.checkout_routes",
+      "tags": [
+        "billing",
+        "checkout"
+      ],
+      "classification": "public",
+      "summary": "Public seat counter for the pricing page's '{n} of 100 left' badge."
     },
     {
       "method": "GET",

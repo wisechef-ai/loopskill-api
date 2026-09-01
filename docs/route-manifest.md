@@ -3,7 +3,7 @@
 
 # Route Manifest (bundles_0811 P7)
 
-Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **315** distinct (method, path) surfaces.
+Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **317** distinct (method, path) surfaces.
 
 ## How classification works
 
@@ -22,9 +22,9 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | Classification | Routes |
 |---|---|
 | admin | 11 |
-| authenticated | 195 |
+| authenticated | 196 |
 | internal | 2 |
-| public | 107 |
+| public | 108 |
 
 ## Full manifest
 
@@ -131,6 +131,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | DELETE | `/api/bundles/{slug}/like` | authenticated | `app.artifact_like_routes` | bundles, engagement, engagement |
 | POST | `/api/bundles/{slug}/like` | authenticated | `app.artifact_like_routes` | bundles, engagement, engagement |
 | GET | `/api/bundles/{slug}/plugin.json` | public | `app.bundle_routes` | bundles, bundles, cookbooks |
+| POST | `/api/checkout/founding` | authenticated | `app.checkout_routes` | billing, checkout |
 | GET | `/api/checkout/{tier}` | authenticated | `app.checkout_routes` | billing, checkout |
 | POST | `/api/checkout/{tier}` | authenticated | `app.checkout_routes` | billing, checkout |
 | GET | `/api/composite-loops` | public | `app.composite_loop_routes` | composite-loops |
@@ -233,6 +234,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | DELETE | `/api/forks/{fork_id}` | authenticated | `app.forks_routes` | forks, forks |
 | GET | `/api/forks/{fork_id}/install` | authenticated | `app.forks_routes` | forks, forks |
 | POST | `/api/forks/{fork_id}/version` | authenticated | `app.forks_routes` | forks, forks |
+| GET | `/api/founding/remaining` | public | `app.checkout_routes` | billing, checkout |
 | GET | `/api/graph/coverage` | public | `app.graph_routes` | graph, graph |
 | GET | `/api/graph/neighborhood` | public | `app.graph_routes` | graph, graph |
 | GET | `/api/graph/related` | public | `app.graph_routes` | graph, graph |

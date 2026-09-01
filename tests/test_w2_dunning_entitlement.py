@@ -240,6 +240,7 @@ class TestNoGateReadsTheRawTierColumn:
         # modules that already do their own explicit status check.
         allowed = {
             "subscription_service.py",  # writes the column
+            "founding_service.py",  # feat/founding — writes the column (grant), mirrors subscription_service.py
             "admin_routes.py",  # counts subscriptions, filters on status in SQL
             "auth_routes.py",  # /me self-report: shows what the row says
             "checkout_routes.py",  # billing self-report + its own _HEALTHY_STATUSES
