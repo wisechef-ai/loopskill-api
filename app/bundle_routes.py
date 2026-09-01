@@ -935,6 +935,18 @@ def public_cookbook_page(slug: str, db: Session = Depends(get_db)):
     for entry, (cs, _skill) in zip(card["skills"], skill_rows, strict=True):
         entry["source"] = cs.source
         entry["pinned_version"] = cs.pinned_version
+    # fix/public-bundle-artifact-parity: a bundle whose declared artifacts are
+    # personalities (not skills) rendered as an EMPTY page to every anonymous
+    # visitor — the owner's authed GET /api/bundles/{id} returned all three,
+    # while this route only ever serialized skills. Same read-gap class that
+    # feat/bundle-detail-artifact-parity closed on the authed path; the public
+    # surface simply never got the fix. Reuse _artifacts_for rather than
+    # re-deriving the query, so the two paths cannot drift apart again.
+    # Public surface: only PUBLIC personalities are exposed (a private artifact
+    # declared into a public bundle must not leak its title/description here).
+    artifacts = _artifacts_for(db, cb.id)
+    card["personalities"] = [p for p in artifacts["personalities"] if p.get("is_public")]
+    card["composite_loops"] = artifacts["composite_loops"]
     # One copy-paste MCP line (unchanged — do not alter this field's content,
     # only its labelling via the new clone_line_* keys below). ?ref makes the
     # install attributable to the creator from the public page.

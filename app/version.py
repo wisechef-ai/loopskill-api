@@ -463,4 +463,4 @@ inert). No schema, no migration.
     bumping.
 """
 
-__version__ = "0.9.45"
+__version__ = "0.9.46"
