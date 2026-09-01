@@ -788,36 +788,16 @@ def get_external_skills(
 
     # Honest dual-count: sum of cached/live indexed across sources, omitting
     # null/failed sources (never fabricated). This is what the portal reads.
-    # spotify_1507 Phase C2: for the hermes-hub source, prefer the deduped
-    # count (raw snapshot minus rows already indexed via skills-sh/clawhub)
-    # so the headline total never double-counts overlapping sources.
-    def _count_for_total(block: dict, source_id: str) -> int | None:
-        """Return the count to include in the total sum, honoring dedup.
-
-        Dedupe topology (review 2026-07-15):
-        - hermes-hub deduped count excludes upstream=skills-sh rows (our direct
-          skills-sh walk is the SAME 1:1 set, and it carries installs data, so
-          the direct block owns that count).
-        - The direct clawhub walk is a strict SUBSET of the hub snapshot's
-          clawhub coverage (5.5k vs 62k; the direct cursor-walk regressed
-          2026-07-11). While a fresh hub snapshot is present, the direct
-          clawhub block is EXCLUDED from the total — the hub's clawhub rows
-          carry that count instead. Per-source blocks always show raw counts.
-        """
-        hub_block = per_source.get("hermes-hub") or {}
-        hub_dedup = hub_block.get("deduped_indexed")
-        hub_fresh = isinstance(hub_dedup, int) and hub_dedup > 0
-        if source_id == "hermes-hub" and hub_fresh:
-            return hub_dedup
-        if source_id == "clawhub" and hub_fresh:
-            # Subset of the hub snapshot's clawhub coverage — skip from total.
-            return None
-        val = block.get("indexed")
-        return val if isinstance(val, int) else None
-
-    payload["counts"]["external_indexed"] = sum(
-        c for c in (_count_for_total(b, sid) for sid, b in per_source.items()) if c is not None
-    )
+    #
+    # fedtotal_0901: the dedupe topology now lives in ONE place —
+    # app.services.federation_cache.sum_federated_total. It used to be
+    # implemented here as a local closure while the public marketing snapshot
+    # grew a SECOND, subtly different implementation (PR #301), which
+    # double-counted the direct clawhub walk against the hub snapshot's
+    # clawhub rows and published 168,379 instead of 91,362 — a ~77k
+    # overstatement on a public surface. Two implementations of one published
+    # number is the defect; this call is the fix.
+    payload["counts"]["external_indexed"] = fcache.sum_federated_total(per_source)
     payload["counts"]["external_installable"] = sum(
         b["installable"] for b in per_source.values() if isinstance(b.get("installable"), int)
     )

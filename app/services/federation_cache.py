@@ -170,23 +170,50 @@ def sum_installable(blocks: dict[str, dict[str, Any]]) -> int:
 
 
 def sum_federated_total(blocks: dict[str, dict[str, Any]]) -> int:
-    """Honest cross-source federated total — the public marketing headline number.
+    """Honest cross-source federated total — THE canonical dedupe-aware sum.
 
-    Prefers ``deduped_indexed`` per source when present (today only the
-    hermes-hub source sets it, to exclude rows whose upstream is a source we
-    already index directly — skills-sh/clawhub — so they are not counted
-    twice), and falls back to raw ``indexed`` otherwise. Null/never-walked
-    sources are OMITTED from the sum, never counted as 0 (decision #5 — see
-    module docstring). This is the same honest-count discipline as
-    ``sum_indexed``/``sum_installable``, just per-source dedupe-aware so a
-    caller summing ACROSS every source in ``federation_index_cache`` never
-    double-counts the hermes-hub superset against the sources it overlaps.
+    This is the single implementation of the federation dedupe topology. Both
+    ``GET /api/skills/external`` (``counts.external_indexed``) and the public
+    marketing snapshot (``counts.federated_skills_total``) call it, so the two
+    published figures can never disagree about the same number.
+
+    Dedupe topology (established review 2026-07-15, hoisted here 2026-09-01):
+
+    - ``hermes-hub``: contribute ``deduped_indexed`` (the raw snapshot MINUS
+      rows whose upstream is ``skills-sh``, which our direct walk already
+      counts 1:1 and which carries installs data, so the direct block owns
+      that count).
+    - ``clawhub``: while a FRESH hub snapshot is present, the direct clawhub
+      walk is a strict SUBSET of the hub snapshot's clawhub coverage (5.5k vs
+      62k — the direct cursor-walk regressed 2026-07-11). It is EXCLUDED from
+      the total; the hub's clawhub rows carry that count instead. Omitting
+      this exclusion double-counts ~77k rows.
+    - Every other source: contribute raw ``indexed``.
+    - A null/never-walked source is OMITTED, never counted as 0 and never
+      fabricated (decision #5 — see module docstring).
+
+    ``hub_fresh`` gates the whole topology: with no usable hub snapshot the
+    direct clawhub walk is the ONLY clawhub signal we have, so it must be
+    counted rather than dropped — otherwise a stale hub silently deletes
+    clawhub from the headline number.
+
+    Per-source blocks always report RAW counts; only this total applies the
+    subset rules.
     """
+    hub_block = blocks.get("hermes-hub") or {}
+    hub_dedup = hub_block.get("deduped_indexed")
+    hub_fresh = isinstance(hub_dedup, int) and hub_dedup > 0
+
     total = 0
-    for block in blocks.values():
-        deduped = block.get("deduped_indexed")
-        indexed = block.get("indexed")
-        value = deduped if isinstance(deduped, int) else indexed
+    for source_id, block in blocks.items():
+        if source_id == "hermes-hub" and hub_fresh:
+            total += hub_dedup
+            continue
+        if source_id == "clawhub" and hub_fresh:
+            # Strict subset of the hub snapshot's clawhub coverage — the hub
+            # block already carries these rows. Counting both double-counts.
+            continue
+        value = block.get("indexed")
         if isinstance(value, int):
             total += value
     return total
