@@ -137,6 +137,13 @@ class Settings(BaseSettings):
     STRIPE_PRICE_OPERATOR: str = ""
     STRIPE_PRICE_STUDIO: str = ""
 
+    # feat/founding — one-time-payment Founding Member SKU price id
+    # (WR_STRIPE_PRICE_FOUNDING). Separate from the subscription price ids
+    # above: this is a Checkout Session with mode="payment", not
+    # mode="subscription" — see config/tiers.yaml's `founding:` sibling key
+    # and app/services/founding_service.py.
+    STRIPE_PRICE_FOUNDING: str = ""
+
     # GitHub OAuth
     GITHUB_CLIENT_ID: str = ""
     GITHUB_CLIENT_SECRET: str = ""

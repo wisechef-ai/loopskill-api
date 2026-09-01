@@ -490,8 +490,21 @@ def handle_checkout_completed(event: dict, db: Session) -> dict:
     """Handle checkout.session.completed event.
 
     Sets the user's subscription_status to active when the session is paid.
+
+    feat/founding: routed BEFORE the "skip non-subscription session" guard,
+    keyed on BOTH ``mode == "payment"`` AND ``metadata.kind == "founding"``
+    (stripe-one-time-sku-on-subscription-rail Trap 4) — a plain one-time
+    payment session with no founding metadata still falls through to the
+    original skip path unchanged.
     """
     session = event["data"]["object"]
+
+    md = session.get("metadata") or {}
+    if session.get("mode") == "payment" and md.get("kind") == "founding":
+        from app.services.founding_service import handle_founding_checkout_completed
+
+        return handle_founding_checkout_completed(event, db)
+
     if session.get("mode") != "subscription":
         return {"skipped": "non-subscription session"}
     if session.get("payment_status") != "paid":

@@ -18,9 +18,27 @@
       "additionalProperties": {
         "$ref": "#/definitions/tier"
       }
+    },
+    "founding": {
+      "$ref": "#/definitions/one_time_sku",
+      "description": "ONE-TIME payment SKU sibling — NOT a subscription tier, never enters `tiers:`. See stripe-one-time-sku-on-subscription-rail skill for the pattern."
     }
   },
   "definitions": {
+    "one_time_sku": {
+      "type": "object",
+      "required": ["display_name", "price_usd", "slot_cap", "grants_tier", "mode", "price_id_env", "stripe_nickname"],
+      "additionalProperties": false,
+      "properties": {
+        "display_name": {"type": "string", "minLength": 1},
+        "price_usd": {"type": "number", "exclusiveMinimum": 0, "description": "One-time price in USD. SOLE source of the price."},
+        "slot_cap": {"type": "integer", "minimum": 1, "description": "SOLE source of the seat cap."},
+        "grants_tier": {"type": "string", "enum": ["free", "pro", "pro_plus"], "description": "Subscription tier granted permanently on purchase."},
+        "mode": {"type": "string", "const": "payment", "description": "Always payment (one-time) — never subscription."},
+        "price_id_env": {"type": "string", "minLength": 1},
+        "stripe_nickname": {"type": "string", "minLength": 1}
+      }
+    },
     "tier": {
       "type": "object",
       "required": ["db_slug", "display_name", "price_usd"],

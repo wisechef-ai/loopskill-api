@@ -105,6 +105,11 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     # returns NO bundle-membership data and mutates nothing; writing a result
     # into a bundle happens at the bulk-add endpoint, which IS auth-gated.
     "/api/federation/filter",
+    # feat/founding — the '{n} of 100 left' seat counter on /pricing. Public,
+    # read-only, aggregate count only (no PII). The checkout-creation route
+    # (POST /api/checkout/founding) stays auth-gated as normal — this prefix
+    # only covers GET /api/founding/remaining.
+    "/api/founding/remaining",
 )
 
 

@@ -104,3 +104,31 @@ tiers:
     # ACTIVE-API-KEY cap SSOT (bundles_0811 P2.5) — unchanged at 20. Legacy
     # aliases `operator`/`studio` follow this value via _canonical().
     api_key_cap: 20
+
+# founding — a ONE-TIME payment SKU, NOT a subscription tier. Sibling key
+# OUTSIDE the `tiers:` map on purpose (stripe-one-time-sku-on-subscription-rail
+# skill, "SSOT pattern"): every loader that reads config/tiers.yaml
+# (recipes_stripe_sync.py, recipes_claims_reconcile.py, tier_labels._tiers(),
+# subscription_service._load_tiers_yaml()) iterates `data["tiers"]`, so this
+# key is INVISIBLE to them — it can never be created as a recurring
+# subscription and the tier-drift gates stay green automatically.
+#
+# grants_tier: pro — a Founding Member gets permanent Pro (subscription_tier=
+# 'pro', subscription_status='active', period_end=NULL), matching what
+# scripts/grant_comp_tier.py already writes for a comp'd Pro grant. mode:
+# payment is the sole discriminator the webhook uses to route this event
+# BEFORE the "skip non-subscription session" guard (see
+# app/services/founding_service.py + app/subscription_service.py).
+#
+# price_usd + slot_cap are the SOLE numeric source — never hardcode 49 or 100
+# anywhere else; read them via app.services.founding_service. Enforced by
+# tests/test_founding_member.py::TestSsotGuard (tokenizer-based, fails CI if
+# either literal reappears as a NUMBER token in the service/route files).
+founding:
+  display_name: Founding Member
+  price_usd: 49
+  slot_cap: 100
+  grants_tier: pro
+  mode: payment
+  price_id_env: WR_STRIPE_PRICE_FOUNDING
+  stripe_nickname: "Founding Member $49 one-time (capped 100)"

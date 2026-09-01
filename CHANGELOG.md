@@ -4,6 +4,16 @@ All notable changes to recipes-api are documented here. Format loosely follows [
 
 ## [Unreleased]
 
+## [0.9.47] — 2026-09-01 — feat/founding
+
+### Added
+
+- **Founding Member SKU** — $49 one-time payment (Stripe Checkout `mode=payment`, NOT a subscription), capped at 100 seats, grants permanent Pro entitlement (`subscription_tier='pro'`, `subscription_status='active'`, `subscription_current_period_end=NULL`) — same row shape as `scripts/grant_comp_tier.py`'s comp grant.
+- `POST /api/checkout/founding` — new static route registered above `POST /api/checkout/{tier}` (route-shadowing avoidance); `GET /api/founding/remaining` — public seat counter for the pricing page's live "{n} of 100 left" badge.
+- `app/services/founding_service.py` — SSOT for price/cap (read from `config/tiers.yaml`'s sibling `founding:` key), DB-authoritative lock-and-count seat grant (`UNIQUE users.founding_slot_number`), best-effort auto-refund on a lost cap race.
+- Webhook: `checkout.session.completed` routes `mode=payment` + `metadata.kind=founding` sessions to the founding grant path BEFORE the existing "skip non-subscription session" guard (regression-pinned so that guard still fires for plain one-time payments).
+- Migration `founding0901_seats` — additive `users.founding_member` (bool) + `users.founding_slot_number` (unique int).
+
 ## [v0.5.0] — 2026-05-20 — recipes_2005 sprint
 
 Release notes (creator-facing): see the `v0.5.0-creator-onboarding` blog post on recipes.wisechef.ai.
