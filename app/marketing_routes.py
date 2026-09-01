@@ -18,7 +18,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Skill, WiseChefDemoRequest, Bundle
+from app.models import Connector, Personality, Skill, WiseChefDemoRequest, Bundle
 from app.schemas import DemoCTAOut, DemoRequestIn, DemoRequestOut
 from app.tier_labels import display_label
 
@@ -64,6 +64,67 @@ def _live_rest_paths() -> set[str]:
         return {getattr(r, "path", "") for r in create_app().routes}
     except Exception:  # noqa: BLE001 — app import must never break the marketing surface
         return set()
+
+
+def public_reachability_counts(db: Session) -> dict:
+    """PUBLIC-safe reachability counts for the three owner-requested headline
+    numbers — federated_skills_total, personalities_total, connectors_total —
+    plus a combined ``total_reachable_skills`` (first-party public skills +
+    the deduped federated superset).
+
+    Design (issue: portal cannot read key-gated ``/api/federation/*`` or
+    ``/api/personalities`` / ``/api/connectors`` from a browser without
+    baking a build-time API key into client JS — see PR description):
+
+      - federated_skills_total: reads the ALREADY-cached
+        ``federation_index_cache`` table via
+        ``app.services.federation_cache.sum_federated_total`` — the exact
+        same honest, dedupe-aware sum the (key-gated) admin external route
+        uses, computed by the background reindex cron, never a live walk or
+        uncached COUNT(*) here.
+      - personalities_total / connectors_total: cheap COUNT(*) against the
+        `personalities` / `connectors` tables, filtered to the EXACT same
+        `is_public=True, is_archived=False` predicate the public
+        ``GET /api/personalities`` and ``GET /api/connectors`` list routes
+        already use (see app/personality_routes.py, app/connector_routes.py)
+        — so a private/unlisted/archived row can never leak into this count.
+        These tables are small (registry-scale, not federated-index-scale),
+        so a direct COUNT(*) here is cheap and matches the existing
+        marketing_counts() pattern for Skill/Bundle counts above.
+      - total_reachable_skills: skills_total (first-party public skills,
+        already computed by marketing_counts) + federated_skills_total. This
+        is the number the owner wants advertised as THE headline: "no one
+        cares if those skills are made by us or someone else" — so it is
+        deliberately NOT split into first-party-vs-federated in the field
+        name.
+
+    All three added fields are non-negative ints. If the federation cache has
+    never been walked (no rows yet), federated_skills_total is 0 — honest,
+    not fabricated — and total_reachable_skills degrades to skills_total.
+    """
+    from app.services import federation_cache as fcache
+
+    blocks = fcache.read_all_cached(db)
+    federated_skills_total = fcache.sum_federated_total(blocks)
+
+    personalities_total = (
+        db.query(func.count(Personality.id))
+        .filter(Personality.is_public.is_(True), Personality.is_archived.is_(False))
+        .scalar()
+        or 0
+    )
+    connectors_total = (
+        db.query(func.count(Connector.id))
+        .filter(Connector.is_public.is_(True), Connector.is_archived.is_(False))
+        .scalar()
+        or 0
+    )
+
+    return {
+        "federated_skills_total": federated_skills_total,
+        "personalities_total": personalities_total,
+        "connectors_total": connectors_total,
+    }
 
 
 @router.get("/counts")
@@ -167,6 +228,18 @@ def marketing_snapshot(db: Session = Depends(get_db)) -> dict:
 
     snap["counts"]["pro_cookbooks"] = bundle_limit("pro")
     snap["counts"]["pro_plus_cookbooks"] = bundle_limit("pro_plus")
+
+    # (0) Reachability counts — the three owner-requested public headline
+    # numbers (top1pct_marketing_reach): federated skill superset,
+    # personalities, connectors. PURELY ADDITIVE — existing keys
+    # (skills_total, mcp_tools_count, ...) are untouched. See
+    # public_reachability_counts() docstring for the honesty/privacy
+    # contract (cached federation sum, is_public+is_archived-filtered COUNTs).
+    reach = public_reachability_counts(db)
+    snap["counts"]["federated_skills_total"] = reach["federated_skills_total"]
+    snap["counts"]["personalities_total"] = reach["personalities_total"]
+    snap["counts"]["connectors_total"] = reach["connectors_total"]
+    snap["counts"]["total_reachable_skills"] = live["total"] + reach["federated_skills_total"]
 
     # Interpolate {key} placeholders in tier bullets against the live counts so
     # marketing copy numbers (e.g. "{pro_skills} today") track the DB and can
