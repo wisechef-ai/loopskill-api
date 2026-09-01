@@ -167,3 +167,26 @@ def sum_indexed(blocks: dict[str, dict[str, Any]]) -> int:
 def sum_installable(blocks: dict[str, dict[str, Any]]) -> int:
     """Sum the installable counts across source blocks, OMITTING null sources."""
     return sum(b["installable"] for b in blocks.values() if isinstance(b.get("installable"), int))
+
+
+def sum_federated_total(blocks: dict[str, dict[str, Any]]) -> int:
+    """Honest cross-source federated total — the public marketing headline number.
+
+    Prefers ``deduped_indexed`` per source when present (today only the
+    hermes-hub source sets it, to exclude rows whose upstream is a source we
+    already index directly — skills-sh/clawhub — so they are not counted
+    twice), and falls back to raw ``indexed`` otherwise. Null/never-walked
+    sources are OMITTED from the sum, never counted as 0 (decision #5 — see
+    module docstring). This is the same honest-count discipline as
+    ``sum_indexed``/``sum_installable``, just per-source dedupe-aware so a
+    caller summing ACROSS every source in ``federation_index_cache`` never
+    double-counts the hermes-hub superset against the sources it overlaps.
+    """
+    total = 0
+    for block in blocks.values():
+        deduped = block.get("deduped_indexed")
+        indexed = block.get("indexed")
+        value = deduped if isinstance(deduped, int) else indexed
+        if isinstance(value, int):
+            total += value
+    return total
