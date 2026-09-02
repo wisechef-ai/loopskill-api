@@ -561,8 +561,17 @@ inert). No schema, no migration.
     dedup invariant (incl. idempotent re-run), loop_runs_ledger is NOT
     deduped (unlike funnel_events, by design), and route auth (anon 401,
     master 201, fleet-owner 201, non-owner user 403). No schema change to
-    any existing table. Verified against prod /api/healthz 0.9.47 before
-    bumping.
+    any existing table.
+
+    Council seat 2 addendum (§0.9c, applied same-PR): GET /api/funnel/summary
+    is NOT public — a public paid:0 feed is a competitor-legible failure
+    signal, so it now requires the same master/fleet-owner gate as the write
+    routes (removed from PUBLIC_PREFIXES). The paid total is split into
+    founding_cents (one-time, Stripe mode=payment — no Invoice object by
+    construction) and recurring_cents (subscription, invoice-backed) —
+    never one blended number — discriminated by source_system
+    (stripe-onetime vs stripe) stamped at write time. Verified against
+    prod /api/healthz 0.9.47 before bumping.
 """
 
 __version__ = "0.9.48"

@@ -110,12 +110,6 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     # (POST /api/checkout/founding) stays auth-gated as normal — this prefix
     # only covers GET /api/founding/remaining.
     "/api/founding/remaining",
-    # flywheel_0902/B — public, aggregate-only funnel summary (no PII, no
-    # identifiers — see app/funnel_routes.py:get_funnel_summary). Writes
-    # (POST /api/funnel/events, POST /api/funnel/runs) are NOT on this
-    # prefix list and self-enforce master/fleet-owner auth via
-    # _require_master_or_fleet_owner, so this entry only opens the GET.
-    "/api/funnel/summary",
 )
 
 

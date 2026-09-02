@@ -250,15 +250,9 @@ def test_backfill_signup_fleet_email_excluded(db_session):
     assert result.written == 2
     from app.models import FunnelEvent
 
-    fleet_row = (
-        db_session.query(FunnelEvent)
-        .filter(FunnelEvent.source_event_id == str(fleet_user.id))
-        .one()
-    )
+    fleet_row = db_session.query(FunnelEvent).filter(FunnelEvent.source_event_id == str(fleet_user.id)).one()
     stranger_row = (
-        db_session.query(FunnelEvent)
-        .filter(FunnelEvent.source_event_id == str(stranger_user.id))
-        .one()
+        db_session.query(FunnelEvent).filter(FunnelEvent.source_event_id == str(stranger_user.id)).one()
     )
     assert fleet_row.classification == "fleet"
     assert stranger_row.classification == "stranger"
@@ -300,7 +294,9 @@ def test_summary_conversion_uses_unique_entities_not_raw_events(client, db_sessi
         )
     db_session.commit()
 
-    resp = client.get("/api/funnel/summary?since=2020-01-01T00:00:00Z")
+    resp = client.get(
+        "/api/funnel/summary?since=2020-01-01T00:00:00Z", headers={"x-api-key": settings.API_KEY}
+    )
     assert resp.status_code == 200
     body = resp.json()
 
@@ -342,7 +338,9 @@ def test_summary_conversion_percentage_math(client, db_session):
             )
     db_session.commit()
 
-    resp = client.get("/api/funnel/summary?since=2020-01-01T00:00:00Z")
+    resp = client.get(
+        "/api/funnel/summary?since=2020-01-01T00:00:00Z", headers={"x-api-key": settings.API_KEY}
+    )
     body = resp.json()
     assert body["conversion_pct"]["lead_to_contacted"] == 50.0
 
@@ -364,7 +362,9 @@ def test_summary_unknown_never_counted_as_stranger(client, db_session):
     )
     db_session.commit()
 
-    resp = client.get("/api/funnel/summary?since=2020-01-01T00:00:00Z")
+    resp = client.get(
+        "/api/funnel/summary?since=2020-01-01T00:00:00Z", headers={"x-api-key": settings.API_KEY}
+    )
     body = resp.json()
     installed = body["stages"]["installed"]
     assert installed["unique_unknown_entities"] == 1
@@ -385,7 +385,9 @@ def test_summary_no_pii_in_response(client, db_session):
     )
     db_session.commit()
 
-    resp = client.get("/api/funnel/summary?since=2020-01-01T00:00:00Z")
+    resp = client.get(
+        "/api/funnel/summary?since=2020-01-01T00:00:00Z", headers={"x-api-key": settings.API_KEY}
+    )
     body_text = resp.text
     assert "should-not-leak@example.com" not in body_text
     assert str(entity_id) not in body_text
@@ -407,7 +409,13 @@ def test_paid_invariant_dedup_invoice_backed_payment_intent(db_session):
         # This PI is NOT invoice-backed — a genuine one-time charge, counted.
         {"id": "pi_2", "amount": 4900, "status": "succeeded", "invoice": None, "customer": "cus_C"},
         # A failed PI must never be counted.
-        {"id": "pi_3", "amount": 995, "status": "requires_payment_method", "invoice": None, "customer": "cus_D"},
+        {
+            "id": "pi_3",
+            "amount": 995,
+            "status": "requires_payment_method",
+            "invoice": None,
+            "customer": "cus_D",
+        },
     ]
 
     result = backfill_paid(
@@ -421,8 +429,7 @@ def test_paid_invariant_dedup_invoice_backed_payment_intent(db_session):
     from app.models import FunnelEvent
 
     ledger_source_ids = {
-        row.source_event_id
-        for row in db_session.query(FunnelEvent).filter(FunnelEvent.stage == "paid").all()
+        row.source_event_id for row in db_session.query(FunnelEvent).filter(FunnelEvent.stage == "paid").all()
     }
     assert ledger_source_ids == distinct_stripe_ids_fed
 
@@ -465,7 +472,9 @@ def test_summary_runs_last_24h_reflects_run_count_not_funnel_events(client, db_s
         record_run(db_session, job_id="loop-b", loop_name="Loop B", host="h", outcome="ok")
     db_session.commit()
 
-    resp = client.get("/api/funnel/summary?since=2020-01-01T00:00:00Z")
+    resp = client.get(
+        "/api/funnel/summary?since=2020-01-01T00:00:00Z", headers={"x-api-key": settings.API_KEY}
+    )
     body = resp.json()
     assert body["runs_last_24h"].get("Loop B") == 4
 
@@ -602,8 +611,15 @@ def test_post_funnel_runs_master_key_201(client):
     assert resp.status_code == 201, resp.text
 
 
-def test_get_funnel_summary_is_public_no_auth_needed(client):
+def test_get_funnel_summary_anonymous_401(client):
+    """Council v2 §0.9c: NOT public — a public paid:0 feed is a
+    competitor-legible failure signal."""
     resp = client.get("/api/funnel/summary")
+    assert resp.status_code == 401
+
+
+def test_get_funnel_summary_master_key_200(client):
+    resp = client.get("/api/funnel/summary", headers={"x-api-key": settings.API_KEY})
     assert resp.status_code == 200
     body = resp.json()
     assert set(body["stages"].keys()) == {
@@ -615,3 +631,81 @@ def test_get_funnel_summary_is_public_no_auth_needed(client):
         "bundle_created",
         "paid",
     }
+    assert "founding_cents" in body
+    assert "recurring_cents" in body
+    assert "paid_cents_real" not in body, "must be split, never a blended total"
+
+
+def test_get_funnel_summary_fleet_owner_200(client, db_session):
+    import hashlib as _hashlib
+
+    owner = _mk_user(db_session)
+    _mk_fleet(db_session, owner)
+
+    from app.models import APIKey
+
+    raw_key = f"rec_live_{uuid.uuid4().hex}"
+    db_session.add(
+        APIKey(
+            id=uuid.uuid4(),
+            user_id=owner.id,
+            key_prefix=raw_key[:12],
+            key_hash=_hashlib.sha256(raw_key.encode()).hexdigest(),
+            name="owner-key",
+            is_active=True,
+            is_test=True,
+        )
+    )
+    db_session.commit()
+
+    resp = client.get("/api/funnel/summary", headers={"x-api-key": raw_key})
+    assert resp.status_code == 200, resp.text
+
+
+# ── 8. founding_cents vs recurring_cents split (council v2 §0.9c) ─────────
+
+
+def test_summary_splits_founding_from_recurring_cents(client, db_session):
+    from app.services.funnel_backfill import (
+        SOURCE_SYSTEM_STRIPE,
+        SOURCE_SYSTEM_STRIPE_ONETIME,
+        backfill_paid,
+    )
+
+    _mk_user(db_session, email="recurring-payer@example.com")
+    db_session.query(User).filter(User.email == "recurring-payer@example.com").update(
+        {"stripe_customer_id": "cus_recurring"}
+    )
+    _mk_user(db_session, email="founding-payer@example.com")
+    db_session.query(User).filter(User.email == "founding-payer@example.com").update(
+        {"stripe_customer_id": "cus_founding"}
+    )
+    db_session.commit()
+
+    invoices = [{"id": "in_split_1", "amount_paid": 995, "currency": "usd", "customer": "cus_recurring"}]
+    payment_intents = [
+        {
+            "id": "pi_split_1",
+            "amount": 4900,
+            "status": "succeeded",
+            "invoice": None,
+            "customer": "cus_founding",
+        }
+    ]
+    result = backfill_paid(
+        db_session, host="h", invoices=invoices, payment_intents=payment_intents, dry_run=False
+    )
+    db_session.commit()
+    assert result.written == 2
+
+    from app.models import FunnelEvent
+
+    recurring_row = db_session.query(FunnelEvent).filter(FunnelEvent.source_event_id == "in_split_1").one()
+    founding_row = db_session.query(FunnelEvent).filter(FunnelEvent.source_event_id == "pi_split_1").one()
+    assert recurring_row.source_system == SOURCE_SYSTEM_STRIPE
+    assert founding_row.source_system == SOURCE_SYSTEM_STRIPE_ONETIME
+
+    resp = client.get("/api/funnel/summary", headers={"x-api-key": settings.API_KEY})
+    body = resp.json()
+    assert body["recurring_cents"] == 995
+    assert body["founding_cents"] == 4900

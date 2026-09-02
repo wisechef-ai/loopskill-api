@@ -4,9 +4,9 @@
   "route_count": 320,
   "counts_by_classification": {
     "admin": 11,
-    "authenticated": 198,
+    "authenticated": 199,
     "internal": 2,
-    "public": 109
+    "public": 108
   },
   "routes": [
     {
@@ -2606,8 +2606,8 @@
         "funnel",
         "funnel"
       ],
-      "classification": "public",
-      "summary": "Public, aggregate-only funnel summary. NEVER returns identifiers/PII."
+      "classification": "authenticated",
+      "summary": "Master key or fleet-owner only funnel summary. NEVER returns PII."
     },
     {
       "method": "GET",

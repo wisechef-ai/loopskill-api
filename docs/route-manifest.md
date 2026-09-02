@@ -22,9 +22,9 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | Classification | Routes |
 |---|---|
 | admin | 11 |
-| authenticated | 198 |
+| authenticated | 199 |
 | internal | 2 |
-| public | 109 |
+| public | 108 |
 
 ## Full manifest
 
@@ -237,7 +237,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | GET | `/api/founding/remaining` | public | `app.checkout_routes` | billing, checkout |
 | POST | `/api/funnel/events` | authenticated | `app.funnel_routes` | funnel, funnel |
 | POST | `/api/funnel/runs` | authenticated | `app.funnel_routes` | funnel, funnel |
-| GET | `/api/funnel/summary` | public | `app.funnel_routes` | funnel, funnel |
+| GET | `/api/funnel/summary` | authenticated | `app.funnel_routes` | funnel, funnel |
 | GET | `/api/graph/coverage` | public | `app.graph_routes` | graph, graph |
 | GET | `/api/graph/neighborhood` | public | `app.graph_routes` | graph, graph |
 | GET | `/api/graph/related` | public | `app.graph_routes` | graph, graph |

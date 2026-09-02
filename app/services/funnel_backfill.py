@@ -11,7 +11,8 @@ council's "idem_key = the immutable source tuple" correction exactly):
   signup          users.id                    source_system='loopskill-api'
   installed        install_events.id           source_system='loopskill-api'
   bundle_created   bundles.id                  source_system='loopskill-api'
-  paid             Stripe invoice / payment_intent id   source_system='stripe'
+  paid             Stripe invoice id           source_system='stripe' (recurring)
+                   Stripe payment_intent id     source_system='stripe-onetime' (Founding/one-time)
 
 Classification:
   signup         — email vs config/fleet_exclusions.yaml
@@ -47,6 +48,16 @@ logger = logging.getLogger(__name__)
 
 SOURCE_SYSTEM_APP = "loopskill-api"
 SOURCE_SYSTEM_STRIPE = "stripe"
+# flywheel_0902/B council v2 §0.9c: paid rows must carry a machine-checkable
+# recurring-vs-one-time discriminator so the summary can split
+# founding_cents from recurring_cents instead of reporting one blended
+# total. Stripe mechanics make this discriminator free: mode=payment
+# checkout sessions (the Founding SKU today, any future one-time SKU
+# tomorrow) never produce an Invoice object — only a PaymentIntent — while
+# every subscription payment DOES produce an Invoice. So "invoice-backed"
+# IS "recurring" by construction; source_system carries that fact so the
+# summary route never has to re-derive it (or drift from this backfill).
+SOURCE_SYSTEM_STRIPE_ONETIME = "stripe-onetime"
 BACKFILL_LOOP_NAME = "funnel-backfill"
 
 
@@ -202,15 +213,22 @@ def backfill_bundle_created(db: Session, *, host: str, dry_run: bool = True) -> 
 
 def _stripe_paid_source_ids(
     *, invoices: list[dict[str, Any]], payment_intents: list[dict[str, Any]]
-) -> list[tuple[str, dict[str, Any]]]:
-    """Merge Stripe invoices + payment_intents into a deduped (id, obj) list.
+) -> list[tuple[str, dict[str, Any], str]]:
+    """Merge Stripe invoices + payment_intents into a deduped (id, obj, source_system) list.
 
     A PaymentIntent already linked to an invoice (``pi["invoice"]`` set) is
     dropped — its Invoice object is the canonical record for that charge.
     This is the paid-dedup invariant: the returned list's length equals the
     count of DISTINCT stripe ids that should become funnel_events rows.
+
+    ``source_system`` distinguishes recurring (invoice-backed, always
+    ``SOURCE_SYSTEM_STRIPE``) from one-time (non-invoice-backed PI, always
+    ``SOURCE_SYSTEM_STRIPE_ONETIME``) — see the module-level constant
+    docstrings for why "invoice-backed" IS "recurring" by Stripe
+    construction. The summary route sums these two buckets separately
+    (council v2 §0.9c: never one blended paid total).
     """
-    merged: list[tuple[str, dict[str, Any]]] = []
+    merged: list[tuple[str, dict[str, Any], str]] = []
     seen_ids: set[str] = set()
 
     for invoice in invoices:
@@ -220,7 +238,7 @@ def _stripe_paid_source_ids(
         if inv_id in seen_ids:
             continue
         seen_ids.add(inv_id)
-        merged.append((inv_id, invoice))
+        merged.append((inv_id, invoice, SOURCE_SYSTEM_STRIPE))
 
     for pi in payment_intents:
         if pi.get("status") != "succeeded":
@@ -236,7 +254,7 @@ def _stripe_paid_source_ids(
         if pi_id in seen_ids:
             continue
         seen_ids.add(pi_id)
-        merged.append((pi_id, pi))
+        merged.append((pi_id, pi, SOURCE_SYSTEM_STRIPE_ONETIME))
 
     return merged
 
@@ -256,11 +274,16 @@ def backfill_paid(
     15.x convention) so this function has no direct Stripe API dependency
     and is fully unit-testable. ``scripts/funnel_backfill.py`` is the only
     caller that actually calls the Stripe SDK.
+
+    Each row's ``source_system`` is either ``SOURCE_SYSTEM_STRIPE``
+    (recurring, invoice-backed) or ``SOURCE_SYSTEM_STRIPE_ONETIME``
+    (Founding SKU / any future one-time SKU) — the summary route sums them
+    into ``recurring_cents`` / ``founding_cents`` separately.
     """
     result = BackfillResult(stage="paid", dry_run=dry_run)
     merged = _stripe_paid_source_ids(invoices=invoices, payment_intents=payment_intents)
 
-    for source_id, obj in merged:
+    for source_id, obj, source_system in merged:
         result.scanned += 1
         customer_id = obj.get("customer")
         user = (
@@ -276,7 +299,13 @@ def backfill_paid(
         if dry_run:
             result.written += 1
             if len(result.sample) < 5:
-                result.sample.append({"source_event_id": source_id, "classification": classification})
+                result.sample.append(
+                    {
+                        "source_event_id": source_id,
+                        "source_system": source_system,
+                        "classification": classification,
+                    }
+                )
             continue
 
         entity_id = (
@@ -288,7 +317,7 @@ def backfill_paid(
             db,
             stage="paid",
             entity_id=entity_id,
-            source_system=SOURCE_SYSTEM_STRIPE,
+            source_system=source_system,
             source_event_id=source_id,
             source_loop=BACKFILL_LOOP_NAME,
             host=host,

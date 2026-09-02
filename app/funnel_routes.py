@@ -2,14 +2,19 @@
 
 POST /api/funnel/events   — master key or fleet-owner only; idempotent write.
 POST /api/funnel/runs     — master key or fleet-owner only; loop-run fact.
-GET  /api/funnel/summary  — PUBLIC, aggregate-only, NO PII. Per-stage unique
+GET  /api/funnel/summary  — master key or fleet-owner only (council v2 §0.9c:
+                             a public paid:0 feed is a competitor-legible
+                             failure signal — NOT public). Per-stage unique
                              stranger/unknown entity counts + event counts,
                              adjacent-stage conversion on unique STRANGER
                              entities only (council v2 §0.9 — the exact
                              false-green fix: two funnel_events rows for the
                              same entity must not double the conversion
-                             numerator), paid_cents_real, and
-                             runs_last_24h per loop_name.
+                             numerator), paid split into founding_cents
+                             (one-time, mode=payment) vs recurring_cents
+                             (subscription invoices) — never one total
+                             (council v2 §0.9c) — and runs_last_24h per
+                             loop_name.
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ from sqlalchemy.orm import Session
 from app.auth_ctx import AuthContext
 from app.database import get_db
 from app.models import Fleet, FunnelEvent, LoopRunLedger
+from app.services.funnel_backfill import SOURCE_SYSTEM_STRIPE, SOURCE_SYSTEM_STRIPE_ONETIME
 from app.services.funnel_ledger import (
     Classification,
     Stage,
@@ -204,9 +210,14 @@ def _parse_since(since: str | None) -> datetime:
 @router.get("/summary")
 def get_funnel_summary(
     since: str | None = Query(default=None),
+    ctx: AuthContext = Depends(_require_master_or_fleet_owner),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    """Public, aggregate-only funnel summary. NEVER returns identifiers/PII.
+    """Master key or fleet-owner only funnel summary. NEVER returns PII.
+
+    Council v2 §0.9c: NOT public — a public ``paid: 0`` feed is a
+    competitor-legible failure signal (anyone can watch whether the
+    business is making money). Auth-gated identically to the write routes.
 
     Council v2 §0.9: conversion between adjacent stages is computed on the
     count of UNIQUE STRANGER entities per stage — never on raw event count
@@ -254,12 +265,31 @@ def get_funnel_summary(
         key = f"{prev_stage}_to_{next_stage}"
         conversions[key] = None if prev_count == 0 else round(100.0 * next_count / prev_count, 1)
 
-    paid_cents_real = int(
+    # council v2 §0.9c: split one-time (Founding SKU) from recurring
+    # (subscription invoice) paid cents — never a blended total. Discriminated
+    # by source_system, which backfill_paid/record_event stamp per Stripe
+    # object shape (invoice-backed => recurring, PI-only => one-time). A
+    # manually-posted POST /api/funnel/events row must pass the matching
+    # source_system to land in the right bucket; anything else (e.g. a
+    # caller using bare "stripe") is not counted in either bucket rather
+    # than guessed into one.
+    founding_cents = int(
         db.execute(
             select(func.coalesce(func.sum(FunnelEvent.amount_cents), 0)).where(
                 FunnelEvent.stage == "paid",
                 FunnelEvent.ts >= since_dt,
                 FunnelEvent.classification == "stranger",
+                FunnelEvent.source_system == SOURCE_SYSTEM_STRIPE_ONETIME,
+            )
+        ).scalar_one()
+    )
+    recurring_cents = int(
+        db.execute(
+            select(func.coalesce(func.sum(FunnelEvent.amount_cents), 0)).where(
+                FunnelEvent.stage == "paid",
+                FunnelEvent.ts >= since_dt,
+                FunnelEvent.classification == "stranger",
+                FunnelEvent.source_system == SOURCE_SYSTEM_STRIPE,
             )
         ).scalar_one()
     )
@@ -276,6 +306,7 @@ def get_funnel_summary(
         "since": since_dt.isoformat(),
         "stages": stages,
         "conversion_pct": conversions,
-        "paid_cents_real": paid_cents_real,
+        "founding_cents": founding_cents,
+        "recurring_cents": recurring_cents,
         "runs_last_24h": runs_last_24h,
     }
