@@ -1,12 +1,12 @@
 {
   "source": "app.main.app.routes + app.middleware.api_key.APIKeyMiddleware (dispatch tree replayed), derived at import time",
   "generator": "scripts/generate_route_manifest.py",
-  "route_count": 317,
+  "route_count": 320,
   "counts_by_classification": {
     "admin": 11,
-    "authenticated": 196,
+    "authenticated": 198,
     "internal": 2,
-    "public": 108
+    "public": 109
   },
   "routes": [
     {
@@ -2572,6 +2572,42 @@
       ],
       "classification": "public",
       "summary": "Public seat counter for the pricing page's '{n} of 100 left' badge."
+    },
+    {
+      "method": "POST",
+      "path": "/api/funnel/events",
+      "name": "post_funnel_event",
+      "module": "app.funnel_routes",
+      "tags": [
+        "funnel",
+        "funnel"
+      ],
+      "classification": "authenticated",
+      "summary": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/funnel/runs",
+      "name": "post_funnel_run",
+      "module": "app.funnel_routes",
+      "tags": [
+        "funnel",
+        "funnel"
+      ],
+      "classification": "authenticated",
+      "summary": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/funnel/summary",
+      "name": "get_funnel_summary",
+      "module": "app.funnel_routes",
+      "tags": [
+        "funnel",
+        "funnel"
+      ],
+      "classification": "public",
+      "summary": "Public, aggregate-only funnel summary. NEVER returns identifiers/PII."
     },
     {
       "method": "GET",

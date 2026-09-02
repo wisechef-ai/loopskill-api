@@ -514,6 +514,55 @@ inert). No schema, no migration.
     founding0901_seats is additive-only (2 nullable-safe columns + 1 unique
     index), single alembic head held. Verified against prod /api/healthz
     0.9.46 before bumping.
+0.9.48 - feat(funnel): entity-resolved funnel ledger + loop runs ledger
+    (flywheel_0902/B). Council v2 (§0.9) reconciliation of the original
+    funnel-ledger-design.md — three structural corrections shipped directly
+    (no v1 ever deployed): (1) TWO ledgers — loop_runs_ledger records every
+    job execution, funnel_events records only real subject-entity stage
+    transitions, so "the flywheel ran" can never masquerade as "a stranger
+    moved a stage". (2) Entity resolution (funnel_entities +
+    funnel_identifiers alias table) replaces a raw subject_key/subject_kind
+    pair, so a conversion calculation dedupes on unique resolved entities,
+    not raw rows. (3) Idempotency key is the immutable source tuple
+    (source_system, source_event_id, stage) — not a date-bucketed hash —
+    closing the double-count-across-loops/days gap the council found.
+
+    New additive migration flywheel0902_funnel_ledger (4 tables:
+    funnel_entities, funnel_identifiers, funnel_events, loop_runs_ledger;
+    indexes on funnel_events(stage,ts) and (entity_id)). New
+    app/services/funnel_ledger.py (resolve_entity, classify, record_event,
+    record_run — all documented, entity-merge deliberately deferred to a
+    follow-up). New app/funnel_routes.py: POST /api/funnel/events + POST
+    /api/funnel/runs (master key or fleet-owner scope only — a bare
+    fleet-member key is 403, mirroring authz.can_manage_fleet's own
+    owner-vs-member distinction), GET /api/funnel/summary (public,
+    aggregate-only, NO PII — added to PUBLIC_PREFIXES) returning per-stage
+    unique_stranger_entities/unique_unknown_entities/events,
+    adjacent-stage conversion computed on unique STRANGER entities ONLY
+    (the council's concrete false-green case: 10 prospects logged twice
+    yields contacted=10, not 20 — pinned by
+    test_summary_conversion_uses_unique_entities_not_raw_events),
+    paid_cents_real, and runs_last_24h per loop_name.
+
+    Backfill: app/services/funnel_backfill.py + scripts/funnel_backfill.py
+    (dry-run by DEFAULT, --live to write). Backfills signup (users.id),
+    installed (install_events.id — NULL client_ip classifies unknown,
+    NEVER stranger, the exact false-green bug the council flagged), bundle_created
+    (bundles.id), and paid (Stripe paid invoices + succeeded
+    payment_intents not already invoice-backed, deduped by id — invariant:
+    ledger paid-row count equals the count of distinct Stripe ids fed in,
+    pinned by test_paid_invariant_dedup_invoice_backed_payment_intent).
+    Fleet classification is config-driven (config/fleet_exclusions.yaml +
+    Settings.FUNNEL_FLEET_EXCLUSIONS_PATH), never hardcoded in a query.
+
+    25 new tests in tests/test_funnel_ledger.py: idempotency replay,
+    NULL-ip=unknown, fleet exclusion via config (including an overridden
+    config file), the council's false-green conversion case, the paid
+    dedup invariant (incl. idempotent re-run), loop_runs_ledger is NOT
+    deduped (unlike funnel_events, by design), and route auth (anon 401,
+    master 201, fleet-owner 201, non-owner user 403). No schema change to
+    any existing table. Verified against prod /api/healthz 0.9.47 before
+    bumping.
 """
 
-__version__ = "0.9.47"
+__version__ = "0.9.48"

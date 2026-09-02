@@ -316,6 +316,12 @@ class Settings(BaseSettings):
             return list(dict.fromkeys(items))  # dedupe, preserve order
         return value
 
+    # flywheel_0902/B — path to the fleet-exclusion config file
+    # (config/fleet_exclusions.yaml by default). Overridable so a self-host
+    # or a test can point at a different exclusion set without editing the
+    # shipped file. See app/services/funnel_ledger.py:classify().
+    FUNNEL_FLEET_EXCLUSIONS_PATH: str = ""
+
     model_config = {"env_file": ".env", "env_prefix": "WR_", "extra": "ignore"}
 
     @model_validator(mode="after")

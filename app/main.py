@@ -22,6 +22,7 @@ from app.canary import router as canary_router
 from app.bootcamp_routes import router as bootcamp_router  # bootcamp_0607
 from app.checkout_routes import router as checkout_router
 from app.config import get_settings, run_production_boot_checks
+from app.funnel_routes import router as funnel_router  # flywheel_0902/B
 from app.bundle_routes import router as cookbook_router  # compat-alias
 from app.bundle_wellknown_routes import router as cookbook_wellknown_router  # compat-alias
 from app.creator_routes import router as creator_router
@@ -205,6 +206,7 @@ def create_app() -> FastAPI:
     app.include_router(creators_stats_router, tags=["creator"])  # flywheel P1 F1.3
     app.include_router(publisher_router, tags=["publisher"])
     app.include_router(checkout_router, tags=["billing"])
+    app.include_router(funnel_router, tags=["funnel"])  # flywheel_0902/B
     app.include_router(api_key_router, tags=["api-keys"])
     app.include_router(feedback_router, tags=["feedback"])
     app.include_router(canary_router, tags=["canary"])
