@@ -269,6 +269,7 @@ def record_run(
     outcome: RunOutcome,
     rows_emitted: int = 0,
     note: str | None = None,
+    ts: datetime | None = None,
 ) -> LoopRunLedger:
     """Record one loop_runs_ledger row — every job execution, not deduped.
 
@@ -278,6 +279,7 @@ def record_run(
     a count of executions, not of unique subjects.
     """
     row = LoopRunLedger(
+        ts=ts or datetime.now(timezone.utc),
         id=uuid4(),
         job_id=job_id,
         loop_name=loop_name,
