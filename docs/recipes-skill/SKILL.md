@@ -1,17 +1,6 @@
 ---
 name: loopskill
-description: >
-  Cross-vendor skill marketplace for AI agents (Hermes, Claude Code, Codex,
-  OpenClaw, Cursor, Claude Desktop). Use when the user asks to install
-  LoopSkill, mentions app.loopskill.io or LoopSkill, asks "what skills are
-  available", or asks for help with marketing ops, client reporting, content
-  calendars, SEO audits, GoHighLevel, code review, simulation/robotics, or web
-  scraping workflows. The platform exposes BOTH a REST API and a native MCP
-  server (StreamableHTTP at /api/mcp/http/) for MCP-capable clients. CRITICAL:
-  if the user asks "is it worth installing" or "is it beneficial for us", run
-  the pre-install evaluation in this SKILL.md BEFORE installing — compare
-  against the user's existing skill inventory and produce an honest verdict;
-  do not install blindly.
+description: Search, install, and sync skills via loopskill.
 tags:
   - skills
   - marketplace
@@ -154,6 +143,32 @@ Always use **`x-api-key` header** — **not** Bearer / Authorization.
 ```
 x-api-key: rec_xx...xxxx
 ```
+
+## Verify the install (use EXACTLY these probes)
+
+A key that works will STILL look "rejected" if you probe the wrong surfaces.
+Do NOT conclude the key is dead from any of these:
+- `/api/auth/me` returning 401 "Not authenticated" — that route is cookie/session-only
+  by design; an x-api-key NEVER satisfies it. Not a key error.
+- `/api/mcp/sse` returning 4xx/5xx — that endpoint is legacy and dead; the only
+  live MCP transport is `/api/mcp/http/` (StreamableHTTP).
+- A single `hermes mcp test loopskill` failure ("Server returned an error response" /
+  "Session terminated") — a known transient; retry 2-3x before diagnosing.
+
+THE verification sequence, in order — all three must pass:
+1. REST (simplest): `curl -s -H "x-api-key: $LOOPSKILL_API_KEY" "https://app.loopskill.io/api/skills/search?q=test&page_size=1"` → must return JSON with `"results"`.
+2. MCP initialize: POST to `https://app.loopskill.io/api/mcp/http/` with headers
+   `x-api-key`, `Content-Type: application/json`, `Accept: application/json, text/event-stream`
+   and body `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"verify","version":"1"}}}`
+   → must return `serverInfo`. (A 406 means your Accept header is wrong, not the key.)
+3. MCP tools/call: reuse the `mcp-session-id` response header from step 2 on every
+   subsequent POST; send `notifications/initialized` once, then call
+   `loopskill_search` with `{"query":"memory","limit":2}` → must return results.
+
+If step 1 fails with `{"detail":"Invalid API key"}` (a hash miss) and you are sure
+the key was copied byte-exact (no trailing quote/whitespace from .env), only THEN
+ask the human to re-copy the key from https://app.loopskill.io/library — and say
+the server rejected the exact string you sent, quoting its first and last 4 chars.
 
 **Where to get a key:** free skills (like `super-memory`) install with **no key at all** — start there. For the full catalog, sign in at **https://app.loopskill.io/signin**, then generate an API key on your **Library** page (https://app.loopskill.io/library). Pricing: https://app.loopskill.io/pricing
 
