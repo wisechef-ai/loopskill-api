@@ -26,6 +26,15 @@ emails:
   - editorial@wisechef.ai
   - system@loopskill.io
 
+  # flywheel_0902 (2026-09-02): personal contacts Adam introduced to LoopSkill in
+  # person - warm intros, classified fleet, NOT cold-market traction (Adam, #tori).
+  - hello@agentforgelabs.com
+  - slepowid@gmail.com
+  - j.czerlun@gmail.com
+  - pjurgielewicz@o2.pl
+  - sapacevaleksandr763@gmail.com
+  - ulcharhd@gmail.com
+
 ips:
   - 195.128.172.227
   - 195.128.172.200
