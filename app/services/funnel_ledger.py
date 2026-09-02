@@ -37,6 +37,7 @@ calls when possible, rather than resolving each stage independently.
 """
 
 from __future__ import annotations
+from datetime import datetime, timezone
 
 import logging
 from functools import lru_cache
@@ -203,6 +204,7 @@ def record_event(
     classification: Classification,
     classification_evidence: str | None = None,
     amount_cents: int | None = None,
+    ts: datetime | None = None,
     currency: str | None = None,
     evidence_url: str | None = None,
 ) -> tuple[FunnelEvent, bool]:
@@ -225,6 +227,7 @@ def record_event(
         return existing, True
 
     row = FunnelEvent(
+        ts=ts or datetime.now(timezone.utc),
         id=uuid4(),
         stage=stage,
         entity_id=entity_id,
@@ -266,6 +269,7 @@ def record_run(
     outcome: RunOutcome,
     rows_emitted: int = 0,
     note: str | None = None,
+    ts: datetime | None = None,
 ) -> LoopRunLedger:
     """Record one loop_runs_ledger row — every job execution, not deduped.
 
@@ -275,6 +279,7 @@ def record_run(
     a count of executions, not of unique subjects.
     """
     row = LoopRunLedger(
+        ts=ts or datetime.now(timezone.utc),
         id=uuid4(),
         job_id=job_id,
         loop_name=loop_name,

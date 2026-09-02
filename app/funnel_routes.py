@@ -114,6 +114,7 @@ class FunnelEventIn(BaseModel):
     amount_cents: int | None = None
     currency: str | None = None
     evidence_url: str | None = None
+    ts: datetime | None = None
 
 
 @router.post("/events", status_code=201)
@@ -148,6 +149,7 @@ def post_funnel_event(
         amount_cents=body.amount_cents,
         currency=body.currency,
         evidence_url=body.evidence_url,
+        ts=body.ts,
     )
     db.commit()
     return {
@@ -168,6 +170,7 @@ class FunnelRunIn(BaseModel):
     outcome: str
     rows_emitted: int = 0
     note: str | None = None
+    ts: datetime | None = None
 
 
 @router.post("/runs", status_code=201)
@@ -187,6 +190,7 @@ def post_funnel_run(
         outcome=body.outcome,  # type: ignore[arg-type]
         rows_emitted=body.rows_emitted,
         note=body.note,
+        ts=body.ts,
     )
     db.commit()
     return {"id": str(row.id), "job_id": row.job_id, "outcome": row.outcome}

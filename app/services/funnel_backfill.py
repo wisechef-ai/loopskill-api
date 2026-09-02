@@ -33,6 +33,7 @@ invoice-linked payment_intent ids that were skipped).
 """
 
 from __future__ import annotations
+from datetime import datetime, timezone
 
 import logging
 from dataclasses import dataclass, field
@@ -109,6 +110,7 @@ def backfill_signup(db: Session, *, host: str, dry_run: bool = True) -> Backfill
             entity_id=entity_id,
             source_system=SOURCE_SYSTEM_APP,
             source_event_id=str(user.id),
+            ts=user.created_at,
             source_loop=BACKFILL_LOOP_NAME,
             host=host,
             classification=classification,
@@ -153,6 +155,7 @@ def backfill_installed(db: Session, *, host: str, dry_run: bool = True) -> Backf
             entity_id=entity_id,
             source_system=SOURCE_SYSTEM_APP,
             source_event_id=str(event.id),
+            ts=event.created_at,
             source_loop=BACKFILL_LOOP_NAME,
             host=host,
             classification=classification,
@@ -196,6 +199,7 @@ def backfill_bundle_created(db: Session, *, host: str, dry_run: bool = True) -> 
             entity_id=entity_id,
             source_system=SOURCE_SYSTEM_APP,
             source_event_id=str(bundle.id),
+            ts=bundle.created_at,
             source_loop=BACKFILL_LOOP_NAME,
             host=host,
             classification=classification,
@@ -319,6 +323,9 @@ def backfill_paid(
             entity_id=entity_id,
             source_system=source_system,
             source_event_id=source_id,
+            ts=datetime.fromtimestamp(int(obj.get("created") or 0), tz=timezone.utc)
+            if obj.get("created")
+            else None,
             source_loop=BACKFILL_LOOP_NAME,
             host=host,
             classification=classification,
