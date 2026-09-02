@@ -98,6 +98,7 @@ The tailor loop closes end-to-end: `loopskill_tailor` → `loopskill_tailor_vers
 | `loopskill_request_recipe` | Request a new recipe (skill); creates a GitHub wishlist issue |
 | `loopskill_report_skill_error` | Report that an installed skill is broken; auto-creates a labelled GitHub issue |
 | `loopskill_propose_skill_patch` | Submit a working patch (draft PR) for a marketplace skill. Rate-limited 1 patch per 24h per (agent, skill) |
+| `loopskill_propose_registry` | Propose a new federated registry source (any public repo of `<dir>/SKILL.md` skills). Returns live preflight (repo exists, SKILL.md count, license) + review-issue link. Anon-friendly; deduped 24h per repo. REST equivalent: `POST /api/federation/propose` |
 
 ### Share tokens
 
@@ -155,6 +156,8 @@ x-api-key: rec_xx...xxxx
 ```
 
 **Where to get a key:** free skills (like `super-memory`) install with **no key at all** — start there. For the full catalog, sign in at **https://app.loopskill.io/signin**, then generate an API key on your **Library** page (https://app.loopskill.io/library). Pricing: https://app.loopskill.io/pricing
+
+**No key available mid-session?** Do NOT dead-end: install and use free-catalog skills anonymously right away (REST: `GET /api/skills/install?slug=…` needs no key). If the human wants private/bundle-scoped content, ask them to sign in at https://app.loopskill.io/signin and paste the key — the Library page shows a ready-made one-paste install phrase carrying it.
 
 ## Environment variables
 
