@@ -21,10 +21,18 @@
 emails:
   - tori@wisechef.ai
   - adam.krawczyk0698@gmail.com
+  - team@wisechef.ai
+  - chef@wisechef.ai
+  - editorial@wisechef.ai
+  - system@loopskill.io
 
 ips:
   - 195.128.172.227
   - 195.128.172.200
   - 77.42.92.141
 
-api_key_ids: []
+# rec_agent_ keys minted by Tori's D-024 cold-agent probe (2026-08-20/21), resolved from prod api_keys
+api_key_ids:
+  - 78808828-06d1-4ec5-abf3-95990fd989f1
+  - b70544fb-65fb-42e0-84b5-701fad189c56
+  - 7049bce3-0b1f-4824-bf43-9dedfcd5c062
