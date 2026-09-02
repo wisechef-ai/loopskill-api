@@ -1,0 +1,30 @@
+# flywheel_0902/B — the fleet exclusion list config.py loads at boot.
+#
+# SSOT for who is classified `fleet` in the funnel ledger, so the
+# classification list lives in ONE data file (this one) instead of being
+# hardcoded inside app/services/funnel_ledger.py or, worse, repeated inline
+# in a query somewhere. Council v2 §0.9 Finding #3: classification must be
+# config-driven with recorded evidence, not inferred.
+#
+# emails: known fleet-operated human accounts.
+# ips: known fleet source IPs (office/VPN/dogfood), snapshot per
+#      funnel-ledger-design.md §1.
+# api_key_ids: probe-minted keys excluded by EXACT id, not by prefix — a real
+#      customer could legitimately self-register a rec_agent_ key too, so
+#      prefix-matching would misclassify them. This list is intentionally
+#      empty in this migration/PR: the 3 rec_agent_ probe keys minted
+#      2026-08-20/21 must be resolved to their concrete UUIDs (by querying
+#      api_keys WHERE created_at BETWEEN the probe window AND label matches
+#      the probe run) and pinned here BEFORE the prod backfill runs — see the
+#      backfill runbook in app/services/funnel_backfill.py.
+
+emails:
+  - tori@wisechef.ai
+  - adam.krawczyk0698@gmail.com
+
+ips:
+  - 195.128.172.227
+  - 195.128.172.200
+  - 77.42.92.141
+
+api_key_ids: []

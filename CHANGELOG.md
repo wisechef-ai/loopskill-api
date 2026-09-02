@@ -4,6 +4,16 @@ All notable changes to recipes-api are documented here. Format loosely follows [
 
 ## [Unreleased]
 
+## [0.9.48] — 2026-09-02 — feat/funnel-ledger (flywheel_0902/B)
+
+### Added
+
+- **Funnel ledger** — `funnel_entities` + `funnel_identifiers` (entity resolution alias table) + `funnel_events` (stage transitions, idempotent on `(source_system, source_event_id, stage)`) + `loop_runs_ledger` (every job execution — kept SEPARATE from `funnel_events` per council v2 §0.9: "the flywheel ran" must never be the same number as "a stranger moved a stage").
+- `POST /api/funnel/events`, `POST /api/funnel/runs`, `GET /api/funnel/summary?since=` — ALL master key or fleet-owner only (council v2 §0.9c: a public paid-total feed is a competitor-legible failure signal). Summary returns per-stage unique stranger/unknown entity counts, adjacent-stage conversion on unique STRANGER entities only (the council's concrete false-green case — 10 prospects logged twice yields `contacted=10`, not 20), `founding_cents` / `recurring_cents` split (never one blended paid total), `runs_last_24h` per loop.
+- `app/services/funnel_ledger.py` — `resolve_entity`, `classify` (config-driven via `config/fleet_exclusions.yaml`), `record_event` (idempotent, `replay=True` on conflict), `record_run`.
+- `app/services/funnel_backfill.py` + `scripts/funnel_backfill.py` — idempotent backfill of signup/installed/bundle_created/paid, dry-run by default. NULL `install_events.client_ip` classifies `unknown`, never `stranger`. Paid rows tagged `stripe` (recurring, invoice-backed) vs `stripe-onetime` (Founding SKU/one-time, PI-only).
+- Migration `flywheel0902_funnel_ledger` — additive-only, 4 new tables.
+
 ## [0.9.47] — 2026-09-01 — feat/founding
 
 ### Added

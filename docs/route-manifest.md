@@ -3,7 +3,7 @@
 
 # Route Manifest (bundles_0811 P7)
 
-Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **317** distinct (method, path) surfaces.
+Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **320** distinct (method, path) surfaces.
 
 ## How classification works
 
@@ -22,7 +22,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | Classification | Routes |
 |---|---|
 | admin | 11 |
-| authenticated | 196 |
+| authenticated | 199 |
 | internal | 2 |
 | public | 108 |
 
@@ -235,6 +235,9 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | GET | `/api/forks/{fork_id}/install` | authenticated | `app.forks_routes` | forks, forks |
 | POST | `/api/forks/{fork_id}/version` | authenticated | `app.forks_routes` | forks, forks |
 | GET | `/api/founding/remaining` | public | `app.checkout_routes` | billing, checkout |
+| POST | `/api/funnel/events` | authenticated | `app.funnel_routes` | funnel, funnel |
+| POST | `/api/funnel/runs` | authenticated | `app.funnel_routes` | funnel, funnel |
+| GET | `/api/funnel/summary` | authenticated | `app.funnel_routes` | funnel, funnel |
 | GET | `/api/graph/coverage` | public | `app.graph_routes` | graph, graph |
 | GET | `/api/graph/neighborhood` | public | `app.graph_routes` | graph, graph |
 | GET | `/api/graph/related` | public | `app.graph_routes` | graph, graph |

@@ -417,6 +417,127 @@ class InstallEvent(Base):
     skill = relationship("Skill", back_populates="install_events")
 
 
+class FunnelEntity(Base):
+    """flywheel_0902/B — one resolved subject (stranger/fleet/unknown).
+
+    Every ``funnel_events`` row points at exactly one entity. Entities are
+    created lazily by ``funnel_ledger.resolve_entity`` — the first identifier
+    (email/handle/ip/api_key/user_id/stripe_customer) seen for a subject
+    creates the entity; every subsequent identifier for the SAME subject is
+    expected to resolve to the SAME entity via a caller-supplied join (e.g.
+    "this install_event's api_key_id belongs to this user_id"), not via
+    inference. See funnel_ledger.py module docstring for the documented
+    no-merge-yet limitation.
+    """
+
+    __tablename__ = "funnel_entities"
+
+    entity_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    identifiers = relationship("FunnelIdentifier", back_populates="entity", cascade="all, delete-orphan")
+    events = relationship("FunnelEvent", back_populates="entity", cascade="all, delete-orphan")
+
+
+class FunnelIdentifier(Base):
+    """flywheel_0902/B — alias table: one (kind, value) maps to one entity.
+
+    Pure alias table, no merge logic (documented limitation — see
+    FunnelEntity docstring and app/services/funnel_ledger.py).
+    """
+
+    __tablename__ = "funnel_identifiers"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    entity_id = Column(
+        UUID(as_uuid=True), ForeignKey("funnel_entities.entity_id", ondelete="CASCADE"), nullable=False
+    )
+    kind = Column(String(32), nullable=False)
+    value = Column(Text, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("kind", "value", name="uq_funnel_identifiers_kind_value"),
+        CheckConstraint(
+            "kind IN ('email','handle','ip','api_key','user_id','stripe_customer')",
+            name="ck_funnel_identifiers_kind",
+        ),
+        Index("ix_funnel_identifiers_entity_id", "entity_id"),
+    )
+
+    entity = relationship("FunnelEntity", back_populates="identifiers")
+
+
+class FunnelEvent(Base):
+    """flywheel_0902/B — a single resolved subject's stage transition.
+
+    Council v2 §0.9: idempotency is the immutable SOURCE tuple
+    ``(source_system, source_event_id, stage)`` — not a date-bucketed hash.
+    Writing the SAME source event twice for the SAME stage is a no-op replay
+    (see funnel_ledger.record_event), not a duplicate row.
+    """
+
+    __tablename__ = "funnel_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    ts = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    stage = Column(String(32), nullable=False)
+    entity_id = Column(
+        UUID(as_uuid=True), ForeignKey("funnel_entities.entity_id", ondelete="CASCADE"), nullable=False
+    )
+    source_system = Column(Text, nullable=False)
+    source_event_id = Column(Text, nullable=False)
+    source_loop = Column(Text, nullable=False)
+    host = Column(Text, nullable=False)
+    classification = Column(String(16), nullable=False)
+    classification_evidence = Column(Text, nullable=True)
+    amount_cents = Column(Integer, nullable=True)
+    currency = Column(Text, nullable=True)
+    evidence_url = Column(Text, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("source_system", "source_event_id", "stage", name="uq_funnel_events_source_stage"),
+        CheckConstraint(
+            "stage IN ('lead','contacted','replied','signup','installed','bundle_created','paid')",
+            name="ck_funnel_events_stage",
+        ),
+        CheckConstraint(
+            "classification IN ('fleet','stranger','unknown')",
+            name="ck_funnel_events_classification",
+        ),
+        Index("idx_funnel_events_stage_ts", "stage", "ts"),
+        Index("idx_funnel_events_entity_id", "entity_id"),
+    )
+
+    entity = relationship("FunnelEntity", back_populates="events")
+
+
+class LoopRunLedger(Base):
+    """flywheel_0902/B — every flywheel job execution (not subject transitions).
+
+    Council v2 §0.9 Finding #1: "alive" (a loop RAN) must never be the same
+    number as "working" (a subject transitioned). This table answers "alive";
+    funnel_events answers "working". Keep them separate everywhere they are
+    read.
+    """
+
+    __tablename__ = "loop_runs_ledger"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    ts = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    job_id = Column(Text, nullable=False)
+    loop_name = Column(Text, nullable=False)
+    host = Column(Text, nullable=False)
+    outcome = Column(String(16), nullable=False)
+    rows_emitted = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    note = Column(Text, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("outcome IN ('ok','no_fire','error')", name="ck_loop_runs_ledger_outcome"),
+        Index("idx_loop_runs_ledger_job_ts", "job_id", "ts"),
+        Index("idx_loop_runs_ledger_loop_name_ts", "loop_name", "ts"),
+    )
+
+
 class ProvenanceRecord(Base):
     """spotify_0608 Ph E — RANDOM, server-stored install-provenance token.
 
