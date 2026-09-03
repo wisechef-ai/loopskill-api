@@ -11,6 +11,11 @@ name: Publish loopskill CLI to PyPI
 #
 # ONE-TIME MANUAL SETUP REQUIRED before this workflow can publish (see PR
 # description for the full checklist):
+# AUTH: this workflow publishes with the `PYPI_API_TOKEN` repo secret when it
+# exists, and falls back to OIDC Trusted Publishing when it does not (see the
+# publish step). Trusted Publishing is still the preferred end state; to switch
+# to it, complete step 1 below and delete the secret. Step 2 is already done.
+#
 #   1. On pypi.org, under the `loopskill` project -> Publishing, add a
 #      Trusted Publisher:
 #        Owner:            wisechef-ai
@@ -103,14 +108,28 @@ jobs:
       - name: twine check
         run: twine check cli/dist/*
 
-      - name: Publish to PyPI (Trusted Publishing / OIDC)
+      - name: Publish to PyPI (token if configured, else Trusted Publishing / OIDC)
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: cli/dist
-          # No `password`/`api-token` input: relies on OIDC via the
-          # `id-token: write` permission above and the pypi.org Trusted
-          # Publisher configured for this repo+workflow+environment.
-          # If Trusted Publishing is ever unavailable, the fallback is to
-          # add `password: ${{ secrets.PYPI_API_TOKEN }}` here after a
-          # maintainer creates that repo secret out-of-band — this workflow
-          # does not create, print, or otherwise handle that credential.
+          # DUAL PATH, deliberately in this order (2026-09-03).
+          #
+          # The first real run of this workflow (tag loopskill-v0.3.0, run
+          # 33741393929) passed every guard, built both artifacts and passed
+          # `twine check` — then failed at upload with PyPI's
+          # `invalid-publisher: valid token, but no corresponding publisher`.
+          # The OIDC claims were exactly as documented
+          # (sub=repo:wisechef-ai/loopskill-api:environment:pypi), so the code
+          # was correct; what was missing was the ONE-TIME manual registration
+          # on pypi.org, which lives outside this repo and outside CI.
+          #
+          # `password` is left as an unset-tolerant expression: when the
+          # PYPI_API_TOKEN secret is absent it renders empty, and
+          # gh-action-pypi-publish falls back to Trusted Publishing exactly as
+          # before. So configuring the Trusted Publisher later needs no code
+          # change here — delete the secret and OIDC resumes.
+          #
+          # The token is a project-scoped PyPI API token held in the
+          # maintainer's vault; it is never printed by this workflow (the
+          # action masks it) and never leaves the `pypi` environment.
+          password: ${{ secrets.PYPI_API_TOKEN }}
