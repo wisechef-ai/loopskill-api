@@ -80,6 +80,26 @@ tiers:
       - Custom fleet-scale deployment and contract terms
       - Dedicated onboarding and a direct line to the team
 
+# ── FOUNDING MEMBER — one-time SKU, prose ONLY ─────────────────────────────
+# A SIBLING of `tiers:`, never a member of it — identical split to
+# config/tiers.yaml's own `founding:` key, and for the same reason: every
+# loader that iterates `tiers` (the price overlay, the tier picker, the Stripe
+# sync) must stay structurally unable to see a one-time SKU and turn it into a
+# recurring subscription. See app/services/founding_service.py's docstring.
+#
+# ⚠️ Class-C PROSE ONLY. price_usd, cap and remaining are LIVE-OVERLAID in
+# app/marketing_routes.py::marketing_snapshot from founding_service (whose
+# sole source is config/tiers.yaml) + the DB seat counter. Do NOT add a
+# price or a seat number here — a second copy is exactly the drift_0604 rot
+# this file was cleaned of. Bullets may interpolate {remaining} / {cap} /
+# {price_usd}, which are filled from those live values.
+founding:
+  bullets:
+    - Permanent Pro — one payment, no subscription, never billed again
+    - "Only {remaining} of {cap} founding seats left"
+    - Everything in Pro, locked in at the founding price forever
+    - Directly funds the open-core registry
+
 # ── MCP TOOLS — what the recipes_mcp_server exposes ─────────────────────────
 # ⚠️ drift_0604: mcp_tools + rest_endpoints below are now LIVE-OVERLAID in
 # app/marketing_routes.py::marketing_snapshot — mcp_tools is replaced wholesale
