@@ -212,6 +212,11 @@ def marketing_snapshot(db: Session = Depends(get_db)) -> dict:
     except FileNotFoundError:
         snap = {"version": 0, "error": "recipes-marketing.yaml missing"}
 
+    # Prose-only companion for the founding SKU (bullets/copy). Popped here so
+    # the block below rebuilds it from live facts and a stale yaml copy of the
+    # price/cap/remaining can never survive into the response — see overlay (4).
+    yaml_founding = snap.pop("founding", None)
+
     # Overlay live counts on top of the yaml's static fallback.
     live = marketing_counts(db)
     snap.setdefault("counts", {})
@@ -298,6 +303,60 @@ def marketing_snapshot(db: Session = Depends(get_db)) -> dict:
     for pp in snap.get("proof_points") or []:
         if isinstance(pp, dict) and isinstance(pp.get("text"), str):
             pp["text"] = pp["text"].format_map(_fmt)
+
+    # (4) Founding Member — the $49 one-time SKU. Overlaid as a TOP-LEVEL
+    #     sibling of `tiers`, deliberately NOT a member of it, mirroring the
+    #     same split config/tiers.yaml uses (see its `founding:` block and
+    #     app/services/founding_service.py's module docstring): every loader
+    #     that iterates `snap["tiers"]` — the price overlay above, the tier
+    #     picker, recipes_stripe_sync.py — must stay unable to see a
+    #     one-time SKU, or it can be created as a recurring subscription.
+    #
+    #     Numbers are read LIVE from founding_service (whose sole source is
+    #     config/tiers.yaml) and the DB seat counter, never from the prose
+    #     yaml — same Class-B discipline as the price overlay in (3). The
+    #     yaml contributes bullets/prose ONLY.
+    #
+    #     Fail-open and OMIT the key entirely when the SKU is unconfigured or
+    #     sold out: a marketing surface must never advertise a seat that
+    #     cannot be bought. Absent key = render nothing, which is what every
+    #     consumer already does for an unknown tier.
+    snap.pop("founding", None)
+    try:
+        from app.services.founding_service import (
+            founding_configured,
+            founding_display_name,
+            founding_price_id,
+            founding_price_usd,
+            founding_seats_remaining,
+            founding_slot_cap,
+        )
+
+        if founding_configured() and founding_price_id():
+            remaining = founding_seats_remaining(db)
+            if remaining > 0:
+                price = founding_price_usd()
+                founding_block: dict = {
+                    "display_name": founding_display_name(),
+                    "price_usd": int(price) if float(price).is_integer() else price,
+                    "one_time": True,
+                    "cap": founding_slot_cap(),
+                    "remaining": remaining,
+                    "cta": "Become a Founding Member",
+                    "checkout_path": "/api/checkout/founding",
+                }
+                prose = (yaml_founding if isinstance(yaml_founding, dict) else {}) or {}
+                bullets = prose.get("bullets")
+                if isinstance(bullets, list):
+                    founding_block["bullets"] = [
+                        b.format_map(_SafeCountDict({**snap["counts"], **founding_block}))
+                        if isinstance(b, str)
+                        else b
+                        for b in bullets
+                    ]
+                snap["founding"] = founding_block
+    except Exception:  # noqa: BLE001 — Rationale: a founding-SKU hiccup (DB, config) must never break the whole marketing surface; omitting the key degrades to "no founding card", which every consumer already handles.
+        snap.pop("founding", None)
 
     snap["_source"] = "config/recipes-marketing.yaml (prose) + live DB/registry/tiers.yaml (facts)"
     return snap
