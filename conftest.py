@@ -53,6 +53,67 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_settings_singleton(request):
+    """Give marked tests a private Settings singleton, leaking nothing back.
+
+    Issue #298: ``app.config._get_settings_cached`` is an
+    ``lru_cache(maxsize=1)``. Whichever test first touches
+    ``app.config.settings`` (directly, or transitively via a lazy import
+    such as ``install_integrity.internal_network_ips``) constructs and
+    caches it under THAT test's env. Any later test that mutates
+    ``WR_DATABASE_URL`` / ``WR_COOKIES_SECURE`` via ``monkeypatch.setenv``
+    or ``patch.dict`` then silently observes the stale cached instance
+    instead of one built from its own env — an inconsistent DB-URL /
+    COOKIES_SECURE pair can trip the issue-#11 production gate on tests
+    that never touched that env var themselves. This was flaky and
+    shard-order-dependent under ``pytest -n auto --dist loadfile``
+    (test_secfix_1905_d_search_skills_n_plus_1.py on the postgres CI leg).
+
+    NOT autouse-repo-wide, and NOT a bare ``cache_clear()``. #299's first
+    attempt cleared the shared cache before/after EVERY test (all ~5,400)
+    and broke 28 of them; the opt-in-marker follow-up narrowed the *count*
+    of affected tests but still called ``cache_clear()`` on the one, GLOBAL
+    ``_get_settings_cached`` object — which mutates state every other test
+    in the same interpreter can observe. Under ``-n auto --dist loadfile``
+    that damage is invisible because each xdist worker is a separate
+    process, so it never surfaced in that CI-shaped run — but a plain
+    single-process ``pytest tests/test_issue298... tests/test_loopskill_
+    public_origin.py`` reproduces it immediately: the marked test's
+    teardown clears the shared cache, the next (unmarked) test's stale
+    ``from app.config import settings`` import-time binding no longer
+    matches whatever ``config.settings`` lazily rebuilds to, and its
+    ``monkeypatch.setattr(settings, ...)`` patches an object nobody reads
+    anymore. Exact same failure class Adam's review flagged for
+    ``patch.object(real_settings, ...)`` tests — just one hop further away.
+
+    Fix: swap in a throwaway ``lru_cache`` object for the DURATION of the
+    marked test only, via ``pytest.MonkeyPatch`` (undone automatically at
+    teardown), instead of clearing the shared one. The original cached
+    object and its process-wide readers are never touched, so there is
+    zero cross-test leakage regardless of process/worker layout.
+
+    Opt in per-module with ``pytestmark = pytest.mark.settings_isolation``
+    (or per-test with ``@pytest.mark.settings_isolation``) — reserved for
+    modules that mutate ``WR_DATABASE_URL`` / ``WR_COOKIES_SECURE`` via env
+    (monkeypatch.setenv / patch.dict), NOT modules that patch.object() the
+    live Settings singleton's attributes (those must stay untouched by
+    cache-clearing or they break, per the mechanism above).
+    """
+    if request.node.get_closest_marker("settings_isolation") is None:
+        yield
+        return
+
+    from functools import lru_cache
+
+    from app import config
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(config, "_get_settings_cached", lru_cache(maxsize=1)(config.Settings))
+    yield
+    mp.undo()
+
+
+@pytest.fixture(autouse=True)
 def _block_outbound_network(request, monkeypatch):
     """Fail fast on any non-loopback network call made from a test.
 
