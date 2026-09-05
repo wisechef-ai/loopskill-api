@@ -13,6 +13,8 @@ added to this module as wisechef_router. Same URL paths preserved.
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -49,21 +51,21 @@ def _live_mcp_tool_names() -> list[str]:
     makes the tool count and roster drift-proof by construction.
 
     perf_0905: the registry is fixed once the modules are imported, so memoize
-    the sorted roster per process — snapshot re-derivation per request showed
-    up as a measurable slice of the endpoint's p95.
+    the sorted roster per process. The cache must live at module level — a
+    per-call ``lru_cache`` is rebuilt every invocation and memoizes nothing
+    (caught by the post-deploy bench: cached call still cost 443ms).
     """
     try:
-        from functools import lru_cache
-
-        @lru_cache(maxsize=1)
-        def _sorted_tool_names() -> tuple[str, ...]:
-            from app.mcp.registry import _tool_definitions
-
-            return tuple(sorted(t.name for t in _tool_definitions()))
-
-        return list(_sorted_tool_names())
+        return list(_sorted_tool_names_cached())
     except Exception:  # noqa: BLE001 — registry import must never break the marketing surface
         return []
+
+
+@lru_cache(maxsize=1)
+def _sorted_tool_names_cached() -> tuple[str, ...]:
+    from app.mcp.registry import _tool_definitions
+
+    return tuple(sorted(t.name for t in _tool_definitions()))
 
 
 def _live_rest_paths() -> set[str]:
@@ -74,19 +76,19 @@ def _live_rest_paths() -> set[str]:
     just to list route paths, measured at ~1s of the /api/marketing/snapshot
     p95 (1061ms vs 35ms server baseline, 2026-09-05 bench). Route registration
     is a process-lifetime constant, so build the path set once and cache it.
+    The cache lives at module level (see _live_mcp_tool_names note).
     """
     try:
-        from functools import lru_cache
-
-        @lru_cache(maxsize=1)
-        def _route_paths() -> frozenset[str]:
-            from app.main import create_app
-
-            return frozenset(getattr(r, "path", "") for r in create_app().routes)
-
-        return set(_route_paths())
+        return set(_route_paths_cached())
     except Exception:  # noqa: BLE001 — app import must never break the marketing surface
         return set()
+
+
+@lru_cache(maxsize=1)
+def _route_paths_cached() -> frozenset[str]:
+    from app.main import create_app
+
+    return frozenset(getattr(r, "path", "") for r in create_app().routes)
 
 
 def public_reachability_counts(db: Session) -> dict:
