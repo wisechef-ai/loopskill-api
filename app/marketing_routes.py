@@ -47,21 +47,44 @@ def _live_mcp_tool_names() -> list[str]:
     yaml, 4 of which (recipes_detail/trending/install_meta_skill/stats) no
     longer existed while 24 real tools were missing. Deriving from the registry
     makes the tool count and roster drift-proof by construction.
+
+    perf_0905: the registry is fixed once the modules are imported, so memoize
+    the sorted roster per process — snapshot re-derivation per request showed
+    up as a measurable slice of the endpoint's p95.
     """
     try:
-        from app.mcp.registry import _tool_definitions
+        from functools import lru_cache
 
-        return sorted(t.name for t in _tool_definitions())
+        @lru_cache(maxsize=1)
+        def _sorted_tool_names() -> tuple[str, ...]:
+            from app.mcp.registry import _tool_definitions
+
+            return tuple(sorted(t.name for t in _tool_definitions()))
+
+        return list(_sorted_tool_names())
     except Exception:  # noqa: BLE001 — registry import must never break the marketing surface
         return []
 
 
 def _live_rest_paths() -> set[str]:
-    """Set of live registered REST paths — used to validate the curated list."""
-    try:
-        from app.main import create_app
+    """Set of live registered REST paths — used to validate the curated list.
 
-        return {getattr(r, "path", "") for r in create_app().routes}
+    perf_0905: this used to call ``create_app()`` on EVERY request — a full
+    app-factory rebuild (all routers, middleware stack, MCP registry imports)
+    just to list route paths, measured at ~1s of the /api/marketing/snapshot
+    p95 (1061ms vs 35ms server baseline, 2026-09-05 bench). Route registration
+    is a process-lifetime constant, so build the path set once and cache it.
+    """
+    try:
+        from functools import lru_cache
+
+        @lru_cache(maxsize=1)
+        def _route_paths() -> frozenset[str]:
+            from app.main import create_app
+
+            return frozenset(getattr(r, "path", "") for r in create_app().routes)
+
+        return set(_route_paths())
     except Exception:  # noqa: BLE001 — app import must never break the marketing surface
         return set()
 
