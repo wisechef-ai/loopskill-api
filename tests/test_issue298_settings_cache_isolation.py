@@ -19,16 +19,23 @@ randomization) to reproduce/prove the fix:
     (postgres + COOKIES_SECURE=true) env and expects `app.config.settings`
     to reflect ITS OWN env, not test A's leftover cached instance.
 
-RED-PROOF: on main (no autouse cache-clearing fixture), test_b_* fails
-because `config.settings` is still test_a's cached sqlite/insecure
-instance — proving the leak. After the fix (autouse fixture in root
-conftest.py clearing `_get_settings_cached.cache_clear()` before/after
-every test), both tests pass independent of run order.
+RED-PROOF: on main (no isolation fixture applied to this module), test_b_*
+fails because `config.settings` is still test_a's cached sqlite/insecure
+instance — proving the leak. After the fix (this module opts into the
+`settings_isolation` marker, which conftest.py's `_isolate_settings_singleton`
+fixture uses to scope `_get_settings_cached.cache_clear()` to only marked
+modules — NOT a repo-wide autouse fixture; see conftest.py and issue #298/
+#299 review history for why repo-wide breaks 28 unrelated tests), both
+tests pass independent of run order.
 """
 
 from __future__ import annotations
 
+import pytest
+
 from app import config
+
+pytestmark = pytest.mark.settings_isolation
 
 
 def test_a_poison_cache_with_insecure_sqlite(monkeypatch):

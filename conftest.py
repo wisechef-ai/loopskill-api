@@ -53,8 +53,8 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
-def _isolate_settings_singleton():
-    """Reset the ``app.config`` Settings lru_cache singleton around every test.
+def _isolate_settings_singleton(request):
+    """Give marked tests a private Settings singleton, leaking nothing back.
 
     Issue #298: ``app.config._get_settings_cached`` is an
     ``lru_cache(maxsize=1)``. Whichever test first touches
@@ -69,15 +69,48 @@ def _isolate_settings_singleton():
     shard-order-dependent under ``pytest -n auto --dist loadfile``
     (test_secfix_1905_d_search_skills_n_plus_1.py on the postgres CI leg).
 
-    Clearing the cache before AND after each test guarantees every test
-    (and the next one) constructs its own Settings from its own env,
-    regardless of xdist worker/shard distribution or execution order.
-    """
-    from app.config import _get_settings_cached
+    NOT autouse-repo-wide, and NOT a bare ``cache_clear()``. #299's first
+    attempt cleared the shared cache before/after EVERY test (all ~5,400)
+    and broke 28 of them; the opt-in-marker follow-up narrowed the *count*
+    of affected tests but still called ``cache_clear()`` on the one, GLOBAL
+    ``_get_settings_cached`` object — which mutates state every other test
+    in the same interpreter can observe. Under ``-n auto --dist loadfile``
+    that damage is invisible because each xdist worker is a separate
+    process, so it never surfaced in that CI-shaped run — but a plain
+    single-process ``pytest tests/test_issue298... tests/test_loopskill_
+    public_origin.py`` reproduces it immediately: the marked test's
+    teardown clears the shared cache, the next (unmarked) test's stale
+    ``from app.config import settings`` import-time binding no longer
+    matches whatever ``config.settings`` lazily rebuilds to, and its
+    ``monkeypatch.setattr(settings, ...)`` patches an object nobody reads
+    anymore. Exact same failure class Adam's review flagged for
+    ``patch.object(real_settings, ...)`` tests — just one hop further away.
 
-    _get_settings_cached.cache_clear()
+    Fix: swap in a throwaway ``lru_cache`` object for the DURATION of the
+    marked test only, via ``pytest.MonkeyPatch`` (undone automatically at
+    teardown), instead of clearing the shared one. The original cached
+    object and its process-wide readers are never touched, so there is
+    zero cross-test leakage regardless of process/worker layout.
+
+    Opt in per-module with ``pytestmark = pytest.mark.settings_isolation``
+    (or per-test with ``@pytest.mark.settings_isolation``) — reserved for
+    modules that mutate ``WR_DATABASE_URL`` / ``WR_COOKIES_SECURE`` via env
+    (monkeypatch.setenv / patch.dict), NOT modules that patch.object() the
+    live Settings singleton's attributes (those must stay untouched by
+    cache-clearing or they break, per the mechanism above).
+    """
+    if request.node.get_closest_marker("settings_isolation") is None:
+        yield
+        return
+
+    from functools import lru_cache
+
+    from app import config
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(config, "_get_settings_cached", lru_cache(maxsize=1)(config.Settings))
     yield
-    _get_settings_cached.cache_clear()
+    mp.undo()
 
 
 @pytest.fixture(autouse=True)

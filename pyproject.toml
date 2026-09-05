@@ -55,4 +55,5 @@ markers = [
     "sandbox_linux_only: sandbox tests that require Linux (firejail/bwrap); skipped on macOS/darwin",
     "network: test is a genuine integration probe and may reach the public internet (exempt from the conftest outbound-network guard; non-hermetic, should not gate a merge)",
     "postgres_only: test requires a real reachable Postgres (TEST_DATABASE_URL/DATABASE_URL); self-skips when none is configured, matching the CI matrix's postgres leg",
+    "settings_isolation: test module mutates WR_DATABASE_URL/WR_COOKIES_SECURE via monkeypatch/patch.dict and needs the app.config Settings lru_cache singleton cleared before/after (issue #298); scoped opt-in, NOT autouse repo-wide (see conftest.py _isolate_settings_singleton_if_marked and issue #298/#299 review history — a blanket autouse fixture broke 28 unrelated tests that patch.object() the live Settings instance)",
 ]
