@@ -213,3 +213,50 @@ def test_apply_subscription_state_advances_on_resync_after_freeze(test_user, db)
     assert test_user.subscription_current_period_end.replace(tzinfo=UTC) == datetime.fromtimestamp(
         _ITEM_PERIOD_END, tz=UTC
     )
+
+
+# ── stripe-python StripeObject is NOT a mapping (dict(sub) raises) ──────────────
+# Both the resync script and handle_checkout_completed feed a LIVE
+# ``stripe.Subscription.retrieve`` result into ``_apply_subscription_state``.
+# stripe-python >= 12 raises ``TypeError: Subscription is not iterable or a
+# mapping`` on ``dict(sub)`` — proven on prod 2026-09-06 when the resync
+# dry-run crashed on the first real subscription. Webhook events are plain
+# dicts and must keep working unchanged.
+
+
+def _live_subscription_object():
+    import stripe
+
+    return stripe.Subscription.construct_from(_MODERN_SUB, "sk_test_placeholder")
+
+
+def test_stripe_object_is_not_a_mapping_in_pinned_sdk():
+    """Guards the premise: if the SDK ever makes StripeObject iterable again,
+    this test tells us the shim can be deleted."""
+    with pytest.raises(TypeError):
+        dict(_live_subscription_object())
+
+
+def test_stripe_to_dict_accepts_live_object_and_plain_dict():
+    from app.subscription_service import _stripe_to_dict
+
+    live = _stripe_to_dict(_live_subscription_object())
+    assert isinstance(live, dict)
+    assert (
+        live["items"]["data"][0]["current_period_end"]
+        == _MODERN_SUB["items"]["data"][0]["current_period_end"]
+    )
+    plain = {"id": "sub_plain", "status": "active"}
+    assert _stripe_to_dict(plain) is plain
+
+
+def test_apply_subscription_state_from_live_stripe_object(test_user, db):
+    from app.subscription_service import _apply_subscription_state, _stripe_to_dict
+
+    test_user.subscription_current_period_end = None
+    _apply_subscription_state(test_user, _stripe_to_dict(_live_subscription_object()), db, event_ts=None)
+    db.refresh(test_user)
+    assert test_user.subscription_current_period_end is not None
+    assert test_user.subscription_current_period_end.replace(tzinfo=UTC) == datetime.fromtimestamp(
+        _ITEM_PERIOD_END, tz=UTC
+    )

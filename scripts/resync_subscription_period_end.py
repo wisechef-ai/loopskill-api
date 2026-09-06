@@ -58,7 +58,7 @@ import stripe
 from app.config import settings
 from app.database import SessionLocal
 from app.models import User
-from app.subscription_service import _apply_subscription_state, _subscription_period_end
+from app.subscription_service import _apply_subscription_state, _subscription_period_end, _stripe_to_dict
 
 LEDGER_PATH = Path(__file__).resolve().parent.parent / "state" / "subscription-resync.ledger.tsv"
 
@@ -109,7 +109,7 @@ def main() -> int:
                 errors += 1
                 continue
 
-            sub_dict = dict(sub)
+            sub_dict = _stripe_to_dict(sub)
             stripe_period_end_ts = _subscription_period_end(sub_dict)
             stripe_period_end = (
                 datetime.fromtimestamp(stripe_period_end_ts, tz=UTC) if stripe_period_end_ts else None

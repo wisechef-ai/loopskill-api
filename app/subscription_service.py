@@ -408,6 +408,22 @@ def _is_stale_event(user: User, event_ts: datetime | None) -> bool:
     return event_ts < prior
 
 
+def _stripe_to_dict(obj: Any) -> dict:
+    """Plain-dict view of a Stripe resource, or the dict itself.
+
+    stripe-python >= 12 makes ``StripeObject`` non-iterable: ``dict(sub)`` raises
+    ``TypeError: Subscription is not iterable or a mapping`` on anything returned
+    by ``stripe.Subscription.retrieve``. Webhook payloads arrive as plain dicts and
+    must pass through untouched, so the readers below accept both shapes.
+    """
+    if isinstance(obj, dict):
+        return obj
+    to_dict = getattr(obj, "to_dict", None)
+    if callable(to_dict):
+        return to_dict()
+    return dict(obj)
+
+
 def _subscription_period_end(sub: dict) -> int | None:
     """Resolve the renewal-boundary unix timestamp from a Stripe Subscription dict.
 
@@ -550,7 +566,7 @@ def handle_checkout_completed(event: dict, db: Session) -> dict:
         # activation is real cash or a comp. Expanding them is what makes the
         # revenue alert able to tell the difference at all.
         sub = stripe.Subscription.retrieve(sub_id, expand=["items.data.price", "discount", "discounts"])
-        sub_dict = dict(sub)
+        sub_dict = _stripe_to_dict(sub)
         _apply_subscription_state(user, sub_dict, db, event_ts=_event_ts(event))
     else:
         user.subscription_status = "active"
