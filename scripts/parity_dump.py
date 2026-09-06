@@ -42,7 +42,9 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 REPO = Path(__file__).resolve().parent.parent
-if str(REPO) not in sys.path:  # runnable as `python scripts/parity_dump.py` from any cwd, like the other scripts
+if (
+    str(REPO) not in sys.path
+):  # runnable as `python scripts/parity_dump.py` from any cwd, like the other scripts
     sys.path.insert(0, str(REPO))
 BASELINE = REPO / "evals" / "parity" / "baseline.json"
 
