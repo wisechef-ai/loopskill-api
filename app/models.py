@@ -412,6 +412,11 @@ class InstallEvent(Base):
     #                 they stay hard errors and never reach this row.
     bundle_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     attribution = Column(String(16), nullable=False, server_default="attributed")
+    # coldstart_0609/A — True when the write came from a known fleet/system
+    # probe (see app/services/probe_detection.py — the ONE function both
+    # writers call). Non-null, defaults False so every pre-existing row and
+    # every caller that never checks reads exactly today's behaviour.
+    is_probe = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     created_at = Column(DateTime, server_default=func.now())
 
     skill = relationship("Skill", back_populates="install_events")
@@ -2314,6 +2319,9 @@ class MissingSkillQuery(Base):
     day = Column(Date, nullable=False)
     count = Column(Integer, nullable=False, default=1, server_default="1")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # coldstart_0609/A — see InstallEvent.is_probe docstring; same rule,
+    # same single function (app/services/probe_detection.py).
+    is_probe = Column(Boolean, nullable=False, default=False, server_default=text("false"))
 
     # fdeloop_0808 Phase A — declare the functional unique index the upsert
     # depends on, so it exists in `Base.metadata` and not only in the migration.

@@ -114,6 +114,7 @@ def search_skills(
         ),
     ),
     db: Session = Depends(get_db),
+    request: Request = None,  # type: ignore[assignment]
 ):
     """Full-text skill search with hybrid recall fallback."""
     # WIS-948: honour ?limit= alias so callers who use the idiomatic REST name
@@ -285,7 +286,16 @@ def search_skills(
     # violate the (lower(query), day) unique index or split the count and
     # under-report demand.
     if q and not final_outs and page == 1:
-        record_missing_skill_query(db, q)
+        api_key_id = None
+        client_ip = None
+        if request is not None:
+            from app.config import settings as _settings
+            from app.utils.client_ip import _real_client_ip
+
+            auth_ctx = getattr(request.state, "auth_ctx", None)
+            api_key_id = getattr(auth_ctx, "api_key_id", None)
+            client_ip = _real_client_ip(request, _settings.TRUSTED_PROXY_CIDRS)
+        record_missing_skill_query(db, q, api_key_id=api_key_id, client_ip=client_ip)
 
     return SkillSearchResult(
         results=final_outs,
@@ -831,7 +841,15 @@ def get_external_skills(
     # Guarded on `enabled` so a toggle-off request (which returns [] by design,
     # not by absence) never mints a phantom demand row.
     if q and enabled and not merged.external:
-        record_missing_skill_query(db, q)
+        from app.config import settings as _settings
+        from app.utils.client_ip import _real_client_ip
+
+        record_missing_skill_query(
+            db,
+            q,
+            api_key_id=getattr(auth_ctx, "api_key_id", None),
+            client_ip=_real_client_ip(request, _settings.TRUSTED_PROXY_CIDRS),
+        )
 
     return payload
 

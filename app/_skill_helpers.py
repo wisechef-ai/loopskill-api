@@ -433,6 +433,8 @@ def _record_install_event(
     """
     from uuid import uuid4 as _uuid4
 
+    from app.services.probe_detection import is_probe_request
+
     api_key_id = None
     client_ip = None
     if request is not None:
@@ -456,6 +458,7 @@ def _record_install_event(
         api_key_id=api_key_id,
         version_semver=version_semver,
         client_ip=client_ip,
+        is_probe=is_probe_request(db, api_key_id=api_key_id, client_ip=client_ip),
     )
     db.add(event)
 

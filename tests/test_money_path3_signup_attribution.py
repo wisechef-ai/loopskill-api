@@ -533,6 +533,22 @@ class TestWriteOnceRace:
         finally:
             session_a.close()
             session_b.close()
+            # This test commits directly against the session-scoped
+            # engine_fixture (bypassing db_session's SAVEPOINT rollback) to
+            # exercise real cross-session commit ordering. Left uncleaned,
+            # that row survives for the rest of the xdist worker's session
+            # and leaks into any other test on the same worker that scans
+            # the users table unfiltered (e.g. funnel_backfill.backfill_signup
+            # under `--dist loadfile`, which put this file and
+            # test_funnel_ledger.py on one worker — see AGENTS.md root-cause
+            # note). Delete what this test seeded so the engine is exactly
+            # as it was before the test ran.
+            cleanup = SessionLocal()
+            try:
+                cleanup.query(User).filter(User.id == uid).delete()
+                cleanup.commit()
+            finally:
+                cleanup.close()
 
 
 # ── P1-b: a commit failure inside attribution capture must not poison the
