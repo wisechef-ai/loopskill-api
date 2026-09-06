@@ -255,9 +255,7 @@ def _copy_codex_oauth_credentials(home: Path) -> bool:
     return True
 
 
-def write_isolated_hermes_home(
-    tmp_home: Path, parent_hermes_home: Path
-) -> tuple[Path, str]:
+def write_isolated_hermes_home(tmp_home: Path, parent_hermes_home: Path) -> tuple[Path, str]:
     """Build a minimal, LoopSkill-blind HERMES_HOME under the fresh $HOME.
 
     Returns (hermes_home_path, model_string_used).
@@ -294,9 +292,7 @@ def _clip_tail(text: str, n: int = 600) -> str:
     return text[-n:] if len(text) > n else text
 
 
-def run_fake_harness(
-    prompt: str, home: Path, max_minutes: int, cwd: Path
-) -> HarnessResult:
+def run_fake_harness(prompt: str, home: Path, max_minutes: int, cwd: Path) -> HarnessResult:
     """Synthetic harness for the test suite: no network, no real binary.
 
     Behavior is entirely controlled by env vars so tests can exercise every
@@ -355,10 +351,7 @@ def _count_hermes_tool_calls(hermes_home: Path) -> int | None:
             conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
             try:
                 cur = conn.cursor()
-                cur.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' "
-                    "AND name LIKE '%tool_call%'"
-                )
+                cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE '%tool_call%'")
                 tables = [r[0] for r in cur.fetchall()]
                 total = 0
                 for t in tables:
@@ -388,9 +381,7 @@ def _count_hermes_tool_calls(hermes_home: Path) -> int | None:
     return None
 
 
-def run_hermes_harness(
-    prompt: str, home: Path, max_minutes: int, parent_hermes_home: Path
-) -> HarnessResult:
+def run_hermes_harness(prompt: str, home: Path, max_minutes: int, parent_hermes_home: Path) -> HarnessResult:
     hermes_home, model = write_isolated_hermes_home(home, parent_hermes_home)
     assert_no_secret_leak(home)  # config/env we just wrote must itself be clean
 

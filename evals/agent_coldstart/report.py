@@ -102,31 +102,37 @@ def render_markdown(results: list[dict[str, Any]], summary: dict[str, Any]) -> s
     lines.append("## Suite pass rate per harness")
     lines.append("")
     for h in harnesses:
-        lines.append(f"- **{h}**: {summary['harnesses'][h]['pass_rate']} "
-                      f"(errors excluded: {summary['harnesses'][h]['n_error']})")
+        lines.append(
+            f"- **{h}**: {summary['harnesses'][h]['pass_rate']} "
+            f"(errors excluded: {summary['harnesses'][h]['n_error']})"
+        )
     lines.append("")
 
     lines.append("## Cost-to-value (PASSED tasks only)")
     lines.append("")
     for h in harnesses:
         c = summary["harnesses"][h]["cost_to_value_passed_only"]
-        lines.append(f"- **{h}**: median tool_calls={c['median_tool_calls']}, "
-                      f"p90 tool_calls={c['p90_tool_calls']}, "
-                      f"median minutes={c['median_minutes']}, "
-                      f"p90 minutes={c['p90_minutes']}")
+        lines.append(
+            f"- **{h}**: median tool_calls={c['median_tool_calls']}, "
+            f"p90 tool_calls={c['p90_tool_calls']}, "
+            f"median minutes={c['median_minutes']}, "
+            f"p90 minutes={c['p90_minutes']}"
+        )
     lines.append("")
 
     lines.append("## Failed-task effort (reported separately, never blended into cost-to-value)")
     lines.append("")
     for h in harnesses:
         e = summary["harnesses"][h]["failed_task_effort"]
-        lines.append(f"- **{h}**: median tool_calls burned on failed attempts="
-                      f"{e['median_tool_calls_burned']} (n={e['n_failed']})")
+        lines.append(
+            f"- **{h}**: median tool_calls burned on failed attempts="
+            f"{e['median_tool_calls_burned']} (n={e['n_failed']})"
+        )
     lines.append("")
 
     lines.append(
         "## Deleted candidate task (carried forward per RUBRIC.md)\n\n"
-        "\"sync a fleet member\" was deleted from the original 11-task set — "
+        '"sync a fleet member" was deleted from the original 11-task set — '
         "requires pre-existing multi-agent fleet state a single cold agent "
         "cannot construct in one bounded task. See tasks.yaml footer.\n"
     )

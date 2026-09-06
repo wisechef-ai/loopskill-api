@@ -59,7 +59,7 @@ def test_fresh_home_has_no_loopskill_secrets(tmp_path, monkeypatch):
 
 
 def test_run_task_fake_harness_pass(tmp_path, monkeypatch):
-    monkeypatch.setenv("FAKE_HARNESS_CMD", "echo hi > \"$HOME/.loopskill_marker\"; true")
+    monkeypatch.setenv("FAKE_HARNESS_CMD", 'echo hi > "$HOME/.loopskill_marker"; true')
     monkeypatch.setenv("FAKE_HARNESS_TOOL_CALLS", "3")
     results_dir = tmp_path / "results"
 
