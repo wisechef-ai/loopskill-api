@@ -408,6 +408,34 @@ def _is_stale_event(user: User, event_ts: datetime | None) -> bool:
     return event_ts < prior
 
 
+def _subscription_period_end(sub: dict) -> int | None:
+    """Resolve the renewal-boundary unix timestamp from a Stripe Subscription dict.
+
+    On Stripe API versions >= 2025-03-31.basil (which includes the pinned
+    ``2026-01-28.clover``), ``current_period_end`` moved off the top-level
+    Subscription object onto each entry of ``items.data[]`` — the top-level
+    key is simply ABSENT. LIVE PROOF (2026-09-06, prod): 3 real subscriptions
+    all returned ``status=active`` with no top-level ``current_period_end``,
+    only ``items.data[0].current_period_end``; reading only the top-level key
+    left ``period_end`` at None, so ``_apply_subscription_state`` never wrote
+    it and the DB column froze at signup while status/events kept advancing.
+
+    Resolution order:
+      1. Max across ``items.data[].current_period_end`` (the modern shape —
+         a max, not ``items[0]``, because a subscription can carry multiple
+         line items with different renewal boundaries e.g. after proration).
+      2. Fall back to the top-level ``current_period_end`` for old fixtures /
+         pre-2025-03 cached objects that never had item-level values.
+      3. ``None`` when neither is present (defensive — should not happen for
+         a real Stripe object, but must not raise).
+    """
+    items = (sub.get("items") or {}).get("data") or []
+    item_period_ends = [item.get("current_period_end") for item in items if item.get("current_period_end")]
+    if item_period_ends:
+        return max(item_period_ends)
+    return sub.get("current_period_end")
+
+
 def _apply_subscription_state(user: User, sub: dict, db: Session, event_ts: datetime | None = None) -> None:
     """Sync the user's subscription_* fields from a Stripe subscription dict.
 
@@ -418,7 +446,7 @@ def _apply_subscription_state(user: User, sub: dict, db: Session, event_ts: date
     """
     user.subscription_id = sub["id"]
     user.subscription_status = sub.get("status")
-    period_end = sub.get("current_period_end")
+    period_end = _subscription_period_end(sub)
     if period_end:
         user.subscription_current_period_end = datetime.fromtimestamp(period_end, tz=UTC)
     items = (sub.get("items") or {}).get("data") or []
