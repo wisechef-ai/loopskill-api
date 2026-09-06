@@ -38,8 +38,17 @@ TASKS_PATH = Path(__file__).parent / "tasks.yaml"
 LOOPSKILL_BASE_DEFAULT = "https://app.loopskill.io"
 
 # Regex for the pre-flight isolation proof: a fresh $HOME must contain zero
-# hits for any LoopSkill credential/marker string before a harness ever runs.
-SECRET_LEAK_PATTERN = re.compile(r"loopskill|rec_live|rec_agent", re.IGNORECASE)
+# credential-shaped markers before a harness ever runs. Deliberately NOT the
+# bare product name: a seeded task file may legitimately SAY "LoopSkill" in
+# prose (the publish task's SKILL.md does) — the scan proves a cold START
+# (no key material, no pre-wired MCP config), not that the word is unspoken.
+SECRET_LEAK_PATTERN = re.compile(
+    r"rec_live_|rec_agent_|rec_chef_"  # key material
+    r"|loopskill_api_key\s*="  # env-style credential assignment
+    r"|app\.loopskill\.io/api/mcp"  # a pre-wired MCP endpoint
+    r"|LOOPSKILL_(API_KEY|MASTER_KEY)",  # secret var names
+    re.IGNORECASE,
+)
 
 # Harness binaries this runner knows how to invoke for real (fake is a
 # synthetic in-process harness used only by the test suite — no network, no
