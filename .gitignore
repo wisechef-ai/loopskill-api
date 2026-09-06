@@ -100,3 +100,4 @@ app/graphify-out/
 .graphify_ast.json
 _build_graph.py
 _run_ast.py
+.worktrees/
