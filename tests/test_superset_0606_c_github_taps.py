@@ -47,10 +47,10 @@ class TestTapList:
         # comment + vault research/2026-08-21-federation-source-expansion.md).
         # pr294 — +1 curated tap (github-marketing-os).
         # Growth is a deliberate two-place edit: yaml + this pin.
-        assert len(GITHUB_TAPS) == 22
+        assert len(GITHUB_TAPS) == 23
         assert set(GITHUB_FACET_SOURCES) == {
             "github-anthropic", "github-openai", "github-huggingface",
-            "github-nvidia", "github-gstack", "github-superpowers",
+            "github-nvidia", "github-gstack", "github-superpowers", "github-botmaker",
             "github-marketing",
             # maturity_0821 curated expansion
             "github-agentskillexchange", "github-journal-skills",

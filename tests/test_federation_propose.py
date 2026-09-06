@@ -486,6 +486,7 @@ def test_all_14_preexisting_sources_survive_config_move():
         "github-gstack",
         "github-marketing",
         "github-superpowers",
+        "github-botmaker",
         # maturity_0821 curated expansion (13 sources, 2026-08-21 — vault:
         # research/2026-08-21-federation-source-expansion.md). Every addition
         # to federation_sources.yaml must be pinned here too: this test is the
@@ -508,7 +509,7 @@ def test_all_14_preexisting_sources_survive_config_move():
         "github-marketing-os",
     }
     assert set(LIVE_SOURCES) == expected, f"drift: {set(LIVE_SOURCES) ^ expected}"
-    assert len(LIVE_SOURCES) == 29
+    assert len(LIVE_SOURCES) == 30
 
 
 # ── Test 8: the REST endpoint mirrors the MCP tool contract ──────────────────

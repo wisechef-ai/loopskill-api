@@ -82,6 +82,15 @@ github_taps:
     repo_license: "MIT"
     trust: curated-community
     in_metasearch: false
+  # techjanitor/botmaker — a Hermes SOUL+skill for minting specialist bots
+  # (interview -> sign-off -> scaffold -> certification). MIT. Layout is
+  # skills/<category>/<skill>/SKILL.md, so path points at the category dir.
+  - source_id: github-botmaker
+    repo: techjanitor/botmaker
+    path: "skills/autonomous-ai-agents/"
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: true
   # Corey Haines' marketing skill pack (47 skills, MIT). in_metasearch=true ->
   # first-class ranking; live-fetch (no SHA pin) so daily upstream edits
   # surface at query+install time.
