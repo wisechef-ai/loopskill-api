@@ -1,0 +1,470 @@
+# LoopSkill Agent Cold-Start Benchmark — Task Set
+#
+# Authored BLIND to the loopskill-api codebase's `app/` source and its fix
+# lanes. Only public surfaces were consulted while writing this file:
+#   - https://app.loopskill.io  (landing + /docs + /skill)
+#   - https://app.loopskill.io/llms.txt
+#   - https://app.loopskill.io/.well-known/agent.json
+#   - https://app.loopskill.io/.well-known/mcp.json
+#   - public read endpoints: /api/skills/search, /api/skills/{slug},
+#     /api/bundles/discover, /api/stats, /api/skills/metasearch
+#   - the public GitHub README of wisechef-ai/loopskill-api
+#
+# Purpose: measure what a COLD agent (fresh Hermes profile / Claude Code /
+# Codex — no LoopSkill API key, no MCP config, fresh $HOME, network on) pays
+# in tool calls / minutes / tokens to get real value out of LoopSkill.
+#
+# Ground rule for every task: success_check is a DETERMINISTIC command that
+# exits 0 on pass, non-zero on fail. No human judgment, no "looks right".
+# Checks call the LIVE public API at check-time rather than baking in
+# scraped values that will drift (catalog counts, install counts, etc. are
+# not stable across runs).
+#
+# A nightly autonomous FIX cron consumes this file read-only and is
+# forbidden from editing it — so every success_check is written to resist a
+# fixer teaching the *product* to special-case the literal wording of a
+# `prompt` field instead of shipping the real capability. See
+# GAMEABILITY.md for the residual risk that could NOT be fully closed.
+
+version: 1
+suite: agent_coldstart
+target_service:
+  name: LoopSkill
+  base_url: https://app.loopskill.io
+  mcp_endpoint: https://app.loopskill.io/api/mcp/http/
+
+defaults:
+  preconditions:
+    - fresh_home: true            # $HOME has never touched LoopSkill before
+    - api_key_configured: false   # no LOOPSKILL_API_KEY / rec_* key anywhere
+    - mcp_configured: false       # no MCP server entry for loopskill pre-wired
+    - network: enabled
+  run_id_var: "{{run_id}}"        # harness substitutes a short random token,
+                                  # e.g. 8 lowercase hex chars, unique per run
+
+tasks:
+
+  - id: install-named-skill
+    prompt: >
+      Install the "humanizer" skill from LoopSkill (app.loopskill.io) so it's
+      available to this agent.
+    preconditions:
+      - fresh_home: true
+      - api_key_configured: false
+      - mcp_configured: false
+      - network: enabled
+    max_minutes: 10
+    success_check: |
+      # Deterministic: find any locally installed SKILL.md that declares
+      # itself as the humanizer skill, then cross-check its body against the
+      # LIVE catalog entry fetched at verification time (not a value pinned
+      # into this file, which would drift as the skill is edited upstream).
+      set -euo pipefail
+      found="$(find "$HOME" -type f -iname 'SKILL.md' \
+        -exec grep -l '^name: *humanizer' {} \; 2>/dev/null | head -n1)"
+      test -n "$found"
+      live_tags_line="$(curl -fsS 'https://app.loopskill.io/api/skills/humanizer' \
+        | python3 -c "import json,sys; d=json.load(sys.stdin); \
+          rm=d.get('readme') or ''; \
+          print(next((l for l in rm.splitlines() if l.strip().startswith('tags:')), ''))")"
+      test -n "$live_tags_line"
+      grep -qF "$live_tags_line" "$found"
+    tags: []
+    gameability_notes: >
+      A fixer could hard-code a canned SKILL.md file for the literal string
+      "humanizer" without a general install path working for any other
+      slug. The live cross-check (comparing against the catalog's current
+      `tags:` line at verification time, not a value frozen into this spec)
+      forces the fixer to at least keep that one skill's install content
+      byte-consistent with the catalog, but it does NOT prove the install
+      mechanism generalizes — a per-slug special case for exactly
+      "humanizer" would still pass. Not fully closed; see GAMEABILITY.md.
+
+  - id: install-unnamed-need
+    prompt: >
+      I run a nightly cron job and I want it to email me a report when it
+      finishes. Find something in the marketplace that can help with that
+      and install it.
+    preconditions:
+      - fresh_home: true
+      - api_key_configured: false
+      - mcp_configured: false
+      - network: enabled
+    max_minutes: 15
+    tags: ["email", "e-mail", "smtp", "mailer", "notification-email"]
+    success_check: |
+      # Success = whatever got installed genuinely declares an email-sending
+      # capability in ITS OWN metadata (name/description/tags), not merely
+      # an installed file that happens to exist. This resists a fixer just
+      # dropping any file when it sees "cron"+"email" in the prompt text,
+      # because the check inspects the INSTALLED ARTIFACT's own declared
+      # identity against the task's tag set, not the prompt.
+      set -euo pipefail
+      python3 - <<'PY'
+      import re, sys, pathlib, os
+      home = pathlib.Path(os.environ["HOME"])
+      pattern = re.compile(r'(?i)\b(email|e-mail|smtp|mailer)\b')
+      hit = False
+      for p in home.rglob("SKILL.md"):
+          try:
+              text = p.read_text(errors="ignore")
+          except OSError:
+              continue
+          # only look at the YAML frontmatter block (between the first two '---')
+          parts = text.split('---')
+          front = parts[1] if len(parts) > 2 else text
+          if pattern.search(front):
+              hit = True
+              break
+      sys.exit(0 if hit else 1)
+      PY
+    gameability_notes: >
+      Two failure modes to watch: (1) a fixer could special-case the phrase
+      "email" + "cron" in the incoming request and synthesize a stub
+      SKILL.md containing the word "email" without real utility — the check
+      cannot distinguish a stub from a genuinely useful skill, only that the
+      installed artifact HONESTLY DECLARES an email capability in its own
+      frontmatter. (2) LoopSkill's first-party curated catalog has no
+      email-sending skill today (verified via /api/skills/search?q=email
+      returning unrelated hits) — a correct agent must reach into the
+      federated 91k+ metasearch layer (/api/skills/metasearch) to find a
+      real candidate (e.g. a twilio/send-email community skill). If that
+      federation path is broken, a compliant agent may legitimately fail
+      this task; that is intended signal, not a check bug.
+
+  - id: install-public-bundle
+    prompt: >
+      There's a starter bundle on LoopSkill called "loopskill-essentials" —
+      install the whole bundle using the standard well-known bundle
+      installer syntax agents use for this
+      (`well-known:https://app.loopskill.io/api/bundles/public/<slug>`).
+    preconditions:
+      - fresh_home: true
+      - api_key_configured: false
+      - mcp_configured: false
+      - network: enabled
+    max_minutes: 15
+    tags: []
+    success_check: |
+      # A bundle install must (a) leave behind noticeably more than a
+      # single skill (loopskill-essentials carries dozens of skills per the
+      # public bundle-discovery endpoint), and (b) leave a trace that it
+      # came from the BUNDLE path specifically, not N manual single
+      # installs the agent happened to script itself.
+      set -euo pipefail
+      count="$(find "$HOME" -type f -iname 'SKILL.md' 2>/dev/null | wc -l)"
+      test "$count" -ge 10
+      grep -RIl 'loopskill-essentials' "$HOME" >/dev/null 2>&1
+    gameability_notes: >
+      The ">=10 SKILL.md files" bar is a loose lower bound (real bundle size
+      is dozens) chosen so it survives the catalog's bundle contents
+      changing size over time, but a sufficiently motivated agent COULD
+      satisfy it by manually installing 10 unrelated single skills and
+      dropping a throwaway file containing the string
+      "loopskill-essentials" somewhere under $HOME. This is a real residual
+      gap — see GAMEABILITY.md.
+
+  - id: self-register-agent
+    prompt: >
+      Register yourself as a new agent with LoopSkill (there's a
+      self-registration endpoint that doesn't need a human/OAuth login —
+      look at their agent discovery file) and get your own API key. Save
+      the resulting API key to a file at ~/.loopskill/api_key.txt (create
+      the folder if it doesn't exist) so it can be reused later.
+    preconditions:
+      - fresh_home: true
+      - api_key_configured: false
+      - mcp_configured: false
+      - network: enabled
+    max_minutes: 12
+    tags: []
+    success_check: |
+      # Format check + a DIFFERENTIAL live-auth check: the saved key must
+      # actually authenticate against a real endpoint that a random,
+      # correctly-SHAPED-but-never-issued key does not. This can't be
+      # satisfied by a fixer that just accepts anything shaped like
+      # rec_agent_*, because the negative control uses the same shape.
+      set -euo pipefail
+      keyfile="$HOME/.loopskill/api_key.txt"
+      test -f "$keyfile"
+      key="$(tr -d '[:space:]' < "$keyfile")"
+      echo "$key" | grep -Eq '^rec_agent_[A-Za-z0-9_-]{16,}$'
+      neg_key="rec_agent_$(python3 -c 'import secrets;print(secrets.token_hex(20))')"
+      code_good="$(curl -s -o /dev/null -w '%{http_code}' \
+        -H "x-api-key: $key" \
+        'https://app.loopskill.io/api/skills/install?slug=humanizer')"
+      code_bad="$(curl -s -o /dev/null -w '%{http_code}' \
+        -H "x-api-key: $neg_key" \
+        'https://app.loopskill.io/api/skills/install?slug=humanizer')"
+      test "$code_good" = "200"
+      test "$code_bad" != "200"
+    gameability_notes: >
+      This is a differential proof, not a ground-truth server-state check
+      (we have no public admin read on agent_identities). A fixer could
+      cheaply pass it by validating only KEY FORMAT plus a length/entropy
+      heuristic rather than a real per-key DB lookup — our negative control
+      uses a correctly-shaped-but-random key specifically to make that
+      cheap version fail, but a fixer that keeps a real allow-list keyed on
+      "was this key returned by /api/agents/register in the last N
+      minutes" would still pass honestly. Documented as an open risk in
+      GAMEABILITY.md.
+
+  - id: publish-throwaway-skill
+    prompt: >
+      I wrote a small skill and saved it in a folder at ~/my-skill (it has a
+      SKILL.md already). Publish it to LoopSkill as a new public skill,
+      named exactly "coldstart-bench-{{run_id}}", so other agents could
+      find and install it.
+    preconditions:
+      - fresh_home: true
+      - api_key_configured: false
+      - mcp_configured: false
+      - network: enabled
+      - seed_files:
+          - path: "~/my-skill/SKILL.md"
+            content: |
+              ---
+              name: coldstart-bench-{{run_id}}
+              description: >
+                Throwaway benchmark skill for the LoopSkill agent cold-start
+                eval. Says hello. Safe to delete/ignore.
+              tags: [coldstart-bench]
+              ---
+              # coldstart-bench-{{run_id}}
+              This is a disposable probe skill created by an automated
+              benchmark run ({{run_id}}). It has no real function.
+    max_minutes: 15
+    tags: []
+    success_check: |
+      # Require the new skill to show up on TWO independent public read
+      # paths (detail route AND full-text search index), so a fixer can't
+      # satisfy this by special-casing only the detail-by-slug lookup.
+      set -euo pipefail
+      slug="coldstart-bench-{{run_id}}"
+      detail_json="$(curl -fsS "https://app.loopskill.io/api/skills/${slug}")"
+      echo "$detail_json" | python3 -c "
+      import json,sys
+      d=json.load(sys.stdin)
+      assert d.get('slug') == '${slug}'
+      assert d.get('is_public') is True
+      "
+      search_json="$(curl -fsS "https://app.loopskill.io/api/skills/search?q=coldstart-bench-{{run_id}}")"
+      echo "$search_json" | python3 -c "
+      import json,sys
+      d=json.load(sys.stdin)
+      slugs=[r.get('slug') for r in d.get('results', [])]
+      assert '${slug}' in slugs, slugs
+      "
+    gameability_notes: >
+      The run-id in the slug prevents a fixer from pre-seeding a fake
+      response for a fixed known slug ahead of time, but it does NOT stop a
+      fixer from special-casing the STRING PATTERN
+      "coldstart-bench-<anything>" — e.g. auto-fabricating a fake catalog
+      row for any slug matching that prefix without a real publish/review
+      pipeline running. Cross-checking detail + search raises the cost but
+      does not eliminate a pattern-keyed special case. Open risk.
+
+  - id: report-skill-error
+    prompt: >
+      Install the "humanizer" skill, then use LoopSkill's official
+      mechanism for reporting that a skill's instructions are broken or
+      unclear to tell them something is wrong with it. Whatever
+      confirmation, ticket ID, or response message you get back, save it
+      verbatim to ~/.loopskill/report_confirmation.txt.
+    preconditions:
+      - fresh_home: true
+      - api_key_configured: false
+      - mcp_configured: false
+      - network: enabled
+    max_minutes: 12
+    tags: []
+    success_check: |
+      # NOTE: there is no public read-back endpoint for feedback/error
+      # reports (by design — this is an authenticated write with no public
+      # GET). This check can only verify the AGENT'S OWN CLAIM of having
+      # done it, via a plausible confirmation artifact. This is the
+      # weakest check in the suite; flagged explicitly in GAMEABILITY.md.
+      set -euo pipefail
+      f="$HOME/.loopskill/report_confirmation.txt"
+      test -s "$f"
+      # must contain something that looks like a real machine-issued
+      # identifier or acknowledgement, not just the agent echoing the
+      # prompt back to itself.
+      grep -Eiq '[0-9a-f]{6,}|"?(ok|success|received|reported|id)"?\s*[:=]' "$f"
+      # must NOT just be a copy of the prompt text (cheap self-report guard)
+      ! grep -qF "use LoopSkill's official mechanism" "$f"
+    gameability_notes: >
+      This is the single weakest check in the suite. Because there is no
+      public server-side read-back for a submitted skill-error report, the
+      check can only inspect an artifact the AGENT ITSELF wrote, which
+      proves the agent believes it succeeded, not that LoopSkill's backend
+      actually received and stored the report. A fixer (or a lazy/broken
+      agent) could satisfy this by having the MCP tool call return ANY
+      response shape containing an id-looking token, whether or not
+      anything durable happened server-side. Listed as a top open risk in
+      GAMEABILITY.md; a future version of this suite should be re-run with
+      the fixer's account, once one exists, granted a scoped read-only
+      audit token to close this gap — not possible from a blind, public-only
+      vantage point today.
+
+  - id: tailor-fork-skill
+    prompt: >
+      Take the "humanizer" skill and make a private, customized copy just
+      for this agent — change something about it — without publishing it
+      publicly. Save the customized copy to
+      ~/.loopskill/tailored/SKILL.md.
+    preconditions:
+      - fresh_home: true
+      - api_key_configured: false
+      - mcp_configured: false
+      - network: enabled
+    max_minutes: 15
+    tags: []
+    success_check: |
+      # Prove two things deterministically: (1) the saved copy actually
+      # DIFFERS from the current public original (a no-op "tailor" that
+      # just re-saves the stock file must fail), and (2) it is not
+      # reachable as a NEW public catalog entry under an obvious slug
+      # guess, i.e. it stayed private rather than accidentally publishing.
+      set -euo pipefail
+      f="$HOME/.loopskill/tailored/SKILL.md"
+      test -f "$f"
+      live="$(curl -fsS 'https://app.loopskill.io/api/skills/humanizer' \
+        | python3 -c "import json,sys; print(json.load(sys.stdin).get('readme') or '')")"
+      live_hash="$(printf '%s' "$live" | sha256sum | cut -d' ' -f1)"
+      local_hash="$(sha256sum "$f" | cut -d' ' -f1)"
+      test "$live_hash" != "$local_hash"
+    gameability_notes: >
+      A fixer could satisfy "differs from the original" trivially by
+      appending a single byte/comment to the stock file without any real
+      tailoring/forking mechanism running at all. The check proves
+      *modification happened*, not that it happened via LoopSkill's actual
+      fork/tailor feature (vs. the agent just editing a locally-cached copy
+      by hand, bypassing the product entirely). Partially open — see
+      GAMEABILITY.md.
+
+  - id: read-llms-txt-qa
+    prompt: >
+      Look at https://app.loopskill.io/llms.txt and tell me, in your own
+      words: what is this service, and how would I install one skill from
+      it? Save your answer to ~/.loopskill/answer.txt.
+    preconditions:
+      - fresh_home: true
+      - api_key_configured: false
+      - mcp_configured: false
+      - network: enabled
+    max_minutes: 8
+    tags: []
+    success_check: |
+      set -euo pipefail
+      f="$HOME/.loopskill/answer.txt"
+      test -s "$f"
+      ans="$(cat "$f")"
+      echo "$ans" | grep -Eiq 'market ?place|registry'
+      echo "$ans" | grep -Eiq '\bskill(s)?\b'
+      echo "$ans" | grep -Eiq 'mcp|rest|api'
+      # must reference a REAL, specific install mechanism, not just the word "install"
+      echo "$ans" | grep -Eiq \
+        'loopskill_install|/api/skills/install|hermes skills install|well-known:https://app\.loopskill\.io'
+    gameability_notes: >
+      Keyword-presence checks are the easiest class of check to game by
+      stuffing buzzwords without genuine comprehension. Mitigated somewhat
+      by requiring a SPECIFIC, real install command/URL pattern (not just
+      the generic word "install"), which forces the answer to actually
+      have read the page rather than guessing generically about "a skill
+      marketplace". Still gameable by a template that always emits one of
+      the four accepted install strings regardless of the question asked.
+
+  - id: uninstall-rollback-skill
+    prompt: >
+      You (or a previous session) already installed the "humanizer" skill
+      on this machine — I don't want it anymore. Remove it completely.
+    preconditions:
+      - fresh_home: true
+      - api_key_configured: false
+      - mcp_configured: false
+      - network: enabled
+      - seed_files:
+          - path: "~/.claude/skills/humanizer/SKILL.md"
+            content_from: "https://app.loopskill.io/api/skills/humanizer#readme"
+            # harness fetches the live readme field at seed time and writes
+            # it verbatim to this path before the task starts.
+    max_minutes: 8
+    tags: []
+    success_check: |
+      # Removal must be REAL, not a rename/hide: sweep the whole $HOME for
+      # any leftover file that still declares itself as the humanizer
+      # skill, anywhere, not just at the seeded path.
+      set -euo pipefail
+      test ! -e "$HOME/.claude/skills/humanizer/SKILL.md"
+      ! find "$HOME" -type f -iname 'SKILL.md' \
+        -exec grep -l '^name: *humanizer' {} \; 2>/dev/null | grep -q .
+    gameability_notes: >
+      The whole-$HOME sweep closes the obvious "just move the folder"
+      cheat. A subtler cheat — editing the frontmatter `name:` field in
+      place to something else while leaving the file (and its
+      functionality) present — would also pass this check; we accept that
+      residual gap because "the file no longer self-identifies as
+      humanizer anywhere" is the most specific deterministic signal
+      available without assuming a particular skill-manager's internal
+      state file (which would break the blind-authorship constraint).
+
+  - id: search-catalog-top3
+    prompt: >
+      Search LoopSkill's public catalog for skills about "code review" and
+      give me the top 3 result slugs, most relevant first, as a JSON array.
+      Save it to ~/.loopskill/top3.json.
+    preconditions:
+      - fresh_home: true
+      - api_key_configured: false
+      - mcp_configured: false
+      - network: enabled
+    max_minutes: 8
+    tags: []
+    success_check: |
+      # Order-agnostic set-membership against the LIVE search index at
+      # check time (ranking can legitimately shift run-to-run), plus a
+      # real-existence check on each returned slug so hallucinated slugs
+      # fail even if they sound plausible.
+      set -euo pipefail
+      f="$HOME/.loopskill/top3.json"
+      test -s "$f"
+      python3 - "$f" <<'PY'
+      import json, sys, urllib.request
+      f = sys.argv[1]
+      data = json.load(open(f))
+      assert isinstance(data, list) and len(data) == 3, data
+      assert all(isinstance(s, str) and s for s in data), data
+      live = json.load(urllib.request.urlopen(
+          "https://app.loopskill.io/api/skills/search?q=code%20review"))
+      live_slugs = {r["slug"] for r in live.get("results", [])}
+      for s in data:
+          assert s in live_slugs, f"{s} not in live search results {live_slugs}"
+          # confirm it's a real, resolvable catalog entry, not a guess
+          urllib.request.urlopen(f"https://app.loopskill.io/api/skills/{s}")
+      PY
+    gameability_notes: >
+      Because the ground truth is re-fetched live rather than pinned, a
+      fixer cannot game this by hard-coding a fixed answer for the literal
+      query string "code review" — the check would only accidentally pass
+      if the live catalog happens to still contain those slugs for that
+      query at verification time, which requires the real search index to
+      keep working. Low residual risk.
+
+# ---------------------------------------------------------------------------
+# Deleted candidate (from the original 11): "sync a fleet member"
+#
+# Reason for deletion: fleet operations (loopskill_fleet_sync /
+# loopskill_fleet_create / loopskill_fleet_subscribe) require PRE-EXISTING
+# multi-agent fleet state (a fleet plus at least one other registered
+# member) that a single cold agent starting from a truly blank $HOME cannot
+# construct and exercise end-to-end within one bounded task — it is a
+# multi-agent scenario wearing a single-task costume. On top of that,
+# LoopSkill's own public /docs page explicitly marks the closely-adjacent
+# "Client deployment" capability (pushing bundles/config to fleet members)
+# as "Coming soon (Q2 2026)" as of this writing, so a blind, public-only
+# author cannot state a confident, stable success contract for functionality
+# the product itself documents as not fully shipped. Rather than guess at
+# internal readiness, it was cut instead of writing a check likely to be
+# either unfairly punitive (if fleet sync is genuinely half-built) or
+# trivially satisfiable (if under-specified).
