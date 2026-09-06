@@ -50,7 +50,7 @@ def normalise_query(q: str | None) -> str:
     return " ".join(q.split())[:_MAX_QUERY_LEN]
 
 
-def _upsert(db: Session, q: str, *, user_id=None) -> None:
+def _upsert(db: Session, q: str, *, user_id=None, is_probe: bool = False) -> None:
     """Increment the (lower(q), today) row, inserting it if absent.
 
     Split out from ``record_missing_skill_query`` so the swallow-everything
@@ -74,6 +74,11 @@ def _upsert(db: Session, q: str, *, user_id=None) -> None:
     ``index_where=None`` + an explicit text() target is the spelling that
     matches; it is written literally rather than built from ORM constructs so
     it can be diffed against the migration by eye.
+
+    ``is_probe`` (coldstart_0609/A) is only stamped on the INSERT branch — a
+    probe hitting an already-existing row still increments ``count`` (the
+    row's origin doesn't change retroactively); on Postgres the same is true
+    of the ON CONFLICT DO UPDATE, which intentionally omits is_probe.
     """
     today = date.today()
     bind = db.get_bind()
@@ -84,13 +89,13 @@ def _upsert(db: Session, q: str, *, user_id=None) -> None:
         db.execute(
             text(
                 """
-                INSERT INTO missing_skill_queries (id, query, user_id, day, count)
-                VALUES (gen_random_uuid(), :q, :uid, :day, 1)
+                INSERT INTO missing_skill_queries (id, query, user_id, day, count, is_probe)
+                VALUES (gen_random_uuid(), :q, :uid, :day, 1, :is_probe)
                 ON CONFLICT (lower(query), day)
                 DO UPDATE SET count = missing_skill_queries.count + 1
                 """
             ),
-            {"q": q, "uid": user_id, "day": today},
+            {"q": q, "uid": user_id, "day": today, "is_probe": is_probe},
         )
     else:
         # SQLite (tests): no functional-index upsert support — SELECT then write.
@@ -105,11 +110,18 @@ def _upsert(db: Session, q: str, *, user_id=None) -> None:
         if existing:
             existing.count += 1
         else:
-            db.add(MissingSkillQuery(query=q, user_id=user_id, day=today, count=1))
+            db.add(MissingSkillQuery(query=q, user_id=user_id, day=today, count=1, is_probe=is_probe))
     db.commit()
 
 
-def record_missing_skill_query(db: Session, q: str | None, *, user_id=None) -> bool:
+def record_missing_skill_query(
+    db: Session,
+    q: str | None,
+    *,
+    user_id=None,
+    api_key_id=None,
+    client_ip: str | None = None,
+) -> bool:
     """Record one zero-result search. Returns True if a signal was written.
 
     Fire-and-forget by contract: callers do not check the return value in
@@ -117,12 +129,21 @@ def record_missing_skill_query(db: Session, q: str | None, *, user_id=None) -> b
     the table. An empty/whitespace query is a BROWSE, not demand, and is
     deliberately not recorded — otherwise every homepage visit would mint a
     row and drown the real signal.
+
+    ``api_key_id`` / ``client_ip`` (coldstart_0609/A) are optional so
+    existing callers with no request context keep working unchanged; when
+    supplied they are run through the single probe-detection seam
+    (``app.services.probe_detection.is_probe_request``) to stamp
+    ``is_probe`` on the row.
     """
     query = normalise_query(q)
     if not query:
         return False
+    from app.services.probe_detection import is_probe_request
+
+    is_probe = is_probe_request(db, api_key_id=api_key_id, client_ip=client_ip)
     try:
-        _upsert(db, query, user_id=user_id)
+        _upsert(db, query, user_id=user_id, is_probe=is_probe)
         return True
     # Rationale: VOC logging must never break the search response it rides on.
     except Exception:  # noqa: BLE001

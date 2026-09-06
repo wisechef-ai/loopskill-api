@@ -29,6 +29,7 @@ from app.config import settings
 from app import config
 from app.models import InstallEvent, Skill, SkillDerivedEdge
 from app.routes import _build_manifest
+from app.services.probe_detection import is_probe_request
 
 
 def _split_federated_ref(raw: str, known_sources: frozenset[str]) -> tuple[str, str] | None:
@@ -297,6 +298,7 @@ def loopskill_install(
             api_key_id=api_key_id,
             version_semver=target.semver,
             client_ip=None,
+            is_probe=is_probe_request(db, api_key_id=api_key_id, client_ip=None),
         )
     )
     # repohygiene_2605 Phase C: bump the denormalised counter in the same

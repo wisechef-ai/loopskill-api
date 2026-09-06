@@ -115,7 +115,7 @@ def _record_funnel_event(db: Session, request: Request, *, q: str | None, result
             logger.warning("metasearch funnel rollback also failed", exc_info=True)
 
 
-def _record_demand_signal(db: Session, q: str | None, result: dict) -> None:
+def _record_demand_signal(db: Session, q: str | None, result: dict, request: Request | None = None) -> None:
     """fdeloop_0808 Phase A — a zero-result metasearch is a demand signal.
 
     ``_record_funnel_event`` already logs EVERY query as telemetry; this is the
@@ -128,6 +128,11 @@ def _record_demand_signal(db: Session, q: str | None, result: dict) -> None:
     degraded (timeout, breaker open), zero results means "we failed", not "the
     catalog lacks this" — recording it would poison the brief with our own
     outages.
+
+    ``request`` (coldstart_0609/A) is optional so any caller without a
+    request in scope keeps working; when supplied, its api_key_id/client_ip
+    feed the single probe-detection seam so fleet dogfooding of metasearch
+    doesn't pollute the demand-brief signal.
     """
     if not q:
         return
@@ -135,7 +140,16 @@ def _record_demand_signal(db: Session, q: str | None, result: dict) -> None:
         return
     if not result.get("sources_ok"):
         return
-    record_missing_skill_query(db, q)
+    api_key_id = None
+    client_ip = None
+    if request is not None:
+        from app.config import settings as _settings
+        from app.utils.client_ip import _real_client_ip
+
+        auth_ctx = getattr(request.state, "auth_ctx", None)
+        api_key_id = getattr(auth_ctx, "api_key_id", None)
+        client_ip = _real_client_ip(request, _settings.TRUSTED_PROXY_CIDRS)
+    record_missing_skill_query(db, q, api_key_id=api_key_id, client_ip=client_ip)
 
 
 @router.get("/metasearch", tags=["skills", "metasearch"])
@@ -225,7 +239,7 @@ def metasearch(
             "cache": entry.to_response_meta(),
         }
         _record_funnel_event(db, request, q=q, result=payload)
-        _record_demand_signal(db, q, payload)
+        _record_demand_signal(db, q, payload, request)
         return payload
 
     # Cache miss (we computed): build the full response with the live ranking.
@@ -248,7 +262,7 @@ def metasearch(
     # Funnel event reflects the DELIVERED response (post-contract, post-slice), not
     # the pre-contract candidate set (council SHOULD 2) — the user's real result.
     _record_funnel_event(db, request, q=q, result=payload)
-    _record_demand_signal(db, q, payload)
+    _record_demand_signal(db, q, payload, request)
     return payload
 
 
