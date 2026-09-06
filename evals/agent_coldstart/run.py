@@ -456,6 +456,7 @@ def run_claude_harness(prompt: str, home: Path, max_minutes: int) -> HarnessResu
     tool_calls: int | None = None
     tokens_in: int | None = None
     tokens_out: int | None = None
+    harness_error: str | None = None
     if stdout.strip():
         try:
             payload = json.loads(stdout)
@@ -463,6 +464,12 @@ def run_claude_harness(prompt: str, home: Path, max_minutes: int) -> HarnessResu
             usage = payload.get("usage") or {}
             tokens_in = usage.get("input_tokens")
             tokens_out = usage.get("output_tokens")
+            if payload.get("is_error"):
+                # Rationale: `claude -p` reports HARNESS failures (account
+                # session limit, auth, quota) as `is_error: true` with the
+                # message in `result`. That is not a product signal — per
+                # RUBRIC it must be outcome `error` (excluded), never `fail`.
+                harness_error = f"claude harness error: {str(payload.get('result') or '')[:200]}"
         except json.JSONDecodeError:
             # Rationale: --output-format json can still emit partial/non-JSON
             # output on a killed/crashed process; degrade to unknown metrics
@@ -475,6 +482,7 @@ def run_claude_harness(prompt: str, home: Path, max_minutes: int) -> HarnessResu
         tokens_out=tokens_out,
         transcript_path=str(transcript_path),
         timed_out=timed_out,
+        error=harness_error,
     )
 
 
