@@ -33,3 +33,21 @@ def normalize_tool_name(name: str) -> str:
     through to ``raise ValueError(f"unknown tool: {name}")``.
     """
     return LOOP_TO_VERIFIER.get(name, name)
+
+
+def _bundle_id_arg(args: dict, required: bool = True):
+    """Read the bundle identifier from MCP tool args, accepting either spelling.
+
+    ``bundle_id`` is the canonical wire name; ``cookbook_id`` is the pre-rename
+    spelling kept so existing agents that already send it keep working. When
+    both are present ``bundle_id`` wins. Raises ``KeyError("bundle_id")`` when
+    ``required`` and neither spelling is present — the same KeyError failure
+    callers saw pre-rename for a missing ``cookbook_id``, just under the
+    canonical name.
+    """
+    value = args.get("bundle_id")
+    if value is None:
+        value = args.get("cookbook_id")
+    if value is None and required:
+        raise KeyError("bundle_id")
+    return value

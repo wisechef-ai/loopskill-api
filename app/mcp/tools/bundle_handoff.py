@@ -154,7 +154,8 @@ def _do_transfer(
     db.refresh(cb)
     return {
         "status": "transferred",
-        "cookbook_id": str(cb.id),
+        "bundle_id": str(cb.id),  # canonical
+        "cookbook_id": str(cb.id),  # compat-alias: legacy wire name
         "new_owner_user_id": str(new_owner.id),
     }
 

@@ -3,7 +3,7 @@
 All predicates are pure functions: they take an AuthContext and a model object,
 and return True/False without side effects (with the targeted exception of
 can_read_skill/can_install, which accept an optional Session for the
-cookbook-scope clause described below — see Rationale).
+bundle-scope clause described below — see Rationale).
 
 100% line coverage required (see test_secfix_1905_a_authz.py).
 """
@@ -342,15 +342,15 @@ def can_write_cookbook(ctx: AuthContext, cookbook: Any) -> bool:
 
 
 def can_read_cookbook(ctx: AuthContext, cookbook: Any, *, allow_org_read: bool = False) -> bool:
-    """Return True if ctx may read the given cookbook (bundle).
+    """Return True if ctx may read the given bundle.
 
     Mirrors app.bundle_routes._resolve_owned_cookbook's ownership rules so
     REST and MCP agree on who may read a given bundle:
     - Bundle-scoped key/token: only the one bundle it is scoped to
     - Master scope: always allowed
-    - User scope: allowed if ctx owns the cookbook WITHIN its tenant
+    - User scope: allowed if ctx owns the bundle WITHIN its tenant
       (mesh_0408 W1 — see owner_match_within_tenant)
-    - allow_org_read=True and ctx.org_id matches cookbook.org_id: allowed
+    - allow_org_read=True and ctx.org_id matches bundle.org_id: allowed
       (mirrors the REST detail route's ``allow_org_read=True`` clause)
     - All other cases: False
     """

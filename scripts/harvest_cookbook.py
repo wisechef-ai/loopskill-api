@@ -100,7 +100,7 @@ def parse_skill_md(path: Path) -> SkillEntry:
 def score_skill(entry: SkillEntry) -> float:
     """Compute deterministic score for a SkillEntry.
 
-    Higher score = better candidate for the Cookbook.
+    Higher score = better candidate for the Bundle.
     """
     recency = entry.recency_days if entry.recency_days is not None else 365
     audit_weight = 2.0 if entry.audit_pass else 1.0

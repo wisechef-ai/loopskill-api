@@ -88,6 +88,15 @@ def loopskill_list_bundle(
     )
 
     return {
+        "bundle": {  # canonical sibling of the legacy "cookbook" object below — same content
+            "id": str(cookbook.id),
+            "name": cookbook.name,
+            "is_base": bool(cookbook.is_base),
+            "parent_cookbook_id": (  # mirror of the legacy field name, same value
+                str(cookbook.parent_bundle_id) if cookbook.parent_bundle_id else None  # compat-alias
+            ),
+            "owner": (str(cookbook.bundle_owner) if cookbook.bundle_owner else None),
+        },
         "cookbook": {
             "id": str(cookbook.id),
             "name": cookbook.name,

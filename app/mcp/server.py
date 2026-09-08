@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session
 from app.auth_ctx import AuthContext
 from app.database import SessionLocal, get_db
 from app.mcp.auth import validate_key
-from app.mcp._alias_map import normalize_tool_name
+from app.mcp._alias_map import _bundle_id_arg, normalize_tool_name
 from app.version import __version__ as _APP_VERSION
 
 # Submodule re-exports — backward compat for all existing imports
@@ -199,7 +199,7 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             return loopskill_bundle_install(
                 db=db,
                 ctx=ctx,
-                cookbook_id=args.get("cookbook_id"),
+                cookbook_id=_bundle_id_arg(args, required=False),
                 slug=args.get("slug"),
             )
         except CookbookInstallError as exc:
@@ -238,7 +238,7 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
         return _tool_ns.get("loopskill_list_bundle", loopskill_list_bundle)(
             db,
             ctx=ctx,
-            cookbook_id=args.get("cookbook_id"),
+            cookbook_id=_bundle_id_arg(args, required=False),
         )
     if name == "loopskill_recall":
         return _tool_ns.get("loopskill_recall", loopskill_recall)(db, **args)
@@ -253,7 +253,7 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
     if name == "loopskill_sync":
         return _tool_ns.get("loopskill_sync", loopskill_sync)(
             db,
-            cookbook_id=args["cookbook_id"],
+            cookbook_id=_bundle_id_arg(args),
             dry_run=args.get("dry_run", False),
             ctx=ctx,
         )
@@ -305,7 +305,7 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
     if name == "loopskill_share_create":
         return _tool_ns.get("loopskill_share_create", loopskill_share_create)(
             db,
-            cookbook_id=args["cookbook_id"],
+            cookbook_id=_bundle_id_arg(args),
             name=args.get("name"),
             scope=args.get("scope", "install"),
             ctx=ctx,
@@ -313,20 +313,20 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
     if name == "loopskill_share_list":
         return _tool_ns.get("loopskill_share_list", loopskill_share_list)(
             db,
-            cookbook_id=args["cookbook_id"],
+            cookbook_id=_bundle_id_arg(args),
             ctx=ctx,
         )
     if name == "loopskill_share_revoke":
         return _tool_ns.get("loopskill_share_revoke", loopskill_share_revoke)(
             db,
-            cookbook_id=args["cookbook_id"],
+            cookbook_id=_bundle_id_arg(args),
             token_id=args["token_id"],
             ctx=ctx,
         )
     if name == "loopskill_share_rotate":
         return _tool_ns.get("loopskill_share_rotate", loopskill_share_rotate)(
             db,
-            cookbook_id=args["cookbook_id"],
+            cookbook_id=_bundle_id_arg(args),
             token_id=args["token_id"],
             ctx=ctx,
         )
@@ -341,7 +341,7 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
         return _tool_ns.get("loopskill_fleet_subscribe", loopskill_fleet_subscribe)(
             db,
             fleet_id=args["fleet_id"],
-            cookbook_id=args["cookbook_id"],
+            cookbook_id=_bundle_id_arg(args),
             channel=args.get("channel", "stable"),
             ctx=ctx,
         )
@@ -410,7 +410,7 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
         return _tool_ns.get("loopskill_bundle_handoff", loopskill_bundle_handoff)(
             db,
             ctx=ctx,
-            cookbook_id=args["cookbook_id"],
+            cookbook_id=_bundle_id_arg(args),
             new_owner_user_id=args.get("new_owner_user_id"),
             new_owner_email=args.get("new_owner_email"),
             mode=args.get("mode", "transfer"),
@@ -422,7 +422,7 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             repo=args.get("repo"),
             mode=args.get("mode"),
             pat=args.get("pat"),
-            cookbook_id=args.get("cookbook_id"),
+            cookbook_id=_bundle_id_arg(args, required=False),
             ctx=ctx,
         )
     # Delegated dispatch chain (fleet write / placements / harvest) — see

@@ -2,7 +2,7 @@
 
 Fernet-symmetric encryption: the key (FEEDBACK_CRED_KEY) is an env var that
 MUST be set in production.  The ciphertext is stored in
-``cookbooks.feedback_pat_enc``.  The plaintext PAT is decrypted only in-memory
+``bundles.feedback_pat_enc``.  The plaintext PAT is decrypted only in-memory
 during dispatch and is NEVER logged.
 
 Key generation (run once at deploy):

@@ -63,7 +63,7 @@ def latest_semver_for_skills(db, skill_ids: Iterable[UUID]) -> dict[UUID, str]:
     """Return {skill_id: latest_semver} computed SEMANTICALLY (not lexically).
 
     Replaces the ``func.max(SkillVersion.semver)`` GROUP BY subquery used across
-    sync / reconcile / channel-select / cookbook-status. Fetches every
+    sync / reconcile / channel-select / bundle-status. Fetches every
     (skill_id, semver) pair for the requested skills in ONE query, then folds to
     the per-skill semantic max in Python. Skills with no versions are absent
     from the result (callers treat a missing key as "no version").

@@ -47,9 +47,15 @@ def _phase_j_tools() -> list[types.Tool]:
                             "Required when mode='pat'. Never logged."
                         ),
                     },
+                    "bundle_id": {
+                        "type": "string",
+                        "description": (
+                            "Canonical UUID of the bundle to configure. Defaults to caller's personal bundle."
+                        ),
+                    },
                     "cookbook_id": {
                         "type": "string",
-                        "description": "UUID of the bundle to configure. Defaults to caller's personal bundle.",
+                        "description": "Legacy spelling of bundle_id (pre-rename wire name).",
                     },
                 },
             },

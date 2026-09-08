@@ -208,7 +208,7 @@ def search_federated_group(db: Session, q: str, limit: int) -> tuple[list[dict],
 
     Visibility contract (issue #277 break #2, RESOLVED BY DOCUMENTATION):
     materialized pointer ``Skill`` rows (``ext:source:slug``) are PRIVATE BY
-    DESIGN — they are per-cookbook install artifacts, not catalog entries.
+    DESIGN — they are per-bundle install artifacts, not catalog entries.
     They must NEVER appear in the ``skills`` group (its is_public filter is
     correct), and this function is the ONLY sanctioned federated search
     surface. Do not "fix" visibility by flipping is_public on pointers.

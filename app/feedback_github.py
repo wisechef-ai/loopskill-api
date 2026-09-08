@@ -7,7 +7,7 @@ Two credential paths:
 
 1. **PAT path** (shipped now): the user provides a fine-grained PAT
    (issues:write on their repo), stored encrypted via feedback_cred_vault.
-   This PAT is minted by the user and stored per-cookbook.
+   This PAT is minted by the user and stored per-bundle.
 
 2. **GitHub App path** (future slot): GitHub App tokens would be minted
    on-demand and never persisted.  The auth seam is already present via

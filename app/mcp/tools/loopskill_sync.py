@@ -84,12 +84,20 @@ def loopskill_sync(
     try:
         cb_uuid = UUID(cookbook_id)
     except (ValueError, AttributeError):
-        return {"error": "invalid_bundle_id", "cookbook_id": cookbook_id}
+        return {
+            "error": "invalid_bundle_id",
+            "bundle_id": cookbook_id,  # canonical
+            "cookbook_id": cookbook_id,  # compat-alias: legacy wire name
+        }
 
     # Verify bundle exists
     cb = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
     if not cb:
-        return {"error": "not_found", "cookbook_id": cookbook_id}
+        return {
+            "error": "not_found",
+            "bundle_id": cookbook_id,  # canonical
+            "cookbook_id": cookbook_id,  # compat-alias
+        }
 
     # Phase B (Issue #15b): bundle ownership check.
     # mesh_0408 W1b (codex review of PR #202, finding 3): the answer is the SAME
@@ -98,13 +106,18 @@ def loopskill_sync(
     # since one account owns every client org it runs, "unauthorized" here is
     # routinely a cross-tenant caller rather than a stranger.
     if not authz.can_write_cookbook(ctx, cb):
-        return {"error": "not_found", "cookbook_id": cookbook_id}
+        return {
+            "error": "not_found",
+            "bundle_id": cookbook_id,  # canonical
+            "cookbook_id": cookbook_id,  # compat-alias
+        }
 
     outdated = _find_outdated_skills(db, cb_uuid)
 
     if not outdated:
         return {
-            "cookbook_id": cookbook_id,
+            "bundle_id": cookbook_id,  # canonical
+            "cookbook_id": cookbook_id,  # compat-alias: legacy wire name
             "changes": [],
             "applied": not dry_run,
             "message": "All skills are up to date.",
@@ -121,7 +134,8 @@ def loopskill_sync(
     ]
 
     result: dict[str, Any] = {
-        "cookbook_id": cookbook_id,
+        "bundle_id": cookbook_id,  # canonical
+        "cookbook_id": cookbook_id,  # compat-alias: legacy wire name
         "changes": changes,
     }
 

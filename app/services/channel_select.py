@@ -1,6 +1,6 @@
 """Channel-aware version selection — evergreen_0206 Phase C.
 
-A fleet subscribes a cookbook on one of three channels. The channel decides
+A fleet subscribes a bundle on one of three channels. The channel decides
 WHICH version of each skill that subscription should converge to:
 
   canary → the latest published semver (bleeding edge, any version)

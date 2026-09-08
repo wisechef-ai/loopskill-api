@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""spotify_0608 Ph H — seed 10 editorial cookbooks owned by a SYSTEM account.
+"""spotify_0608 Ph H — seed 10 editorial bundles owned by a SYSTEM account.
 
-The cold-start "wheel" (premortem P1): editorial cookbooks ARE the wheel until
+The cold-start "wheel" (premortem P1): editorial bundles ARE the wheel until
 UGC population grows — Spotify launched on staff playlists. These 10 are owned
 by a dedicated WiseChef SYSTEM account (NOT is_base=true — the base catalog is
 sacrosanct, see loopclose_3005 invariant), each themed for an agent-builder
@@ -14,10 +14,10 @@ driver). Install → an agent that reads any link, remembers everything, and run
 itself, one MCP line.
 
 DESIGN INVARIANTS (memory + loopclose_3005):
-  - NEVER touch the is_base=true 'WiseChef Recipes Catalog' cookbook.
+  - NEVER touch the is_base=true 'WiseChef Recipes Catalog' bundle.
   - System account is a real User row (email 'editorial@wisechef.ai'), owner of
-    every seeded cookbook — never owner-less.
-  - Idempotent: re-running upserts by slug (no duplicate cookbooks, no
+    every seeded bundle — never owner-less.
+  - Idempotent: re-running upserts by slug (no duplicate bundles, no
     duplicate memberships). Only real catalog slugs are attached; a missing
     slug is reported, never fabricated.
 
@@ -31,7 +31,7 @@ from __future__ import annotations
 import sys
 from uuid import uuid4
 
-# ── Editorial cookbook definitions — themes mapped to REAL catalog slugs ─────
+# ── Editorial bundle definitions — themes mapped to REAL catalog slugs ─────
 # (verified against /api/skills/search on 2026-06-09). install_order is implicit
 # in list order; the hero is first.
 EDITORIAL_COOKBOOKS: list[dict] = [

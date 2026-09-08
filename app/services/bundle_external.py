@@ -1,4 +1,4 @@
-"""federation_0604 Unit 2 — cookbooks hold external (federated) skills.
+"""federation_0604 Unit 2 — bundles hold external (federated) skills.
 
 This module is the single seam that lets a Bundle hold a federated skill
 (lobehub, clawhub, skills-sh, hermes-hub, browse-sh, well-known) and hand it
@@ -6,12 +6,12 @@ to an agent as ONE link — exactly like an internal skill — WITHOUT ever
 rehosting external content.
 
 Two responsibilities, kept here so the logic lives in ONE place (no drift
-between the federation route and the cookbook route — the no-redundant-concepts
+between the federation route and the bundle route — the no-redundant-concepts
 rule):
 
   1. ``materialize_external_skill`` — turn an external skill into a thin,
      PRIVATE ``Skill`` row so the existing ``cookbook_skills.skill_id`` FK and
-     every downstream cookbook feature (install / manifest / sync / share
+     every downstream bundle feature (install / manifest / sync / share
      token / handoff) work unchanged. The row is a POINTER, not a content
      snapshot: the re-resolution descriptor lives in ``external_resources``.
 
@@ -24,14 +24,14 @@ rule):
 Isolation contract (enforced by callers + the catalog filter):
   - Materialized rows are ``is_public=False`` → invisible to the public catalog
     (every catalog query filters ``is_public == True``).
-  - They are reachable ONLY through cookbook membership (authz cookbook-scope
+  - They are reachable ONLY through bundle membership (authz bundle-scope
     clause) — same trust boundary as a private tailored fork.
   - ``skill_variant="external"`` + ``tier="external"`` tag them for the install
     router and the web viz badge.
 
 Slug convention: ``ext:{source}:{external_slug}`` — deterministic + unique, so
 materialize is idempotent (the same external skill maps to exactly one row,
-shareable across cookbooks).
+shareable across bundles).
 """
 
 from __future__ import annotations
@@ -197,7 +197,7 @@ def materialize_external_skill(
 
     VISIBILITY CONTRACT (issue #277 break #2, resolved here): pointer rows are
     PRIVATE (``is_public=False``) BY DESIGN and must stay that way. They are
-    per-cookbook install artifacts, NOT catalog entries — flipping them public
+    per-bundle install artifacts, NOT catalog entries — flipping them public
     would corrupt catalog counts, tier logic, and could surface private
     selections. The federated search surface is the federation INDEX
     (``federation_hub_skills`` + ``federation_index_cache`` via
@@ -268,7 +268,7 @@ def resolve_external_install(source: str, slug: str) -> dict[str, Any] | None:
     """Resolve a federated skill's REAL SKILL.md from origin at install time.
 
     The single source of truth for "install one external skill" — shared by the
-    cookbook single-install route and the public ``/skills/external/.../install``
+    bundle single-install route and the public ``/skills/external/.../install``
     route, so the contract cannot drift.
 
     Returns a payload dict ({slug, source, license, origin_url, raw_url,

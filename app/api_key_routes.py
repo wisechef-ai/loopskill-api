@@ -2,7 +2,7 @@
 
 Phase C (top1pct_1105):
 - Multi-key support with tier cap enforcement (Free = 1, Pro = 10, Pro+ = 20)
-- Per-cookbook scoping: optional cookbook_id on create
+- Per-bundle scoping: optional cookbook_id on create
 - Human label: optional label field (persisted as both `name` and `label`)
 - GET /api-keys returns install_count_total + install_count_7d per key
 - REMOVED: "revoke-before-create" one-per-user policy → replaced by cap check
@@ -63,7 +63,7 @@ def _require_user(user: User | None) -> User:
 
 class CreateKeyIn(BaseModel):
     label: str | None = None  # human label ≤100 chars
-    cookbook_id: str | None = None  # UUID of an owned cookbook
+    cookbook_id: str | None = None  # UUID of an owned bundle
     name: str | None = None  # legacy alias for label
 
 
@@ -170,16 +170,16 @@ async def create_api_key(
         )
 
     # ── Optional bundle scoping ─────────────────────────────────────────
-    cookbook_id: UUID | None = None
+    bundle_id: UUID | None = None
     if body.get("cookbook_id"):
         try:
-            cookbook_id = UUID(str(body["cookbook_id"]))
+            bundle_id = UUID(str(body["cookbook_id"]))
         except (ValueError, TypeError):
             raise HTTPException(status_code=400, detail="invalid_bundle_id")
 
         cb = (
             db.query(Bundle)  # compat-alias
-            .filter(Bundle.id == cookbook_id, Bundle.bundle_owner == user.id)  # compat-alias
+            .filter(Bundle.id == bundle_id, Bundle.bundle_owner == user.id)  # compat-alias
             .first()
         )
         if not cb:
@@ -200,7 +200,7 @@ async def create_api_key(
         key_hash=key_hash,
         name=label,  # keep `name` populated for backwards-compat reads
         label=label,
-        bundle_id=cookbook_id,  # compat-alias
+        bundle_id=bundle_id,  # compat-alias
         is_active=True,
     )
     db.add(new_key)
@@ -214,7 +214,7 @@ async def create_api_key(
         tier,
         cap,
         active_count + 1,
-        str(cookbook_id) if cookbook_id else "none",
+        str(bundle_id) if bundle_id else "none",
     )
 
     # Plaintext returned ONCE — never again

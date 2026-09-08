@@ -6,7 +6,7 @@ POST /api/recipify
 
 Auth: x-api-key — Pro+ tier required (Free → 401).
 Pro+ with target_subrecipe_id forwards to Phase-C subrecipe scope when wired
-(currently writes to the cookbook level with a stub note).
+(currently writes to the bundle level with a stub note).
 """
 
 from __future__ import annotations

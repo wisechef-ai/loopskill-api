@@ -60,7 +60,7 @@ CATEGORY_PATCHES: dict[str, str] = {
     "obsidian-livesync-bridge": "ops",         # sync bridge → ops
     "maestro": "agency",                       # agent framework → agency
     "framework-v0": "agency",                 # agent bootstrap → agency
-    "recipes-cookbook-reconcile": "ops",       # cookbook reconciliation → ops
+    "recipes-cookbook-reconcile": "ops",       # bundle reconciliation → ops
 }
 
 # Short description rewrites (problem-first, ≥80 chars each).

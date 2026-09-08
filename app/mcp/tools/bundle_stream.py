@@ -232,7 +232,8 @@ def loopskill_install_from_bundle(
 
     ref_q = f"?ref={cb.bundle_owner}" if cb.bundle_owner else ""
     return {
-        "cookbook": str(cb.id),
+        "bundle": str(cb.id),  # canonical
+        "cookbook": str(cb.id),  # compat-alias: legacy wire name
         "name": cb.name,
         "slug": cb.slug,
         "skills": skills_payload,
@@ -293,7 +294,13 @@ def loopskill_pick_best_from_bundle(
     cb = _resolve_public_cookbook(db, kind[1])
     rows = _cookbook_member_rows(db, cb.id)
     if not rows:
-        return {"picked": None, "ranked": [], "cookbook": str(cb.id), "slug": cb.slug}
+        return {
+            "picked": None,
+            "ranked": [],
+            "bundle": str(cb.id),  # canonical
+            "cookbook": str(cb.id),  # compat-alias: legacy wire name
+            "slug": cb.slug,
+        }
 
     from app._skill_helpers import _install_counts_for
 
@@ -333,7 +340,8 @@ def loopskill_pick_best_from_bundle(
     return {
         "picked": picked,
         "ranked": ranked,
-        "cookbook": str(cb.id),
+        "bundle": str(cb.id),  # canonical
+        "cookbook": str(cb.id),  # compat-alias: legacy wire name
         "slug": cb.slug,
         "need": need_s or None,
     }
@@ -478,7 +486,8 @@ def loopskill_compose_bundle_from_links(
     db.refresh(cb)
 
     return {
-        "cookbook": str(cb.id),
+        "bundle": str(cb.id),  # canonical
+        "cookbook": str(cb.id),  # compat-alias: legacy wire name
         "name": cb.name,
         "visibility": cb.visibility,
         "skill_count": len(member_out),

@@ -159,7 +159,7 @@ def check_arch_compat(skill_recipes: list[dict], host_fp: dict) -> list[str]:
 
 
 def check_port_conflicts(skill_recipes: list[dict], host_ports: Iterable[int]) -> list[str]:
-    """Detect duplicate service ports inside the cookbook and host overlaps."""
+    """Detect duplicate service ports inside the bundle and host overlaps."""
     problems: list[str] = []
     host_set = set(int(p) for p in host_ports if p is not None)
     seen: dict[int, str] = {}
