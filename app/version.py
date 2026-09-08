@@ -572,6 +572,23 @@ inert). No schema, no migration.
     never one blended number — discriminated by source_system
     (stripe-onetime vs stripe) stamped at write time. Verified against
     prod /api/healthz 0.9.47 before bumping.
+
+    unisearch_0709/P1 (metasearch shared cache): the metasearch SWR cache
+    gains a Redis-backed L2 behind its existing get/put interface — L1
+    in-process LRU (64) in front of L2 Redis, keyed
+    ``loopskill:metasearch:v1:{query}|{sources}`` with a versioned JSON
+    payload and a Redis TTL of ttl_s + stale_grace_s. A result computed by
+    one worker is now readable by every other worker, which is what makes
+    the P2 MCP cache-ONLY reader (``get_entry`` → fresh/stale/miss/degraded)
+    able to answer at all. Freshness is absolute-epoch (``computed_at``,
+    never monotonic — it crosses process boundaries); the write generation
+    is a shared Redis INCR with a compare-and-set write, so worker A's slow
+    stale-refresh cannot clobber worker B's newer entry; ``put()``
+    sanitises + field-caps + version-tags before sharing. Redis unreachable
+    (including the 30s get_redis() backoff) → L1-only + state
+    ``degraded``, never an exception and never a blocking wait. No schema
+    change, no new dependency, no route change. Verified against prod
+    /api/healthz 0.9.48 before bumping.
 """
 
-__version__ = "0.9.48"
+__version__ = "0.9.49"

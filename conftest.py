@@ -28,6 +28,14 @@ os.environ.setdefault("WR_COOKIES_SECURE", "false")
 # calls are patched). Tests that exercise the canonical/legacy env-var
 # fallback (TestEnvVarRenameLegacyFallback) override settings directly via
 # _reload_with_settings, so they remain independent of these defaults.
+# unisearch_0709 P1: the metasearch shared-cache tier is OFF under pytest.
+# WR_REDIS_URL defaults to a live localhost Redis, which a dev box usually has
+# and CI never does — leaving the shared tier on would make the suite behave
+# differently in the two places and let concurrent worktrees share (and
+# invalidate) each other's cache keys. The L2 is exercised deterministically
+# instead, against an injected fake, in tests/test_unisearch_p1_shared_cache.py.
+os.environ.setdefault("WR_METASEARCH_SHARED_CACHE", "false")
+
 os.environ.setdefault("WR_STRIPE_PRICE_PRO", "price_test_pro")
 os.environ.setdefault("WR_STRIPE_PRICE_PRO_PLUS", "price_test_pro_plus")
 
