@@ -140,7 +140,8 @@ def loopskill_skillify(
 
     return {
         "slug": slug,
-        "cookbook_id": str(cb.id),
+        "bundle_id": str(cb.id),  # canonical
+        "cookbook_id": str(cb.id),  # compat-alias: legacy wire name
         "category": classification["category"],
         "related_skills": related,
         "status": status,

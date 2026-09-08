@@ -3,7 +3,7 @@
 THE FIX for the single biggest find in the stress sweep: the promotion engine
 (`promotion.promote_if_eligible` / `evaluate_gate`) was complete and correct but
 had ZERO non-test callers. Nothing ever wrote `SkillVersion.promoted_to_stable_at`,
-so `channel_select(stable)` always returned None and every `stable` fleet/cookbook
+so `channel_select(stable)` always returned None and every `stable` fleet/bundle
 silently skipped every skill forever — `stable` was a dead synonym for `frozen`.
 
 This module is the missing caller. `run_promotion_sweep` walks every

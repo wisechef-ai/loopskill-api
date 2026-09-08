@@ -193,7 +193,7 @@ def marketing_counts(db: Session = Depends(get_db)) -> dict:
     pro_plus_exclusive = pro_plus  # see docstring; tracked separately for future
 
     # Public bundle count — surfaces the discoverable catalog size
-    cookbooks_total = (
+    bundles_total = (
         db.query(func.count(Bundle.id))
         .filter(Bundle.visibility == "public")  # noqa: E712
         .scalar()
@@ -206,7 +206,7 @@ def marketing_counts(db: Session = Depends(get_db)) -> dict:
         "pro": pro,
         "pro_plus": pro_plus,
         "pro_plus_exclusive": pro_plus_exclusive,
-        "cookbooks_total": cookbooks_total,
+        "cookbooks_total": bundles_total,
         "last_added_at": last_added.isoformat() if last_added else None,
         # Display labels (single point where DB slugs become brand labels)
         "labels": {

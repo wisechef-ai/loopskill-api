@@ -13,7 +13,7 @@ Flow per skill:
      ``ETag: <checksum_sha256>``) — origin disk is hit once per version globally.
   2. Download the tarball to a temp file, extract into a staged dir.
   3. Hand the staged dir back to ``ReconcileClient`` which sha256-verifies it
-     against the cookbook's declared ``checksum_sha256`` BEFORE the atomic swap.
+     against the bundle's declared ``checksum_sha256`` BEFORE the atomic swap.
 
 This module performs NO disk swap of the live skills dir — that stays inside the
 atomic client. Separation keeps the trust primitive (rollback) in one place.

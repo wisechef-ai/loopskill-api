@@ -2,10 +2,10 @@
 
 NO NEW WRITE SURFACE. This phase READS the telemetry the other phases already
 emit (reconcile_events from Phase D/E, FleetPing liveness) and produces a
-per-cookbook / per-fleet drift+health view.
+per-bundle / per-fleet drift+health view.
 
 Surfaces:
-  - reconcile health per cookbook: last success, last rollback, failure count,
+  - reconcile health per bundle: last success, last rollback, failure count,
     which skill-versions are currently failing on canary
   - liveness: how many distinct agents pinged recently (from FleetPing)
 
@@ -56,10 +56,10 @@ def cookbook_drift_status(
     window_days: int = DEFAULT_STALE_DAYS,
     now: datetime | None = None,
 ) -> CookbookDriftStatus:
-    """Read reconcile telemetry for one cookbook and summarize drift/health.
+    """Read reconcile telemetry for one bundle and summarize drift/health.
 
     Reads reconcile_events only — no writes. Caller is responsible for having
-    already authorized access to this cookbook (tenant isolation, §7).
+    already authorized access to this bundle (tenant isolation, §7).
     """
     now = now or datetime.now(timezone.utc)
     window_start = now - timedelta(days=window_days)

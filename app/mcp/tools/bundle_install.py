@@ -392,7 +392,8 @@ def loopskill_bundle_install(
         db.commit()
 
     return {
-        "cookbook_id": str(cb.id),
+        "bundle_id": str(cb.id),  # canonical
+        "cookbook_id": str(cb.id),  # compat-alias: legacy wire name
         "name": cb.name,
         "skills": skills_payload,
     }

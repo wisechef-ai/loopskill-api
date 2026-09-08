@@ -115,7 +115,7 @@ def _resolve_validated_bundle(db: Session, bundle_id: str, skill: Skill) -> UUID
 
     Deliberately does NOT check bundle OWNERSHIP — installing FROM a public (or
     any readable) bundle is a normal, unauthenticated-adjacent action distinct
-    from cookbook CRUD, which is why this does not reuse
+    from bundle CRUD, which is why this does not reuse
     ``_resolve_owned_cookbook``. Only membership (does the bundle actually
     contain this skill) is enforced, per the task brief.
     """
@@ -450,7 +450,7 @@ def install_skill(
 
     # mesh0408 Q-031: route through the canonical provenance-minting entry
     # point (app/services/provenance.py::record_install_with_provenance) —
-    # the SAME helper app/bundle_routes.py already uses for cookbook installs
+    # the SAME helper app/bundle_routes.py already uses for bundle installs
     # — instead of hand-rolling a parallel InstallEvent + counter-bump + mint
     # path. This fixes two things at once:
     #   1. bundle_id is now stamped when the caller supplies a validated

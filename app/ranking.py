@@ -104,7 +104,7 @@ def combine(
 
     Final ≈ 0.6·vec + 0.4·sigmoid(bm25) — each signal is normalised to [0, 1]
     before mixing. Tier mismatch zeroes the score (caller already filtered)
-    and a small cookbook boost nudges already-installed skills up.
+    and a small bundle boost nudges already-installed skills up.
     """
     v = max(0.0, min(1.0, float(vector_score)))
     b = float(bm25_score)

@@ -547,7 +547,7 @@ class ProvenanceRecord(Base):
     """spotify_0608 Ph E — RANDOM, server-stored install-provenance token.
 
     The carrier that lets anonymous feedback / skill-error reports attribute to
-    the ARTIFACT (skill + cookbook + version) without ever carrying agent
+    the ARTIFACT (skill + bundle + version) without ever carrying agent
     identity. ``provenance_id = secrets.token_urlsafe(32)`` is RANDOM and stored
     server-side mapping → ``install_event_id``; the token carries ZERO
     client-readable metadata (this is the fix for the original itsdangerous
@@ -560,7 +560,7 @@ class ProvenanceRecord(Base):
 
     Feedback / skill-error tools accept the provenance_id, resolve it here, and
     route the issue to the correct creator repo — replacing the
-    "_resolve_feedback_target first-cookbook guess" with deterministic routing.
+    "_resolve_feedback_target first-bundle guess" with deterministic routing.
     """
 
     __tablename__ = "provenance_records"

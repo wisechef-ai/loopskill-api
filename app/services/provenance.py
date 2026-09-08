@@ -5,7 +5,7 @@ ONE seam for the whole provenance contract so no transport drifts:
   mint_provenance(db, install_event)            → provenance_id (random token)
   record_install_with_provenance(...)           → (InstallEvent, provenance_id)
        the canonical "stamp an install + return its provenance" call every
-       transport uses (direct / cookbook single+bulk / MCP / external / public
+       transport uses (direct / bundle single+bulk / MCP / external / public
        external). Records the InstallEvent + bumps the denormalised counter with
        the same is_test integrity rule as _record_install_event (Ph B §4.2),
        inlined here so it can also stamp cookbook_id + attribution + mint
@@ -16,8 +16,8 @@ ONE seam for the whole provenance contract so no transport drifts:
        ever embedded in the token (the token is random).
   route_targets_for_provenance(db, provenance_id)
        → list[FeedbackTarget] — the deterministic feedback-routing decision:
-       the skill-author repo AND/OR the cookbook-curator repo, REPLACING
-       feedback.py's "first cookbook the user owns" guess.
+       the skill-author repo AND/OR the bundle-curator repo, REPLACING
+       feedback.py's "first bundle the user owns" guess.
 
 Design invariants (R2/R3/R4):
   - provenance_id = secrets.token_urlsafe(32): RANDOM, server-stored, opaque.
@@ -25,7 +25,7 @@ Design invariants (R2/R3/R4):
     ``attribution='unattributed'`` and STILL get a provenance_id (no hard-fail).
     Transient FETCH_ORIGIN failures are a DIFFERENT class — they never reach
     here (the caller raises before calling us).
-  - Bulk envelopes carry provenance_id PER-SKILL, not cookbook-top-level.
+  - Bulk envelopes carry provenance_id PER-SKILL, not bundle-top-level.
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ class ResolvedProvenance:
 class FeedbackTarget:
     """A repo a feedback/skill-error report should be routed to.
 
-    kind: 'curator' (cookbook owner's configured repo) | 'author' (skill
+    kind: 'curator' (bundle owner's configured repo) | 'author' (skill
           creator's repo) | 'default' (the platform fallback).
     mode: 'pat' | 'github_app' | None (None = default dispatch_event path).
     """
@@ -119,7 +119,7 @@ def record_install_with_provenance(
     provenance atomically.
 
     Args:
-        cookbook_id: the cookbook the install came from (None for direct).
+        cookbook_id: the bundle the install came from (None for direct).
         attribution: 'attributed' (default) | 'unattributed' (honest deep-link).
         commit: when True, commit before returning (single-skill paths). Bulk
             callers pass False and commit once after the loop.
@@ -206,7 +206,7 @@ def resolve_provenance(db: "Session", provenance_id: str) -> ResolvedProvenance 
 
 
 def _curator_target(db: "Session", cookbook_id: UUID | None) -> FeedbackTarget | None:
-    """The cookbook curator's configured feedback repo, if any."""
+    """The bundle curator's configured feedback repo, if any."""
     if cookbook_id is None:
         return None
     cb = db.query(Bundle).filter(Bundle.id == cookbook_id).first()
@@ -223,14 +223,14 @@ def _curator_target(db: "Session", cookbook_id: UUID | None) -> FeedbackTarget |
 def route_targets_for_provenance(db: "Session", provenance_id: str | None) -> list[FeedbackTarget]:
     """Deterministic feedback-routing for a provenance_id.
 
-    REPLACES feedback.py's ``_resolve_feedback_target`` "first cookbook the user
-    owns with a repo set" guess. Resolves the provenance to the ACTUAL cookbook
-    used and routes to the cookbook-curator's configured repo. Returns an empty
+    REPLACES feedback.py's ``_resolve_feedback_target`` "first bundle the user
+    owns with a repo set" guess. Resolves the provenance to the ACTUAL bundle
+    used and routes to the bundle-curator's configured repo. Returns an empty
     list when nothing custom resolves (caller falls back to the default repo).
 
-    Routing target = the cookbook-curator repo bound to the cookbook the install
+    Routing target = the bundle-curator repo bound to the bundle the install
     actually came from. (The skill-author repo path keys on the same
-    Bundle.feedback_repo mechanism — a skill author who curates a cookbook
+    Bundle.feedback_repo mechanism — a skill author who curates a bundle
     configures routing there; we do not invent a separate Skill.repo column that
     does not exist in the schema.)
     """

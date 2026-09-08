@@ -7,14 +7,14 @@ manual kubectl*, ported to skills.
 This is NOT a fat standalone daemon — it's a thin client that rides the host's
 existing scheduler (Hermes cron / Claude auto-update). Intelligence lives
 server-side (the reconcile engine, Phase B); the host-side piece fetches a diff
-and applies it atomically. It ships AS A SKILL inside the cookbook, so it
+and applies it atomically. It ships AS A SKILL inside the bundle, so it
 self-updates through the same mechanism it manages — nothing standalone to rot.
 
 Apply algorithm (per skill in the diff):
   1. Snapshot the live skills dir + lockfile to a last-known-good (LKG) staging
      path BEFORE any write.
   2. Apply the delta into a temp dir; verify each pulled skill's sha256 matches
-     the cookbook's declared checksum_sha256.
+     the bundle's declared checksum_sha256.
   3. Only then atomically swap the temp content into the live skills dir
      (os.replace — rename, not in-place edit; scrubber-safe pathlib writes).
   4. Run a post-apply health check (skill files parse, frontmatter present,

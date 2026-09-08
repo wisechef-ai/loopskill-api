@@ -180,7 +180,7 @@ def _require_owner(request: Request, db: Session, cookbook_id: str) -> Bundle:
 
 
 def _generate_token(cookbook_id: UUID) -> tuple[str, str, str]:
-    """Generate a share token for a cookbook.
+    """Generate a share token for a bundle.
 
     Returns (plaintext_token, token_hash, token_prefix).
     """
@@ -257,7 +257,7 @@ def _create_share_token_service(
     """Convenience wrapper around _create_service for callers that have a
     cookbook_id + AuthContext (MCP tools, test helpers).
 
-    Resolves cookbook ownership against ctx (user-scope must own, master is
+    Resolves bundle ownership against ctx (user-scope must own, master is
     always permitted), then delegates to _create_service.
 
     cookbook_share_2105 Phase E: ``scope`` defaults to ``'install'`` when the
@@ -296,7 +296,7 @@ def _create_share_token_service(
 
 
 def _list_service(db: Session, *, cookbook: Bundle) -> list[dict]:
-    """Core logic for listing share tokens for a cookbook.
+    """Core logic for listing share tokens for a bundle.
 
     Args:
         db: Database session.
@@ -409,7 +409,7 @@ def _revoke_service(
         token_id: UUID string of the token to revoke.
 
     Raises:
-        HTTPException 404 if token not found for this cookbook.
+        HTTPException 404 if token not found for this bundle.
     """
     try:
         tid = UUID(token_id)

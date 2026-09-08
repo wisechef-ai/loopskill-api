@@ -8,7 +8,7 @@ Pipeline:
        (docs/taxonomy.md). Litellm-based variant is a future enhancement; the
        deterministic fallback documented here is the v7 path.
     3. infer_related_skills — embed via app.embeddings.embed_text and cosine
-       against the cookbook's existing skills; return top-K slugs.
+       against the bundle's existing skills; return top-K slugs.
     4. write_cookbook_skill — upsert Skill (visibility=private keeps it
        user-scoped) + CookbookSkill provenance row.
 """
@@ -279,11 +279,11 @@ def infer_related_skills(
     *,
     k: int = 5,
 ) -> list[str]:
-    """Embed ``text`` and return up to ``k`` related slugs from the cookbook.
+    """Embed ``text`` and return up to ``k`` related slugs from the bundle.
 
     Reuses ``embed_text`` from app.embeddings (same path the recall service
     walks). Skills whose stored embedding doesn't decode are re-embedded on
-    the fly via title+description so a cold cookbook still gets ranked.
+    the fly via title+description so a cold bundle still gets ranked.
     """
     target = embed_text(text or "")
     rows = (

@@ -43,7 +43,7 @@ def strip_comments(obj: Any) -> Any:
 
 
 def load_cookbook_file(path: str | Path) -> dict:
-    """Parse a cookbook JSON file and strip comment keys."""
+    """Parse a bundle JSON file and strip comment keys."""
     raw = Path(path).read_text(encoding="utf-8")
     parsed = json.loads(raw)
     if not isinstance(parsed, dict):

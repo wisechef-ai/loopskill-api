@@ -436,7 +436,8 @@ def loopskill_bundle_attach(
         "fork_id": str(fork.id),
         "skill_slug": promoted_slug,
         "skill_id": str(skill.id),
-        "cookbook_id": str(cb.id),
+        "bundle_id": str(cb.id),  # canonical
+        "cookbook_id": str(cb.id),  # compat-alias: legacy wire name
         "version": semver,
         "version_id": str(version_id) if version_id else None,
         "is_public": False,

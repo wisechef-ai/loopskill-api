@@ -38,7 +38,7 @@ from enum import Enum
 
 
 class InstallPath(str, Enum):
-    """How a given external skill can be brought into a cookbook."""
+    """How a given external skill can be brought into a bundle."""
 
     FETCH_ORIGIN = "fetch_origin"  # OSS/SKILL.md/git — rehost-safe, license preserved
     REGISTER_MCP = "register_mcp"  # MCP server — register config, no file install

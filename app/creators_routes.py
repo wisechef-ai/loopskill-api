@@ -21,7 +21,7 @@ bearing part of the contract, not an implementation detail):
   in app/_skill_helpers.py:_install_counts_for /
   _cookbook_install_counts for the exact same organic-vs-synthetic split on
   every other public install-count surface — discovery ranking, leaderboards,
-  the cookbook card's installs_total/installs_7d signal). There is no
+  the bundle card's installs_total/installs_7d signal). There is no
   separate "rec_fleet_" install marker: fleet member keys are ordinary
   ``rec_`` API keys minted per-agent (app/fleet_member_routes.py), stamped
   ``is_test`` from the ENROLLING key's own ``is_test`` flag at member-mint

@@ -1,7 +1,7 @@
-"""Fleet sync service — aggregate, channel-aware sync across subscribed cookbooks.
+"""Fleet sync service — aggregate, channel-aware sync across subscribed bundles.
 
 Called by loopskill_fleet_sync MCP tool. Iterates the fleet's FleetSubscription
-rows and reconciles each cookbook to its subscription's CHANNEL target:
+rows and reconciles each bundle to its subscription's CHANNEL target:
 
   canary → skills advance to the latest published semver
   stable → skills advance only to versions that passed the health/eval gate

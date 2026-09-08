@@ -272,7 +272,7 @@ class PulseOut(BaseModel):
     free_sync_used_total: int  # free users who burned their one free sync (felt the wall)
     free_sync_used_7d: int  # ...in the last 7 days (recent paywall pressure)
     fleets_total: int  # named fleets created
-    fleet_subscriptions_total: int  # cookbook->fleet deploys (the moat motion; 0 = never used)
+    fleet_subscriptions_total: int  # bundle->fleet deploys (the moat motion; 0 = never used)
     fleet_subscriptions_7d: int  # ...in the last 7 days
     # ── Billable-candidate units (the meter that doesn't exist yet) ───────
     billable_units: list[OrgBillableUnitsOut]

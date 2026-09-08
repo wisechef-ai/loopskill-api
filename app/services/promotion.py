@@ -1,7 +1,7 @@
 """Health/eval-gated channel promotion — evergreen_0206 Phase E.
 
 THE "EXECUTES WITHOUT ERRORS" MECHANISM (decisions #14). A skill version enters
-a cookbook on the CANARY channel. It advances canary→stable ONLY after passing a
+a bundle on the CANARY channel. It advances canary→stable ONLY after passing a
 health/eval gate observed on canary-channel agents. This is "agents that execute
 without errors" as a *mechanism*, not a hope: Varys-on-canary catches a bad
 version before it reaches Chef-on-stable.
@@ -10,7 +10,7 @@ The gate (per version):
   * DEFAULT gate (no eval.yaml declared): "no canary agent reported
     reconcile_failed or rollback for this version within the observation window,
     AND at least `min_success` successful canary reconciles were observed."
-  * DECLARED gate (eval.yaml): a cookbook/skill may tighten it — require N
+  * DECLARED gate (eval.yaml): a bundle/skill may tighten it — require N
     distinct canary agents, a longer window, or a minimum success count.
 
 frozen never advances. A version that has ANY canary failure in-window is BLOCKED

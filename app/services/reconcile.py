@@ -158,7 +158,7 @@ def compute_reconcile_plan(
     """Compute the four-way reconcile diff.
 
     Args:
-        cookbook_id: the desired-state cookbook.
+        cookbook_id: the desired-state bundle.
         local: the agent's reported local skill set (from its lockfile).
         prune: when True, skills present locally but no longer declared are
             emitted in `remove`. When False (default), remove is always empty —

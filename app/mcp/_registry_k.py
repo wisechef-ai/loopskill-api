@@ -21,9 +21,10 @@ def _share_tools() -> list[types.Tool]:
             ),
             inputSchema={
                 "type": "object",
-                "required": ["cookbook_id"],
+                # dual-accept: neither spelling hard-required (see helper).
                 "properties": {
-                    "cookbook_id": {"type": "string"},
+                    "bundle_id": {"type": "string", "description": "Canonical bundle UUID."},
+                    "cookbook_id": {"type": "string", "description": "Legacy spelling of bundle_id."},
                     "name": {"type": "string"},
                     "scope": {
                         "type": "string",
@@ -42,8 +43,11 @@ def _share_tools() -> list[types.Tool]:
             ),
             inputSchema={
                 "type": "object",
-                "required": ["cookbook_id"],
-                "properties": {"cookbook_id": {"type": "string"}},
+                # dual-accept: neither spelling hard-required (see helper).
+                "properties": {
+                    "bundle_id": {"type": "string", "description": "Canonical bundle UUID."},
+                    "cookbook_id": {"type": "string", "description": "Legacy spelling of bundle_id."},
+                },
             },
         ),
         types.Tool(
@@ -54,9 +58,11 @@ def _share_tools() -> list[types.Tool]:
             ),
             inputSchema={
                 "type": "object",
-                "required": ["cookbook_id", "token_id"],
+                # dual-accept: neither spelling hard-required (see helper).
+                "required": ["token_id"],
                 "properties": {
-                    "cookbook_id": {"type": "string"},
+                    "bundle_id": {"type": "string", "description": "Canonical bundle UUID."},
+                    "cookbook_id": {"type": "string", "description": "Legacy spelling of bundle_id."},
                     "token_id": {"type": "string"},
                 },
             },
@@ -71,9 +77,11 @@ def _share_tools() -> list[types.Tool]:
             ),
             inputSchema={
                 "type": "object",
-                "required": ["cookbook_id", "token_id"],
+                # dual-accept: neither spelling hard-required (see helper).
+                "required": ["token_id"],
                 "properties": {
-                    "cookbook_id": {"type": "string"},
+                    "bundle_id": {"type": "string", "description": "Canonical bundle UUID."},
+                    "cookbook_id": {"type": "string", "description": "Legacy spelling of bundle_id."},
                     "token_id": {"type": "string"},
                 },
             },
@@ -103,10 +111,12 @@ def _fleet_tools() -> list[types.Tool]:
             ),
             inputSchema={
                 "type": "object",
-                "required": ["fleet_id", "cookbook_id"],
+                # dual-accept: neither spelling hard-required (see helper).
+                "required": ["fleet_id"],
                 "properties": {
                     "fleet_id": {"type": "string"},
-                    "cookbook_id": {"type": "string"},
+                    "bundle_id": {"type": "string", "description": "Canonical bundle UUID."},
+                    "cookbook_id": {"type": "string", "description": "Legacy spelling of bundle_id."},
                     "channel": {
                         "type": "string",
                         "enum": ["stable", "canary", "frozen"],
@@ -346,11 +356,18 @@ def _tailor_tools() -> list[types.Tool]:
             ),
             inputSchema={
                 "type": "object",
-                "required": ["cookbook_id"],
+                # dual-accept: neither spelling hard-required (see helper).
                 "properties": {
+                    "bundle_id": {
+                        "type": "string",
+                        "description": "Canonical UUID of the bundle to hand off.",
+                    },
                     "cookbook_id": {
                         "type": "string",
-                        "description": "UUID of the bundle to hand off.",
+                        "description": (
+                            "Legacy spelling of bundle_id (pre-rename wire name) — "
+                            "UUID of the bundle to hand off."
+                        ),
                     },
                     "new_owner_user_id": {
                         "type": "string",

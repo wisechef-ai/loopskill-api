@@ -65,7 +65,7 @@ def _internal_ip_filter() -> ColumnElement:
     """Read-time SQL predicate: the event's client_ip is NOT internal.
 
     NULL/empty ``client_ip`` passes (treated as organic, per the anonymous
-    convention). Non-IP sentinel strings (``cookbook:<uuid>`` fleet-apply
+    convention). Non-IP sentinel strings (``bundle:<uuid>`` fleet-apply
     rows) also pass — they carry no network origin to filter on.
     """
     internal_ips = sorted(internal_network_ips())

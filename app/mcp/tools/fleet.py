@@ -171,7 +171,7 @@ def loopskill_fleet_subscribe(
     try:
         cb_uuid = UUID(cookbook_id)
     except (ValueError, AttributeError):
-        return {"error": "invalid_bundle_id", "cookbook_id": cookbook_id}
+        return {"error": "invalid_bundle_id", "bundle_id": cookbook_id, "cookbook_id": cookbook_id}
 
     # activate_0701/TEN: org-scoped bundle access — a fleet in org A cannot
     # subscribe to org B's private bundle. Cross-org = forbidden.
@@ -179,9 +179,9 @@ def loopskill_fleet_subscribe(
 
     bundle = db.query(Bundle).filter(Bundle.id == cb_uuid).first()
     if bundle is None:
-        return {"error": "invalid_bundle_id", "cookbook_id": cookbook_id}
+        return {"error": "invalid_bundle_id", "bundle_id": cookbook_id, "cookbook_id": cookbook_id}
     if not authz.can_access_bundle(ctx, bundle):
-        return {"error": "forbidden", "cookbook_id": cookbook_id}
+        return {"error": "forbidden", "bundle_id": cookbook_id, "cookbook_id": cookbook_id}
 
     # Idempotency: return existing row if present
     existing = (
@@ -195,7 +195,8 @@ def loopskill_fleet_subscribe(
     if existing is not None:
         return {
             "fleet_id": fleet_id,
-            "cookbook_id": cookbook_id,
+            "bundle_id": cookbook_id,  # canonical
+            "cookbook_id": cookbook_id,  # compat-alias: legacy wire name
             "channel": existing.channel,
         }
 
@@ -209,7 +210,8 @@ def loopskill_fleet_subscribe(
 
     return {
         "fleet_id": fleet_id,
-        "cookbook_id": cookbook_id,
+        "bundle_id": cookbook_id,  # canonical
+        "cookbook_id": cookbook_id,  # compat-alias: legacy wire name
         "channel": channel,
     }
 
@@ -284,7 +286,11 @@ def loopskill_fleet_list(
                 "fleet_id": str(fleet.id),
                 "name": fleet.name,
                 "subscriptions": [
-                    {"cookbook_id": str(s.bundle_id), "channel": s.channel}  # compat-alias
+                    {
+                        "bundle_id": str(s.bundle_id),  # canonical
+                        "cookbook_id": str(s.bundle_id),  # compat-alias
+                        "channel": s.channel,
+                    }
                     for s in subs
                 ],
             }

@@ -82,11 +82,17 @@ def _core_tools() -> list[types.Tool]:
             inputSchema={
                 "type": "object",
                 "properties": {
+                    "bundle_id": {
+                        "type": "string",
+                        "description": (
+                            "Canonical bundle UUID. Optional for cbt_token (defaults "
+                            "to token's bundle_scope); required otherwise."
+                        ),
+                    },
                     "cookbook_id": {
                         "type": "string",
                         "description": (
-                            "Bundle UUID. Optional for cbt_token (defaults "
-                            "to token's bundle_scope); required otherwise."
+                            "Legacy spelling of bundle_id (pre-rename wire name, still accepted)."
                         ),
                     },
                     "slug": {
@@ -104,7 +110,13 @@ def _core_tools() -> list[types.Tool]:
             description="List the caller's bundle and its skill provenance rows.",
             inputSchema={
                 "type": "object",
-                "properties": {"cookbook_id": {"type": "string"}},
+                "properties": {
+                    "bundle_id": {"type": "string", "description": "Canonical bundle UUID."},
+                    "cookbook_id": {
+                        "type": "string",
+                        "description": "Legacy spelling of bundle_id (pre-rename wire name).",
+                    },
+                },
             },
         ),
         types.Tool(
@@ -198,11 +210,21 @@ def _core_tools() -> list[types.Tool]:
             ),
             inputSchema={
                 "type": "object",
-                "required": ["cookbook_id"],
+                # dual-accept (bundle-vocab cutover): bundle_id is canonical,
+                # cookbook_id is the accepted legacy spelling, so neither single
+                # spelling is schema-required — the dispatch seam's
+                # _bundle_id_arg raises when both are absent.
                 "properties": {
+                    "bundle_id": {
+                        "type": "string",
+                        "description": "Canonical bundle UUID to synchronise.",
+                    },
                     "cookbook_id": {
                         "type": "string",
-                        "description": "UUID of the bundle to synchronise.",
+                        "description": (
+                            "Legacy spelling of bundle_id (pre-rename wire name, "
+                            "still accepted) — UUID of the bundle to synchronise."
+                        ),
                     },
                     "dry_run": {
                         "type": "boolean",

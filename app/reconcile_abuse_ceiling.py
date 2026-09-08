@@ -1,7 +1,7 @@
 """Per-agent reconcile abuse ceiling — evergreen_0206 Phase A.
 
 Decision #20 (locked): free is NOT speed-throttled. Tiers separate on
-CAPABILITY (free=single-cookbook+one-manual-sync · pro=auto-reconcile · pro+=fleet),
+CAPABILITY (free=single-bundle+one-manual-sync · pro=auto-reconcile · pro+=fleet),
 never on reconcile speed. With subscribe-by-default (SSE) + 304-fast-path +
 Cloudflare, a normal agent's reconcile costs ~zero — there is nothing
 legitimate to throttle.

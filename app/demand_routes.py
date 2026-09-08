@@ -140,10 +140,10 @@ def _zero_result_themes(db: Session, days: int, limit: int) -> list[dict]:
 
 
 def _coinstall_cluster_themes(db: Session, limit: int) -> list[dict]:
-    """Organic co-install clusters → 'send-this-as-a-cookbook' (MRR) themes.
+    """Organic co-install clusters → 'send-this-as-a-bundle' (MRR) themes.
 
     When skills co-install, the market is asking for the *bundle*, delivered and
-    sendable as one cookbook. This is the distribution-activation angle — the
+    sendable as one bundle. This is the distribution-activation angle — the
     multi-seat / recurring-revenue motion, weighted highest on MRR leverage.
     """
     rows = (
@@ -192,7 +192,7 @@ def _coinstall_cluster_themes(db: Session, limit: int) -> list[dict]:
                 "_components": {
                     # Organic co-install strength IS the implied-demand signal here.
                     "search_demand": round(strength, 3),
-                    "mrr_leverage": 0.9,  # cookbook-send is the paid recurring motion
+                    "mrr_leverage": 0.9,  # bundle-send is the paid recurring motion
                     "content_readiness": 0.9,  # both skills live → honest post today
                     "wtp_proof": 0.0,
                 },

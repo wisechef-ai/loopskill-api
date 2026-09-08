@@ -87,18 +87,18 @@ BUNDLE_BULK_MAX_ITEMS = 500
 
 
 def _touch_bundle_generation(db: Session, cookbook_id: UUID) -> None:  # compat-alias
-    """Advance a cookbook's generation token (Bundle.updated_at).
+    """Advance a bundle's generation token (Bundle.updated_at).
 
     evergreen_0206 Phase A — the cheap-poll generation token.
 
     SQLAlchemy's ``onupdate=func.now()`` on ``Bundle.updated_at`` fires ONLY
-    when the parent ``cookbooks`` row is UPDATEd — never when a child
+    when the parent ``bundles`` row is UPDATEd — never when a child
     ``CookbookSkill`` row is added, removed, or re-pinned. That made the
-    generation token lie: a cookbook's declared skill set could change while
+    generation token lie: a bundle's declared skill set could change while
     its ``updated_at`` stayed frozen, so a subscribed agent polling with
     ``If-None-Match: <generation>`` would get a false 304 and never reconcile.
 
-    Every code path that mutates a cookbook's declared skill set MUST call this
+    Every code path that mutates a bundle's declared skill set MUST call this
     so the generation token is truthful. This is the load-bearing primitive
     behind the 304-fast-path (Phase D) and subscribe-not-poll fan-out.
 
@@ -691,16 +691,16 @@ def _artifacts_for(db: Session, bundle_id: UUID) -> dict:
 
 
 def _cookbook_signals(db: Session, cb: Bundle, skills: list[dict]) -> dict:
-    """portal_0610 J6 — living-object signals for a cookbook detail page.
+    """portal_0610 J6 — living-object signals for a bundle detail page.
 
-    All honest + organic-only. The cookbook is a living object, not a static
+    All honest + organic-only. The bundle is a living object, not a static
     list: it has reach (installs), a heartbeat (last_synced), team usage (fleet),
     and a feedback rollup. Each signal is best-effort — a query hiccup yields
     null/0 for that field, never a 500 (the skill list is the load-bearing data).
 
       installs_total / installs_7d : attributed installs (R7 dedup, is_test-excluded)
       last_synced                  : generation token (Bundle.updated_at)
-      fleet_usage                  : how many fleets subscribe this cookbook
+      fleet_usage                  : how many fleets subscribe this bundle
       corrections_absorbed         : field-feedback items across member skills
       skill_count                  : active (non-disabled) skills
     """
@@ -768,7 +768,7 @@ def _bundle_requires_pro(skill_rows: list[tuple[BundleSkill, Skill]]) -> bool:
 
 
 def _public_cb_card(db: Session, cb: Bundle) -> dict:
-    """A compact, anonymous-safe public cookbook card for the discover feed.
+    """A compact, anonymous-safe public bundle card for the discover feed.
 
     issue-149 (Option B, owner-approved 2026-08-19): deliberately LOCAL-ONLY
     (``_skills_for``, not ``_federated_skills_for``). Whether an unvetted
@@ -1214,7 +1214,7 @@ def list_cookbooks(
     # it never matches. That means this guard is unreachable in the current
     # configuration and is deliberately belt-and-braces.
     #
-    # Why it is still worth having: this is the only cookbook route in this module
+    # Why it is still worth having: this is the only bundle route in this module
     # that does not enforce scope itself (every other one calls
     # _enforce_cbt_scope_for_cookbook_route). If that middleware prefix rule is
     # ever loosened — e.g. someone drops the trailing slash to catch
@@ -1267,7 +1267,7 @@ def delete_cookbook(
 
 
 class CookbookPatchIn(BaseModel):
-    """PATCH body for renaming/updating a cookbook."""
+    """PATCH body for renaming/updating a bundle."""
 
     name: str | None = None
     description: str | None = None
@@ -2073,7 +2073,7 @@ def remove_loop_from_cookbook(
 
 
 class VisibilityIn(BaseModel):
-    """PATCH body for cookbook visibility (Composer inline toggle, L3)."""
+    """PATCH body for bundle visibility (Composer inline toggle, L3)."""
 
     visibility: str  # 'public' | 'private'
 
@@ -2115,7 +2115,7 @@ def set_cookbook_visibility(
 
 
 class SkillPinIn(BaseModel):
-    """PATCH body for a cookbook skill's version pin (L5, curated-only)."""
+    """PATCH body for a bundle skill's version pin (L5, curated-only)."""
 
     pinned_version: str | None = None  # null clears the pin (always-latest)
 
@@ -2834,7 +2834,7 @@ def handoff_cookbook(
 
 
 class FeedbackConfigIn(BaseModel):
-    """PATCH body for cookbook feedback routing (J8 cockpit binding UI)."""
+    """PATCH body for bundle feedback routing (J8 cockpit binding UI)."""
 
     repo: str | None = None  # 'owner/name'; null clears → default routing
     mode: str | None = "pat"

@@ -60,12 +60,20 @@ def loopskill_share_create(
 
     cb = _load_cookbook(db, cookbook_id)
     if cb is None:
-        return {"error": "bundle_not_found", "cookbook_id": cookbook_id}
+        return {
+            "error": "bundle_not_found",
+            "bundle_id": cookbook_id,  # canonical
+            "cookbook_id": cookbook_id,  # compat-alias: legacy wire name
+        }
 
     if not authz.can_write_cookbook(ctx, cb):
         # mesh_0408 W1b (codex PR #202, finding 3): same answer as the absent
         # case above — a distinct `cookbook_forbidden` was an existence oracle.
-        return {"error": "bundle_not_found", "cookbook_id": cookbook_id}
+        return {
+            "error": "bundle_not_found",
+            "bundle_id": cookbook_id,  # canonical
+            "cookbook_id": cookbook_id,  # compat-alias: legacy wire name
+        }
 
     # Delegate to the service (raises HTTPException on invalid scope)
     try:
@@ -79,7 +87,11 @@ def loopskill_share_create(
     # Rationale: HTTPException from _create_service (invalid_scope) must surface as error dict
     except Exception as exc:  # noqa: BLE001
         detail = getattr(exc, "detail", str(exc))
-        return {"error": str(detail), "cookbook_id": cookbook_id}
+        return {
+            "error": str(detail),
+            "bundle_id": cookbook_id,  # canonical
+            "cookbook_id": cookbook_id,  # compat-alias
+        }
 
     # Add config_blocks for create
     result["config_blocks"] = build_config_blocks(
@@ -107,12 +119,20 @@ def loopskill_share_list(
 
     cb = _load_cookbook(db, cookbook_id)
     if cb is None:
-        return {"error": "bundle_not_found", "cookbook_id": cookbook_id}
+        return {
+            "error": "bundle_not_found",
+            "bundle_id": cookbook_id,  # canonical
+            "cookbook_id": cookbook_id,  # compat-alias: legacy wire name
+        }
 
     if not authz.can_write_cookbook(ctx, cb):
         # mesh_0408 W1b (codex PR #202, finding 3): same answer as the absent
         # case above — a distinct `cookbook_forbidden` was an existence oracle.
-        return {"error": "bundle_not_found", "cookbook_id": cookbook_id}
+        return {
+            "error": "bundle_not_found",
+            "bundle_id": cookbook_id,  # canonical
+            "cookbook_id": cookbook_id,  # compat-alias: legacy wire name
+        }
 
     tokens = _list_service(db, cookbook=cb)
     return {"tokens": tokens}
@@ -137,12 +157,20 @@ def loopskill_share_revoke(
 
     cb = _load_cookbook(db, cookbook_id)
     if cb is None:
-        return {"error": "bundle_not_found", "cookbook_id": cookbook_id}
+        return {
+            "error": "bundle_not_found",
+            "bundle_id": cookbook_id,  # canonical
+            "cookbook_id": cookbook_id,  # compat-alias: legacy wire name
+        }
 
     if not authz.can_write_cookbook(ctx, cb):
         # mesh_0408 W1b (codex PR #202, finding 3): same answer as the absent
         # case above — a distinct `cookbook_forbidden` was an existence oracle.
-        return {"error": "bundle_not_found", "cookbook_id": cookbook_id}
+        return {
+            "error": "bundle_not_found",
+            "bundle_id": cookbook_id,  # canonical
+            "cookbook_id": cookbook_id,  # compat-alias: legacy wire name
+        }
 
     try:
         _revoke_service(db, cookbook=cb, token_id=token_id)
@@ -174,12 +202,20 @@ def loopskill_share_rotate(
 
     cb = _load_cookbook(db, cookbook_id)
     if cb is None:
-        return {"error": "bundle_not_found", "cookbook_id": cookbook_id}
+        return {
+            "error": "bundle_not_found",
+            "bundle_id": cookbook_id,  # canonical
+            "cookbook_id": cookbook_id,  # compat-alias: legacy wire name
+        }
 
     if not authz.can_write_cookbook(ctx, cb):
         # mesh_0408 W1b (codex PR #202, finding 3): same answer as the absent
         # case above — a distinct `cookbook_forbidden` was an existence oracle.
-        return {"error": "bundle_not_found", "cookbook_id": cookbook_id}
+        return {
+            "error": "bundle_not_found",
+            "bundle_id": cookbook_id,  # canonical
+            "cookbook_id": cookbook_id,  # compat-alias: legacy wire name
+        }
 
     try:
         result = _rotate_service(

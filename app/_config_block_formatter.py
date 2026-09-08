@@ -1,4 +1,4 @@
-"""Config block formatter for cookbook share tokens.
+"""Config block formatter for bundle share tokens.
 
 Generates Hermes YAML and Claude Desktop JSON snippets that users can paste
 directly into their client configuration to use a share token.

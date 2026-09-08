@@ -125,22 +125,22 @@ def _install_counts_for(db: Session, skill_ids: list) -> dict:
 
 
 def _cookbook_install_counts(db: Session, cookbook_id) -> tuple[int, int]:
-    """Return (total, last_7d) installs ATTRIBUTED TO this cookbook.
+    """Return (total, last_7d) installs ATTRIBUTED TO this bundle.
 
-    portal_0610 R7: the public cookbook card previously summed each member
-    skill's GLOBAL install count, so a skill shared across N cookbooks had its
+    portal_0610 R7: the public bundle card previously summed each member
+    skill's GLOBAL install count, so a skill shared across N bundles had its
     installs counted N times (e.g. super-memory's ~1520 installs added to every
-    cookbook containing it — the marketplace-wide sum ran ~1.86× actual). That
-    overstates a cookbook's reach and is a GTM-trust problem.
+    bundle containing it — the marketplace-wide sum ran ~1.86× actual). That
+    overstates a bundle's reach and is a GTM-trust problem.
 
-    The honest count is "installs that came THROUGH this cookbook" — InstallEvent
-    rows stamped with this cookbook_id (the cookbook install paths set it via
+    The honest count is "installs that came THROUGH this bundle" — InstallEvent
+    rows stamped with this cookbook_id (the bundle install paths set it via
     provenance). Organic-only: the ONE shared organic predicate from
     app/install_integrity.py (chef_0823/t_4a38fed9) — is_test keys, agent-probe
     keys (User.is_agent), and internal-IP installs are all excluded. A
-    cookbook whose skills were all installed via the direct
+    bundle whose skills were all installed via the direct
     /api/skills/install path (cookbook_id NULL) correctly shows 0 — those
-    installs were not attributable to the cookbook.
+    installs were not attributable to the bundle.
     """
     from app.install_integrity import organic_install_predicate
     from app.models import User
@@ -167,7 +167,7 @@ def _resolve_ref_value(ref: str | None, db: Session | None = None) -> str | None
 
     portal_0610 R2: previously only platform codes ({li,x,yt,ig,fb,agentpact})
     were accepted; a creator-handle or owner-UUID ref (the value the public
-    cookbook card emits) never matched the allowlist and was SILENTLY DROPPED,
+    bundle card emits) never matched the allowlist and was SILENTLY DROPPED,
     so the "install attribution visible from week 1" promise was false.
 
     Resolution order:
@@ -384,7 +384,7 @@ def _resolve_cookbook_owner_tier(db: Session, cookbook) -> str | None:
 # ── Install-event recording (denormalised counter sync) ────────────────────
 #
 # Shared by every install-producing route so all paths (single-skill /api/skills/install,
-# cookbook bulk install, cookbook single-skill install, MCP loopskill_bundle_install)
+# bundle bulk install, bundle single-skill install, MCP loopskill_bundle_install)
 # write an InstallEvent row AND bump Skill.install_count in the same transaction.
 #
 # Before recipes-D, only /api/skills/install recorded events. Bundle-share installs  # compat-alias
@@ -439,7 +439,7 @@ def _record_install_event(
     client_ip = None
     if request is not None:
         api_key_id = getattr(request.state, "api_key_id", None)
-        # Defer the trusted-proxy IP extraction; cookbook routes don't import it.
+        # Defer the trusted-proxy IP extraction; bundle routes don't import it.
         try:
             from app.config import settings
             from app.utils.client_ip import _real_client_ip

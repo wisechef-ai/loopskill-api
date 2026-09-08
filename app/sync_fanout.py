@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 class Fanout:
     """In-process subscriber registry plus optional Postgres LISTEN worker."""
 
-    BACKLOG = 100  # per-cookbook ring buffer for Last-Event-Id resume
+    BACKLOG = 100  # per-bundle ring buffer for Last-Event-Id resume
 
     def __init__(self) -> None:
         self._subs: dict[str, set[asyncio.Queue]] = defaultdict(set)
