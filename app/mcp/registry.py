@@ -35,7 +35,15 @@ def _core_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="loopskill_search",
-            description="Full-text search across the public skill catalog.",
+            description=(
+                "Search the public skill catalog, then append federated results. "
+                "Curated LoopSkill rows come first; federated rows follow, each "
+                "with an install_ref you can hand straight to loopskill_install. "
+                "Federation is BEST-EFFORT from a shared cache, not a live "
+                "guaranteed fan-out: the 'federated' key reports fresh | stale | "
+                "cold | degraded. 'cold' means this worker has nothing cached for "
+                "the query — it is NOT a claim that federation has nothing."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -43,6 +51,13 @@ def _core_tools() -> list[types.Tool]:
                     "category": {"type": "string"},
                     "tier": {"type": "string"},
                     "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
+                    "federated_limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 30,
+                        "default": 10,
+                        "description": "Cap on appended federated rows (context budget).",
+                    },
                 },
             },
         ),

@@ -589,6 +589,12 @@ inert). No schema, no migration.
     ``degraded``, never an exception and never a blocking wait. No schema
     change, no new dependency, no route change. Verified against prod
     /api/healthz 0.9.48 before bumping.
+
+feat/unisearch-p2-mcp-unify: bumped past current main (0.9.49) — MCP
+    loopskill_search keeps its native pass verbatim and APPENDS compact
+    federated rows read from the P1 shared cache (cache-ONLY get_entry; never
+    get_or_compute, never fan_out — a >90s cold fan-out on the MCP thread reads
+    as a broken platform). Native first; honest fresh|stale|cold|degraded flag.
 """
 
-__version__ = "0.9.49"
+__version__ = "0.9.50"

@@ -70,6 +70,18 @@ _FLEET_DEPLOYABLE_SOURCES: frozenset[str] = frozenset(
 )
 
 
+def is_fleet_deployable_source(source: str) -> bool:
+    """True iff ``source``'s artifacts may carry the fleet-deploy action (v1).
+
+    The public accessor for ``_FLEET_DEPLOYABLE_SOURCES`` above — the ONE place
+    the v1 allow-list is expressed. Exposed (unisearch_0709 P2) because the MCP
+    search path has to re-derive a cached row's deployability from the row's own
+    descriptor rather than trust the ``deployable`` flag stored alongside it, and
+    a second copy of the allow-list is exactly how the two surfaces drift apart.
+    """
+    return source in _FLEET_DEPLOYABLE_SOURCES
+
+
 def _source_priority(source: str) -> int:
     if source in _SOURCE_PRIORITY:
         return _SOURCE_PRIORITY[source]
@@ -247,7 +259,7 @@ def unify_external(skill: ExternalSkill, *, raw_row: dict | None = None) -> Unif
     # deployable = the source is on the v1 fleet allow-list AND the install router
     # permits a real (non-deep-link) install. ClawHub fails BOTH gates.
     installable = route_install(skill).allowed
-    deployable = installable and skill.source in _FLEET_DEPLOYABLE_SOURCES
+    deployable = installable and is_fleet_deployable_source(skill.source)
     return UnifiedSkill(
         canonical_id=canonical,
         slug=skill.slug,
