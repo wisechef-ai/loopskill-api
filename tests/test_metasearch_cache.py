@@ -75,7 +75,7 @@ def test_cache_entry_to_response_meta():
         sources_ok=["a"],
         sources_degraded=[],
         sources_failed=[],
-        cached_at=time.monotonic(),
+        computed_at=time.time(),
         ttl_s=300,
     )
     meta = e.to_response_meta()

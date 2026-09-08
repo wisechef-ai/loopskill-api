@@ -113,6 +113,13 @@ class Settings(BaseSettings):
     SIGNING_SECRET: str = "wr-tarball-signing-secret-change-me"
     RATE_LIMIT_PER_MINUTE: int = 60
     REDIS_URL: str = "redis://localhost:6379/0"
+    # unisearch_0709 P1: back the metasearch SWR cache with a SHARED Redis tier
+    # (L1 in-process + L2 Redis) so a result computed by one worker is readable
+    # by every other one. Off → the pre-P1 per-worker in-process cache, which is
+    # still correct, just not shared. Also treated as off when REDIS_URL is
+    # blank (the documented zero-config self-host path): no Redis configured is
+    # "no shared tier", not "shared tier degraded".
+    METASEARCH_SHARED_CACHE: bool = True
     HOST: str = "0.0.0.0"
     PORT: int = 8200
 

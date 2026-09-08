@@ -17,13 +17,17 @@ from app.services.metasearch_cache import CacheEntry, HotQueryCache
 
 
 def _entry(age_offset: float, ttl: float, grace: float) -> CacheEntry:
-    """Build an entry whose cached_at is `age_offset` seconds in the past."""
+    """Build an entry whose computed_at is `age_offset` seconds in the past.
+
+    unisearch_0709 P1: computed_at is an ABSOLUTE epoch (the entry is now shared
+    across worker processes, where a monotonic stamp would be meaningless).
+    """
     return CacheEntry(
         skills=[{"slug": "x"}],
         sources_ok=["recipes"],
         sources_degraded=[],
         sources_failed=[],
-        cached_at=time.monotonic() - age_offset,
+        computed_at=time.time() - age_offset,
         ttl_s=ttl,
         stale_grace_s=grace,
     )

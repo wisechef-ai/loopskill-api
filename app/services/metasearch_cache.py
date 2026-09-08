@@ -17,11 +17,27 @@ Design (thin, not fat — §7):
 - NO background warming — §7 hard rule: "we only call sources when a user
   searches." The cache is populated on-demand, never pre-walked.
 
-Redis-backed fleet-wide cache (P5+): the in-process cache is per-worker. A
-Redis-backed shared cache would collapse across workers + instances, but the plan
-defers Redis to P5+ because the per-worker cache + the human-bounded search load
-already fit the rate limits at the 1000-fleet-runner target. The interface
-(``get``/``put``) is designed so a Redis backend can drop in behind the same API.
+Redis-backed fleet-wide cache (unisearch_0709 P1): the L2 predicted in this
+docstring is now here, dropped in behind the SAME ``get``/``put`` interface.
+L1 is the in-process LRU below; L2 is Redis (``app/services/metasearch_cache_l2.py``
+owns the wire format). A result computed by worker A is now readable by every
+other worker, which is what makes the MCP cache-ONLY reader (P2) able to answer
+at all — it never fans out, so a per-worker cache made it answer "cold" for a
+query the REST route had just warmed one worker over.
+
+Four rules the L2 adds, none of which the callers see:
+- **Absolute epoch.** ``computed_at`` is unix seconds; ``time.monotonic()`` is
+  per-process and lies the moment a value crosses a process boundary.
+- **Shared seq.** The write generation comes from a Redis ``INCR``, so worker A's
+  slow stale-refresh compare-and-sets against worker B's newer entry instead of
+  clobbering it.
+- **Sanitised writes.** ``put()`` field-caps and version-tags before sharing —
+  an unsanitised shared cache is a fleet-wide poisoning surface.
+- **Honest degradation.** Redis unreachable (including the 30s ``get_redis()``
+  backoff window) → L1-only and state ``degraded``. Never an exception to the
+  caller, never a blocking wait, never an empty-but-"fresh" answer.
+
+An instance with no ``l2`` injected is exactly the pre-P1 in-process cache.
 """
 
 from __future__ import annotations
@@ -31,7 +47,10 @@ import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, NamedTuple
+
+from app.services.metasearch_cache_l2 import RedisL2, encode_payload, redis_key, sanitize_skills
+from app.services.metasearch_cache_swr import SingleFlightSWRMixin
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +58,10 @@ logger = logging.getLogger(__name__)
 # pair for a short TTL. Defaults are conservative — tuned to keep popular queries
 # fresh enough for discovery, stale enough to collapse burst traffic.
 _DEFAULT_TTL_S = 300  # 5 min — the plan's §7 "5–15 min" range, floor
-_DEFAULT_MAX_ENTRIES = 500  # bounded LRU; at ~2KB/entry this is ~1MB
+# L1 cap (unisearch_0709 P1): 64. Small on purpose — L1 is now a latency shield
+# in front of the shared Redis tier, not the whole cache, so it only needs to
+# hold the working set of one worker's hot queries. Redis evicts by TTL.
+_DEFAULT_MAX_ENTRIES = 64  # bounded LRU; at ~2KB/entry this is ~128KB
 # §7.5 latency: stale-while-revalidate grace. Past the TTL but within this
 # window, a hit is served STALE (fast) while a background thread refreshes the
 # entry. This collapses the expiry-boundary miss — the single request that used
@@ -58,14 +80,17 @@ class CacheEntry:
     sources_ok: list[str]
     sources_degraded: list[str]
     sources_failed: list[str]
-    cached_at: float
+    computed_at: float  # UNIX EPOCH seconds — never time.monotonic(): this
+    # value is read by other processes (P1), and a monotonic stamp is
+    # per-process (it reads as ~uptime, i.e. ancient, anywhere else).
     ttl_s: float
     stale_grace_s: float = 0.0
-    seq: int = 0  # monotonic write-generation; the CAS token for SWR refreshes
+    seq: int = 0  # SHARED write-generation (Redis INCR); the CAS token for SWR
 
     @property
     def age_s(self) -> float:
-        return time.monotonic() - self.cached_at
+        # max(0): another worker's clock may be marginally ahead of ours.
+        return max(0.0, time.time() - self.computed_at)
 
     @property
     def fresh(self) -> bool:
@@ -98,8 +123,38 @@ class CacheEntry:
         }
 
 
+class CacheLookup(NamedTuple):
+    """The result of a cache-ONLY read: a payload plus an EXPLICIT state.
+
+    ``state`` is one of:
+      - ``fresh``    — within TTL. Serve it.
+      - ``stale``    — past TTL, inside the grace window. Serve it AND refresh.
+      - ``miss``     — nothing cached (or hard-expired). A normal, fast answer.
+      - ``degraded`` — the shared tier is unreachable, so freshness cannot be
+        confirmed fleet-wide. ``entry`` may still carry an L1 payload; if it
+        does, it is servable — flagged honestly rather than dressed up as fresh.
+
+    A NamedTuple so the long-standing ``entry, state = get_entry(...)`` callers
+    keep working unchanged while new callers (the P2 MCP reader) can use the
+    named fields.
+    """
+
+    entry: "CacheEntry | None"
+    state: str
+
+    @property
+    def payload(self) -> "CacheEntry | None":
+        """Alias for ``entry`` — reads better at the MCP call site."""
+        return self.entry
+
+    @property
+    def servable(self) -> bool:
+        """True iff there is something to return to the user right now."""
+        return self.entry is not None
+
+
 @dataclass
-class HotQueryCache:
+class HotQueryCache(SingleFlightSWRMixin):
     """In-process LRU + TTL cache for metasearch fan-out results.
 
     Thread-safe via a single instance-level lock. Designed for a Redis backend to
@@ -109,10 +164,17 @@ class HotQueryCache:
     ttl_s: float = _DEFAULT_TTL_S
     max_entries: int = _DEFAULT_MAX_ENTRIES
     stale_grace_s: float = _DEFAULT_STALE_GRACE_S
+    # L2. None → pure in-process cache (the pre-P1 behaviour, and what unit
+    # tests get by default so they never depend on a live Redis).
+    l2: RedisL2 | None = None
     _store: "OrderedDict[str, CacheEntry]" = field(default_factory=OrderedDict)
     _hits: int = 0
     _misses: int = 0
     _stale_serves: int = 0
+    _degraded_serves: int = 0
+    # Last-known health of the shared tier. Sticky between L2 interactions so an
+    # L1 fast-path hit is still reported honestly while Redis is down.
+    _l2_down: bool = False
     _lock: Any = None  # lazily initialized (threading.Lock isn't a dataclass field)
     _inflight: dict[str, Any] = field(default_factory=dict)  # key → Event for single-flight
     _refreshing: set[str] = field(default_factory=set)  # keys with an in-progress SWR refresh
@@ -128,6 +190,62 @@ class HotQueryCache:
         normalized = " ".join(query.lower().split())
         return f"{normalized}|{','.join(sorted(sources))}"
 
+    # ── L2 plumbing ──────────────────────────────────────────────────────────
+
+    def _mark_l2(self, reachable: bool) -> None:
+        """Record the outcome of an L2 interaction (drives the ``degraded`` state)."""
+        self._l2_down = not reachable
+
+    def _entry_from_payload(self, payload: dict[str, Any]) -> CacheEntry:
+        """Rebuild an entry from a shared payload. ``sources_failed`` is not part
+        of the shared schema (the fan-out never populates it) so it hydrates
+        empty — L1-only field, documented rather than silently lossy."""
+        return CacheEntry(
+            skills=payload["skills"],
+            sources_ok=payload["sources_ok"],
+            sources_degraded=payload["sources_degraded"],
+            sources_failed=[],
+            computed_at=payload["computed_at"],
+            ttl_s=payload["ttl_s"],
+            stale_grace_s=payload["stale_grace_s"],
+            seq=payload["seq"],
+        )
+
+    def _read_l2(self, key: str) -> tuple[bool, CacheEntry | None]:
+        """Read the shared tier. Returns ``(reachable, entry)``."""
+        if self.l2 is None:
+            return True, None
+        reachable, payload = self.l2.read(redis_key(key))
+        self._mark_l2(reachable)
+        if not reachable or payload is None:
+            return reachable, None
+        return True, self._entry_from_payload(payload)
+
+    def _write_l2(self, key: str, entry: CacheEntry, *, expected_seq: int | None) -> tuple[bool, bool]:
+        """Write through to the shared tier. Returns ``(reachable, landed)``."""
+        if self.l2 is None:
+            return True, False
+        payload = encode_payload(
+            skills=entry.skills,
+            sources_ok=entry.sources_ok,
+            sources_degraded=entry.sources_degraded,
+            computed_at=entry.computed_at,
+            ttl_s=entry.ttl_s,
+            stale_grace_s=entry.stale_grace_s,
+            seq=entry.seq,
+        )
+        reachable, landed = self.l2.write(
+            redis_key(key),
+            payload,
+            seq=entry.seq,
+            # Redis key TTL = ttl_s + stale_grace_s: the entry lives exactly as
+            # long as it is servable, then Redis expires it (TTL, not LRU).
+            ttl_s=entry.ttl_s + entry.stale_grace_s,
+            expected_seq=expected_seq,
+        )
+        self._mark_l2(reachable)
+        return reachable, landed
+
     def get(self, query: str, sources: tuple[str, ...]) -> CacheEntry | None:
         """Return a FRESH (within-TTL) cached entry, or None. LRU-promotes on hit.
 
@@ -141,55 +259,89 @@ class HotQueryCache:
         as a MISS, not a hit, so the strict path's hit-rate telemetry stays honest.
         It suppresses ``get_entry``'s own counting (``_count=False``) and records
         the outcome itself to avoid double counting.
+
+        Freshness here is judged on the ENTRY (absolute-epoch age vs TTL), not on
+        the lookup state, so a Redis outage degrades the flag without forcing the
+        REST route to recompute a perfectly fresh entry on every request.
         """
-        entry, state = self.get_entry(query, sources, _count=False)
+        lookup = self.get_entry(query, sources, _count=False)
         with self._lock:
-            if state == "fresh" and entry is not None:
+            if lookup.entry is not None and lookup.entry.fresh:
                 self._hits += 1
-                return entry
+                return lookup.entry
             # stale (returned as None to strict callers) or miss → count a miss.
             self._misses += 1
             return None
 
-    def get_entry(
-        self, query: str, sources: tuple[str, ...], *, _count: bool = True
-    ) -> tuple[CacheEntry | None, str]:
-        """Return (entry, state) where state ∈ {"fresh", "stale", "miss"}.
+    def get_entry(self, query: str, sources: tuple[str, ...], *, _count: bool = True) -> CacheLookup:
+        """CACHE-ONLY read. Returns ``CacheLookup(entry, state)``.
 
-        - fresh: within TTL — serve, no refresh.
-        - stale: past TTL, within grace — serve THIS entry (fast) and the caller
-          should trigger a background refresh (stale-while-revalidate).
-        - miss: no entry, or past TTL+grace (hard-expired, evicted here).
+        This is the reader the MCP search path imports (unisearch_0709 P2). It
+        NEVER computes, NEVER fans out and NEVER blocks on upstream or on another
+        worker: at worst it does one Redis GET and answers ``miss``. A miss is a
+        normal, fast answer — the caller returns native results and flags the
+        federated section honestly.
 
-        Hit/miss counters (only when ``_count`` — the request path): a fresh OR
-        stale serve counts as a hit (the user got a fast cached response); only a
-        true miss increments misses. This mirrors what the §7.5 load test measures
-        (``cache_hit`` in the response). Strict ``get()`` passes ``_count=False``
-        so its stale→None discard does not inflate the hit counter.
+        States:
+          - fresh: within TTL — serve, no refresh.
+          - stale: past TTL, within grace — serve THIS entry (fast) and the
+            caller should trigger a background refresh (stale-while-revalidate).
+          - miss: nothing cached, or past TTL+grace (hard-expired, evicted here).
+          - degraded: the shared tier is unreachable. Any L1 payload is still
+            returned (L1-only mode); it is simply not claimed as fleet-fresh.
+
+        Tier order: a FRESH L1 entry short-circuits (no Redis round-trip on the
+        hot path). Otherwise the shared tier is consulted, and the higher ``seq``
+        wins — another worker may have recomputed while ours went stale.
+
+        Hit/miss counters (only when ``_count`` — the request path): any served
+        payload counts as a hit; a non-servable answer counts as a miss.
         """
+        key = self._key(query, sources)
         with self._lock:
-            key = self._key(query, sources)
             entry = self._store.get(key)
-            if entry is None:
-                if _count:
-                    self._misses += 1
-                return None, "miss"
-            if entry.expired:
-                # Hard-expired (past TTL + grace) — evict, count as miss.
+            if entry is not None:
+                self._store.move_to_end(key)
+            l1_fresh = entry is not None and entry.fresh
+            degraded = self._l2_down
+
+        if not l1_fresh:
+            reachable, remote = self._read_l2(key)
+            degraded = not reachable
+            if remote is not None and (entry is None or remote.seq > entry.seq):
+                entry = remote
+                with self._lock:
+                    self._store[key] = remote
+                    self._store.move_to_end(key)
+                    self._trim_locked()
+
+        if entry is not None and entry.expired:
+            with self._lock:
                 self._store.pop(key, None)
-                if _count:
-                    self._misses += 1
-                return None, "miss"
-            # Fresh or stale: LRU-promote and (on the request path) count a hit.
-            self._store.move_to_end(key)
-            if entry.stale:
-                if _count:
-                    self._hits += 1
-                    self._stale_serves += 1
-                return entry, "stale"
-            if _count:
+            entry = None
+
+        if degraded:
+            state = "degraded"
+        elif entry is None:
+            state = "miss"
+        else:
+            state = "stale" if entry.stale else "fresh"
+        return self._record(CacheLookup(entry, state), _count=_count)
+
+    def _record(self, lookup: CacheLookup, *, _count: bool) -> CacheLookup:
+        """Count one lookup outcome and return it unchanged."""
+        if not _count:
+            return lookup
+        with self._lock:
+            if lookup.entry is None:
+                self._misses += 1
+            else:
                 self._hits += 1
-            return entry, "fresh"
+            if lookup.state == "stale":
+                self._stale_serves += 1
+            elif lookup.state == "degraded":
+                self._degraded_serves += 1
+        return lookup
 
     def put(
         self,
@@ -201,18 +353,31 @@ class HotQueryCache:
         sources_degraded: list[str] | None = None,
         sources_failed: list[str] | None = None,
     ) -> int:
-        """Store a fan-out result unconditionally (foreground write — always wins;
-        a freshly-computed result is by definition the newest). Returns the seq
-        stamped on the new entry. Evicts the LRU entry if at capacity."""
+        """Store a fan-out result (foreground write). Returns the seq stamped on
+        the new entry. Evicts the LRU entry if L1 is at capacity.
+
+        The payload is SANITISED, field-capped and version-tagged before it is
+        shared (``metasearch_cache_l2.sanitize_skills`` / ``encode_payload``) —
+        this write is read by every other worker, so an unsanitised row here is a
+        fleet-wide blast radius, not a local one.
+
+        The shared write is guarded by the same compare-and-set as a refresh, in
+        "monotonic" mode: it lands only if it is strictly newer than what is
+        already there. A freshly-computed result carries a freshly-INCR'd seq, so
+        it is the newest by construction and effectively always wins; the guard
+        exists so it can never go backwards.
+        """
+        entry = self._build_entry(
+            skills,
+            sources_ok=sources_ok,
+            sources_degraded=sources_degraded,
+            sources_failed=sources_failed,
+        )
+        key = self._key(query, sources)
+        self._write_l2(key, entry, expected_seq=None)
         with self._lock:
-            return self._store_locked(
-                query,
-                sources,
-                skills,
-                sources_ok=sources_ok,
-                sources_degraded=sources_degraded,
-                sources_failed=sources_failed,
-            )
+            self._put_locked(key, entry)
+        return entry.seq
 
     def put_if_current(
         self,
@@ -235,51 +400,85 @@ class HotQueryCache:
         seq — the CAS then fails and this stale refresh result is DISCARDED rather
         than clobbering the newer value. A missing entry (evicted) also fails the
         CAS: the refresh result is dropped, and the next request recomputes.
+
+        With a shared tier the CAS runs IN REDIS (one atomic script), because the
+        entry this refresh started from may have been replaced by a DIFFERENT
+        WORKER — a purely local compare would not see that write at all. When the
+        shared tier is unreachable (or absent) the local compare is the fallback:
+        L1-only mode, same semantics, one process's worth of truth.
         """
+        entry = self._build_entry(
+            skills,
+            sources_ok=sources_ok,
+            sources_degraded=sources_degraded,
+            sources_failed=sources_failed,
+        )
+        key = self._key(query, sources)
+        reachable, landed = self._write_l2(key, entry, expected_seq=expected_seq)
+        if self.l2 is not None and reachable:
+            if not landed:
+                return False  # the shared entry moved on — drop this refresh
+            with self._lock:
+                self._put_locked(key, entry)
+            return True
         with self._lock:
-            key = self._key(query, sources)
             current = self._store.get(key)
             if current is None or current.seq != expected_seq:
                 return False
-            self._store_locked(
-                query,
-                sources,
-                skills,
-                sources_ok=sources_ok,
-                sources_degraded=sources_degraded,
-                sources_failed=sources_failed,
-            )
+            self._put_locked(key, entry)
             return True
 
-    def _store_locked(
+    def _build_entry(
         self,
-        query: str,
-        sources: tuple[str, ...],
         skills: list[dict[str, Any]],
         *,
         sources_ok: list[str] | None = None,
         sources_degraded: list[str] | None = None,
         sources_failed: list[str] | None = None,
-    ) -> int:
-        """Write an entry with a fresh monotonic seq. MUST be called under
-        ``self._lock``. Returns the assigned seq."""
-        key = self._key(query, sources)
-        self._seq_counter += 1
-        seq = self._seq_counter
-        self._store[key] = CacheEntry(
-            skills=skills,
+    ) -> CacheEntry:
+        """Sanitise a result and stamp it with a fresh SHARED seq + epoch."""
+        return CacheEntry(
+            skills=sanitize_skills(skills),
             sources_ok=sources_ok or [],
             sources_degraded=sources_degraded or [],
             sources_failed=sources_failed or [],
-            cached_at=time.monotonic(),
+            computed_at=time.time(),
             ttl_s=self.ttl_s,
             stale_grace_s=self.stale_grace_s,
-            seq=seq,
+            seq=self._next_seq(),
         )
+
+    def _next_seq(self) -> int:
+        """Next write generation, from the SHARED Redis counter when available.
+
+        A per-process counter cannot order writes across workers — worker A's
+        "seq 3" and worker B's "seq 3" are unrelated numbers, so a compare-and-set
+        against them is meaningless and the stale-refresh clobber is back. When
+        Redis is unreachable we fall back to a local counter seeded from the
+        highest shared value we have seen, so L1-only writes stay ordered
+        locally and never spuriously outrank a real shared seq.
+        """
+        if self.l2 is not None:
+            reachable, seq = self.l2.next_seq()
+            self._mark_l2(reachable)
+            if seq is not None:
+                with self._lock:
+                    self._seq_counter = max(self._seq_counter, seq)
+                return seq
+        with self._lock:
+            self._seq_counter += 1
+            return self._seq_counter
+
+    def _put_locked(self, key: str, entry: CacheEntry) -> None:
+        """Store an entry in L1 and trim. MUST be called under ``self._lock``."""
+        self._store[key] = entry
         self._store.move_to_end(key)
+        self._trim_locked()
+
+    def _trim_locked(self) -> None:
+        """Enforce the L1 cap. MUST be called under ``self._lock``."""
         while len(self._store) > self.max_entries:
             self._store.popitem(last=False)  # FIFO eviction = LRU oldest
-        return seq
 
     def stats(self) -> dict[str, Any]:
         """Hit-rate telemetry for the §7.5 acceptance test (80%+ target) and the
@@ -290,25 +489,33 @@ class HotQueryCache:
             "hits": self._hits,
             "misses": self._misses,
             "stale_serves": self._stale_serves,
+            "degraded_serves": self._degraded_serves,
             "hit_rate": round(self._hits / total, 3) if total > 0 else 0.0,
             "ttl_s": self.ttl_s,
             "stale_grace_s": self.stale_grace_s,
             "max_entries": self.max_entries,
+            "l2_enabled": self.l2 is not None,
+            "l2_degraded": self._l2_down,
         }
 
     def invalidate(self, query: str | None = None) -> int:
-        """Invalidate entries. No query → clear all (admin/test). Returns count."""
+        """Invalidate entries in BOTH tiers. No query → clear all (admin/test).
+
+        Returns the number of L1 entries dropped. The shared drop is best-effort:
+        if Redis is unreachable the entries simply TTL out, which is the same
+        outcome a moment later and is not worth failing an admin call over.
+        """
+        # All source-sets for a query share a key prefix; no query → everything.
+        prefix = "" if query is None else f"{' '.join(query.lower().split())}|"
         with self._lock:
-            if query is None:
-                n = len(self._store)
-                self._store.clear()
-                return n
-            # Invalidate all source-sets for this query (prefix match on the key).
-            prefix = f"{' '.join(query.lower().split())}|"
-            keys_to_drop = [k for k in self._store if k.startswith(prefix)]
-            for k in keys_to_drop:
+            dropped = [k for k in self._store if k.startswith(prefix)]
+            for k in dropped:
                 self._store.pop(k, None)
-            return len(keys_to_drop)
+        if self.l2 is not None:
+            # Prefix-scan, so entries written by OTHER workers (never present in
+            # this process's L1) are invalidated too.
+            self._mark_l2(self.l2.drop_matching(f"{prefix}*"))
+        return len(dropped)
 
     def reset_stats(self) -> None:
         """Reset hit/miss counters (admin/test). Entries are NOT cleared — use
@@ -318,183 +525,28 @@ class HotQueryCache:
             self._misses = 0
             self._stale_serves = 0
 
-    def get_or_compute(
-        self,
-        key_parts: tuple[str, tuple[str, ...]],
-        compute_fn: "Any",
-        refresh_fn: "Any" = None,
-    ) -> tuple[CacheEntry | None, bool]:
-        """Single-flight + stale-while-revalidate.
 
-        Fast paths:
-          - FRESH hit → return (entry, False) immediately.
-          - STALE hit (past TTL, within grace) → return the stale (entry, False)
-            immediately AND fire ONE background refresh for this key (guarded by
-            ``_refreshing`` so N concurrent stale-serves spawn exactly one
-            refresh). The user pays ZERO fan-out latency at the TTL boundary —
-            this is the §7.5 p95 fix.
+def _default_l2() -> RedisL2 | None:
+    """The shared tier for the module singleton, or None for L1-only.
 
-        Slow path (hard miss — no entry or past TTL+grace):
-          - Single-flight compute: the first caller runs ``compute_fn`` ONCE;
-            concurrent callers for the same key wait on its Event, then read the
-            cached result (council MUST: thundering herd).
+    None when the shared cache is switched off, and when no ``REDIS_URL`` is
+    configured at all — the documented zero-config self-host path. An
+    unconfigured tier is NOT a degraded tier: a single-worker self-host with no
+    Redis is working exactly as designed and must not report ``degraded``. Only
+    a tier we expect to reach and cannot is degraded.
+    """
+    from app.config import settings
 
-        ``refresh_fn`` (optional) is the callable used for the BACKGROUND stale
-        refresh; it MUST be self-contained w.r.t. resources (open its own DB
-        session) because it runs in a daemon thread after the originating
-        request's session is closed. When omitted, ``compute_fn`` is reused (safe
-        only if ``compute_fn`` is itself resource-self-contained).
-
-        Returns (entry, computed). ``computed=True`` iff THIS caller ran
-        ``compute_fn`` synchronously (a hard-miss compute); a fresh hit, a
-        stale-serve, and a single-flight waiter all return ``computed=False``.
-        """
-        query, sources = key_parts
-        key = self._key(query, sources)
-
-        # Fast path: fresh or stale hit (no single-flight lock contention).
-        entry, state = self.get_entry(query, sources)
-        if state == "fresh":
-            return entry, False
-        if state == "stale":
-            # SWR: serve stale NOW, refresh in the background. Capture the served
-            # entry's seq so the refresh does a compare-and-swap store — it must
-            # NOT clobber a newer value written by a later hard-miss recompute if
-            # this refresh outlives the entry's hard-expiry (council MUST-FIX).
-            self._maybe_refresh(
-                key,
-                query,
-                sources,
-                refresh_fn or compute_fn,
-                expected_seq=entry.seq if entry is not None else None,
-            )
-            return entry, False
-
-        # Hard miss: acquire or create an in-flight slot for this key.
-        with self._lock:
-            existing = self._store.get(key)
-            if existing is not None and not existing.expired:
-                # Raced with another writer between get_entry and here.
-                return existing, False
-            event = self._inflight.get(key)
-            if event is None:
-                # First caller for this key — we compute.
-                event = threading.Event()
-                self._inflight[key] = event
-                is_computer = True
-            else:
-                is_computer = False
-
-        if is_computer:
-            try:
-                self._run_and_store(query, sources, compute_fn)
-            except Exception:  # noqa: BLE001
-                # Rationale: a failed compute must not be cached; concurrent waiters
-                # see no entry and retry on their next request.
-                logger.warning("cache compute failed for %s", key, exc_info=True)
-                # Council R3: set the Event BEFORE popping _inflight so a new caller
-                # arriving in the gap doesn't become a second computer (pop-before-set race).
-                event.set()
-                with self._lock:
-                    self._inflight.pop(key, None)
-                return None, True
-            # Success: set Event first (release waiters), then clean up _inflight.
-            event.set()
-            with self._lock:
-                self._inflight.pop(key, None)
-            entry = self.get(query, sources)
-            return entry, True
-        else:
-            # Concurrent waiter — the computer populated the cache; read it.
-            # Council R3: return computed=False (we didn't compute — we waited).
-            event.wait(timeout=30.0)
-            entry = self.get(query, sources)
-            return entry, False
-
-    def _run_and_store(
-        self, query: str, sources: tuple[str, ...], compute_fn: "Any", *, expected_seq: int | None = None
-    ) -> None:
-        """Call ``compute_fn`` and store its result.
-
-        - Foreground hard-miss (``expected_seq is None``): unconditional ``put`` —
-          a freshly-computed result is the newest, it always wins.
-        - Background SWR refresh (``expected_seq`` set): compare-and-swap via
-          ``put_if_current`` — the write lands ONLY if the entry we started from
-          is still current. If a newer hard-miss recompute replaced it while this
-          refresh ran, the CAS fails and this (now-stale) result is discarded
-          instead of clobbering the newer value (council MUST-FIX, 2026-07-11).
-        """
-        result = compute_fn()
-        # compute_fn returns (skills, sources_ok, sources_degraded) or just skills.
-        if isinstance(result, tuple) and len(result) == 3:
-            skills, ok, degraded = result
-        else:
-            skills, ok, degraded = result, None, None
-
-        if expected_seq is None:
-            self.put(query, sources, skills, sources_ok=ok, sources_degraded=degraded)
-        else:
-            landed = self.put_if_current(
-                query,
-                sources,
-                skills,
-                expected_seq=expected_seq,
-                sources_ok=ok,
-                sources_degraded=degraded,
-            )
-            if not landed:
-                logger.debug(
-                    "metasearch SWR refresh for %s|%s discarded (entry moved on; CAS miss)",
-                    query,
-                    sources,
-                )
-
-    def _maybe_refresh(
-        self,
-        key: str,
-        query: str,
-        sources: tuple[str, ...],
-        compute_fn: "Any",
-        *,
-        expected_seq: int | None = None,
-    ) -> bool:
-        """Fire a SINGLE background refresh for a stale key. Returns True iff this
-        call started the refresh (i.e. won the ``_refreshing`` guard). Concurrent
-        stale-serves for the same key are no-ops — exactly one refresh runs.
-
-        ``expected_seq`` is the seq of the stale entry that was served; the refresh
-        stores via compare-and-swap so it cannot overwrite a newer entry written
-        by a hard-miss recompute if this refresh outlives the entry's hard-expiry.
-
-        The refresh thread is a daemon so it never blocks process shutdown; on
-        failure the stale entry simply remains until it hard-expires (grace
-        window) and the next request does a synchronous compute.
-        """
-        with self._lock:
-            if key in self._refreshing:
-                return False
-            self._refreshing.add(key)
-
-        def _refresh() -> None:
-            try:
-                self._run_and_store(query, sources, compute_fn, expected_seq=expected_seq)
-            except Exception:  # noqa: BLE001
-                # Rationale: a failed background refresh must not crash the worker
-                # and must not poison the cache — the stale entry stays until it
-                # hard-expires, then a request recomputes synchronously.
-                logger.warning("metasearch SWR refresh failed for %s", key, exc_info=True)
-            finally:
-                with self._lock:
-                    self._refreshing.discard(key)
-
-        threading.Thread(target=_refresh, name="metasearch-swr-refresh", daemon=True).start()
-        return True
+    if not settings.METASEARCH_SHARED_CACHE or not (settings.REDIS_URL or "").strip():
+        return None
+    return RedisL2()
 
 
-# Module-level singleton (per-worker). The metasearch route uses this instance.
-# A Redis-backed shared cache (P5+) would replace this with a Redis-backed
-# implementation behind the same interface.
-_cache = HotQueryCache()
+# Module-level singleton (one per worker process). The metasearch REST route
+# uses this instance; from unisearch_0709 P1 it writes through to the shared
+# Redis tier, so what one worker computes, every worker (and the P2 MCP
+# cache-only reader) can serve.
+_cache = HotQueryCache(l2=_default_l2())
 
 
 def get_cache() -> HotQueryCache:
