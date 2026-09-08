@@ -153,3 +153,85 @@ def record_missing_skill_query(
         except Exception:  # noqa: BLE001
             logger.debug("missing_skill_query rollback also failed", exc_info=True)
         return False
+
+
+# ── Federation-fulfilled demand (unisearch_0709 P2) ──────────────────────────
+#
+# A DIFFERENT signal, and therefore a DIFFERENT store. ``missing_skill_queries``
+# above means "zero TOTAL results" — the catalog gap the weekly digest and
+# ``/api/admin/demand-brief`` read as "nobody, anywhere, had this". A query the
+# MCP search answered only from federation is the opposite finding: somebody had
+# it, it just wasn't us. Writing those rows into the same table would inflate the
+# gap count with queries that were in fact fulfilled and corrupt the VOC signal
+# the brief exists to produce. The existing writers above are untouched.
+#
+# Why a TelemetryEvent row rather than a new table:
+#   * No alembic migration. unisearch_0709 locked "no migrations this sprint"
+#     precisely because one changes the rollback story of every phase.
+#   * ``telemetry_events.event_type`` is indexed and is already where this exact
+#     funnel lives (``metasearch.query``, ``metasearch.install_intent``). A
+#     dedicated event_type is a namespace no ``missing_skill_queries`` reader
+#     can accidentally sweep up.
+#   * The signal is per-EVENT, not a per-day counter. The actionable content is
+#     the (query -> install_ref) pair: "agents keep asking for X and we keep
+#     handing them somebody else's X" is the curation prompt. A
+#     (query, day, count) aggregate row would throw the install_ref away.
+FEDERATED_FULFILLED_EVENT = "federated_fulfilled_queries"
+
+
+def record_federated_fulfilled_query(
+    db: Session,
+    q: str | None,
+    *,
+    rows: list[dict] | None = None,
+    freshness: str = "cold",
+    api_key_id=None,
+    client_ip: str | None = None,
+) -> bool:
+    """Record one search that ONLY federation could answer. Returns True if written.
+
+    Callers must have already established the precondition (zero native hits AND
+    at least one federated row); this function does not re-derive it, it only
+    refuses an empty query — a browse is not demand, same rule as
+    ``record_missing_skill_query``.
+
+    Fire-and-forget by contract: every failure is swallowed and logged. A demand
+    row is worth strictly less than the search response it rides along with.
+    """
+    import json
+
+    from app.models import TelemetryEvent
+    from app.services.probe_detection import is_probe_request
+
+    query = normalise_query(q)
+    if not query or not rows:
+        return False
+    try:
+        payload = {
+            "query": query,
+            "federated_count": len(rows),
+            "top_install_ref": rows[0].get("install_ref"),
+            "deployable_count": sum(1 for r in rows if r.get("deployable")),
+            "freshness": freshness,
+            # coldstart_0609/A: fleet dogfooding must not read as customer demand.
+            "is_probe": is_probe_request(db, api_key_id=api_key_id, client_ip=client_ip),
+        }
+        db.add(
+            TelemetryEvent(
+                event_type=FEDERATED_FULFILLED_EVENT,
+                skill_slug=None,
+                payload=json.dumps(payload),
+                client_ip=client_ip,
+            )
+        )
+        db.commit()
+        return True
+    # Rationale: VOC logging must never break the search response it rides on.
+    except Exception:  # noqa: BLE001
+        logger.debug("federated_fulfilled_query write failed — ignored", exc_info=True)
+        try:
+            db.rollback()
+        # Rationale: rollback itself can raise on a broken session; still never surface.
+        except Exception:  # noqa: BLE001
+            logger.debug("federated_fulfilled_query rollback also failed", exc_info=True)
+        return False

@@ -150,12 +150,16 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
     _tool_ns = vars(_srv_mod)
 
     if name == "loopskill_search":
+        # Wire default limit 20 vs the direct-call default 100 differs ON PURPOSE
+        # — see app/mcp/tools/search.py (WIS-948 + unisearch_0709 P2).
         return _tool_ns.get("loopskill_search", loopskill_search)(
             db,
             query=args.get("query"),
             category=args.get("category"),
             tier=args.get("tier"),
             limit=int(args.get("limit", 20)),
+            federated_limit=args.get("federated_limit"),
+            api_key_id=caller.get("api_key_id"),
         )
     # ── loopskill_0622 Phase 8 / activate_0701 Phase A1: runnable catalog types ──
     # Canonical verifier names dispatch after normalize_tool_name maps legacy names.
