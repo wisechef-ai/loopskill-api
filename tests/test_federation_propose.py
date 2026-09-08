@@ -507,9 +507,10 @@ def test_all_14_preexisting_sources_survive_config_move():
         "github-awesome-agent-skills",
         # owner-approved curated-community tap (commit c9e58cb, 2026-08-31)
         "github-marketing-os",
+        "github-ripwire",
     }
     assert set(LIVE_SOURCES) == expected, f"drift: {set(LIVE_SOURCES) ^ expected}"
-    assert len(LIVE_SOURCES) == 30
+    assert len(LIVE_SOURCES) == 31
 
 
 # ── Test 8: the REST endpoint mirrors the MCP tool contract ──────────────────

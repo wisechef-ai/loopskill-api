@@ -203,3 +203,14 @@ github_taps:
     repo_license: "MIT"
     trust: curated-community
     in_metasearch: true
+  # redhat-et/ripwire — Apache-2.0, 1.6k stars, actively developed. A zero-dep
+  # C++23 CLI + MCP server that gives coding agents a ranked symbol map, blast
+  # radius, and tests-to-run WITHOUT reading the repo. The 17 skills are the
+  # agent-facing half of that tool; validated 2026-09-08 by running the binary
+  # against a 1151-file repo (callers/impact output matched hand-verified truth).
+  - source_id: github-ripwire
+    repo: redhat-et/ripwire
+    path: "skills/"
+    repo_license: "Apache-2.0"
+    trust: trusted-source
+    in_metasearch: true

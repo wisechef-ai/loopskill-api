@@ -32,7 +32,9 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from importlib import import_module
 from pathlib import Path
+from typing import NamedTuple
 
 # Allow running from repo root without installing the package.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -245,40 +247,56 @@ def main() -> int:
         " (DRY RUN — no writes)" if args.dry_run else "",
     )
 
-    # Passive auto-track: after the daily walk refreshes the github-marketing tap
-    # index, reconcile the Corey's Marketing bundle against that same fresh walk
+    # Passive auto-track: after the daily walk refreshes each tracked tap's
+    # index, reconcile that tap's public bundle against the same fresh walk
     # (adds new upstream skills, disables removed ones). It reuses the cache this
     # run just filled — no second GitHub fetch — and stays quiet unless it
     # actually changes something. A tap outage this run leaves indexed=None, and
     # the seed's own empty-walk guard aborts rather than emptying the bundle.
-    if _marketing_tap_ok(reports):
-        _reconcile_marketing_bundle(dry_run=args.dry_run)
+    for tracked in TRACKED_BUNDLES:
+        if _tap_ok(reports, tracked.source):
+            _reconcile_bundle(tracked, dry_run=args.dry_run)
 
     return 0
 
 
-def _marketing_tap_ok(reports: list[dict]) -> bool:
-    """True iff this run walked github-marketing successfully (indexed is a real
+class TrackedBundle(NamedTuple):
+    """A public bundle whose membership mirrors one federation tap."""
+
+    source: str
+    seed_module: str
+    label: str
+
+
+# Bundles reconciled on the tail of every reindex run. Adding a tracked bundle
+# is one row here — not a second copy of the guard/dispatch pair.
+TRACKED_BUNDLES: tuple[TrackedBundle, ...] = (
+    TrackedBundle("github-marketing", "scripts.seed_marketing_bundle", "coreys-marketing"),
+    TrackedBundle("github-ripwire", "scripts.seed_ripwire_bundle", "ripwire"),
+)
+
+
+def _tap_ok(reports: list[dict], source: str) -> bool:
+    """True iff this run walked ``source`` successfully (indexed is a real
     count). A failed/absent walk skips reconcile so a transient GitHub outage
     never disables live bundle members."""
     for r in reports:
-        if r.get("source") == "github-marketing":
+        if r.get("source") == source:
             return r.get("status") == "ok" and isinstance(r.get("indexed"), int)
     return False
 
 
-def _reconcile_marketing_bundle(*, dry_run: bool) -> None:
-    """Re-run the Corey's Marketing seed to track upstream membership. Isolated +
+def _reconcile_bundle(tracked: TrackedBundle, *, dry_run: bool) -> None:
+    """Re-run a tracked bundle's seed to mirror upstream membership. Isolated +
     guarded: a reconcile failure logs but never aborts the reindex run."""
     try:
-        from scripts.seed_marketing_bundle import seed as seed_marketing
-
-        rc = seed_marketing(dry_run=dry_run, allow_partial=False)
-        logger.info("coreys-marketing reconcile: rc=%s%s", rc, " (dry-run)" if dry_run else "")
+        module = import_module(tracked.seed_module)
+        rc = module.seed(dry_run=dry_run, allow_partial=False)
+        logger.info("%s reconcile: rc=%s%s", tracked.label, rc, " (dry-run)" if dry_run else "")
     # Rationale: bundle reconcile is a passive add-on to reindex; its failure
     # must not fail the index walk that the /external page depends on.
     except Exception as exc:  # noqa: BLE001
-        logger.warning("coreys-marketing reconcile failed (non-fatal): %s", exc)
+        logger.warning("%s reconcile failed (non-fatal): %s", tracked.label, exc)
 
 
 if __name__ == "__main__":
