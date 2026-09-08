@@ -46,8 +46,9 @@ class TestTapList:
         # maturity_0821 — +13 curated taps (see federation_sources.yaml block
         # comment + vault research/2026-08-21-federation-source-expansion.md).
         # pr294 — +1 curated tap (github-marketing-os).
+        # +1 trusted tap (github-ripwire, redhat-et/ripwire, Apache-2.0).
         # Growth is a deliberate two-place edit: yaml + this pin.
-        assert len(GITHUB_TAPS) == 23
+        assert len(GITHUB_TAPS) == 24
         assert set(GITHUB_FACET_SOURCES) == {
             "github-anthropic", "github-openai", "github-huggingface",
             "github-nvidia", "github-gstack", "github-superpowers", "github-botmaker",
@@ -63,6 +64,7 @@ class TestTapList:
             "github-awesome-agent-skills",
             # pr294 curated-community tap (Yuzzyuk/marketing-os)
             "github-marketing-os",
+            "github-ripwire",
         }
 
     def test_per_skill_license_repos_have_no_repo_license(self):

@@ -422,16 +422,17 @@ class TestPassiveAutoTrack:
     the tap — passive auto-track with no new cron and no second GitHub walk."""
 
     def test_tap_ok_gate_only_fires_on_successful_marketing_walk(self):
-        from scripts.federation_reindex import _marketing_tap_ok
+        from scripts.federation_reindex import _tap_ok
 
-        assert _marketing_tap_ok([{"source": "github-marketing", "status": "ok", "indexed": 47}]) is True
+        assert _tap_ok([{"source": "github-marketing", "status": "ok", "indexed": 47}], "github-marketing") is True
         # A failed walk (indexed=None) must NOT trigger reconcile — a transient
         # GitHub outage must never disable live bundle members.
         assert (
-            _marketing_tap_ok([{"source": "github-marketing", "status": "error", "indexed": None}]) is False
+            _tap_ok([{"source": "github-marketing", "status": "error", "indexed": None}], "github-marketing")
+            is False
         )
         # Marketing absent from this run's reports → skip.
-        assert _marketing_tap_ok([{"source": "skills-sh", "status": "ok", "indexed": 5}]) is False
+        assert _tap_ok([{"source": "skills-sh", "status": "ok", "indexed": 5}], "github-marketing") is False
 
     def test_reconcile_is_non_fatal(self, monkeypatch):
         # A reconcile failure must log but NOT raise — the index walk the
@@ -443,7 +444,8 @@ class TestPassiveAutoTrack:
 
         monkeypatch.setattr("scripts.seed_marketing_bundle.seed", _boom)
         # Must not raise.
-        fr._reconcile_marketing_bundle(dry_run=True)
+        tracked = next(t for t in fr.TRACKED_BUNDLES if t.source == "github-marketing")
+        fr._reconcile_bundle(tracked, dry_run=True)
 
     def test_reindex_main_triggers_reconcile_after_successful_walk(self, monkeypatch):
         # End-to-end wiring: reindex main() calls the reconcile when the
@@ -463,7 +465,9 @@ class TestPassiveAutoTrack:
         )
         monkeypatch.setattr("app.database.SessionLocal", lambda: _FakeSession())
         monkeypatch.setattr(
-            fr, "_reconcile_marketing_bundle", lambda *, dry_run: calls.setdefault("dry_run", dry_run)
+            fr,
+            "_reconcile_bundle",
+            lambda tracked, *, dry_run: calls.setdefault(tracked.source, dry_run),
         )
         monkeypatch.setattr("app.services.federation.LIVE_SOURCES", ["github-marketing"], raising=False)
         monkeypatch.setattr(
@@ -471,7 +475,7 @@ class TestPassiveAutoTrack:
         )
         rc = fr.main()
         assert rc == 0
-        assert calls.get("dry_run") is True, "reconcile must run after a successful marketing walk"
+        assert calls.get("github-marketing") is True, "reconcile must run after a successful marketing walk"
 
 
 class _FakeSession:
