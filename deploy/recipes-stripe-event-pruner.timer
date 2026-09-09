@@ -1,0 +1,12 @@
+[Unit]
+Description=Recipes — daily Stripe webhook event-id TTL pruner schedule (t_ae1bddaa)
+
+[Timer]
+# 03:40 — after the 03:00 version-staleness sweep and the 03:15 DB backup,
+# clear of both.
+OnCalendar=*-*-* 03:40:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
