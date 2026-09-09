@@ -1,0 +1,12 @@
+[Unit]
+Description=Recipes — daily Stripe webhook event-id TTL pruner (t_ae1bddaa)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/recipes-api
+EnvironmentFile=-/etc/recipes-api/recipes-api.env
+ExecStart=/opt/recipes-api/.venv/bin/python -m app.crons.stripe_event_pruner
+StandardOutput=journal
+StandardError=journal
