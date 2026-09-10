@@ -28,7 +28,10 @@ def _sha256(*parts: str) -> str:
 
 
 def _is_opted_in() -> bool:
-    return os.environ.get("RECIPES_REPORT_ERRORS", "").lower() == "true"
+    # coldstart-fix: error reporting is ENABLED BY DEFAULT — a cold agent (hermes,
+    # codex, claude) must not be bounced with "set RECIPES_REPORT_ERRORS=true to opt
+    # in". Only an explicit "false" disables it (opt-out, not opt-in).
+    return os.environ.get("RECIPES_REPORT_ERRORS", "true").lower() != "false"
 
 
 def loopskill_report_skill_error(
@@ -58,7 +61,7 @@ def loopskill_report_skill_error(
     if not _is_opted_in():
         return {
             "ok": False,
-            "error": "Error reporting is not enabled. Set RECIPES_REPORT_ERRORS=true to opt in.",
+            "error": "Error reporting is disabled (RECIPES_REPORT_ERRORS=false).",
         }
 
     if not slug or len(slug) > 128:

@@ -311,12 +311,14 @@ def test_recipify_request_happy_path(db_session):
 
 # ── Test 8: loopskill_report_skill_error happy path ─────────────────────────────
 
+# coldstart-fix: the MCP tool is now ON by default (RECIPES_REPORT_ERRORS opt-out).
+# Run the happy path unless the env explicitly disables it.
 @pytest.mark.skipif(
-    os.environ.get("RECIPES_REPORT_ERRORS", "").lower() != "true",
-    reason="RECIPES_REPORT_ERRORS not set to true",
+    os.environ.get("RECIPES_REPORT_ERRORS", "").lower() == "false",
+    reason="RECIPES_REPORT_ERRORS=false — error reporting opted out",
 )
 def test_skill_error_happy_path_mcp(db_session):
-    """loopskill_report_skill_error MCP tool returns ok=true when RECIPES_REPORT_ERRORS=true."""
+    """loopskill_report_skill_error MCP tool returns ok=true (default ON)."""
     from tests.conftest import make_skill
     from app.mcp.tools.skill_error import loopskill_report_skill_error
 

@@ -1,8 +1,9 @@
 """Phase C — POST /api/v1/skill-error endpoint.
 
 Receives skill error reports from the `recipes report-error` CLI. Each payload
-is anonymized via Presidio + custom WiseChef layer, then persisted. Opt-in only:
-callers MUST set RECIPES_REPORT_ERRORS=true env var — endpoint returns 403 otherwise.
+is anonymized via Presidio + custom WiseChef layer, then persisted. Enabled by
+default; set RECIPES_REPORT_ERRORS=false to opt OUT (coldstart-fix 2026-09-09:
+a cold agent (hermes/codex/claude) was bounced by the old opt-in 403).
 
 Reuses the existing IncidentReport model (incident_reports table) and rate-limiting
 from feedback_routes. The difference from /api/feedback/incident is:
@@ -42,10 +43,11 @@ router = APIRouter(prefix="/api/v1", tags=["skill-errors"])
 
 
 def _is_opted_in() -> bool:
-    """Check if error reporting is enabled via env var. Default OFF."""
-    return (
-        os.environ.get("RECIPES_REPORT_ERRORS", "").lower() == "true"
-    )  # TODO(rename): env var still uses legacy name for prod compatibility
+    """Check if error reporting is enabled. Enabled BY DEFAULT (opt-out)."""
+    # coldstart-fix: default ON; only an explicit RECIPES_REPORT_ERRORS=false
+    # disables it, so a cold agent never gets the 403 "set
+    # RECIPES_REPORT_ERRORS=true to opt in".
+    return os.environ.get("RECIPES_REPORT_ERRORS", "true").lower() != "false"
 
 
 # ── Presidio anonymization ──────────────────────────────────────────────
@@ -241,11 +243,13 @@ def post_skill_error(
     db: Session = Depends(get_db),
 ) -> SkillErrorOut:
     """Submit a skill execution error report with optional PII redaction."""
-    # Opt-in check
+    # coldstart-fix: ON by default — only RECIPES_REPORT_ERRORS=false disables
+    # the endpoint, so a cold agent can file a broken-skill report without
+    # an explicit opt-in flag.
     if not _is_opted_in():
         raise HTTPException(
             status_code=403,
-            detail="Error reporting is not enabled. Set RECIPES_REPORT_ERRORS=true to opt in.",
+            detail="Error reporting is disabled (RECIPES_REPORT_ERRORS=false).",
         )
 
     # Look up skill by slug
