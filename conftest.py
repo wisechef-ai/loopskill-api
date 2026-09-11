@@ -16,13 +16,8 @@ import pytest
 
 # Must be set before any app.* import so Settings() picks it up.
 os.environ.setdefault("WR_DATABASE_URL", "sqlite:///./test_dev.db")
-# COOKIES_SECURE: keep the DEFAULT (True) in tests. A "false" default here
-# poisons every bare Settings() construction when the suite runs against a
-# non-sqlite DATABASE_URL (CI postgres leg): the config boot gate rejects
-# COOKIES_SECURE=False + non-sqlite, so any test building Settings() without
-# an explicit override explodes intermittently with test-order-dependent
-# failures. Nothing in the suite needs False as the ambient default.
-os.environ.setdefault("WR_COOKIES_SECURE", "true")
+# COOKIES_SECURE defaults to True; in sqlite test env we allow False.
+os.environ.setdefault("WR_COOKIES_SECURE", "false")
 
 # Stripe price IDs for the test environment. config/tiers.yaml maps the
 # `pro` / `pro_plus` tiers to WR_STRIPE_PRICE_PRO / WR_STRIPE_PRICE_PRO_PLUS;
