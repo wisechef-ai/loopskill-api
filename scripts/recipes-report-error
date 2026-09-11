@@ -5,9 +5,8 @@ Usage:
     recipes report-error --slug <skill_slug> --signature <hex_hash> [--command "cmd"] [--exit-code 1] [--stack "trace"]
 
 Environment:
-    RECIPES_REPORT_ERRORS=true  — must be set (mirrors server-side opt-in)
-    RECIPES_API_URL             — API base URL (default: https://recipes.wisechef.ai)
-    RECIPES_API_KEY             — API key for authentication (optional for public endpoints)
+    RECIPES_REPORT_ERRORS=false — opt OUT (server + CLI are ON by default,
+    coldstart-fix 2026-09-09); RECIPES_API_URL, RECIPES_API_KEY
 """
 from __future__ import annotations
 
@@ -65,10 +64,10 @@ def main():
 
     args = parser.parse_args()
 
-    # Check opt-in
-    if os.environ.get("RECIPES_REPORT_ERRORS", "").lower() != "true":
-        print("Error reporting is disabled. Set RECIPES_REPORT_ERRORS=true to enable.", file=sys.stderr)
-        print("This is opt-in by design — no data is sent without explicit consent.", file=sys.stderr)
+    # coldstart-fix: default ON — only an explicit RECIPES_REPORT_ERRORS=false
+    # disables the CLI (mirrors the server).
+    if os.environ.get("RECIPES_REPORT_ERRORS", "").lower() == "false":
+        print("Error reporting is disabled (RECIPES_REPORT_ERRORS=false).", file=sys.stderr)
         sys.exit(1)
 
     # Compute signature
