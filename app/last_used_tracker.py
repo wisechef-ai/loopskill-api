@@ -167,4 +167,14 @@ class LastUsedTracker:
 # The redis client is injected at import time from app.middleware's get_redis().
 # If Redis is unavailable at import time the tracker starts in memory-only mode;
 # if Redis comes up later, callers can replace tracker.redis directly.
-tracker = LastUsedTracker()
+#
+# t_a2ba8443 find (2026-09-11): this used to be `LastUsedTracker()` — the
+# get_redis() wiring in the docstring above was NEVER implemented, so every
+# record() silently degraded to the per-worker in-memory fallback and
+# drain() (crons/drain_last_used.py) always saw an empty store. Net effect:
+# api_keys.last_used_at was NEVER stamped on prod (0/29 keys despite 120
+# recorded installs). Wiring get_redis() here at last; import is safe —
+# get_redis() is a lazy singleton builder that opens no connection.
+from app.middleware.api_key import get_redis as _get_redis
+
+tracker = LastUsedTracker(redis_client=_get_redis())
