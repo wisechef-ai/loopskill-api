@@ -3,7 +3,7 @@
 
 # Route Manifest (bundles_0811 P7)
 
-Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **320** distinct (method, path) surfaces.
+Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **321** distinct (method, path) surfaces.
 
 ## How classification works
 
@@ -22,7 +22,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | Classification | Routes |
 |---|---|
 | admin | 11 |
-| authenticated | 199 |
+| authenticated | 200 |
 | internal | 2 |
 | public | 108 |
 
@@ -141,6 +141,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | DELETE | `/api/composite-loops/{slug}/like` | public | `app.artifact_like_routes` | engagement, engagement |
 | POST | `/api/composite-loops/{slug}/like` | public | `app.artifact_like_routes` | engagement, engagement |
 | POST | `/api/composite-loops/{slug}/versions` | public | `app.composite_loop_routes` | composite-loops |
+| GET | `/api/connect/test` | authenticated | `app.connect_test_routes` | connect-test |
 | GET | `/api/connectors` | public | `app.connector_routes` | connectors, connectors |
 | POST | `/api/connectors` | public | `app.connector_routes` | connectors, connectors |
 | GET | `/api/connectors/{slug}` | public | `app.connector_routes` | connectors, connectors |
