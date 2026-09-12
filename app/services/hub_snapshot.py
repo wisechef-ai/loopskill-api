@@ -44,6 +44,7 @@ from app.services.hub_owner_carry import (  # noqa: F401
     owner_handle_for_row,
 )
 from app.services.federation import InstallPath
+from app.services.federated_title import sanitize_federated_title
 
 # ponytail_0724: repo-path resolution + hostile-input validation live in their
 # own module (keeps this file under the 600-line god-object cap). Re-exported
@@ -239,7 +240,7 @@ def map_hub_row(row: dict[str, Any]) -> dict[str, Any]:
     owner_handle = owner_handle_for_row(row) if upstream == "clawhub" else None
     return {
         "slug": "",  # filled after dedupe
-        "title": (row.get("name") or row.get("identifier") or "")[:512],
+        "title": sanitize_federated_title(row.get("name") or row.get("identifier"), row.get("identifier")),
         "description": (row.get("description") or "")[:5000],
         "source": "hermes-hub",
         "upstream_source": upstream,
