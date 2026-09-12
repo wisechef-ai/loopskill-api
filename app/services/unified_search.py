@@ -55,6 +55,25 @@ def _truncate(text: str | None) -> str | None:
     return text[:_DESC_TRUNCATE].rstrip() + "…"
 
 
+def _federated_relevance(row: dict, q: str) -> tuple[int, str, str]:
+    """Return the explainable, stable ranking key for a cached federated row."""
+    query = q.casefold()
+    title = str(row.get("title") or "").casefold()
+    description = str(row.get("description") or "").casefold()
+    slug = str(row.get("slug") or "").casefold()
+    if title == query:
+        bucket = 0
+    elif title.startswith(query):
+        bucket = 1
+    elif query in title:
+        bucket = 2
+    elif query in description:
+        bucket = 3
+    else:
+        bucket = 4
+    return bucket, title, slug
+
+
 def search_skills_group(db: Session, q: str, limit: int) -> list[dict]:
     """Public skills matching ``q``, newest surface: /api/skills/search twin."""
     like = f"%{q}%"
@@ -245,7 +264,17 @@ def search_federated_group(db: Session, q: str, limit: int) -> tuple[list[dict],
     hub_rows = (
         db.query(FederationHubSkill)
         .filter(_search_blob.ilike(like))
-        .order_by(FederationHubSkill.title.asc())
+        .order_by(
+            case(
+                (FederationHubSkill.title.ilike(q), 0),
+                (FederationHubSkill.title.ilike(f"{q}%"), 1),
+                (FederationHubSkill.title.ilike(like), 2),
+                (FederationHubSkill.description.ilike(like), 3),
+                else_=4,
+            ),
+            func.lower(FederationHubSkill.title).asc(),
+            func.lower(FederationHubSkill.slug).asc(),
+        )
         .limit(limit)
         .all()
     )
@@ -289,8 +318,6 @@ def search_federated_group(db: Session, q: str, limit: int) -> tuple[list[dict],
         }
         ql = q.lower()
         for source in sorted(sources):
-            if len(rows) >= limit:
-                break
             page = cache_rows.get(source) or []
             if page:
                 saw_data = True
@@ -315,7 +342,6 @@ def search_federated_group(db: Session, q: str, limit: int) -> tuple[list[dict],
                             "deployable": bool(row.get("install_path") == "fetch_origin"),
                         }
                     )
-                    if len(rows) >= limit:
-                        break
 
+    rows.sort(key=lambda row: _federated_relevance(row, q))
     return rows[:limit], ("warm" if saw_data else "cold")
