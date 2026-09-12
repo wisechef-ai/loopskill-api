@@ -14,7 +14,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from app.models import Bundle, Connector, Personality, Skill, Verifier
+from app.models import Bundle, Connector, FederationHubSkill, Personality, Skill, Verifier
 from tests._app_factory import build_test_app
 
 
@@ -325,3 +325,29 @@ def test_limit_default_is_five(search_client, db_session):
     res = search_client.get("/api/search", params={"q": "tdd"})
     assert res.status_code == 200
     assert len(res.json()["skills"]) == 5
+
+
+def test_federated_results_rank_title_relevance_before_alphabetical_order(db_session):
+    from app.services.unified_search import search_federated_group
+
+    db_session.add_all(
+        [
+            FederationHubSkill(slug="csv-zeta", title="CSV Archive", description="", source="hermes-hub"),
+            FederationHubSkill(slug="csv-exact", title="csv", description="", source="hermes-hub"),
+            FederationHubSkill(slug="csv-alpha", title="CSV Utilities", description="", source="hermes-hub"),
+            FederationHubSkill(
+                slug="csv-description", title="Data Notes", description="CSV guide", source="hermes-hub"
+            ),
+        ]
+    )
+    db_session.flush()
+
+    rows, status = search_federated_group(db_session, "csv", 4)
+
+    assert status == "warm"
+    assert [row["slug"] for row in rows] == [
+        "csv-exact",
+        "csv-zeta",
+        "csv-alpha",
+        "csv-description",
+    ]
