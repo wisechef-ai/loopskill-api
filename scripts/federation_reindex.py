@@ -273,6 +273,11 @@ class TrackedBundle(NamedTuple):
 TRACKED_BUNDLES: tuple[TrackedBundle, ...] = (
     TrackedBundle("github-marketing", "scripts.seed_marketing_bundle", "coreys-marketing"),
     TrackedBundle("github-ripwire", "scripts.seed_ripwire_bundle", "ripwire"),
+    TrackedBundle(
+        "github-opencodereview",
+        "scripts.seed_opencodereview_bundle",
+        "open-code-review",
+    ),
 )
 
 

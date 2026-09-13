@@ -214,3 +214,14 @@ github_taps:
     repo_license: "Apache-2.0"
     trust: trusted-source
     in_metasearch: true
+  # alibaba/open-code-review — the `ocr` CLI's own agent skills (Apache-2.0).
+  # Two skills: `open-code-review` drives the CLI against its own LLM endpoint;
+  # `open-code-review-delegate` uses ocr ONLY for deterministic file-selection
+  # and rule-resolution, then hands the review to the HOST agent's LLM (no
+  # second endpoint, no second bill). Layout is skills/<skill>/SKILL.md.
+  - source_id: github-opencodereview
+    repo: alibaba/open-code-review
+    path: "skills/"
+    repo_license: "Apache-2.0"
+    trust: trusted-source
+    in_metasearch: true
