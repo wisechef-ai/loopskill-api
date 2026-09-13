@@ -595,6 +595,21 @@ feat/unisearch-p2-mcp-unify: bumped past current main (0.9.49) — MCP
     federated rows read from the P1 shared cache (cache-ONLY get_entry; never
     get_or_compute, never fan_out — a >90s cold fan-out on the MCP thread reads
     as a broken platform). Native first; honest fresh|stale|cold|degraded flag.
+
+fix(issue-342): skill-error GitHub dispatch payloads now always carry a real
+    `message` and `category`. Neither `loopskill_report_skill_error` (MCP
+    tool) nor `POST /api/v1/skill-error` (REST) ever included those keys in
+    the `github_dispatch.dispatch_event("skill-error", payload)` call — the
+    Feedback Dispatcher workflow (.github/workflows/feedback-dispatch.yml)
+    falls back to `payload.message || 'No message provided'` and
+    `payload.category || 'general'` when they're absent, which is exactly how
+    issue #342 ("[general] No message provided") got filed. Message is now
+    derived from the caller's summary (MCP) or the anonymized
+    stack_trace_top/command (REST), bounded to 500 chars total including the
+    `[slug]` prefix (breaker pass caught the first draft overflowing this on
+    a huge summary — fixed by truncating the prefixed string, not the raw
+    input). No schema change. Verified against prod /api/healthz 0.9.49
+    before bumping.
 """
 
-__version__ = "0.9.50"
+__version__ = "0.9.51"
