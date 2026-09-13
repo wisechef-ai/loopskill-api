@@ -170,6 +170,16 @@ def loopskill_report_skill_error(
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("skill-error: curator dispatch failed repo=%s: %s", t.repo, exc)
 
+    # issue #342: the Feedback Dispatcher workflow (feedback-dispatch.yml)
+    # falls back to `payload.message || 'No message provided'` and
+    # `payload.category || 'general'` when those keys are absent from the
+    # dispatch payload — which is exactly how "[general] No message
+    # provided" issues got filed. Always send a real, human-readable
+    # message derived from the caller's summary (falling back to details
+    # when summary is blank) and a stable category.
+    dispatch_message = (summary or "").strip() or (details or "").strip() or f"skill error reported for {slug}"
+    dispatch_message = f"[{slug}] {dispatch_message}"[:500]
+
     # dispatch_event now returns True on success (workflow PATCHes the real
     # issue URL back via /api/internal/feedback/{id}/issue-url) or None on
     # failure. The issue_url is therefore "pending" at submit time — clients
@@ -182,6 +192,8 @@ def loopskill_report_skill_error(
             "error_signature": signature.lower(),
             "agent_fp_anon": agent_id or "mcp-tool",
             "signature": composite_sig,
+            "category": "skill-error",
+            "message": dispatch_message,
         },
     )
 

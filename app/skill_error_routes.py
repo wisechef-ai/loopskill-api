@@ -316,6 +316,17 @@ def post_skill_error(
 
     # Compute composite signature and fire GitHub dispatch (Stream 1)
     composite_sig = hashlib.sha256(f"{payload.skill_slug}|{payload.error_signature}".encode()).hexdigest()
+    # issue #342: the Feedback Dispatcher workflow falls back to a
+    # placeholder title/body when message/category are absent from the
+    # dispatch payload. Derive a real message from the (already-anonymized)
+    # stack_trace_top/command so filed issues are triageable, never a bare
+    # "[general] No message provided".
+    dispatch_message = (
+        (anon.get("stack_trace_top") or "").strip()
+        or (anon.get("command") or "").strip()
+        or f"skill error reported for {payload.skill_slug}"
+    )
+    dispatch_message = f"[{payload.skill_slug}] {dispatch_message}"[:500]
     github_dispatch.dispatch_event(
         "skill-error",
         {
@@ -324,6 +335,8 @@ def post_skill_error(
             "error_signature": payload.error_signature,
             "agent_fp_anon": payload.agent_fp_anon,
             "signature": composite_sig,
+            "category": "skill-error",
+            "message": dispatch_message,
         },
     )
 
