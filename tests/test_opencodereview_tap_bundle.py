@@ -316,6 +316,31 @@ class TestSeedOpenCodeReviewBundle:
         )
         assert active == 2
 
+    def test_system_user_id_is_deterministic_not_hash_derived(self):
+        """hash() of a str is salted per process, so a hash-derived github_id
+        differs between the cron and a hand-run seed. users.email has no unique
+        constraint but users.github_id does, so both INSERTs would succeed and
+        the editorial account would exist twice."""
+        import inspect
+
+        import scripts.seed_opencodereview_bundle as seed
+
+        assert isinstance(seed.SYSTEM_GITHUB_ID, int)
+        src = inspect.getsource(seed._get_or_create_system_user)
+        assert "hash(" not in src, "system-user id must not be derived from hash()"
+
+    def test_system_user_is_reused_not_duplicated(self, db_session, monkeypatch):
+        """A second seed run must find the existing editorial user by email,
+        never mint a second one."""
+        import scripts.seed_opencodereview_bundle as seed
+        from app.models import User as UserModel
+
+        _drive(seed, monkeypatch, db_session, ["github-opencodereview--open-code-review"])
+        assert seed.seed(dry_run=False) == 0
+        assert seed.seed(dry_run=False) == 0
+        n = db_session.query(UserModel).filter(UserModel.email == seed.SYSTEM_EMAIL).count()
+        assert n == 1, "the editorial system user must never be duplicated"
+
     def test_dry_run_writes_nothing(self, db_session, monkeypatch):
         import scripts.seed_opencodereview_bundle as seed
 

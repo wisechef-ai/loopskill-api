@@ -160,7 +160,11 @@ def _get_or_create_system_user(db, User):
         return u
     u = User(
         id=uuid4(),
-        github_id=900_000_000 + (abs(hash(SYSTEM_EMAIL)) % 90_000_000),
+        # Deterministic: hash() of a str is salted per process, so a
+        # hash-derived id differs between the cron and a hand-run seed.
+        # users.email has no unique constraint but users.github_id does, so
+        # both INSERTs would succeed and mint a SECOND editorial account.
+        github_id=900_000_123,
         email=SYSTEM_EMAIL,
         display_name=SYSTEM_NAME,
         subscription_tier="pro_plus",
@@ -252,9 +256,7 @@ def seed(dry_run: bool = False) -> int:
             print(f"WARNING — missing catalog slugs (skipped, not fabricated): {missing_slugs}")
         # Verification read-back.
         n_public = (
-            db.query(Bundle)
-            .filter(Bundle.bundle_owner == system.id, Bundle.visibility == "public")
-            .count()
+            db.query(Bundle).filter(Bundle.bundle_owner == system.id, Bundle.visibility == "public").count()
         )
         print(f"verify: {n_public} public editorial cookbooks owned by {system.email}")
         return 0

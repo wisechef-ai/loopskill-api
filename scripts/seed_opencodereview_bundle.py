@@ -76,6 +76,14 @@ BUNDLE_DESC = (
 
 SYSTEM_EMAIL = "editorial@wisechef.ai"
 SYSTEM_NAME = "WiseChef Editorial"
+# Deterministic sentinel id for the editorial SYSTEM user. It MUST NOT be
+# derived from hash(): hash() of a str is salted per process (PYTHONHASHSEED),
+# so two first-ever runs — the reindex cron and a hand-run seed — would compute
+# DIFFERENT ids, and since users.email carries no unique constraint while
+# users.github_id does, both INSERTs succeed and the editorial account exists
+# twice. Every bundle seeded after that points at whichever duplicate its
+# process happened to create.
+SYSTEM_GITHUB_ID = 900_000_123
 
 
 def _get_or_create_system_user(db, User):
@@ -85,7 +93,7 @@ def _get_or_create_system_user(db, User):
         return u
     u = User(
         id=uuid4(),
-        github_id=900_000_000 + (abs(hash(SYSTEM_EMAIL)) % 90_000_000),
+        github_id=SYSTEM_GITHUB_ID,
         email=SYSTEM_EMAIL,
         display_name=SYSTEM_NAME,
         subscription_tier="pro_plus",
@@ -200,8 +208,13 @@ def seed(dry_run: bool = False, allow_partial: bool = False) -> int:
             .filter(BundleSkill.bundle_id == cb.id, BundleSkill.source != "disabled")
             .all()
         )
+        # One fetch for every member, not one query per member: the loop below
+        # only needs each row's descriptor.
+        member_skills = {
+            s.id: s for s in db.query(Skill).filter(Skill.id.in_([m.skill_id for m in members])).all()
+        }
         for m in members:
-            sk = db.query(Skill).filter(Skill.id == m.skill_id).first()
+            sk = member_skills.get(m.skill_id)
             pair = descriptor_source_slug(sk) if sk is not None else None
             if pair is None or pair[0] != TAP_SOURCE:
                 continue  # not one of our tap's skills — leave it alone
