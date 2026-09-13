@@ -1,41 +1,56 @@
 #!/usr/bin/env python3
-"""Seed the "Corey's Marketing" bundle from the github-marketing tap.
+"""Seed the "Open Code Review" bundle from the github-opencodereview tap.
 
-Composes ONE curated public bundle ("Marketing") owned by the WiseChef Editorial
-SYSTEM account, holding every skill from Corey Haines' MIT-licensed pack
-(``coreyhaines31/marketingskills``, tap source id ``github-marketing``).
+Composes ONE curated public bundle owned by the WiseChef Editorial SYSTEM
+account, holding every skill from Alibaba's Apache-2.0 open-code-review pack
+(``alibaba/open-code-review``, tap source id ``github-opencodereview``).
+
+The pack is the agent-facing half of the ``ocr`` CLI — a hybrid code reviewer
+(deterministic diff/rule pipeline + an LLM agent) that Alibaba ran internally
+for two years before open-sourcing. The two skills are deliberately a PAIR and
+that is exactly what a bundle is for:
+
+  - ``open-code-review`` drives the CLI against its OWN configured LLM endpoint.
+  - ``open-code-review-delegate`` uses the CLI only for the deterministic half
+    (file selection + rule resolution) and hands the actual review to the HOST
+    agent's LLM — no second endpoint, no second bill, no second API key.
+
+An agent that installs one without the other has half the loop: the first needs
+a provider configured, the second needs nothing but the binary. Installed
+together, an agent can review a diff whether or not it has spare credentials.
 
 WHY a dedicated seed (vs the editorial-cookbook seed): those attach INTERNAL
-public skills by slug. These 47 are FEDERATED — they are never published through
-our pipeline and have no internal Skill row until materialized. So this seed:
+public skills by slug. These are FEDERATED — they never pass through our publish
+pipeline and have no internal Skill row until materialized. So this seed:
 
-  1. Walks the live tap (``github_tap_fetch('github-marketing')``) to discover
-     the real skill dirs — never a hard-coded list, so it tracks upstream as the
-     repo adds/removes skills (Adam decision 2026-07-12: live, no SHA pinning).
+  1. Walks the live tap (``github_tap_fetch('github-opencodereview')``) to
+     discover the real skill dirs — never a hard-coded list, so it tracks
+     upstream as the repo adds/removes skills.
   2. Materializes each as a thin PRIVATE pointer row via
      ``bundle_external.materialize_external_skill`` (no rehosting; the row is a
      re-resolution descriptor + a scan-on-add trust badge).
   3. Attaches each to the bundle with source='custom-added'.
 
-DESIGN INVARIANTS (mirror seed_editorial_cookbooks.py):
+DESIGN INVARIANTS (mirror seed_ripwire_bundle.py):
   - NEVER touch the is_base=true 'WiseChef Recipes Catalog'.
   - Bundle owner is the editorial SYSTEM user (never owner-less — the
     ck_cookbooks_owner_required CHECK fires on flush).
   - Idempotent: re-running upserts by bundle slug + membership (no dupes). Only
     tap-resolved skills are attached; an unresolvable skill is reported, never
     fabricated.
-  - MIT ATTRIBUTION preserved: the copyright line rides in the bundle description
-    AND each materialized row carries license='MIT' (resolved by the tap). This
-    is the MIT redistribution requirement — do not strip it.
+  - APACHE-2.0 ATTRIBUTION preserved: the copyright + license line rides in the
+    bundle description AND each materialized row carries the tap-resolved
+    license. Apache-2.0 §4 requires the license and attribution notices travel
+    with any redistribution — do not strip it.
 
-Live-fetch cost: materialize fetches each skill's origin body ONCE (scan-on-add).
-For ~47 skills that is ~47 GitHub raw fetches at SEED time (not per request).
-Transient failures are skipped + reported, so a partial GitHub outage yields a
-partial bundle you can top up by re-running — never a crash, never a fabricated
+Live-fetch cost: materialize fetches each skill's origin body ONCE (scan-on-add),
+so a handful of GitHub raw fetches at SEED time (not per request). Transient
+failures are skipped + reported, so a partial GitHub outage yields a partial
+bundle you can top up by re-running — never a crash, never a fabricated
 membership.
 
 Run on prod:
-    cd /home/wisechef/loopskill-api && ./venv/bin/python scripts/seed_marketing_bundle.py
+    cd /home/wisechef/loopskill-api && ./venv/bin/python scripts/seed_opencodereview_bundle.py
 Add --dry-run to preview without writing.
 """
 
@@ -44,20 +59,31 @@ from __future__ import annotations
 import sys
 from uuid import uuid4
 
-TAP_SOURCE = "github-marketing"
-BUNDLE_SLUG = "coreys-marketing"
-BUNDLE_NAME = "Corey's Marketing"
+TAP_SOURCE = "github-opencodereview"
+BUNDLE_SLUG = "open-code-review"
+BUNDLE_NAME = "Open Code Review"
 BUNDLE_DESC = (
-    "The complete marketing operating system for your agent — 40+ conversion, "
-    "SEO, copywriting, paid, growth, and RevOps skills that work together. "
-    "Ask your agent to optimize a landing page, write a cold-email sequence, "
-    "audit your SEO, or plan a launch, and it applies the right framework.\n\n"
-    "Skills by Corey Haines (coreyhaines31/marketingskills), MIT licensed. "
-    "Copyright (c) 2025 Corey Haines. Surfaced live from origin — never rehosted."
+    "Review the diff before you commit it. Alibaba ran this reviewer internally "
+    "for two years across tens of thousands of engineers; it is a deterministic "
+    "diff/rule pipeline with an LLM agent on top, so it reports line-accurate "
+    "findings instead of a paragraph of vibes. Two skills, deliberately a pair: "
+    "one drives the `ocr` CLI against its own model endpoint, the other uses the "
+    "CLI purely for file-selection and rule-resolution and hands the review to "
+    "your agent's own LLM — no second endpoint, no second bill.\n\n"
+    "Skills by Alibaba (alibaba/open-code-review), Apache-2.0 licensed. "
+    "Surfaced live from origin — never rehosted."
 )
 
 SYSTEM_EMAIL = "editorial@wisechef.ai"
 SYSTEM_NAME = "WiseChef Editorial"
+# Deterministic sentinel id for the editorial SYSTEM user. It MUST NOT be
+# derived from hash(): hash() of a str is salted per process (PYTHONHASHSEED),
+# so two first-ever runs — the reindex cron and a hand-run seed — would compute
+# DIFFERENT ids, and since users.email carries no unique constraint while
+# users.github_id does, both INSERTs succeed and the editorial account exists
+# twice. Every bundle seeded after that points at whichever duplicate its
+# process happened to create.
+SYSTEM_GITHUB_ID = 900_000_123
 
 
 def _get_or_create_system_user(db, User):
@@ -67,11 +93,7 @@ def _get_or_create_system_user(db, User):
         return u
     u = User(
         id=uuid4(),
-        # Deterministic: hash() of a str is salted per process, so a
-        # hash-derived id differs between the cron and a hand-run seed.
-        # users.email has no unique constraint but users.github_id does, so
-        # both INSERTs would succeed and mint a SECOND editorial account.
-        github_id=900_000_123,
+        github_id=SYSTEM_GITHUB_ID,
         email=SYSTEM_EMAIL,
         display_name=SYSTEM_NAME,
         subscription_tier="pro_plus",
@@ -85,7 +107,7 @@ def _get_or_create_system_user(db, User):
 def _discover_tap_skill_slugs() -> list[str]:
     """Walk the live tap and return every resolved external skill slug.
 
-    Slugs are the adapter's namespaced form ``github-marketing--<name>``. Empty
+    Slugs are the adapter's namespaced form ``github-opencodereview--<name>``. Empty
     list on a full tap outage (caller reports it, never fabricates).
     """
     from app.services.github_taps_live import github_tap_fetch
@@ -186,8 +208,13 @@ def seed(dry_run: bool = False, allow_partial: bool = False) -> int:
             .filter(BundleSkill.bundle_id == cb.id, BundleSkill.source != "disabled")
             .all()
         )
+        # One fetch for every member, not one query per member: the loop below
+        # only needs each row's descriptor.
+        member_skills = {
+            s.id: s for s in db.query(Skill).filter(Skill.id.in_([m.skill_id for m in members])).all()
+        }
         for m in members:
-            sk = db.query(Skill).filter(Skill.id == m.skill_id).first()
+            sk = member_skills.get(m.skill_id)
             pair = descriptor_source_slug(sk) if sk is not None else None
             if pair is None or pair[0] != TAP_SOURCE:
                 continue  # not one of our tap's skills — leave it alone
