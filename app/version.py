@@ -597,4 +597,4 @@ feat/unisearch-p2-mcp-unify: bumped past current main (0.9.49) — MCP
     as a broken platform). Native first; honest fresh|stale|cold|degraded flag.
 """
 
-__version__ = "0.9.50"
+__version__ = "0.9.51"  # fix(issue-342): skill-error dispatch message+category, see PR #343
