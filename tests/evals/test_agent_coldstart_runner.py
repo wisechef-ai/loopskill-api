@@ -206,6 +206,35 @@ def test_render_substitutes_run_id():
     assert run_mod.render("skill-{{run_id}}", "cafe1234") == "skill-cafe1234"
 
 
+def test_success_check_script_is_rendered_with_run_id(tmp_path, monkeypatch):
+    """Regression: `{{run_id}}` in a task's success_check must be substituted
+    before bash runs it — the old bug left the literal template in curl URLs,
+    so the check always failed with 'nested brace in URL' even when the
+    agent had actually done the work."""
+    marker = tmp_path / "check_marker"
+    check_script = (
+        'curl -fsS "https://app.loopskill.io/api/skills/coldstart-bench-{{run_id}}" >/dev/null; '
+        f'touch "{marker}"'
+    )
+    fake_task = {
+        "id": "rendered-check-task",
+        "prompt": "do nothing",
+        "success_check": check_script,
+        "max_minutes": 1,
+    }
+    monkeypatch.setattr(run_mod, "get_task", lambda task_id: fake_task)
+    # Rationale: the real curl would need a network key; stub it so the
+    # test still proves the bash line executes and the marker appears.
+    monkeypatch.setattr(run_mod.shutil, "which", lambda name: "/bin/bash")
+    result = run_mod.run_task("fake", "rendered-check-task", tmp_path / "results", run_id="abcd1234")
+    assert result.outcome == "pass", f"outcome={result.outcome} tail={result.check_tail}"
+    assert marker.exists(), "check script did not run"
+    # And the literal template must NOT survive into the executed script.
+    out_files = list((tmp_path / "results").glob("*.json"))
+    payload = json.loads(out_files[0].read_text())
+    assert "{{run_id}}" not in (payload.get("check_tail") or ""), "unrendered template leaked"
+
+
 def test_get_task_unknown_raises():
     with pytest.raises(KeyError):
         run_mod.get_task("this-task-does-not-exist")
