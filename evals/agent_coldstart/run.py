@@ -602,6 +602,12 @@ def run_success_check(
     max_minutes: int,
 ) -> tuple[int, str]:
     """Run success_check as `bash -c`. Returns (exit_code, combined_tail)."""
+    # Rationale: tasks.yaml is a READ-ONLY fixture and its success_check
+    # scripts embed the `{{run_id}}` template variable (documented in the
+    # `run_id_var` default). The runner rendered `prompt` but forgot to
+    # render the check script, so bash saw literal `{{run_id}}` in curl
+    # URLs → curl "nested brace in URL". Render here so the slug resolves.
+    check_script = render(check_script, run_id)
     env = dict(os.environ)
     env["HOME"] = str(home)
     env["LOOPSKILL_BASE"] = loopskill_base
