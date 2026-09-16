@@ -50,7 +50,14 @@ def normalise_query(q: str | None) -> str:
     return " ".join(q.split())[:_MAX_QUERY_LEN]
 
 
-def _upsert(db: Session, q: str, *, user_id=None, is_probe: bool = False) -> None:
+def _upsert(
+    db: Session,
+    q: str,
+    *,
+    user_id=None,
+    is_probe: bool = False,
+    client_ip: str | None = None,
+) -> None:
     """Increment the (lower(q), today) row, inserting it if absent.
 
     Split out from ``record_missing_skill_query`` so the swallow-everything
@@ -79,6 +86,13 @@ def _upsert(db: Session, q: str, *, user_id=None, is_probe: bool = False) -> Non
     probe hitting an already-existing row still increments ``count`` (the
     row's origin doesn't change retroactively); on Postgres the same is true
     of the ON CONFLICT DO UPDATE, which intentionally omits is_probe.
+
+    ``client_ip`` (ah_0916) follows the SAME first-writer-wins rule and for the
+    same reason: the row is a per-(query, day) COUNTER, so the second hit's IP
+    does not describe the row any better than the first's. Overwriting it on
+    conflict would make the column mean "the most recent IP to search this
+    term today", which is a different — and useless — statistic. Both DO UPDATE
+    clauses therefore omit it deliberately.
     """
     today = date.today()
     bind = db.get_bind()
@@ -89,13 +103,13 @@ def _upsert(db: Session, q: str, *, user_id=None, is_probe: bool = False) -> Non
         db.execute(
             text(
                 """
-                INSERT INTO missing_skill_queries (id, query, user_id, day, count, is_probe)
-                VALUES (gen_random_uuid(), :q, :uid, :day, 1, :is_probe)
+                INSERT INTO missing_skill_queries (id, query, user_id, day, count, is_probe, client_ip)
+                VALUES (gen_random_uuid(), :q, :uid, :day, 1, :is_probe, :client_ip)
                 ON CONFLICT (lower(query), day)
                 DO UPDATE SET count = missing_skill_queries.count + 1
                 """
             ),
-            {"q": q, "uid": user_id, "day": today, "is_probe": is_probe},
+            {"q": q, "uid": user_id, "day": today, "is_probe": is_probe, "client_ip": client_ip},
         )
     else:
         # SQLite (tests): no functional-index upsert support — SELECT then write.
@@ -110,7 +124,16 @@ def _upsert(db: Session, q: str, *, user_id=None, is_probe: bool = False) -> Non
         if existing:
             existing.count += 1
         else:
-            db.add(MissingSkillQuery(query=q, user_id=user_id, day=today, count=1, is_probe=is_probe))
+            db.add(
+                MissingSkillQuery(
+                    query=q,
+                    user_id=user_id,
+                    day=today,
+                    count=1,
+                    is_probe=is_probe,
+                    client_ip=client_ip,
+                )
+            )
     db.commit()
 
 
@@ -134,7 +157,9 @@ def record_missing_skill_query(
     existing callers with no request context keep working unchanged; when
     supplied they are run through the single probe-detection seam
     (``app.services.probe_detection.is_probe_request``) to stamp
-    ``is_probe`` on the row.
+    ``is_probe`` on the row. ah_0916: ``client_ip`` is additionally
+    PERSISTED, so an anonymous miss (no user_id, no api_key) is no longer
+    structurally unattributable.
     """
     query = normalise_query(q)
     if not query:
@@ -143,7 +168,7 @@ def record_missing_skill_query(
 
     is_probe = is_probe_request(db, api_key_id=api_key_id, client_ip=client_ip)
     try:
-        _upsert(db, query, user_id=user_id, is_probe=is_probe)
+        _upsert(db, query, user_id=user_id, is_probe=is_probe, client_ip=client_ip)
         return True
     # Rationale: VOC logging must never break the search response it rides on.
     except Exception:  # noqa: BLE001
