@@ -2322,6 +2322,14 @@ class MissingSkillQuery(Base):
     # coldstart_0609/A — see InstallEvent.is_probe docstring; same rule,
     # same single function (app/services/probe_detection.py).
     is_probe = Column(Boolean, nullable=False, default=False, server_default=text("false"))
+    # ah_0916 — origin of an ANONYMOUS miss. `is_probe` only closes the
+    # *known*-fleet half (known api-key owners / fixed loopback IPs); a row with
+    # no user_id and no api_key has nothing else to correlate on, so the reach
+    # feeder must bucket it as UNATTRIBUTABLE. Nullable with NO server_default
+    # on purpose: pre-migration rows are genuinely unknown-origin, and a
+    # backfilled '' would manufacture provenance we do not have. String(64)
+    # matches telemetry_events / install_events.client_ip (e0f1a2b3c4d5).
+    client_ip = Column(String(64), nullable=True)
 
     # fdeloop_0808 Phase A — declare the functional unique index the upsert
     # depends on, so it exists in `Base.metadata` and not only in the migration.

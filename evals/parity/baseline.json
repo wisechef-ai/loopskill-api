@@ -1,7 +1,7 @@
 {
  "alembic_heads": {
-  "body": "[\n \"coldstart0609_is_probe\"\n]",
-  "sha256": "d04fe12d95f83325b0d082d598668c61d5f639da73b69159581d04a3a11f73e1"
+  "body": "[\n \"ah0916_msq_client_ip\"\n]",
+  "sha256": "3e650bd9d74048048a022bab4efba4628757c8476dba2fff7cce635b07436d3c"
  },
  "cli_help": {
   "body": "\"usage: recipes [-h] {share,revoke} ...\\n\\nRecipes CLI — share cookbooks with any MCP-compatible agent.\\n\\npositional arguments:\\n  {share,revoke}\\n    share         Create a share token for a cookbook\\n    revoke        Revoke a share token\\n\\noptions:\\n  -h, --help      show this help message and exit\"",
