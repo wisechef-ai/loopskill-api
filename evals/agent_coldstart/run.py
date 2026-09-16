@@ -323,6 +323,31 @@ def _clip_tail(text: str, n: int = 600) -> str:
     return text[-n:] if len(text) > n else text
 
 
+# Environment variables that credential a cold agent for LoopSkill — or
+# otherwise pre-answer a task — and must be stripped before any harness runs.
+# A cold start means the agent earns access by self-registering / reading
+# public docs, NOT by inheriting the eval box's host keys via os.environ.
+# (Substring match, deliberately broad: an unseen *key-shaped* var leaks
+# access exactly like a known one.)
+LOOPSKILL_CRED_ENV_SUBSTRINGS = (
+    "LOOPSKILL",
+    "RECIPES_",
+    "REC_",
+    "COLDSTART",
+)
+
+
+def build_cold_env() -> dict[str, str]:
+    """The environment a cold agent may see: a copy of os.environ minus every
+    LoopSkill-credential-shaped variable. Never mutates the parent env."""
+    scrubbed: dict[str, str] = {}
+    for key, value in os.environ.items():
+        if any(sub in key for sub in LOOPSKILL_CRED_ENV_SUBSTRINGS):
+            continue  # key-shaped: excluded from the cold env
+        scrubbed[key] = value
+    return scrubbed
+
+
 def run_fake_harness(prompt: str, home: Path, max_minutes: int, cwd: Path) -> HarnessResult:
     """Synthetic harness for the test suite: no network, no real binary.
 
@@ -417,7 +442,7 @@ def run_hermes_harness(prompt: str, home: Path, max_minutes: int, parent_hermes_
     assert_no_secret_leak(home)  # config/env we just wrote must itself be clean
 
     transcript_path = home / "hermes_transcript.txt"
-    env = dict(os.environ)
+    env = build_cold_env()
     env["HOME"] = str(home)
     env["HERMES_HOME"] = str(hermes_home)
     timed_out = False
@@ -472,7 +497,7 @@ def run_claude_harness(prompt: str, home: Path, max_minutes: int) -> HarnessResu
     cwd.mkdir(parents=True, exist_ok=True)
     _copy_claude_oauth_credentials(home, "anthropic")
     transcript_path = home / "claude_transcript.json"
-    env = dict(os.environ)
+    env = build_cold_env()
     env["HOME"] = str(home)
     timed_out = False
     stdout = ""
@@ -531,7 +556,7 @@ def run_codex_harness(prompt: str, home: Path, max_minutes: int) -> HarnessResul
     cwd.mkdir(parents=True, exist_ok=True)
     _copy_codex_oauth_credentials(home)
     transcript_path = home / "codex_transcript.jsonl"
-    env = dict(os.environ)
+    env = build_cold_env()
     env["HOME"] = str(home)
     timed_out = False
     stdout = ""
@@ -642,7 +667,7 @@ def run_success_check(
     max_minutes: int,
 ) -> tuple[int, str]:
     """Run success_check as `bash -c`. Returns (exit_code, combined_tail)."""
-    env = dict(os.environ)
+    env = build_cold_env()
     env["HOME"] = str(home)
     env["LOOPSKILL_BASE"] = loopskill_base
     env["RUN_ID"] = run_id

@@ -60,6 +60,33 @@ def _synthetic_zai_parent(tmp_path: Path) -> Path:
     return parent
 
 
+def test_cold_env_strips_loopskill_creds_keeps_llm_brain(monkeypatch):
+    """The eval box's cron env carries host LoopSkill keys (MCP_LOOPSKILL_API_KEY,
+    RECIPES_API_KEY, ...). A cold agent that inherits them skips self-registration
+    — the exact contamination run 20260916-84de0531's hermes leg exploited. The
+    LLM provider key (GLM_API_KEY) is the agent's brain, not a LoopSkill
+    credential, and must survive."""
+    for k in list(os.environ):
+        if any(sub in k for sub in ("LOOPSKILL", "RECIPES_", "REC_", "COLDSTART")):
+            monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("MCP_LOOPSKILL_API_KEY", "rec_live_hostkey_000000000001")
+    monkeypatch.setenv("RECIPES_API_KEY", "rec_live_hostkey_000000000002")
+    monkeypatch.setenv("LOOPSKILL_MASTER_KEY", "mk_host_0003")
+    monkeypatch.setenv("COLDSTART_REPO", "/somewhere")
+    monkeypatch.setenv("GLM_API_KEY", "glm-brain-key-keepme")
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+
+    env = run_mod.build_cold_env()
+    assert "MCP_LOOPSKILL_API_KEY" not in env
+    assert "RECIPES_API_KEY" not in env
+    assert "LOOPSKILL_MASTER_KEY" not in env
+    assert "COLDSTART_REPO" not in env
+    assert env["GLM_API_KEY"] == "glm-brain-key-keepme"
+    assert env["PATH"] == "/usr/bin:/bin"
+    # os.environ itself is never mutated
+    assert os.environ.get("MCP_LOOPSKILL_API_KEY") == "rec_live_hostkey_000000000001"
+
+
 def test_zai_provider_is_mapped():
     assert "zai" in run_mod.PROVIDER_CRED_VARS
     for var in ("GLM_API_KEY", "ZAI_API_KEY", "Z_AI_API_KEY"):
