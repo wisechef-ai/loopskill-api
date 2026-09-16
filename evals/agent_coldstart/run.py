@@ -180,6 +180,17 @@ PROVIDER_CRED_VARS = {
     "anthropic": ["ANTHROPIC_API_KEY", "ANTHROPIC_TOKEN"],
     "openai": ["OPENAI_API_KEY"],
     "copilot": ["GITHUB_COPILOT_TOKEN", "COPILOT_GITHUB_TOKEN"],
+    # Mirrors hermes_cli.providers' zai overlay (HermesOverlay:
+    # extra_env_vars=(GLM_API_KEY, ZAI_API_KEY, Z_AI_API_KEY),
+    # base_url_env_var=GLM_BASE_URL). The eval box's parent Hermes runs zai
+    # via the coding endpoint, so both the key and the base URL must ride
+    # along or every hermes leg is stillborn at provider auth.
+    "zai": ["GLM_API_KEY", "ZAI_API_KEY", "Z_AI_API_KEY"],
+}
+
+# Providers whose endpoint is configurable via env (non-default base URL).
+PROVIDER_BASE_URL_VARS = {
+    "zai": "GLM_BASE_URL",
 }
 
 
@@ -188,10 +199,16 @@ def read_parent_model_block(parent_hermes_home: Path) -> dict[str, str]:
     text = cfg_path.read_text()
     doc = yaml.safe_load(text)
     model = doc.get("model", {}) if isinstance(doc, dict) else {}
-    return {
+    block = {
         "default": model.get("default", "claude-opus-5"),
         "provider": model.get("provider", "anthropic"),
     }
+    # Rationale: a provider like zai may be reached through a non-default
+    # endpoint (e.g. the coding plan's /api/coding/paas/v4). Dropping it here
+    # sends the isolated agent to the wrong URL even with a valid key.
+    if model.get("base_url"):
+        block["base_url"] = model["base_url"]
+    return block
 
 
 def read_parent_env_vars(parent_hermes_home: Path, var_names: list[str]) -> dict[str, str]:
@@ -276,11 +293,16 @@ def write_isolated_hermes_home(tmp_home: Path, parent_hermes_home: Path) -> tupl
     provider = model_block["provider"]
     var_names = PROVIDER_CRED_VARS.get(provider, [])
     creds = read_parent_env_vars(parent_hermes_home, var_names)
+    base_url_var = PROVIDER_BASE_URL_VARS.get(provider)
+    if base_url_var:
+        creds = {**creds, **read_parent_env_vars(parent_hermes_home, [base_url_var])}
 
-    config = {
+    config: dict[str, Any] = {
         "model": {"default": model_block["default"], "provider": provider},
         "toolsets": ["hermes-cli"],
     }
+    if model_block.get("base_url"):
+        config["model"]["base_url"] = model_block["base_url"]
     (hermes_home / "config.yaml").write_text(yaml.safe_dump(config, sort_keys=False))
 
     if creds:
@@ -401,6 +423,7 @@ def run_hermes_harness(prompt: str, home: Path, max_minutes: int, parent_hermes_
     timed_out = False
     stdout = ""
     stderr = ""
+    harness_error: str | None = None
     try:
         proc = subprocess.run(
             ["hermes", "chat", "-q", prompt],
@@ -417,6 +440,22 @@ def run_hermes_harness(prompt: str, home: Path, max_minutes: int, parent_hermes_
         stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode(errors="ignore")
     transcript_path.write_text(stdout + "\n---stderr---\n" + stderr)
 
+    combined_out = f"{stdout}{stderr}"
+    if not timed_out and "No usable credentials found for provider" in combined_out:
+        # Rationale: hermes exits before the agent takes a single action when
+        # the isolated home lacks provider credentials (e.g. the parent moved
+        # to a provider this runner's cred map doesn't know). That is a
+        # harness artifact, not agent behavior — per RUBRIC it must score
+        # `error` (excluded), never `fail`.
+        banner = next(
+            (ln for ln in combined_out.splitlines() if "No usable credentials" in ln),
+            "",
+        )[:200]
+        harness_error = (
+            f"hermes harness error: {banner or 'no usable credentials'} "
+            f"(model={model}); the cold agent never started"
+        )
+
     tool_calls = _count_hermes_tool_calls(hermes_home)
     return HarnessResult(
         tool_calls=tool_calls,
@@ -424,6 +463,7 @@ def run_hermes_harness(prompt: str, home: Path, max_minutes: int, parent_hermes_
         tokens_out=None,
         transcript_path=str(transcript_path),
         timed_out=timed_out,
+        error=harness_error,
     )
 
 
