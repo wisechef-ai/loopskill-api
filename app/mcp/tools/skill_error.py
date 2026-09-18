@@ -177,7 +177,9 @@ def loopskill_report_skill_error(
     # provided" issues got filed. Always send a real, human-readable
     # message derived from the caller's summary (falling back to details
     # when summary is blank) and a stable category.
-    dispatch_message = (summary or "").strip() or (details or "").strip() or f"skill error reported for {slug}"
+    dispatch_message = (
+        (summary or "").strip() or (details or "").strip() or f"skill error reported for {slug}"
+    )
     dispatch_message = f"[{slug}] {dispatch_message}"[:500]
 
     # dispatch_event now returns True on success (workflow PATCHes the real
