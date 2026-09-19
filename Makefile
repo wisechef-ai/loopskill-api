@@ -1,4 +1,4 @@
-.PHONY: dev seed test down
+.PHONY: dev seed test down verify verify-flow
 
 VENV ?= .venv
 PYTHON ?= $(shell command -v python3 || command -v python)
@@ -47,6 +47,18 @@ seed:
 ## test — run the full test suite (backgrounded; prints summary when done).
 test:
 	$(PY) -m pytest -q -p no:cacheprovider -n 8 --dist loadfile
+
+## verify — recreate disposable SQLite and exercise every mapped critical flow.
+verify:
+	$(PY) -m cli.verify seed
+	$(PY) -m cli.verify run all
+	$(PY) -m cli.verify check
+
+## verify-flow — recreate disposable SQLite and run FLOW=<stable flow id>.
+verify-flow:
+	@test -n "$(FLOW)" || (echo "FLOW is required; run '$(PY) -m cli.verify list'" >&2; exit 2)
+	$(PY) -m cli.verify seed
+	$(PY) -m cli.verify run "$(FLOW)"
 
 ## down — stop and remove the docker compose stack.
 down:

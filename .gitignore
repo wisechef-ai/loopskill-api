@@ -83,6 +83,7 @@ CLAUDE.md
 test_dev.db
 test.db
 t2.db
+verify.db
 
 # Internal company docs — never ship to the public OSS repo
 internal/

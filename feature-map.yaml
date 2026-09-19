@@ -1,0 +1,130 @@
+version: 1
+generated_from: app/*_routes.py
+features:
+  health:
+    path: /api/healthz
+    auth: public
+    entry: GET the liveness endpoint before attempting other work.
+    source: app/health_routes.py
+    flows:
+      - name: database_liveness
+        steps:
+          - GET /api/healthz and parse the JSON body.
+        invariants:
+          - The body has status=ok, db=ok, and a non-empty version.
+    verify: health
+  skill_search:
+    path: /api/skills/search
+    auth: public
+    entry: GET with q and hybrid=false for deterministic literal catalog search.
+    source: app/skill_routes.py
+    flows:
+      - name: literal_search
+        steps:
+          - Search the seeded catalog for Deterministic.
+          - Parse results and inspect the first skill object.
+        invariants:
+          - total is at least one and verify-git-skill is returned.
+    verify: skill_search
+  skill_detail:
+    path: /api/skills/{slug}
+    auth: public
+    entry: Follow a slug from skill_search into the public detail document.
+    source: app/skill_routes.py
+    flows:
+      - name: seeded_detail
+        steps:
+          - GET /api/skills/verify-git-skill and parse JSON.
+        invariants:
+          - slug, readme, and at least one version describe the requested skill.
+    verify: skill_detail
+  skill_install:
+    path: /api/skills/install
+    auth: api_key
+    entry: GET with x-api-key and a skill slug; follow tarball_url to _download.
+    source: app/install_routes.py
+    flows:
+      - name: signed_url_roundtrip
+        steps:
+          - Mint a signed URL for the seeded free skill.
+          - Parse tarball_url, request /api/skills/_download, and hash the bytes.
+        invariants:
+          - The response slug and checksum match the seeded version.
+          - The signed download returns the exact seeded tarball bytes.
+    verify: skill_install_signed_url_roundtrip
+  bundle_public_wellknown:
+    path: /api/bundles/public/{slug}/.well-known/skills/index.json
+    auth: public
+    entry: Read index.json, then fetch each listed SKILL.md by name.
+    source: app/bundle_wellknown_routes.py
+    flows:
+      - name: paid_stub_non_leak
+        steps:
+          - Read the seeded public bundle index.
+          - Fetch the paid member's SKILL.md.
+        invariants:
+          - The paid member is marked locked in index.json.
+          - The paid SKILL.md is a locked stub and never contains the stored paid readme marker.
+    verify: bundle_wellknown_paid_stub_never_leaks_readme
+  agent_self_registration:
+    path: /api/agents/register
+    auth: public
+    entry: Sign the documented canonical string with an Ed25519 private key and POST it.
+    source: app/agent_registration_routes.py
+    flows:
+      - name: ed25519_proof_of_key
+        steps:
+          - Build loopskill-agent-register:v1:{pubkey}:{timestamp}:{nonce}:{agent_name}.
+          - Sign its UTF-8 bytes and POST the encoded proof.
+        invariants:
+          - The body returns a one-time rec_agent_ key with free user scope.
+    verify: agent_register_ed25519_roundtrip
+  checkout:
+    path: /api/checkout/{tier}
+    auth: jwt
+    entry: A human browser session POSTs a supported tier; API keys are not session credentials.
+    source: app/checkout_routes.py
+    flows:
+      - name: api_key_fence
+        steps:
+          - POST /api/checkout/pro with only the seeded x-api-key.
+        invariants:
+          - The body is login_required and no checkout URL is returned.
+    verify: checkout_rejects_api_key
+  mcp_tools_list:
+    path: /api/mcp/healthz
+    auth: public
+    entry: Probe MCP health to discover the stable registered tool names before connecting.
+    source: app/mcp/server.py
+    flows:
+      - name: registered_tools
+        steps:
+          - GET /api/mcp/healthz and parse the tools array.
+        invariants:
+          - The body identifies loopskill-mcp and lists loopskill_search and loopskill_install.
+    verify: mcp_tools_list
+  fleet_skill_serve:
+    path: /fleet/skill
+    auth: public
+    entry: Download the control-plane SKILL.md directly into an agent skill directory.
+    source: app/fleet_skill_serve_routes.py
+    flows:
+      - name: fleet_skill_document
+        steps:
+          - GET /fleet/skill and render the complete text body.
+        invariants:
+          - The body is markdown with frontmatter and names LoopSkill fleet control-plane tools.
+    verify: fleet_skill_serve
+  llms_txt_agent_json_wellknown:
+    path: /.well-known/agent.json
+    auth: public
+    entry: llms.txt or an MCP directory points a cold agent at the public descriptor.
+    source: app/agent_wellknown_routes.py
+    flows:
+      - name: agent_discovery_document
+        steps:
+          - GET /.well-known/agent.json and parse registration and MCP links.
+        invariants:
+          - The canonical string is the v1 Ed25519 template.
+          - Registration points to /api/agents/register and MCP to /api/mcp/http.
+    verify: wellknown_agent_json

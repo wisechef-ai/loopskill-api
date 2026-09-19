@@ -348,6 +348,20 @@ pricing or tier code is involved. It is minted with
 
 ---
 
+## Verification loop (feature-map + make verify)
+
+`feature-map.yaml` is the machine-readable map of the product (path, auth,
+entry, flows, invariants per feature); `cli/verify.py` exercises it against the
+real `create_app()` on a disposable SQLite DB. **Before claiming any change
+works, run `make verify` and cite the flow name in the PR.** Proof by change
+type: UI → screenshot; backend/perf → before/after numbers from
+`make verify --json`; bug fix → the failing flow, then the same flow passing.
+New route or invariant → add it to the map AND a `flow_<id>` in the CLI —
+`tests/test_feature_map_verify_cli.py` enforces parity in both directions.
+Fuzzing/swarm runs point at a disposable DB, never prod. Docs: `docs/verify-cli.md`.
+
+---
+
 ## Pre-commit gate: `ocr` review (alibaba/open-code-review)
 
 **Before you commit code, review the diff with `ocr`.** Not a suggestion — it is
