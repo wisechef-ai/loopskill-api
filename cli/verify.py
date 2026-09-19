@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -38,6 +39,48 @@ def _require(condition: bool, message: str) -> None:
         raise VerificationFailure(message)
 
 
+_VERIFY_ENV_KEYS = (
+    "WR_DATABASE_URL",
+    "WR_COOKIES_SECURE",
+    "WR_API_KEY",
+    "WR_REDIS_URL",
+    "WR_METASEARCH_SHARED_CACHE",
+)
+
+
+def _verify_env_values(db_path: Path) -> dict[str, str]:
+    return {
+        "WR_DATABASE_URL": f"sqlite:///{db_path.resolve()}",
+        "WR_COOKIES_SECURE": "false",
+        "WR_API_KEY": VERIFY_MASTER_KEY,
+        "WR_REDIS_URL": "",
+        "WR_METASEARCH_SHARED_CACHE": "false",
+    }
+
+
+@contextmanager
+def _temporary_verify_env(db_path: Path):
+    """Point ``app.config.Settings`` at the verify DB for the duration only.
+
+    The lazy settings singleton is built on first access; when this harness is
+    the first thing in the process, that construction must see a sqlite URL or
+    the production-secrets gate refuses to boot. The values are RESTORED on
+    exit: a permanent ``WR_COOKIES_SECURE=false`` in ``os.environ`` makes every
+    later ``Settings()`` under a non-sqlite ``DATABASE_URL`` (the Postgres CI
+    lane) raise, which is invisible in the sqlite lane and fails in the other.
+    """
+    previous = {key: os.environ.get(key) for key in _VERIFY_ENV_KEYS}
+    os.environ.update(_verify_env_values(db_path))
+    try:
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
 @dataclass
 class VerifyContext:
     """One production-app TestClient wired to a disposable SQLite database."""
@@ -45,6 +88,10 @@ class VerifyContext:
     db_path: Path
 
     def __post_init__(self) -> None:
+        with _temporary_verify_env(self.db_path):
+            self._build()
+
+    def _build(self) -> None:
         from fastapi.testclient import TestClient
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
@@ -370,12 +417,16 @@ def _db_url(path: Path) -> str:
 
 
 def _configure_environment(db_path: Path) -> dict[str, str]:
-    os.environ["WR_DATABASE_URL"] = _db_url(db_path)
-    os.environ["WR_COOKIES_SECURE"] = "false"
-    os.environ["WR_API_KEY"] = VERIFY_MASTER_KEY
-    os.environ["WR_REDIS_URL"] = ""
-    os.environ["WR_METASEARCH_SHARED_CACHE"] = "false"
+    """Environment for the bootstrap SUBPROCESS only.
+
+    Never mutates ``os.environ``: the in-process harness overrides
+    ``config.settings`` directly (see ``VerifyContext``), and leaking
+    ``WR_COOKIES_SECURE=false`` into the parent process makes any later
+    ``Settings()`` construction under a non-sqlite ``DATABASE_URL`` refuse to
+    boot — which is exactly what the Postgres CI lane does after this test.
+    """
     env = os.environ.copy()
+    env.update(_verify_env_values(db_path))
     env["PATH"] = f"{Path(sys.executable).parent}{os.pathsep}{env.get('PATH', '')}"
     return env
 
@@ -476,7 +527,8 @@ def seed_database(db_path: Path) -> dict[str, Any]:
     if completed.returncode != 0:
         detail = (completed.stderr or completed.stdout).strip()
         raise VerificationFailure(f"bootstrap failed with exit {completed.returncode}: {detail}")
-    _seed_verify_rows(db_path)
+    with _temporary_verify_env(db_path):
+        _seed_verify_rows(db_path)
     return {
         "ok": True,
         "db": str(db_path),
@@ -499,7 +551,6 @@ def _load_feature_map() -> dict[str, Any]:
 
 def run_flows(db_path: Path, flow_ids: list[str], *, check: bool = False) -> list[dict[str, Any]]:
     _require(db_path.is_file(), f"database does not exist: {db_path}; run seed first")
-    _configure_environment(db_path)
     ctx = VerifyContext(db_path.resolve())
     results: list[dict[str, Any]] = []
     try:

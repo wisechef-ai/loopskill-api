@@ -47,3 +47,22 @@ def test_check_returns_nonzero_when_an_invariant_is_broken(tmp_path, monkeypatch
 
     monkeypatch.setitem(verify.INVARIANT_CHECKS, "health", (broken_invariant,))
     assert verify.main(["--db", str(db), "check"]) != 0
+
+
+def test_verify_harness_never_leaks_env_into_the_process(tmp_path):
+    """The harness must not leave WR_* overrides behind.
+
+    A leaked WR_COOKIES_SECURE=false makes every later Settings() under a
+    non-sqlite DATABASE_URL refuse to boot — invisible in the sqlite lane,
+    fatal in the postgres lane. Pinned so the failure mode cannot return.
+    """
+    import os
+
+    from cli import verify
+
+    before = {key: os.environ.get(key) for key in verify._VERIFY_ENV_KEYS}
+    db = tmp_path / "verify.db"
+    assert verify.main(["--db", str(db), "seed"]) == 0
+    assert verify.main(["--db", str(db), "run", "health"]) == 0
+    after = {key: os.environ.get(key) for key in verify._VERIFY_ENV_KEYS}
+    assert after == before
