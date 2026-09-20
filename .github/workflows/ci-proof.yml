@@ -6,8 +6,16 @@ name: ci-proof
 # commit SHA, run URL. A green checkmark alone proves nothing.
 #
 # ubuntu-latest (NOT wisechef-runner): this workflow runs arbitrary PR
-# code (pip install -e ., pre-commit hooks, the PR's own tests) and the
-# repo is public — a fork PR must never touch persistent self-hosted infra.
+# code (requirements install, the PR's own tests) and the repo is public —
+# a fork PR must never touch persistent self-hosted infra.
+#
+# Conventions copied from main's ci.yml pytest job (postgres leg) and
+# lint.yml's ENFORCED gates: python 3.12, postgres:17, pytest-xdist
+# -n auto --dist loadfile (conftest's session fixtures require worker_id
+# — without xdist every DB-backed test errors at setup), and lint =
+# ruff check + ruff format --check + bandit HIGH. mypy/actionlint/
+# yamllint are local pre-commit hooks that main's CI deliberately does
+# NOT gate on, so this proof does not claim them.
 
 on:
   pull_request:
@@ -28,58 +36,55 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
-          POSTGRES_USER: ci
-          POSTGRES_PASSWORD: ci
-          POSTGRES_DB: recipes_ci
-        ports: ['5432:5432']
+          POSTGRES_USER: loopskill
+          POSTGRES_PASSWORD: loopskill
+          POSTGRES_DB: loopskill_test
+        ports:
+          - 5432:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+    env:
+      # Same contract as ci.yml's postgres leg: DATABASE_URL drives
+      # conftest's engine selection; WR stays sqlite so the app's
+      # production-secrets gate never fires in the test job.
+      DATABASE_URL: postgresql://loopskill:loopskill@localhost:5432/loopskill_test
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: "3.12"
           cache: pip
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; fi
-          python -m pip install pytest pytest-asyncio pytest-timeout coverage httpx fastapi sqlalchemy psycopg2-binary python-frontmatter pre-commit
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pytest-xdist pytest-cov pytest-timeout ruff bandit
 
-      # Failures must be RECORDED in the proof, not abort before it — both
-      # lint and pytest run continue-on-error and are gated afterwards.
-      - name: "Lint (pre-commit: ruff + bandit + scoped mypy)"
+      # Lint = exactly what lint.yml ENFORCES on main. Failures must be
+      # RECORDED in the proof, not abort before it.
+      - name: Lint (ruff check + format, bandit HIGH — main's enforced gate)
         id: lint
         continue-on-error: true
-        run: pre-commit run --all-files
+        run: |
+          ruff check .
+          ruff format --check .
+          bandit -r app/ -lll
 
-      - name: Run full pytest (JUnit XML)
+      - name: Run full pytest vs Postgres (JUnit XML)
         id: pytest
-        env:
-          DATABASE_URL: "postgresql://ci:ci@localhost:5432/recipes_ci"
-          STRIPE_SECRET_KEY: "sk_test_dummy"
-          STRIPE_WEBHOOK_SECRET: "whsec_dummy"
-          ENVIRONMENT: test
-          WITH_POSTGRES: "1"
-          POSTGRES_DSN: "postgresql://ci:ci@localhost:5432/postgres"
         continue-on-error: true
         run: |
-          python -m pytest tests/ \
+          python -m pytest -q -p no:cacheprovider -n auto --dist loadfile \
             --junitxml=test-results/pytest.junit.xml \
-            --timeout=120 \
-            --timeout-method=thread \
-            --ignore=tests/migrations \
-            --ignore=scripts \
-            -q
+            --cov=app --cov-report=term-missing --cov-fail-under=80
 
       - name: Build ci-proof.json
         env:
@@ -90,14 +95,10 @@ jobs:
           [ "$PYTEST_OUTCOME" = "success" ] && test_status="pass"
           lint_status="fail"
           [ "$LINT_OUTCOME" = "success" ] && lint_status="pass"
-          # The mypy scope here is pre-commit's designated 4 modules, not a
-          # repo-wide typecheck — the proof records it under a prefixed name
-          # the schema's typecheck assertion matches on.
           python scripts/ci_proof.py build \
             --junit-glob "test-results/*.xml" \
             --status "tests:$test_status" \
             --status "lint:$lint_status" \
-            --status "typecheck-mypy-scoped-4-modules:$lint_status" \
             --output ci-proof.json
           python scripts/ci_proof.py verify ci-proof.json
 
