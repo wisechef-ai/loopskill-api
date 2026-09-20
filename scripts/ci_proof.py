@@ -52,7 +52,10 @@ def _parse_junit(path: str) -> dict:
             try:
                 totals[key] += int(raw)
             except ValueError:
-                pass
+                print(
+                    f"ci_proof: warning: {path}: unparseable {key}={raw!r}",
+                    file=sys.stderr,
+                )
     # pytest reports "failures" as an ERROR-attribute on the root when the
     # run itself crashed; be conservative and keep the sum.
     return totals
@@ -70,6 +73,12 @@ def _collect_junit(patterns: list[str]) -> dict:
         except (ET.ParseError, OSError) as exc:
             suites.append({"file": path, "error": str(exc)})
             continue
+        # Per-file derivation so suite entries and totals always agree
+        # (pytest's JUnit XML has no native "passed" attribute).
+        if t["passed"] == 0 and t["tests"] > 0:
+            t["passed"] = max(
+                0, t["tests"] - t["failures"] - t["errors"] - t["skipped"]
+            )
         suites.append({"file": path, **t})
         for key in agg:
             agg[key] += t[key]
@@ -105,8 +114,13 @@ def build(args: argparse.Namespace) -> int:
 
     # A proof that claims passing tests with zero collected tests is exactly
     # the fake green checkmark this artifact exists to kill — refuse it.
+    # This covers both an explicit tests:pass status AND the silent case:
+    # --junit-glob was supplied but glob/parse drift collected nothing.
     t = junit["totals"]
-    if t["tests"] == 0 and any(v == "pass" for k, v in statuses.items() if k.startswith("tests")):
+    if t["tests"] == 0 and (
+        args.junit_glob
+        or any(v == "pass" for k, v in statuses.items() if k.startswith("tests"))
+    ):
         print(
             "ci_proof: REFUSING to certify 'tests:pass' — 0 tests collected "
             "from JUnit XML. Point --junit-glob at real reports.",
@@ -164,13 +178,22 @@ def verify(args: argparse.Namespace) -> int:
         except json.JSONDecodeError as exc:
             print(f"ci_proof verify: INVALID JSON: {exc}", file=sys.stderr)
             return 2
+    if not isinstance(proof, dict):
+        print(
+            "ci_proof verify: INVALID JSON: top-level value is not an object",
+            file=sys.stderr,
+        )
+        return 2
     problems: list[str] = []
     if proof.get("schema") != "ci.proof/1":
         problems.append(f"unexpected schema {proof.get('schema')!r}")
     for key in ("repo", "commit_sha", "run_url", "generated_at"):
-        if not proof.get(key):
+        if not isinstance(proof.get(key), str) or not proof.get(key):
             problems.append(f"missing required field {key!r}")
     tests = proof.get("tests", {})
+    if not isinstance(tests, dict):
+        tests = {}
+        problems.append("tests is not an object")
     for key in ("collected", "passed", "failed", "skipped"):
         if not isinstance(tests.get(key), int):
             problems.append(f"tests.{key} missing or not an int")
