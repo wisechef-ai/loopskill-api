@@ -4,8 +4,10 @@ name: ci-proof
 # machine-readable ci-proof.json artifact recording WHAT was actually
 # verified on that commit — test counts collected/passed, lint status,
 # commit SHA, run URL. A green checkmark alone proves nothing.
-# Conventions mirror ci.yml (wisechef-runner, setup-python fallback,
-# Postgres service, pip caching) so runner behavior matches the main job.
+#
+# ubuntu-latest (NOT wisechef-runner): this workflow runs arbitrary PR
+# code (pip install -e ., pre-commit hooks, the PR's own tests) and the
+# repo is public — a fork PR must never touch persistent self-hosted infra.
 
 on:
   pull_request:
@@ -22,7 +24,7 @@ concurrency:
 jobs:
   proof:
     name: CI proof artifact (ci-proof.json)
-    runs-on: wisechef-runner
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
       postgres:
@@ -42,38 +44,25 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Set up Python 3.11
-        id: setup-python
-        continue-on-error: true
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
           cache: pip
-      - name: Ensure a usable Python (fallback to system)
-        run: |
-          if ! command -v python >/dev/null 2>&1; then
-            PY=$(command -v python3 || true)
-            if [ -z "$PY" ]; then
-              echo "::error::No Python available on the runner."
-              exit 1
-            fi
-            sudo ln -sf "$PY" /usr/local/bin/python || true
-          fi
-          python --version
 
       - name: Install deps
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f pyproject.toml ]; then pip install -e . || true; fi
-          pip install pytest pytest-asyncio pytest-timeout coverage httpx fastapi sqlalchemy psycopg2-binary python-frontmatter pre-commit
+          if [ -f requirements.txt ]; then python -m pip install -r requirements.txt; fi
+          if [ -f pyproject.toml ]; then python -m pip install -e .; fi
+          python -m pip install pytest pytest-asyncio pytest-timeout coverage httpx fastapi sqlalchemy psycopg2-binary python-frontmatter pre-commit
 
+      # Failures must be RECORDED in the proof, not abort before it — both
+      # lint and pytest run continue-on-error and are gated afterwards.
       - name: "Lint (pre-commit: ruff + bandit + scoped mypy)"
         id: lint
+        continue-on-error: true
         run: pre-commit run --all-files
 
-      # pytest exit code feeds the proof; --junitxml is what makes the test
-      # counts machine-collectable. Never let the test step's failure skip
-      # the artifact — the proof must record failures too.
       - name: Run full pytest (JUnit XML)
         id: pytest
         env:
@@ -102,8 +91,9 @@ jobs:
           [ "$PYTEST_OUTCOME" = "success" ] && test_status="pass"
           lint_status="fail"
           [ "$LINT_OUTCOME" = "success" ] && lint_status="pass"
-          # pre-commit's mypy hook only covers the 4 designated modules —
-          # name it honestly rather than implying repo-wide typecheck.
+          # The mypy scope here is pre-commit's designated 4 modules, not a
+          # repo-wide typecheck — the proof records it under a prefixed name
+          # the schema's typecheck assertion matches on.
           python scripts/ci_proof.py build \
             --junit-glob "test-results/*.xml" \
             --status "tests:$test_status" \
@@ -112,10 +102,10 @@ jobs:
             --output ci-proof.json
           python scripts/ci_proof.py verify ci-proof.json
 
-      - name: Fail the job if tests failed (proof is recorded first)
-        if: steps.pytest.outcome != 'success'
+      - name: Fail the job if lint or tests failed (proof is recorded first)
+        if: steps.lint.outcome != 'success' || steps.pytest.outcome != 'success'
         run: |
-          echo "::error::pytest failed — see the ci-proof artifact for counts."
+          echo "::error::lint/pytest failed — see the ci-proof artifact for facts."
           exit 1
 
       - name: Upload CI proof artifact

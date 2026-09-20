@@ -9,7 +9,13 @@ this SHA?" and get a factual answer.
 
 stdlib-only: runs on any CI Python with no pip install.
 
-Usage:
+NOTE: build() populates repo/commit_sha/run_url from GitHub Actions env
+vars (GITHUB_REPOSITORY, GITHUB_SHA, GITHUB_RUN_ID, ...). Outside Actions
+those fields come out empty and this script's own verify() will reject the
+artifact — by design, the receipt must name its run. Run it inside GHA, or
+export the equivalent env vars.
+
+Usage (inside GitHub Actions):
   python scripts/ci_proof.py build \
       --junit-glob "test-results/*.xml" \
       --status lint:pass --status typecheck:fail \
@@ -24,7 +30,6 @@ import datetime as _dt
 import glob
 import json
 import os
-import re
 import sys
 import xml.etree.ElementTree as ET
 
@@ -56,8 +61,6 @@ def _parse_junit(path: str) -> dict:
                     f"ci_proof: warning: {path}: unparseable {key}={raw!r}",
                     file=sys.stderr,
                 )
-    # pytest reports "failures" as an ERROR-attribute on the root when the
-    # run itself crashed; be conservative and keep the sum.
     return totals
 
 
@@ -67,6 +70,8 @@ def _collect_junit(patterns: list[str]) -> dict:
     files: list[str] = []
     for pattern in patterns:
         files += sorted(glob.glob(pattern))
+    # Overlapping globs must not double-count: dedupe, preserving order.
+    files = list(dict.fromkeys(files))
     for path in files:
         try:
             t = _parse_junit(path)
@@ -82,11 +87,6 @@ def _collect_junit(patterns: list[str]) -> dict:
         suites.append({"file": path, **t})
         for key in agg:
             agg[key] += t[key]
-    # If the runner does not emit per-test "passed", derive it.
-    if agg["passed"] == 0 and agg["tests"] > 0:
-        agg["passed"] = max(
-            0, agg["tests"] - agg["failures"] - agg["errors"] - agg["skipped"]
-        )
     return {"junit_files": suites, "totals": agg}
 
 
@@ -112,10 +112,20 @@ def build(args: argparse.Namespace) -> int:
     junit = _collect_junit(args.junit_glob or [])
     statuses = _parse_status(args.status or [])
 
+    # A proof built from partially-unparseable evidence is silent drift —
+    # the exact failure this tool exists to catch. Refuse loudly.
+    bad_files = [s["file"] for s in junit["junit_files"] if "error" in s]
+    if bad_files:
+        print(
+            f"ci_proof: REFUSING to certify — unparseable JUnit XML: {bad_files}",
+            file=sys.stderr,
+        )
+        return 2
+
     # A proof that claims passing tests with zero collected tests is exactly
     # the fake green checkmark this artifact exists to kill — refuse it.
     # This covers both an explicit tests:pass status AND the silent case:
-    # --junit-glob was supplied but glob/parse drift collected nothing.
+    # --junit-glob was supplied but glob/path drift collected nothing.
     t = junit["totals"]
     if t["tests"] == 0 and (
         args.junit_glob
@@ -155,10 +165,16 @@ def build(args: argparse.Namespace) -> int:
         },
         "checks": statuses,
         "assertions": {
-            "all_tests_passed": t["tests"] > 0
+            # passed>0, not collected>0: an env misconfig that skips every
+            # test still exits 0 — that must not certify as "all passed".
+            "all_tests_passed": t["passed"] > 0
             and (t["failures"] + t["errors"]) == 0,
             "lint_passed": statuses.get("lint") == "pass",
-            "typecheck_passed": statuses.get("typecheck") == "pass",
+            # Prefix match: callers may name it "typecheck" or something
+            # more specific like "typecheck-mypy-scoped".
+            "typecheck_passed": any(
+                v == "pass" for k, v in statuses.items() if k.startswith("typecheck")
+            ),
         },
     }
     payload = json.dumps(proof, indent=2) + "\n"
@@ -172,12 +188,15 @@ def build(args: argparse.Namespace) -> int:
 
 
 def verify(args: argparse.Namespace) -> int:
-    with open(args.path) as fh:
-        try:
+    try:
+        with open(args.path) as fh:
             proof = json.load(fh)
-        except json.JSONDecodeError as exc:
-            print(f"ci_proof verify: INVALID JSON: {exc}", file=sys.stderr)
-            return 2
+    except OSError as exc:
+        print(f"ci_proof verify: cannot read {args.path}: {exc}", file=sys.stderr)
+        return 2
+    except json.JSONDecodeError as exc:
+        print(f"ci_proof verify: INVALID JSON: {exc}", file=sys.stderr)
+        return 2
     if not isinstance(proof, dict):
         print(
             "ci_proof verify: INVALID JSON: top-level value is not an object",
@@ -195,11 +214,24 @@ def verify(args: argparse.Namespace) -> int:
         tests = {}
         problems.append("tests is not an object")
     for key in ("collected", "passed", "failed", "skipped"):
-        if not isinstance(tests.get(key), int):
+        v = tests.get(key)
+        # bool is a subclass of int — exclude it explicitly.
+        if not isinstance(v, int) or isinstance(v, bool):
             problems.append(f"tests.{key} missing or not an int")
     checks = proof.get("checks", {})
     if not isinstance(checks, dict):
+        checks = {}
         problems.append("checks is not an object")
+    # Cross-check assertions against the counts we just validated: an
+    # internally contradictory artifact must not verify clean.
+    assertions = proof.get("assertions", {})
+    if isinstance(assertions, dict):
+        if assertions.get("all_tests_passed") is True and (
+            tests.get("failed", 0) > 0 or tests.get("passed", 0) <= 0
+        ):
+            problems.append("assertions.all_tests_passed contradicts tests counts")
+        if assertions.get("lint_passed") is True and checks.get("lint") != "pass":
+            problems.append("assertions.lint_passed contradicts checks.lint")
     if problems:
         for p in problems:
             print(f"ci_proof verify: {p}", file=sys.stderr)
