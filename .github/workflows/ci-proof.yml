@@ -1,0 +1,119 @@
+name: ci-proof
+
+# moneypath G8 (build half): every run on main and every PR uploads a
+# machine-readable ci-proof.json artifact recording WHAT was actually
+# verified on that commit — test counts collected/passed, lint status,
+# commit SHA, run URL. A green checkmark alone proves nothing.
+#
+# ubuntu-latest (NOT wisechef-runner): this workflow runs arbitrary PR
+# code (requirements install, the PR's own tests) and the repo is public —
+# a fork PR must never touch persistent self-hosted infra.
+#
+# Conventions copied from main's ci.yml pytest job (postgres leg) and
+# lint.yml's ENFORCED gates: python 3.12, postgres:17, pytest-xdist
+# -n auto --dist loadfile (conftest's session fixtures require worker_id
+# — without xdist every DB-backed test errors at setup), and lint =
+# ruff check + ruff format --check + bandit HIGH. mypy/actionlint/
+# yamllint are local pre-commit hooks that main's CI deliberately does
+# NOT gate on, so this proof does not claim them.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: CI proof artifact (ci-proof.json)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: loopskill
+          POSTGRES_PASSWORD: loopskill
+          POSTGRES_DB: loopskill_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Same contract as ci.yml's postgres leg: DATABASE_URL drives
+      # conftest's engine selection; WR stays sqlite so the app's
+      # production-secrets gate never fires in the test job.
+      DATABASE_URL: postgresql://loopskill:loopskill@localhost:5432/loopskill_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pytest-xdist pytest-cov pytest-timeout ruff bandit
+
+      # Lint = exactly what lint.yml ENFORCES on main, on the same scope
+      # (app/ only — repo-wide ruff has ~379 pre-existing findings in
+      # tests/tools that main deliberately does not gate on). Failures
+      # must be RECORDED in the proof, not abort before it.
+      - name: Lint (ruff check + format, bandit HIGH — main's enforced gate)
+        id: lint
+        continue-on-error: true
+        run: |
+          ruff check app/
+          ruff format --check app/
+          bandit -r app/ -lll
+
+      - name: Run full pytest vs Postgres (JUnit XML)
+        id: pytest
+        continue-on-error: true
+        run: |
+          python -m pytest -q -p no:cacheprovider -n auto --dist loadfile \
+            --junitxml=test-results/pytest.junit.xml \
+            --cov=app --cov-report=term-missing --cov-fail-under=80
+
+      - name: Build ci-proof.json
+        env:
+          PYTEST_OUTCOME: ${{ steps.pytest.outcome }}
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+        run: |
+          test_status="fail"
+          [ "$PYTEST_OUTCOME" = "success" ] && test_status="pass"
+          lint_status="fail"
+          [ "$LINT_OUTCOME" = "success" ] && lint_status="pass"
+          python scripts/ci_proof.py build \
+            --junit-glob "test-results/*.xml" \
+            --status "tests:$test_status" \
+            --status "lint:$lint_status" \
+            --output ci-proof.json
+          python scripts/ci_proof.py verify ci-proof.json
+
+      - name: Fail the job if lint or tests failed (proof is recorded first)
+        if: steps.lint.outcome != 'success' || steps.pytest.outcome != 'success'
+        run: |
+          echo "::error::lint/pytest failed — see the ci-proof artifact for facts."
+          exit 1
+
+      - name: Upload CI proof artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-proof
+          path: ci-proof.json
+          retention-days: 90
