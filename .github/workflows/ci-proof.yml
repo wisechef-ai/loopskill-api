@@ -1,0 +1,127 @@
+name: ci-proof
+
+# moneypath G8 (build half): every run on main and every PR uploads a
+# machine-readable ci-proof.json artifact recording WHAT was actually
+# verified on that commit — test counts collected/passed, lint status,
+# commit SHA, run URL. A green checkmark alone proves nothing.
+# Conventions mirror ci.yml (wisechef-runner, setup-python fallback,
+# Postgres service, pip caching) so runner behavior matches the main job.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  proof:
+    name: CI proof artifact (ci-proof.json)
+    runs-on: wisechef-runner
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: recipes_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python 3.11
+        id: setup-python
+        continue-on-error: true
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Ensure a usable Python (fallback to system)
+        run: |
+          if ! command -v python >/dev/null 2>&1; then
+            PY=$(command -v python3 || true)
+            if [ -z "$PY" ]; then
+              echo "::error::No Python available on the runner."
+              exit 1
+            fi
+            sudo ln -sf "$PY" /usr/local/bin/python || true
+          fi
+          python --version
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f pyproject.toml ]; then pip install -e . || true; fi
+          pip install pytest pytest-asyncio pytest-timeout coverage httpx fastapi sqlalchemy psycopg2-binary python-frontmatter pre-commit
+
+      - name: "Lint (pre-commit: ruff + bandit + scoped mypy)"
+        id: lint
+        run: pre-commit run --all-files
+
+      # pytest exit code feeds the proof; --junitxml is what makes the test
+      # counts machine-collectable. Never let the test step's failure skip
+      # the artifact — the proof must record failures too.
+      - name: Run full pytest (JUnit XML)
+        id: pytest
+        env:
+          DATABASE_URL: "postgresql://ci:ci@localhost:5432/recipes_ci"
+          STRIPE_SECRET_KEY: "sk_test_dummy"
+          STRIPE_WEBHOOK_SECRET: "whsec_dummy"
+          ENVIRONMENT: test
+          WITH_POSTGRES: "1"
+          POSTGRES_DSN: "postgresql://ci:ci@localhost:5432/postgres"
+        continue-on-error: true
+        run: |
+          python -m pytest tests/ \
+            --junitxml=test-results/pytest.junit.xml \
+            --timeout=120 \
+            --timeout-method=thread \
+            --ignore=tests/migrations \
+            --ignore=scripts \
+            -q
+
+      - name: Build ci-proof.json
+        env:
+          PYTEST_OUTCOME: ${{ steps.pytest.outcome }}
+          LINT_OUTCOME: ${{ steps.lint.outcome }}
+        run: |
+          test_status="fail"
+          [ "$PYTEST_OUTCOME" = "success" ] && test_status="pass"
+          lint_status="fail"
+          [ "$LINT_OUTCOME" = "success" ] && lint_status="pass"
+          # pre-commit's mypy hook only covers the 4 designated modules —
+          # name it honestly rather than implying repo-wide typecheck.
+          python scripts/ci_proof.py build \
+            --junit-glob "test-results/*.xml" \
+            --status "tests:$test_status" \
+            --status "lint:$lint_status" \
+            --status "typecheck-mypy-scoped-4-modules:$lint_status" \
+            --output ci-proof.json
+          python scripts/ci_proof.py verify ci-proof.json
+
+      - name: Fail the job if tests failed (proof is recorded first)
+        if: steps.pytest.outcome != 'success'
+        run: |
+          echo "::error::pytest failed — see the ci-proof artifact for counts."
+          exit 1
+
+      - name: Upload CI proof artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-proof
+          path: ci-proof.json
+          retention-days: 90
