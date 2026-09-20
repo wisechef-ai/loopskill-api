@@ -68,14 +68,16 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install pytest pytest-xdist pytest-cov pytest-timeout ruff bandit
 
-      # Lint = exactly what lint.yml ENFORCES on main. Failures must be
-      # RECORDED in the proof, not abort before it.
+      # Lint = exactly what lint.yml ENFORCES on main, on the same scope
+      # (app/ only — repo-wide ruff has ~379 pre-existing findings in
+      # tests/tools that main deliberately does not gate on). Failures
+      # must be RECORDED in the proof, not abort before it.
       - name: Lint (ruff check + format, bandit HIGH — main's enforced gate)
         id: lint
         continue-on-error: true
         run: |
-          ruff check .
-          ruff format --check .
+          ruff check app/
+          ruff format --check app/
           bandit -r app/ -lll
 
       - name: Run full pytest vs Postgres (JUnit XML)
