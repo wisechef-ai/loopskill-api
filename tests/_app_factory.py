@@ -57,8 +57,22 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.access_routes", "router", "/api"),
     ("app.recipe_routes", "router", "/api"),
     ("app.install_routes", "router", "/api"),
+    ("app.bootcamp_routes", "router", "/api"),  # bootcamp_0607
     ("app.library_routes", "router", ""),
     ("app.follow_routes", "router", ""),
+    ("app.connect_test_routes", "router", ""),
+    ("app.credits_routes", "router", ""),  # router bakes in its own /api/me prefix
+    ("app.demand_routes", "router", ""),  # router bakes in its own /api/admin prefix
+    ("app.internal_routes", "router", ""),  # router bakes in its own /api/internal prefix
+    ("app.marketing_routes", "wisechef_router", ""),  # Phase L: /api/wisechef/* demo-funnel
+    ("app.mesh_routes", "router", ""),  # mesh_0408 T0-D — router bakes in /api/mesh
+    ("app.mesh_wellknown_routes", "router", ""),  # mesh_0408 T0-D — /.well-known/*
+    ("app.sse_routes", "router", ""),  # dual-mounts /api/bundles + /api/cookbooks internally
+    ("app.federation_filter_routes", "router", ""),  # bundles0811 P3.6
+    ("app.federation_propose_routes", "router", ""),  # bundles_0811 P3.5 — bakes in /api/federation
+    ("app.feedback_status_routes", "router", ""),
+    ("app.bundle_converge_routes", "router", ""),  # mesh_0408 W5 — bakes in /api/bundle-apply
+    ("app.loop_pack_routes", "router", ""),  # REVENUE/CATALOG — /api/loops/packs
     (
         "app.metasearch_routes",
         "router",
@@ -136,7 +150,7 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.dashboard_routes", "router", ""),  # activate_0701 Phase C
     ("app.fleet_console_routes", "router", ""),  # feat/fleet-console-state
     ("app.loop_routes", "router", ""),  # dual-mount /api/loops + /api/verifiers
-    ("app.personality_routes", "router", "/api"),
+    ("app.personality_routes", "router", ""),  # router bakes in its own /api/personalities prefix
     ("app.search_routes", "router", "/api"),  # feat/unified-search
     # ah0724 rank-8 REVENUE/CATALOG — was missing: GET /api/composite-loops
     # (list) + GET /api/composite-loops/{slug} (detail) live in
