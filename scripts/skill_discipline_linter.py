@@ -196,6 +196,13 @@ ALLOWED_LINK_DOMAINS = (
     # that teaches agents to use the marketplace can never pass its own
     # marketplace's publish gate without this.
     "loopskill.io",
+    # moneypath_0920 G10 (2026-09-22): `jev-decision-router` documents the
+    # decision-model endpoints it wraps — classifier.dev (keyless free lane,
+    # the whole point of the skill) and Vercel AI Gateway (BYO-key lane for
+    # `typesafe-ai/jev`). A skill citing its own tool's API is the same class
+    # as tavily.com / linear.app above, not third-party promo.
+    "classifier.dev",
+    "vercel.sh",  # ai-gateway.vercel.sh
     # A citation is not promotion. `humanizer` derives its method from
     # Wikipedia:Signs of AI writing and cites it -- rejected at publish time
     # (HTTP 422, 2026-08-10) because wikipedia.org was absent here, while
