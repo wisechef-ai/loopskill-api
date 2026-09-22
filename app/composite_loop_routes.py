@@ -39,6 +39,7 @@ from app.services.composite_loop_validation import (
     CompositeLoopValidationError,
     validate_composite_loop_manifest,
 )
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +211,7 @@ def _composite_loop_value_tagline(cl: CompositeLoop) -> str | None:
     return None
 
 
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def publish_composite_loop(
     payload: CompositeLoopPublishIn,
     request: Request,
@@ -267,6 +269,7 @@ def publish_composite_loop(
     return get_composite_loop(cl.slug, db)
 
 
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def publish_composite_loop_version(
     slug: str,
     payload: CompositeLoopVersionIn,

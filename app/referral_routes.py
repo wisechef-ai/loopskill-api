@@ -15,6 +15,7 @@ from app.auth_routes import get_current_user_optional
 from app.database import get_db
 from app.models import Referral, User
 from app.referral import ensure_referral_code
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ def _require_auth(user: User | None) -> User:
 
 
 @router.get("/me/referral-code")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 async def get_referral_code(
     request: Request,
     db: Session = Depends(get_db),
@@ -43,6 +45,7 @@ async def get_referral_code(
 
 
 @router.get("/me/referrals")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 async def list_referrals(
     request: Request,
     db: Session = Depends(get_db),

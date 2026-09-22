@@ -35,6 +35,7 @@ from app.models import Creator, Skill, SkillVersion
 from app.security_scan import scan_tarball
 from app.services.publish_reference_gate import dangling_reference_warning
 from app.skill_title import resolve_title_for_new_skill, resolve_title_for_republish
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
 
@@ -204,6 +205,7 @@ def _store_tarball(slug: str, semver: str, tarball_bytes: bytes) -> str:
 
 
 @router.post("/_publish", response_model=PublishResponse, status_code=201, tags=["publisher"])
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 async def publish_skill(
     request: Request,
     skill_toml: UploadFile = File(..., description="skill.toml manifest file"),
@@ -540,6 +542,7 @@ class ArchiveResponse(BaseModel):
 
 
 @router.post("/{slug}/_archive", response_model=ArchiveResponse, tags=["publisher"])
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 async def archive_skill(
     slug: str,
     request: Request,

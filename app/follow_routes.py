@@ -10,6 +10,7 @@ from app import authz
 from app.auth_ctx import AuthContext
 from app.database import get_db
 from app.models import Bundle, FollowedBundle
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 _h = APIRouter(tags=["bundles"])
 
@@ -35,6 +36,7 @@ def _bundle_or_404(db: Session, bundle_id: str) -> Bundle:
 
 
 @_h.post("/{bundle_id}/follow")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def follow_bundle(bundle_id: str, request: Request, db: Session = Depends(get_db)) -> dict:
     """Idempotently follow a public bundle without copying its content."""
     ctx = _authenticated_ctx(request)
@@ -94,6 +96,7 @@ def _resync_follower_count(db: Session, bundle_id) -> None:
 
 
 @_h.delete("/{bundle_id}/follow")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def unfollow_bundle(bundle_id: str, request: Request, db: Session = Depends(get_db)) -> dict:
     """Idempotently remove a saved bundle reference."""
     ctx = _authenticated_ctx(request)

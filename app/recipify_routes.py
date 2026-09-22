@@ -30,6 +30,7 @@ from app.recipify import (
     validate_frontmatter,
     write_cookbook_skill,
 )
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["recipify"])
@@ -85,6 +86,7 @@ def _resolve_or_create_cookbook(db: Session, ctx: CookbookCtx, target_cookbook_i
 
 
 @router.post("/recipify", response_model=RecipifyOut)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def recipify(
     body: RecipifyIn,
     db: Session = Depends(get_db),

@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.fleet_routes import resolve_fleet_ctx
 from app.models import FeedbackSubmission, Fleet, RecipifyRequest, SkillErrorReport
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(prefix="/api/fleets", tags=["voice-inbox"])
 
@@ -46,6 +47,7 @@ def _resolve_owned_fleet(db: Session, fleet_id: str, request: Request) -> Fleet:
 
 
 @router.get("/{fleet_id}/voice-inbox")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def get_voice_inbox(
     fleet_id: str,
     request: Request,
@@ -152,6 +154,7 @@ def get_voice_inbox(
 
 
 @router.post("/{fleet_id}/voice-inbox/{item_type}/{item_id}/resolve")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def resolve_voice_item(
     fleet_id: str,
     item_type: str,

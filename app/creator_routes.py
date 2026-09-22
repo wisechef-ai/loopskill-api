@@ -41,6 +41,7 @@ from app.stripe_service import (
     verify_webhook_signature,
 )
 from app.vat import calculate_vat, generate_vat_moss_report
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
 
@@ -322,6 +323,7 @@ def stripe_dashboard_link(
 
 
 @router.get("/creator/earnings", response_model=EarningsResponse)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def creator_earnings(
     request: Request,
     db: Session = Depends(get_db),
@@ -333,6 +335,7 @@ def creator_earnings(
 
 
 @router.get("/creator/payouts", response_model=list[PayoutHistoryItem])
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def creator_payouts(
     request: Request,
     page: int = Query(1, ge=1),
@@ -372,6 +375,7 @@ def creator_payouts(
 
 
 @router.post("/vat/calculate", response_model=VATCalculateResponse)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def vat_calculate(body: VATCalculateRequest):
     """Calculate VAT MOSS for a given amount and buyer location."""
     result = calculate_vat(
@@ -394,6 +398,7 @@ def vat_calculate(body: VATCalculateRequest):
 
 
 @router.post("/vat/moss-report", response_model=VATMOSSReportResponse)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def vat_moss_report(
     request: Request,
     db: Session = Depends(get_db),

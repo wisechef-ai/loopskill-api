@@ -23,6 +23,7 @@ from app.mesh.constants import VALID_CLASSES
 from app.mesh.errors import MeshKeyRingError, MeshMintRaceError, MeshTenantUnassignedError
 from app.mesh.mint import mint_credential
 from app.models import FleetMember
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(prefix="/api/mesh", tags=["mesh"])
 
@@ -53,6 +54,7 @@ def _resolve_calling_member(request: Request, db: Session) -> FleetMember:
 
 
 @router.post("/credentials", status_code=201)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def mint_mesh_credential(
     body: MintCredentialIn,
     request: Request,

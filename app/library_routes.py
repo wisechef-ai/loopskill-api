@@ -15,6 +15,7 @@ from app.library_service import (
     liked_library,
     set_liked_artifact,
 )
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(prefix="/api/library", tags=["library"])
 
@@ -46,6 +47,7 @@ def get_library(request: Request, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/like")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def like_artifact(payload: LikeRequest, request: Request, db: Session = Depends(get_db)) -> dict:
     """Idempotently add one artifact to the caller's Liked bundle."""
     ctx = _auth_ctx(request)
@@ -65,6 +67,7 @@ def like_artifact(payload: LikeRequest, request: Request, db: Session = Depends(
 
 
 @router.delete("/like")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def unlike_artifact(payload: LikeRequest, request: Request, db: Session = Depends(get_db)) -> dict:
     """Idempotently remove one artifact from the caller's Liked bundle."""
     try:

@@ -26,6 +26,7 @@ from app.schemas import PersonalityDetailOut, PersonalityOut, PersonalityPublish
 from app.services.agency_agents_source import SOURCE as AGENCY_AGENTS_SOURCE
 from app.services.agency_agents_source import source as agency_agents_source
 from app.services.federation_scan import BADGE_FLAGGED, scan_external_body
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ router = APIRouter(prefix="/api/personalities", tags=["personalities"])
 
 
 @router.get("/external")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def list_external_personalities(
     q: str | None = Query(None),
     sources: str | None = Query(
@@ -162,6 +164,7 @@ def get_personality(slug: str, db: Session = Depends(get_db)) -> PersonalityDeta
 
 
 @router.post("", response_model=PersonalityDetailOut, status_code=201)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def publish_personality(
     payload: PersonalityPublishIn,
     request: Request,

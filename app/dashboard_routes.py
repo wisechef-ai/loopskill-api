@@ -34,6 +34,7 @@ from app.models import (
 )
 from app.services.loop_convergence import fleet_convergence
 from app.services.synthetic_runs import RunCounts
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(prefix="/api/fleets", tags=["dashboard"])
 
@@ -193,6 +194,7 @@ def get_fleet_dashboard(
 
 
 @router.get("/{fleet_id}/convergence")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def get_fleet_convergence(
     fleet_id: str,
     request: Request,

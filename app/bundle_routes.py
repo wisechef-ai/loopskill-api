@@ -58,6 +58,7 @@ from app.services.bundle_external import (
 from app.services.bundle_lock_sync import sync_bundle_lock
 from app.services.bundle_quota import quota_status
 from app.services.federated_titles import federated_title_for, resolve_federated_hub_titles
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
 _h = APIRouter(tags=["bundles"])  # Phase 3+4: handlers registered prefix-free; combined below
@@ -1000,6 +1001,7 @@ def _build_plugin_manifest(bundle: Bundle) -> dict:
 
 
 @_h.get("/{slug}/plugin.json")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def bundle_plugin_manifest(slug: str, db: Session = Depends(get_db)):
     """Agent Plugins v1.0.0 manifest for a PUBLIC bundle. No auth.
 
@@ -1016,6 +1018,7 @@ def bundle_plugin_manifest(slug: str, db: Session = Depends(get_db)):
 
 
 @_h.get("/leaderboard")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def cookbook_leaderboard(
     db: Session = Depends(get_db),
     limit: int = 10,
@@ -1047,6 +1050,7 @@ def cookbook_leaderboard(
 
 
 @_h.post("/{cookbook_id}/verify")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def verify_cookbook(
     cookbook_id: str,
     request: Request,
@@ -1251,6 +1255,7 @@ def list_cookbooks(
 
 
 @_h.delete("/{cookbook_id}", status_code=204)  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def delete_cookbook(
     cookbook_id: str,
     request: Request,
@@ -1274,6 +1279,7 @@ class CookbookPatchIn(BaseModel):
 
 
 @_h.patch("/{cookbook_id}")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def update_cookbook(
     cookbook_id: str,
     body: CookbookPatchIn,
@@ -1507,6 +1513,7 @@ def add_skill_to_cookbook(
 
 
 @_h.delete("/{cookbook_id}/skills/{slug}")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def remove_skill_from_cookbook(
     cookbook_id: str,
     slug: str,
@@ -1709,6 +1716,7 @@ def add_skills_bulk(
 
 
 @_h.post("/{cookbook_id}/skills/bulk_remove", status_code=200)  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def remove_skills_bulk(
     cookbook_id: str,
     body: BulkRemoveIn,
@@ -1804,6 +1812,7 @@ def remove_skills_bulk(
 
 
 @_h.post("/{cookbook_id}/personalities/{slug}", status_code=201)  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def add_personality_to_cookbook(
     cookbook_id: str,
     slug: str,
@@ -1837,6 +1846,7 @@ def add_personality_to_cookbook(
 
 
 @_h.delete("/{cookbook_id}/personalities/{slug}")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def remove_personality_from_cookbook(
     cookbook_id: str,
     slug: str,
@@ -1894,6 +1904,7 @@ class BulkPersonalityRemoveIn(BaseModel):
 
 
 @_h.post("/{cookbook_id}/personalities/bulk", status_code=200)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def add_personalities_bulk(
     cookbook_id: str,
     body: BulkPersonalityAddIn,
@@ -1953,6 +1964,7 @@ def add_personalities_bulk(
 
 
 @_h.post("/{cookbook_id}/personalities/bulk_remove", status_code=200)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def remove_personalities_bulk(
     cookbook_id: str,
     body: BulkPersonalityRemoveIn,
@@ -2004,6 +2016,7 @@ def remove_personalities_bulk(
 
 
 @_h.post("/{cookbook_id}/loops/{slug}", status_code=201)  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def add_loop_to_cookbook(
     cookbook_id: str,
     slug: str,
@@ -2037,6 +2050,7 @@ def add_loop_to_cookbook(
 
 
 @_h.delete("/{cookbook_id}/loops/{slug}")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def remove_loop_from_cookbook(
     cookbook_id: str,
     slug: str,
@@ -2079,6 +2093,7 @@ class VisibilityIn(BaseModel):
 
 
 @_h.patch("/{cookbook_id}/visibility")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def set_cookbook_visibility(
     cookbook_id: str,
     body: VisibilityIn,
@@ -2121,6 +2136,7 @@ class SkillPinIn(BaseModel):
 
 
 @_h.patch("/{cookbook_id}/skills/{slug}/pin")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def set_skill_pin(
     cookbook_id: str,
     slug: str,
@@ -2194,6 +2210,7 @@ class ReorderIn(BaseModel):
 
 
 @_h.patch("/{cookbook_id}/reorder")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def reorder_cookbook_skills(
     cookbook_id: str,
     body: ReorderIn,
@@ -2490,6 +2507,7 @@ def install_cookbook(
 
 
 @_h.get("/{cookbook_id}/manifest")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def cookbook_manifest(
     cookbook_id: str,
     request: Request,
@@ -2555,6 +2573,7 @@ def cookbook_manifest(
 
 
 @_h.get("/{cookbook_id}/sync")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def cookbook_sync(
     cookbook_id: str,
     request: Request,
@@ -2783,6 +2802,7 @@ class HandoffIn(BaseModel):
 
 
 @_h.post("/{cookbook_id}/handoff")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def handoff_cookbook(
     cookbook_id: str,
     body: HandoffIn,
@@ -2842,6 +2862,7 @@ class FeedbackConfigIn(BaseModel):
 
 
 @_h.get("/{cookbook_id}/feedback-config")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def get_feedback_config(
     cookbook_id: str,
     request: Request,
@@ -2864,6 +2885,7 @@ def get_feedback_config(
 
 
 @_h.patch("/{cookbook_id}/feedback-config")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def set_feedback_config(
     cookbook_id: str,
     body: FeedbackConfigIn,

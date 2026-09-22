@@ -23,6 +23,7 @@ from app.embeddings import embed_text, is_model_loaded
 from app.models import Bundle, BundleSkill, Skill, User
 from app.revenue_truth import entitled_tier_or_free
 from app.ranking import TIER_RANK, combine, score_bm25, score_vector
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["recall"])
@@ -210,6 +211,7 @@ def recall_skills(
 
 
 @router.post("/recall", response_model=RecallOut)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def post_recall(
     body: RecallIn,
     request: Request,

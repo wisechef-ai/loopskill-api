@@ -23,6 +23,7 @@ from app.database import get_db
 from app.models import Connector, Personality, Skill, WiseChefDemoRequest, Bundle
 from app.schemas import DemoCTAOut, DemoRequestIn, DemoRequestOut
 from app.tier_labels import display_label
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(prefix="/api/marketing", tags=["marketing"])
 
@@ -153,6 +154,7 @@ def public_reachability_counts(db: Session) -> dict:
 
 
 @router.get("/counts")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def marketing_counts(db: Session = Depends(get_db)) -> dict:
     """Live catalog counts — drift-proof source for every public surface.
 
@@ -391,6 +393,7 @@ def marketing_snapshot(db: Session = Depends(get_db)) -> dict:
 
 
 @wisechef_router.get("/demo-cta", response_model=DemoCTAOut)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def demo_cta():
     """WiseChef cross-sell CTA for the Recipes marketplace.
 
@@ -411,6 +414,7 @@ def demo_cta():
 
 
 @wisechef_router.post("/demo-request", response_model=DemoRequestOut, status_code=201)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def submit_demo_request(
     body: DemoRequestIn,
     db: Session = Depends(get_db),

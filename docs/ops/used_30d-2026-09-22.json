@@ -1,0 +1,2866 @@
+{
+  "generated_at": "2026-09-22T17:56:37.466368+00:00",
+  "window_days": 30,
+  "window_note": "Request counts come from `journalctl -u loopskill-api` uvicorn access lines on wisechef-hq. Journal retention on the host reaches back only to 2026-09-12T14:00Z (10.2 days, 148,296 requests, 1,439 distinct ip/method/path/status tuples); no older access log survives (syslog rotation unreadable to the deploy user, Caddy has no access log). So used_30d for HTTP routes is a lower-bound-by-window: a route with 0 here had 0 hits in the last ~10 days of prod traffic. Install/telemetry/fleet figures below are true 30-day DB counts (moneypath_loopskill_used30d.py, read-only psql over SSH). Routes are matched to access-log paths with Starlette first-match semantics against the registered route table; HEAD is folded into GET; requests for unregistered paths (scanner noise like /api/.env) are ignored. Internal IPs (WR_SERVER_PUBLIC_IP + WR_KNOWN_INTERNAL_IPS + loopback) are excluded from used_30d_organic only. No user identifiers, IPs, API keys, or query strings are stored in this file.",
+  "sources": {
+    "http_access": "journalctl -u loopskill-api (wisechef-hq), uvicorn access lines, 2026-09-12T14:00Z..2026-09-22T17:47Z",
+    "db": "prod postgresql on wisechef-hq (127.0.0.1:5432/loopskill): install_events (organic predicate: not is_test key, not is_agent user, not probe, client_ip not internal), telemetry_events, fleet_pings \u2014 read-only SELECTs over SSH"
+  },
+  "db_30d": {
+    "generated_at": "2026-09-22T17:45:57.227712+00:00",
+    "installs_30d_organic": 255,
+    "distinct_skills_installed_30d": 52,
+    "telemetry_events_30d": {
+      "bundle_hint.shown": 11,
+      "connect_agent.shown": 15,
+      "federated_fulfilled_queries": 3,
+      "first_key.revealed": 2,
+      "metasearch.install_intent": 67,
+      "metasearch.query": 219
+    },
+    "fleet_active_devices_30d": 2,
+    "reachable": true
+  },
+  "skills_installed_30d": [
+    {
+      "installs_30d": 89,
+      "slug": "super-memory"
+    },
+    {
+      "installs_30d": 37,
+      "slug": "copywriting"
+    },
+    {
+      "installs_30d": 35,
+      "slug": "humanizer"
+    },
+    {
+      "installs_30d": 4,
+      "slug": "musk-5-step-algorithm"
+    },
+    {
+      "installs_30d": 3,
+      "slug": "hyperspace-matrix"
+    },
+    {
+      "installs_30d": 3,
+      "slug": "hermes-swarm-refactor-campaign"
+    },
+    {
+      "installs_30d": 3,
+      "slug": "elevenlabs-pro"
+    },
+    {
+      "installs_30d": 3,
+      "slug": "repo-viz"
+    },
+    {
+      "installs_30d": 3,
+      "slug": "ascii-video"
+    },
+    {
+      "installs_30d": 3,
+      "slug": "agentic-os"
+    },
+    {
+      "installs_30d": 3,
+      "slug": "brainstorming"
+    },
+    {
+      "installs_30d": 3,
+      "slug": "brand-rollout-meta-repo"
+    },
+    {
+      "installs_30d": 3,
+      "slug": "faster-whisper"
+    },
+    {
+      "installs_30d": 3,
+      "slug": "whisper"
+    },
+    {
+      "installs_30d": 3,
+      "slug": "critical-code-reviewer"
+    },
+    {
+      "installs_30d": 3,
+      "slug": "ext:github-awesome-agent-skills:github-awesome-agent-skills--qwen38-vllm-rtx-pro-6000"
+    },
+    {
+      "installs_30d": 3,
+      "slug": "coldstart-bench-20260908-b8c56156"
+    },
+    {
+      "installs_30d": 2,
+      "slug": "excalidraw"
+    },
+    {
+      "installs_30d": 2,
+      "slug": "frontend-design"
+    },
+    {
+      "installs_30d": 2,
+      "slug": "nano-banana-pro"
+    },
+    {
+      "installs_30d": 2,
+      "slug": "plan-for-goal"
+    },
+    {
+      "installs_30d": 2,
+      "slug": "mixture-of-agents-setup"
+    },
+    {
+      "installs_30d": 2,
+      "slug": "audiocraft"
+    },
+    {
+      "installs_30d": 2,
+      "slug": "summarize-cli"
+    },
+    {
+      "installs_30d": 2,
+      "slug": "llm-wiki-hermes"
+    },
+    {
+      "installs_30d": 2,
+      "slug": "gif-search"
+    },
+    {
+      "installs_30d": 2,
+      "slug": "test-driven-development"
+    },
+    {
+      "installs_30d": 2,
+      "slug": "songwriting-and-ai-music"
+    },
+    {
+      "installs_30d": 2,
+      "slug": "llama-cpp"
+    },
+    {
+      "installs_30d": 2,
+      "slug": "clean-code"
+    },
+    {
+      "installs_30d": 2,
+      "slug": "personality-auto-switch"
+    },
+    {
+      "installs_30d": 2,
+      "slug": "ext:hermes-hub:code-review"
+    },
+    {
+      "installs_30d": 2,
+      "slug": "creative-ideation"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "ext:clawhub:discovery-engine"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "hundred-million-offers"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "ext:lobehub:food-reviewer"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "ext:github-oss:gsd-build--gsd-browser"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "codebase-inspection"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "ext:skills-sh:inference-sh--skills--twitter-automation"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "ext:clawhub:lan-folder-share"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "ruthless-mentor"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "ext:skills-sh:mattpocock--skills--tdd"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "local-tts-kokoro"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "manim-video"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "ext:lobehub:paper-understanding"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "ext:github-marketing:github-marketing--co-marketing"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "loopskill"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "ext:lobehub:dan"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "xitter"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "ext:github-marketing:github-marketing--seo-audit"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "ext:hermes-hub:antibody-humanizer"
+    },
+    {
+      "installs_30d": 1,
+      "slug": "ext:hermes-hub:skills-sh-schrepa-graft-graft"
+    }
+  ],
+  "route_summary": {
+    "total": 322,
+    "used": 99,
+    "tombstoned": 181,
+    "skipped_protected": 42,
+    "non_route_mounts_ignored": [
+      "/api/mcp/http (StreamableHTTP Mount \u2014 128,490 requests, protected)",
+      "/openapi.json",
+      "/docs",
+      "/redoc"
+    ]
+  },
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/api/telemetry",
+      "handler": "app.core_routes.post_telemetry",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/telemetry"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stats",
+      "handler": "app.core_routes.marketplace_stats",
+      "used_30d": 246,
+      "used_30d_organic": 233,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/x/{skill_slug}",
+      "handler": "app.utm_redirects.redirect_x_slug",
+      "used_30d": 14,
+      "used_30d_organic": 14,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/li/{skill_slug}",
+      "handler": "app.utm_redirects.redirect_li_slug",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/ig/{skill_slug}",
+      "handler": "app.utm_redirects.redirect_ig_slug",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/yt/{skill_slug}",
+      "handler": "app.utm_redirects.redirect_yt_slug",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/fb/{skill_slug}",
+      "handler": "app.utm_redirects.redirect_fb_slug",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/SKILL.md",
+      "handler": "app.skill_serve_routes.serve_canonical_skill",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/skill/",
+      "handler": "app.skill_serve_routes.serve_canonical_skill",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/skill",
+      "handler": "app.skill_serve_routes.serve_canonical_skill",
+      "used_30d": 74,
+      "used_30d_organic": 45,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/fleet/SKILL.md",
+      "handler": "app.fleet_skill_serve_routes.serve_fleet_skill",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /fleet/SKILL.md"
+    },
+    {
+      "method": "GET",
+      "path": "/fleet/skill/",
+      "handler": "app.fleet_skill_serve_routes.serve_fleet_skill",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /fleet/SKILL.md"
+    },
+    {
+      "method": "GET",
+      "path": "/fleet/skill",
+      "handler": "app.fleet_skill_serve_routes.serve_fleet_skill",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /fleet/SKILL.md"
+    },
+    {
+      "method": "GET",
+      "path": "/api/wisechef/demo-cta",
+      "handler": "app.marketing_routes.demo_cta",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/wisechef/demo-request",
+      "handler": "app.marketing_routes.submit_demo_request",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/healthz",
+      "handler": "app.health_routes.healthz",
+      "used_30d": 123,
+      "used_30d_organic": 87,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/access",
+      "handler": "app.access_routes.skill_access",
+      "used_30d": 89,
+      "used_30d_organic": 63,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/recipes/{slug}",
+      "handler": "app.recipe_routes.get_recipe",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/api-library/{slug}",
+      "handler": "app.recipe_routes.get_api_library_entry",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/install",
+      "handler": "app.install_routes.install_skill",
+      "used_30d": 180,
+      "used_30d_organic": 128,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/_download",
+      "handler": "app.install_routes.download_tarball",
+      "used_30d": 10,
+      "used_30d_organic": 10,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/library",
+      "handler": "app.library_routes.get_library",
+      "used_30d": 54,
+      "used_30d_organic": 54,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/library/like",
+      "handler": "app.library_routes.like_artifact",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/library/like",
+      "handler": "app.library_routes.unlike_artifact",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{bundle_id}/follow",
+      "handler": "app.follow_routes.follow_bundle",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundles/{bundle_id}/follow",
+      "handler": "app.follow_routes.unfollow_bundle",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{bundle_id}/follow",
+      "handler": "app.follow_routes.follow_bundle",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbooks/{bundle_id}/follow",
+      "handler": "app.follow_routes.unfollow_bundle",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/reconcile",
+      "handler": "app.reconcile_routes.reconcile_cookbook",
+      "used_30d": 479,
+      "used_30d_organic": 479,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/reconcile",
+      "handler": "app.reconcile_routes.reconcile_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/reconcile-report",
+      "handler": "app.promotion_routes.reconcile_report",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/reconcile-report",
+      "handler": "app.promotion_routes.reconcile_report",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/promotion-sweep",
+      "handler": "app.promotion_routes.promotion_sweep",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/admin"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/metasearch",
+      "handler": "app.metasearch_routes.metasearch",
+      "used_30d": 31,
+      "used_30d_organic": 31,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/metasearch/install",
+      "handler": "app.metasearch_routes.metasearch_install",
+      "used_30d": 16,
+      "used_30d_organic": 16,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/metasearch/deploy",
+      "handler": "app.metasearch_deploy_routes.metasearch_fleet_deploy",
+      "used_30d": 12,
+      "used_30d_organic": 12,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/search",
+      "handler": "app.skill_routes.search_skills",
+      "used_30d": 753,
+      "used_30d_organic": 376,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/trending",
+      "handler": "app.skill_routes.trending_skills",
+      "used_30d": 79,
+      "used_30d_organic": 27,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/graph",
+      "handler": "app.skill_routes.get_full_skill_graph",
+      "used_30d": 17,
+      "used_30d_organic": 4,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/external",
+      "handler": "app.skill_routes.get_external_skills",
+      "used_30d": 450,
+      "used_30d_organic": 393,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/external/{source}/{slug}/install",
+      "handler": "app.skill_routes.install_external_skill",
+      "used_30d": 1,
+      "used_30d_organic": 1,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/external/{source}/{slug}/source-link",
+      "handler": "app.skill_routes.external_source_link",
+      "used_30d": 1,
+      "used_30d_organic": 1,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}",
+      "handler": "app.skill_routes.get_skill_detail",
+      "used_30d": 4738,
+      "used_30d_organic": 2674,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}/external",
+      "handler": "app.skill_routes.get_skill_external",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}/related",
+      "handler": "app.skill_routes.get_skill_related",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}/graph",
+      "handler": "app.skill_routes.get_skill_graph",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}/files",
+      "handler": "app.skill_files_routes.get_skill_files",
+      "used_30d": 1983,
+      "used_30d_organic": 1983,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}/file",
+      "handler": "app.skill_files_routes.get_skill_file",
+      "used_30d": 2006,
+      "used_30d_organic": 2006,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}/install-events",
+      "handler": "app.skill_files_routes.get_skill_install_events",
+      "used_30d": 35,
+      "used_30d_organic": 35,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}/runtime",
+      "handler": "app.skill_files_routes.get_skill_runtime",
+      "used_30d": 35,
+      "used_30d_organic": 35,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/reindex-all",
+      "handler": "app.admin_routes.admin_reindex_all",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/admin"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/skill-publish-requests/{request_id}/tarball",
+      "handler": "app.admin_routes.admin_get_publish_request_tarball",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/admin"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/admin/skill-publish-requests/{request_id}/status",
+      "handler": "app.admin_routes.admin_update_publish_request_status",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/admin"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/pulse",
+      "handler": "app.admin_routes.admin_pulse",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/admin"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/loop-run-rollup",
+      "handler": "app.admin_routes.admin_loop_run_rollup",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/admin"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/sync-report-prune",
+      "handler": "app.admin_routes.admin_sync_report_prune",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/admin"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/demand-brief",
+      "handler": "app.demand_routes.demand_brief",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/admin"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/github/login",
+      "handler": "app.auth_routes.github_login",
+      "used_30d": 10,
+      "used_30d_organic": 10,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/github/callback",
+      "handler": "app.auth_routes.github_callback",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/google/login",
+      "handler": "app.auth_routes.google_login",
+      "used_30d": 11,
+      "used_30d_organic": 9,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/google/callback",
+      "handler": "app.auth_routes.google_callback",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "handler": "app.auth_routes.get_me",
+      "used_30d": 208,
+      "used_30d_organic": 208,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/logout",
+      "handler": "app.auth_routes.logout",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/first-key-reveal",
+      "handler": "app.first_key_routes.first_key_reveal",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/connect/test",
+      "handler": "app.connect_test_routes.connect_test",
+      "used_30d": 3,
+      "used_30d_organic": 3,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bootcamp",
+      "handler": "app.bootcamp_routes.list_bootcamp_tracks",
+      "used_30d": 18,
+      "used_30d_organic": 5,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bootcamp/{track_id}",
+      "handler": "app.bootcamp_routes.get_bootcamp_track",
+      "used_30d": 54,
+      "used_30d_organic": 15,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/skills/{slug}/sandbox/status",
+      "handler": "app.sandbox.routes.sandbox_status",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/{slug}/sandbox/run",
+      "handler": "app.sandbox.routes.sandbox_run",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/github",
+      "handler": "app.creator_routes.github_auth_redirect",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/callback",
+      "handler": "app.creator_routes.github_callback",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/auth"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/token",
+      "handler": "app.creator_routes.exchange_token",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/auth"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "handler": "app.creator_routes.get_me",
+      "used_30d": 208,
+      "used_30d_organic": 208,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/stripe/onboard",
+      "handler": "app.creator_routes.stripe_onboard",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/stripe"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stripe/status",
+      "handler": "app.creator_routes.stripe_status",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/stripe"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stripe/dashboard",
+      "handler": "app.creator_routes.stripe_dashboard_link",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/stripe"
+    },
+    {
+      "method": "GET",
+      "path": "/api/creator/earnings",
+      "handler": "app.creator_routes.creator_earnings",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/creator/payouts",
+      "handler": "app.creator_routes.creator_payouts",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vat/calculate",
+      "handler": "app.creator_routes.vat_calculate",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/vat/moss-report",
+      "handler": "app.creator_routes.vat_moss_report",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/payouts/run",
+      "handler": "app.creator_routes.run_payouts",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/admin"
+    },
+    {
+      "method": "POST",
+      "path": "/api/stripe/webhook",
+      "handler": "app.creator_routes.stripe_webhook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/stripe"
+    },
+    {
+      "method": "GET",
+      "path": "/api/creators/me/stats",
+      "handler": "app.creators_routes.get_creator_stats",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/_publish",
+      "handler": "app.publisher_routes.publish_skill",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/{slug}/_archive",
+      "handler": "app.publisher_routes.archive_skill",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/checkout/founding",
+      "handler": "app.checkout_routes.create_founding_member_checkout",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/checkout"
+    },
+    {
+      "method": "GET",
+      "path": "/api/founding/remaining",
+      "handler": "app.checkout_routes.founding_remaining",
+      "used_30d": 56,
+      "used_30d_organic": 56,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/checkout/{tier}",
+      "handler": "app.checkout_routes.create_subscription_checkout",
+      "used_30d": 14,
+      "used_30d_organic": 14,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/checkout/{tier}",
+      "handler": "app.checkout_routes.checkout_get_redirect",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/checkout"
+    },
+    {
+      "method": "GET",
+      "path": "/api/billing/me",
+      "handler": "app.checkout_routes.billing_me",
+      "used_30d": 1,
+      "used_30d_organic": 1,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/subscriptions/downgrade",
+      "handler": "app.checkout_routes.downgrade_subscription",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/subscriptions"
+    },
+    {
+      "method": "POST",
+      "path": "/api/billing/portal-session",
+      "handler": "app.checkout_routes.create_billing_portal_session",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/billing"
+    },
+    {
+      "method": "POST",
+      "path": "/api/funnel/events",
+      "handler": "app.funnel_routes.post_funnel_event",
+      "used_30d": 32,
+      "used_30d_organic": 32,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/funnel/runs",
+      "handler": "app.funnel_routes.post_funnel_run",
+      "used_30d": 637,
+      "used_30d_organic": 637,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/funnel/summary",
+      "handler": "app.funnel_routes.get_funnel_summary",
+      "used_30d": 42,
+      "used_30d_organic": 42,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/api-keys",
+      "handler": "app.api_key_routes.create_api_key",
+      "used_30d": 29,
+      "used_30d_organic": 3,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/api-keys",
+      "handler": "app.api_key_routes.list_api_keys",
+      "used_30d": 1,
+      "used_30d_organic": 1,
+      "status": "used"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/api-keys/{key_id}",
+      "handler": "app.api_key_routes.revoke_api_key",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/feedback/incident",
+      "handler": "app.feedback_routes.post_incident",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stats/patches",
+      "handler": "app.canary.get_patch_stats",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/stats"
+    },
+    {
+      "method": "POST",
+      "path": "/api/forks/create",
+      "handler": "app.forks_routes.create_fork",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/forks/list",
+      "handler": "app.forks_routes.list_forks",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/forks/{fork_id}/version",
+      "handler": "app.forks_routes.upload_fork_version",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/forks/{fork_id}/install",
+      "handler": "app.forks_routes.install_fork",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "install surface"
+    },
+    {
+      "method": "GET",
+      "path": "/api/forks/_download",
+      "handler": "app.forks_routes.download_fork",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/forks/{fork_id}",
+      "handler": "app.forks_routes.delete_fork",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/install.sh",
+      "handler": "app.bundle_install_script_routes.bundle_install_script",
+      "used_30d": 20,
+      "used_30d_organic": 20,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/install.sh",
+      "handler": "app.bundle_install_script_routes.bundle_install_script",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/public/{slug}/fork/preview",
+      "handler": "app.bundle_fork_claim_routes.preview_bundle_fork",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/fork/claim",
+      "handler": "app.bundle_fork_claim_routes.claim_bundle_fork",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/public/{slug}/fork/preview",
+      "handler": "app.bundle_fork_claim_routes.preview_bundle_fork",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/fork/claim",
+      "handler": "app.bundle_fork_claim_routes.claim_bundle_fork",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/discover",
+      "handler": "app.bundle_routes.discover_cookbooks",
+      "used_30d": 131,
+      "used_30d_organic": 53,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/public/{slug}",
+      "handler": "app.bundle_routes.public_cookbook_page",
+      "used_30d": 378,
+      "used_30d_organic": 199,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{slug}/plugin.json",
+      "handler": "app.bundle_routes.bundle_plugin_manifest",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/leaderboard",
+      "handler": "app.bundle_routes.cookbook_leaderboard",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/verify",
+      "handler": "app.bundle_routes.verify_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles",
+      "handler": "app.bundle_routes.create_cookbook",
+      "used_30d": 29,
+      "used_30d_organic": 3,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles",
+      "handler": "app.bundle_routes.list_cookbooks",
+      "used_30d": 9,
+      "used_30d_organic": 9,
+      "status": "used"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundles/{cookbook_id}",
+      "handler": "app.bundle_routes.delete_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/bundles/{cookbook_id}",
+      "handler": "app.bundle_routes.update_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{cookbook_id}",
+      "handler": "app.bundle_routes.get_cookbook",
+      "used_30d": 21,
+      "used_30d_organic": 21,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/skills",
+      "handler": "app.bundle_routes.add_skill_to_cookbook",
+      "used_30d": 29,
+      "used_30d_organic": 3,
+      "status": "used"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundles/{cookbook_id}/skills/{slug}",
+      "handler": "app.bundle_routes.remove_skill_from_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/skills/bulk",
+      "handler": "app.bundle_routes.add_skills_bulk",
+      "used_30d": 20,
+      "used_30d_organic": 20,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/skills/bulk_remove",
+      "handler": "app.bundle_routes.remove_skills_bulk",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/personalities/{slug}",
+      "handler": "app.bundle_routes.add_personality_to_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundles/{cookbook_id}/personalities/{slug}",
+      "handler": "app.bundle_routes.remove_personality_from_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/personalities/bulk",
+      "handler": "app.bundle_routes.add_personalities_bulk",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/personalities/bulk_remove",
+      "handler": "app.bundle_routes.remove_personalities_bulk",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/loops/{slug}",
+      "handler": "app.bundle_routes.add_loop_to_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundles/{cookbook_id}/loops/{slug}",
+      "handler": "app.bundle_routes.remove_loop_from_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/bundles/{cookbook_id}/visibility",
+      "handler": "app.bundle_routes.set_cookbook_visibility",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/bundles/{cookbook_id}/skills/{slug}/pin",
+      "handler": "app.bundle_routes.set_skill_pin",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/bundles/{cookbook_id}/reorder",
+      "handler": "app.bundle_routes.reorder_cookbook_skills",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/install",
+      "handler": "app.bundle_routes.install_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "install surface"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{cookbook_id}/manifest",
+      "handler": "app.bundle_routes.cookbook_manifest",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{cookbook_id}/sync",
+      "handler": "app.bundle_routes.cookbook_sync",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{cookbook_id}/skills/{slug}/install",
+      "handler": "app.bundle_routes.install_single_skill_from_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "install surface"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/handoff",
+      "handler": "app.bundle_routes.handoff_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{cookbook_id}/feedback-config",
+      "handler": "app.bundle_routes.get_feedback_config",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/bundles/{cookbook_id}/feedback-config",
+      "handler": "app.bundle_routes.set_feedback_config",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/discover",
+      "handler": "app.bundle_routes.discover_cookbooks",
+      "used_30d": 1,
+      "used_30d_organic": 1,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/public/{slug}",
+      "handler": "app.bundle_routes.public_cookbook_page",
+      "used_30d": 15,
+      "used_30d_organic": 15,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{slug}/plugin.json",
+      "handler": "app.bundle_routes.bundle_plugin_manifest",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/leaderboard",
+      "handler": "app.bundle_routes.cookbook_leaderboard",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/verify",
+      "handler": "app.bundle_routes.verify_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks",
+      "handler": "app.bundle_routes.create_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks",
+      "handler": "app.bundle_routes.list_cookbooks",
+      "used_30d": 5,
+      "used_30d_organic": 0,
+      "status": "used"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbooks/{cookbook_id}",
+      "handler": "app.bundle_routes.delete_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/cookbooks/{cookbook_id}",
+      "handler": "app.bundle_routes.update_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{cookbook_id}",
+      "handler": "app.bundle_routes.get_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/skills",
+      "handler": "app.bundle_routes.add_skill_to_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "used"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbooks/{cookbook_id}/skills/{slug}",
+      "handler": "app.bundle_routes.remove_skill_from_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/skills/bulk",
+      "handler": "app.bundle_routes.add_skills_bulk",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/skills/bulk_remove",
+      "handler": "app.bundle_routes.remove_skills_bulk",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/personalities/{slug}",
+      "handler": "app.bundle_routes.add_personality_to_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbooks/{cookbook_id}/personalities/{slug}",
+      "handler": "app.bundle_routes.remove_personality_from_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/personalities/bulk",
+      "handler": "app.bundle_routes.add_personalities_bulk",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/personalities/bulk_remove",
+      "handler": "app.bundle_routes.remove_personalities_bulk",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/loops/{slug}",
+      "handler": "app.bundle_routes.add_loop_to_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbooks/{cookbook_id}/loops/{slug}",
+      "handler": "app.bundle_routes.remove_loop_from_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/cookbooks/{cookbook_id}/visibility",
+      "handler": "app.bundle_routes.set_cookbook_visibility",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/cookbooks/{cookbook_id}/skills/{slug}/pin",
+      "handler": "app.bundle_routes.set_skill_pin",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/cookbooks/{cookbook_id}/reorder",
+      "handler": "app.bundle_routes.reorder_cookbook_skills",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/install",
+      "handler": "app.bundle_routes.install_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "install surface"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{cookbook_id}/manifest",
+      "handler": "app.bundle_routes.cookbook_manifest",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{cookbook_id}/sync",
+      "handler": "app.bundle_routes.cookbook_sync",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{cookbook_id}/skills/{slug}/install",
+      "handler": "app.bundle_routes.install_single_skill_from_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "install surface"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/handoff",
+      "handler": "app.bundle_routes.handoff_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{cookbook_id}/feedback-config",
+      "handler": "app.bundle_routes.get_feedback_config",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/cookbooks/{cookbook_id}/feedback-config",
+      "handler": "app.bundle_routes.set_feedback_config",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/public/{slug}/.well-known/skills/index.json",
+      "handler": "app.bundle_wellknown_routes.cookbook_wellknown_index",
+      "used_30d": 10,
+      "used_30d_organic": 10,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/public/{slug}/.well-known/skills/{skill_name}/SKILL.md",
+      "handler": "app.bundle_wellknown_routes.cookbook_wellknown_skill_md",
+      "used_30d": 8,
+      "used_30d_organic": 8,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/public/{slug}/.well-known/skills/index.json",
+      "handler": "app.bundle_wellknown_routes.cookbook_wellknown_index",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/public/{slug}/.well-known/skills/{skill_name}/SKILL.md",
+      "handler": "app.bundle_wellknown_routes.cookbook_wellknown_skill_md",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/.well-known/jwks.json",
+      "handler": "app.mesh_wellknown_routes.mesh_jwks",
+      "used_30d": 14,
+      "used_30d_organic": 14,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/.well-known/oauth-authorization-server",
+      "handler": "app.mesh_wellknown_routes.mesh_oauth_metadata",
+      "used_30d": 12,
+      "used_30d_organic": 12,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/.well-known/agent.json",
+      "handler": "app.agent_wellknown_routes.agent_descriptor",
+      "used_30d": 61,
+      "used_30d_organic": 48,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/.well-known/mcp.json",
+      "handler": "app.agent_wellknown_routes.mcp_descriptor",
+      "used_30d": 3,
+      "used_30d_organic": 3,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/.well-known/ai-plugin.json",
+      "handler": "app.agent_wellknown_routes.ai_plugin_manifest",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /.well-known"
+    },
+    {
+      "method": "POST",
+      "path": "/api/agents/register",
+      "handler": "app.agent_registration_routes.register_agent_route",
+      "used_30d": 37,
+      "used_30d_organic": 11,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/agent-identities/{identity_id}/revoke",
+      "handler": "app.agent_registration_routes.revoke_agent_identity",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/admin"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/agent-identities",
+      "handler": "app.agent_registration_routes.list_agent_identities",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/admin"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mesh/credentials",
+      "handler": "app.mesh_routes.mint_mesh_credential",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/orgs/{org_id}/a2a-directory",
+      "handler": "app.mesh_discovery_routes.a2a_directory",
+      "used_30d": 14,
+      "used_30d_organic": 14,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/graph/related",
+      "handler": "app.graph_routes.graph_related",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/graph/coverage",
+      "handler": "app.graph_routes.graph_coverage",
+      "used_30d": 40,
+      "used_30d_organic": 40,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/graph/neighborhood",
+      "handler": "app.graph_routes.graph_neighborhood",
+      "used_30d": 20,
+      "used_30d_organic": 20,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/graph/replacements",
+      "handler": "app.graph_routes.create_replacement",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/graph/replacements",
+      "handler": "app.graph_routes.list_replacements",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundle-deploy/create",
+      "handler": "app.bundle_deployment_routes.create_deploy_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundle-deploy/list",
+      "handler": "app.bundle_deployment_routes.list_deploy_cookbooks",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundle-deploy/{cookbook_id}/skills/add",
+      "handler": "app.bundle_deployment_routes.add_deployment",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundle-deploy/{cookbook_id}/skills/{skill_id}",
+      "handler": "app.bundle_deployment_routes.remove_deployment",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundle-deploy/{cookbook_id}/apply",
+      "handler": "app.bundle_deployment_routes.apply_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundle-deploy/{cookbook_id}/jobs/{job_id}",
+      "handler": "app.bundle_deployment_routes.cookbook_job_status",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundle-deploy/{cookbook_id}/rollback",
+      "handler": "app.bundle_deployment_routes.rollback_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundle-deploy/{slug}/preflight",
+      "handler": "app.bundle_deployment_routes.bundle_preflight",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundle-deploy/{slug}/manifest",
+      "handler": "app.bundle_deployment_routes.cookbook_deploy_manifest",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbook-deploy/create",
+      "handler": "app.bundle_deployment_routes.create_deploy_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbook-deploy/list",
+      "handler": "app.bundle_deployment_routes.list_deploy_cookbooks",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbook-deploy/{cookbook_id}/skills/add",
+      "handler": "app.bundle_deployment_routes.add_deployment",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbook-deploy/{cookbook_id}/skills/{skill_id}",
+      "handler": "app.bundle_deployment_routes.remove_deployment",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbook-deploy/{cookbook_id}/apply",
+      "handler": "app.bundle_deployment_routes.apply_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbook-deploy/{cookbook_id}/jobs/{job_id}",
+      "handler": "app.bundle_deployment_routes.cookbook_job_status",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbook-deploy/{cookbook_id}/rollback",
+      "handler": "app.bundle_deployment_routes.rollback_cookbook",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbook-deploy/{slug}/preflight",
+      "handler": "app.bundle_deployment_routes.bundle_preflight",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbook-deploy/{slug}/manifest",
+      "handler": "app.bundle_deployment_routes.cookbook_deploy_manifest",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundle-apply/{slug}/start",
+      "handler": "app.bundle_converge_routes.start_apply",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundle-apply/jobs/{job_id}/report",
+      "handler": "app.bundle_converge_routes.report_apply_outcome",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundle-apply/jobs/{job_id}",
+      "handler": "app.bundle_converge_routes.get_apply_job",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/heartbeat",
+      "handler": "app.heartbeat_routes.post_heartbeat",
+      "used_30d": 479,
+      "used_30d_organic": 479,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/fleet/weekly",
+      "handler": "app.heartbeat_routes.fleet_weekly",
+      "used_30d": 1,
+      "used_30d_organic": 1,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/intent-survey",
+      "handler": "app.intent_survey_routes.submit_intent_survey",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/intent-survey/results",
+      "handler": "app.intent_survey_routes.intent_survey_results",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skill-error",
+      "handler": "app.skill_error_routes.post_skill_error",
+      "used_30d": 1,
+      "used_30d_organic": 1,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skill-error/health",
+      "handler": "app.skill_error_routes.skill_error_health",
+      "used_30d": 1,
+      "used_30d_organic": 1,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/health",
+      "handler": "app.transparency_routes.health_status",
+      "used_30d": 33,
+      "used_30d_organic": 7,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/health/transparency",
+      "handler": "app.transparency_routes.transparency",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/health"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/{slug}/like",
+      "handler": "app.engagement_routes.like_track",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/skills/{slug}/like",
+      "handler": "app.engagement_routes.unlike_track",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/skills/{slug}/favourite",
+      "handler": "app.engagement_routes.favourite_track",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/skills/{slug}/favourite",
+      "handler": "app.engagement_routes.unfavourite_track",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/library",
+      "handler": "app.engagement_routes.my_library",
+      "used_30d": 1,
+      "used_30d_organic": 1,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/personalities/{slug}/like",
+      "handler": "app.artifact_like_routes.like_personality",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/personalities/{slug}/like",
+      "handler": "app.artifact_like_routes.unlike_personality",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/loops/{slug}/like",
+      "handler": "app.artifact_like_routes.like_loop",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/loops/{slug}/like",
+      "handler": "app.artifact_like_routes.unlike_loop",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/composite-loops/{slug}/like",
+      "handler": "app.artifact_like_routes.like_composite_loop_alias",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/composite-loops/{slug}/like",
+      "handler": "app.artifact_like_routes.unlike_composite_loop_alias",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{slug}/like",
+      "handler": "app.artifact_like_routes.like_bundle",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundles/{slug}/like",
+      "handler": "app.artifact_like_routes.unlike_bundle",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{slug}/like",
+      "handler": "app.artifact_like_routes.like_bundle",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbooks/{slug}/like",
+      "handler": "app.artifact_like_routes.unlike_bundle",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{bundle_id}/lock",
+      "handler": "app.bundle_lock_routes.mint_lock",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{bundle_id}/lock",
+      "handler": "app.bundle_lock_routes.get_lock",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{bundle_id}/lock/history",
+      "handler": "app.bundle_lock_routes.lock_history",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{bundle_id}/drift",
+      "handler": "app.bundle_lock_routes.compute_drift",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{bundle_id}/lock",
+      "handler": "app.bundle_lock_routes.mint_lock",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{bundle_id}/lock",
+      "handler": "app.bundle_lock_routes.get_lock",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{bundle_id}/lock/history",
+      "handler": "app.bundle_lock_routes.lock_history",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{bundle_id}/drift",
+      "handler": "app.bundle_lock_routes.compute_drift",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/recipify-request",
+      "handler": "app.feedback_v1_routes.post_recipify_request",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/feedback",
+      "handler": "app.feedback_v1_routes.post_feedback",
+      "used_30d": 2,
+      "used_30d_organic": 2,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skill-patch",
+      "handler": "app.skill_patch_routes.post_skill_patch",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/recall",
+      "handler": "app.recall_routes.post_recall",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/recipify",
+      "handler": "app.recipify_routes.recipify",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/federation/propose",
+      "handler": "app.federation_propose_routes.post_federation_propose",
+      "used_30d": 21,
+      "used_30d_organic": 21,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/fleets",
+      "handler": "app.fleet_routes.list_fleets",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/fleets",
+      "handler": "app.fleet_routes.create_fleet",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/fleets/{fleet_id}/subscribe",
+      "handler": "app.fleet_routes.subscribe_fleet",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/fleets/{fleet_id}/sync",
+      "handler": "app.fleet_routes.sync_fleet_route",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/fleets/{fleet_id}/reconcile-precheck",
+      "handler": "app.fleet_routes.reconcile_precheck_route",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/fleets/{fleet_id}/members",
+      "handler": "app.fleet_member_routes.enroll_member",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/fleets/{fleet_id}/members",
+      "handler": "app.fleet_member_routes.list_members",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/fleets/{fleet_id}/members/{member_id}",
+      "handler": "app.fleet_member_routes.remove_member",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/sync-report",
+      "handler": "app.sync_report_routes.post_sync_report",
+      "used_30d": 1940,
+      "used_30d_organic": 1940,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/my/loop-assignments",
+      "handler": "app.loop_assignment_routes.my_loop_assignments",
+      "used_30d": 983,
+      "used_30d_organic": 983,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/connectors",
+      "handler": "app.connector_routes.create_connector",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/connectors/{slug}/versions",
+      "handler": "app.connector_routes.publish_connector_version",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/connectors",
+      "handler": "app.connector_routes.browse_connectors",
+      "used_30d": 342,
+      "used_30d_organic": 291,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/connectors/{slug}",
+      "handler": "app.connector_routes.get_connector",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{bundle_id}/connectors",
+      "handler": "app.connector_routes.declare_connector_in_bundle",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{bundle_id}/connectors",
+      "handler": "app.connector_routes.declare_connector_in_bundle",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbooks/{bundle_id}/connectors/{slug}",
+      "handler": "app.connector_routes.undeclare_connector_from_bundle",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundles/{bundle_id}/connectors/{slug}",
+      "handler": "app.connector_routes.undeclare_connector_from_bundle",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/fleets/{fleet_id}/voice-inbox",
+      "handler": "app.voice_routes.get_voice_inbox",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/fleets/{fleet_id}/voice-inbox/{item_type}/{item_id}/resolve",
+      "handler": "app.voice_routes.resolve_voice_item",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/fleets/{fleet_id}/dashboard",
+      "handler": "app.dashboard_routes.get_fleet_dashboard",
+      "used_30d": 10,
+      "used_30d_organic": 10,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/fleets/{fleet_id}/convergence",
+      "handler": "app.dashboard_routes.get_fleet_convergence",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/fleets/{fleet_id}/members/{member_id}/state",
+      "handler": "app.fleet_console_routes.get_member_state",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/fleets/{fleet_id}/inventory",
+      "handler": "app.fleet_console_routes.get_fleet_inventory",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/orgs",
+      "handler": "app.org_routes.create_org",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/orgs",
+      "handler": "app.org_routes.list_orgs",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/orgs/{org_id}/members",
+      "handler": "app.org_routes.add_org_member",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/referral-code",
+      "handler": "app.referral_routes.get_referral_code",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/referrals",
+      "handler": "app.referral_routes.list_referrals",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/marketing/counts",
+      "handler": "app.marketing_routes.marketing_counts",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/marketing/snapshot",
+      "handler": "app.marketing_routes.marketing_snapshot",
+      "used_30d": 81,
+      "used_30d_organic": 42,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{cookbook_id}/sync/sse",
+      "handler": "app.sse_routes.cookbook_sync_sse",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{cookbook_id}/sync/sse",
+      "handler": "app.sse_routes.cookbook_sync_sse",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/share-tokens",
+      "handler": "app.share_token_routes.create_share_token",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/bundles/{cookbook_id}/share-tokens",
+      "handler": "app.share_token_routes.list_share_tokens",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/bundles/{cookbook_id}/share-tokens/{token_id}/rotate",
+      "handler": "app.share_token_routes.rotate_share_token",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/bundles/{cookbook_id}/share-tokens/{token_id}",
+      "handler": "app.share_token_routes.revoke_share_token",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/share-tokens",
+      "handler": "app.share_token_routes.create_share_token",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cookbooks/{cookbook_id}/share-tokens",
+      "handler": "app.share_token_routes.list_share_tokens",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/cookbooks/{cookbook_id}/share-tokens/{token_id}/rotate",
+      "handler": "app.share_token_routes.rotate_share_token",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/cookbooks/{cookbook_id}/share-tokens/{token_id}",
+      "handler": "app.share_token_routes.revoke_share_token",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mcp/healthz",
+      "handler": "app.mcp.server.mcp_healthz",
+      "used_30d": 53,
+      "used_30d_organic": 32,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/mcp/sse",
+      "handler": "app.mcp.server.mcp_sse",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/mcp"
+    },
+    {
+      "method": "POST",
+      "path": "/api/mcp/messages/",
+      "handler": "app.mcp.server.mcp_messages",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "excluded prefix /api/mcp"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/internal/feedback/{row_id}/issue-url",
+      "handler": "app.internal_routes.patch_issue_url",
+      "used_30d": 5,
+      "used_30d_organic": 5,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/feedback/{row_id}",
+      "handler": "app.feedback_status_routes.get_feedback_status",
+      "used_30d": 1,
+      "used_30d_organic": 1,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/me/credits",
+      "handler": "app.credits_routes.list_my_credits",
+      "used_30d": 2,
+      "used_30d_organic": 2,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/loops/packs",
+      "handler": "app.loop_pack_routes.list_loop_packs",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/loops/packs/{pack_slug}",
+      "handler": "app.loop_pack_routes.get_loop_pack",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/verifiers",
+      "handler": "app.verifier_routes.list_verifiers",
+      "used_30d": 1,
+      "used_30d_organic": 1,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/verifiers/{slug}",
+      "handler": "app.verifier_routes.get_verifier",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/verifiers",
+      "handler": "app.verifier_routes.publish_verifier",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/verifiers/{slug}/run",
+      "handler": "app.verifier_routes.run_verifier",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/verifiers/{slug}/rate",
+      "handler": "app.verifier_routes.rate_verifier",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/loops",
+      "handler": "app.verifier_routes.list_verifiers",
+      "used_30d": 72,
+      "used_30d_organic": 33,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/loops/{slug}",
+      "handler": "app.verifier_routes.get_verifier",
+      "used_30d": 171,
+      "used_30d_organic": 41,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/loops",
+      "handler": "app.verifier_routes.publish_verifier",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/loops/{slug}/run",
+      "handler": "app.verifier_routes.run_verifier",
+      "used_30d": 290,
+      "used_30d_organic": 30,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/loops/{slug}/rate",
+      "handler": "app.verifier_routes.rate_verifier",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personalities/external",
+      "handler": "app.personality_routes.list_external_personalities",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personalities/external/{slug}/install",
+      "handler": "app.personality_routes.install_external_personality",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "install surface"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personalities",
+      "handler": "app.personality_routes.list_personalities",
+      "used_30d": 104,
+      "used_30d_organic": 65,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/personalities/{slug}",
+      "handler": "app.personality_routes.get_personality",
+      "used_30d": 342,
+      "used_30d_organic": 277,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/personalities",
+      "handler": "app.personality_routes.publish_personality",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/api/composite-loops",
+      "handler": "app.composite_loop_routes.list_composite_loops",
+      "used_30d": 78,
+      "used_30d_organic": 39,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/composite-loops/{slug}",
+      "handler": "app.composite_loop_routes.get_composite_loop",
+      "used_30d": 54,
+      "used_30d_organic": 15,
+      "status": "used"
+    },
+    {
+      "method": "POST",
+      "path": "/api/composite-loops",
+      "handler": "app.composite_loop_routes.publish_composite_loop",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/composite-loops/{slug}/versions",
+      "handler": "app.composite_loop_routes.publish_composite_loop_version",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "POST",
+      "path": "/api/composite-loops/{slug}/deploy",
+      "handler": "app.composite_loop_deploy_routes.deploy_composite_loop",
+      "used_30d": 87,
+      "used_30d_organic": 9,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/search",
+      "handler": "app.search_routes.unified_search",
+      "used_30d": 316,
+      "used_30d_organic": 316,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/federation/filter",
+      "handler": "app.federation_filter_routes.get_federation_filter",
+      "used_30d": 588,
+      "used_30d_organic": 562,
+      "status": "used"
+    },
+    {
+      "method": "GET",
+      "path": "/api/federation/filter/facets",
+      "handler": "app.federation_filter_routes.get_federation_filter_facets",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "tombstoned"
+    },
+    {
+      "method": "GET",
+      "path": "/",
+      "handler": "app.main.root",
+      "used_30d": 0,
+      "used_30d_organic": 0,
+      "status": "skipped_protected",
+      "protected_reason": "root meta route"
+    }
+  ]
+}

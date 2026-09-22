@@ -167,6 +167,11 @@ def create_app() -> FastAPI:
     app.add_middleware(RateLimitMiddleware, max_requests=get_settings().RATE_LIMIT_PER_MINUTE)
     app.add_middleware(APIKeyMiddleware)
     app.add_middleware(CookbookHostMiddleware)
+    # moneypath-C: stamps X-Tombstoned on responses from @tombstoned routes.
+    # Outermost so the header lands on auth-rejected (401/403) responses too.
+    from app.tombstone import TombstoneHeaderMiddleware
+
+    app.add_middleware(TombstoneHeaderMiddleware)
 
     # Domain-exception → HTTP mapping. Lives in app/error_handlers.py so the
     # shared test-app builder registers the identical set (see that module).

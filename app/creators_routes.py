@@ -48,6 +48,7 @@ from sqlalchemy.orm import Session
 from app import authz
 from app.database import get_db
 from app.models import APIKey, Bundle, InstallEvent
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(prefix="/api/creators", tags=["creators"])
 
@@ -72,6 +73,7 @@ def _resolve_stats_ctx(request: Request):
 
 
 @router.get("/me/stats")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def get_creator_stats(
     request: Request,
     db: Session = Depends(get_db),

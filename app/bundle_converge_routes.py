@@ -51,6 +51,7 @@ from app.services.bundle_apply import (
     record_member_report,
 )
 from app.services.fleet_members import resolve_member_for_key
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(prefix="/api/bundle-apply", tags=["bundle-apply"])
 
@@ -122,6 +123,7 @@ def _entitled(
 
 
 @router.post("/{slug}/start")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def start_apply(
     slug: str,
     request: Request,
@@ -205,6 +207,7 @@ def _load_job_for_caller(
 
 
 @router.post("/jobs/{job_id}/report")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def report_apply_outcome(
     job_id: str,
     request: Request,
@@ -247,6 +250,7 @@ def report_apply_outcome(
 
 
 @router.get("/jobs/{job_id}")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def get_apply_job(
     job_id: str,
     request: Request,

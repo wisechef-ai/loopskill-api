@@ -47,6 +47,7 @@ router = APIRouter(tags=["skills"])
 
 # WIS-903: Retired skill registry (loaded at import time, shared pattern)
 from pathlib import Path as _Path
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 _RETIREMENT_FILE = _Path(__file__).resolve().parent.parent / "retired-skills.txt"
 _RETIRED_SKILLS: dict[str, str] = {}
@@ -1216,6 +1217,7 @@ def get_skill_detail(slug: str, request: Request, db: Session = Depends(get_db))
 
 
 @router.get("/skills/{slug}/external", tags=["skills"])
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def get_skill_external(slug: str, db: Session = Depends(get_db)):
     """v6 Phase A: Return external_resources JSON for a skill.
 
@@ -1247,6 +1249,7 @@ def get_skill_external(slug: str, db: Session = Depends(get_db)):
     response_model=list[SkillOut],
     tags=["skills"],
 )
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def get_skill_related(slug: str, db: Session = Depends(get_db)):
     """Return up to 10 public skills the author declared as related.
 
@@ -1264,6 +1267,7 @@ def get_skill_related(slug: str, db: Session = Depends(get_db)):
 
 
 @router.get("/skills/{slug}/graph", tags=["skills"])
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def get_skill_graph(slug: str, db: Session = Depends(get_db)):
     """Return the Stage-1 declared edges + Stage-2 derived edges for a skill.
 

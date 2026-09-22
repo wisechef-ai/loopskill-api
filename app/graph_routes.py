@@ -31,6 +31,7 @@ from app.database import get_db
 from app.graph_coverage import compute_coverage
 from app.graph_extension import EDGE_TYPES, edges_for
 from app.models import Skill, SkillReplacement
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(prefix="/api/graph", tags=["graph"])
 
@@ -63,6 +64,7 @@ class ReplacementOut(BaseModel):
 
 
 @router.get("/related", response_model=list[GraphEdge])
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def graph_related(
     skill: str = Query(..., description="Source skill slug"),
     edge: str = Query(..., description=f"Edge type — one of {sorted(EDGE_TYPES)}"),
@@ -216,6 +218,7 @@ def _require_master(request: Request) -> None:
 
 
 @router.post("/replacements", response_model=ReplacementOut, status_code=201)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def create_replacement(
     body: ReplacementIn,
     request: Request,
@@ -269,6 +272,7 @@ def create_replacement(
 
 
 @router.get("/replacements", response_model=list[ReplacementOut])
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def list_replacements(db: Session = Depends(get_db)):
     """Public list of curator-confirmed replacements (audit transparency)."""
     rows = (
