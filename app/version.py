@@ -595,6 +595,24 @@ feat/unisearch-p2-mcp-unify: bumped past current main (0.9.49) — MCP
     federated rows read from the P1 shared cache (cache-ONLY get_entry; never
     get_or_compute, never fan_out — a >90s cold fan-out on the MCP thread reads
     as a broken platform). Native first; honest fresh|stale|cold|degraded flag.
+
+fix/issue-357: bumped past current main (0.9.50) — tests/_app_factory.py had
+    drifted from app.main.create_app(): 14 routers create_app() mounts were
+    missing from build_test_app()'s _ROUTER_SPECS entirely (mesh_routes,
+    mesh_wellknown_routes, sse_routes, bundle_converge_routes, loop_pack_routes,
+    federation_filter_routes, federation_propose_routes, connect_test_routes,
+    credits_routes, demand_routes, internal_routes, feedback_status_routes,
+    bootcamp_routes, marketing_routes.wisechef_router), and personality_routes
+    had its /api prefix DOUBLE-applied (the router already bakes in
+    prefix="/api/personalities"; the factory spec re-passed prefix="/api" on
+    top of it) — any factory-based test hitting /api/personalities/* was
+    silently probing a nonexistent /api/api/personalities/* path instead of
+    the real route. New tests/test_app_factory_parity.py asserts route-set
+    equality (method, path) between create_app() and build_test_app() so this
+    class of drift fails loudly instead of silently blinding future
+    factory-based tests to routes that don't actually exist. Test-only
+    change; bump keeps the healthz cutover-proof invariant intact. Verified
+    against prod /api/healthz 0.9.50 before bumping.
 """
 
-__version__ = "0.9.50"
+__version__ = "0.9.51"
