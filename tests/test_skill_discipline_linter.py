@@ -200,6 +200,21 @@ def test_allowlisted_domains_pass() -> None:
     assert "no_external_promo" not in rules
 
 
+def test_moneypath_decision_model_domains_pass() -> None:
+    """moneypath_0920 G10: `jev-decision-router` cites the decision-model
+    endpoints it wraps (classifier.dev keyless lane, ai-gateway.vercel.sh BYO-key
+    lane). Own-tool API citations are not promo — same class as tavily/linear."""
+    body = CLEAN_SKILL_MD + (
+        "\nFree lane: curl https://classifier.dev -d '{}'\n"
+        "Gateway: https://ai-gateway.vercel.sh/v1/chat/completions\n"
+    )
+    result = lint_skill(body, recipe_yaml=CLEAN_RECIPE_YAML)
+    rules = {v["rule"] for v in result["violations"]}
+    assert "no_external_promo" not in rules, [
+        v for v in result["violations"] if v["rule"] == "no_external_promo"
+    ]
+
+
 def test_spotify1507_widened_api_doc_domains_pass() -> None:
     """spotify_1507 Ph0: legitimate API-doc/source domains cited by real skills
     (arxiv, tavily, tenor, stripe, comfyui, modal, etc.) must NOT trip
