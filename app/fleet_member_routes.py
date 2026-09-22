@@ -28,6 +28,7 @@ from app.database import get_db
 from app.fleet_routes import resolve_fleet_ctx
 from app.models import APIKey, Fleet, FleetMember, ReconcileEvent
 from app.services.synthetic_runs import origin_verdict_for_key
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(prefix="/api/fleets", tags=["fleet-members"])
 
@@ -87,6 +88,7 @@ class MemberEnrollIn(BaseModel):
 
 
 @router.post("/{fleet_id}/members", status_code=201)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def enroll_member(
     fleet_id: str,
     body: MemberEnrollIn,
@@ -203,6 +205,7 @@ def enroll_member(
 
 
 @router.get("/{fleet_id}/members")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def list_members(
     fleet_id: str,
     request: Request,
@@ -323,6 +326,7 @@ def list_members(
 
 
 @router.delete("/{fleet_id}/members/{member_id}")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def remove_member(
     fleet_id: str,
     member_id: str,

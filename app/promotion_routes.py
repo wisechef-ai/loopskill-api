@@ -33,6 +33,7 @@ from app.database import get_db
 from app.models import Bundle, BundleSkill, Skill
 from app.services.promotion import OUTCOME_FAILED, OUTCOME_ROLLED_BACK, OUTCOME_SUCCESS, promote_if_eligible
 from app.services.promotion_sweep import run_promotion_sweep
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(tags=["promotion"])
 
@@ -51,6 +52,7 @@ class ReconcileReportIn(BaseModel):
 
 @router.post("/api/bundles/{cookbook_id}/reconcile-report")
 @router.post("/api/cookbooks/{cookbook_id}/reconcile-report")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def reconcile_report(
     cookbook_id: str,
     body: ReconcileReportIn,

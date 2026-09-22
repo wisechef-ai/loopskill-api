@@ -17,6 +17,11 @@ from fastapi import APIRouter
 from fastapi.responses import RedirectResponse
 
 from app._skill_helpers import _set_utm_ref_cookie
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
+
+# moneypath-C (2026-09-22): only /x/{slug} received traffic in the 30d prod
+# inventory; the other four platform redirectors are tombstoned (kept, headed).
+_TOMBSTONED_PLATFORMS = frozenset({"li", "ig", "yt", "fb"})
 
 utm_router = APIRouter(tags=["skills"])
 
@@ -37,6 +42,8 @@ for _platform in ("x", "li", "ig", "yt", "fb"):
             return resp
 
         _platform_redirect.__name__ = f"redirect_{ref_val}_slug"
+        if ref_val in _TOMBSTONED_PLATFORMS:
+            tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")(_platform_redirect)
         return _platform_redirect
 
     _make_redirect(_platform)

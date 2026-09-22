@@ -40,6 +40,7 @@ from app.bundle_routes import (
 )
 from app.database import get_db
 from app.sync_fanout import get_fanout
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
 _h = APIRouter(tags=["live-sync"])  # prefix-free; dual-mounted below
@@ -76,6 +77,7 @@ def _format_event(envelope: dict) -> str:
 
 
 @_h.get("/{cookbook_id}/sync/sse")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 async def cookbook_sync_sse(
     cookbook_id: str,
     request: Request,

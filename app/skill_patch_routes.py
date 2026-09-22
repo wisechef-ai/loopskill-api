@@ -24,6 +24,7 @@ from app.skill_patch_validation import (
     scan_forbidden,
     validate_path,
 )
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,7 @@ class SkillPatchRequest(BaseModel):
 
 
 @router.post("/skill-patch", status_code=status.HTTP_200_OK)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def post_skill_patch(
     payload: SkillPatchRequest,
     request: Request,

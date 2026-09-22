@@ -39,6 +39,7 @@ from app.models import (
     MemberLockfileSnapshot,
     Skill,
 )
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(prefix="/api/fleets", tags=["fleet-console"])
 
@@ -111,6 +112,7 @@ def _diff_member(
 
 
 @router.get("/{fleet_id}/members/{member_id}/state")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def get_member_state(
     fleet_id: str,
     member_id: str,
@@ -145,6 +147,7 @@ def get_member_state(
 
 
 @router.get("/{fleet_id}/inventory")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def get_fleet_inventory(
     fleet_id: str,
     request: Request,

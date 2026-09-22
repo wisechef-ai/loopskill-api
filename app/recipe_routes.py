@@ -15,11 +15,13 @@ from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app.models import APILibraryEntry, Recipe
 from app.schemas import APILibraryOut, RecipeOut
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(tags=["recipes"])
 
 
 @router.get("/recipes/{slug}", response_model=RecipeOut, tags=["recipes"])
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def get_recipe(slug: str, db: Session = Depends(get_db)):
     """Return public recipe detail."""
     recipe = (
@@ -45,6 +47,7 @@ def get_recipe(slug: str, db: Session = Depends(get_db)):
 
 
 @router.get("/api-library/{slug}", response_model=APILibraryOut, tags=["api-library"])
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def get_api_library_entry(slug: str, db: Session = Depends(get_db)):
     """Return API library entry detail."""
     entry = db.query(APILibraryEntry).filter(APILibraryEntry.slug == slug).first()

@@ -35,6 +35,7 @@ from app.models import User
 # mesh0408e2e W2: entitlement follows subscription STATUS, not the raw tier
 # column — a lapsed Pro+ must fall back to free fleet capability.
 from app.revenue_truth import entitled_tier_or_free
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(prefix="/api/fleets", tags=["fleets"])
 
@@ -114,6 +115,7 @@ class FleetCreateIn(BaseModel):
 
 
 @router.get("")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def list_fleets(request: Request, db: Session = Depends(get_db)):
     """GET /api/fleets — list the caller's fleets + subscriptions.
 
@@ -125,6 +127,7 @@ def list_fleets(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("", status_code=201)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def create_fleet(body: FleetCreateIn, request: Request, db: Session = Depends(get_db)):
     """POST /api/fleets — create a named fleet. Returns the plaintext fleet_key ONCE.
 
@@ -147,6 +150,7 @@ class SubscribeIn(BaseModel):
 
 
 @router.post("/{fleet_id}/subscribe", status_code=201)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def subscribe_fleet(fleet_id: str, body: SubscribeIn, request: Request, db: Session = Depends(get_db)):
     """POST /api/fleets/{id}/subscribe — subscribe a cookbook on a channel (idempotent)."""
     ctx = resolve_fleet_ctx(request, db)
@@ -162,6 +166,7 @@ class SyncIn(BaseModel):
 
 
 @router.post("/{fleet_id}/sync")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def sync_fleet_route(fleet_id: str, body: SyncIn, request: Request, db: Session = Depends(get_db)):
     """POST /api/fleets/{id}/sync — sync every subscribed cookbook. dry_run previews."""
     ctx = resolve_fleet_ctx(request, db)
@@ -169,6 +174,7 @@ def sync_fleet_route(fleet_id: str, body: SyncIn, request: Request, db: Session 
 
 
 @router.post("/{fleet_id}/reconcile-precheck")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def reconcile_precheck_route(fleet_id: str, request: Request, db: Session = Depends(get_db)):
     """POST /api/fleets/{id}/reconcile-precheck — pre-apply gate for the reconcile step.
 

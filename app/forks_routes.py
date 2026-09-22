@@ -42,6 +42,7 @@ from app import config
 from app.database import get_db
 from app.models import ForkVersion, Skill, SkillFork, User
 from app.tier_labels import _is_pro_tier
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/forks", tags=["forks"])
@@ -188,6 +189,7 @@ def _to_out(fork: SkillFork, source_slug: str | None = None, include_versions: b
 
 
 @router.post("/create", status_code=201)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def create_fork(
     body: ForkCreateIn,
     db: Session = Depends(get_db),
@@ -231,6 +233,7 @@ def create_fork(
 
 
 @router.get("/list")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def list_forks(
     db: Session = Depends(get_db),
     ctx: TierContext = Depends(require_operator),
@@ -273,6 +276,7 @@ def _resolve_owned_fork(db: Session, ctx: TierContext, fork_id: str) -> SkillFor
 
 
 @router.post("/{fork_id}/version", status_code=201)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 async def upload_fork_version(
     fork_id: str,
     request: Request,
@@ -387,6 +391,7 @@ def install_fork(
 
 
 @router.get("/_download")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def download_fork(token: str, db: Session = Depends(get_db)):
     """Verify the HMAC token and stream the tarball. Public — auth lives in
     the token itself (5-minute TTL, signed with SIGNING_SECRET + fork salt)."""
@@ -419,6 +424,7 @@ def download_fork(token: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/{fork_id}")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def delete_fork(
     fork_id: str,
     db: Session = Depends(get_db),

@@ -45,6 +45,7 @@ from app.schemas import (
     VerifierRunIn,
     VerifierRunOut,
 )
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +313,7 @@ def get_verifier(slug: str, db: Session = Depends(get_db)) -> VerifierDetailOut:
     return VerifierDetailOut(**base)
 
 
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def publish_verifier(
     payload: VerifierPublishIn,
     request: Request,
@@ -468,6 +470,7 @@ def run_verifier(
     return VerifierRunOut(**data)
 
 
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def rate_verifier(
     slug: str,
     payload: VerifierRateIn,

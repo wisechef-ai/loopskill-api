@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import IncidentReport, Skill
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(prefix="/api/feedback", tags=["feedback"])
 
@@ -138,6 +139,7 @@ class IncidentOut(BaseModel):
     response_model=IncidentOut,
     status_code=status.HTTP_201_CREATED,
 )
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def post_incident(
     payload: IncidentIn,
     db: Session = Depends(get_db),

@@ -31,6 +31,7 @@ from app.models import (
     SkillFavourite,
     SkillLike,
 )
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(tags=["engagement"])
 
@@ -115,6 +116,7 @@ def _require_readable_track(db: Session, ctx: AuthContext, slug: str, skill_id) 
 
 
 @router.post("/api/skills/{slug}/like", response_model=LikeResponse)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def like_track(slug: str, request: Request, db: Session = Depends(get_db)):
     """Like a track (local skill or federated). Requires user scope."""
     ctx: AuthContext = _require_user(request)
@@ -189,6 +191,7 @@ def like_track(slug: str, request: Request, db: Session = Depends(get_db)):
 
 
 @router.delete("/api/skills/{slug}/like", response_model=LikeResponse)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def unlike_track(slug: str, request: Request, db: Session = Depends(get_db)):
     """Unlike a track. Requires user scope."""
     ctx: AuthContext = _require_user(request)
@@ -253,6 +256,7 @@ def unlike_track(slug: str, request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/api/skills/{slug}/favourite", response_model=FavouriteResponse)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def favourite_track(slug: str, request: Request, db: Session = Depends(get_db)):
     """Save a track to library (favourite). Requires user scope."""
     ctx: AuthContext = _require_user(request)
@@ -288,6 +292,7 @@ def favourite_track(slug: str, request: Request, db: Session = Depends(get_db)):
 
 
 @router.delete("/api/skills/{slug}/favourite", response_model=FavouriteResponse)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def unfavourite_track(slug: str, request: Request, db: Session = Depends(get_db)):
     """Remove a track from library. Requires user scope."""
     ctx: AuthContext = _require_user(request)

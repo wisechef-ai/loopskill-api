@@ -47,6 +47,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from fastapi import Depends
 from app.models import FederationHubSkill
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(tags=["federation", "filters"])
 
@@ -188,6 +189,7 @@ def get_federation_filter(
 
 
 @router.get("/api/federation/filter/facets")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def get_federation_filter_facets(db: Session = Depends(get_db)) -> dict[str, Any]:
     """The distinct source / trust_level values worth offering as filter
     chips — a UI needs this to render "carve by X" controls without

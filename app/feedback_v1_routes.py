@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app import feedback_ratelimit, github_dispatch
 from app.database import get_db
 from app.models import FeedbackSubmission, RecipifyRequest
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,7 @@ class FeedbackOut(BaseModel):
     response_model=RecipifyRequestOut,
     status_code=status.HTTP_201_CREATED,
 )
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def post_recipify_request(
     payload: RecipifyRequestIn,
     request: Request,

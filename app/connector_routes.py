@@ -37,6 +37,7 @@ from app.services.connector_validation import (
     validate_connector_version,
 )
 from app.services.reconcile import bump_declaring_bundles_for_connector
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +110,7 @@ def _require_bundle_owner(request: Request, db: Session, bundle_id: str) -> Bund
 
 
 @router.post("/api/connectors", status_code=201)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def create_connector(
     body: ConnectorCreateIn,
     request: Request,
@@ -137,6 +139,7 @@ def create_connector(
 
 
 @router.post("/api/connectors/{slug}/versions", status_code=201)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def publish_connector_version(
     slug: str,
     body: ConnectorVersionIn,
@@ -238,6 +241,7 @@ def browse_connectors(
 
 
 @router.get("/api/connectors/{slug}")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def get_connector(slug: str, db: Session = Depends(get_db)) -> Any:
     """Public detail — connector + its versions."""
     conn = db.query(Connector).filter(Connector.slug == slug).first()
@@ -253,6 +257,7 @@ def get_connector(slug: str, db: Session = Depends(get_db)) -> Any:
 
 @router.post("/api/bundles/{bundle_id}/connectors", status_code=201)
 @router.post("/api/cookbooks/{bundle_id}/connectors", status_code=201)  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def declare_connector_in_bundle(
     bundle_id: str,
     body: BundleConnectorIn,
@@ -299,6 +304,7 @@ def declare_connector_in_bundle(
 
 @router.delete("/api/bundles/{bundle_id}/connectors/{slug}")
 @router.delete("/api/cookbooks/{bundle_id}/connectors/{slug}")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def undeclare_connector_from_bundle(
     bundle_id: str,
     slug: str,

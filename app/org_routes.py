@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(prefix="/api/orgs", tags=["orgs"])
 
@@ -60,6 +61,7 @@ def _generate_org_slug(name: str) -> str:
 
 
 @router.post("", status_code=201)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def create_org(body: OrgCreateIn, request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
     """POST /api/orgs — create an org + OrgMembership(role='owner').
 
@@ -109,6 +111,7 @@ def create_org(body: OrgCreateIn, request: Request, db: Session = Depends(get_db
 
 
 @router.get("")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def list_orgs(request: Request, db: Session = Depends(get_db)) -> dict[str, Any]:
     """GET /api/orgs — list orgs the caller is a member of."""
     from app.models import OrgMembership
@@ -138,6 +141,7 @@ def list_orgs(request: Request, db: Session = Depends(get_db)) -> dict[str, Any]
 
 
 @router.post("/{org_id}/members", status_code=201)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def add_org_member(
     org_id: str,
     body: OrgMemberAddIn,

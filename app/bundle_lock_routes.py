@@ -35,6 +35,7 @@ from app.services.drift_service import (
     mint_bundle_lock,
     prior_revision_hashes,
 )
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 # Inner router carries the routes with NO surface prefix; the module-level
 # `router` mounts it under BOTH /api/bundles and /api/cookbooks so the
@@ -95,6 +96,7 @@ class DriftRequest(BaseModel):
 
 
 @_h.post("/{bundle_id}/lock")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def mint_lock(bundle_id: str, request: Request, db: Session = Depends(get_db)):
     """Mint a new immutable bundle-lock revision. Owner/master only."""
     bundle = _bundle_or_404(db, bundle_id)
@@ -109,6 +111,7 @@ def mint_lock(bundle_id: str, request: Request, db: Session = Depends(get_db)):
 
 
 @_h.get("/{bundle_id}/lock")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def get_lock(bundle_id: str, request: Request, db: Session = Depends(get_db)):
     """Read the current lock. Public for public bundles; else owner/master."""
     bundle = _bundle_or_404(db, bundle_id)
@@ -127,6 +130,7 @@ def get_lock(bundle_id: str, request: Request, db: Session = Depends(get_db)):
 
 
 @_h.get("/{bundle_id}/lock/history")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def lock_history(bundle_id: str, request: Request, db: Session = Depends(get_db)):
     """All lock revisions (audit trail). Owner/master."""
     from app.models import BundleLock
@@ -154,6 +158,7 @@ def lock_history(bundle_id: str, request: Request, db: Session = Depends(get_db)
 
 
 @_h.post("/{bundle_id}/drift")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def compute_drift(bundle_id: str, body: DriftRequest, request: Request, db: Session = Depends(get_db)):
     """Three-way per-skill drift verdict vs the current lock.
 

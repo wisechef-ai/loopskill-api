@@ -34,6 +34,7 @@ from app.database import get_db
 from app.models import APIKey, Bundle, InstallEvent, User
 from app.revenue_truth import entitled_tier_or_free
 from app.tier_labels import api_key_cap as _tier_api_key_cap
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["api-keys"])
@@ -270,6 +271,7 @@ async def list_api_keys(
 
 
 @router.delete("/api-keys/{key_id}")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 async def revoke_api_key(
     key_id: str,
     db: Session = Depends(get_db),

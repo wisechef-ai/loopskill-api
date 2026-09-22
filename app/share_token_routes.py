@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Bundle, BundleShareToken
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 if TYPE_CHECKING:
     from app.auth_ctx import AuthContext
@@ -435,6 +436,7 @@ def _revoke_service(
 
 
 @_h.post("", status_code=201)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def create_share_token(
     cookbook_id: str,
     body: ShareTokenCreateIn,
@@ -454,6 +456,7 @@ def create_share_token(
 
 
 @_h.get("")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def list_share_tokens(
     cookbook_id: str,
     request: Request,
@@ -465,6 +468,7 @@ def list_share_tokens(
 
 
 @_h.post("/{token_id}/rotate")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def rotate_share_token(
     cookbook_id: str,
     token_id: str,
@@ -487,6 +491,7 @@ def rotate_share_token(
 
 
 @_h.delete("/{token_id}", status_code=204)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def revoke_share_token(
     cookbook_id: str,
     token_id: str,

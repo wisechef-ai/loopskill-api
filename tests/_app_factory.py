@@ -235,6 +235,11 @@ def build_test_app(
         monkeypatch.setattr("app.database.SessionLocal", _SharedSessionFactory(db_session))
         app.add_middleware(APIKeyMiddleware)
 
+    # moneypath-C: mirrors create_app — X-Tombstoned header on @tombstoned routes.
+    from app.tombstone import TombstoneHeaderMiddleware
+
+    app.add_middleware(TombstoneHeaderMiddleware)
+
     _mount_all_routers(app)
 
     # Same domain-exception → HTTP mapping create_app installs, so a service

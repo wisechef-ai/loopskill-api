@@ -56,6 +56,7 @@ from app.services.bundle_apply import (
     RollbackNotFailed,
     rollback_bundle_job,
 )
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
 _h = APIRouter(tags=["bundle-deploy"])  # Phase 3+4: handlers prefix-free; combined router below
@@ -148,6 +149,7 @@ def _resolve_cookbook_or_404(db: Session, cookbook_id: str, user: User) -> Bundl
 
 
 @_h.post("/create")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 async def create_deploy_cookbook(
     req: DeployCookbookCreateRequest,
     db: Session = Depends(get_db),
@@ -184,6 +186,7 @@ async def create_deploy_cookbook(
 
 
 @_h.get("/list")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 async def list_deploy_cookbooks(
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
@@ -201,6 +204,7 @@ async def list_deploy_cookbooks(
 
 
 @_h.post("/{cookbook_id}/skills/add")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 async def add_deployment(
     cookbook_id: str = Path(...),
     req: DeploymentAddRequest = Body(...),
@@ -257,6 +261,7 @@ async def add_deployment(
 
 
 @_h.delete("/{cookbook_id}/skills/{skill_id}")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 async def remove_deployment(
     cookbook_id: str,
     skill_id: str,
@@ -286,6 +291,7 @@ async def remove_deployment(
 
 
 @_h.post("/{cookbook_id}/apply")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 async def apply_cookbook(
     cookbook_id: str,
     request: Request,
@@ -373,6 +379,7 @@ async def apply_cookbook(
 
 
 @_h.get("/{cookbook_id}/jobs/{job_id}")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 async def cookbook_job_status(
     cookbook_id: str,
     job_id: str,
@@ -399,6 +406,7 @@ async def cookbook_job_status(
 
 
 @_h.post("/{cookbook_id}/rollback")  # compat-alias
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 async def rollback_cookbook(
     cookbook_id: str,
     db: Session = Depends(get_db),
@@ -458,6 +466,7 @@ async def rollback_cookbook(
 
 
 @_h.post("/{slug}/preflight")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 async def bundle_preflight(
     slug: str,
     body: dict = Body(default={}),
@@ -482,6 +491,7 @@ async def bundle_preflight(
 
 
 @_h.get("/{slug}/manifest")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 async def cookbook_deploy_manifest(
     slug: str,
     db: Session = Depends(get_db),

@@ -43,6 +43,7 @@ from app.auth_ctx import AuthContext
 from app.config import settings
 from app.database import get_db
 from app.models import Bundle, BundleSkill
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 FORK_CLAIM_TTL_SECONDS = 30 * 60  # 30 minutes — long enough to sign in, not indefinite
 
@@ -95,6 +96,7 @@ class ForkPreviewOut(BaseModel):
 
 
 @_h.post("/public/{slug}/fork/preview", response_model=ForkPreviewOut)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def preview_bundle_fork(slug: str, request: Request, db: Session = Depends(get_db)):
     """Show what forking this public bundle would produce. No auth, no write.
 
@@ -144,6 +146,7 @@ class ForkClaimOut(BaseModel):
 
 
 @_h.post("/fork/claim", response_model=ForkClaimOut, status_code=201)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def claim_bundle_fork(body: ForkClaimIn, request: Request, db: Session = Depends(get_db)):
     """Finalize a previewed fork. Auth required — THE save step (plan step 2).
 

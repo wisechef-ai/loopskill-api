@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import IntentSurveyResponse
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["intent-survey"])
@@ -37,6 +38,7 @@ class IntentSurveyIn(BaseModel):
 
 
 @router.post("/intent-survey", status_code=201)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def submit_intent_survey(payload: IntentSurveyIn, db: Session = Depends(get_db)):
     """Persist one anonymous survey response. Returns {ok, id}."""
     row = IntentSurveyResponse(
@@ -58,6 +60,7 @@ def _require_admin(x_api_key: str | None = Header(default=None, alias="x-api-key
 
 
 @router.get("/intent-survey/results")
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def intent_survey_results(
     db: Session = Depends(get_db),
     _admin: None = Depends(_require_admin),

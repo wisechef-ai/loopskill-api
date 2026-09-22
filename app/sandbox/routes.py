@@ -20,6 +20,7 @@ from app.database import get_db
 from app.models import Skill, SkillVersion, TelemetryEvent
 from app.sandbox.profile import SandboxProfile
 from app.sandbox.runner import SandboxRunner
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(prefix="/api", tags=["sandbox"])
 
@@ -73,6 +74,7 @@ class SandboxStatusResponse(BaseModel):
 
 
 @router.get("/skills/{slug}/sandbox/status", response_model=SandboxStatusResponse)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def sandbox_status(slug: str, request: Request, db: Session = Depends(get_db)):
     """Check if a skill supports sandbox execution and return its profile."""
     skill = db.query(Skill).options(joinedload(Skill.versions)).filter(Skill.slug == slug).first()
@@ -124,6 +126,7 @@ def sandbox_status(slug: str, request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/skills/{slug}/sandbox/run", response_model=SandboxRunResponse)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def sandbox_run(
     slug: str,
     request: Request,

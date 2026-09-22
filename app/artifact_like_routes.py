@@ -58,6 +58,7 @@ from app import authz
 from app.auth_ctx import AuthContext
 from app.database import get_db
 from app.models import Bundle, CompositeLoop, FollowedBundle, Personality
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(tags=["engagement"])
 
@@ -121,6 +122,7 @@ def _personality_or_404(db: Session, slug: str) -> Personality:
 
 
 @router.post("/api/personalities/{slug}/like", response_model=LikeResponse)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def like_personality(slug: str, request: Request, db: Session = Depends(get_db)) -> LikeResponse:
     """Like a personality by slug. Writes to the typed Liked bundle."""
     ctx = _require_user(request)
@@ -131,6 +133,7 @@ def like_personality(slug: str, request: Request, db: Session = Depends(get_db))
 
 
 @router.delete("/api/personalities/{slug}/like", response_model=LikeResponse)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def unlike_personality(slug: str, request: Request, db: Session = Depends(get_db)) -> LikeResponse:
     """Unlike a personality by slug."""
     ctx = _require_user(request)
@@ -190,6 +193,7 @@ def _loop_or_404(db: Session, slug: str) -> CompositeLoop:
 
 
 @router.post("/api/loops/{slug}/like", response_model=LikeResponse)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def like_loop(slug: str, request: Request, db: Session = Depends(get_db)) -> LikeResponse:
     """Like a composite loop by slug."""
     ctx = _require_user(request)
@@ -200,6 +204,7 @@ def like_loop(slug: str, request: Request, db: Session = Depends(get_db)) -> Lik
 
 
 @router.delete("/api/loops/{slug}/like", response_model=LikeResponse)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def unlike_loop(slug: str, request: Request, db: Session = Depends(get_db)) -> LikeResponse:
     """Unlike a composite loop by slug."""
     ctx = _require_user(request)
@@ -212,11 +217,13 @@ def unlike_loop(slug: str, request: Request, db: Session = Depends(get_db)) -> L
 # surface has its own prefix; we expose like on both so a client using either
 # vocabulary can heart a loop).
 @router.post("/api/composite-loops/{slug}/like", response_model=LikeResponse)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def like_composite_loop_alias(slug: str, request: Request, db: Session = Depends(get_db)) -> LikeResponse:
     return like_loop(slug, request, db)
 
 
 @router.delete("/api/composite-loops/{slug}/like", response_model=LikeResponse)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def unlike_composite_loop_alias(slug: str, request: Request, db: Session = Depends(get_db)) -> LikeResponse:
     return unlike_loop(slug, request, db)
 
@@ -276,6 +283,7 @@ _bundle_like = APIRouter()
 
 
 @_bundle_like.post("/{slug}/like", response_model=BundleLikeResponse)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def like_bundle(slug: str, request: Request, db: Session = Depends(get_db)) -> BundleLikeResponse:
     """Like a bundle by slug.
 
@@ -321,6 +329,7 @@ def like_bundle(slug: str, request: Request, db: Session = Depends(get_db)) -> B
 
 
 @_bundle_like.delete("/{slug}/like", response_model=BundleLikeResponse)
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def unlike_bundle(slug: str, request: Request, db: Session = Depends(get_db)) -> BundleLikeResponse:
     """Unlike a bundle by slug (removes the follow)."""
     ctx = _require_user(request)

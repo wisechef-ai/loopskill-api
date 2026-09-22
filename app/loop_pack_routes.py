@@ -33,6 +33,7 @@ from fastapi import Depends
 
 from app.database import get_db
 from app.models import Verifier, CompositeLoop
+from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(tags=["loop-packs"])
 
@@ -130,11 +131,13 @@ def _resolve_pack(pack_slug: str, db: Session) -> dict:
     }
 
 
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def list_loop_packs(db: Session = Depends(get_db)) -> list[dict]:
     """List curated loop packs (summary — no member resolution)."""
     return [{"pack_slug": slug, "title": p["title"]} for slug, p in LOOP_PACKS.items()]
 
 
+@tombstoned(since="2026-09-22", ledger="docs/ops/tombstones.md")
 def get_loop_pack(pack_slug: str, db: Session = Depends(get_db)) -> dict:
     """Curated loop pack detail with live-resolved members."""
     return _resolve_pack(pack_slug, db)
