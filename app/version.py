@@ -577,24 +577,24 @@ inert). No schema, no migration.
     gains a Redis-backed L2 behind its existing get/put interface — L1
     in-process LRU (64) in front of L2 Redis, keyed
     ``loopskill:metasearch:v1:{query}|{sources}`` with a versioned JSON
-    payload and a Redis TTL of ttl_s + stale_grace_s. A result computed by
-    one worker is now readable by every other worker, which is what makes
-    the P2 MCP cache-ONLY reader (``get_entry`` → fresh/stale/miss/degraded)
-    able to answer at all. Freshness is absolute-epoch (``computed_at``,
-    never monotonic — it crosses process boundaries); the write generation
-    is a shared Redis INCR with a compare-and-set write, so worker A's slow
-    stale-refresh cannot clobber worker B's newer entry; ``put()``
-    sanitises + field-caps + version-tags before sharing. Redis unreachable
-    (including the 30s get_redis() backoff) → L1-only + state
-    ``degraded``, never an exception and never a blocking wait. No schema
-    change, no new dependency, no route change. Verified against prod
-    /api/healthz 0.9.48 before bumping.
+    payload and a Redis TTL of ttl_s + stale_grace_s, so a result computed
+    by one worker is readable by every other worker (what makes the P2
+    cache-ONLY reader able to answer at all). Freshness is absolute-epoch
+    (``computed_at``, never monotonic); the write generation is a shared
+    Redis INCR with compare-and-set, so a slow stale-refresh cannot clobber
+    a newer entry; ``put()`` sanitises + field-caps + version-tags before
+    sharing. Redis unreachable → L1-only + state ``degraded``, never an
+    exception, never a blocking wait. No schema change. Verified against
+    prod /api/healthz 0.9.48 before bumping.
 
 feat/unisearch-p2-mcp-unify: bumped past current main (0.9.49) — MCP
     loopskill_search keeps its native pass verbatim and APPENDS compact
     federated rows read from the P1 shared cache (cache-ONLY get_entry; never
     get_or_compute, never fan_out — a >90s cold fan-out on the MCP thread reads
-    as a broken platform). Native first; honest fresh|stale|cold|degraded flag.
+    as a broken platform); native first, honest freshness flag.
+
+coldstart_0927: agent.json publishes registration.success.status (201) from
+    a route-shared constant; dead openapi.json ad removed (404, ledger #5).
 """
 
-__version__ = "0.9.50"
+__version__ = "0.9.51"
