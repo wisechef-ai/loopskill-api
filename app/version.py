@@ -586,6 +586,11 @@ ah_1006 install-funnel ranking (0.9.60): metasearch rank() now scores the
     installable anthropics/openai ``pdf`` skills at 26-27; the whole-slug tier
     filed exact-name skills.sh rows under slug-contains. unified_search's
     _federated_relevance gets the same deployable-first key inside a bucket.
+
+0.9.61 - fix(issue-342): skill-error dispatch (MCP+REST) now carries
+    message+category, closing the workflow's "No message provided"
+    fallback; message derived summary/stack_trace_top->details/command->
+    generic, bounded post-[slug]-prefix. Rebased over main 0.9.60.
 """
 
-__version__ = "0.9.60"
+__version__ = "0.9.61"
