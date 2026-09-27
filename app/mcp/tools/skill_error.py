@@ -27,6 +27,25 @@ def _sha256(*parts: str) -> str:
     return hashlib.sha256("|".join(parts).encode()).hexdigest()
 
 
+# issue #342: GitHub issue titles are hard-capped at 256 chars; the dispatch
+# workflow further reserves `[<category>] ` as a prefix before this string.
+# Bound the FULL prefixed string (not just the raw fallback chain) so a huge
+# summary can never overflow the title limit after prefixing.
+_DISPATCH_MESSAGE_MAX = 500
+
+
+def _dispatch_message(slug: str, summary: str | None, details: str | None) -> str:
+    """Derive a non-empty dispatch `message`, bounded AFTER prefixing.
+
+    Falls back summary -> details -> a generic placeholder so the dispatch
+    payload never lacks a `message` key regardless of caller input, and never
+    silently degrades to the workflow's own "No message provided" fallback.
+    """
+    body = (summary or "").strip() or (details or "").strip() or f"skill error reported for {slug}"
+    full = f"[{slug}] {body}"
+    return full[:_DISPATCH_MESSAGE_MAX]
+
+
 def _is_opted_in() -> bool:
     # coldstart-fix: error reporting is ENABLED BY DEFAULT — a cold agent (hermes,
     # codex, claude) must not be bounced with "set RECIPES_REPORT_ERRORS=true to opt
@@ -174,6 +193,16 @@ def loopskill_report_skill_error(
     # issue URL back via /api/internal/feedback/{id}/issue-url) or None on
     # failure. The issue_url is therefore "pending" at submit time — clients
     # poll GET /api/feedback/{id} for the resolved URL.
+    #
+    # issue #342: neither this dict nor the REST path's ever carried
+    # `message`/`category`, so the receiving workflow's own fallback
+    # (`payload.message || 'No message provided'`) fired on every single
+    # dispatch, filing every skill-error report as a content-free
+    # "[general] No message provided" issue regardless of how much detail
+    # summary/details actually had. `message` is derived here, bounded
+    # AFTER the `[slug] ` prefix is applied (a pre-prefix-only bound can
+    # still overflow the workflow's 256-char GitHub issue-title limit).
+    dispatch_message = _dispatch_message(slug, summary, details)
     dispatched = github_dispatch.dispatch_event(
         "skill-error",
         {
@@ -182,6 +211,8 @@ def loopskill_report_skill_error(
             "error_signature": signature.lower(),
             "agent_fp_anon": agent_id or "mcp-tool",
             "signature": composite_sig,
+            "category": "skill-error",
+            "message": dispatch_message,
         },
     )
 
