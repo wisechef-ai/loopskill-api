@@ -348,6 +348,90 @@ def build_cold_env() -> dict[str, str]:
     return scrubbed
 
 
+# coldstart_0927 — sandbox-escape fix (ledger #9/#11 class, run 20260927-df5287dd).
+#
+# A cold $HOME created with bare tempfile.mkdtemp() lands wherever TMPDIR
+# points. Under the Hermes cron runtime TMPDIR=~/.hermes/cache/scratch, i.e.
+# INSIDE the real user's home — so the "fresh, isolated $HOME" was physically a
+# descendant of /home/adam. Harnesses that walk UP from cwd to discover config
+# (codex project-root discovery looks for .codex/ in every ancestor) then
+# escaped the sandbox: the codex leg loaded /home/adam/.codex/config.toml as
+# "project" config, got distracted by host skills under /home/adam/.agents,
+# and hardcoded /home/adam/.loopskill for its key file — the success_check
+# (HOME=<cold home>) never saw it. HOME was isolated; the FILESYSTEM was not.
+COLD_HOME_PREFIX = "coldstart-"
+COLD_HOME_TTL_SECONDS = 3 * 24 * 3600  # forensics window; /tmp has no 24h pruner
+# Candidate bases OUTSIDE the real home, tried in order after the
+# $COLDSTART_SANDBOX_BASE override. Module constant so tests can prove the
+# fail-loud path without having to unmount /tmp.
+COLD_HOME_FALLBACK_BASES = ("/var/tmp", "/tmp")
+
+
+def _cold_home_base() -> Path:
+    """A mkdtemp base guaranteed OUTSIDE the real user's home tree.
+
+    Candidate order: $COLDSTART_SANDBOX_BASE, /var/tmp, /tmp, then
+    tempfile's default — first one that is a writable dir and NOT inside the
+    real home. Raises ColdstartError if every candidate is inside the home
+    (fail loud: a silently un-isolated cold home is exactly the defect this
+    exists to prevent).
+    """
+    real_home = Path.home().resolve()
+
+    def _inside_real_home(p: Path) -> bool:
+        try:
+            p.resolve().relative_to(real_home)
+        except ValueError:
+            return False
+        return True
+
+    candidates: list[Path] = []
+    override = os.environ.get("COLDSTART_SANDBOX_BASE")
+    if override:
+        candidates.append(Path(override))
+    candidates.extend(Path(p) for p in COLD_HOME_FALLBACK_BASES)
+    candidates.append(Path(tempfile.gettempdir()))
+
+    for cand in candidates:
+        if not cand.is_dir() or not os.access(cand, os.W_OK):
+            continue
+        if _inside_real_home(cand):
+            continue
+        return cand
+    raise ColdstartError(
+        "no writable cold-home base outside the real home tree "
+        f"(home={real_home}, candidates={[str(c) for c in candidates]})"
+    )
+
+
+def _prune_old_cold_homes(base: Path, ttl_seconds: float) -> None:
+    """Best-effort GC of expired cold homes (transcripts are kept for the TTL
+    window — post-mortems read them hours after the run; /tmp has no pruner)."""
+    cutoff = time.time() - ttl_seconds
+    for path in base.glob(COLD_HOME_PREFIX + "*"):
+        try:
+            if path.is_dir() and path.stat().st_mtime < cutoff:
+                shutil.rmtree(path, ignore_errors=True)
+        except OSError:
+            # Rationale: GC must never kill a run; an unprunable dir ages out
+            # of scope the next night.
+            continue
+
+
+def make_cold_home() -> Path:
+    """Create the per-run isolated $HOME outside the real home tree."""
+    base = _cold_home_base()
+    _prune_old_cold_homes(base, COLD_HOME_TTL_SECONDS)
+    home = Path(tempfile.mkdtemp(prefix=COLD_HOME_PREFIX, dir=base))
+    # Structural isolation proof: if a future edit reintroduces an in-home
+    # tempdir, fail HERE rather than handing a leaky sandbox to a harness.
+    try:
+        home.resolve().relative_to(Path.home().resolve())
+    except ValueError:
+        return home
+    raise ColdstartError(f"cold home {home} is inside the real home tree")
+
+
 def run_fake_harness(prompt: str, home: Path, max_minutes: int, cwd: Path) -> HarnessResult:
     """Synthetic harness for the test suite: no network, no real binary.
 
@@ -445,6 +529,10 @@ def run_hermes_harness(prompt: str, home: Path, max_minutes: int, parent_hermes_
     env = build_cold_env()
     env["HOME"] = str(home)
     env["HERMES_HOME"] = str(hermes_home)
+    # coldstart_0927 — hermes subprocesses inherit the cold env; keep their
+    # temp resolution inside the sandbox too (parity with the other adapters).
+    env["TMPDIR"] = str(home / "tmp")
+    Path(env["TMPDIR"]).mkdir(parents=True, exist_ok=True)
     timed_out = False
     stdout = ""
     stderr = ""
@@ -499,6 +587,12 @@ def run_claude_harness(prompt: str, home: Path, max_minutes: int) -> HarnessResu
     transcript_path = home / "claude_transcript.json"
     env = build_cold_env()
     env["HOME"] = str(home)
+    # coldstart_0927 — same walk-up isolation as the codex adapter: pin
+    # Claude Code's config root and TMPDIR inside the sandbox so no ancestor
+    # of the cold home (the real home, pre-fix) can inject host config.
+    env["CLAUDE_CONFIG_DIR"] = str(home / ".claude")
+    env["TMPDIR"] = str(home / "tmp")
+    Path(env["TMPDIR"]).mkdir(parents=True, exist_ok=True)
     timed_out = False
     stdout = ""
     try:
@@ -558,6 +652,17 @@ def run_codex_harness(prompt: str, home: Path, max_minutes: int) -> HarnessResul
     transcript_path = home / "codex_transcript.jsonl"
     env = build_cold_env()
     env["HOME"] = str(home)
+    # coldstart_0927 — pin codex's OWN config root to the sandbox. Without
+    # this, codex walks UP from cwd looking for .codex/config.toml in every
+    # ancestor; with the cold home under the real home (pre-fix) it loaded the
+    # HOST's config.toml as "project" config (run 20260927-df5287dd transcript,
+    # first three items: 'Ignored unsupported project-local config keys in
+    # /home/adam/.codex/config.toml'). CODEX_HOME is the documented override.
+    env["CODEX_HOME"] = str(home / ".codex")
+    # Same class of walk-up for TMPDIR: a harness subprocess resolving a temp
+    # path must land INSIDE the sandbox, not in the host's scratch dir.
+    env["TMPDIR"] = str(home / "tmp")
+    Path(env["TMPDIR"]).mkdir(parents=True, exist_ok=True)
     timed_out = False
     stdout = ""
     try:
@@ -727,7 +832,7 @@ def run_task(
     prompt = render(task["prompt"], run_id)
     parent_hermes_home = parent_hermes_home or default_parent_hermes_home()
 
-    tmp_home = Path(tempfile.mkdtemp(prefix="coldstart-"))
+    tmp_home = make_cold_home()
     start = time.monotonic()
     outcome = "error"
     tool_calls: int | None = None
