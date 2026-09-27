@@ -47,6 +47,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["agents"])
 
 
+# The HTTP status a SUCCESSFUL registration answers with. It is a named
+# constant because two documents must never disagree about it again: the route
+# decorator below AND the ``success`` block published in
+# ``/.well-known/agent.json`` both read THIS value (coldstart_0927: llms.txt
+# claimed ``200`` while the route answers ``201``, and a strict cold client
+# discarded its shown-once key over the discrepancy — the exact
+# "documented but broken" defect class this constant exists to kill).
+REGISTRATION_SUCCESS_STATUS = 201
+
+
 class AgentRegisterIn(BaseModel):
     """The registration payload. Every field except ``contact`` is signed."""
 
@@ -98,7 +108,11 @@ def _require_master(request: Request) -> None:
         raise HTTPException(status_code=403, detail="Admin only")
 
 
-@router.post("/api/agents/register", response_model=AgentRegisterOut, status_code=201)
+@router.post(
+    "/api/agents/register",
+    response_model=AgentRegisterOut,
+    status_code=REGISTRATION_SUCCESS_STATUS,
+)
 def register_agent_route(
     payload: AgentRegisterIn,
     request: Request,

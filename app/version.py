@@ -595,6 +595,17 @@ feat/unisearch-p2-mcp-unify: bumped past current main (0.9.49) — MCP
     federated rows read from the P1 shared cache (cache-ONLY get_entry; never
     get_or_compute, never fan_out — a >90s cold fan-out on the MCP thread reads
     as a broken platform). Native first; honest fresh|stale|cold|degraded flag.
+
+coldstart_0927 (self-register-agent truth pass): /.well-known/agent.json now
+    publishes registration.success.status (201) derived from the route module
+    single source of truth — llms.txt claimed 200 while the route answers 201,
+    and a strict cold client discarded its shown-once key over the mismatch
+    (eval run 20260927-df5287dd, codex leg). The dead {origin}/openapi.json
+    advertisement (404 live — ledger finding #5, open since 0609) is REMOVED:
+    the edge never proxies that path; machine-readable truth = llms.txt +
+    /.well-known/mcp.json. No route, schema or behaviour change — discovery
+    document content only. Verified against prod /api/healthz 0.9.50 before
+    bumping.
 """
 
-__version__ = "0.9.50"
+__version__ = "0.9.51"

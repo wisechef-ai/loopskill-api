@@ -60,6 +60,7 @@ from fastapi import APIRouter, Response
 
 from app.config import public_origin, settings
 from app.middleware.key_prefixes import AGENT_KEY_PREFIX
+from app.agent_registration_routes import REGISTRATION_SUCCESS_STATUS
 from app.services.agent_registration import (
     CANONICAL_VERSION,
     MAX_ACTIVE_KEYS_PER_IDENTITY,
@@ -103,7 +104,19 @@ def build_agent_descriptor() -> dict:
             "Skill, loop and bundle marketplace for AI agents — and the control plane for AI agent fleets."
         ),
         "api_base": origin,
-        "openapi": f"{origin}/openapi.json",
+        # HONESTY CONSTRAINT (coldstart_0927, ledger finding #5): this document
+        # used to advertise ``{origin}/openapi.json`` here — that URL 404s live:
+        # the edge never proxies that path to this FastAPI app (same verified
+        # edge-routing fact the ai-plugin module docstring records), and there
+        # is deliberately NO public machine-readable OpenAPI spec (the
+        # hand-written substitute is /docs/api-reference). A cold agent that
+        # followed its own discovery document hit a dead link (run
+        # 20260927-df5287dd, codex leg — it fetched this URL to resolve a
+        # status-code question and got a 404). The honest fix is removal, not
+        # repointing: an ``openapi`` key promises a machine-readable spec, and
+        # pointing it at an HTML page would be a different lie. The
+        # machine-readable surfaces this platform actually serves are
+        # llms.txt (REST surface) and /.well-known/mcp.json (MCP descriptor).
         "mcp": {
             "descriptor": f"{origin}/.well-known/mcp.json",
             "endpoint": f"{origin}/api/mcp/http",
@@ -120,6 +133,21 @@ def build_agent_descriptor() -> dict:
             # verbatim, join with ':', sign the UTF-8 bytes.
             "canonical_string": CANONICAL_TEMPLATE,
             "signature_encoding": "base64",
+            # The SUCCESS contract, published next to ``errors`` so a strict
+            # client never has to guess (coldstart_0927: this block was absent
+            # and llms.txt's stale "200" was the only claim anywhere — a cold
+            # client that hard-asserts the documented status discarded its
+            # shown-once key when the route answered 201). The value is
+            # imported from the route module that owns it, so this document
+            # cannot drift from the implementation again.
+            "success": {
+                "status": REGISTRATION_SUCCESS_STATUS,
+                "description": (
+                    "Created — the response body carries the plaintext api_key "
+                    "exactly once. Accept BOTH 200 and 201 if you must hard-code; "
+                    "this field is the authoritative value."
+                ),
+            },
             "request_fields": {
                 "pubkey": (
                     "CANONICAL standard base64 of the 32 RAW Ed25519 public key bytes "
