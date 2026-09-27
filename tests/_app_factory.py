@@ -53,6 +53,9 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.routes", "utm_router", ""),
     ("app.skill_serve_routes", "skill_serve_router", ""),
     ("app.fleet_skill_serve_routes", "fleet_skill_serve_router", ""),
+    # issue #357: missing entirely — GET/POST /api/wisechef/* (demo-funnel
+    # CTA/request routes, Phase L). create_app mounts this at line 186.
+    ("app.marketing_routes", "wisechef_router", ""),
     ("app.health_routes", "router", "/api"),
     ("app.access_routes", "router", "/api"),
     ("app.recipe_routes", "router", "/api"),
@@ -68,7 +71,13 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.skill_routes", "router", "/api"),
     ("app.skill_files_routes", "router", "/api"),
     ("app.admin_routes", "router", ""),
+    # issue #357: missing entirely — GET /api/admin/demand-brief.
+    ("app.demand_routes", "router", ""),
     ("app.auth_routes", "router", ""),
+    # issue #357: missing entirely — GET /api/connect/test.
+    ("app.connect_test_routes", "router", ""),
+    # issue #357: missing entirely — GET /api/bootcamp[/{track_id}].
+    ("app.bootcamp_routes", "router", "/api"),
     ("app.sandbox.routes", "router", ""),
     ("app.creator_routes", "router", ""),
     ("app.creators_routes", "router", ""),  # flywheel P1 F1.3
@@ -102,9 +111,16 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     # mirroring create_app's own ordering comment (must register after the
     # generic /public/{slug} route so the more specific path wins).
     ("app.bundle_wellknown_routes", "router", ""),
+    # issue #357: missing entirely — /.well-known/jwks.json +
+    # /.well-known/oauth-authorization-server (mesh_0408 T0-D, root-level).
+    ("app.mesh_wellknown_routes", "router", ""),
     ("app.promotion_routes", "router", ""),
     ("app.graph_routes", "router", ""),
     ("app.bundle_deployment_routes", "router", ""),
+    # issue #357: missing entirely — mesh_0408 W5 agent-facing convergence
+    # surface (POST /api/bundle-apply/*). create_app mounts this right after
+    # cookbook_deploy_router (bundle_deployment_routes here), before heartbeat.
+    ("app.bundle_converge_routes", "router", ""),
     ("app.heartbeat_routes", "router", ""),
     ("app.intent_survey_routes", "router", ""),
     ("app.skill_error_routes", "router", ""),
@@ -122,8 +138,14 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.skill_patch_routes", "router", ""),
     ("app.recall_routes", "router", ""),
     ("app.recipify_routes", "router", ""),
+    # issue #357: missing entirely — POST /api/federation/propose,
+    # GET /api/federation/... (bundles_0811 P3.5 self-serve registry propose).
+    ("app.federation_propose_routes", "router", ""),
     ("app.referral_routes", "router", ""),
     ("app.marketing_routes", "router", ""),
+    # issue #357: missing entirely — GET /api/sse/* (server-sent events
+    # stream). create_app mounts this right after marketing_router.
+    ("app.sse_routes", "router", ""),
     ("app.share_token_routes", "router", ""),
     ("app.fleet_routes", "router", ""),  # portal_0610 J3
     ("app.fleet_member_routes", "router", ""),  # activate_0701 Phase 1
@@ -135,8 +157,19 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.voice_routes", "router", ""),  # activate_0701 Phase FB
     ("app.dashboard_routes", "router", ""),  # activate_0701 Phase C
     ("app.fleet_console_routes", "router", ""),  # feat/fleet-console-state
+    # issue #357: missing entirely — GET /api/loops/packs (curated loop
+    # packs). MUST register BEFORE loop_routes: loop_routes' compat mount
+    # owns GET /api/loops/{slug}, which would otherwise swallow the static
+    # /api/loops/packs path (create_app's own ordering comment, mirrored).
+    ("app.loop_pack_routes", "router", ""),
     ("app.loop_routes", "router", ""),  # dual-mount /api/loops + /api/verifiers
-    ("app.personality_routes", "router", "/api"),
+    # issue #357: personality_routes.router already declares
+    # prefix="/api/personalities" internally (mirrors create_app, which
+    # mounts it with NO extra prefix arg). The old "/api" entry here doubled
+    # it to /api/api/personalities/* — every personality-router test routed
+    # through this factory was silently hitting a route that doesn't exist
+    # in prod.
+    ("app.personality_routes", "router", ""),
     ("app.search_routes", "router", "/api"),  # feat/unified-search
     # ah0724 rank-8 REVENUE/CATALOG — was missing: GET /api/composite-loops
     # (list) + GET /api/composite-loops/{slug} (detail) live in
@@ -146,12 +179,26 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     # was present.
     ("app.composite_loop_routes", "router", ""),  # activate_0701 Phase A2
     ("app.composite_loop_deploy_routes", "router", ""),  # feat/composite-loop-deploy
+    # issue #357: missing entirely — filters over the federated index
+    # (source/license/trust_level/tag) feeding the bulk bundle-add endpoint.
+    # create_app mounts this right after composite_loop_deploy_router.
+    ("app.federation_filter_routes", "router", ""),
     ("app.mesh_discovery_routes", "router", ""),  # mesh_0408 T3-A
+    # issue #357: missing entirely — POST /api/mesh/credentials (mesh_0408
+    # T0-D). create_app mounts this just before mesh_discovery_routes.
+    ("app.mesh_routes", "router", ""),
     # agentreg_0819 — POST /api/agents/register (public) + the master-key
     # revoke surface, and the two public .well-known discovery documents.
     ("app.first_key_routes", "router", ""),
     ("app.agent_wellknown_routes", "router", ""),
     ("app.agent_registration_routes", "router", ""),
+    # issue #357: missing entirely — the remaining tail of create_app's
+    # router list (internal PATCH-back, feedback polling, MCP SSE surface,
+    # credits balance). No known ordering constraint with neighbours.
+    ("app.internal_routes", "router", ""),
+    ("app.feedback_status_routes", "router", ""),
+    ("app.credits_routes", "router", ""),
+    ("app.mcp.server", "router", ""),
 ]
 
 
@@ -241,6 +288,20 @@ def build_test_app(
     app.add_middleware(TombstoneHeaderMiddleware)
 
     _mount_all_routers(app)
+
+    # issue #357: create_app also mounts the MCP StreamableHTTP ASGI sub-app
+    # at /api/mcp/http and a bare GET / meta route — mirror both so the
+    # parity gate (test_issue357_app_factory_parity.py) is honest about the
+    # full route table, not just the APIRouter-mounted subset.
+    from app.mcp.streaming import _build_streamable_http_mount
+
+    app.router.routes.append(_build_streamable_http_mount())
+
+    from app.version import __version__
+
+    @app.get("/", tags=["meta"])
+    def root():
+        return {"name": "LoopSkill API", "version": __version__, "docs": "/docs"}
 
     # Same domain-exception → HTTP mapping create_app installs, so a service
     # that raises a domain error 409s/422s here exactly as it does in prod.
