@@ -191,6 +191,23 @@ def _check_rate_limit(agent_fp_anon: str) -> bool:
 
 _HEX_RE = re.compile(r"^[0-9a-f]+$")
 
+# issue #342: bound applied to the FULL "[slug] message" string, same
+# rationale as the MCP tool's _DISPATCH_MESSAGE_MAX (title-limit safe).
+_DISPATCH_MESSAGE_MAX = 500
+
+
+def _dispatch_message(slug: str, stack_trace_top: str | None, command: str | None) -> str:
+    """Derive a non-empty dispatch `message` for the REST path.
+
+    Falls back stack_trace_top -> command -> a generic placeholder, mirroring
+    the MCP tool's derivation. Operates on the already-anonymized values (the
+    caller passes ``anon.get(...)`` results, which have already cleared the
+    PII audit + Presidio/regex redaction gate).
+    """
+    body = (stack_trace_top or "").strip() or (command or "").strip() or f"skill error reported for {slug}"
+    full = f"[{slug}] {body}"
+    return full[:_DISPATCH_MESSAGE_MAX]
+
 
 class SkillErrorIn(BaseModel):
     """Payload for skill error reports. Uses skill_slug for CLI convenience."""
@@ -316,6 +333,11 @@ def post_skill_error(
 
     # Compute composite signature and fire GitHub dispatch (Stream 1)
     composite_sig = hashlib.sha256(f"{payload.skill_slug}|{payload.error_signature}".encode()).hexdigest()
+    dispatch_message = _dispatch_message(
+        payload.skill_slug,
+        anon.get("stack_trace_top", payload.stack_trace_top),
+        anon.get("command", payload.command),
+    )
     github_dispatch.dispatch_event(
         "skill-error",
         {
@@ -324,6 +346,8 @@ def post_skill_error(
             "error_signature": payload.error_signature,
             "agent_fp_anon": payload.agent_fp_anon,
             "signature": composite_sig,
+            "category": "skill-error",
+            "message": dispatch_message,
         },
     )
 

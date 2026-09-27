@@ -587,14 +587,12 @@ inert). No schema, no migration.
     exception, never a blocking wait. No schema change. Verified against
     prod /api/healthz 0.9.48 before bumping.
 
-feat/unisearch-p2-mcp-unify: bumped past current main (0.9.49) — MCP
-    loopskill_search keeps its native pass verbatim and APPENDS compact
-    federated rows read from the P1 shared cache (cache-ONLY get_entry; never
-    get_or_compute, never fan_out — a >90s cold fan-out on the MCP thread reads
-    as a broken platform); native first, honest freshness flag.
-
-coldstart_0927: agent.json publishes registration.success.status (201) from
-    a route-shared constant; dead openapi.json ad removed (404, ledger #5).
+feat/unisearch-p2-mcp-unify (0.9.49): MCP search appends federated cache rows.
+coldstart_0927 (0.9.50): agent.json publishes real registration status.
+0.9.52 - fix(issue-342): skill-error dispatch (MCP+REST) now carries
+    message+category, closing the workflow's "No message provided"
+    fallback; message derived summary/stack_trace_top->details/command->
+    generic, bounded post-[slug]-prefix. Verified prod 0.9.51 before bump.
 """
 
-__version__ = "0.9.51"
+__version__ = "0.9.52"
