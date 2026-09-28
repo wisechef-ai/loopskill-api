@@ -32,6 +32,7 @@ from app import authz
 from app.models import Bundle
 from app.reconcile_abuse_ceiling import check_reconcile_abuse_ceiling
 from app.services.reconcile import recipes_reconcile
+from app.services.sync_activity import SOURCE_RECONCILE, record_sync_day
 
 _h = APIRouter(tags=["reconcile"])  # handlers registered prefix-free; dual-mounted below
 
@@ -103,6 +104,10 @@ def reconcile_cookbook(
         return {"error": "read_only_follow"}
 
     generation = _generation_token(cb)
+
+    # paywall_0925: an authorized reconcile (304 included) is a sync day for
+    # repeat-use. Seen-set cached: zero extra queries after the first per day.
+    record_sync_day(db, auth_ctx.user_id, source=SOURCE_RECONCILE)
 
     # ── CHEAP 304: If-None-Match matches generation → no diff computed. ──
     inm = request.headers.get("if-none-match", "").strip().strip('"')

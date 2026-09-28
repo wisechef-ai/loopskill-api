@@ -1,25 +1,24 @@
-"""Maintenance-gated conversion ladder — evergreen_0206 Phase G.
+"""Bundle-create conversion gate — the one live rung of evergreen_0206 Phase G.
 
-The paid axis is MAINTENANCE, not ACCESS (decision #1). The ladder:
+paywall_0925 removed the other three predicates (``gate_manual_sync``,
+``gate_daemon_cron_install``, ``gate_fleet``). They had no caller outside
+tests, and the ladder they encoded no longer matches config/tiers.yaml:
 
-  FREE  → a couple of PRIVATE bundles (unlimited public ones — D-011) + exactly
-          ONE manual sync (the taste). Watch a bundle self-heal + auto-recover
-          once. Then the ceiling is felt.
-  PRO   → scheduled/cron auto-reconcile (the daemon). Skills never rot, hands-off.
-  PRO+  → fleet reconcile across N agents + channels. The control plane.
+  * tiers.yaml has no manual-sync allowance at all (no "one free sync");
+  * fleet was "Pro+ only, Pro -> 403", but the live fleet-member cap
+    (fleet_member_routes.TIER_KEY_CAPS) gives Pro 200 members, and Pro+ is
+    ``public: false``.
 
-This module holds the gate PREDICATES (pure, testable). The reasoning is
-front-loaded from A-E (the seams already exist); G just wires the ceilings:
-  - free 2nd manual sync       → 402 upgrade
-  - free daemon-cron install   → 402 upgrade (scheduled reconcile is Pro)
-  - free/pro fleet tools        → 403 (fleet is Pro+)
+Re-introducing a sync paywall is a PRICING decision (lock #24), not a wiring
+fix: write it against tiers.yaml first. Every live tier refusal is recorded
+through ``app.services.paywall_hits.record_paywall_hit``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.tier_labels import _is_paid_tier, _is_pro_plus_tier, bundle_limit
+from app.tier_labels import _is_paid_tier, bundle_limit
 
 
 @dataclass(frozen=True)
@@ -28,58 +27,6 @@ class GateOutcome:
     http_status: int  # 200 when allowed; 402 (upgrade) or 403 (forbidden) otherwise
     reason: str
     upgrade_to: str | None = None
-
-
-def gate_manual_sync(tier: str | None, free_sync_used_at) -> GateOutcome:
-    """A manual (human-initiated) reconcile/sync.
-
-    Paid tiers: always allowed (Pro gets cron auto-reconcile anyway). Free: the
-    FIRST manual sync is the taste (allowed); a SECOND → 402 upgrade.
-    free_sync_used_at is None until the free user has spent their one sync.
-    """
-    if _is_paid_tier(tier):
-        return GateOutcome(allowed=True, http_status=200, reason="paid tier")
-    # Free / no tier.
-    if free_sync_used_at is None:
-        return GateOutcome(
-            allowed=True,
-            http_status=200,
-            reason="free taste: first manual sync",
-        )
-    return GateOutcome(
-        allowed=False,
-        http_status=402,
-        reason="You watched it self-heal once. Want that on a cron? Pro.",
-        upgrade_to="pro",
-    )
-
-
-def gate_daemon_cron_install(tier: str | None) -> GateOutcome:
-    """Installing the scheduled reconcile daemon-cron is a PRO capability.
-
-    Free can run ONE manual sync but cannot wire the always-on cron — that's the
-    evergreen guarantee they upgrade for.
-    """
-    if _is_paid_tier(tier):
-        return GateOutcome(allowed=True, http_status=200, reason="paid tier")
-    return GateOutcome(
-        allowed=False,
-        http_status=402,
-        reason="Scheduled auto-reconcile (skills never rot) is Pro.",
-        upgrade_to="pro",
-    )
-
-
-def gate_fleet(tier: str | None) -> GateOutcome:
-    """Fleet reconcile across N agents is a PRO+ capability."""
-    if _is_pro_plus_tier(tier):
-        return GateOutcome(allowed=True, http_status=200, reason="pro_plus tier")
-    return GateOutcome(
-        allowed=False,
-        http_status=403,
-        reason="Managing N agents by hand? Pro+.",
-        upgrade_to="pro_plus",
-    )
 
 
 def gate_cookbook_create(tier: str | None, current_count: int, limit: int | None) -> GateOutcome:

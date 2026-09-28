@@ -70,17 +70,32 @@ SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$")
 # ── Tier gate ───────────────────────────────────────────────────────────
 
 
-def _require_deploy_tier(user: User | None) -> User:
+def _require_deploy_tier(user: User | None, db: Session | None = None) -> User:
     """Enforce pro/pro_plus tier; 401 if anonymous, 402 otherwise.
 
     W2: gates on the ENTITLED tier, not the raw ``subscription_tier`` column —
     that column keeps its slug after a payment fails, so a past_due Pro would
     otherwise keep deploying on a card that no longer charges.
+
+    ``db`` (paywall_0925): when supplied, a 402 is recorded as a paywall hit.
+    Every route passes it; it is optional only so direct unit callers of the
+    pure gate keep working.
     """
     if user is None:
         raise HTTPException(status_code=401, detail="login_required")
     tier = (entitled_tier(user) or "").lower()
     if tier not in DEPLOY_TIERS:
+        if db is not None:
+            from app.services.paywall_hits import GATE_DEPLOY_TIER, record_paywall_hit
+
+            record_paywall_hit(
+                db,
+                gate=GATE_DEPLOY_TIER,
+                http_status=402,
+                tier=tier or None,
+                user_id=user.id,
+                email=user.email,
+            )
         raise HTTPException(
             status_code=402,
             detail=f"pro_tier_required:current={tier or 'none'}",
@@ -156,7 +171,7 @@ async def create_deploy_cookbook(
     user: User | None = Depends(get_current_user_optional),
 ):
     """Create a new white-label deployment cookbook for the authenticated Pro user."""
-    user = _require_deploy_tier(user)
+    user = _require_deploy_tier(user, db)
     if req.visibility not in {"private", "team", "public"}:
         raise HTTPException(status_code=400, detail="invalid_visibility")
     if req.pin_mode not in {"latest-stable", "pinned-current", "frozen"}:
@@ -192,7 +207,7 @@ async def list_deploy_cookbooks(
     user: User | None = Depends(get_current_user_optional),
 ):
     """List all deployment cookbooks owned by the authenticated Pro user."""
-    user = _require_deploy_tier(user)
+    user = _require_deploy_tier(user, db)
     rows = (
         db.query(Bundle)
         .filter(Bundle.bundle_owner == user.id, Bundle.slug.isnot(None))  # compat-alias
@@ -212,7 +227,7 @@ async def add_deployment(
     user: User | None = Depends(get_current_user_optional),
 ):
     """Add a skill or fork as an ordered deployment in the specified cookbook."""
-    user = _require_deploy_tier(user)
+    user = _require_deploy_tier(user, db)
     cb = _resolve_cookbook_or_404(db, cookbook_id, user)
 
     if not req.skill_id and not req.fork_id:
@@ -269,7 +284,7 @@ async def remove_deployment(
     user: User | None = Depends(get_current_user_optional),
 ):
     """Remove a skill/fork deployment from the specified cookbook."""
-    user = _require_deploy_tier(user)
+    user = _require_deploy_tier(user, db)
     cb = _resolve_cookbook_or_404(db, cookbook_id, user)
     try:
         skill_uuid = UUID(skill_id)
@@ -312,7 +327,7 @@ async def apply_cookbook(
     immediately discarded, and the status endpoint answered ``applying`` for
     any id forever — a status that could not go red.
     """
-    user = _require_deploy_tier(user)
+    user = _require_deploy_tier(user, db)
     cb = _resolve_cookbook_or_404(db, cookbook_id, user)
     rows = (
         db.query(BundleDeployment)
@@ -393,7 +408,7 @@ async def cookbook_job_status(
     ``converged``; any reported failure makes it ``failed``. An unknown job_id
     is 404 — this used to fabricate ``applying`` for ids that were never issued.
     """
-    user = _require_deploy_tier(user)
+    user = _require_deploy_tier(user, db)
     cb = _resolve_cookbook_or_404(db, cookbook_id, user)
     try:
         jid = UUID(job_id)
@@ -424,7 +439,7 @@ async def rollback_cookbook(
     was published between the failure and the rollback call, the new job
     targets the patched version, not a frozen retry of the broken one.
     """
-    user = _require_deploy_tier(user)
+    user = _require_deploy_tier(user, db)
     cb = _resolve_cookbook_or_404(db, cookbook_id, user)
 
     try:

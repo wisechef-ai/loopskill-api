@@ -117,6 +117,18 @@ def require_operator(request: Request, db: Session = Depends(get_db)) -> TierCon
     status = user.subscription_status if user else None
 
     if not _is_pro_tier(tier) or status not in ACTIVE_SUB_STATUSES:
+        if user is not None:
+            from app.services.paywall_hits import GATE_FORKS_TIER, record_paywall_hit
+
+            record_paywall_hit(
+                db,
+                gate=GATE_FORKS_TIER,
+                http_status=402,
+                tier=tier,
+                user_id=user.id,
+                api_key_id=getattr(request.state, "api_key_id", None),
+                email=user.email,
+            )
         raise HTTPException(
             status_code=402,
             detail={"needs_tier": "pro", "current_tier": tier},

@@ -165,8 +165,10 @@ not master and not a matching cbt_token). This is the per-tenant boundary.
    isolation wall.
 4. **Fleet (C/E/I):** fleet reconcile and drift-observability resolve agents/cookbooks within
    the fleet's own scope (`fleet_id`); one tenant's fleet status is never readable by another.
-5. **Conversion gating (G):** the `free_sync_used_at` flag and cookbook count are per-account;
-   no shared counter, no cross-account leakage.
+5. **Conversion gating (G):** the private-bundle count and paywall-hit / sync-day telemetry
+   (`paywall_hits`, `user_sync_days`) are per-account; no shared counter, no cross-account
+   leakage. (paywall_0925: the "one free manual sync" gate and its `free_sync_used_at` flag
+   were never wired and were removed from the pulse — no sync paywall exists today.)
 6. **Test obligation:** every phase that adds a read/write surface adds at least one
    **negative isolation test** — "tenant B cannot see / reconcile / observe tenant A's
    cookbook/skill/fleet, gets 404." Tracked in a dedicated `test_evergreen_isolation.py`

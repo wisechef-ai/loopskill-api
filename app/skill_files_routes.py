@@ -301,6 +301,9 @@ def get_skill_file(
     #    ``(skill.tier or "").lower() == "free"`` that lived here answered NO for
     #    a NULL tier while install authz answered YES.
     if not caller_is_paid and not skill_is_free_to_read(skill.tier):
+        from app.services.paywall_hits import GATE_SKILL_FILES_TIER, record_paywall_hit_for_ctx
+
+        record_paywall_hit_for_ctx(db, auth_ctx, gate=GATE_SKILL_FILES_TIER, http_status=403, request=request)
         raise HTTPException(
             status_code=403,
             detail="Pro subscription required to access this skill's files",
