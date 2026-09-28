@@ -65,6 +65,16 @@ class ColdstartError(Exception):
     """
 
 
+class UnrenderedTemplateError(ColdstartError):
+    """coldstart_0928 — a success_check kept a {{var}} marker after render().
+
+    Means a task author used a template variable the runner does not know;
+    executing that as bash would produce garbage (historically
+    `curl: (3) nested brace in URL`), so the runner refuses and scores
+    ERROR per RUBRIC.md.
+    """
+
+
 @dataclasses.dataclass
 class HarnessResult:
     """What a harness invocation reports back to the runner."""
@@ -123,6 +133,21 @@ def get_task(task_id: str) -> dict[str, Any]:
 def render(text: str, run_id: str) -> str:
     """Substitute the suite's one template var, `{{run_id}}`, literally."""
     return text.replace("{{run_id}}", run_id)
+
+
+# coldstart_0928 — unrendered-template tripwire.
+#
+# The suite's ONLY templated check (publish-throwaway-skill) shipped in #319
+# with `{{run_id}}` in its success_check, but run_task() passed the check to
+# bash unrendered: every verdict for that task across every harness died on
+# `curl: (3) nested brace in URL` before reaching the server, the task was
+# unpassable-by-construction, and the ping-pong breaker BLOCKED all three
+# harness:task pairs on "3 attempts, no improvement" — an instrument artifact
+# masquerading as a product verdict. This regex is the guard that makes that
+# class silent-impossible: after render(), any surviving {{word}} marker means
+# a task author invented a variable the runner does not know, and executing
+# that as bash must score as ERROR (RUBRIC.md), never a product FAIL.
+UNRENDERED_TEMPLATE_RE = re.compile(r"\{\{\s*[a-z_][a-z0-9_]*\s*\}\}")
 
 
 # --------------------------------------------------------------------------
@@ -772,6 +797,16 @@ def run_success_check(
     max_minutes: int,
 ) -> tuple[int, str]:
     """Run success_check as `bash -c`. Returns (exit_code, combined_tail)."""
+    # coldstart_0928: refuse to execute a check that still carries an
+    # unsubstituted {{var}} — bash/curl die on the literal braces (curl exit
+    # 3 "nested brace in URL") and the garbage verdict looks like a product
+    # fail. Authoring defect -> ERROR, never FAIL.
+    stale = UNRENDERED_TEMPLATE_RE.search(check_script)
+    if stale:
+        raise UnrenderedTemplateError(
+            f"success_check contains unrendered template marker {stale.group(0)!r}; "
+            "known vars: {{run_id}}"
+        )
     env = build_cold_env()
     env["HOME"] = str(home)
     env["LOOPSKILL_BASE"] = loopskill_base
@@ -863,7 +898,7 @@ def run_task(
         else:
             try:
                 check_exit, check_tail = run_success_check(
-                    task["success_check"],
+                    render(task["success_check"], run_id),
                     tmp_home,
                     run_id,
                     task_id,
@@ -874,6 +909,12 @@ def run_task(
             except subprocess.TimeoutExpired:
                 outcome = "error"
                 check_tail = "success_check itself timed out"
+            except UnrenderedTemplateError as exc:
+                # Rationale: a check that still contains a {{var}} marker the
+                # runner never substituted is an authoring/instrument defect —
+                # per RUBRIC.md it must score as error, never a product fail.
+                outcome = "error"
+                check_tail = str(exc)
             except OSError as exc:
                 # Rationale: success_check failing to even execute (missing
                 # bash, permissions, etc.) is a harness/runner problem, not
