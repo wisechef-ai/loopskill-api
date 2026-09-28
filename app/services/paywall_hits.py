@@ -71,7 +71,7 @@ def _subject_key(user_id: UUID | None, api_key_id: UUID | None, ip: str | None) 
 
 def _as_uuid(value: object) -> UUID | None:
     if value is None or isinstance(value, UUID):
-        return value  # type: ignore[return-value]
+        return value
     try:
         return UUID(str(value))
     except (ValueError, TypeError, AttributeError):
