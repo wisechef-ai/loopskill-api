@@ -30,7 +30,7 @@ DATA_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "hosting_
 
 @lru_cache(maxsize=4)
 def _load(path_str: str) -> dict[int, tuple[list[int], list[int], list[str]]]:
-    """Per IP version: (sorted starts, matching ends, labels). Non-overlapping."""
+    """Per IP version: (sorted starts, matching ends, labels), non-overlapping."""
     rows: dict[int, list[tuple[int, int, str]]] = {4: [], 6: []}
     path = Path(path_str)
     if not path.exists():
@@ -50,9 +50,45 @@ def _load(path_str: str) -> dict[int, tuple[list[int], list[int], list[str]]]:
             )
     out = {}
     for version, items in rows.items():
-        items.sort()
-        out[version] = ([s for s, _, _ in items], [e for _, e, _ in items], [lbl for _, _, lbl in items])
+        segments = _flatten(items)
+        out[version] = (
+            [s for s, _, _ in segments],
+            [e for _, e, _ in segments],
+            [lbl for _, _, lbl in segments],
+        )
     return out
+
+
+def _flatten(items: list[tuple[int, int, str]]) -> list[tuple[int, int, str]]:
+    """Split nested ranges into disjoint segments; the most specific label wins.
+
+    The refresh script collapses prefixes per label only, so a range under one
+    label can sit inside a range under another (``172.217.0.0/16 Google``
+    around ``172.217.56.0/21 GoogleCloud``). A bisect over the raw rows lands
+    on the inner range and misses every address past its end. CIDR blocks are
+    always nested or disjoint, so one sweep with a stack of open ranges yields
+    segments that cover exactly the union of the input.
+    """
+    segments: list[tuple[int, int, str]] = []
+    stack: list[tuple[int, str]] = []  # (end, label) of open ranges, outermost first
+    cursor = 0
+
+    def close_until(limit: int) -> None:
+        nonlocal cursor
+        while stack and stack[-1][0] < limit:
+            end, label = stack.pop()
+            if cursor <= end:
+                segments.append((cursor, end, label))
+                cursor = end + 1
+
+    for start, end, label in sorted(items, key=lambda r: (r[0], -r[1], r[2])):
+        close_until(start)
+        if stack and cursor < start:
+            segments.append((cursor, start - 1, stack[-1][1]))
+        cursor = start
+        stack.append((end, label))
+    close_until(1 << 128)
+    return segments
 
 
 def hosting_network(ip: str | None, *, path: Path | None = None) -> str | None:

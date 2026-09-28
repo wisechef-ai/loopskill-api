@@ -81,6 +81,57 @@ def test_missing_data_file_degrades_to_not_hosting(tmp_path: Path):
     assert hosting_networks.hosting_network(AWS_IP, path=tmp_path / "nope.txt") is None
 
 
+def test_outer_range_past_a_nested_differently_labelled_range(tmp_path: Path):
+    # Review round 1: bisect landed on the nested /21 and missed the enclosing
+    # /16 for any address past the /21's end.
+    data = tmp_path / "nets.txt"
+    data.write_text(
+        "172.217.0.0/16 Google\n172.217.56.0/21 GoogleCloud\n10.0.0.0/8 Outer\n10.1.0.0/16 Mid\n10.1.2.0/24 Inner\n",
+        encoding="utf-8",
+    )
+    lookup = lambda ip: hosting_networks.hosting_network(ip, path=data)  # noqa: E731
+    assert lookup("172.217.0.1") == "Google"
+    assert lookup("172.217.56.1") == "GoogleCloud"  # most specific wins
+    assert lookup("172.217.64.0") == "Google"  # past the nested range
+    assert lookup("172.217.255.255") == "Google"
+    assert lookup("10.1.2.9") == "Inner"
+    assert lookup("10.1.3.0") == "Mid"
+    assert lookup("10.2.0.0") == "Outer"
+    assert lookup("11.0.0.0") is None
+
+
+@pytest.mark.parametrize(
+    ("ip", "provider"),
+    [
+        ("172.217.64.0", "Google"),
+        ("108.177.6.0", "Google"),
+        ("172.253.32.0", "Google"),
+        ("165.85.87.0", "AWS"),
+        ("185.34.86.0", "Microsoft"),
+    ],
+)
+def test_shipped_snapshot_has_no_nested_range_holes(ip, provider):
+    assert hosting_networks.hosting_network(ip) == provider
+
+
+def test_shipped_snapshot_every_listed_address_resolves():
+    # Every first and last address of every listed range must resolve: no
+    # overlap between labels may hide part of an enclosing range.
+    import ipaddress
+
+    text = hosting_networks.DATA_PATH.read_text(encoding="utf-8")
+    misses = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        net = ipaddress.ip_network(line.split()[0], strict=False)
+        for addr in (net.network_address, net.broadcast_address):
+            if hosting_networks.hosting_network(str(addr)) is None:
+                misses.append(str(addr))
+    assert misses == []
+
+
 def test_backfill_classifies_hosting_install_unknown(db_session):
     skill = Skill(id=uuid.uuid4(), slug=f"s-{uuid.uuid4().hex[:8]}", title="t", is_public=True)
     db_session.add(skill)
