@@ -144,6 +144,11 @@ def enroll_member(
 
     current_count = member_count_q.scalar() or 0
     if current_count >= cap:
+        from app.services.paywall_hits import GATE_FLEET_MEMBER_CAP, record_paywall_hit_for_ctx
+
+        record_paywall_hit_for_ctx(
+            db, ctx, gate=GATE_FLEET_MEMBER_CAP, http_status=402, tier=tier, request=request
+        )
         raise HTTPException(
             status_code=402,
             detail={

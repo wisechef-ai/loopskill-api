@@ -7,7 +7,7 @@ PATCH /api/admin/skill-publish-requests/{id}/status — approve or reject a
      pending skill-publish request; approval triggers a contributor-discount
      credit grant for qualifying (pro/pro_plus) authors.
 GET  /api/admin/pulse — the north-star "one number" demand scoreboard:
-     paying operators, MRR, free-sync paywall pressure, fleet-deploy usage.
+     paying operators, MRR, paywall hits by gate, repeat syncs, fleet-deploy usage.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ from app.revenue_truth import (
     tier_list_monthly_usd,
 )
 from app.search_index import reindex_all
+from app.services.paywall_pulse import PaywallGateOut, paywall_hits_by_gate, repeat_sync_users
 from app.tier_labels import _is_paid_tier
 
 logger = logging.getLogger(__name__)
@@ -269,8 +270,10 @@ class PulseOut(BaseModel):
     by_tier: dict[str, int]  # canonical paid tier -> count of active subscribers
     list_mrr_ceiling_usd: Decimal  # list-price × active subs — a CEILING, NOT revenue (labeled honestly)
     # ── Paywall pressure + fleet deploy ──────────────────────────────────
-    free_sync_used_total: int  # free users who burned their one free sync (felt the wall)
-    free_sync_used_7d: int  # ...in the last 7 days (recent paywall pressure)
+    # paywall_0925: free_sync_used_* removed — nothing ever wrote the column,
+    # so it was 0 by construction. Real refusals come from paywall_hits.
+    paywall_hits_7d_by_gate: list[PaywallGateOut]  # per tier gate, last 7 days
+    repeat_sync_users_30d: int  # human users with syncs on >=2 distinct days in 30d
     fleets_total: int  # named fleets created
     fleet_subscriptions_total: int  # bundle->fleet deploys (the moat motion; 0 = never used)
     fleet_subscriptions_7d: int  # ...in the last 7 days
@@ -375,20 +378,10 @@ def admin_pulse(
 
     comped_subscriptions = active_subscriptions - paying_operators if mrr_source == "stripe" else 0
 
-    # Free-sync paywall pressure. is_agent filter (review round 3, F6): agent
-    # shadows never use human free-sync; excluding them keeps admin counts human.
-    free_sync_used_total = (
-        db.query(func.count(User.id))
-        .filter(User.is_agent.is_(False), User.free_sync_used_at.isnot(None))
-        .scalar()
-        or 0
-    )
-    free_sync_used_7d = (
-        db.query(func.count(User.id))
-        .filter(User.is_agent.is_(False), User.free_sync_used_at >= cutoff_7d)
-        .scalar()
-        or 0
-    )
+    # Paywall pressure (paywall_0925): every live tier refusal, by gate, plus
+    # the repeat-use signal. Both tables are written by app/services writers.
+    paywall_hits_7d_by_gate = paywall_hits_by_gate(db, since=(now - timedelta(days=6)).date())
+    repeat_sync_users_30d = repeat_sync_users(db, today=now.date())
 
     # Fleet-deploy activity (the moat motion).
     fleets_total = db.query(func.count(Fleet.id)).scalar() or 0
@@ -441,8 +434,8 @@ def admin_pulse(
         active_subscriptions=active_subscriptions,
         by_tier=by_tier,
         list_mrr_ceiling_usd=list_ceiling.quantize(Decimal("0.01")),
-        free_sync_used_total=int(free_sync_used_total),
-        free_sync_used_7d=int(free_sync_used_7d),
+        paywall_hits_7d_by_gate=paywall_hits_7d_by_gate,
+        repeat_sync_users_30d=repeat_sync_users_30d,
         fleets_total=int(fleets_total),
         fleet_subscriptions_total=int(fleet_subscriptions_total),
         fleet_subscriptions_7d=int(fleet_subscriptions_7d),

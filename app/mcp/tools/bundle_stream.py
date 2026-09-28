@@ -432,6 +432,9 @@ def loopskill_compose_bundle_from_links(
     # unlimited on every tier, so only not-public bundles are counted here.
     quota = quota_status(db, ctx.user_id, ctx.tier)
     if quota["blocked"]:
+        from app.services.paywall_hits import GATE_MCP_COMPOSE_PRIVATE_CAP, record_paywall_hit_for_ctx
+
+        record_paywall_hit_for_ctx(db, ctx, gate=GATE_MCP_COMPOSE_PRIVATE_CAP, http_status=403)
         raise CookbookInstallError(
             "cookbook_limit",  # compat-alias — wire-visible error code
             f"private bundle limit reached for tier '{ctx.tier}' "

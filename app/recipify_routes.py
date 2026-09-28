@@ -100,6 +100,9 @@ def recipify(
     from app.tier_labels import _is_paid_tier
 
     if not ctx.is_master and not _is_paid_tier(ctx.tier):
+        from app.services.paywall_hits import GATE_RECIPIFY_TIER, record_paywall_hit_for_ctx
+
+        record_paywall_hit_for_ctx(db, ctx, gate=GATE_RECIPIFY_TIER, http_status=401)
         raise HTTPException(
             status_code=401,
             detail={"needs_tier": "pro", "current_tier": ctx.tier},

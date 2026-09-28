@@ -84,6 +84,15 @@ def _record_deploy_event(
             logger.warning("metasearch fleet_deploy rollback also failed", exc_info=True)
 
 
+def _record_skill_cap_hit(db: Session, ctx: object, request: Request) -> None:
+    """paywall_0925: the Pro skill cap refused a deploy — record the paywall hit."""
+    from app.services.paywall_hits import GATE_METASEARCH_DEPLOY_SKILL_CAP, record_paywall_hit_for_ctx
+
+    record_paywall_hit_for_ctx(
+        db, ctx, gate=GATE_METASEARCH_DEPLOY_SKILL_CAP, http_status=403, request=request
+    )
+
+
 @router.post("/metasearch/deploy", tags=["skills", "metasearch", "fleet-deploy"])
 def metasearch_fleet_deploy(
     body: FleetDeployIn,
@@ -147,6 +156,7 @@ def metasearch_fleet_deploy(
     if existing is not None:
         # A disabled row being reactivated counts as a NEW active skill → cap it.
         if existing.source == "disabled" and _at_cap_for_reactivation():
+            _record_skill_cap_hit(db, ctx, request)
             raise HTTPException(
                 status_code=403,
                 detail={"deployed": False, "reason": "skill_cap_reached", "cap": BUNDLE_SKILL_CAP},
@@ -175,6 +185,7 @@ def metasearch_fleet_deploy(
             .count()
         )
         if active >= BUNDLE_SKILL_CAP:
+            _record_skill_cap_hit(db, ctx, request)
             raise HTTPException(
                 status_code=403,
                 detail={"deployed": False, "reason": "skill_cap_reached", "cap": BUNDLE_SKILL_CAP},

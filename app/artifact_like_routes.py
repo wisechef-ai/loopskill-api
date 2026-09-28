@@ -92,7 +92,7 @@ def _require_user(request: Request) -> AuthContext:
     return ctx
 
 
-def _enforce_tier_gate(ctx: AuthContext, tier: str | None) -> None:
+def _enforce_tier_gate(ctx: AuthContext, tier: str | None, db: Session, request: Request) -> None:
     """Reject an over-tier like.
 
     spotify_2607 Phase B deliverable #5: tier/authz gating must apply per
@@ -105,6 +105,9 @@ def _enforce_tier_gate(ctx: AuthContext, tier: str | None) -> None:
     if ctx.scope == "master":
         return
     if not authz.tier_rank_allows_install(ctx.tier, tier):
+        from app.services.paywall_hits import GATE_ARTIFACT_LIKE_TIER, record_paywall_hit_for_ctx
+
+        record_paywall_hit_for_ctx(db, ctx, gate=GATE_ARTIFACT_LIKE_TIER, http_status=403, request=request)
         raise HTTPException(
             status_code=403,
             detail=f"tier_gated: your tier ({ctx.tier or 'free'}) may not like this artifact",
@@ -127,7 +130,7 @@ def like_personality(slug: str, request: Request, db: Session = Depends(get_db))
     """Like a personality by slug. Writes to the typed Liked bundle."""
     ctx = _require_user(request)
     p = _personality_or_404(db, slug)
-    _enforce_tier_gate(ctx, getattr(p, "tier", None))
+    _enforce_tier_gate(ctx, getattr(p, "tier", None), db, request)
     _do_like_personality(db, ctx, p, liked=True)
     return LikeResponse(liked=True, like_count=_personality_like_count(db, p))
 
@@ -198,7 +201,7 @@ def like_loop(slug: str, request: Request, db: Session = Depends(get_db)) -> Lik
     """Like a composite loop by slug."""
     ctx = _require_user(request)
     cl = _loop_or_404(db, slug)
-    _enforce_tier_gate(ctx, getattr(cl, "tier", None))
+    _enforce_tier_gate(ctx, getattr(cl, "tier", None), db, request)
     _do_like_loop(db, ctx, cl, liked=True)
     return LikeResponse(liked=True, like_count=_loop_like_count(db, cl))
 
