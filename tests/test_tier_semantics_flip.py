@@ -2,8 +2,8 @@
 
 Integration tests:
 1. Cook tier installs an operator-tagged skill → 200 OK with rate-limit headers
-2. Cook tier hits 101st install → 429 with upgrade copy in body
-3. Free tier rate limited at 5 installs
+2. Cook tier 101st install → 200 (pricing0928 removed the 100/day cap)
+3. Free tier 6th install → 200 (pricing0928 removed the 5/day cap)
 4. Operator tier unlimited installs (no rate-limit headers)
 5. Rate limit resets daily
 """
@@ -222,77 +222,56 @@ class TestCookFullCatalog:
             headers={"x-api-key": cook_key},
         )
         assert resp.status_code == 200, resp.text
-        # Rate-limit headers should still be present for Pro tier.
-        assert resp.headers.get("X-RateLimit-Limit") == "100"
+        # pricing0928: Pro is uncapped (it can't sit below Free), so no RL headers.
+        assert "X-RateLimit-Limit" not in resp.headers
 
 
-# ── Test 2: Cook hits rate limit → 429 ────────────────────────────────────
+# ── Test 2+3: the daily per-key install cap is gone (pricing0928) ─────────
+#
+# WIS-902 pinned Cook=100/day and Free=5/day. pricing0928 (t_7f5808d2) removed
+# both: the anonymous cap never applied (no api_key_id to count), so a signed-in
+# key was capped BELOW an anonymous caller. These tests used to assert the 429;
+# they now pin the opposite, with the same seeded history that used to trip it.
 
 
 class TestCookRateLimit:
-    def test_cook_rate_limit_429(self, patched_client, db):
-        """WIS-902: Cook tier hits 101st install → 429 with upgrade copy.
-
-        Probe skills are pro-tier so the pro key passes the R1 tier gate and the
-        RATE LIMIT (not the tier gate) is what's exercised on the 101st call.
-        """
-        # Create 101 pro-tier skills with versions
+    def test_cook_101st_install_is_not_capped(self, patched_client, db):
+        """100 installs already today → the 101st still succeeds, no RL headers."""
         skills = []
         for i in range(101):
             skills.append(_make_skill(db, slug=f"rl-skill-{i}", title=f"RL Skill {i}", tier="pro"))
 
         cook_key, ak_id = _make_user_with_key(db, tier="pro")
-
-        # Simulate 100 previous installs today
         for i in range(100):
             _make_install_event(db, skills[i].id, api_key_id=ak_id)
         db.commit()
 
-        # 101st install should hit the limit
         resp = patched_client.get(
             "/api/skills/install?slug=rl-skill-100",
             headers={"x-api-key": cook_key},
         )
-        assert resp.status_code == 429, f"Expected 429, got {resp.status_code}: {resp.text}"
-        body = resp.json()
-        assert "Upgrade to Pro+" in body["detail"]
-        assert body["tier"] == "pro"
-        assert body["limit"] == 100
-        # Check standard rate-limit headers
-        assert resp.headers.get("X-RateLimit-Limit") == "100"
-        assert resp.headers.get("X-RateLimit-Remaining") == "0"
-        assert "Retry-After" in resp.headers
-
-
-# ── Test 3: Free tier rate limited at 5 ────────────────────────────────────
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        assert "X-RateLimit-Limit" not in resp.headers
 
 
 class TestFreeTierRateLimit:
-    def test_free_tier_5_installs_per_day(self, patched_client, db):
-        """WIS-902: Free tier limited to 5 installs/day.
-
-        Probe skills are free-tier so the free key passes the R1 tier gate and
-        the RATE LIMIT is what's exercised.
-        """
+    def test_free_tier_6th_install_is_not_capped(self, patched_client, db):
+        """5 installs already today → the 6th still succeeds (was a 429)."""
         skills = []
         for i in range(7):
             skills.append(_make_skill(db, slug=f"free-skill-{i}", title=f"Free {i}", tier="free"))
 
         free_key, ak_id = _make_user_with_key(db, tier="free")
-
-        # Simulate 5 previous installs today
         for i in range(5):
             _make_install_event(db, skills[i].id, api_key_id=ak_id)
         db.commit()
 
-        # 6th install should hit the limit
         resp = patched_client.get(
             "/api/skills/install?slug=free-skill-5",
             headers={"x-api-key": free_key},
         )
-        assert resp.status_code == 429, f"Expected 429, got {resp.status_code}: {resp.text}"
-        body = resp.json()
-        assert body["limit"] == 5
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        assert "X-RateLimit-Limit" not in resp.headers
 
 
 # ── Test 4: Operator unlimited installs ────────────────────────────────────
@@ -341,5 +320,5 @@ class TestRateLimitReset:
             headers={"x-api-key": free_key},
         )
         assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
-        assert resp.headers.get("X-RateLimit-Limit") == "5"
-        assert resp.headers.get("X-RateLimit-Remaining") == "4"
+        # pricing0928: Free is uncapped, so no rate-limit headers at all.
+        assert "X-RateLimit-Limit" not in resp.headers

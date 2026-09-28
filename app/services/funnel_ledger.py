@@ -186,6 +186,17 @@ def classify(
     if not had_any_identifier:
         return "unknown", "no identifier supplied"
 
+    # pricing0928 (t_7f5808d2, E1): an IP-only subject in cloud-hosting space
+    # is an agent sandbox or crawler far more often than a person (90 of 93
+    # "stranger" installs in 30d). Without an email or key to anchor it to a
+    # human, it cannot count toward the stranger denominator.
+    if ip and not email and not api_key_id:
+        from app.services.hosting_networks import hosting_network
+
+        provider = hosting_network(ip)
+        if provider:
+            return "unknown", f"ip:{ip} in hosting network ({provider}), no email/key"
+
     return "stranger", "no fleet-exclusion match"
 
 

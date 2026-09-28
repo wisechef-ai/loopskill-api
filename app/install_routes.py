@@ -28,6 +28,7 @@ from app.access_routes import TIER_INSTALL_LIMITS
 from app.database import get_db
 from app.models import Bundle, BundleSkill, Skill, SkillVersion
 from app.schemas import InstallResponse
+from app.services.account_hint import account_hint as _account_hint
 from app.tier_labels import display_label
 
 router = APIRouter(tags=["skills"])
@@ -509,6 +510,7 @@ def install_skill(
         manifest=_build_manifest(latest, skill),
         provenance_id=provenance_id,
         bundle_hint=bundle_hint,
+        account_hint=_account_hint(slug, getattr(request.state, "auth_ctx", None)),
     )
     if resp_headers or ref:
         from fastapi.responses import JSONResponse as _JR

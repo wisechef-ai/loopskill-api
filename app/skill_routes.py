@@ -856,7 +856,7 @@ def get_external_skills(
 
 
 @router.get("/skills/external/{source}/{slug}/install", tags=["skills", "federation"])
-def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)):
+def install_external_skill(source: str, slug: str, request: Request, db: Session = Depends(get_db)):
     """evergreen_0206 Phase F2 — REAL fetch-origin install for an external skill.
 
     Issue #281 — the REST route is now a THIN TRANSPORT over the shared typed
@@ -919,11 +919,13 @@ def install_external_skill(source: str, slug: str, db: Session = Depends(get_db)
 
             mat = materialize_external_skill(db, source, slug, ext=res.skill, scan_verdict=res.scan_verdict)
             if mat is not None:
+                # pricing0928 E3: pass the request so the caller's key + IP land
+                # on the InstallEvent (was request=None: identity dropped).
                 _ev, prov_id = record_install_with_provenance(
                     db,
                     skill=mat,
                     version_semver="external",
-                    request=None,
+                    request=request,
                     source="external",
                     cookbook_id=None,
                     attribution=ATTR_ATTRIBUTED if attributed else ATTR_UNATTRIBUTED,

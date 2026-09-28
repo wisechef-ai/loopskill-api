@@ -93,11 +93,10 @@ Once connected, your agent gets these tools — no extra configuration:
 
 | Tier | Price | What you get |
 |------|-------|-------------|
-| **Free** | €0/mo | Search, install free-tier skills, 5 installs |
-| **Pro** | €20/mo | Unlimited installs, Pro-tier skills, bundle sharing |
-| **Pro+** | €100/mo | Everything in Pro + private bundles, priority support, analytics |
+| **Free** | $0 | Install every public skill and bundle, unlimited installs, 2 private bundles |
+| **Pro** | $9.95/mo | Everything in Free, 50 private bundles |
 
-All tiers include MCP access. Publishers earn on every attributed use.
+Free skills also install with no account at all. Canonical, current pricing: https://app.loopskill.io/pricing
 
 ---
 

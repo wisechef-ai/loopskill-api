@@ -22,6 +22,7 @@ stay in sync — agents can switch transports without re-parsing payloads.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
 
@@ -33,6 +34,17 @@ from app.auth_ctx import AuthContext
 from app.config import settings
 from app import config
 from app.models import Bundle, BundleSkill, Skill, SkillVersion
+
+
+def _ctx_request(ctx: AuthContext) -> SimpleNamespace:
+    """Request-shaped shim carrying the MCP caller's api_key_id to the recorder.
+
+    pricing0928 (t_7f5808d2, E3): these call sites passed ``request=None``, so
+    every MCP bundle install landed with api_key_id NULL (30 of 33 NULL-IP
+    installs had no key). Same shim as app/mcp/tools/install.py uses; the MCP
+    transport has no client IP to offer, so client_ip stays NULL.
+    """
+    return SimpleNamespace(state=SimpleNamespace(api_key_id=getattr(ctx, "api_key_id", None)))
 
 
 def _make_install_url(skill_slug: str, version_id: UUID, version_semver: str) -> str:
@@ -264,7 +276,12 @@ def loopskill_bundle_install(
             from app.services.provenance import record_install_with_provenance
 
             _ev, provenance_id = record_install_with_provenance(
-                db, skill=skill, version_semver="external", request=None, source="mcp", cookbook_id=cb.id
+                db,
+                skill=skill,
+                version_semver="external",
+                request=_ctx_request(ctx),
+                source="mcp",
+                cookbook_id=cb.id,
             )
             db.commit()
             return {**payload, "external": True, "source": cs.source, "provenance_id": provenance_id}
@@ -277,7 +294,12 @@ def loopskill_bundle_install(
         from app.services.provenance import record_install_with_provenance
 
         _ev, provenance_id = record_install_with_provenance(
-            db, skill=skill, version_semver=version.semver, request=None, source="mcp", cookbook_id=cb.id
+            db,
+            skill=skill,
+            version_semver=version.semver,
+            request=_ctx_request(ctx),
+            source="mcp",
+            cookbook_id=cb.id,
         )
         db.commit()
 
@@ -385,7 +407,7 @@ def loopskill_bundle_install(
 
     for skill, semver, idx in installed:
         _ev, provenance_id = record_install_with_provenance(
-            db, skill=skill, version_semver=semver, request=None, source="mcp", cookbook_id=cb.id
+            db, skill=skill, version_semver=semver, request=_ctx_request(ctx), source="mcp", cookbook_id=cb.id
         )
         skills_payload[idx]["provenance_id"] = provenance_id
     if installed:

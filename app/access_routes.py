@@ -36,14 +36,22 @@ TIER_RANK: dict[str | None, int] = {
 }
 
 # WIS-902: Tier-aware install rate limits (installs per day per API key).
-# Free/anon: 5, Pro: 100, Pro+: unlimited.
+# None = unlimited. pricing0928 (t_7f5808d2): every tier is unlimited. The old
+# table said anon 5 / free 5 / pro 100, but the anon cap never applied
+# (``_count_today_installs`` counts per api_key_id, and anonymous callers have
+# none), so a signed-in Free key was capped BELOW an anonymous caller. The 6th
+# install got a 429 telling the user to upgrade, which contradicts /pricing:
+# "every install ... is identical on both". Invariant, pinned by
+# tests/test_pricing0928_install_cap_parity.py: no tier's limit is below the
+# anonymous one. Anonymous traffic keeps its per-IP minute bucket
+# (RateLimitMiddleware).
 TIER_INSTALL_LIMITS: dict[str | None, int | None] = {
-    None: 5,  # anonymous / no API key
-    "free": 5,  # free-tier user
-    "pro": 100,  # Pro subscriber
+    None: None,  # anonymous / no API key (never counted: no api_key_id)
+    "free": None,  # parity with anonymous
+    "pro": None,  # Pro keeps "everything in Free", so it can't sit below Free
     "pro_plus": None,  # unlimited
     # 30-day legacy READ aliases (RCP-INCIDENT-2026-05-11, remove after 2026-06-10):
-    "cook": 100,  # legacy alias → pro
+    "cook": None,  # legacy alias → pro
     "operator": None,  # legacy alias → pro_plus
     "studio": None,  # legacy alias → pro_plus (Phase 3 rename, pre-Phase-5)
 }

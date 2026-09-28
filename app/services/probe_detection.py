@@ -51,6 +51,18 @@ PROBE_CLIENT_IPS: frozenset[str] = frozenset(
 )
 
 
+# pricing0928 (t_7f5808d2, E2): the agent cold-start eval publishes and
+# installs a throwaway skill named ``coldstart-bench-<run_id>``
+# (evals/agent_coldstart/tasks.yaml, task publish-throwaway-skill) from cloud
+# sandboxes, so neither the key nor the IP identifies it as ours. The slug does.
+BENCH_SLUG_PREFIXES: tuple[str, ...] = ("coldstart-bench-",)
+
+
+def is_bench_slug(skill_slug: str | None) -> bool:
+    """True when *skill_slug* is one of our own benchmark throwaway skills."""
+    return bool(skill_slug) and skill_slug.strip().lower().startswith(BENCH_SLUG_PREFIXES)
+
+
 def _api_key_user_is_probe(db: "Session", api_key_id: UUID | str | None) -> bool:
     """True if *api_key_id* resolves to a user whose email is a known probe."""
     if not api_key_id:
@@ -68,6 +80,7 @@ def is_probe_request(
     *,
     api_key_id: UUID | str | None = None,
     client_ip: str | None = None,
+    skill_slug: str | None = None,
 ) -> bool:
     """Return True when this write should be tagged ``is_probe=True``.
 
@@ -83,6 +96,8 @@ def is_probe_request(
             app.utils.client_ip._real_client_ip), if any.
     """
     if client_ip and client_ip.strip() in PROBE_CLIENT_IPS:
+        return True
+    if is_bench_slug(skill_slug):
         return True
     try:
         return _api_key_user_is_probe(db, api_key_id)

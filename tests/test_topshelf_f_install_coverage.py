@@ -177,9 +177,12 @@ class TestInstallSkillCoverage:
         sk = _make_skill(db_session, "ratelimited-skill", tier="free")
         _make_version(db_session, sk.id, "1.0.0")
 
-        # Patch both the count function AND the tier resolver so rate limit applies
+        # Patch the count function, the tier resolver AND the limit table so the
+        # 429 branch is still exercised: pricing0928 made every shipped tier
+        # uncapped, but the per-key cap machinery stays for future tuning.
         with patch("app.install_routes._count_today_installs", return_value=9999), \
-             patch("app.install_routes._resolve_caller_tier_for_install", return_value="free"):
+             patch("app.install_routes._resolve_caller_tier_for_install", return_value="free"), \
+             patch.dict(install_routes.TIER_INSTALL_LIMITS, {"free": 5}):
             app = build_test_app(db_session=db_session, monkeypatch=monkeypatch)
             client = TestClient(app, headers={"x-api-key": settings.API_KEY}, raise_server_exceptions=True)
             resp = client.get("/api/skills/install?slug=ratelimited-skill")

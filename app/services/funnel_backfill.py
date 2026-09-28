@@ -38,12 +38,14 @@ from datetime import datetime, timezone
 import logging
 from dataclasses import dataclass, field
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Bundle, InstallEvent, User
+from app.models import Bundle, FunnelEvent, InstallEvent, User
 from app.services.funnel_ledger import classify, record_event, resolve_entity
+from app.services.probe_detection import is_bench_slug
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +128,20 @@ def backfill_signup(db: Session, *, host: str, dry_run: bool = True) -> Backfill
     return result
 
 
+def _classify_install(event: InstallEvent, ip: str | None) -> tuple[str, str]:
+    """Classify one install. Our own probes and bench runs are fleet (pricing0928 E2).
+
+    ``is_probe`` is stamped at write time by app/services/probe_detection.py
+    (fleet keys, probe IPs, and ``coldstart-bench-*`` slugs). The slug check is
+    repeated here so installs recorded before that rule existed are caught too.
+    """
+    if getattr(event, "is_probe", False):
+        return "fleet", "install_events.is_probe"
+    if is_bench_slug(event.skill_slug):
+        return "fleet", f"skill_slug:{event.skill_slug} is a benchmark throwaway"
+    return classify(ip=ip)
+
+
 def backfill_installed(db: Session, *, host: str, dry_run: bool = True) -> BackfillResult:
     """install_events → funnel_events(stage='installed').
 
@@ -138,7 +154,7 @@ def backfill_installed(db: Session, *, host: str, dry_run: bool = True) -> Backf
     for event in events:
         result.scanned += 1
         ip = (event.client_ip or "").strip() or None
-        classification, evidence = classify(ip=ip)
+        classification, evidence = _classify_install(event, ip)
 
         if dry_run:
             result.written += 1
@@ -215,6 +231,48 @@ def backfill_bundle_created(db: Session, *, host: str, dry_run: bool = True) -> 
     return result
 
 
+def _invoice_backed_pi_ids(invoices: list[dict[str, Any]]) -> set[str]:
+    """PaymentIntent ids an invoice says it was paid by.
+
+    Covers both shapes: the legacy top-level ``invoice.payment_intent`` and
+    the ``invoice.payments`` list (``payments.data[].payment.payment_intent``)
+    that newer Stripe API versions return instead.
+    """
+    ids: set[str] = set()
+    for inv in invoices:
+        legacy = inv.get("payment_intent")
+        if isinstance(legacy, dict):
+            legacy = legacy.get("id")
+        if legacy:
+            ids.add(legacy)
+        for pay in (inv.get("payments") or {}).get("data") or []:
+            pi = (pay.get("payment") or {}).get("payment_intent")
+            if isinstance(pi, dict):
+                pi = pi.get("id")
+            if pi:
+                ids.add(pi)
+    return ids
+
+
+def _pi_is_invoice_backed(pi: dict[str, Any], invoice_ids: set[str], invoice_backed_pi_ids: set[str]) -> bool:
+    """True when this PaymentIntent paid an invoice (so it is NOT one-time revenue).
+
+    pricing0928 (t_7f5808d2, E5): Stripe API ``2026-08-26.dahlia`` dropped the
+    top-level ``pi.invoice`` field that the original check relied on. The link
+    now lives in ``pi.payment_details.order_reference`` (the ``in_...`` id) and
+    on the invoice's ``payments`` list. With only the old check every
+    subscription charge was counted twice: once as ``stripe`` and again as
+    ``stripe-onetime`` (prod ledger: 12 + 12 rows for the same $12). Any one
+    signal is enough.
+    """
+    if pi.get("invoice"):
+        return True
+    if pi.get("id") in invoice_backed_pi_ids:
+        return True
+    order_ref = (pi.get("payment_details") or {}).get("order_reference")
+    return bool(order_ref) and (order_ref in invoice_ids or str(order_ref).startswith("in_"))
+
+
 def _stripe_paid_source_ids(
     *, invoices: list[dict[str, Any]], payment_intents: list[dict[str, Any]]
 ) -> list[tuple[str, dict[str, Any], str]]:
@@ -234,6 +292,8 @@ def _stripe_paid_source_ids(
     """
     merged: list[tuple[str, dict[str, Any], str]] = []
     seen_ids: set[str] = set()
+    invoice_ids = {inv.get("id") for inv in invoices if inv.get("id")}
+    invoice_backed_pi_ids = _invoice_backed_pi_ids(invoices)
 
     for invoice in invoices:
         if (invoice.get("amount_paid") or 0) <= 0:
@@ -249,7 +309,7 @@ def _stripe_paid_source_ids(
             continue
         if (pi.get("amount") or 0) <= 0:
             continue
-        if pi.get("invoice"):
+        if _pi_is_invoice_backed(pi, invoice_ids, invoice_backed_pi_ids):
             # Invoice-backed — the Invoice object above already covers this
             # charge. Skipping here is the dedup the council's paid
             # invariant depends on.
@@ -368,3 +428,112 @@ def run_full_backfill(
             )
         )
     return results
+
+
+# ── pricing0928 (t_7f5808d2) corrections for rows already in the ledger ──────
+#
+# record_event never rewrites an existing row (a replay returns it unchanged),
+# so fixing classify() and the paid dedup only helps rows written from now on.
+# These two functions repair the rows written before the fix. Both are
+# dry-run by default, idempotent, and scoped to the exact defect.
+
+
+def prune_invoice_backed_onetime(
+    db: Session,
+    *,
+    invoices: list[dict[str, Any]],
+    payment_intents: list[dict[str, Any]],
+    dry_run: bool = True,
+) -> BackfillResult:
+    """Delete ``stripe-onetime`` paid rows whose PaymentIntent paid an invoice.
+
+    These rows are the E5 double count: the same charge already has its
+    ``stripe`` (invoice) row. They are derived data, re-creatable from Stripe
+    by re-running the backfill, so removing them loses nothing.
+    """
+    result = BackfillResult(stage="paid:prune-onetime-dupes", dry_run=dry_run)
+    invoice_ids = {inv.get("id") for inv in invoices if inv.get("id")}
+    backed = _invoice_backed_pi_ids(invoices)
+    dup_ids = {
+        pi["id"] for pi in payment_intents if pi.get("id") and _pi_is_invoice_backed(pi, invoice_ids, backed)
+    }
+    if not dup_ids:
+        return result
+    rows = (
+        db.execute(
+            select(FunnelEvent).where(
+                FunnelEvent.stage == "paid",
+                FunnelEvent.source_system == SOURCE_SYSTEM_STRIPE_ONETIME,
+                FunnelEvent.source_event_id.in_(sorted(dup_ids)),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for row in rows:
+        result.scanned += 1
+        if len(result.sample) < 5:
+            result.sample.append({"source_event_id": row.source_event_id, "amount_cents": row.amount_cents})
+        if not dry_run:
+            db.delete(row)
+        result.written += 1
+    if not dry_run:
+        db.commit()
+    return result
+
+
+def reclassify_hosting_installs(db: Session, *, dry_run: bool = True) -> BackfillResult:
+    """Re-classify ``installed:stranger`` rows with today's install rules.
+
+    Hosting-network IPs become ``unknown`` (E1); probe and ``coldstart-bench-*``
+    installs become ``fleet`` (E2). Only rows whose answer changed are rewritten.
+    The old evidence is kept in the new evidence string for audit.
+    """
+    result = BackfillResult(stage="installed:reclassify-hosting", dry_run=dry_run)
+    events = (
+        db.execute(
+            select(FunnelEvent).where(
+                FunnelEvent.stage == "installed",
+                FunnelEvent.source_system == SOURCE_SYSTEM_APP,
+                FunnelEvent.classification == "stranger",
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # Join in Python: source_event_id is str(install_events.id), and a SQL
+    # UUID->text cast renders differently on SQLite (hex) and Postgres (dashed).
+    install_ids = []
+    for ev in events:
+        try:
+            install_ids.append(UUID(ev.source_event_id))
+        except (ValueError, TypeError):
+            continue
+    events_by_id = {
+        str(e.id): e
+        for e in db.execute(select(InstallEvent).where(InstallEvent.id.in_(install_ids))).scalars().all()
+    }
+    rows = [(ev, getattr(events_by_id.get(ev.source_event_id), "client_ip", None)) for ev in events]
+    for row, client_ip in rows:
+        result.scanned += 1
+        event = events_by_id.get(row.source_event_id)
+        if event is None:
+            result.skipped += 1
+            continue
+        classification, evidence = _classify_install(event, (client_ip or "").strip() or None)
+        if classification == "stranger":
+            result.skipped += 1
+            continue
+        if len(result.sample) < 5:
+            result.sample.append(
+                {"source_event_id": row.source_event_id, "to": classification, "evidence": evidence}
+            )
+        if not dry_run:
+            row.classification = classification
+            row.classification_evidence = (
+                f"{evidence} [reclassified pricing0928; was: {row.classification_evidence}]"
+            )
+        result.written += 1
+    if not dry_run:
+        db.commit()
+    return result

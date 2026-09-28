@@ -130,8 +130,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # bucketed — that's where IP-based limiting actually defends.
         #
         # Per-key abuse (a leaked rec_live_* key hammering the API from one
-        # IP) is bounded by the install-route's per-key TIER_INSTALL_LIMITS,
-        # not this middleware.
+        # IP) is NOT rate-bounded here or on the install route: since
+        # pricing0928 (D) every tier's TIER_INSTALL_LIMITS entry is None, so a
+        # Free key is never capped below anonymous. Pro+ keys were already
+        # unbounded before that, so this is not a new abuse class; the
+        # control for a leaked key is revoking it.
         auth_ctx = getattr(request.state, "auth_ctx", None)
         scope = getattr(auth_ctx, "scope", None) if auth_ctx else None
         if scope and scope != "anonymous":
