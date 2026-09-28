@@ -244,6 +244,11 @@ def loopskill_bundle_install(
         if not is_external_skill(skill) and not tier_rank_allows_install(
             _owner_tier, getattr(skill, "tier", None)
         ):
+            from app.services.paywall_hits import GATE_MCP_BUNDLE_INSTALL_TIER, record_paywall_hit_for_ctx
+
+            record_paywall_hit_for_ctx(
+                db, ctx, gate=GATE_MCP_BUNDLE_INSTALL_TIER, http_status=403, tier=_owner_tier
+            )
             raise CookbookInstallError(
                 "tier_insufficient",
                 f"This skill requires {skill.tier or 'pro'} tier; the cookbook owner's plan does not include it.",

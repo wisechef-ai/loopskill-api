@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app import authz
 from app.auth_ctx import AuthContext
 from app.models import Bundle, BundleSkill, Skill
+from app.services.sync_activity import SOURCE_MCP_SYNC, record_sync_day
 
 
 def _find_outdated_skills(db: Session, cookbook_id: UUID) -> list[dict[str, Any]]:
@@ -111,6 +112,9 @@ def loopskill_sync(
             "bundle_id": cookbook_id,  # canonical
             "cookbook_id": cookbook_id,  # compat-alias
         }
+
+    # paywall_0925: an authorized sync (no-op included) counts toward repeat use.
+    record_sync_day(db, ctx.user_id, source=SOURCE_MCP_SYNC)
 
     outdated = _find_outdated_skills(db, cb_uuid)
 

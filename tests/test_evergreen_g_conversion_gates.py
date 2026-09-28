@@ -1,70 +1,16 @@
 """evergreen_0206 Phase G — maintenance-gated conversion ladder."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
-from app.services.conversion_gates import (
-    gate_cookbook_create,
-    gate_daemon_cron_install,
-    gate_fleet,
-    gate_manual_sync,
-)
+import app.services.conversion_gates as conversion_gates
+from app.services.conversion_gates import gate_cookbook_create
 
 
-class TestManualSyncGate:
-    def test_free_first_sync_allowed(self):
-        out = gate_manual_sync("free", free_sync_used_at=None)
-        assert out.allowed is True
-        assert out.http_status == 200
-
-    def test_free_second_sync_402(self):
-        out = gate_manual_sync("free", free_sync_used_at=datetime.now(timezone.utc))
-        assert out.allowed is False
-        assert out.http_status == 402
-        assert out.upgrade_to == "pro"
-
-    def test_pro_always_allowed(self):
-        out = gate_manual_sync("pro", free_sync_used_at=datetime.now(timezone.utc))
-        assert out.allowed is True
-
-    def test_none_tier_first_sync_allowed(self):
-        out = gate_manual_sync(None, free_sync_used_at=None)
-        assert out.allowed is True
-
-
-class TestDaemonCronGate:
-    def test_free_cron_install_blocked_402(self):
-        out = gate_daemon_cron_install("free")
-        assert out.allowed is False
-        assert out.http_status == 402
-        assert out.upgrade_to == "pro"
-
-    def test_pro_cron_install_allowed(self):
-        assert gate_daemon_cron_install("pro").allowed is True
-
-    def test_pro_plus_cron_install_allowed(self):
-        assert gate_daemon_cron_install("pro_plus").allowed is True
-
-
-class TestFleetGate:
-    def test_free_fleet_403(self):
-        out = gate_fleet("free")
-        assert out.allowed is False
-        assert out.http_status == 403
-        assert out.upgrade_to == "pro_plus"
-
-    def test_pro_fleet_403(self):
-        """Fleet is Pro+ ONLY — Pro is also blocked."""
-        out = gate_fleet("pro")
-        assert out.allowed is False
-        assert out.http_status == 403
-
-    def test_pro_plus_fleet_allowed(self):
-        assert gate_fleet("pro_plus").allowed is True
-
-    def test_legacy_operator_fleet_allowed(self):
-        """Legacy 'operator' slug resolves to pro_plus."""
-        assert gate_fleet("operator").allowed is True
+def test_dead_ladder_predicates_stay_removed():
+    """paywall_0925: the sync/cron/fleet predicates were never called and did not
+    match config/tiers.yaml. Re-adding one is a pricing decision; this test
+    makes that deliberate rather than a silent revival of dead code."""
+    for name in ("gate_manual_sync", "gate_daemon_cron_install", "gate_fleet"):
+        assert not hasattr(conversion_gates, name), name
 
 
 class TestCookbookCreateGate:

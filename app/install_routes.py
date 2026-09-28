@@ -365,8 +365,17 @@ def install_skill(
         from app.authz import tier_rank_allows_install
 
         if not tier_rank_allows_install(caller_tier, skill.tier):
+            from app.services.paywall_hits import GATE_SKILL_INSTALL_TIER, record_paywall_hit_for_ctx
             from app.tier_labels import display_label as _dl
 
+            record_paywall_hit_for_ctx(
+                db,
+                getattr(request.state, "auth_ctx", None),
+                gate=GATE_SKILL_INSTALL_TIER,
+                http_status=403,
+                tier=caller_tier,
+                request=request,
+            )
             raise HTTPException(
                 status_code=403,
                 detail=(f"This skill requires {_dl(skill.tier or 'pro')} tier. Upgrade to install it."),

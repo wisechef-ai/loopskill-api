@@ -516,6 +516,76 @@ class FunnelEvent(Base):
     entity = relationship("FunnelEntity", back_populates="events")
 
 
+class PaywallHit(Base):
+    """paywall_0925 — one row per (gate, subject, UTC day) a tier gate refused.
+
+    Written by ``app.services.paywall_hits.record_paywall_hit`` at EVERY site
+    that answers a tier 402/403 (private-bundle cap, deploy tier, fleet-member
+    cap, forks tier, API-key cap, MCP compose quota, ...). Before this table a
+    refused upgrade moment left no trace, so "did a stranger ever reach a
+    paywall?" was unanswerable and pricing could not be tuned from data.
+
+    Deduped per day, not per request: ``hit_count`` counts repeats, so a
+    retrying agent cannot flood the table while the row still says "this
+    subject felt this wall N times on this day". ``subject_key`` is the
+    stable dedupe identity (``user:<uuid>`` > ``key:<uuid>`` > ``ip:<addr>``).
+
+    Classification (fleet/stranger/unknown) is computed ONCE at write time by
+    ``funnel_ledger.classify`` and persisted with its evidence — the same
+    never-recompute rule the funnel ledger follows.
+    """
+
+    __tablename__ = "paywall_hits"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    day = Column(Date, nullable=False)
+    gate = Column(String(64), nullable=False)
+    subject_key = Column(String(128), nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    api_key_id = Column(UUID(as_uuid=True), nullable=True)
+    tier = Column(String(32), nullable=True)
+    http_status = Column(Integer, nullable=False)
+    classification = Column(String(16), nullable=False)
+    classification_evidence = Column(Text, nullable=True)
+    hit_count = Column(Integer, nullable=False, default=1, server_default=text("1"))
+    first_hit_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_hit_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("gate", "subject_key", "day", name="uq_paywall_hits_gate_subject_day"),
+        CheckConstraint(
+            "classification IN ('fleet','stranger','unknown')",
+            name="ck_paywall_hits_classification",
+        ),
+        Index("idx_paywall_hits_day_gate", "day", "gate"),
+    )
+
+
+class UserSyncDay(Base):
+    """paywall_0925 — one row per (user, UTC day) the user's agents synced.
+
+    The repeat-use signal for /api/admin/pulse (``repeat_sync_users_30d`` =
+    users with >= 2 distinct sync days in 30d). No other table records a
+    reconcile/sync call per user: reconcile_events are client-emitted canary
+    outcomes and loop_runs are fleet telemetry, neither is "a user synced".
+
+    Written by ``app.services.sync_activity.record_sync_day`` from the
+    reconcile poll, the ``loopskill_sync`` MCP verb and the fleet
+    sync-report. O(users x days), never O(requests): the writer keeps an
+    in-process seen-set so the 304 poll fast path costs no extra query after
+    the first hit of the day.
+    """
+
+    __tablename__ = "user_sync_days"
+
+    user_id = Column(UUID(as_uuid=True), primary_key=True)
+    day = Column(Date, primary_key=True)
+    first_source = Column(String(32), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (Index("idx_user_sync_days_day", "day"),)
+
+
 class LoopRunLedger(Base):
     """flywheel_0902/B — every flywheel job execution (not subject transitions).
 

@@ -154,7 +154,7 @@ def _store_skill_tarball(slug: str, semver: str, tarball_bytes: bytes) -> str:
     return str(dest_path)
 
 
-def _require_pro_user(ctx: AuthContext | None) -> dict[str, Any] | None:
+def _require_pro_user(ctx: AuthContext | None, db: Session | None = None) -> dict[str, Any] | None:
     """Return an error dict if the caller is not a Pro-tier user, else None.
 
     Master-key callers (user_id is None) are rejected: they own no forks.
@@ -172,6 +172,10 @@ def _require_pro_user(ctx: AuthContext | None) -> dict[str, Any] | None:
     # a master key has user_id=None and is already rejected above. A user-scope
     # caller must hold Pro or above.
     if ctx.scope != "master" and not _is_pro_tier(ctx.tier):
+        if db is not None:
+            from app.services.paywall_hits import GATE_MCP_FORK_TIER, record_paywall_hit_for_ctx
+
+            record_paywall_hit_for_ctx(db, ctx, gate=GATE_MCP_FORK_TIER, http_status=402)
         return {
             "error": "needs_tier",
             "code": "needs_tier",
@@ -218,7 +222,7 @@ def loopskill_tailor_version(
 
     Tier: Pro or above. Returns the version metadata, or a structured error.
     """
-    gate = _require_pro_user(ctx)
+    gate = _require_pro_user(ctx, db)
     if gate is not None:
         return gate
     assert ctx is not None  # narrowed by _require_pro_user
@@ -322,7 +326,7 @@ def loopskill_bundle_attach(
 
     Tier: Pro or above. Returns the promoted skill + version, or an error.
     """
-    gate = _require_pro_user(ctx)
+    gate = _require_pro_user(ctx, db)
     if gate is not None:
         return gate
     assert ctx is not None

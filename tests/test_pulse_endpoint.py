@@ -110,7 +110,7 @@ def _make_app(db: Session, *, api_key_user_id, is_admin: bool) -> FastAPI:
     return app
 
 
-def _user(db, *, tier, status="active", stripe_customer_id=None, free_sync_used_at=None):
+def _user(db, *, tier, status="active", stripe_customer_id=None):
     uid = uuid4()
     u = User(
         id=uid,
@@ -119,7 +119,6 @@ def _user(db, *, tier, status="active", stripe_customer_id=None, free_sync_used_
         subscription_tier=tier,
         subscription_status=status,
         stripe_customer_id=stripe_customer_id,
-        free_sync_used_at=free_sync_used_at,
     )
     db.add(u)
     db.flush()
@@ -136,7 +135,7 @@ class TestAdminPulseEndpoint:
         now = datetime.now(UTC)
         _user(db_session, tier="pro_plus")  # no stripe_customer_id
         _user(db_session, tier="pro")
-        _user(db_session, tier="free", free_sync_used_at=now - timedelta(days=2))
+        _user(db_session, tier="free")
         db_session.commit()
 
         app = _make_app(db_session, api_key_user_id=None, is_admin=True)
@@ -155,7 +154,8 @@ class TestAdminPulseEndpoint:
         # revenue. Was 120 while a stale local copy of the price map still said
         # Pro cost $20 — the pulse's own list figure was wrong by $10.05.
         assert Decimal(b["list_mrr_ceiling_usd"]) == Decimal("109.95")
-        assert b["free_sync_used_7d"] == 1
+        # paywall_0925: free_sync_* removed (nothing ever wrote the column).
+        assert "free_sync_used_7d" not in b and "free_sync_used_total" not in b
 
     def test_zero_state(self, db_session):
         app = _make_app(db_session, api_key_user_id=None, is_admin=True)
@@ -193,6 +193,49 @@ class TestAdminPulseEndpoint:
         assert b["fleets_total"] == 1
         assert b["fleet_subscriptions_total"] == 1
         assert b["fleet_subscriptions_7d"] == 1
+
+    def test_paywall_hits_by_gate_and_repeat_syncs(self, db_session):
+        """paywall_0925: the pulse reports real refusals per gate (7d) and the
+        repeat-use count, both fed by production writers."""
+        from app.services import sync_activity
+        from app.services.paywall_hits import GATE_BUNDLE_PRIVATE_CAP, GATE_DEPLOY_TIER, record_paywall_hit
+        from app.services.sync_activity import SOURCE_RECONCILE, record_sync_day
+
+        sync_activity._clear_seen_cache()
+        now = datetime.now(UTC)
+        a, b_ = _user(db_session, tier="free"), _user(db_session, tier="free")
+        db_session.commit()
+        record_paywall_hit(db_session, gate=GATE_DEPLOY_TIER, http_status=402, tier="free", user_id=a.id)
+        record_paywall_hit(db_session, gate=GATE_DEPLOY_TIER, http_status=402, tier="free", user_id=a.id)
+        record_paywall_hit(
+            db_session, gate=GATE_BUNDLE_PRIVATE_CAP, http_status=403, tier="free", user_id=b_.id
+        )
+        for d in (0, 2):
+            record_sync_day(db_session, a.id, source=SOURCE_RECONCILE, now=now - timedelta(days=d))
+        record_sync_day(db_session, b_.id, source=SOURCE_RECONCILE, now=now)
+        sync_activity._clear_seen_cache()
+
+        app = _make_app(db_session, api_key_user_id=None, is_admin=True)
+        with TestClient(app) as client:
+            r = client.get("/api/admin/pulse")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        by_gate = {g["gate"]: g for g in body["paywall_hits_7d_by_gate"]}
+        assert by_gate[GATE_DEPLOY_TIER] == {
+            "gate": GATE_DEPLOY_TIER,
+            "hits": 2,
+            "subjects": 1,
+            "stranger_subjects": 1,
+        }
+        assert by_gate[GATE_BUNDLE_PRIVATE_CAP]["hits"] == 1
+        assert body["repeat_sync_users_30d"] == 1  # only `a` synced on 2 distinct days
+
+    def test_zero_state_paywall_fields(self, db_session):
+        app = _make_app(db_session, api_key_user_id=None, is_admin=True)
+        with TestClient(app) as client:
+            b = client.get("/api/admin/pulse").json()
+        assert b["paywall_hits_7d_by_gate"] == []
+        assert b["repeat_sync_users_30d"] == 0
 
     def test_requires_master_key(self, db_session):
         app = _make_app(db_session, api_key_user_id=uuid4(), is_admin=False)

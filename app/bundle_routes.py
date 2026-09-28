@@ -57,6 +57,12 @@ from app.services.bundle_external import (
 )
 from app.services.bundle_lock_sync import sync_bundle_lock
 from app.services.bundle_quota import quota_status
+from app.services.paywall_hits import (
+    GATE_BUNDLE_PRIVATE_CAP,
+    GATE_BUNDLE_SKILL_CAP,
+    GATE_BUNDLE_SKILL_INSTALL_TIER,
+    record_paywall_hit_for_ctx,
+)
 from app.services.federated_titles import federated_title_for, resolve_federated_hub_titles
 from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
@@ -1134,6 +1140,7 @@ def create_cookbook(
     # never enforce different numbers); the rule and its rationale live there.
     quota = quota_status(db, ctx.user_id, ctx.tier)
     if quota["blocked"]:
+        record_paywall_hit_for_ctx(db, ctx, gate=GATE_BUNDLE_PRIVATE_CAP, http_status=403)
         raise HTTPException(
             status_code=403,
             detail={
@@ -1482,6 +1489,7 @@ def add_skill_to_cookbook(
             .count()
         )
         if active_count >= BUNDLE_SKILL_CAP:
+            record_paywall_hit_for_ctx(db, ctx, gate=GATE_BUNDLE_SKILL_CAP, http_status=403)
             raise HTTPException(
                 status_code=403,
                 detail={
@@ -2701,6 +2709,14 @@ def install_single_skill_from_cookbook(
         if not tier_rank_allows_install(owner_tier, getattr(skill, "tier", None)):
             from app.tier_labels import display_label as _dl
 
+            record_paywall_hit_for_ctx(
+                db,
+                ctx,
+                gate=GATE_BUNDLE_SKILL_INSTALL_TIER,
+                http_status=403,
+                tier=owner_tier,
+                request=request,
+            )
             raise HTTPException(
                 status_code=403,
                 detail=(
