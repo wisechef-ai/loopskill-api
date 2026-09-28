@@ -246,12 +246,11 @@ class InstallResponse(BaseModel):
     # in loopskill_feedback / loopskill_report_skill_error so the report routes to
     # the correct creator repo. Carries NO client-readable metadata.
     provenance_id: str | None = None
-    # bhint0823 (t_8ccbdbc5) — bundle fast-path onboarding hint. None on the
-    # overwhelming majority of installs; present only when the caller's recent
-    # direct-install pattern (>=3 skills from one IP inside 24h, all members of
-    # a single public bundle) says they are hand-replicating a bundle one
-    # request at a time. Purely additive — no existing field changed.
+    # bhint0823 (t_8ccbdbc5) — bundle fast-path onboarding hint. None on most
+    # installs; present only when >=3 direct installs from one IP inside 24h are
+    # all members of one public bundle (hand-replicating it). Purely additive.
     bundle_hint: dict | None = None
+    account_hint: str | None = None  # pricing0928: anon-only; app/services/account_hint.py
 
 
 # ── Health ──────────────────────────────────────────────────────────────

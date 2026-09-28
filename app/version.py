@@ -559,6 +559,8 @@ pricing0928 (t_7f5808d2): free-key install-cap parity. TIER_INSTALL_LIMITS
     stranger; coldstart-bench-* installs are probes/fleet; MCP bundle and REST
     external installs keep the caller's key; a subscription PaymentIntent is
     never also counted as one-time revenue on Stripe API 2026-08-26.dahlia.
+    Account hook (option C): anonymous install responses carry an optional
+    ``account_hint`` sentence with a utm_source=install sign-in link. No gate.
 """
 
 __version__ = "0.9.52"

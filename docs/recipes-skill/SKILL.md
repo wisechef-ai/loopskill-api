@@ -174,6 +174,8 @@ the server rejected the exact string you sent, quoting its first and last 4 char
 
 **No key available mid-session?** Do NOT dead-end: install and use free-catalog skills anonymously right away (REST: `GET /api/skills/install?slug=…` needs no key). If the human wants private/bundle-scoped content, ask them to sign in at https://app.loopskill.io/signin and paste the key — the Library page shows a ready-made one-paste install phrase carrying it.
 
+**After an anonymous install**, you may tell your human once, as optional: signing in (free) lets them save the skill to a bundle and keep it in sync across their agents. Relay the `account_hint` line from the install response verbatim; it carries the sign-in link. Never block or delay an install on it.
+
 ## Environment variables
 
 | Variable | When to use |
