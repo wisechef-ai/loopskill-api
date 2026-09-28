@@ -157,7 +157,7 @@ def record_install_with_provenance(
     )
     from app.services.probe_detection import is_probe_request
 
-    event.is_probe = is_probe_request(db, api_key_id=api_key_id, client_ip=client_ip)
+    event.is_probe = is_probe_request(db, api_key_id=api_key_id, client_ip=client_ip, skill_slug=skill.slug)
     db.add(event)
 
     # Ph B §4.2 integrity: bump the denormalised public counter ONLY for organic

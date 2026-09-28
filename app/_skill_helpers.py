@@ -458,7 +458,7 @@ def _record_install_event(
         api_key_id=api_key_id,
         version_semver=version_semver,
         client_ip=client_ip,
-        is_probe=is_probe_request(db, api_key_id=api_key_id, client_ip=client_ip),
+        is_probe=is_probe_request(db, api_key_id=api_key_id, client_ip=client_ip, skill_slug=skill.slug),
     )
     db.add(event)
 

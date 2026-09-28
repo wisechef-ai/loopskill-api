@@ -191,7 +191,9 @@ def test_backfill_installed_fleet_ip_classifies_fleet(db_session):
 
 def test_backfill_installed_stranger_ip_classifies_stranger(db_session):
     skill = _mk_skill(db_session)
-    event = InstallEvent(id=uuid.uuid4(), skill_id=skill.id, client_ip="8.8.8.8")
+    # 203.0.113.0/24 is TEST-NET-3: not a fleet IP and not hosting space.
+    # (Was 8.8.8.8, which pricing0928 E1 correctly reads as Google hosting.)
+    event = InstallEvent(id=uuid.uuid4(), skill_id=skill.id, client_ip="203.0.113.9")
     db_session.add(event)
     db_session.flush()
 

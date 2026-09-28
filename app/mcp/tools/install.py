@@ -298,7 +298,7 @@ def loopskill_install(
             api_key_id=api_key_id,
             version_semver=target.semver,
             client_ip=None,
-            is_probe=is_probe_request(db, api_key_id=api_key_id, client_ip=None),
+            is_probe=is_probe_request(db, api_key_id=api_key_id, client_ip=None, skill_slug=base_slug),
         )
     )
     # repohygiene_2605 Phase C: bump the denormalised counter in the same

@@ -554,6 +554,11 @@ pricing0928 (t_7f5808d2): free-key install-cap parity. TIER_INSTALL_LIMITS
     api_key_id to count), so a Free key was capped BELOW anonymous and got a
     429 "Upgrade to Pro+" on install #6, contradicting /pricing. Verified
     against prod /api/healthz 0.9.51 before bumping.
+    Measurement (option E): IP-only installs from cloud-hosting networks
+    (config/hosting_networks.txt, RIPEstat snapshot) classify unknown, not
+    stranger; coldstart-bench-* installs are probes/fleet; MCP bundle and REST
+    external installs keep the caller's key; a subscription PaymentIntent is
+    never also counted as one-time revenue on Stripe API 2026-08-26.dahlia.
 """
 
 __version__ = "0.9.52"
