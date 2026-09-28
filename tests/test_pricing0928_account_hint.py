@@ -76,3 +76,11 @@ def test_meta_skill_tells_agents_to_relay_the_hint():
     body = SKILL_MD.read_text(encoding="utf-8")
     assert "account_hint" in body
     assert "Never block or delay an install on it" in body
+
+
+def test_pinned_version_slug_attributes_to_the_base_slug():
+    from app.services.account_hint import signin_url
+
+    assert "utm_campaign=my-skill" in signin_url("my-skill@1.2.3")
+    assert signin_url("my-skill@1.2.3").endswith("utm_campaign=my-skill")
+    assert signin_url("@1.2.3").endswith("utm_campaign=unknown")

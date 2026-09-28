@@ -37,7 +37,8 @@ _SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 def signin_url(slug: str) -> str:
     base = config.public_origin().rstrip("/")
-    campaign = quote(slug, safe="") if _SLUG_RE.match(slug or "") else "unknown"
+    base_slug = (slug or "").split("@", 1)[0]  # `slug@1.2.3` installs attribute to the skill
+    campaign = quote(base_slug, safe="") if _SLUG_RE.match(base_slug) else "unknown"
     return (
         f"{base}/signin?next=/library&utm_source={UTM_SOURCE}&utm_medium={UTM_MEDIUM}&utm_campaign={campaign}"
     )
