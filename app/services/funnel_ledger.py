@@ -39,6 +39,7 @@ calls when possible, rather than resolving each stage independently.
 from __future__ import annotations
 from datetime import datetime, timezone
 
+import ipaddress
 import logging
 from functools import lru_cache
 from pathlib import Path
@@ -84,9 +85,24 @@ def _load_fleet_exclusions(path_str: str) -> dict[str, Any]:
         data = yaml.safe_load(fh) or {}
     return {
         "emails": {str(e).strip().lower() for e in (data.get("emails") or [])},
-        "ips": {str(i).strip() for i in (data.get("ips") or [])},
-        "api_key_ids": {str(k).strip() for k in (data.get("api_key_ids") or [])},
+        "ips": {normalize_ip(str(i)) for i in (data.get("ips") or [])},
+        "api_key_ids": {str(k).strip().lower() for k in (data.get("api_key_ids") or [])},
     }
+
+
+def normalize_ip(value: str) -> str:
+    """Canonical text form of an IP, so ``::1`` == ``0:0:0:0:0:0:0:1`` (t_f0598839).
+
+    IPv4-mapped IPv6 (``::ffff:1.2.3.4``) collapses to the IPv4 form. A value
+    that is not an IP is returned stripped, so it still matches itself.
+    """
+    raw = value.strip()
+    try:
+        addr = ipaddress.ip_address(raw)
+    except ValueError:
+        return raw
+    mapped = getattr(addr, "ipv4_mapped", None)
+    return str(mapped or addr)
 
 
 def fleet_exclusions() -> dict[str, Any]:
@@ -175,12 +191,12 @@ def classify(
 
     if ip:
         had_any_identifier = True
-        if ip in exclusions["ips"]:
+        if normalize_ip(ip) in exclusions["ips"]:
             return "fleet", f"ip:{ip} in fleet_exclusions.ips"
 
     if api_key_id:
         had_any_identifier = True
-        if api_key_id in exclusions["api_key_ids"]:
+        if str(api_key_id).strip().lower() in exclusions["api_key_ids"]:
             return "fleet", f"api_key_id:{api_key_id} in fleet_exclusions.api_key_ids"
 
     if not had_any_identifier:

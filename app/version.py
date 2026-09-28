@@ -561,6 +561,12 @@ pricing0928 (t_7f5808d2): free-key install-cap parity. TIER_INSTALL_LIMITS
     never also counted as one-time revenue on Stripe API 2026-08-26.dahlia.
     Account hook (option C): anonymous install responses carry an optional
     ``account_hint`` sentence with a utm_source=install sign-in link. No gate.
+
+funnel0928 (t_f0598839): fleet_exclusions.yaml gains adam-xps egress
+    195.128.172.73, ::1, 127.0.0.1 (exact addresses, no /24) and six agent
+    keys pinned by id, not by name. classify() compares normalised IPs, and
+    _classify_install honours a pinned key before the IP rules. Verified
+    against prod /api/healthz 0.9.52 before bumping.
 """
 
-__version__ = "0.9.52"
+__version__ = "0.9.53"
