@@ -139,6 +139,12 @@ def _classify_install(event: InstallEvent, ip: str | None) -> tuple[str, str]:
         return "fleet", "install_events.is_probe"
     if is_bench_slug(event.skill_slug):
         return "fleet", f"skill_slug:{event.skill_slug} is a benchmark throwaway"
+    # t_f0598839: a pinned fleet key is fleet from any IP. Only a MATCH is used;
+    # a non-pinned key leaves the IP-only rules (incl. E1 hosting) unchanged.
+    if event.api_key_id is not None:
+        by_key = classify(api_key_id=str(event.api_key_id))
+        if by_key[0] == "fleet":
+            return by_key
     return classify(ip=ip)
 
 

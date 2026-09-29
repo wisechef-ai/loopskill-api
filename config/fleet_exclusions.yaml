@@ -30,9 +30,26 @@ ips:
   - 195.128.172.227
   - 195.128.172.200
   - 77.42.92.141
+  # t_f0598839: adam-xps egress since 2026-09-08 (ifconfig.me + ipify). Exact
+  # address only, never 195.128.172.0/24: that is an ISP block shared with real
+  # users. Egress drift is caught by a goals/ predicate, not a wider net.
+  - 195.128.172.73
+  # Loopback on the API host itself (5 installs 2026-08-07). Matched after
+  # ipaddress normalisation, so any spelling of ::1 hits.
+  - "::1"
+  - 127.0.0.1
 
 # rec_agent_ keys minted by Tori's D-024 cold-agent probe (2026-08-20/21), resolved from prod api_keys
 api_key_ids:
   - 78808828-06d1-4ec5-abf3-95990fd989f1
   - b70544fb-65fb-42e0-84b5-701fad189c56
   - 7049bce3-0b1f-4824-bf43-9dedfcd5c062
+# t_f0598839: agent keys seen installing from adam-xps egress 195.128.172.73,
+# pinned by exact id (read-only lookup on prod api_keys joined to install_events).
+# Never a name rule like agent:hermes-*: key names are chosen by whoever mints them.
+  - 522c90f2-c3b4-4ab3-9602-536f326ecaab  # agent:claude-code-hermes
+  - 45d60407-dde5-4d66-a64f-6627d8b30338  # agent:hermes-adam
+  - 4f6924c9-4f04-447b-8170-fdc006ed7697  # agent:hermes-adam-agent
+  - 2e8742c1-4c12-41ba-a14b-33b5916585a2  # agent:hermes-adam-agent
+  - bf954c6c-b94b-456b-8de4-4ac70e0588a8  # agent:OpenAI Codex
+  - e6713526-6600-4b0b-84f5-8fe6281ee304  # agent:hermes-claude-code-adam
