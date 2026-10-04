@@ -583,6 +583,11 @@ fed1004: federated search that finds what federation holds. Verified against
     (3) Hub origin URLs: skills.sh rows link the skills.sh page (40/40 resolve
     vs 4-7/40), official rows link GitHub tree/HEAD (15/15 vs 0/15).
     (4) Fan-out: one thread per source (was 8 threads for 14 sources).
+    (5) MCP call_tool ran sync tools ON the event loop (--workers 1 = the whole
+    API stalled per call); now asyncio.to_thread with a per-thread session.
+    (6) Hub snapshot: hourly If-None-Match sync (federation_reindex.py
+    --if-changed; migration fed1004_hub_upstream_etag). A 304 touches no row;
+    the nightly 03:00 run stays a forced full ingest.
 """
 
 __version__ = "0.9.54"
