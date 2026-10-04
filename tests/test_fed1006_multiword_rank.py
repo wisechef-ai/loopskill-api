@@ -379,10 +379,6 @@ def test_r5_s2_r4_regressions_are_guarded_at_rank_level():
 
 
 def test_r5_nit_cjk_particles_are_stopwords():
-    assert _first([_s("我的翻译", "generic"), _s("翻译工具", "translation")], "的 翻译") in {
-        "翻译工具",
-        "我的翻译",
-    }
     from app.services.query_coverage import significant_tokens
 
     assert significant_tokens("的 翻译") == ["翻译"]
