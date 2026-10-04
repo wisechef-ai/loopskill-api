@@ -79,3 +79,41 @@ def test_only_github_shaped_skills_sh_ids_are_installable(ident, installable):
     assert (skill.install_path == InstallPath.FETCH_ORIGIN) is installable
     assert skill.origin_url == f"https://skills.sh/{ident}"
     assert unify_external(skill).deployable is installable
+
+
+# ── fed1007 R1: bounded background refresh herd ─────────────────────────────
+
+
+def test_distinct_stale_keys_share_a_bounded_number_of_refreshes():
+    import threading
+    import time
+
+    from app.services import metasearch_cache_swr as swr
+
+    cache = _cache()
+    gate = threading.Event()
+    running = {"now": 0, "peak": 0}
+    lock = threading.Lock()
+
+    def _compute():
+        with lock:
+            running["now"] += 1
+            running["peak"] = max(running["peak"], running["now"])
+        gate.wait(5)
+        with lock:
+            running["now"] -= 1
+        return [{"slug": "fresh"}], OK14, []
+
+    started = [cache._maybe_refresh(f"k{i}", f"q{i}", ("a",), _compute) for i in range(8)]
+    time.sleep(0.2)
+    assert sum(started) == swr.MAX_BACKGROUND_REFRESHES, started
+    assert running["peak"] <= swr.MAX_BACKGROUND_REFRESHES
+    assert cache._refreshing == {f"k{i}" for i in range(8) if started[i]}, "a refused key is not left marked"
+    gate.set()
+    deadline = time.time() + 5
+    while cache._refreshing and time.time() < deadline:
+        time.sleep(0.02)
+    assert not cache._refreshing
+    assert cache._maybe_refresh("k7", "q7", ("a",), lambda: ([], OK14, [])), (
+        "a freed slot serves the next read"
+    )
