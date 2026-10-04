@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 # fed1007 R2: ONE process-wide budget for every background fan-out. MCP warms
 # and REST stale-while-revalidate refreshes take slots from the same semaphore,
 # so a mixed REST+MCP burst after a deploy never exceeds it. A full budget makes
-# MCP answer from the local index with the "warming" flag (designed fallback).
+# MCP answer from the local index with the "cold" flag (designed fallback).
 from app.services.metasearch_cache_swr import (  # noqa: E402
     _REFRESH_SLOTS as _warm_slots,
 )
