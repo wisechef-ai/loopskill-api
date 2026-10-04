@@ -40,7 +40,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from app.services.federation import ExternalSkill, InstallPath, route_install
-from app.services.federation_relevance import relevance_tier
+from app.services.federation_relevance import NO_MATCH_TIER, relevance_tier
+from app.services.query_coverage import coverage, significant_tokens
 
 # ── Source priority (dedupe tie-break + rank prior) ──────────────────────────
 # Lower number = higher priority. Curated ("recipes") always wins. Order below
@@ -399,6 +400,10 @@ def rank(skills: list[UnifiedSkill], *, query: str | None = None) -> list[Unifie
     alphabetical-by-title ordering that has no relationship to intent — the
     exact class of bug PR #209 fixed one layer down.
 
+    fed1006: rows in NO_MATCH_TIER (common for multi-word queries) do NOT use
+    the shortest-slug key: they sort by word-boundary query coverage
+    (``query_coverage``), then score/source/title, then ``canonical_id``.
+
     With no query (``query`` omitted/empty — a browse, or any pre-existing
     caller that has none), the ordering is BYTE-IDENTICAL to before this fix:
     tiers and slug-length are never computed, and the tiebreak stays
@@ -424,15 +429,30 @@ def rank(skills: list[UnifiedSkill], *, query: str | None = None) -> list[Unifie
         return scored
 
     tiers = {id(s): relevance_tier(q, slug=s.slug, title=s.title, description=s.description) for s in scored}
-    scored.sort(
-        key=lambda s: (
-            tiers[id(s)],
-            len(s.slug),
+    # fed1006: the ladder matches the WHOLE phrase, so a multi-word query leaves
+    # most rows in NO_MATCH_TIER, where shortest-slug used to decide (prod:
+    # "n8n" and "dots" ranked 3rd/4th for an ASD-STE100 query). Inside that tier
+    # only: word-boundary token coverage first (query_coverage), no slug-length
+    # key, and canonical_id last so the order never depends on which fan-out
+    # source finished first. Rows in a matching tier keep their exact order.
+    tokens = significant_tokens(q)
+
+    def _key(s: UnifiedSkill) -> tuple:
+        tier = tiers[id(s)]
+        if tier != NO_MATCH_TIER:
+            return (tier, 0.0, len(s.slug), -s.rank_score, _source_priority(s.source), s.title.lower(), "")
+        anywhere, head = coverage(tokens, slug=s.slug, title=s.title, description=s.description)
+        return (
+            tier,
+            -anywhere,
+            -head,
             -s.rank_score,
             _source_priority(s.source),
             s.title.lower(),
+            s.canonical_id,
         )
-    )
+
+    scored.sort(key=_key)
     return scored
 
 

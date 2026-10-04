@@ -590,4 +590,4 @@ fed1004: federated search that finds what federation holds. Verified against
     the nightly 03:00 run stays a forced full ingest.
 """
 
-__version__ = "0.9.54"
+__version__ = "0.9.55"
