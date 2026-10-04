@@ -17,7 +17,7 @@ Three rules this module exists to hold, none of which the MCP tool restates:
    in parallel on a floor slot; the caller waits at most
    ``settings.MCP_FEDERATED_LIVE_BUDGET_S`` in total. A slot is held for the
    whole real compute (stale refreshes run synchronously via ``refresh_now``),
-   so ``MAX_CONCURRENT_WARMS`` caps fan-outs, not launchers. Budget 0 restores the P2 cache-only rows and flags; hit/miss
+   so ``metasearch_cache_swr.MAX_BACKGROUND_REFRESHES (shared with REST refreshes)`` caps fan-outs, not launchers. Budget 0 restores the P2 cache-only rows and flags; hit/miss
    stats stay REST-only either way (reads use ``_count=False``).
 2. **Honest freshness.** ``fresh`` / ``stale`` / ``degraded`` mirror the cache
    reader. ``warming``: a live fan-out is still running; rows come from the
@@ -48,10 +48,15 @@ logger = logging.getLogger(__name__)
 
 # Live fan-outs (cold computes AND stale refreshes) that may run at once in this
 # worker. Each fan-out runs one thread per source, so this caps the source
-# threads at MAX_CONCURRENT_WARMS x len(sources). Past it, a query is answered
+# threads at metasearch_cache_swr.MAX_BACKGROUND_REFRESHES (shared with REST refreshes) x len(sources). Past it, a query is answered
 # from the local index and flagged ``cold``.
-MAX_CONCURRENT_WARMS = 4
-_warm_slots = threading.BoundedSemaphore(MAX_CONCURRENT_WARMS)
+# fed1007 R2: ONE process-wide budget for every background fan-out. MCP warms
+# and REST stale-while-revalidate refreshes take slots from the same semaphore,
+# so a mixed REST+MCP burst after a deploy never exceeds it. A full budget makes
+# MCP answer from the local index with the "warming" flag (designed fallback).
+from app.services.metasearch_cache_swr import (  # noqa: E402
+    _REFRESH_SLOTS as _warm_slots,
+)
 
 # Local-index queries that may run at once. A slow or locked table must not
 # pile up one blocked thread per MCP call.

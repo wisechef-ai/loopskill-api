@@ -203,7 +203,13 @@ def metasearch(
         latency_ms=(time.perf_counter() - t0) * 1000.0,
     )
     payload["render_contract"] = meta.to_dict()
-    payload["cache"] = {"cache_hit": False, "cache_age_s": 0.0, "cache_ttl_s": cache.ttl_s}
+    # fed1007 R1: report the TTL the entry actually got (30 s when degraded),
+    # so a miss and the following hit never disagree.
+    payload["cache"] = {
+        "cache_hit": False,
+        "cache_age_s": 0.0,
+        "cache_ttl_s": entry.ttl_s if entry else cache.ttl_s,
+    }
 
     # Funnel event reflects the DELIVERED response (post-contract, post-slice), not
     # the pre-contract candidate set (council SHOULD 2) — the user's real result.

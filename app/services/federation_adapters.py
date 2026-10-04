@@ -8,6 +8,8 @@ so the mapping logic is unit-testable without network.
 
 from __future__ import annotations
 
+import re
+
 from typing import Any, Callable
 
 from app.services import clawhub_url
@@ -313,6 +315,16 @@ class GitHubTapAdapter(SourceAdapter):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+_GITHUB_OWNER = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$")
+
+
+def _github_shaped(ident: str) -> bool:
+    """owner/repo/skill where owner is a valid GitHub login (letters, digits,
+    inner hyphens; never a dot). 'skills.volces.com/x/v2' is a domain (R2)."""
+    parts = ident.split("/")
+    return len(parts) >= 3 and bool(_GITHUB_OWNER.match(parts[0])) and all(parts[1:])
+
+
 class SkillsShAdapter(SourceAdapter):
     """skills.sh aggregator. Row schema (from /api/search):
     {id, skillId, name, source(repo 'owner/repo'), installs}.
@@ -334,8 +346,12 @@ class SkillsShAdapter(SourceAdapter):
             title=str(name),
             source=self.source_id,
             # Hermes-parity: installable (resolves to the underlying public GH
-            # repo's SKILL.md at install time, token-free). community · as-is.
-            install_path=InstallPath.FETCH_ORIGIN,
+            # repo's SKILL.md at install time). community · as-is. fed1007:
+            # only an owner/repo/skill id is GitHub-backed; a domain-hosted id
+            # ('skills.volces.com/court-form-filling-pdf') has no resolvable
+            # SKILL.md, so it is a deep link to its skills.sh page, never a
+            # dead install button.
+            install_path=InstallPath.FETCH_ORIGIN if _github_shaped(str(ident)) else InstallPath.DEEP_LINK,
             origin_url=f"https://skills.sh/{ident}",
             license=None,
             redistributable=True,

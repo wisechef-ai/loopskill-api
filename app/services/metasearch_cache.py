@@ -68,6 +68,9 @@ _DEFAULT_MAX_ENTRIES = 64  # bounded LRU; at ~2KB/entry this is ~128KB
 # to pay the full cold fan-out at each TTL rollover — into a fast stale-serve,
 # which is what drives the p95 tail below the 500ms acceptance gate. The refresh
 # runs on its OWN DB session (the request session is closed by then).
+# fed1007: short TTL for a result most sources did not answer (see _ttl_for).
+DEGRADED_SHARE = 0.5  # strictly more than half the sources missing
+DEGRADED_TTL_S = 30.0
 _DEFAULT_STALE_GRACE_S = 600  # serve stale up to 10 min past TTL while refreshing
 
 
@@ -443,10 +446,28 @@ class HotQueryCache(SingleFlightSWRMixin):
             sources_degraded=sources_degraded or [],
             sources_failed=sources_failed or [],
             computed_at=time.time(),
-            ttl_s=self.ttl_s,
+            ttl_s=self._ttl_for(sources_ok, sources_degraded, sources_failed),
             stale_grace_s=self.stale_grace_s,
             seq=self._next_seq(),
         )
+
+    def _ttl_for(
+        self,
+        sources_ok: list[str] | None,
+        sources_degraded: list[str] | None,
+        sources_failed: list[str] | None,
+    ) -> float:
+        """fed1007: a result where more than DEGRADED_SHARE of the sources did not
+        answer (typically a cold start right after a deploy: 9 of 14 timed out on
+        prod) is a poor answer. It gets DEGRADED_TTL_S instead of the full TTL, so
+        stale-while-revalidate replaces it within seconds, not 5-15 minutes.
+        Steady state (2-4 slow sources of 14 on prod) keeps the full TTL: no extra
+        fan-out load."""
+        missing = len(sources_degraded or []) + len(sources_failed or [])
+        total = missing + len(sources_ok or [])
+        if total and missing / total > DEGRADED_SHARE:
+            return min(self.ttl_s, DEGRADED_TTL_S)
+        return self.ttl_s
 
     def _next_seq(self) -> int:
         """Next write generation, from the SHARED Redis counter when available.

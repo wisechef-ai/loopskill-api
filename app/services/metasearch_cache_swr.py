@@ -22,6 +22,14 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# fed1007 R1: background SWR refreshes across ALL keys share these slots. A
+# degraded entry expires after 30 s; after a deploy many distinct keys go stale
+# together, and the per-key guard alone would start one fan-out per key. A read
+# that finds no free slot still gets the stale entry at once; the refresh is
+# retried by the next read of that key.
+MAX_BACKGROUND_REFRESHES = 4
+_REFRESH_SLOTS = threading.BoundedSemaphore(MAX_BACKGROUND_REFRESHES)
+
 
 class SingleFlightSWRMixin:
     """``get_or_compute`` and its background-refresh machinery.
@@ -189,6 +197,10 @@ class SingleFlightSWRMixin:
             if key in self._refreshing:
                 return False
             self._refreshing.add(key)
+        if not _REFRESH_SLOTS.acquire(blocking=False):
+            with self._lock:
+                self._refreshing.discard(key)
+            return False  # all slots busy: serve stale now, the next read retries
 
         def _refresh() -> None:
             try:
@@ -199,10 +211,17 @@ class SingleFlightSWRMixin:
                 # hard-expires, then a request recomputes synchronously.
                 logger.warning("metasearch SWR refresh failed for %s", key, exc_info=True)
             finally:
+                _REFRESH_SLOTS.release()
                 with self._lock:
                     self._refreshing.discard(key)
 
-        threading.Thread(target=_refresh, name="metasearch-swr-refresh", daemon=True).start()
+        try:
+            threading.Thread(target=_refresh, name="metasearch-swr-refresh", daemon=True).start()
+        except Exception:
+            _REFRESH_SLOTS.release()
+            with self._lock:
+                self._refreshing.discard(key)
+            raise
         return True
 
     def refresh_now(
