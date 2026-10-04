@@ -292,6 +292,7 @@ def _cached_first_pages(db, sources):
     assignment is atomic in CPython. Tests that mutate FederationIndexCache
     then re-search within the TTL can force a refresh via _fed_cache.clear().
     """
+    _ensure_fed_cache_listener()
     import time as _time
 
     now = _time.monotonic()
@@ -312,6 +313,50 @@ def _cached_first_pages(db, sources):
     _fed_cache["sources"] = sources
     _fed_cache["t"] = now
     return data
+
+
+def _invalidate_fed_cache_on_write(session, flush_context):
+    """ORM after_flush hook: any FederationIndexCache write drops the cache.
+
+    The 60s TTL is safe for the prod read path because the only legit writer is
+    the reindex cron; but tests (and any manual reindex) write through the ORM
+    and must see their rows on the very next search. Listening on flush keeps
+    correctness without a write-through API change.
+    """
+    try:
+        candidates = list(session.dirty) + list(session.new) + list(session.deleted)
+        dirty = any(type(obj).__name__ == "FederationIndexCache" for obj in candidates)
+    except Exception:  # noqa: BLE001 — ORM flush internals can raise in exotic states; a stale cache is worse than a dropped one, so fail safe to invalidate
+        dirty = True
+    if dirty:
+        _fed_cache["data"] = None
+        _fed_cache["sources"] = None
+        _fed_cache["t"] = 0.0
+
+
+def _watched_cache_models():
+    from app.models import FederationIndexCache
+
+    return (FederationIndexCache,)
+
+
+_fed_cache_listener_installed = False
+
+
+def _ensure_fed_cache_listener():
+    """Install the after_flush listener once per process (idempotent)."""
+    global _fed_cache_listener_installed
+    if _fed_cache_listener_installed:
+        return
+    from sqlalchemy import event as _sa_event
+    from sqlalchemy.orm import Session as _SaSession
+
+    # Listen on the ORM Session BASE CLASS, not app SessionLocal: tests (and
+    # any code path that builds its own sessionmaker) create sessions whose
+    # class is still sqlalchemy.orm.Session, so a SessionLocal-only listener
+    # never fires there and a poisoned cache would leak across tests.
+    _sa_event.listen(_SaSession, "after_flush", _invalidate_fed_cache_on_write)
+    _fed_cache_listener_installed = True
 
 
 def search_federated_group(db: Session, q: str, limit: int) -> tuple[list[dict], str]:
