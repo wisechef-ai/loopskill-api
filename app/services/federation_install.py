@@ -31,8 +31,6 @@ from typing import Any
 from app.services.federation_fetch import guarded_get
 from app.services.github_taps import GITHUB_FACET_SOURCES as _GITHUB_FACET_SOURCES_FOR_INSTALL
 from app.services.federation_live import (
-    _CATALOG_TTL_S,
-    _cache,
     _safe_json_get,
     browse_sh_origin_skill_md,
     hermes_origin_skill_md,
@@ -43,7 +41,6 @@ logger = logging.getLogger(__name__)
 LOBEHUB_AGENT_URL = "https://chat-agents.lobehub.com/{agent_id}.json"
 GITHUB_RAW_BASE = "https://raw.githubusercontent.com"
 GITHUB_TREES_URL = "https://api.github.com/repos/{repo}/git/trees/{branch}?recursive=1"
-GITHUB_REPO_URL = "https://api.github.com/repos/{repo}"
 
 
 def well_known_origin_skill_md(slug: str) -> tuple[str, str] | None:
@@ -137,59 +134,20 @@ def clawhub_origin_skill_md(slug: str) -> tuple[str, str] | None:
     return None
 
 
-def _github_default_branch(repo: str) -> str:
-    data = _safe_json_get(GITHUB_REPO_URL.format(repo=repo))
-    if isinstance(data, dict) and data.get("default_branch"):
-        return str(data["default_branch"])
-    return "main"
-
-
 def skills_sh_origin_skill_md(slug: str) -> tuple[str, str] | None:
-    """skills.sh FETCH_ORIGIN resolver — TOKEN-FREE.
+    """skills.sh FETCH_ORIGIN resolver.
 
-    A skills.sh id is "owner/repo/skillId". skills.sh has already told us the
-    canonical repo, so we resolve the skill's actual path inside it via the anon
-    GitHub trees API (60/hr, cached) — basename-matching the skillId's SKILL.md —
-    then fetch the raw content anonymously. No GITHUB_TOKEN needed (only code
-    *search* — github-oss — requires a token; raw + trees on a known public repo
-    are anon-OK).
+    A skills.sh id is "owner/repo/skillId" (slug joins it with "--"). The repo is
+    canonical; the in-repo path is found by ``github_skill_path`` — raw CDN
+    conventional paths first, then ONE authed tree walk (fed1005: the old
+    anonymous 2-call walk exhausted the 60/h prod quota and 404'd 90% of cards).
     """
-    ident = (slug or "").replace("--", "/").strip("/")
-    parts = ident.split("/")
+    from app.services.github_skill_path import resolve_repo_skill_md
+
+    parts = (slug or "").replace("--", "/").strip("/").split("/")
     if len(parts) < 3:
         return None
-    repo = f"{parts[0]}/{parts[1]}"
-    skill_id = parts[-1]
-    cache_key = f"skills-sh-path:{repo}:{skill_id}"
-    cached = _cache.get(cache_key, _CATALOG_TTL_S)
-    branch = _github_default_branch(repo)
-    if cached is not None:
-        raw_url = cached
-    else:
-        tree = _safe_json_get(GITHUB_TREES_URL.format(repo=repo, branch=branch))
-        if not isinstance(tree, dict):
-            return None
-        skillmd_paths = [
-            t["path"]
-            for t in tree.get("tree", [])
-            if isinstance(t, dict) and str(t.get("path", "")).endswith("SKILL.md")
-        ]
-        # Prefer the path whose parent dir basename matches the skillId.
-        match = next(
-            (p for p in skillmd_paths if p.rsplit("/", 2)[-2:-1] == [skill_id]),
-            None,
-        ) or next((p for p in skillmd_paths if skill_id in p), None)
-        if not match:
-            return None
-        raw_url = f"{GITHUB_RAW_BASE}/{repo}/{branch}/{match}"
-        _cache.put(cache_key, raw_url)
-    # superset_0606 Phase A: route the raw fetch through the SSRF guard too. The
-    # raw host is constant (raw.githubusercontent.com) but a cached/poisoned
-    # raw_url should still be re-validated — defense in depth.
-    resp = guarded_get(raw_url)
-    if resp is not None and resp.status_code == 200 and resp.text.strip():
-        return raw_url, resp.text
-    return None
+    return resolve_repo_skill_md(f"{parts[0]}/{parts[1]}", parts[-1])
 
 
 def _parse_github_tree_url(url: str) -> tuple[str, str, str] | None:

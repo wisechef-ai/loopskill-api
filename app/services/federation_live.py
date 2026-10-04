@@ -224,6 +224,13 @@ def hermes_origin_skill_md(slug: str, row: dict[str, Any] | None = None) -> tupl
             resp = guarded_get(raw_url, timeout=_HTTP_TIMEOUT_S)
             if resp is not None and resp.status_code == 200 and resp.text.strip():
                 return raw_url, resp.text
+        # fed1005: rows mirrored from skills.sh carry path == skill id, not the
+        # real in-repo path — locate it (raw conventional paths, then a tree walk).
+        from app.services.github_skill_path import resolve_repo_skill_md
+
+        found = resolve_repo_skill_md(repo, path.strip("/").rsplit("/", 1)[-1])
+        if found:
+            return found
 
     # Fallback: the string convention (bundled hermes-agent skills only).
     conv_path = (slug or "").replace("--", "/").strip("/")

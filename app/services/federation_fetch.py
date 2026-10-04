@@ -42,6 +42,9 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+# Stripped from a redirect hop that changes host (requests/browser semantics).
+_CREDENTIAL_HEADERS = frozenset({"authorization", "cookie", "proxy-authorization"})
+
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────── SSRF policy ────────────────────────────────
@@ -192,7 +195,11 @@ def guarded_get(
             location = resp.headers.get("location")
             if not location:
                 return None
-            current_url = urljoin(current_url, location)
+            next_url = urljoin(current_url, location)
+            # fed1005: credentials never follow a redirect to another host.
+            if headers and urlparse(next_url).netloc.lower() != urlparse(current_url).netloc.lower():
+                headers = {k: v for k, v in headers.items() if k.lower() not in _CREDENTIAL_HEADERS}
+            current_url = next_url
             continue
         return resp
     logger.warning("federation_fetch: redirect limit exceeded for %s", url)

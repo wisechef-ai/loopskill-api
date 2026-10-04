@@ -186,7 +186,9 @@ def _tree_walk_fallback(repo: str, path: str, branch: str) -> str | None:
     leaf = path.rstrip("/").rsplit("/", 1)[-1]
     if not leaf:
         return None
-    tree = _safe_json_get(GITHUB_TREES_URL.format(repo=repo, branch=branch))
+    from app.services.github_skill_path import github_api_headers
+
+    tree = _safe_json_get(GITHUB_TREES_URL.format(repo=repo, branch=branch), headers=github_api_headers())
     if not isinstance(tree, dict):
         return None
     entries = tree.get("tree", [])
