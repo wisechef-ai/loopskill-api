@@ -6,9 +6,9 @@ the next sort key — ``len(slug)`` — decided. ``n8n``, ``dots`` and ``dotfile
 (GitHub code-search hits with no query word in slug, title or description)
 ranked 3rd-6th; installable STE skills sat at 18 and below.
 
-Contract: inside NO_MATCH_TIER only, rows sort by the share of query tokens
-they contain (slug/title hit = 1, description-only hit = 0.5) BEFORE anything
-else, and slug length no longer applies there. Rows that match a ladder tier
+Contract: inside NO_MATCH_TIER only, rows sort by (weighted share of query
+tokens found anywhere, weighted share found in slug/title) BEFORE anything
+else, then score/source/title/canonical_id; slug length does not apply there. Rows that match a ladder tier
 keep their exact previous order.
 """
 
@@ -222,7 +222,9 @@ def test_r2_m2_cjk_tokens_match_inside_words():
 def test_r2_m2_polish_words_stay_whole():
     from app.services.query_coverage import significant_tokens
 
-    assert significant_tokens("żółć gęślą") == ["żółć", "gęślą"]
+    from app.services.query_coverage import fold
+
+    assert significant_tokens("żółć gęślą") == [fold("żółć"), fold("gęślą")]
     assert _first([_s("g-l", "generic"), _s("żółć-helper", "gęślą wsparcie")], "żółć gęślą") == "żółć-helper"
 
 
@@ -248,16 +250,60 @@ def test_r2_m3_word_forms_still_match():
         ("converting", "converter"),
         ("images", "image"),
         ("tests", "testing"),
-        ("boxes", "box-x"),
+        ("notes", "note-x"),
     ]:
         assert coverage([q], slug=slug, title="", description="")[0] == 1.0, (q, slug)
 
 
 def test_r2_s1_a_late_discriminator_survives_the_token_cap():
-    """13 tokens > MAX_TOKENS: the shortest ('mu') is dropped, not the last."""
     from app.services.query_coverage import coverage, significant_tokens
 
     q = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu target"
     tokens = significant_tokens(q)
-    assert len(tokens) == 12 and "target" in tokens and "mu" not in tokens
+    assert len(tokens) == 12 and "target" in tokens and "alpha" in tokens
     assert coverage(tokens, slug="target-index", title="", description="specific target functionality")[0] > 0
+
+
+# ── fed1006 R3 kill-tests ───────────────────────────────────────────────────
+
+
+def test_r3_m1_no_short_stem_conflation():
+    assert (
+        _first([_s("new-digest", "generic"), _s("news-reader", "digest headlines")], "news digest")
+        == "news-reader"
+    )
+    assert (
+        _first([_s("not-search", "generic"), _s("notes-index", "search notes")], "notes search")
+        == "notes-index"
+    )
+
+
+def test_r3_m2_digit_tokens_are_exact_in_every_script():
+    assert (
+        _first([_s("模型20-翻译", "generic"), _s("模型2-index", "翻译服务")], "模型2 翻译") == "模型2-index"
+    )
+    assert (
+        _first([_s("ニュース20-翻訳", "generic"), _s("ニュース2-index", "翻訳サービス")], "ニュース2 翻訳")
+        == "ニュース2-index"
+    )
+
+
+def test_r3_s2_accents_and_dotted_i_fold():
+    assert (
+        _first([_s("maps-index", "İstanbul guide"), _s("istanbul-maps", "generic")], "İstanbul maps")
+        == "istanbul-maps"
+    )
+    assert (
+        _first([_s("recipes-index", "café list"), _s("cafe\u0301-recipes", "generic")], "café recipes")
+        == "cafe\u0301-recipes"
+    )
+
+
+def test_r3_s3_a_final_short_subject_survives_a_long_query():
+    from app.services.query_coverage import significant_tokens
+
+    q = (
+        "automated integration configuration deployment documentation validation "
+        "generation conversion extraction processing analysis management pdf"
+    )
+    assert "pdf" in significant_tokens(q)

@@ -6,13 +6,13 @@ measures how much of the query a row covers, word by word.
 
 Rules (each one exists because a review reproduced the failure it prevents):
 
-- Words are Unicode-aware (``[\\W_]+`` split, casefolded): Polish "żółć" stays
-  one word. A token with CJK/kana/hangul characters matches as a SUBSTRING,
+- Words are Unicode-aware (``[\\W_]+`` split) and folded (NFKD, combining
+  marks dropped, casefold) on both sides: Polish "żółć" stays one word. A token with CJK/kana/hangul characters matches as a SUBSTRING,
   because those scripts do not separate words with spaces.
 - Matching is on word boundaries, never raw substrings: ``ai`` must not match
   inside ``email``.
-- Word forms match through a small suffix stemmer (-s, -es, -ing, -ed, -er,
-  -ers; stem of 3+ characters): ``convert`` ~ ``converting`` ~ ``converter``,
+- Word forms match through a small suffix stemmer (-s, -es after s/x/z/ch/sh,
+  -ing, -ed, -er, -ers; stem of 4+ characters, so news != new, notes != not): ``convert`` ~ ``converting`` ~ ``converter``,
   ``image`` ~ ``images``. There is NO prefix rule: ``test`` does not match
   ``testament`` and ``react`` does not match ``reaction``.
 - A token with a digit, or of 3 characters or fewer, matches only an equal
@@ -25,18 +25,23 @@ Rules (each one exists because a review reproduced the failure it prevents):
   the secondary measure is the weighted share found in the slug/title. A row
   that covers both query words beats a row that covers one, wherever the hits
   are.
-- At most ``MAX_TOKENS`` tokens are scored. A longer query keeps its longest
-  (most specific) tokens, so a late discriminator is not cut off by filler.
+- At most ``MAX_TOKENS`` tokens are scored. A longer query keeps its first and
+  last ``MAX_TOKENS // 2`` tokens, so a final subject ("... pdf") survives.
+- Not handled on purpose: 3-letter plurals (pdf/pdfs). Any such rule also
+  makes new == news.
 """
 
 from __future__ import annotations
 
 import re
+import unicodedata
 
 MAX_TOKENS = 12
 _WORD_SPLIT = re.compile(r"[\W_]+")
 _CJK = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]")
 _SUFFIXES = ("ers", "ing", "es", "ed", "er", "s")
+_ES_AFTER = ("s", "x", "z", "ch", "sh")
+_MIN_STEM = 4
 STOPWORDS = frozenset(
     {
         "a", "an", "the", "to", "of", "for", "in", "on", "at", "by", "with", "and", "or", "into",
@@ -63,8 +68,15 @@ GENERIC = frozenset(
 GENERIC_WEIGHT = 0.5
 
 
+def fold(text: str | None) -> str:
+    """Accent- and case-insensitive form: NFKD, combining marks dropped,
+    casefolded. 'İstanbul' == 'istanbul', 'café' == 'cafe\u0301' == 'cafe'."""
+    decomposed = unicodedata.normalize("NFKD", text or "")
+    return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
+
+
 def words(text: str | None) -> list[str]:
-    return [w for w in _WORD_SPLIT.split((text or "").casefold()) if w]
+    return [w for w in _WORD_SPLIT.split(fold(text)) if w]
 
 
 def significant_tokens(query: str | None) -> list[str]:
@@ -72,8 +84,8 @@ def significant_tokens(query: str | None) -> list[str]:
     all_tokens = list(dict.fromkeys(words(query)))
     tokens = [t for t in all_tokens if t not in STOPWORDS] or all_tokens
     if len(tokens) > MAX_TOKENS:
-        keep = set(sorted(tokens, key=len, reverse=True)[:MAX_TOKENS])
-        tokens = [t for t in tokens if t in keep][:MAX_TOKENS]
+        half = MAX_TOKENS // 2
+        tokens = tokens[:half] + tokens[-half:]  # the subject is usually first or last
     return tokens
 
 
@@ -84,21 +96,29 @@ def weight(token: str) -> float:
 def _stems(word: str) -> set[str]:
     out = {word}
     for suffix in _SUFFIXES:
-        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
-            out.add(word[: -len(suffix)])
+        stem = word[: -len(suffix)]
+        if not word.endswith(suffix) or len(stem) < _MIN_STEM:
+            continue
+        if suffix == "es" and not stem.endswith(_ES_AFTER):
+            continue
+        out.add(stem)
     return out
 
 
 def _hit(token: str, field_words: list[str], field_text: str) -> bool:
-    if _CJK.search(token):
-        return token in field_text
     if token in field_words:
         return True
-    if len(token) <= 3 or any(c.isdigit() for c in token):
+    if any(c.isdigit() for c in token):
+        return False  # identifiers and versions: exact only (ste100 != ste1000, 模型2 != 模型20)
+    if _CJK.search(token):
+        return token in field_text
+    if len(token) <= 3:
         return False
     stems = _stems(token)
     return any(
-        not stems.isdisjoint(_stems(w)) for w in field_words if len(w) >= 3 and not any(c.isdigit() for c in w)
+        not stems.isdisjoint(_stems(w))
+        for w in field_words
+        if len(w) >= 3 and not any(c.isdigit() for c in w)
     )
 
 
@@ -107,8 +127,8 @@ def coverage(tokens: list[str], *, slug: str, title: str, description: str) -> t
     total = sum(weight(t) for t in tokens)
     if not total:
         return 0.0, 0.0
-    head_text = f"{slug} {title}".casefold()
-    body_text = (description or "").casefold()
+    head_text = fold(f"{slug} {title}")
+    body_text = fold(description)
     head_words, body_words = words(head_text), words(body_text)
     anywhere = head = 0.0
     for t in tokens:
