@@ -35,61 +35,77 @@ def _mock_resp(text: str, status: int = 200):
     return r
 
 
+def _head_server(serving: str, calls: list[str] | None = None):
+    """Fake guarded_get for github_skill_path: 200 for exactly ``serving``."""
+
+    def _get(url, timeout=None, headers=None):
+        if calls is not None:
+            calls.append(url)
+        if url == serving:
+            return _mock_resp("# 1Password\n")
+        return _mock_resp("", status=404)
+
+    return _get
+
+
 def test_hermes_origin_resolves_via_row_repo_path_when_supplied():
     """The row-passthrough path (mirrors github_tap_origin_skill_md): when a
-    caller already has repo/path, no DB round-trip is needed."""
-    with patch.object(fl, "guarded_get", return_value=_mock_resp("# 1Password\n")) as mock_get:
+    caller already has repo/path, no DB round-trip is needed. fed1005: the
+    stored path is fetched at ref HEAD (the repo's default branch)."""
+    from app.services import github_skill_path as gsp
+
+    gsp._cache.clear()
+    want = "https://raw.githubusercontent.com/NousResearch/claude-code/HEAD/optional-skills/security/1password/SKILL.md"
+    with (
+        patch("app.database.SessionLocal", side_effect=AssertionError("no DB round-trip with a row")),
+        patch.object(gsp, "guarded_get", side_effect=_head_server(want)),
+    ):
         result = fl.hermes_origin_skill_md(
             "official-security-1password",
             row={"repo": "NousResearch/claude-code", "path": "optional-skills/security/1password"},
         )
-    assert result is not None
-    raw_url, content = result
-    assert raw_url == (
-        "https://raw.githubusercontent.com/NousResearch/claude-code/main/"
-        "optional-skills/security/1password/SKILL.md"
-    )
-    assert content == "# 1Password\n"
-    mock_get.assert_called_once()
+    assert result == (want, "# 1Password\n")
 
 
-def test_hermes_origin_falls_back_to_master_when_main_404s():
-    calls = []
+def test_hermes_origin_needs_no_branch_guessing_for_a_master_default_repo():
+    """Was: fall back to master when main 404s (2 probes). fed1005: ref HEAD
+    follows the default branch, so no main/master URL is ever requested."""
+    from app.services import github_skill_path as gsp
 
-    def fake_get(url, timeout=None):
-        calls.append(url)
-        if "/main/" in url:
-            return _mock_resp("", status=404)
-        return _mock_resp("# content\n")
-
-    with patch.object(fl, "guarded_get", side_effect=fake_get):
+    gsp._cache.clear()
+    calls: list[str] = []
+    want = "https://raw.githubusercontent.com/owner/repo/HEAD/skills/x/SKILL.md"
+    with patch.object(gsp, "guarded_get", side_effect=_head_server(want, calls)):
         result = fl.hermes_origin_skill_md("x", row={"repo": "owner/repo", "path": "skills/x"})
-    assert result is not None
-    assert len(calls) == 2
+    assert result is not None and result[0] == want
+    assert not [c for c in calls if "/main/" in c or "/master/" in c]
+    assert not [c for c in calls if "api.github.com" in c]
 
 
 def test_hermes_origin_looks_up_db_row_when_no_row_supplied():
     """This is the ROOT-CAUSE FIX: without the row-passthrough shortcut, the
     resolver must consult the FederationHubSkill DB row for repo/path
     instead of guessing from the slug's dashes."""
+    from app.services import github_skill_path as gsp
+
+    gsp._cache.clear()
     fake_hub_row = MagicMock()
     fake_hub_row.repo = "NousResearch/claude-code"
     fake_hub_row.path = "optional-skills/security/1password"
 
     fake_session = MagicMock()
     fake_session.query.return_value.filter.return_value.first.return_value = fake_hub_row
+    want = "https://raw.githubusercontent.com/NousResearch/claude-code/HEAD/optional-skills/security/1password/SKILL.md"
 
     with (
         patch("app.database.SessionLocal", return_value=fake_session),
-        patch.object(fl, "guarded_get", return_value=_mock_resp("# 1Password\n")) as mock_get,
+        patch.object(gsp, "guarded_get", side_effect=_head_server(want)),
     ):
         result = fl.hermes_origin_skill_md("hermes-hub:1password")
 
     assert result is not None
     raw_url, _content = result
-    assert "NousResearch/claude-code" in raw_url
-    assert "optional-skills/security/1password" in raw_url
-    mock_get.assert_called_once()
+    assert raw_url == want
 
 
 def test_hermes_origin_falls_back_to_string_convention_when_no_db_row():

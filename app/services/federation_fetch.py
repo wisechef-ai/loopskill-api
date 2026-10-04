@@ -42,7 +42,8 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-# Stripped from a redirect hop that changes host (requests/browser semantics).
+# Stripped from a redirect hop that changes scheme or host — a downgrade to
+# http on the same host must not carry a token in clear text (fed1005 R1).
 _CREDENTIAL_HEADERS = frozenset({"authorization", "cookie", "proxy-authorization"})
 
 logger = logging.getLogger(__name__)
@@ -168,6 +169,11 @@ def is_safe_url(url: str) -> bool:
         return False
 
 
+def _origin(url: str) -> tuple[str, str]:
+    parts = urlparse(url)
+    return parts.scheme.lower(), (parts.hostname or "").lower() + (f":{parts.port}" if parts.port else "")
+
+
 def guarded_get(
     url: str,
     *,
@@ -196,8 +202,8 @@ def guarded_get(
             if not location:
                 return None
             next_url = urljoin(current_url, location)
-            # fed1005: credentials never follow a redirect to another host.
-            if headers and urlparse(next_url).netloc.lower() != urlparse(current_url).netloc.lower():
+            # fed1005: credentials never follow a redirect to another origin.
+            if headers and _origin(next_url) != _origin(current_url):
                 headers = {k: v for k, v in headers.items() if k.lower() not in _CREDENTIAL_HEADERS}
             current_url = next_url
             continue

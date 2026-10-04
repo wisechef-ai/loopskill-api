@@ -17,6 +17,9 @@ Contract under test:
 
 from __future__ import annotations
 
+import json
+import time
+
 import pytest
 
 from app.services import github_skill_path as gsp
@@ -288,3 +291,225 @@ def test_no_skills_cli_command_without_a_github_origin_or_a_name():
 )
 def test_frontmatter_name_reads_only_the_frontmatter(body, name):
     assert gsp.frontmatter_name(body) == name
+
+
+# ── fed1005 R1 kill-tests ───────────────────────────────────────────────────
+
+
+def _serve(files: dict[str, str], tree: object = None, calls: list[str] | None = None):
+    """Fake guarded_get: raw files at HEAD under o/r, and a tree payload."""
+
+    def _get(url, **kw):
+        if calls is not None:
+            calls.append(url)
+        if "api.github.com" in url:
+            if tree is None:
+                return _Resp(404)
+            return _Resp(200, tree if isinstance(tree, str) else json.dumps(tree))
+        for path, body in files.items():
+            if url == f"{RAW}/o/r/HEAD/{path}":
+                return _Resp(200, body)
+        return _Resp(404)
+
+    return _get
+
+
+def test_r1_m1_only_blobs_named_exactly_skill_md_count(monkeypatch):
+    tree = {
+        "tree": [
+            {"path": "docs/wanted/NOT_SKILL.md", "type": "blob"},
+            {"path": "x/wanted/SKILL.md", "type": "tree"},
+        ]
+    }
+    monkeypatch.setattr(gsp, "guarded_get", _serve({"docs/wanted/NOT_SKILL.md": "# not a skill"}, tree))
+    assert gsp.resolve_repo_skill_md("o/r", "wanted") is None
+
+
+def test_r1_m2_a_contradicting_name_at_a_conventional_path_is_skipped(monkeypatch):
+    files = {"skills/wanted/SKILL.md": _md("other"), "wanted/SKILL.md": _md("wanted")}
+    monkeypatch.setattr(gsp, "guarded_get", _serve(files))
+    assert gsp.resolve_repo_skill_md("o/r", "wanted")[0].endswith("/HEAD/wanted/SKILL.md")
+
+
+def test_r1_m2_a_contradicting_name_alone_fails_closed(monkeypatch):
+    monkeypatch.setattr(gsp, "guarded_get", _serve({"skills/wanted/SKILL.md": _md("other")}, {"tree": []}))
+    assert gsp.resolve_repo_skill_md("o/r", "wanted") is None
+
+
+def test_r1_m2_a_moved_cached_path_is_resolved_again(monkeypatch):
+    files = {"skills/wanted/SKILL.md": _md("wanted")}
+    monkeypatch.setattr(gsp, "guarded_get", _serve(files))
+    assert gsp.resolve_repo_skill_md("o/r", "wanted")[0].endswith("/skills/wanted/SKILL.md")
+    files["skills/wanted/SKILL.md"] = _md("other")
+    files["wanted/SKILL.md"] = _md("wanted")
+    got = gsp.resolve_repo_skill_md("o/r", "wanted")
+    assert got[0].endswith("/HEAD/wanted/SKILL.md") and "name: wanted" in got[1]
+
+
+def test_r1_m2_no_name_is_accepted_only_by_directory_identity(monkeypatch):
+    no_name = "---\ndescription: d\n---\n# body\n"
+    monkeypatch.setattr(gsp, "guarded_get", _serve({"skills/wanted/SKILL.md": no_name}))
+    assert gsp.resolve_repo_skill_md("o/r", "wanted") is not None
+    gsp._cache.clear()
+    tree = {"tree": [{"path": "SKILL.md"}, {"path": "skills/other/SKILL.md"}]}
+    monkeypatch.setattr(gsp, "guarded_get", _serve({"SKILL.md": no_name}, tree))
+    assert gsp.resolve_repo_skill_md("o/r", "wanted") is None, (
+        "a nameless root of a multi-skill repo is not the skill"
+    )
+
+
+def test_r1_m2_two_passing_tree_matches_are_ambiguous(monkeypatch):
+    tree = {"tree": [{"path": "a/skills/x/SKILL.md"}, {"path": "b/skills/x/SKILL.md"}]}
+    files = {"a/skills/x/SKILL.md": _md("x"), "b/skills/x/SKILL.md": _md("x")}
+    monkeypatch.setattr(gsp, "guarded_get", _serve(files, tree))
+    assert gsp.resolve_repo_skill_md("o/r", "x") is None
+
+
+@pytest.mark.parametrize(
+    "tree",
+    ['{"tree": null}', '{"tree": [null, 7, "x"]}', "[1, 2]", "not json", '{"tree": {"path": "SKILL.md"}}'],
+)
+def test_r1_m4_a_malformed_tree_fails_closed_never_raises(monkeypatch, tree):
+    monkeypatch.setattr(gsp, "guarded_get", _serve({}, tree))
+    assert gsp.resolve_repo_skill_md("o/r", "wanted") is None
+    from app.services import federation_install as fi
+
+    gsp._cache.clear()
+    assert fi.skills_sh_origin_skill_md("o--r--wanted") is None
+
+
+def test_r1_m3_a_scheme_downgrade_drops_the_authorization_header(monkeypatch):
+    from app.services import federation_fetch as ff
+
+    sent: list[dict] = []
+
+    def _httpx_get(url, *, timeout, headers, follow_redirects):
+        sent.append(dict(headers or {}))
+        if url.startswith("https://"):
+            return _Resp(302, headers={"location": "http://api.github.com/collect"})
+        return _Resp(200, "ok")
+
+    monkeypatch.setattr(ff, "is_safe_url", lambda u: True)
+    monkeypatch.setattr(ff.httpx, "get", _httpx_get)
+    ff.guarded_get("https://api.github.com/repos/o/r", headers={"Authorization": "Bearer t"})
+    assert sent[0].get("Authorization") == "Bearer t" and "Authorization" not in sent[1]
+
+
+def test_r1_m3_a_port_change_drops_the_authorization_header(monkeypatch):
+    from app.services import federation_fetch as ff
+
+    sent: list[dict] = []
+
+    def _httpx_get(url, *, timeout, headers, follow_redirects):
+        sent.append(dict(headers or {}))
+        if len(sent) == 1:
+            return _Resp(302, headers={"location": "https://api.github.com:8443/x"})
+        return _Resp(200, "ok")
+
+    monkeypatch.setattr(ff, "is_safe_url", lambda u: True)
+    monkeypatch.setattr(ff.httpx, "get", _httpx_get)
+    ff.guarded_get("https://API.github.com/repos/o/r", headers={"Authorization": "Bearer t"})
+    assert "Authorization" not in sent[1]
+
+
+def _resolve_only(existing: dict[tuple[str, str], tuple[str, str]], seen: list):
+    def _fake(repo, sid, **kw):
+        seen.append((repo, sid))
+        return existing.get((repo, sid))
+
+    return _fake
+
+
+def test_r1_m5_a_double_hyphen_repo_resolves_the_one_split_that_exists(monkeypatch):
+    seen: list = []
+    hit = ("u", "body")
+    monkeypatch.setattr(gsp, "resolve_repo_skill_md", _resolve_only({("o/my--repo", "x"): hit}, seen))
+    assert gsp.resolve_skills_sh_slug("o--my--repo--x") == hit
+    assert ("o/my", "repo--x") in seen and ("o/my--repo", "x") in seen
+
+
+def test_r1_m5_two_splits_that_both_exist_fail_closed(monkeypatch):
+    seen: list = []
+    both = {("o/my", "repo--x"): ("u1", "b1"), ("o/my--repo", "x"): ("u2", "b2")}
+    monkeypatch.setattr(gsp, "resolve_repo_skill_md", _resolve_only(both, seen))
+    assert gsp.resolve_skills_sh_slug("o--my--repo--x") is None
+
+
+def test_r1_m5_a_triple_hyphen_skill_id_is_not_cut_to_its_tail(monkeypatch):
+    """17 prod ids look like 'animation-principles---advanced'; the old decoder
+    asked for skill '-advanced'."""
+    seen: list = []
+    want = ("dylantarre/animation-principles", "animation-principles---advanced")
+    monkeypatch.setattr(gsp, "resolve_repo_skill_md", _resolve_only({want: ("u", "b")}, seen))
+    assert gsp.resolve_skills_sh_slug(
+        "dylantarre--animation-principles--animation-principles---advanced"
+    ) == ("u", "b")
+    assert want in seen
+
+
+def test_r1_m5_the_common_three_part_slug_costs_one_resolution(monkeypatch):
+    seen: list = []
+    monkeypatch.setattr(gsp, "resolve_repo_skill_md", _resolve_only({}, seen))
+    gsp.resolve_skills_sh_slug("o--r--x")
+    assert seen == [("o/r", "x")]
+
+
+def test_r1_s1_a_concurrent_burst_for_a_dead_repo_walks_the_tree_once(monkeypatch):
+    import threading
+
+    calls: list[str] = []
+    gate = threading.Barrier(8)
+
+    def _get(url, **kw):
+        calls.append(url)
+        if "api.github.com" in url:
+            time.sleep(0.3)  # all 8 installs are in flight while the walk runs
+        return _Resp(404)
+
+    monkeypatch.setattr(gsp, "guarded_get", _get)
+
+    def _go():
+        gate.wait()
+        gsp.resolve_repo_skill_md("o/dead", "x")
+
+    threads = [threading.Thread(target=_go) for _ in range(8)]
+    [t.start() for t in threads]
+    [t.join(5) for t in threads]
+    assert sum("api.github.com" in c for c in calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("body", "name"),
+    [
+        ("\ufeff---\nname: bom-skill\n---\n", "bom-skill"),
+        ("---\nname: wanted\n# no closing fence\n", None),
+        ("---\ndescription: |\n  Example\nname: wanted\n", None),
+        ("---\nname: |\n  wanted\n---\n", None),
+        ('---\nname: "Quoted Name"  # comment\n---\n', "Quoted Name"),
+    ],
+)
+def test_r1_s2_frontmatter_edge_cases(body, name):
+    assert gsp.frontmatter_name(body) == name
+
+
+def test_r1_s3_an_official_row_resolves_in_one_wave_with_no_api_call(monkeypatch):
+    from app.services import federation_live as fl
+
+    calls: list[str] = []
+    official = "optional-skills/creative/simple-english"
+
+    def _get(url, **kw):
+        calls.append(url)
+        if url == f"{RAW}/NousResearch/hermes-agent/HEAD/{official}/SKILL.md":
+            return _Resp(200, _md("simple-english"))
+        return _Resp(404)
+
+    monkeypatch.setattr(gsp, "guarded_get", _get)
+    monkeypatch.setattr(
+        fl, "guarded_get", lambda *a, **k: pytest.fail("no main/master probing for repo rows")
+    )
+    got = fl.hermes_origin_skill_md(
+        "official-creative-simple-english", {"repo": "NousResearch/hermes-agent", "path": official}
+    )
+    assert got is not None and got[0].endswith(f"/HEAD/{official}/SKILL.md")
+    assert not [c for c in calls if "api.github.com" in c]

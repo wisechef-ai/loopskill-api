@@ -137,17 +137,15 @@ def clawhub_origin_skill_md(slug: str) -> tuple[str, str] | None:
 def skills_sh_origin_skill_md(slug: str) -> tuple[str, str] | None:
     """skills.sh FETCH_ORIGIN resolver.
 
-    A skills.sh id is "owner/repo/skillId" (slug joins it with "--"). The repo is
-    canonical; the in-repo path is found by ``github_skill_path`` — raw CDN
-    conventional paths first, then ONE authed tree walk (fed1005: the old
-    anonymous 2-call walk exhausted the 60/h prod quota and 404'd 90% of cards).
+    A skills.sh id is "owner/repo/skillId" (slug joins it with "--"; decoded
+    without guessing by ``github_skill_path.resolve_skills_sh_slug``). The
+    in-repo path is found by ``github_skill_path`` — a parallel raw-CDN wave,
+    then ONE authed tree walk (fed1005: the old anonymous 2-call walk exhausted
+    the 60/h prod quota and 404'd 90% of cards).
     """
-    from app.services.github_skill_path import resolve_repo_skill_md
+    from app.services.github_skill_path import resolve_skills_sh_slug
 
-    parts = (slug or "").replace("--", "/").strip("/").split("/")
-    if len(parts) < 3:
-        return None
-    return resolve_repo_skill_md(f"{parts[0]}/{parts[1]}", parts[-1])
+    return resolve_skills_sh_slug(slug)
 
 
 def _parse_github_tree_url(url: str) -> tuple[str, str, str] | None:
