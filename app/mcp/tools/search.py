@@ -24,8 +24,7 @@ it by ``mcp_federated_search.federated_append``:
 2. On a miss, ONE live fan-out starts — the same compute, cache key and
    per-source deadline as ``GET /api/skills/metasearch`` — and a local hub-index
    query starts in parallel. The tool waits at most
-   ``settings.MCP_FEDERATED_LIVE_BUDGET_S`` (default 4s) in total. Sources that
-   miss the deadline are merged into the cached entry when they land.
+   ``settings.MCP_FEDERATED_LIVE_BUDGET_S`` (default 4s) in total.
 3. If the fan-out is still running at the budget, the rows come from the local
    hub index and the fan-out finishes in the background.
 

@@ -13,26 +13,23 @@ What the cache-only rule cost in exchange: ``loopskill_search`` answered
 warmed in the last 15 minutes. Verified live: ``loopskill_search("ste100")``
 returned nothing while ``/api/skills/metasearch?q=ste100`` returned 30 rows.
 
-Contract (fed1004, after two adversarial review rounds):
+Contract (fed1004, after three adversarial review rounds):
 
 - ONE cache key per query and ONE per-source deadline for every caller, so a
   cold query fans out once per process no matter which surface asks first, and
   no caller ever waits longer than the web UI's own compute.
-- **Late-merge.** A source still running at the deadline (ClawHub's search
-  route: p50 ~1.25s from prod vs a 1.2s deadline) is not lost: its future keeps
-  running, and when it lands within ``LATE_GRACE_S`` its rows are merged into
-  the cached entry by compare-and-set. Nobody waits for it; the NEXT read gets
-  it. Breaker state is never touched by a late result — the owning fan-out loop
-  already recorded the timeout (stragglers never mutate shared health).
-- A background compute uses its OWN database session; the late-merge needs none.
+- A source slower than the deadline is dropped from THAT compute and demoted by
+  its breaker, exactly as before. ClawHub's live search (p50 ~1.25s from prod)
+  is therefore a best-effort bonus: ClawHub COVERAGE comes from the hourly hub
+  snapshot (79k ClawHub rows, searched locally by the ``hermes-hub`` source).
+  A late-merge of stragglers was built and deleted in review: it could
+  overwrite a newer cache generation and the breaker defeated it anyway.
+- A background compute uses its OWN database session.
 """
 
 from __future__ import annotations
 
-import concurrent.futures
 import logging
-import threading
-import time
 from typing import Any
 
 from sqlalchemy.orm import Session, joinedload
@@ -43,16 +40,6 @@ from app.models import Skill
 logger = logging.getLogger(__name__)
 
 CURATED_CAP = 50  # curated candidates pulled before the merge caps the page
-
-# How long a late source may take after the deadline and still be merged. The
-# HTTP timeout under it is 12s; past this grace the straggler is discarded.
-LATE_GRACE_S = 6.0
-# Late-merge threads at once. Past it, late rows are simply dropped (the next
-# compute for the query tries again) — never queued.
-MAX_LATE_MERGES = 8
-_late_slots = threading.BoundedSemaphore(MAX_LATE_MERGES)
-# How long the late-merge waits for the compute's own cache write to land.
-_ENTRY_WAIT_S = 2.0
 
 
 def curated_candidates(db: Session, q: str | None, limit: int) -> list[dict]:
@@ -90,8 +77,7 @@ def build_unified(db: Session, q: str | None) -> tuple[list[dict[str, Any]], lis
     """Build the unified ranked result against ``db``.
 
     Returns ``(contracted_skills, sources_ok, sources_degraded)`` — the exact
-    triple ``HotQueryCache.get_or_compute`` stores. Sources that missed the
-    deadline are handed to the late-merge. Module attributes are read at call
+    triple ``HotQueryCache.get_or_compute`` stores. Module attributes are read at call
     time (``_fanout.fan_out``) so a test patch on the fan-out module is honoured
     here exactly as it is in the route.
     """
@@ -103,13 +89,9 @@ def build_unified(db: Session, q: str | None) -> tuple[list[dict[str, Any]], lis
     # issue #148: seed the ClawHub owner cache from the persisted snapshot BEFORE
     # fanning out, so no browse row pays a live owner lookup on a worker thread.
     prime_clawhub_owner_cache(db)
-    sources = tuple(_fanout.DEFAULT_FANOUT_SOURCES)
     fanout = _fanout.fan_out(q or "", sources=_fanout.DEFAULT_FANOUT_SOURCES)
     external = _unify_pairs(unify_external, fanout.pairs)
-    result = _merge(q, curated, external, ["recipes", *fanout.sources_ok], list(fanout.sources_degraded))
-    if fanout.late:
-        schedule_late_merge(q, sources, curated, external, fanout)
-    return result
+    return _merge(q, curated, external, ["recipes", *fanout.sources_ok], list(fanout.sources_degraded))
 
 
 def _merge(
@@ -180,83 +162,6 @@ def _safe_unify(unify_external: Any, skill: Any, raw: Any) -> Any:
             )
             return None
     return unified
-
-
-def _late_rows(fanout: Any, done: set) -> tuple[list[str], list[tuple[Any, dict]]]:
-    landed: list[str] = []
-    pairs: list[tuple[Any, dict]] = []
-    for fut in done:
-        try:
-            res = fut.result()
-        # Rationale: a straggler that raised is simply not merged.
-        except Exception:  # noqa: BLE001
-            continue
-        if not getattr(res, "ok", False):
-            continue
-        landed.append(fanout.late[fut])
-        rows = res.raw_rows
-        pairs += [(skill, rows[i] if i < len(rows) else {}) for i, skill in enumerate(res.skills)]
-    return landed, pairs
-
-
-def merge_late_results(
-    q: str | None, sources: tuple[str, ...], curated: list, external: list, fanout: Any
-) -> bool:
-    """Wait (bounded) for the late sources, then CAS-merge their rows into the
-    cached entry for ``(q, sources)``. Returns True iff the cache was upgraded.
-
-    The upgrade lands only if the cached entry still lists a landed source as
-    degraded (an entry that already has it — a newer compute — is left alone)
-    and only through ``put_if_current`` against that entry's seq.
-    """
-    from app.services.metasearch import unify_external
-    from app.services.metasearch_cache import get_cache
-
-    done, _ = concurrent.futures.wait(list(fanout.late), timeout=LATE_GRACE_S)
-    landed, pairs = _late_rows(fanout, done)
-    if not landed:
-        return False
-    ok = ["recipes", *fanout.sources_ok, *landed]
-    degraded = [src for src in fanout.sources_degraded if src not in landed]
-    skills, ok, degraded = _merge(q, curated, external + _unify_pairs(unify_external, pairs), ok, degraded)
-    cache = get_cache()
-    deadline = time.monotonic() + _ENTRY_WAIT_S
-    lookup = cache.get_entry(q or "", sources, _count=False)
-    while lookup.entry is None and time.monotonic() < deadline:
-        time.sleep(0.05)
-        lookup = cache.get_entry(q or "", sources, _count=False)
-    entry = lookup.entry
-    if entry is None or not set(landed) & set(entry.sources_degraded):
-        return False
-    return cache.put_if_current(
-        q or "", sources, skills, expected_seq=entry.seq, sources_ok=ok, sources_degraded=degraded
-    )
-
-
-def schedule_late_merge(
-    q: str | None, sources: tuple[str, ...], curated: list, external: list, fanout: Any
-) -> bool:
-    """Run ``merge_late_results`` on a daemon thread holding a late slot.
-    False when every slot is busy or the thread cannot start (slot released)."""
-    if not _late_slots.acquire(blocking=False):
-        return False
-
-    def _run() -> None:
-        try:
-            merge_late_results(q, sources, curated, external, fanout)
-        # Rationale: the late-merge is a best-effort upgrade; failure only means
-        # the late rows arrive with the next compute instead.
-        except Exception:  # noqa: BLE001
-            logger.warning("metasearch late-merge failed for %r", q, exc_info=True)
-        finally:
-            _late_slots.release()
-
-    try:
-        threading.Thread(target=_run, name="metasearch-late-merge", daemon=True).start()
-    except BaseException:  # noqa: BLE001 — RuntimeError("can't start new thread")
-        _late_slots.release()
-        return False
-    return True
 
 
 def warm(q: str | None, sources: tuple[str, ...]) -> None:

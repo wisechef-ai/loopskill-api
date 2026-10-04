@@ -777,121 +777,33 @@ def test_a_same_repo_skill_mismatch_never_links_another_page():
     assert "unrelated-skill" not in origin_url_for_row(row)
 
 
-def _late_fanout(late_result, *, delay: float = 0.2):
-    """A FanoutOutput whose 'clawhub' source missed the deadline and lands later."""
-    import concurrent.futures
+def test_clawhub_coverage_does_not_depend_on_the_live_source(db_session, monkeypatch):
+    """With the live ClawHub source demoted (slow → breaker open), ClawHub skills
+    still reach agents through the local hub snapshot (upstream_source=clawhub)."""
+    import app.database as database
+    from app.models import FederationHubSkill
 
-    from app.services import metasearch_fanout as fo
-
-    pool = concurrent.futures.ThreadPoolExecutor(1)
-    fut = pool.submit(lambda: time.sleep(delay) or late_result)
-    pool.shutdown(wait=False)
-    return fo.FanoutOutput(
-        pairs=[], sources_ok=["skills-sh"], sources_degraded=["clawhub"], late={fut: "clawhub"}
+    db_session.add(
+        FederationHubSkill(
+            slug="obsidian",
+            title="Obsidian",
+            description="Work with Obsidian vaults",
+            source="hermes-hub",
+            upstream_source="clawhub",
+            identifier="obsidian",
+            origin_url="https://clawhub.ai/steipete/skills/obsidian",
+            install_path="deep_link",
+            repo="",
+            path="",
+        )
     )
-
-
-def _claw_result():
-    from app.services import metasearch_fanout as fo
-    from app.services.federation import ExternalSkill, InstallPath
-
-    skill = ExternalSkill(
-        slug="obsidian",
-        title="Obsidian",
-        source="clawhub",
-        install_path=InstallPath.DEEP_LINK,
-        origin_url="https://clawhub.ai/steipete/skills/obsidian",
-        license=None,
-        redistributable=False,
-    )
-    return fo.SourceResult(source="clawhub", skills=[skill], raw_rows=[{"stats": {"downloads": 5}}], ok=True)
-
-
-def test_a_late_source_is_merged_into_the_cached_entry():
-    """ClawHub search p50 ~1.25s vs a 1.2s deadline: its rows must not be lost —
-    they land in the cache for the next read, and nobody waited for them."""
-    from app.services import metasearch_compute as mc
-
-    sources = mfs.federated_sources()
-    get_cache().put(
-        "obsidian", sources, [STE], sources_ok=["recipes", "skills-sh"], sources_degraded=["clawhub"]
-    )
-    assert mc.merge_late_results("obsidian", sources, [], [], _late_fanout(_claw_result())) is True
-    entry = get_cache().get_entry("obsidian", sources).entry
-    assert "obsidian" in [r["slug"] for r in entry.skills]
-    assert "clawhub" in entry.sources_ok and "clawhub" not in entry.sources_degraded
-
-
-def test_a_late_merge_never_overwrites_a_newer_entry_that_has_the_source():
-    from app.services import metasearch_compute as mc
-
-    sources = mfs.federated_sources()
-    get_cache().put("obsidian", sources, [STE], sources_ok=["recipes", "clawhub"], sources_degraded=[])
-    assert mc.merge_late_results("obsidian", sources, [], [], _late_fanout(_claw_result())) is False
-    assert [r["slug"] for r in get_cache().get_entry("obsidian", sources).entry.skills] == [STE["slug"]]
-
-
-def test_a_failed_late_source_changes_nothing():
-    from app.services import metasearch_compute as mc
-    from app.services import metasearch_fanout as fo
-
-    sources = mfs.federated_sources()
-    get_cache().put("obsidian", sources, [STE], sources_ok=["recipes"], sources_degraded=["clawhub"])
-    failed = fo.SourceResult(source="clawhub", skills=[], raw_rows=[], ok=False, reason="fetch_error")
-    assert mc.merge_late_results("obsidian", sources, [], [], _late_fanout(failed)) is False
-
-
-def test_a_late_merge_never_touches_breaker_state(monkeypatch):
-    from app.services import metasearch_compute as mc
-    from app.services import metasearch_ratelimit as rl
-
-    monkeypatch.setattr(
-        rl, "record_success", lambda src: pytest.fail("stragglers never mutate shared health")
-    )
-    monkeypatch.setattr(
-        rl, "record_failure", lambda src: pytest.fail("stragglers never mutate shared health")
-    )
-    sources = mfs.federated_sources()
-    get_cache().put("obsidian", sources, [STE], sources_ok=["recipes"], sources_degraded=["clawhub"])
-    mc.merge_late_results("obsidian", sources, [], [], _late_fanout(_claw_result()))
-
-
-def test_fan_out_hands_back_a_source_still_running_at_the_deadline(monkeypatch):
-    from app.services import metasearch_fanout as fo
-
-    def _query(source, query, *, limit):
-        if source == "slow":
-            time.sleep(0.6)
-        return fo.SourceResult(source=source, skills=[], raw_rows=[], ok=True)
-
-    monkeypatch.setattr(fo, "_query_one_source", _query)
-    monkeypatch.setattr(fo.rl, "record_success", lambda src: None)
-    monkeypatch.setattr(fo.rl, "record_failure", lambda src: None)
-    out = fo.fan_out("q", sources=("fast", "slow"), per_source_deadline_s=0.2)
-    assert out.sources_ok == ["fast"] and out.sources_degraded == ["slow"]
-    assert list(out.late.values()) == ["slow"]
-    (fut,) = out.late
-    assert fut.result(timeout=2).ok
-
-
-def test_build_unified_schedules_the_late_merge_only_when_a_source_is_late(monkeypatch):
-    from app.services import metasearch_compute as mc
-    from app.services import metasearch_fanout as fo
-
-    scheduled: list = []
-    monkeypatch.setattr(mc, "schedule_late_merge", lambda *a: scheduled.append(a) or True)
-    monkeypatch.setattr(mc, "curated_candidates", lambda db, q, limit: [])
-    monkeypatch.setattr("app.services.clawhub_owner_prime.prime_clawhub_owner_cache", lambda db: None)
-    monkeypatch.setattr(
-        fo,
-        "fan_out",
-        lambda q, *, sources, **kw: fo.FanoutOutput(pairs=[], sources_ok=["a"], sources_degraded=[]),
-    )
-    mc.build_unified(None, "q")
-    assert scheduled == []
-    monkeypatch.setattr(fo, "fan_out", lambda q, *, sources, **kw: _late_fanout(_claw_result()))
-    mc.build_unified(None, "q")
-    assert len(scheduled) == 1 and scheduled[0][1] == tuple(fo.DEFAULT_FANOUT_SOURCES)
+    db_session.commit()
+    monkeypatch.setattr(database, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(db_session, "close", lambda: None)
+    monkeypatch.setattr(db_session, "rollback", lambda: None)
+    rows = mfs.local_floor("obsidian", limit=5, exclude_slugs=set())
+    assert [r["origin_url"] for r in rows] == ["https://clawhub.ai/steipete/skills/obsidian"]
+    assert rows[0]["deployable"] is False, "ClawHub stays deep-link only"
 
 
 def test_a_hit_with_no_string_slug_anywhere_is_dropped():
