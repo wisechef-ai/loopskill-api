@@ -272,7 +272,6 @@ def search_connectors_group(db: Session, q: str, limit: int) -> list[dict]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-
 # --- added by CHEF-2026-10-03-E (t_cba77444): process-level TTL cache for the
 # federation first_page load. Measured on prod (2026-10-04): loading + JSON-parsing
 # all ~32 cached first_pages costs ~8.3ms EVERY /api/search request (up to 12ms
