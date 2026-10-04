@@ -334,8 +334,12 @@ class SkillsShAdapter(SourceAdapter):
             title=str(name),
             source=self.source_id,
             # Hermes-parity: installable (resolves to the underlying public GH
-            # repo's SKILL.md at install time, token-free). community · as-is.
-            install_path=InstallPath.FETCH_ORIGIN,
+            # repo's SKILL.md at install time). community · as-is. fed1007:
+            # only an owner/repo/skill id is GitHub-backed; a domain-hosted id
+            # ('skills.volces.com/court-form-filling-pdf') has no resolvable
+            # SKILL.md, so it is a deep link to its skills.sh page, never a
+            # dead install button.
+            install_path=InstallPath.FETCH_ORIGIN if str(ident).count("/") >= 2 else InstallPath.DEEP_LINK,
             origin_url=f"https://skills.sh/{ident}",
             license=None,
             redistributable=True,

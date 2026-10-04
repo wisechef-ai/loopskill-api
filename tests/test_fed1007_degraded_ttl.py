@@ -56,3 +56,26 @@ def test_degraded_ttl_never_exceeds_a_shorter_configured_ttl():
     cache = HotQueryCache(l2=None, ttl_s=10.0)
     entry = cache._build_entry([], sources_ok=["a"], sources_degraded=["b", "c", "d"])
     assert entry.ttl_s == 10.0
+
+
+# ── fed1007: domain-hosted skills.sh ids are link-only ──────────────────────
+
+
+@pytest.mark.parametrize(
+    ("ident", "installable"),
+    [
+        ("cgoern/skills/simplified-technical-english", True),
+        ("dylantarre/animation-principles/animation-principles---advanced", True),
+        ("skills.volces.com/court-form-filling-pdf", False),
+        ("lonely-skill", False),
+    ],
+)
+def test_only_github_shaped_skills_sh_ids_are_installable(ident, installable):
+    from app.services.federation import InstallPath
+    from app.services.federation_adapters import SkillsShAdapter
+    from app.services.metasearch import unify_external
+
+    skill = SkillsShAdapter()._map({"id": ident, "name": ident.rsplit("/", 1)[-1], "source": "x"})
+    assert (skill.install_path == InstallPath.FETCH_ORIGIN) is installable
+    assert skill.origin_url == f"https://skills.sh/{ident}"
+    assert unify_external(skill).deployable is installable
