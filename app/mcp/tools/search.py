@@ -20,11 +20,12 @@ every MCP-facing agent concluded LoopSkill has nothing on any federated topic.
 So the native pass runs EXACTLY as before, and federated rows are APPENDED after
 it by ``mcp_federated_search.federated_append``:
 
-1. The MCP cache entry, then the REST cache entry, are read (microseconds).
-2. On a miss, ONE live fan-out starts (the same compute as
-   ``GET /api/skills/metasearch``, a longer per-source deadline, its own cache
-   key) and a local hub-index query starts in parallel. The tool waits at most
-   ``settings.MCP_FEDERATED_LIVE_BUDGET_S`` (default 4s) in total.
+1. The shared metasearch cache entry is read (microseconds).
+2. On a miss, ONE live fan-out starts — the same compute, cache key and
+   per-source deadline as ``GET /api/skills/metasearch`` — and a local hub-index
+   query starts in parallel. The tool waits at most
+   ``settings.MCP_FEDERATED_LIVE_BUDGET_S`` (default 4s) in total. Sources that
+   miss the deadline are merged into the cached entry when they land.
 3. If the fan-out is still running at the budget, the rows come from the local
    hub index and the fan-out finishes in the background.
 

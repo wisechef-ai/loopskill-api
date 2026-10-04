@@ -40,16 +40,18 @@ def _safe_token(token: str) -> bool:
     return bool(_SAFE_TOKEN.fullmatch(token)) and token not in {".", ".."}
 
 
-def skills_sh_page_url(identifier: str, repo: str | None = None) -> str | None:
+def skills_sh_page_url(identifier: str, repo: str | None = None, path: str | None = None) -> str | None:
     """``skills-sh/<owner>/<repo>/<skill>`` → the skills.sh page, else None.
 
     Every token must be a plain path segment. A token with ``?``, ``#``, ``/``,
     spaces or ``..`` would make the URL point somewhere other than the skill,
     so such an identifier gets no page URL and the caller falls back.
 
-    When the row carries ``repo``, the identifier's owner/repo must equal it
+    When the row carries ``repo`` / ``path``, the identifier's owner/repo must
+    equal ``repo`` and its skill token must equal the last ``path`` segment
     (case-insensitive): an internally inconsistent row must not link a
-    DIFFERENT skill's page. Calibrated 2026-10-04: 0 of 20,000 live rows differ.
+    DIFFERENT skill's page. Calibrated 2026-10-04: 0 of 20,000 live rows differ
+    on either check.
     """
     ident = (identifier or "").strip()
     if not ident.startswith(_SKILLS_SH_PREFIX):
@@ -58,6 +60,9 @@ def skills_sh_page_url(identifier: str, repo: str | None = None) -> str | None:
     if len(tokens) != 3 or not all(_safe_token(t) for t in tokens):
         return None
     if repo and f"{tokens[0]}/{tokens[1]}".lower() != repo.strip().lower():
+        return None
+    leaf = (path or "").strip("/").rsplit("/", 1)[-1]
+    if leaf and tokens[2].lower() != leaf.lower():
         return None
     return f"{SKILLS_SH_PAGE_BASE}/{'/'.join(tokens)}"
 

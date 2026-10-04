@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.services import metasearch_ratelimit as rl
 from app.services.federation import ExternalSkill
@@ -150,11 +150,18 @@ def _query_one_source(source: str, query: str, *, limit: int) -> SourceResult:
 
 @dataclass
 class FanoutOutput:
-    """The fan-out's raw product: per-source (skill, raw_row) pairs + health."""
+    """The fan-out's raw product: per-source (skill, raw_row) pairs + health.
+
+    ``late`` maps each source future still RUNNING at the deadline to its source
+    id. The request never waits for them; ``metasearch_compute`` may collect them
+    afterwards and merge their rows into the cached entry (fed1004). They never
+    touch breaker state — the owning loop already recorded the timeout.
+    """
 
     pairs: list[tuple[ExternalSkill, dict]]
     sources_ok: list[str]
     sources_degraded: list[str]
+    late: dict = field(default_factory=dict)
 
 
 def fan_out(
@@ -173,6 +180,7 @@ def fan_out(
     pairs: list[tuple[ExternalSkill, dict]] = []
     ok: list[str] = []
     degraded: list[str] = []
+    late: dict = {}
 
     # Concurrent gather with a HARD wall-clock budget. Council finding 1 + R2:
     # the prior `as_completed(timeout=deadline*len)` was a whole-gather timeout
@@ -228,10 +236,11 @@ def fan_out(
                 rl.record_failure(src)
                 if src not in degraded:
                     degraded.append(src)
-                fut.cancel()
+                if not fut.cancel():  # already running → may still land late
+                    late[fut] = src
     finally:
         # Do NOT block on hung upstream threads (cancel_futures drops queued work;
         # already-running fetches are bounded by _HTTP_TIMEOUT_S). Python 3.9+.
         pool.shutdown(wait=False, cancel_futures=True)
 
-    return FanoutOutput(pairs=pairs, sources_ok=ok, sources_degraded=degraded)
+    return FanoutOutput(pairs=pairs, sources_ok=ok, sources_degraded=degraded, late=late)

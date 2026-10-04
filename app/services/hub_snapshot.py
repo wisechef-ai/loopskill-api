@@ -183,7 +183,7 @@ def origin_url_for_row(row: dict[str, Any]) -> str:
     # URL at all — we fall through to the name-based docs link or "".
     repo_ok = is_safe_repo_ident(repo)
 
-    if upstream == "skills-sh" and (page := skills_sh_page_url(identifier, repo)):
+    if upstream == "skills-sh" and (page := skills_sh_page_url(identifier, repo, path)):
         return page
     if upstream in ("skills-sh", "github") and repo_ok:
         return github_tree_url(repo, path, ref="main")

@@ -90,7 +90,7 @@ def test_cold_miss_is_answered_by_the_live_fanout_within_budget(monkeypatch):
 
     def _fast_warm(query, sources):
         calls.append(query)
-        assert sources == mfs.mcp_cache_sources(), "the MCP compute must use its own key"
+        assert sources == mfs.federated_sources(), "MCP and REST share ONE key (C2)"
         get_cache().put(query, sources, [STE], sources_ok=["recipes", "skills-sh"])
 
     monkeypatch.setattr(mfs, "_warm_query", _fast_warm)
@@ -138,29 +138,21 @@ def _make_stale(query: str, sources: tuple[str, ...]) -> None:
     cache._store[cache._key(query, sources)].computed_at = time.time() - (cache.ttl_s + 1)
 
 
-def test_stale_mcp_entry_is_served_at_once_and_refreshed_behind(monkeypatch):
-    _budget(monkeypatch, 2.0)
-    get_cache().put("ste100", mfs.mcp_cache_sources(), [STE], sources_ok=["recipes"])
-    _make_stale("ste100", mfs.mcp_cache_sources())
-    started = threading.Event()
-    monkeypatch.setattr(mfs, "_warm_query", lambda q, s: started.set())
-
-    rows, flag = mfs.federated_append("ste100")
-    assert flag == "stale"
-    assert [r["slug"] for r in rows] == [STE["slug"]]
-    assert started.wait(2), "a stale MCP entry must trigger a background refresh"
-
-
 def test_a_rest_warmed_entry_is_served_without_a_new_fanout(monkeypatch):
-    """A query the web UI warmed costs MCP nothing — fresh or stale."""
+    """A query the web UI warmed costs MCP nothing when fresh; when stale it is
+    served at once and refreshed on a warm slot."""
     _budget(monkeypatch, 2.0)
-    monkeypatch.setattr(mfs, "_warm_query", lambda *a: pytest.fail("REST entry present → no MCP fan-out"))
+    monkeypatch.setattr(mfs, "_warm_query", lambda *a: pytest.fail("fresh entry → no fan-out"))
     _put("ste100", [STE])
     rows, flag = mfs.federated_append("ste100")
     assert (flag, [r["slug"] for r in rows]) == ("fresh", [STE["slug"]])
+
+    started = threading.Event()
+    monkeypatch.setattr(mfs, "_warm_query", lambda q, src: started.set())
     _make_stale("ste100", mfs.federated_sources())
     rows, flag = mfs.federated_append("ste100")
     assert (flag, [r["slug"] for r in rows]) == ("stale", [STE["slug"]])
+    assert started.wait(2), "a stale entry must trigger a background refresh"
 
 
 def test_saturated_warm_slots_answer_cold_without_a_new_fanout(monkeypatch):
@@ -202,42 +194,11 @@ def test_warm_fills_the_exact_key_the_mcp_reader_reads(monkeypatch):
     make every MCP warm invisible to the reader (and double the fan-outs)."""
     from app.services import metasearch_compute as mc
 
-    monkeypatch.setattr(
-        mc, "build_unified_own_session", lambda q, **kw: ([STE], ["recipes", "skills-sh"], [])
-    )
+    monkeypatch.setattr(mc, "build_unified_own_session", lambda q: ([STE], ["recipes", "skills-sh"], []))
     mc.warm("ste100", mfs.federated_sources())
     lookup = get_cache().get_entry("ste100", mfs.federated_sources())
     assert lookup.state == "fresh"
     assert [r["slug"] for r in lookup.entry.skills] == [STE["slug"]]
-
-
-@pytest.mark.parametrize(("budget", "expected"), [(4.0, 2.5), (2.5, 1.0), (1.0, 0.3), (10.0, 3.0)])
-def test_mcp_warm_deadline_leaves_room_inside_the_budget(budget, expected):
-    deadline = mfs.mcp_source_deadline_s(budget)
-    assert deadline == pytest.approx(expected)
-    if budget >= 2.0:
-        # fan-out wall clock (deadline + 0.25s pool slack) + merge must end before
-        # the wait does, or a healthy fan-out still answers "warming".
-        assert deadline + 0.25 + 0.5 <= budget - min(0.5, budget / 4)
-
-
-def test_production_warm_passes_the_mcp_deadline_to_the_fanout(monkeypatch):
-    from app.services import metasearch_compute as mc
-    from app.services import metasearch_fanout as fo
-
-    _budget(monkeypatch, 4.0)
-    seen: dict = {}
-
-    def _fake_fan_out(query, *, sources, **kwargs):
-        seen.update(kwargs)
-        return fo.FanoutOutput(pairs=[], sources_ok=[], sources_degraded=[])
-
-    monkeypatch.setattr(fo, "fan_out", _fake_fan_out)
-    monkeypatch.setattr(mc, "curated_candidates", lambda db, q, limit: [])
-    monkeypatch.setattr("app.services.clawhub_owner_prime.prime_clawhub_owner_cache", lambda db: None)
-    monkeypatch.setattr(mc, "build_unified_own_session", lambda q, **kw: mc.build_unified(None, q, **kw))
-    mfs._warm_query("ste100", mfs.mcp_cache_sources())
-    assert seen == {"per_source_deadline_s": 2.5}
 
 
 def test_every_source_gets_its_own_thread_up_to_the_cap(monkeypatch):
@@ -616,31 +577,32 @@ def test_a_slow_local_index_cannot_stretch_the_budget(monkeypatch):
     assert (rows, flag) == ([], mfs.WARMING)
 
 
-def test_a_rest_request_never_waits_behind_an_mcp_compute(monkeypatch):
-    """R1 MUST #2: with a shared key, an MCP-first compute (longer deadline) made
-    a concurrent REST request wait past the web UI budget."""
+def test_concurrent_mcp_and_rest_cold_queries_fan_out_once(monkeypatch):
+    """C2 (R2 N1): an MCP warm and a REST request for the same cold query share
+    ONE compute. REST waits only for the same compute it would run itself (same
+    key, same deadline) — never for a slower one."""
     from app.services import metasearch_compute as mc
 
     _budget(monkeypatch, 4.0)
-    mcp_started = threading.Event()
+    calls: list[str] = []
+    started = threading.Event()
 
-    def _slow_mcp_compute(q, **kw):
-        mcp_started.set()
-        time.sleep(1.5)
+    def _compute(q):
+        calls.append(q)
+        started.set()
+        time.sleep(0.4)
         return [STE], ["recipes"], []
 
-    monkeypatch.setattr(mc, "build_unified_own_session", _slow_mcp_compute)
-    worker = threading.Thread(target=mfs._warm_query, args=("ste100", mfs.mcp_cache_sources()))
+    monkeypatch.setattr(mc, "build_unified_own_session", _compute)
+    worker = threading.Thread(target=mfs._warm_query, args=("same", mfs.federated_sources()))
     worker.start()
-    assert mcp_started.wait(2)
-    t0 = time.monotonic()
+    assert started.wait(2)
     entry, computed = get_cache().get_or_compute(
-        ("ste100", mfs.federated_sources()), lambda: ([STE], ["recipes"], [])
+        ("same", mfs.federated_sources()), lambda: calls.append("REST") or ([STE], ["recipes"], [])
     )
-    rest_elapsed = time.monotonic() - t0
     worker.join(5)
-    assert computed is True, "REST computed its own entry"
-    assert rest_elapsed < 0.5, f"REST waited {rest_elapsed:.2f}s behind the MCP compute"
+    assert calls == ["same"], f"one compute expected, got {calls}"
+    assert computed is False and entry is not None
 
 
 def test_stale_refreshes_are_capped_by_the_warm_slots(monkeypatch):
@@ -662,11 +624,11 @@ def test_stale_refreshes_are_capped_by_the_warm_slots(monkeypatch):
             running["now"] -= 1
         return [STE], ["recipes"], []
 
-    monkeypatch.setattr(mc, "build_unified_own_session", _blocking_compute)
+    monkeypatch.setattr(mc, "build_unified_own_session", lambda q: _blocking_compute(q))
     queries = [f"stale-{i}" for i in range(8)]
     for q in queries:
-        get_cache().put(q, mfs.mcp_cache_sources(), [STE], sources_ok=["recipes"])
-        _make_stale(q, mfs.mcp_cache_sources())
+        get_cache().put(q, mfs.federated_sources(), [STE], sources_ok=["recipes"])
+        _make_stale(q, mfs.federated_sources())
     for q in queries:
         rows, flag = mfs.federated_append(q)
         assert flag == "stale" and rows
@@ -708,10 +670,15 @@ def test_malformed_clawhub_fields_never_reach_the_merge(bad):
     WHOLE fan-out. Wrong-typed fields are dropped or the row is dropped."""
     from app.services import clawhub_search as cs
 
-    rows = cs.parse_response({"results": [{**_hit("safe-looking", owner="alice"), **bad}]})
+    rows = cs.parse_response(
+        {"results": [_hit("companion", owner="bob"), {**_hit("safe-looking", owner="alice"), **bad}]}
+    )
+    assert rows[0]["slug"] == "companion", "a good hit beside a bad one must survive"
+    # A non-string top-level slug falls back to native.skill.slug (a string).
+    assert [r["slug"] for r in rows] == ["companion", "safe-looking"]
     for row in rows:
         assert isinstance(row["slug"], str) and isinstance(row["displayName"], str)
-        assert isinstance(row["summary"], str)
+        assert isinstance(row["summary"], str) and row["ownerHandle"] in ("alice", "bob")
         assert "downloads" not in row["stats"] or type(row["stats"]["downloads"]) in (int, float)
 
 
@@ -740,18 +707,23 @@ def test_one_malformed_row_is_dropped_and_the_rest_of_the_fanout_ships(monkeypat
     from app.services import metasearch_fanout as fo
     from app.services.federation import ExternalSkill, InstallPath
 
-    def _skill(slug, title):
+    def _skill(slug, title, origin=True):
         return ExternalSkill(
             slug=slug,
             title=title,
             source="skills-sh",
             install_path=InstallPath.FETCH_ORIGIN,
-            origin_url=f"https://www.skills.sh/o/r/{slug}",
+            origin_url=f"https://www.skills.sh/o/r/{slug}" if origin else None,
             license="MIT",
             redistributable=True,
         )
 
-    pairs = [(_skill("good", "Good"), {}), (_skill("bad", ["list-title"]), {})]
+    pairs = [
+        (_skill("good", "Good"), {}),
+        (_skill("bad", ["list-title"]), {}),
+        (_skill("no-page", "No page", origin=False), {}),
+    ]
+    # R2 N3: pairs[2] has origin_url=None — legitimate, must survive.
     monkeypatch.setattr(
         fo,
         "fan_out",
@@ -762,7 +734,7 @@ def test_one_malformed_row_is_dropped_and_the_rest_of_the_fanout_ships(monkeypat
     monkeypatch.setattr(mc, "curated_candidates", lambda db, q, limit: [])
     monkeypatch.setattr("app.services.clawhub_owner_prime.prime_clawhub_owner_cache", lambda db: None)
     skills, ok, _ = mc.build_unified(None, "q")
-    assert [s["slug"] for s in skills] == ["good"]
+    assert sorted(s["slug"] for s in skills) == ["good", "no-page"]
 
 
 def test_a_skills_sh_identifier_for_another_repo_never_links_its_page():
@@ -775,3 +747,157 @@ def test_a_skills_sh_identifier_for_another_repo_never_links_its_page():
         "path": "real-skill",
     }
     assert origin_url_for_row(row) == "https://github.com/actual/skill-repo/tree/main/real-skill"
+
+
+# ── 6. fed1004 R2 kill-tests ────────────────────────────────────────────────
+
+
+def test_a_cache_outage_is_not_reported_as_cold(monkeypatch):
+    """R2 N4: a degraded shared read whose warm fails must stay ``degraded``."""
+    from app.services.metasearch_cache_l2 import RedisL2
+
+    _budget(monkeypatch, 0.5)
+    get_cache().l2 = RedisL2(client_factory=lambda: None)
+    monkeypatch.setattr(mfs, "_warm_query", lambda q, s: (_ for _ in ()).throw(RuntimeError("down")))
+    monkeypatch.setattr(mfs, "local_floor", lambda q, *, limit, exclude_slugs: [])
+    assert mfs.federated_append("ste100") == ([], "degraded")
+
+
+def test_a_same_repo_skill_mismatch_never_links_another_page():
+    """R2 N5: owner/repo matched but the skill token named a different skill."""
+    from app.services.hub_snapshot import origin_url_for_row
+
+    row = {
+        "source": "skills.sh",
+        "identifier": "skills-sh/actual/skill-repo/unrelated-skill",
+        "repo": "actual/skill-repo",
+        "path": "skills/real-skill",
+        "name": "real-skill",
+    }
+    assert "unrelated-skill" not in origin_url_for_row(row)
+
+
+def _late_fanout(late_result, *, delay: float = 0.2):
+    """A FanoutOutput whose 'clawhub' source missed the deadline and lands later."""
+    import concurrent.futures
+
+    from app.services import metasearch_fanout as fo
+
+    pool = concurrent.futures.ThreadPoolExecutor(1)
+    fut = pool.submit(lambda: time.sleep(delay) or late_result)
+    pool.shutdown(wait=False)
+    return fo.FanoutOutput(
+        pairs=[], sources_ok=["skills-sh"], sources_degraded=["clawhub"], late={fut: "clawhub"}
+    )
+
+
+def _claw_result():
+    from app.services import metasearch_fanout as fo
+    from app.services.federation import ExternalSkill, InstallPath
+
+    skill = ExternalSkill(
+        slug="obsidian",
+        title="Obsidian",
+        source="clawhub",
+        install_path=InstallPath.DEEP_LINK,
+        origin_url="https://clawhub.ai/steipete/skills/obsidian",
+        license=None,
+        redistributable=False,
+    )
+    return fo.SourceResult(source="clawhub", skills=[skill], raw_rows=[{"stats": {"downloads": 5}}], ok=True)
+
+
+def test_a_late_source_is_merged_into_the_cached_entry():
+    """ClawHub search p50 ~1.25s vs a 1.2s deadline: its rows must not be lost —
+    they land in the cache for the next read, and nobody waited for them."""
+    from app.services import metasearch_compute as mc
+
+    sources = mfs.federated_sources()
+    get_cache().put(
+        "obsidian", sources, [STE], sources_ok=["recipes", "skills-sh"], sources_degraded=["clawhub"]
+    )
+    assert mc.merge_late_results("obsidian", sources, [], [], _late_fanout(_claw_result())) is True
+    entry = get_cache().get_entry("obsidian", sources).entry
+    assert "obsidian" in [r["slug"] for r in entry.skills]
+    assert "clawhub" in entry.sources_ok and "clawhub" not in entry.sources_degraded
+
+
+def test_a_late_merge_never_overwrites_a_newer_entry_that_has_the_source():
+    from app.services import metasearch_compute as mc
+
+    sources = mfs.federated_sources()
+    get_cache().put("obsidian", sources, [STE], sources_ok=["recipes", "clawhub"], sources_degraded=[])
+    assert mc.merge_late_results("obsidian", sources, [], [], _late_fanout(_claw_result())) is False
+    assert [r["slug"] for r in get_cache().get_entry("obsidian", sources).entry.skills] == [STE["slug"]]
+
+
+def test_a_failed_late_source_changes_nothing():
+    from app.services import metasearch_compute as mc
+    from app.services import metasearch_fanout as fo
+
+    sources = mfs.federated_sources()
+    get_cache().put("obsidian", sources, [STE], sources_ok=["recipes"], sources_degraded=["clawhub"])
+    failed = fo.SourceResult(source="clawhub", skills=[], raw_rows=[], ok=False, reason="fetch_error")
+    assert mc.merge_late_results("obsidian", sources, [], [], _late_fanout(failed)) is False
+
+
+def test_a_late_merge_never_touches_breaker_state(monkeypatch):
+    from app.services import metasearch_compute as mc
+    from app.services import metasearch_ratelimit as rl
+
+    monkeypatch.setattr(
+        rl, "record_success", lambda src: pytest.fail("stragglers never mutate shared health")
+    )
+    monkeypatch.setattr(
+        rl, "record_failure", lambda src: pytest.fail("stragglers never mutate shared health")
+    )
+    sources = mfs.federated_sources()
+    get_cache().put("obsidian", sources, [STE], sources_ok=["recipes"], sources_degraded=["clawhub"])
+    mc.merge_late_results("obsidian", sources, [], [], _late_fanout(_claw_result()))
+
+
+def test_fan_out_hands_back_a_source_still_running_at_the_deadline(monkeypatch):
+    from app.services import metasearch_fanout as fo
+
+    def _query(source, query, *, limit):
+        if source == "slow":
+            time.sleep(0.6)
+        return fo.SourceResult(source=source, skills=[], raw_rows=[], ok=True)
+
+    monkeypatch.setattr(fo, "_query_one_source", _query)
+    monkeypatch.setattr(fo.rl, "record_success", lambda src: None)
+    monkeypatch.setattr(fo.rl, "record_failure", lambda src: None)
+    out = fo.fan_out("q", sources=("fast", "slow"), per_source_deadline_s=0.2)
+    assert out.sources_ok == ["fast"] and out.sources_degraded == ["slow"]
+    assert list(out.late.values()) == ["slow"]
+    (fut,) = out.late
+    assert fut.result(timeout=2).ok
+
+
+def test_build_unified_schedules_the_late_merge_only_when_a_source_is_late(monkeypatch):
+    from app.services import metasearch_compute as mc
+    from app.services import metasearch_fanout as fo
+
+    scheduled: list = []
+    monkeypatch.setattr(mc, "schedule_late_merge", lambda *a: scheduled.append(a) or True)
+    monkeypatch.setattr(mc, "curated_candidates", lambda db, q, limit: [])
+    monkeypatch.setattr("app.services.clawhub_owner_prime.prime_clawhub_owner_cache", lambda db: None)
+    monkeypatch.setattr(
+        fo,
+        "fan_out",
+        lambda q, *, sources, **kw: fo.FanoutOutput(pairs=[], sources_ok=["a"], sources_degraded=[]),
+    )
+    mc.build_unified(None, "q")
+    assert scheduled == []
+    monkeypatch.setattr(fo, "fan_out", lambda q, *, sources, **kw: _late_fanout(_claw_result()))
+    mc.build_unified(None, "q")
+    assert len(scheduled) == 1 and scheduled[0][1] == tuple(fo.DEFAULT_FANOUT_SOURCES)
+
+
+def test_a_hit_with_no_string_slug_anywhere_is_dropped():
+    from app.services import clawhub_search as cs
+
+    hit = _hit("x", owner="alice")
+    hit["slug"] = 7
+    hit["native"]["skill"]["slug"] = ["x"]
+    assert cs.parse_response({"results": [hit]}) == []

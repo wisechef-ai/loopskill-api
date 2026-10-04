@@ -10,16 +10,17 @@ zero rows (``loopskill_search("ste100")``: nothing; REST metasearch: 30 rows).
 
 Three rules this module exists to hold, none of which the MCP tool restates:
 
-1. **Bounded wall-clock, bounded work.** Cache reads take microseconds. On a
-   miss, ONE live fan-out starts on a warm slot and a local-index query starts
+1. **Bounded wall-clock, bounded work, ONE key.** Cache reads take
+   microseconds. On a miss, ONE live fan-out starts on a warm slot (the same
+   compute, cache key and per-source deadline as ``GET /api/skills/metasearch``,
+   so the two surfaces single-flight together) and a local-index query starts
    in parallel on a floor slot; the caller waits at most
    ``settings.MCP_FEDERATED_LIVE_BUDGET_S`` in total. A slot is held for the
-   whole real compute (stale refreshes run synchronously via
-   ``refresh_now``), so ``MAX_CONCURRENT_WARMS`` caps fan-outs, not launchers.
-   The MCP compute writes its OWN cache key (``mcp_cache_sources``): it uses a
-   longer per-source deadline than the web UI, and a REST request must never
-   wait on it. It still READS the REST key, so a query the web warmed costs
-   nothing. Budget 0 restores the P2 cache-only behaviour exactly.
+   whole real compute (stale refreshes run synchronously via ``refresh_now``),
+   so ``MAX_CONCURRENT_WARMS`` caps fan-outs, not launchers. Sources slower than
+   the deadline are merged into the cached entry later (``metasearch_compute``
+   late-merge). Budget 0 restores the P2 cache-only rows and flags; hit/miss
+   stats stay REST-only either way (reads use ``_count=False``).
 2. **Honest freshness.** ``fresh`` / ``stale`` / ``degraded`` mirror the cache
    reader. ``warming``: a live fan-out is still running; rows come from the
    local index. ``cold``: no live result is available (budget 0, every slot
@@ -58,9 +59,6 @@ _warm_slots = threading.BoundedSemaphore(MAX_CONCURRENT_WARMS)
 # pile up one blocked thread per MCP call.
 MAX_CONCURRENT_FLOORS = 4
 _floor_slots = threading.BoundedSemaphore(MAX_CONCURRENT_FLOORS)
-
-# Cache-key marker for the MCP compute (see rule 1). Sorts last in the key.
-MCP_KEY_TAG = "~mcp-live"
 
 # Hard ceiling on the budget whatever the setting says: an agent waiting longer
 # than this on a search reads the platform as broken.
@@ -188,36 +186,12 @@ def compact_row(row: Any) -> dict[str, Any] | None:
     }
 
 
-# Per-source fan-out deadline for an MCP warm. It must leave room inside the
-# wait budget for the fan-out's own scheduling slack, the curated DB query and
-# the merge, so a healthy fan-out finishes BEFORE the wait ends. The REST route
-# keeps the fan-out default (1.2s, sized for the web UI's 1.5s render budget);
-# ClawHub's search route answers in ~1.0-1.5s from prod (p95 ~2.2s, measured
-# 2026-10-04), so the UI deadline would cut it off on most cold queries.
-_MCP_SOURCE_DEADLINE_MAX_S = 3.0
-_MCP_SOURCE_DEADLINE_MIN_S = 0.3
-_FANOUT_OVERHEAD_S = 1.5
-# Share of the budget kept for collecting the local-index floor (which started
-# at t0, so it is normally long finished).
-_FLOOR_RESERVE_S = 0.5
-
-
-def mcp_cache_sources() -> tuple[str, ...]:
-    """Cache key sources for the MCP live compute: the REST tuple plus a tag."""
-    return (*federated_sources(), MCP_KEY_TAG)
-
-
-def mcp_source_deadline_s(budget_s: float) -> float:
-    """Per-source fan-out deadline for a warm started under ``budget_s``."""
-    return max(_MCP_SOURCE_DEADLINE_MIN_S, min(_MCP_SOURCE_DEADLINE_MAX_S, budget_s - _FANOUT_OVERHEAD_S))
-
-
 def _warm_query(query: str, sources: tuple[str, ...]) -> None:
-    """The live fan-out into the MCP cache key. A module attribute so tests can
-    swap it. Runs SYNCHRONOUSLY on the caller's (slot-holding) thread."""
+    """The live fan-out into the shared cache key. A module attribute so tests
+    can swap it. Runs SYNCHRONOUSLY on the caller's (slot-holding) thread."""
     from app.services.metasearch_compute import warm
 
-    warm(query, sources, per_source_deadline_s=mcp_source_deadline_s(live_budget_s()))
+    warm(query, sources)
 
 
 def live_budget_s() -> float:
@@ -328,9 +302,9 @@ def federated_append(
     ``limit`` is clamped to ``[1, FEDERATED_MAX_CAP]``; ``None`` (the MCP wire
     default, and any caller that did not ask) means ``FEDERATED_DEFAULT_CAP``.
 
-    Order: MCP cache entry → REST cache entry → (both miss) live fan-out on a
-    warm slot + local-index floor on a floor slot, collected within the budget.
-    A stale MCP entry is served at once and refreshed on a warm slot. Blocks at
+    Order: shared cache entry → (miss) live fan-out on a warm slot +
+    local-index floor on a floor slot, collected within the budget. A stale
+    entry is served at once and refreshed on a warm slot. Blocks at
     most ``live_budget_s()`` and NEVER raises: any unexpected failure degrades
     to ``([], "degraded")``, because a broken federated append must not take
     down the native search it rides on.
@@ -345,38 +319,34 @@ def federated_append(
         q = query or ""
         cache = get_cache()
         budget = live_budget_s()
-        mcp_key = mcp_cache_sources()
+        sources = federated_sources()
         # Reads use _count=False: the hit-rate stats belong to the REST route.
-        if budget > 0:
-            mine = cache.get_entry(q, mcp_key, _count=False)
-            if mine.entry is not None:
-                if mine.state == "stale":
-                    _run_bounded(_warm_slots, lambda: _warm_query(q, mcp_key), "mcp-federated-refresh")
-                return _rows_from_entry(mine.entry, capped, exclude_slugs), _STATE_TO_FLAG.get(
-                    mine.state, "degraded"
-                )
-        shared = cache.get_entry(q, federated_sources(), _count=False)
+        shared = cache.get_entry(q, sources, _count=False)
         flag = _STATE_TO_FLAG.get(shared.state, "degraded")
-        if shared.entry is not None or budget <= 0:
-            rows = _rows_from_entry(shared.entry, capped, exclude_slugs) if shared.entry is not None else []
-            return rows, flag
+        if shared.entry is not None:
+            if shared.state == "stale" and budget > 0:
+                _run_bounded(_warm_slots, lambda: _warm_query(q, sources), "mcp-federated-refresh")
+            return _rows_from_entry(shared.entry, capped, exclude_slugs), flag
+        if budget <= 0:
+            return [], flag
 
         t0 = time.monotonic()
-        warm = _run_bounded(_warm_slots, lambda: _warm_query(q, mcp_key), "mcp-federated-warm")
+        warm = _run_bounded(_warm_slots, lambda: _warm_query(q, sources), "mcp-federated-warm")
         floor = _run_bounded(
             _floor_slots,
             lambda: local_floor(query, limit=capped, exclude_slugs=exclude_slugs),
             "mcp-federated-floor",
         )
-        reserve = min(_FLOOR_RESERVE_S, budget / 4)
-        if warm is not None and warm.done.wait(max(0.0, budget - reserve)):
-            again = cache.get_entry(q, mcp_key, _count=False)
+        if warm is not None and warm.done.wait(budget):
+            again = cache.get_entry(q, sources, _count=False)
             if again.entry is not None:
                 fresh_flag = "degraded" if again.state == "degraded" else "fresh"
                 return _rows_from_entry(again.entry, capped, exclude_slugs), fresh_flag
         rows: list[dict[str, Any]] = []
         if floor is not None and floor.done.wait(max(0.0, budget - (time.monotonic() - t0))):
             rows = floor.result or []
+        if flag == "degraded":
+            return rows, "degraded"
         still_running = warm is not None and not warm.done.is_set()
         return rows, (WARMING if still_running else "cold")
     # Rationale: the federated append is best-effort garnish on the native
