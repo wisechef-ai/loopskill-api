@@ -36,13 +36,18 @@ def _core_tools() -> list[types.Tool]:
         types.Tool(
             name="loopskill_search",
             description=(
-                "Search the public skill catalog, then append federated results. "
-                "Curated LoopSkill rows come first; federated rows follow, each "
-                "with an install_ref you can hand straight to loopskill_install. "
-                "Federation is BEST-EFFORT from a shared cache, not a live "
-                "guaranteed fan-out: the 'federated' key reports fresh | stale | "
-                "cold | degraded. 'cold' means this worker has nothing cached for "
-                "the query — it is NOT a claim that federation has nothing."
+                "Search the public skill catalog and the federated registries. "
+                "Curated LoopSkill rows come first. Federated rows come after them. "
+                "Each federated row has an install_ref. Give the install_ref to "
+                "loopskill_install. The 'federated' key shows the state of the "
+                "federated rows: fresh, stale, warming, cold, or degraded. "
+                "If the key is 'warming', the live search is not complete. The "
+                "rows come from the local index. Ask again after a few seconds "
+                "to get the completed live result. A slow source can be absent "
+                "from the live result. The local index still has its skills. "
+                "If the key is 'cold', no live result is "
+                "available. The rows, if any, come from the local index. This "
+                "does not mean that no federated skill exists."
             ),
             inputSchema={
                 "type": "object",

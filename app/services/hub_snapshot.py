@@ -33,11 +33,10 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from app.models import FederationHubSkill, FederationIndexCache
 from app.services.clawhub_url import clawhub_skill_url
+from app.services.hub_origin_url import github_tree_url, skills_sh_page_url
 
-# spotify_2607/0: ClawHub owner resolution + its carry-forward across the
-# delete-and-reinsert ingest live in their own module (this file is at the
-# 600-line god-object threshold). Re-exported so existing importers of
-# `hub_snapshot.owner_handle_for_row` keep working.
+# spotify_2607/0: ClawHub owner resolution + carry-forward live in their own
+# module (600-line cap); re-exported for importers of `hub_snapshot.owner_handle_for_row`.
 from app.services.hub_owner_carry import (  # noqa: F401
     apply_resolved_owners,
     load_resolved_owner_handles,
@@ -162,13 +161,13 @@ def install_path_for_row(row: dict[str, Any]) -> InstallPath:
 def origin_url_for_row(row: dict[str, Any]) -> str:
     """Build the origin URL for a Hub snapshot row based on its upstream source.
 
-    - skills.sh / github: github URL from repo + REAL path (see
-      ``resolved_repo_path`` — ponytail_0724)
+    - skills.sh: the skills.sh page (``hub_origin_url`` has the measurements)
+    - github: github URL from repo + REAL path (``resolved_repo_path``)
     - clawhub: owner-scoped deep link when the owner is known, else the
       ClawHub browse page (issue #139 — the bare ``/skills/{identifier}``
       form 307s to a soft-404). Snapshot rows carry no owner handle, so
       ingest emits the browse fallback and serve-time resolution upgrades it.
-    - official: hermes-agent docs skills/{name}
+    - official: github tree/HEAD from repo + path
     - fallback: repo URL or hub docs page
     """
     upstream = normalize_upstream(row.get("source"))
@@ -184,11 +183,12 @@ def origin_url_for_row(row: dict[str, Any]) -> str:
     # URL at all — we fall through to the name-based docs link or "".
     repo_ok = is_safe_repo_ident(repo)
 
+    if upstream == "skills-sh" and (page := skills_sh_page_url(identifier, repo, path)):
+        return page
     if upstream in ("skills-sh", "github") and repo_ok:
-        base = f"https://github.com/{repo}"
-        if path:
-            base += f"/tree/main/{path}"
-        return base
+        return github_tree_url(repo, path, ref="main")
+    if upstream == "official" and repo_ok and is_safe_repo_subpath(path):
+        return github_tree_url(repo, path, ref="HEAD")
     if upstream == "clawhub" and identifier:
         # issue #139: NEVER mint the bare /skills/<slug> form — ClawHub 307s it
         # to /skills/skills/<slug>, a soft-404 that still answers HTTP 200.

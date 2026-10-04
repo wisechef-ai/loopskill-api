@@ -12,7 +12,7 @@ ONLY, never ``get_or_compute``, never ``fan_out``) and appended.
 
 The invariants these tests pin, in the order they matter:
 
-1. **Never a live fan-out on the MCP thread** (failure mode F1: a >90s cold
+1. **Never a live fan-out on the MCP thread at budget 0** (failure mode F1: a >90s cold
    fan-out makes every agent report LoopSkill as broken). A cache miss is a
    normal, fast answer.
 2. **Honest freshness**: ``federated`` is ``fresh``/``stale``/``cold``/``degraded``
@@ -165,6 +165,12 @@ def test_native_rows_always_precede_federated_rows(db_session):
 
 
 def test_cold_worker_returns_native_plus_cold_flag_and_never_fans_out(db_session, monkeypatch):
+    """fed1004: a live fan-out on a miss is now the DEFAULT (bounded, see
+    tests/test_fed1004_federation_search.py). Budget 0 is the documented
+    off-switch, and under it this original P2 contract must still hold exactly."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "MCP_FEDERATED_LIVE_BUDGET_S", 0)
     make_skill(db_session, slug="graft-native", title="Graft Native", description="graft helper")
     db_session.commit()
 

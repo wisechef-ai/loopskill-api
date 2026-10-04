@@ -204,3 +204,32 @@ class SingleFlightSWRMixin:
 
         threading.Thread(target=_refresh, name="metasearch-swr-refresh", daemon=True).start()
         return True
+
+    def refresh_now(
+        self,
+        key_parts: tuple[str, tuple[str, ...]],
+        compute_fn: "Any",
+        *,
+        expected_seq: int,
+    ) -> bool:
+        """Refresh a stale key SYNCHRONOUSLY on the calling thread.
+
+        Same per-key guard and compare-and-swap as ``_maybe_refresh``, without
+        spawning a thread. A caller that bounds its own concurrency (the MCP
+        warm slots, fed1004) must use this: ``_maybe_refresh`` hands the work to
+        a fresh daemon thread and returns at once, so the caller's slot would be
+        free while the real fan-out still runs — and the cap would cap nothing.
+        Returns True iff this call ran the refresh (False: one is in flight).
+        """
+        query, sources = key_parts
+        key = self._key(query, sources)
+        with self._lock:
+            if key in self._refreshing:
+                return False
+            self._refreshing.add(key)
+        try:
+            self._run_and_store(query, sources, compute_fn, expected_seq=expected_seq)
+            return True
+        finally:
+            with self._lock:
+                self._refreshing.discard(key)

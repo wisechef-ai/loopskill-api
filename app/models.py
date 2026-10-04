@@ -2396,6 +2396,9 @@ class FederationIndexCache(Base):
     # spotify_1507 Phase C2: the snapshot's generated_at timestamp from the Hub
     # JSON — lets the G7-style freshness logic see how old the snapshot is.
     snapshot_generated_at = Column(DateTime(timezone=True), nullable=True)
+    # fed1004: ETag of the last successful hub snapshot ingest — the hourly
+    # sync sends it as If-None-Match and skips the download on a 304.
+    upstream_etag = Column(String(256), nullable=True)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

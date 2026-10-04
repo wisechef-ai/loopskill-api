@@ -30,55 +30,20 @@ import shlex
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
-from app._skill_helpers import _install_counts_for, _skill_to_out
 from app.database import get_db
 from app.models import Skill, TelemetryEvent
-from app.services.clawhub_owner_prime import prime_clawhub_owner_cache
 from app.services.demand_capture import record_missing_skill_query
-from app.services.metasearch import merge_unified, unify_curated, unify_external
-from app.services.metasearch_card_contract import RenderContractMeta, apply_card_contract
-from app.services.metasearch_fanout import DEFAULT_FANOUT_SOURCES, fan_out
+from app.services.metasearch_card_contract import RenderContractMeta
+from app.services.metasearch_compute import build_unified
+from app.services.metasearch_fanout import DEFAULT_FANOUT_SOURCES
 from app.services.metasearch_install import resolve_install
 from app.tier_labels import _is_paid_tier
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/skills", tags=["skills", "metasearch"])
-
-_CURATED_CAP = 50  # curated candidates pulled before the merge caps the page
-
-
-def _curated_candidates(db: Session, q: str | None, limit: int) -> list[dict]:
-    """Pull curated (internal, public) skill rows matching the query, as
-    _skill_to_out dicts. Mirrors the literal-match pass of /api/skills/search but
-    only the public catalog (the federation wall: never surface private skills)."""
-    query = (
-        db.query(Skill)
-        .options(joinedload(Skill.versions), joinedload(Skill.creator))
-        .filter(Skill.is_public == True, Skill.is_archived == False)  # noqa: E712
-    )
-    if q:
-        like = f"%{q}%"
-        query = query.filter(
-            Skill.title.ilike(like)
-            | Skill.description.ilike(like)
-            | Skill.category.ilike(like)
-            | Skill.readme.ilike(like)
-        )
-    rows = query.limit(limit).all()
-    if not rows:
-        return []
-    counts = _install_counts_for(db, [s.id for s in rows])
-    out = []
-    for s in rows:
-        skill_out = _skill_to_out(s, *counts.get(s.id, (0, 0)))
-        d = skill_out.model_dump() if hasattr(skill_out, "model_dump") else dict(skill_out)
-        # unify_curated reads install_count + slug/title/description/updated_at
-        d["install_count"] = d.get("install_count_total", 0)
-        out.append(d)
-    return out
 
 
 def _record_funnel_event(db: Session, request: Request, *, q: str | None, result: dict) -> None:
@@ -178,31 +143,10 @@ def metasearch(
     sources_tuple = tuple(DEFAULT_FANOUT_SOURCES)
 
     def _build(compute_db: Session):
-        """Build the unified ranked result against ``compute_db``. Shared by the
-        foreground compute (request session) and the background SWR refresh
-        (its own session)."""
-        curated_rows = _curated_candidates(compute_db, q, _CURATED_CAP)
-        curated = [unify_curated(r) for r in curated_rows]
-        # issue #148: prime the ClawHub owner cache from the persisted snapshot
-        # BEFORE fanning out. ClawHubAdapter._map resolves an owner handle per
-        # row, and an unseeded lookup is a live upstream GET — up to N sequential
-        # HTTP calls for an N-row page (measured >90s cold on prod vs 0.62s for
-        # every other source combined). This is one DB query on the request
-        # thread; the fan-out's worker threads then hit a warm process-local dict
-        # instead of the network, so no db session has to be threaded into them.
-        prime_clawhub_owner_cache(compute_db)
-        fanout = fan_out(q or "", sources=DEFAULT_FANOUT_SOURCES)
-        external = [unify_external(skill, raw_row=raw) for skill, raw in fanout.pairs]
-        result = merge_unified(
-            curated,
-            external,
-            query=q,
-            sources_ok=["recipes", *fanout.sources_ok],
-            sources_degraded=fanout.sources_degraded,
-        )
-        payload = result.to_dict()
-        contracted = apply_card_contract(payload["skills"])
-        return contracted, payload.get("sources_ok", []), payload.get("sources_degraded", [])
+        """Build the unified ranked result against ``compute_db``. The compute
+        itself lives in ``metasearch_compute`` so MCP search warms the SAME
+        cache entry through the SAME code (fed1004)."""
+        return build_unified(compute_db, q)
 
     def _compute():
         """Foreground compute (hard cache miss). Runs synchronously in the request

@@ -36,6 +36,7 @@ from mcp.server.lowlevel import Server
 from sqlalchemy.orm import Session
 
 from app.auth_ctx import AuthContext
+from app.mcp._offloop import dispatch_off_loop
 from app.database import SessionLocal, get_db
 from app.mcp.auth import validate_key
 from app.mcp._alias_map import _bundle_id_arg, normalize_tool_name
@@ -505,14 +506,8 @@ def build_mcp_server(db_factory: Callable[[], Session] = SessionLocal) -> Server
     @server.call_tool()
     async def _call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
         caller = _caller_from_request_context(server)
-        db = db_factory()
-        try:
-            payload = _dispatch(name, db, arguments or {}, caller)
-        # Rationale: MCP tool dispatch errors must return error dict, not crash the transport
-        except Exception as exc:  # noqa: BLE001
-            payload = {"error": str(exc), "tool": name}
-        finally:
-            db.close()
+        # fed1004: off the event loop — a sync tool here blocks the whole worker.
+        payload = await dispatch_off_loop(_dispatch, name, db_factory, arguments, caller)
         return [types.TextContent(type="text", text=json.dumps(payload, default=str))]
 
     return server

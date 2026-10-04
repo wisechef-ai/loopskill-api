@@ -22,6 +22,11 @@ default, preserving today's zero-config behaviour.
 from __future__ import annotations
 
 import os
+
+# fed1004: MCP search may start a LIVE federated fan-out on a cache miss. The
+# suite must never reach the network by accident, so the live path is OFF by
+# default here; tests that exercise it set the budget and stub the warm.
+os.environ.setdefault("WR_MCP_FEDERATED_LIVE_BUDGET_S", "0")
 from typing import Generator
 
 import pytest

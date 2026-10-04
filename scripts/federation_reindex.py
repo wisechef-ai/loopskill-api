@@ -215,6 +215,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Federation index reindex walker (superset_0606 Phase B)")
     parser.add_argument("--source", help="Walk only this source (default: all live sources)")
     parser.add_argument("--dry-run", action="store_true", help="Walk + report, no DB write")
+    parser.add_argument(
+        "--if-changed",
+        action="store_true",
+        help="hermes-hub only: conditional fetch (If-None-Match); skip the ingest when upstream is unchanged",
+    )
     args = parser.parse_args()
 
     from app.database import SessionLocal
@@ -225,7 +230,12 @@ def main() -> int:
     reports = []
     try:
         for src in sources:
-            report = reindex_source(db, src, dry_run=args.dry_run)
+            if args.if_changed and src == "hermes-hub" and not args.dry_run:
+                from app.services.hub_snapshot_sync import sync_hub_snapshot
+
+                report = {"source": src, **sync_hub_snapshot(db)}
+            else:
+                report = reindex_source(db, src, dry_run=args.dry_run)
             reports.append(report)
             logger.info(
                 "reindex %-16s status=%-8s indexed=%s installable=%s",
@@ -238,7 +248,7 @@ def main() -> int:
         db.close()
 
     total_indexed = sum(r["indexed"] for r in reports if isinstance(r.get("indexed"), int))
-    ok = sum(1 for r in reports if r["status"] == "ok")
+    ok = sum(1 for r in reports if r["status"] in ("ok", "unchanged"))
     logger.info(
         "reindex complete: %d/%d sources OK, total indexed=%s%s",
         ok,
@@ -257,6 +267,11 @@ def main() -> int:
         if _tap_ok(reports, tracked.source):
             _reconcile_bundle(tracked, dry_run=args.dry_run)
 
+    # The hourly --if-changed sync is a single-purpose job: a failed conditional
+    # sync is a non-zero exit, so a scheduler (or the canary) sees it. The full
+    # walk keeps exit 0 — one source down must not mark the whole walk failed.
+    if args.if_changed and any(r["status"] == "error" for r in reports):
+        return 1
     return 0
 
 

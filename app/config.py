@@ -120,6 +120,11 @@ class Settings(BaseSettings):
     # blank (the documented zero-config self-host path): no Redis configured is
     # "no shared tier", not "shared tier degraded".
     METASEARCH_SHARED_CACHE: bool = True
+    # fed1004: seconds loopskill_search (MCP) waits for a LIVE federated fan-out
+    # on a cache miss before answering from the local hub index ("warming")
+    # while the fan-out finishes in the background. 0 = cache-only (the pre-
+    # fed1004 behaviour). A cold fan-out measured ~2s on prod 2026-10-04.
+    MCP_FEDERATED_LIVE_BUDGET_S: float = 4.0
     HOST: str = "0.0.0.0"
     PORT: int = 8200
 
