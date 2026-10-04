@@ -183,7 +183,11 @@ class TestTheSlugSetIsABackstopNotTheDefinition:
         ingest_sync_report(
             db_session,
             m,
-            {"loop_runs": [{"loop_slug": "p9-new-beacon", "instance_key": uuid4().hex, "outcome": "success"}]},
+            {
+                "loop_runs": [
+                    {"loop_slug": "p9-new-beacon", "instance_key": uuid4().hex, "outcome": "success"}
+                ]
+            },
         )
         state = run_registry.fleet_state(db_session, fleet.id)
         assert state["runs"] == {"total": 1, "synthetic": 1, "external": 0}
@@ -277,9 +281,7 @@ class TestTheMarkersHaveALifecycle:
         test_key = APIKey(
             id=uuid4(), user_id=u.id, key_prefix=uuid4().hex[:8], key_hash=f"h-{uuid4().hex}", is_test=True
         )
-        real_key = APIKey(
-            id=uuid4(), user_id=u.id, key_prefix=uuid4().hex[:8], key_hash=f"h-{uuid4().hex}"
-        )
+        real_key = APIKey(id=uuid4(), user_id=u.id, key_prefix=uuid4().hex[:8], key_hash=f"h-{uuid4().hex}")
         db_session.add_all([test_key, real_key])
         db_session.commit()
 
@@ -321,11 +323,7 @@ class TestTheMarkersHaveALifecycle:
         assert state["runs"] == {"total": 2, "synthetic": 2, "external": 0}, (
             "flipping the marker left the already-ingested runs counted as adoption"
         )
-        rows = (
-            db_session.query(LoopRunDailyRollup)
-            .filter(LoopRunDailyRollup.member_id == beacon.id)
-            .all()
-        )
+        rows = db_session.query(LoopRunDailyRollup).filter(LoopRunDailyRollup.member_id == beacon.id).all()
         assert [r.synthetic_runs for r in rows] == [2], "the rollup kept the pre-flag verdict"
 
     def test_unflagging_repairs_in_the_other_direction_too(self, db_session):
@@ -392,9 +390,7 @@ class TestASyntheticRunCanNeverBeCountedAsExternal:
             ({}, {"key_is_test": True}, EXTERNAL_SLUG, "api key is_test"),
         ],
     )
-    def test_synthetic_runs_never_reach_the_external_count(
-        self, db_session, fleet_kw, member_kw, slug, why
-    ):
+    def test_synthetic_runs_never_reach_the_external_count(self, db_session, fleet_kw, member_kw, slug, why):
         fleet = _mk_fleet(db_session, **fleet_kw)
         m = _mk_member(db_session, fleet, **member_kw)
         db_session.commit()
@@ -423,11 +419,7 @@ class TestASyntheticRunCanNeverBeCountedAsExternal:
         ingest_sync_report(
             db_session,
             m,
-            {
-                "loop_runs": [
-                    {"loop_slug": EXTERNAL_SLUG, "instance_key": uuid4().hex, "outcome": "success"}
-                ]
-            },
+            {"loop_runs": [{"loop_slug": EXTERNAL_SLUG, "instance_key": uuid4().hex, "outcome": "success"}]},
         )
         state = run_registry.fleet_state(db_session, fleet.id)
         assert state["runs"] == {"total": 1, "synthetic": 0, "external": 1}
@@ -468,11 +460,7 @@ class TestASyntheticRunCanNeverBeCountedAsExternal:
         ingest_sync_report(
             db_session,
             real_member,
-            {
-                "loop_runs": [
-                    {"loop_slug": EXTERNAL_SLUG, "instance_key": uuid4().hex, "outcome": "success"}
-                ]
-            },
+            {"loop_runs": [{"loop_slug": EXTERNAL_SLUG, "instance_key": uuid4().hex, "outcome": "success"}]},
         )
 
         rows = db_session.query(LoopRun).filter(LoopRun.fleet_id == fleet.id).all()
@@ -644,11 +632,7 @@ class TestBothIngestPathsStampOrigin:
         ingest_sync_report(
             db_session,
             m,
-            {
-                "loop_runs": [
-                    {"loop_slug": EXTERNAL_SLUG, "instance_key": uuid4().hex, "outcome": "success"}
-                ]
-            },
+            {"loop_runs": [{"loop_slug": EXTERNAL_SLUG, "instance_key": uuid4().hex, "outcome": "success"}]},
         )
         row = db_session.query(LoopRun).filter(LoopRun.loop_slug == EXTERNAL_SLUG).one()
         assert row.is_synthetic is True
@@ -669,12 +653,7 @@ def _load_migration():
     import importlib.util
     from pathlib import Path
 
-    path = (
-        Path(__file__).resolve().parent.parent
-        / "alembic"
-        / "versions"
-        / "mesh0408_w4_synthetic_runs.py"
-    )
+    path = Path(__file__).resolve().parent.parent / "alembic" / "versions" / "mesh0408_w4_synthetic_runs.py"
     spec = importlib.util.spec_from_file_location("_w4_mig", path)
     mig = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mig)
@@ -749,9 +728,7 @@ def test_migration_upgrade_backfills_historical_runs_by_both_routes():
         ]
         for rid, mid, slug, _ in rows:
             conn.execute(
-                sa.text(
-                    "INSERT INTO loop_runs (id, member_id, loop_slug) VALUES (:i, :m, :s)"
-                ),
+                sa.text("INSERT INTO loop_runs (id, member_id, loop_slug) VALUES (:i, :m, :s)"),
                 {"i": rid, "m": mid, "s": slug},
             )
             conn.execute(
@@ -768,9 +745,7 @@ def test_migration_upgrade_backfills_historical_runs_by_both_routes():
 
     with engine.connect() as conn:
         got = dict(conn.execute(sa.text("SELECT id, is_synthetic FROM loop_runs")).all())
-        rolled = dict(
-            conn.execute(sa.text("SELECT id, synthetic_runs FROM loop_run_daily_rollups")).all()
-        )
+        rolled = dict(conn.execute(sa.text("SELECT id, synthetic_runs FROM loop_run_daily_rollups")).all())
         # The identity columns land UNCLASSIFIED (NULL), not False — NULL is
         # what keeps the slug backstop live for pre-W4 rows.
         conn.execute(sa.text("INSERT INTO fleets (id, name) VALUES ('f', 'x')"))
@@ -829,9 +804,7 @@ def test_naive_timestamps_do_not_break_the_split_on_the_rollup(db_session):
     rollup_loop_runs(db_session, day=naive_noon.date())
     rows = {
         r.loop_slug: r
-        for r in db_session.query(LoopRunDailyRollup)
-        .filter(LoopRunDailyRollup.fleet_id == fleet.id)
-        .all()
+        for r in db_session.query(LoopRunDailyRollup).filter(LoopRunDailyRollup.fleet_id == fleet.id).all()
     }
     assert set(rows) == {BEACON_SLUG, EXTERNAL_SLUG}, "a naive timestamp fell out of the day window"
     assert rows[BEACON_SLUG].synthetic_runs == 1
@@ -872,12 +845,18 @@ def test_default_rollup_day_is_the_utc_day_on_a_non_utc_host(db_session):
             ingest_sync_report(
                 db_session,
                 m,
-                {"loop_runs": [{"loop_slug": EXTERNAL_SLUG, "instance_key": uuid4().hex, "outcome": "success"}]},
+                {
+                    "loop_runs": [
+                        {"loop_slug": EXTERNAL_SLUG, "instance_key": uuid4().hex, "outcome": "success"}
+                    ]
+                },
             )
             rollup_loop_runs(db_session)
 
             rows = db_session.query(LoopRunDailyRollup).filter(LoopRunDailyRollup.member_id == m.id).all()
-            assert [(r.day, r.runs) for r in rows] == [(utc_day, 1)], f"default rollup missed the run under TZ={tz}"
+            assert [(r.day, r.runs) for r in rows] == [(utc_day, 1)], (
+                f"default rollup missed the run under TZ={tz}"
+            )
     finally:
         if saved_tz is None:
             os.environ.pop("TZ", None)
