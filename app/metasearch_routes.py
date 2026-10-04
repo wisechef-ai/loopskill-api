@@ -215,12 +215,22 @@ def metasearch(
 _RAW_GITHUB = re.compile(r"^https://raw\.githubusercontent\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/")
 
 
+def _branch_for(origin_url: str | None) -> str | None:
+    gh = _RAW_GITHUB.match(origin_url or "")
+    if not gh:
+        return None
+    from app.services.github_skill_path import default_branch
+
+    return default_branch(f"{gh[1]}/{gh[2]}")
+
+
 def _install_command_matrix(
     source: str,
     origin_url: str | None,
     preview_only: bool,
     slug: str | None = None,
     skill_name: str | None = None,
+    branch: str | None = None,
 ) -> dict:
     """Per-agent templated install commands (§6 / P3b fallback path) for the
     ad-hoc / single-agent visitor. The LoopSkill fleet-deploy motion (P3) is the
@@ -249,15 +259,21 @@ def _install_command_matrix(
     # existed (`install` takes a direct URL whose path ends in .md); the old
     # claude_code line was a literal "<repo>" placeholder. The skills CLI
     # (skills.sh) installs a GitHub-hosted skill into Claude Code, Codex,
-    # Cursor and 40+ agents; --skill matches the frontmatter NAME, and
-    # --full-depth also finds nested skills when the repo has a root SKILL.md.
+    # Cursor and 40+ agents. It selects by NAME, and two skills in one repo can
+    # share a name, so a nested skill is targeted by its exact tree URL, which
+    # needs the real default branch (the CLI cannot clone ref HEAD). A root
+    # SKILL.md keeps `--skill <name>`. No branch → no skills_cli line.
     hermes_ok = origin.startswith(("https://", "http://")) and urlparse(origin).path.lower().endswith(".md")
     gh = _RAW_GITHUB.match(origin)
-    skills_cli = (
-        f"npx skills add {shlex.quote(f'{gh[1]}/{gh[2]}')} --skill {shlex.quote(skill_name)} --full-depth"
-        if gh and skill_name
-        else ""
-    )
+    skills_cli = ""
+    if gh and branch:
+        in_repo = origin[gh.end() :].split("/", 1)[-1]  # strip the ref segment
+        skill_dir = in_repo[: -len("SKILL.md")].rstrip("/") if in_repo.endswith("SKILL.md") else ""
+        if skill_dir:
+            tree_url = f"https://github.com/{gh[1]}/{gh[2]}/tree/{branch}/{skill_dir}"
+            skills_cli = f"npx skills add {shlex.quote(tree_url)}"
+        elif in_repo == "SKILL.md" and skill_name:
+            skills_cli = f"npx skills add {shlex.quote(f'{gh[1]}/{gh[2]}')} --skill {shlex.quote(skill_name)}"
     return {
         "hermes": f"hermes skills install {shlex.quote(origin)}" if hermes_ok else "",
         "skills_cli": skills_cli,
@@ -344,6 +360,7 @@ def metasearch_install(
         resolved.preview_only,
         resolved.slug,
         skill_name=frontmatter_name(resolved.body or ""),
+        branch=_branch_for(resolved.origin_url),
     )
     return out
 

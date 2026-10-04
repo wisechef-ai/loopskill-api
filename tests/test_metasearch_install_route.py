@@ -13,6 +13,18 @@ import app.services.metasearch_install as mi
 from app.models import TelemetryEvent
 
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _no_branch_lookup(monkeypatch):
+    """fed1005: the route asks GitHub for the default branch to build the
+    skills_cli tree URL; keep these route tests hermetic."""
+    import app.metasearch_routes as mr
+
+    monkeypatch.setattr(mr, "_branch_for", lambda origin: None)
+
+
 def setup_function(_):
     fl._cache.clear()
 
@@ -21,7 +33,7 @@ def test_install_resolves_fetch_origin_body(client, db_session, monkeypatch):
     monkeypatch.setattr(
         mi,
         "get_origin_fetcher",
-        lambda src: (lambda slug: ("https://raw.githubusercontent.com/o/r/main/s/SKILL.md", "# real skill")),
+        lambda src: lambda slug: ("https://raw.githubusercontent.com/o/r/main/s/SKILL.md", "# real skill"),
     )
     resp = client.get("/api/skills/metasearch/install?install_ref=skills-sh:o--r--s")
     assert resp.status_code == 200
@@ -33,7 +45,7 @@ def test_install_resolves_fetch_origin_body(client, db_session, monkeypatch):
 
 
 def test_install_fail_closed_returns_404(client, db_session, monkeypatch):
-    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: (lambda slug: None))
+    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: lambda slug: None)
     resp = client.get("/api/skills/metasearch/install?install_ref=well-known:host--x")
     assert resp.status_code == 404, "unresolvable ref must 404 (fail-closed, no dead button)"
     assert resp.json()["detail"]["reason"] == "unresolvable"
@@ -160,7 +172,7 @@ def test_install_intent_funnel_event_recorded(client, db_session, monkeypatch):
     monkeypatch.setattr(
         mi,
         "get_origin_fetcher",
-        lambda src: (lambda slug: ("https://raw.githubusercontent.com/o/r/main/s/SKILL.md", "# b")),
+        lambda src: lambda slug: ("https://raw.githubusercontent.com/o/r/main/s/SKILL.md", "# b"),
     )
     client.get("/api/skills/metasearch/install?install_ref=skills-sh:o--r--s")
     events = (
@@ -176,7 +188,7 @@ def test_install_intent_funnel_event_recorded(client, db_session, monkeypatch):
 
 def test_install_intent_recorded_even_on_fail_closed(client, db_session, monkeypatch):
     """A failed resolve is ALSO a funnel signal (search that couldn't convert)."""
-    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: (lambda slug: None))
+    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: lambda slug: None)
     client.get("/api/skills/metasearch/install?install_ref=well-known:host--x")
     events = (
         db_session.query(TelemetryEvent)

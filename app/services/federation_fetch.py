@@ -201,9 +201,14 @@ def guarded_get(
             location = resp.headers.get("location")
             if not location:
                 return None
-            next_url = urljoin(current_url, location)
+            try:
+                next_url = urljoin(current_url, location)
+                cross_origin = _origin(next_url) != _origin(current_url)
+            except ValueError:  # fed1005 R2: a malformed Location (bad port) fails closed
+                logger.warning("federation_fetch: malformed redirect from %s", current_url)
+                return None
             # fed1005: credentials never follow a redirect to another origin.
-            if headers and _origin(next_url) != _origin(current_url):
+            if headers and cross_origin:
                 headers = {k: v for k, v in headers.items() if k.lower() not in _CREDENTIAL_HEADERS}
             current_url = next_url
             continue

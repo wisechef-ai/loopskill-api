@@ -238,10 +238,10 @@ def test_install_instruction_tree_walk_is_authed(monkeypatch):
 # ── install commands: every line must RUN ───────────────────────────────────
 
 
-def _matrix(origin, name="asd-ste100"):
+def _matrix(origin, name="asd-ste100", branch="main"):
     from app.metasearch_routes import _install_command_matrix
 
-    return _install_command_matrix("skills-sh", origin, False, "x", skill_name=name)
+    return _install_command_matrix("skills-sh", origin, False, "x", skill_name=name, branch=branch)
 
 
 def test_hermes_command_is_install_and_never_the_nonexistent_add():
@@ -251,13 +251,14 @@ def test_hermes_command_is_install_and_never_the_nonexistent_add():
     assert "skills add" not in cmds["hermes"]
 
 
-def test_skills_cli_command_targets_repo_and_frontmatter_name():
+def test_skills_cli_command_targets_the_exact_skill_directory():
     cmds = _matrix(
-        f"{RAW}/jamditis/claude-skills-journalism/HEAD/dev/skills/web-scraping/SKILL.md", "web-scraping"
+        f"{RAW}/jamditis/claude-skills-journalism/HEAD/dev-toolkit/skills/web-scraping/SKILL.md",
+        "web-scraping",
+        "master",
     )
-    assert (
-        cmds["skills_cli"]
-        == "npx skills add jamditis/claude-skills-journalism --skill web-scraping --full-depth"
+    assert cmds["skills_cli"] == (
+        "npx skills add https://github.com/jamditis/claude-skills-journalism/tree/master/dev-toolkit/skills/web-scraping"
     )
     assert cmds["claude_code"] == cmds["skills_cli"] + " -a claude-code"
     assert "<repo>" not in str(cmds), "no placeholder may reach an agent"
@@ -265,7 +266,7 @@ def test_skills_cli_command_targets_repo_and_frontmatter_name():
 
 def test_a_skill_name_with_spaces_or_metacharacters_is_quoted():
     cmds = _matrix(f"{RAW}/o/r/HEAD/SKILL.md", "Convex Best Practices; rm -rf ~")
-    assert cmds["skills_cli"].endswith("--skill 'Convex Best Practices; rm -rf ~' --full-depth")
+    assert cmds["skills_cli"] == "npx skills add o/r --skill 'Convex Best Practices; rm -rf ~'"
 
 
 @pytest.mark.parametrize("origin", ["/skills/curated-slug", "https://example.com/skills/page", ""])
@@ -420,31 +421,34 @@ def _resolve_only(existing: dict[tuple[str, str], tuple[str, str]], seen: list):
     return _fake
 
 
-def test_r1_m5_a_double_hyphen_repo_resolves_the_one_split_that_exists(monkeypatch):
+def test_r1_m5_a_double_hyphen_repo_resolves_through_hub_coordinates(monkeypatch):
     seen: list = []
     hit = ("u", "body")
     monkeypatch.setattr(gsp, "resolve_repo_skill_md", _resolve_only({("o/my--repo", "x"): hit}, seen))
+    monkeypatch.setattr(gsp, "_hub_skills_sh_coordinates", lambda c: ("o/my--repo", "x"))
     assert gsp.resolve_skills_sh_slug("o--my--repo--x") == hit
-    assert ("o/my", "repo--x") in seen and ("o/my--repo", "x") in seen
+    assert seen == [("o/my--repo", "x")]
 
 
 def test_r1_m5_two_splits_that_both_exist_fail_closed(monkeypatch):
     seen: list = []
     both = {("o/my", "repo--x"): ("u1", "b1"), ("o/my--repo", "x"): ("u2", "b2")}
     monkeypatch.setattr(gsp, "resolve_repo_skill_md", _resolve_only(both, seen))
+    monkeypatch.setattr(gsp, "_hub_skills_sh_coordinates", lambda c: None)
     assert gsp.resolve_skills_sh_slug("o--my--repo--x") is None
 
 
 def test_r1_m5_a_triple_hyphen_skill_id_is_not_cut_to_its_tail(monkeypatch):
     """17 prod ids look like 'animation-principles---advanced'; the old decoder
-    asked for skill '-advanced'."""
+    asked for skill '-advanced'. The hub keeps the slashes and decides."""
     seen: list = []
     want = ("dylantarre/animation-principles", "animation-principles---advanced")
     monkeypatch.setattr(gsp, "resolve_repo_skill_md", _resolve_only({want: ("u", "b")}, seen))
+    monkeypatch.setattr(gsp, "_hub_skills_sh_coordinates", lambda c: want if want in c else None)
     assert gsp.resolve_skills_sh_slug(
         "dylantarre--animation-principles--animation-principles---advanced"
     ) == ("u", "b")
-    assert want in seen
+    assert seen == [want]
 
 
 def test_r1_m5_the_common_three_part_slug_costs_one_resolution(monkeypatch):
@@ -484,7 +488,7 @@ def test_r1_s1_a_concurrent_burst_for_a_dead_repo_walks_the_tree_once(monkeypatc
         ("\ufeff---\nname: bom-skill\n---\n", "bom-skill"),
         ("---\nname: wanted\n# no closing fence\n", None),
         ("---\ndescription: |\n  Example\nname: wanted\n", None),
-        ("---\nname: |\n  wanted\n---\n", None),
+        ("---\nname: |\n  wanted\n---\n", "wanted"),  # YAML block scalar: a real name
         ('---\nname: "Quoted Name"  # comment\n---\n', "Quoted Name"),
     ],
 )
@@ -513,3 +517,111 @@ def test_r1_s3_an_official_row_resolves_in_one_wave_with_no_api_call(monkeypatch
     )
     assert got is not None and got[0].endswith(f"/HEAD/{official}/SKILL.md")
     assert not [c for c in calls if "api.github.com" in c]
+
+
+# ── fed1005 R2 kill-tests ───────────────────────────────────────────────────
+
+
+def test_r2_m1_a_quoted_hash_is_part_of_the_name():
+    assert gsp.frontmatter_name('---\nname: "wanted # other"\ndescription: A\n---\n') == "wanted # other"
+    files = {"skills/wanted/SKILL.md": '---\nname: "wanted # other"\n---\n'}
+    monkeypatch_get = _serve(files, {"tree": []})
+    import pytest as _p
+
+    mp = _p.MonkeyPatch()
+    mp.setattr(gsp, "guarded_get", monkeypatch_get)
+    try:
+        assert gsp.resolve_repo_skill_md("o/r", "wanted") is None
+    finally:
+        mp.undo()
+
+
+@pytest.mark.parametrize(
+    "body", ["---\nname: wanted\n--- not a fence\nname: other\n---\n", "---\nname: [a, b]\n---\n"]
+)
+def test_r2_s3_only_whole_fence_lines_and_string_names_count(body):
+    assert gsp.frontmatter_name(body) is None
+
+
+def test_r2_m2_a_root_alias_is_served_but_never_cached(monkeypatch):
+    files = {"SKILL.md": _md("other")}
+    tree = {"tree": [{"path": "SKILL.md"}]}
+    monkeypatch.setattr(gsp, "guarded_get", _serve(files, tree))
+    assert gsp.resolve_repo_skill_md("o/r", "wanted")[0].endswith("/HEAD/SKILL.md")
+    files["skills/wanted/SKILL.md"] = _md("wanted")
+    tree["tree"].append({"path": "skills/wanted/SKILL.md"})
+    monkeypatch.setattr(gsp, "guarded_get", _serve(files, tree))
+    assert gsp.resolve_repo_skill_md("o/r", "wanted")[0].endswith("/HEAD/skills/wanted/SKILL.md")
+
+
+def test_r2_m3_a_malformed_redirect_port_fails_closed(monkeypatch):
+    from app.services import federation_fetch as ff
+
+    def _httpx_get(url, *, timeout, headers, follow_redirects):
+        return _Resp(302, headers={"location": "https://api.github.com:bad/x"})
+
+    monkeypatch.setattr(ff, "is_safe_url", lambda u: True)
+    monkeypatch.setattr(ff.httpx, "get", _httpx_get)
+    assert ff.guarded_get("https://api.github.com/repos/o/r", headers={"Authorization": "Bearer t"}) is None
+
+
+def test_r2_m4_an_ambiguous_slug_is_never_guessed(monkeypatch):
+    seen: list = []
+    monkeypatch.setattr(
+        gsp, "resolve_repo_skill_md", _resolve_only({("o/my", "repo--x"): ("wrong", "b")}, seen)
+    )
+    monkeypatch.setattr(gsp, "_hub_skills_sh_coordinates", lambda c: None)
+    assert gsp.resolve_skills_sh_slug("o--my--repo--x") is None
+    assert seen == [], "no network guess for an ambiguous slug"
+
+
+def test_r2_m4_the_hub_snapshot_supplies_the_original_coordinates(monkeypatch):
+    seen: list = []
+    right = ("dylantarre/animation-principles", "animation-principles---advanced")
+    monkeypatch.setattr(gsp, "resolve_repo_skill_md", _resolve_only({right: ("u", "b")}, seen))
+    monkeypatch.setattr(gsp, "_hub_skills_sh_coordinates", lambda c: right if right in c else None)
+    assert gsp.resolve_skills_sh_slug(
+        "dylantarre--animation-principles--animation-principles---advanced"
+    ) == ("u", "b")
+    assert seen == [right]
+
+
+def test_r2_m4_hub_lookup_uses_slashed_identifiers(db_session, monkeypatch):
+    import app.database as database
+    from app.models import FederationHubSkill
+
+    db_session.add(
+        FederationHubSkill(
+            slug="x",
+            title="x",
+            description="",
+            source="hermes-hub",
+            upstream_source="skills-sh",
+            identifier="skills-sh/o/my--repo/x",
+            origin_url="https://www.skills.sh/o/my--repo/x",
+            install_path="fetch_origin",
+            repo="o/my--repo",
+            path="x",
+        )
+    )
+    db_session.commit()
+    monkeypatch.setattr(database, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(db_session, "close", lambda: None)
+    assert gsp._hub_skills_sh_coordinates([("o/my", "repo--x"), ("o/my--repo", "x")]) == ("o/my--repo", "x")
+
+
+def test_r2_m5_a_many_hyphen_slug_is_bounded(monkeypatch):
+    calls: list = []
+    monkeypatch.setattr(gsp, "resolve_repo_skill_md", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr(gsp, "_hub_skills_sh_coordinates", lambda c: calls.append(("hub", len(c))))
+    assert gsp.resolve_skills_sh_slug("o--" + "--".join(["r"] * 60) + "--x") is None
+    assert calls == []
+
+
+def test_r2_s1_single_flight_memory_is_bounded():
+    assert len(gsp._STRIPES) == 64
+    assert gsp._flight_lock("a") is gsp._flight_lock("a")
+
+
+def test_r2_s4_no_skills_cli_without_a_default_branch():
+    assert _matrix(f"{RAW}/o/r/HEAD/skills/x/SKILL.md", "x", None)["skills_cli"] == ""

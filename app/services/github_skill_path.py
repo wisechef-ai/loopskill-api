@@ -19,8 +19,9 @@ Resolution (each wave only when the previous one found nothing):
 3. Raw GETs for the tree's directory matches (at most ``_MAX_TREE_MATCHES``,
    in parallel). Exactly one may pass the identity rule, else None.
 
-Worst case: 3 sequential round trips — ≤ 6 parallel raw GETs, 1 API GET,
-≤ 3 parallel raw GETs.
+Worst case: 4 sequential round trips, 11 GETs — a stale cached path (1),
+≤ 6 parallel raw GETs, 1 API GET, ≤ 3 parallel raw GETs. Raw waves share
+one 16-worker pool; single-flight uses 64 striped locks (bounded memory).
 
 Identity rule (C1 — never install another skill's body): a body is accepted
 for ``skill_id`` when its frontmatter ``name`` (slugified) equals the id, or it
@@ -64,11 +65,12 @@ _MAX_WAVE = 6
 _MAX_TREE_MATCHES = 3
 
 _SEGMENT = re.compile(r"^[A-Za-z0-9_.-]+$")
-_FM_NAME = re.compile(r"^name:[ \t]*(.*?)[ \t]*$", re.M)
 
 _cache = TTLCache()
-_flight_guard = threading.Lock()
-_flights: dict[str, threading.Lock] = {}
+# Bounded resources: one shared pool for every raw wave, and a fixed set of
+# striped locks for single-flight (same key -> same lock; memory never grows).
+_POOL = ThreadPoolExecutor(max_workers=16, thread_name_prefix="gh-skill-path")
+_STRIPES = tuple(threading.Lock() for _ in range(64))
 
 
 def _segment_ok(part: str) -> bool:
@@ -98,22 +100,25 @@ def github_api_headers() -> dict[str, str]:
     return headers
 
 
+_FRONTMATTER = re.compile(r"\A---[ \t]*\n(.*?)\n---[ \t]*(?:\n|\Z)", re.S)
+
+
 def frontmatter_name(body: str) -> str | None:
-    """The ``name`` of a COMPLETE YAML frontmatter block (opening AND closing
-    ``---`` fence), or None. BOM and CRLF tolerated; block scalars ignored."""
+    """The ``name`` of a COMPLETE YAML frontmatter block, parsed as YAML (a
+    quoted ``"a # b"`` is the name ``a # b``), or None. BOM and CRLF tolerated;
+    the closing fence must be a whole ``---`` line."""
+    import yaml
+
     text = (body or "").lstrip("\ufeff").replace("\r\n", "\n")
-    if not text.startswith("---\n"):
-        return None
-    end = text.find("\n---", 3)
-    if end < 0:
-        return None
-    m = _FM_NAME.search(text[4 : end + 1])
+    m = _FRONTMATTER.match(text)
     if not m:
         return None
-    value = m.group(1).split(" #", 1)[0].strip().strip("'\"").strip()
-    if not value or value[0] in "|>":
+    try:
+        data = yaml.safe_load(m.group(1))
+    except yaml.YAMLError:
         return None
-    return value
+    name = data.get("name") if isinstance(data, dict) else None
+    return name.strip() or None if isinstance(name, str) else None
 
 
 def _dir_of(path: str) -> str:
@@ -137,8 +142,7 @@ def _raw(repo: str, path: str) -> str | None:
 def _raw_many(repo: str, paths: list[str]) -> list[str | None]:
     if len(paths) == 1:
         return [_raw(repo, paths[0])]
-    with ThreadPoolExecutor(max_workers=min(_MAX_WAVE, len(paths))) as pool:
-        return list(pool.map(lambda p: _raw(repo, p), paths))
+    return list(_POOL.map(lambda p: _raw(repo, p), paths[:_MAX_WAVE]))
 
 
 def _tree_paths(repo: str) -> list[str] | None:
@@ -168,8 +172,10 @@ def _tree_paths(repo: str) -> list[str] | None:
     return out
 
 
-def _locate(repo: str, skill_id: str, hint_path: str | None) -> tuple[str, str] | None:
-    """Return (in-repo path, body) or None."""
+def _locate(repo: str, skill_id: str, hint_path: str | None) -> tuple[str, str, bool] | None:
+    """Return (in-repo path, body, identity_proven) or None. A single-skill
+    root alias is NOT identity-proven: it is served but never cached, so a repo
+    that later adds the real skill is resolved again (fed1005 R2)."""
     candidates: list[str] = []
     if hint_path:
         candidates.append(f"{hint_path.strip('/')}/SKILL.md")
@@ -180,26 +186,25 @@ def _locate(repo: str, skill_id: str, hint_path: str | None) -> tuple[str, str] 
     for path in candidates:
         body = bodies[path]
         if body and _identity_ok(path, body, skill_id):
-            return path, body
+            return path, body, True
 
     tree = _tree_paths(repo)
     if not tree:
         return None
     root = bodies.get("SKILL.md")
     if tree == ["SKILL.md"] and root:
-        return "SKILL.md", root  # single-skill repo: alias id allowed
+        return "SKILL.md", root, False  # single-skill repo: alias id, unproven
     matches = [p for p in tree if p not in bodies and _dir_of(p) == skill_id][:_MAX_TREE_MATCHES]
     if not matches:
         return None
     passing = [
         (p, b) for p, b in zip(matches, _raw_many(repo, matches)) if b and _identity_ok(p, b, skill_id)
     ]
-    return passing[0] if len(passing) == 1 else None
+    return (*passing[0], True) if len(passing) == 1 else None
 
 
 def _flight_lock(key: str) -> threading.Lock:
-    with _flight_guard:
-        return _flights.setdefault(key, threading.Lock())
+    return _STRIPES[hash(key) % len(_STRIPES)]
 
 
 def resolve_repo_skill_md(
@@ -218,24 +223,50 @@ def resolve_repo_skill_md(
         cached = _cache.get(hit_key, HIT_TTL_S)
         if cached:
             body = _raw(repo, cached)
-            if body and (cached == "SKILL.md" or _identity_ok(cached, body, skill_id)):
+            if body and _identity_ok(cached, body, skill_id):
                 return f"{RAW_BASE}/{repo}/HEAD/{cached}", body
         found = _locate(repo, skill_id, hint_path)
         if found is None:
             _cache.put(miss_key, True)
             return None
-        path, body = found
-        _cache.put(hit_key, path)
+        path, body, proven = found
+        if proven:
+            _cache.put(hit_key, path)
         _cache.put(miss_key, None)
         return f"{RAW_BASE}/{repo}/HEAD/{path}", body
+
+
+MAX_SLUG_SPLITS = 8
+
+
+def _hub_skills_sh_coordinates(candidates: list[tuple[str, str]]) -> tuple[str, str] | None:
+    """The ONE candidate the hub snapshot lists with its original slashes
+    (``skills-sh/owner/repo/skill``), or None when zero or several match or
+    the DB is unavailable. One bounded IN query; no network."""
+    try:
+        from app.database import SessionLocal
+        from app.models import FederationHubSkill as M
+
+        wanted = {f"skills-sh/{repo}/{sid}": (repo, sid) for repo, sid in candidates}
+        db = SessionLocal()
+        try:
+            rows = {r[0] for r in db.query(M.identifier).filter(M.identifier.in_(list(wanted))).all()}
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 — DB outage → fail closed, never 500
+        logger.warning("skills.sh slug disambiguation unavailable", exc_info=True)
+        return None
+    return wanted[rows.pop()] if len(rows) == 1 else None
 
 
 def resolve_skills_sh_slug(slug: str) -> tuple[str, str] | None:
     """Decode a skills.sh slug (``owner--repo--skillId``: '/' joined with '--')
     and resolve it. GitHub owners cannot contain '--', but repo names and skill
-    ids can (17 of 20,000 prod ids contain '---'), so the split between repo and
-    skill is ambiguous. Every split is tried; the slug resolves only when
-    EXACTLY ONE split resolves (C1: never guess between two repos)."""
+    ids can (17 of 20,000 prod ids contain '---'), so the repo/skill split is
+    ambiguous. An unambiguous slug resolves directly. An ambiguous one is NEVER
+    guessed (a sole surviving split can still be the wrong repo): the original
+    coordinates come from the hub snapshot, which keeps the slashes, or the
+    slug fails closed. At most MAX_SLUG_SPLITS candidates, one DB query."""
     owner, sep, rest = (slug or "").partition("--")
     if not sep or not owner or not rest:
         return None
@@ -246,7 +277,35 @@ def resolve_skills_sh_slug(slug: str) -> tuple[str, str] | None:
         if repo and skill:
             splits.append((f"{owner}/{repo}", skill))
         start = idx + 1
+        if len(splits) > MAX_SLUG_SPLITS:
+            return None
     if len(splits) == 1:
         return resolve_repo_skill_md(*splits[0])
-    hits = [r for r in (resolve_repo_skill_md(repo, sid) for repo, sid in splits) if r]
-    return hits[0] if len(hits) == 1 else None
+    coords = _hub_skills_sh_coordinates(splits) if splits else None
+    return resolve_repo_skill_md(*coords) if coords else None
+
+
+def default_branch(repo: str) -> str | None:
+    """The repo's default branch (authed API, cached 6 h), or None."""
+    parts = (repo or "").split("/")
+    if len(parts) != 2 or not all(_segment_ok(p) for p in parts):
+        return None
+    key = f"gh-default-branch:{repo}"
+    cached = _cache.get(key, HIT_TTL_S)
+    if cached:
+        return cached
+    resp = guarded_get(
+        f"https://api.github.com/repos/{repo}", timeout=_TIMEOUT_S, headers=github_api_headers()
+    )
+    try:
+        branch = (
+            json.loads(resp.text).get("default_branch")
+            if resp is not None and resp.status_code == 200
+            else None
+        )
+    except (TypeError, ValueError, AttributeError):
+        branch = None
+    if isinstance(branch, str) and _segment_ok(branch):
+        _cache.put(key, branch)
+        return branch
+    return None
