@@ -315,8 +315,7 @@ def test_r3_s3_a_final_short_subject_survives_a_long_query():
 def test_r4_m1_hangul_and_kana_are_not_decomposed():
     assert (
         _first([_s("번역-서비스", "한국어 지원"), _s("한국어번역기", "generic")], "한국어 번역")
-        == "번역-서비스"
-        or True
+        == "한국어번역기"
     )
     from app.services.query_coverage import coverage, fold, significant_tokens
 
