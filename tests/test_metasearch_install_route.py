@@ -254,7 +254,9 @@ def test_curated_paid_body_visible_to_master_caller(db_session, monkeypatch):
 
 def test_install_route_emits_runnable_commands_for_a_github_skill(client, db_session, monkeypatch):
     """fed1005 R5: the REAL branch lookup runs (only GitHub's HTTP reply is
-    mocked); the token goes to api.github.com and never to the raw CDN."""
+    mocked) and sends the token to api.github.com. The raw fetch is stubbed
+    here; tokenless raw-CDN requests are pinned by
+    tests/test_fed1005_federated_install.py::test_tree_walk_is_one_authed_call_at_head."""
     import app.metasearch_routes as mr
     from app.services import github_skill_path as gsp
 
