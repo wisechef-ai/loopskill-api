@@ -15,6 +15,10 @@ from app.models import TelemetryEvent
 
 import pytest
 
+import app.metasearch_routes as _mr
+
+_REAL_BRANCH_FOR = _mr._branch_for
+
 
 @pytest.fixture(autouse=True)
 def _no_branch_lookup(monkeypatch):
@@ -249,14 +253,27 @@ def test_curated_paid_body_visible_to_master_caller(db_session, monkeypatch):
 
 
 def test_install_route_emits_runnable_commands_for_a_github_skill(client, db_session, monkeypatch):
-    """fed1005 R3: one route-level positive case with a mocked GitHub branch
-    lookup (overrides the autouse stub) — the response carries the exact
-    Hermes URL install and the skills CLI tree-URL install."""
+    """fed1005 R5: the REAL branch lookup runs (only GitHub's HTTP reply is
+    mocked); the token goes to api.github.com and never to the raw CDN."""
     import app.metasearch_routes as mr
     from app.services import github_skill_path as gsp
 
     raw = "https://raw.githubusercontent.com/o/r/HEAD/skills/x/SKILL.md"
-    monkeypatch.setattr(mr, "_branch_for", lambda origin: "main" if origin == raw else None)
+    seen: list[tuple[str, dict]] = []
+
+    class _R:
+        def __init__(self, code, text):
+            self.status_code, self.text, self.headers = code, text, {}
+
+    def _gh(url, **kw):
+        seen.append((url, dict(kw.get("headers") or {})))
+        if url == "https://api.github.com/repos/o/r":
+            return _R(200, '{"default_branch": "main"}')
+        return _R(404, "")
+
+    monkeypatch.setenv("GITHUB_TOKEN", "tok-test")
+    monkeypatch.setattr(mr, "_branch_for", _REAL_BRANCH_FOR)
+    monkeypatch.setattr(gsp, "guarded_get", _gh)
     monkeypatch.setattr(
         mi, "get_origin_fetcher", lambda source: lambda slug: (raw, "---\nname: x\n---\n# X\n")
     )
@@ -267,3 +284,6 @@ def test_install_route_emits_runnable_commands_for_a_github_skill(client, db_ses
     assert cmds["hermes"] == f"hermes skills install {raw}"
     assert cmds["skills_cli"] == "npx skills add https://github.com/o/r/tree/main/skills/x"
     assert cmds["claude_code"] == cmds["skills_cli"] + " -a claude-code"
+    assert [(u, h.get("Authorization")) for u, h in seen] == [
+        ("https://api.github.com/repos/o/r", "Bearer tok-test")
+    ]

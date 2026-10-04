@@ -123,7 +123,10 @@ def _frontmatter_name_state(body: str) -> object:
     except Exception:  # noqa: BLE001 — YAMLError, RecursionError, MemoryError ...
         return _INVALID
     if data is None:
-        return None  # an empty frontmatter block
+        # Empty (or comment-only) block = no name. A block whose content is a
+        # null scalar ('null', '~') is a non-mapping document = INVALID (R5).
+        meaningful = [ln for ln in block.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+        return _INVALID if meaningful else None
     if not isinstance(data, dict):
         return _INVALID  # a list/scalar where a mapping belongs
     if "name" not in data:
@@ -220,7 +223,7 @@ def _locate(repo: str, skill_id: str, hint_path: str | None) -> tuple[str, str, 
     if not tree:
         return None
     root = bodies.get("SKILL.md")
-    if tree == ["SKILL.md"] and root:
+    if tree == ["SKILL.md"] and root and _frontmatter_name_state(root) is not _INVALID:
         return "SKILL.md", root, False  # single-skill repo: alias id, unproven
     matches = [p for p in tree if p not in bodies and _dir_of(p) == skill_id][:_MAX_TREE_MATCHES]
     if not matches:

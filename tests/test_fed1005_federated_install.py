@@ -720,3 +720,34 @@ def test_r4_no_frontmatter_and_empty_frontmatter_still_use_directory_identity(mo
         gsp._cache.clear()
         monkeypatch.setattr(gsp, "guarded_get", _serve({"skills/wanted/SKILL.md": body}, {"tree": []}))
         assert gsp.resolve_repo_skill_md("o/r", "wanted") is not None, body
+
+
+# ── fed1005 R5 kill-tests ───────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("scalar", ["null", "~", "Null"])
+def test_r5_a_null_scalar_frontmatter_is_invalid(monkeypatch, scalar):
+    body = f"---\n{scalar}\n---\n# OTHER\n"
+    monkeypatch.setattr(gsp, "guarded_get", _serve({"skills/wanted/SKILL.md": body}, {"tree": []}))
+    assert gsp.resolve_repo_skill_md("o/r", "wanted") is None
+
+
+def test_r5_a_comment_only_block_is_still_no_name(monkeypatch):
+    monkeypatch.setattr(
+        gsp, "guarded_get", _serve({"skills/wanted/SKILL.md": "---\n# just a comment\n---\n# W\n"})
+    )
+    assert gsp.resolve_repo_skill_md("o/r", "wanted") is not None
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "---\nname: other\n--- not a fence\n# OTHER\n",
+        "---\nname: other\n# no closing fence\n",
+        "---\n- name: other\n---\n# OTHER\n",
+        "---\nnull\n---\n# OTHER\n",
+    ],
+)
+def test_r5_the_single_root_alias_rejects_invalid_frontmatter(monkeypatch, body):
+    monkeypatch.setattr(gsp, "guarded_get", _serve({"SKILL.md": body}, {"tree": [{"path": "SKILL.md"}]}))
+    assert gsp.resolve_repo_skill_md("o/r", "wanted") is None
