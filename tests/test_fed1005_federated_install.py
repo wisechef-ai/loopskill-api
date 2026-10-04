@@ -230,3 +230,61 @@ def test_install_instruction_tree_walk_is_authed(monkeypatch):
     monkeypatch.setattr(fhi, "_safe_json_get", _json)
     assert fhi._tree_walk_fallback("o/r", "old/moved", "main") == "skills/moved"
     assert seen and seen[0].get("Authorization") == "Bearer tok-test"
+
+
+# ── install commands: every line must RUN ───────────────────────────────────
+
+
+def _matrix(origin, name="asd-ste100"):
+    from app.metasearch_routes import _install_command_matrix
+
+    return _install_command_matrix("skills-sh", origin, False, "x", skill_name=name)
+
+
+def test_hermes_command_is_install_and_never_the_nonexistent_add():
+    raw = f"{RAW}/danyuchn/asd-ste100-skill/HEAD/SKILL.md"
+    cmds = _matrix(raw)
+    assert cmds["hermes"] == f"hermes skills install {raw}"
+    assert "skills add" not in cmds["hermes"]
+
+
+def test_skills_cli_command_targets_repo_and_frontmatter_name():
+    cmds = _matrix(
+        f"{RAW}/jamditis/claude-skills-journalism/HEAD/dev/skills/web-scraping/SKILL.md", "web-scraping"
+    )
+    assert (
+        cmds["skills_cli"]
+        == "npx skills add jamditis/claude-skills-journalism --skill web-scraping --full-depth"
+    )
+    assert cmds["claude_code"] == cmds["skills_cli"] + " -a claude-code"
+    assert "<repo>" not in str(cmds), "no placeholder may reach an agent"
+
+
+def test_a_skill_name_with_spaces_or_metacharacters_is_quoted():
+    cmds = _matrix(f"{RAW}/o/r/HEAD/SKILL.md", "Convex Best Practices; rm -rf ~")
+    assert cmds["skills_cli"].endswith("--skill 'Convex Best Practices; rm -rf ~' --full-depth")
+
+
+@pytest.mark.parametrize("origin", ["/skills/curated-slug", "https://example.com/skills/page", ""])
+def test_no_hermes_command_for_an_origin_hermes_cannot_install(origin):
+    assert _matrix(origin)["hermes"] == ""
+
+
+def test_no_skills_cli_command_without_a_github_origin_or_a_name():
+    assert _matrix("https://browse.sh/skills/x/SKILL.md")["skills_cli"] == ""
+    assert _matrix(f"{RAW}/o/r/HEAD/SKILL.md", None)["skills_cli"] == ""
+    assert _matrix(f"{RAW}/o/r/HEAD/SKILL.md", None)["claude_code"] == ""
+
+
+@pytest.mark.parametrize(
+    ("body", "name"),
+    [
+        ("---\nname: asd-ste100\ndescription: d\n---\n", "asd-ste100"),
+        ("---\nname: 'Convex Best Practices'\n---\n", "Convex Best Practices"),
+        ("---\r\nname: crlf-skill\r\n---\r\n", "crlf-skill"),
+        ("# no frontmatter\nname: body-not-frontmatter\n", None),
+        ("---\ndescription: d\n---\nname: after-frontmatter\n", None),
+    ],
+)
+def test_frontmatter_name_reads_only_the_frontmatter(body, name):
+    assert gsp.frontmatter_name(body) == name
