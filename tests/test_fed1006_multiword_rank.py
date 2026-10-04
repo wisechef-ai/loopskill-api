@@ -116,6 +116,68 @@ def test_single_word_query_order_is_unchanged_for_matched_rows():
     ]
 
 
-def test_no_query_path_is_untouched():
-    rows = [_s("b"), _s("a")]
-    assert [r.slug for r in rank(rows, query=None)] == [r.slug for r in rank(rows)]
+def test_no_query_path_is_a_fixed_sequence():
+    rows = [_s("b", source="skills-sh"), _s("a"), _s("c", source="skills-sh")]
+    # popularity percentile 0.5 for all; then source priority (skills-sh 10 <
+    # github-oss 20), then title — exactly the pre-fed1006 browse comparator.
+    assert [r.slug for r in rank(rows, query=None)] == ["b", "c", "a"]
+    assert [r.slug for r in rank(rows, query="")] == ["b", "c", "a"]
+
+
+# ── fed1006 R1 kill-tests ───────────────────────────────────────────────────
+
+
+def test_r1_m1_no_match_order_is_independent_of_input_order():
+    from app.services.metasearch import merge_unified
+
+    rows = [_s("a", title="Helper"), _s("longer-name", title="Helper"), _s("zz", title="Helper")]
+    first = [r.slug for r in rank(list(rows), query="pdf text")]
+    for perm in (rows[::-1], [rows[1], rows[2], rows[0]]):
+        assert [r.slug for r in rank(list(perm), query="pdf text")] == first
+    merged = merge_unified([], rows, query="pdf text")
+    merged_rev = merge_unified([], rows[::-1], query="pdf text")
+    assert [r["slug"] if isinstance(r, dict) else r.slug for r in _skills_of(merged)] == [
+        r["slug"] if isinstance(r, dict) else r.slug for r in _skills_of(merged_rev)
+    ]
+
+
+def _skills_of(merged):
+    return getattr(merged, "skills", merged)
+
+
+def test_r1_m2_short_tokens_match_whole_words_only():
+    rows = [_s("email-django-tools", "send email from django"), _s("pdf-reader", "read pdf files")]
+    assert rank(rows, query="ai go pdf")[0].slug == "pdf-reader"
+
+
+def test_r1_m2_stopwords_and_generic_words_do_not_promote_junk():
+    rows = [_s("a-to-text-tool", "a generic helper"), _s("pdf-to-text", "Extract documents")]
+    assert rank(rows, query="a pdf to text tool")[0].slug == "pdf-to-text"
+
+
+def test_r1_m2_stems_match_across_word_forms():
+    rows = [_s("file-helper", "general files"), _s("image-converter", "convert one image")]
+    assert rank(rows, query="converting images")[0].slug == "image-converter"
+
+
+def test_r1_s1_the_tail_of_a_long_query_still_counts():
+    rows = [
+        _s("find-a-tool-to-convert-scanned", "generic"),
+        _s("image-pdf-converter", "Scanned images into PDF"),
+    ]
+    assert rank(rows, query="find a tool to convert scanned images into pdf")[0].slug == "image-pdf-converter"
+
+
+def test_r1_s2_a_matched_tier_ignores_coverage_even_when_it_differs():
+    """Both rows are tier description_contains for q='code review'. Coverage
+    would put 'longer-slug' (title hit) first; the matched tier must keep the
+    shortest-slug order — this kills an 'apply coverage to every tier' mutant."""
+    rows = [
+        _s("longer-slug", "code review", title="Code tools"),
+        _s("a", "code review", title="Helper"),
+    ]
+    tiers = {
+        relevance_tier("code review", slug=r.slug, title=r.title, description=r.description) for r in rows
+    }
+    assert tiers == {5}
+    assert [r.slug for r in rank(rows, query="code review")] == ["a", "longer-slug"]

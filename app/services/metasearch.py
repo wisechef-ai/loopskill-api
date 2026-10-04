@@ -41,7 +41,7 @@ from dataclasses import dataclass, field
 
 from app.services.federation import ExternalSkill, InstallPath, route_install
 from app.services.federation_relevance import NO_MATCH_TIER, relevance_tier
-from app.services.hub_local_search import query_tokens
+from app.services.query_coverage import coverage, significant_tokens
 
 # ── Source priority (dedupe tie-break + rank prior) ──────────────────────────
 # Lower number = higher priority. Curated ("recipes") always wins. Order below
@@ -400,6 +400,10 @@ def rank(skills: list[UnifiedSkill], *, query: str | None = None) -> list[Unifie
     alphabetical-by-title ordering that has no relationship to intent — the
     exact class of bug PR #209 fixed one layer down.
 
+    fed1006: rows in NO_MATCH_TIER (common for multi-word queries) do NOT use
+    the shortest-slug key: they sort by word-boundary query coverage
+    (``query_coverage``), then score/source/title, then ``canonical_id``.
+
     With no query (``query`` omitted/empty — a browse, or any pre-existing
     caller that has none), the ordering is BYTE-IDENTICAL to before this fix:
     tiers and slug-length are never computed, and the tiebreak stays
@@ -428,31 +432,20 @@ def rank(skills: list[UnifiedSkill], *, query: str | None = None) -> list[Unifie
     # fed1006: the ladder matches the WHOLE phrase, so a multi-word query leaves
     # most rows in NO_MATCH_TIER, where shortest-slug used to decide (prod:
     # "n8n" and "dots" ranked 3rd/4th for an ASD-STE100 query). Inside that tier
-    # only, token coverage decides first and slug length does not apply. Rows
-    # in a matching tier keep their exact previous order (coverage term = 0).
-    tokens = query_tokens(q)
-    cover = {id(s): _token_coverage(tokens, s) if tiers[id(s)] == NO_MATCH_TIER else 0.0 for s in scored}
-    scored.sort(
-        key=lambda s: (
-            tiers[id(s)],
-            -cover[id(s)],
-            len(s.slug) if tiers[id(s)] != NO_MATCH_TIER else 0,
-            -s.rank_score,
-            _source_priority(s.source),
-            s.title.lower(),
-        )
-    )
+    # only: word-boundary token coverage first (query_coverage), no slug-length
+    # key, and canonical_id last so the order never depends on which fan-out
+    # source finished first. Rows in a matching tier keep their exact order.
+    tokens = significant_tokens(q)
+
+    def _key(s: UnifiedSkill) -> tuple:
+        tier = tiers[id(s)]
+        if tier != NO_MATCH_TIER:
+            return (tier, 0.0, len(s.slug), -s.rank_score, _source_priority(s.source), s.title.lower(), "")
+        cov = coverage(tokens, slug=s.slug, title=s.title, description=s.description)
+        return (tier, -cov, 0, -s.rank_score, _source_priority(s.source), s.title.lower(), s.canonical_id)
+
+    scored.sort(key=_key)
     return scored
-
-
-def _token_coverage(tokens: list[str], s: UnifiedSkill) -> float:
-    """Share of query tokens in a row: a slug/title hit counts 1, a hit in the
-    description only counts 0.5. 0.0 for an empty token list."""
-    if not tokens:
-        return 0.0
-    head = f"{s.slug} {s.title}".lower()
-    body = (s.description or "").lower()
-    return sum(1.0 if t in head else 0.5 if t in body else 0.0 for t in tokens) / len(tokens)
 
 
 def _with_score(s: UnifiedSkill, score: float) -> UnifiedSkill:
