@@ -90,7 +90,8 @@ def test_cold_miss_is_answered_by_the_live_fanout_within_budget(monkeypatch):
 
     def _fast_warm(query, sources):
         calls.append(query)
-        _put(query, [STE])
+        assert sources == mfs.mcp_cache_sources(), "the MCP compute must use its own key"
+        get_cache().put(query, sources, [STE], sources_ok=["recipes", "skills-sh"])
 
     monkeypatch.setattr(mfs, "_warm_query", _fast_warm)
     rows, flag = mfs.federated_append("ste100")
@@ -105,7 +106,7 @@ def test_slow_fanout_never_blocks_past_budget_and_serves_the_local_floor(monkeyp
 
     def _slow_warm(query, sources):
         release.wait(5)
-        _put(query, [STE])
+        get_cache().put(query, sources, [STE], sources_ok=["recipes", "skills-sh"])
 
     floor_row = {**mfs.compact_row(_card("aminblg--simpleenglish--simple-english")), "slug": "floor-row"}
     monkeypatch.setattr(mfs, "_warm_query", _slow_warm)
@@ -132,20 +133,34 @@ def test_slow_fanout_never_blocks_past_budget_and_serves_the_local_floor(monkeyp
     assert [r["slug"] for r in rows2] == [STE["slug"]]
 
 
-def test_stale_entry_is_served_at_once_and_refreshed_behind(monkeypatch):
-    _budget(monkeypatch, 2.0)
-    _put("ste100", [STE])
+def _make_stale(query: str, sources: tuple[str, ...]) -> None:
     cache = get_cache()
-    key = cache._key("ste100", mfs.federated_sources())
-    cache._store[key].computed_at = time.time() - (cache.ttl_s + 1)
+    cache._store[cache._key(query, sources)].computed_at = time.time() - (cache.ttl_s + 1)
 
+
+def test_stale_mcp_entry_is_served_at_once_and_refreshed_behind(monkeypatch):
+    _budget(monkeypatch, 2.0)
+    get_cache().put("ste100", mfs.mcp_cache_sources(), [STE], sources_ok=["recipes"])
+    _make_stale("ste100", mfs.mcp_cache_sources())
     started = threading.Event()
     monkeypatch.setattr(mfs, "_warm_query", lambda q, s: started.set())
 
     rows, flag = mfs.federated_append("ste100")
     assert flag == "stale"
     assert [r["slug"] for r in rows] == [STE["slug"]]
-    assert started.wait(2), "a stale serve must trigger a background refresh"
+    assert started.wait(2), "a stale MCP entry must trigger a background refresh"
+
+
+def test_a_rest_warmed_entry_is_served_without_a_new_fanout(monkeypatch):
+    """A query the web UI warmed costs MCP nothing — fresh or stale."""
+    _budget(monkeypatch, 2.0)
+    monkeypatch.setattr(mfs, "_warm_query", lambda *a: pytest.fail("REST entry present → no MCP fan-out"))
+    _put("ste100", [STE])
+    rows, flag = mfs.federated_append("ste100")
+    assert (flag, [r["slug"] for r in rows]) == ("fresh", [STE["slug"]])
+    _make_stale("ste100", mfs.federated_sources())
+    rows, flag = mfs.federated_append("ste100")
+    assert (flag, [r["slug"] for r in rows]) == ("stale", [STE["slug"]])
 
 
 def test_saturated_warm_slots_answer_cold_without_a_new_fanout(monkeypatch):
@@ -196,9 +211,14 @@ def test_warm_fills_the_exact_key_the_mcp_reader_reads(monkeypatch):
     assert [r["slug"] for r in lookup.entry.skills] == [STE["slug"]]
 
 
-@pytest.mark.parametrize(("budget", "expected"), [(4.0, 3.0), (2.5, 1.75), (1.0, 1.2), (10.0, 3.0)])
-def test_mcp_warm_deadline_fits_inside_the_budget(budget, expected):
-    assert mfs.mcp_source_deadline_s(budget) == pytest.approx(expected)
+@pytest.mark.parametrize(("budget", "expected"), [(4.0, 2.5), (2.5, 1.0), (1.0, 0.3), (10.0, 3.0)])
+def test_mcp_warm_deadline_leaves_room_inside_the_budget(budget, expected):
+    deadline = mfs.mcp_source_deadline_s(budget)
+    assert deadline == pytest.approx(expected)
+    if budget >= 2.0:
+        # fan-out wall clock (deadline + 0.25s pool slack) + merge must end before
+        # the wait does, or a healthy fan-out still answers "warming".
+        assert deadline + 0.25 + 0.5 <= budget - min(0.5, budget / 4)
 
 
 def test_production_warm_passes_the_mcp_deadline_to_the_fanout(monkeypatch):
@@ -216,8 +236,8 @@ def test_production_warm_passes_the_mcp_deadline_to_the_fanout(monkeypatch):
     monkeypatch.setattr(mc, "curated_candidates", lambda db, q, limit: [])
     monkeypatch.setattr("app.services.clawhub_owner_prime.prime_clawhub_owner_cache", lambda db: None)
     monkeypatch.setattr(mc, "build_unified_own_session", lambda q, **kw: mc.build_unified(None, q, **kw))
-    mfs._warm_query("ste100", mfs.federated_sources())
-    assert seen == {"per_source_deadline_s": 3.0}
+    mfs._warm_query("ste100", mfs.mcp_cache_sources())
+    assert seen == {"per_source_deadline_s": 2.5}
 
 
 def test_every_source_gets_its_own_thread_up_to_the_cap(monkeypatch):
@@ -268,6 +288,7 @@ def test_local_floor_reads_the_hub_index_ranked_and_compact(db_session, monkeypa
 
     monkeypatch.setattr(database, "SessionLocal", lambda: db_session)
     monkeypatch.setattr(db_session, "close", lambda: None)
+    monkeypatch.setattr(db_session, "rollback", lambda: None)
 
     rows = mfs.local_floor("ste100", limit=5, exclude_slugs=set())
     assert [r["slug"] for r in rows] == ["skills-sh-danyuchn-asd-ste100-skill-asd-ste100"]
@@ -539,3 +560,218 @@ def test_the_real_mcp_call_tool_handler_keeps_the_loop_free(monkeypatch):
         return ticks
 
     assert asyncio.run(_main()) >= 10, "the MCP handler blocked the event loop"
+
+
+# ── 5. fed1004 R1 kill-tests (adversarial review, gpt-6-sol) ─────────────────
+
+
+def _hub_row(db, slug: str, title: str, description: str):
+    from app.models import FederationHubSkill
+
+    db.add(
+        FederationHubSkill(
+            slug=slug,
+            title=title,
+            description=description,
+            source="hermes-hub",
+            upstream_source="skills-sh",
+            identifier=f"skills-sh/o/r/{slug}",
+            origin_url=f"https://www.skills.sh/o/r/{slug}",
+            install_path="fetch_origin",
+            repo="o/r",
+            path=slug,
+        )
+    )
+
+
+def test_multi_word_queries_find_hyphenated_skills(db_session, monkeypatch):
+    """R1 #5: the adapter matched the whole query as ONE phrase, so "code review"
+    never found ``code-review``."""
+    import app.database as database
+
+    _hub_row(db_session, "code-review", "PR assistant", "PR helper")
+    _hub_row(db_session, "codebase-map", "map", "maps a codebase")
+    db_session.commit()
+    monkeypatch.setattr(database, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(db_session, "close", lambda: None)
+    monkeypatch.setattr(db_session, "rollback", lambda: None)
+
+    assert [r["slug"] for r in mfs.local_floor("code review", limit=5, exclude_slugs=set())] == [
+        "code-review"
+    ]
+
+
+def test_a_slow_local_index_cannot_stretch_the_budget(monkeypatch):
+    """R1 MUST #1: the floor ran AFTER the full wait, with no deadline — a slow
+    DB made MCP search arbitrarily slow. The whole call is now bounded."""
+    _budget(monkeypatch, 0.6)
+    release = threading.Event()
+    monkeypatch.setattr(mfs, "_warm_query", lambda q, s: release.wait(5))
+    monkeypatch.setattr(mfs, "local_floor", lambda q, *, limit, exclude_slugs: time.sleep(3) or ["late"])
+    t0 = time.monotonic()
+    rows, flag = mfs.federated_append("ste100")
+    elapsed = time.monotonic() - t0
+    release.set()
+    assert elapsed < 0.9, f"took {elapsed:.2f}s on a 0.6s budget"
+    assert (rows, flag) == ([], mfs.WARMING)
+
+
+def test_a_rest_request_never_waits_behind_an_mcp_compute(monkeypatch):
+    """R1 MUST #2: with a shared key, an MCP-first compute (longer deadline) made
+    a concurrent REST request wait past the web UI budget."""
+    from app.services import metasearch_compute as mc
+
+    _budget(monkeypatch, 4.0)
+    mcp_started = threading.Event()
+
+    def _slow_mcp_compute(q, **kw):
+        mcp_started.set()
+        time.sleep(1.5)
+        return [STE], ["recipes"], []
+
+    monkeypatch.setattr(mc, "build_unified_own_session", _slow_mcp_compute)
+    worker = threading.Thread(target=mfs._warm_query, args=("ste100", mfs.mcp_cache_sources()))
+    worker.start()
+    assert mcp_started.wait(2)
+    t0 = time.monotonic()
+    entry, computed = get_cache().get_or_compute(
+        ("ste100", mfs.federated_sources()), lambda: ([STE], ["recipes"], [])
+    )
+    rest_elapsed = time.monotonic() - t0
+    worker.join(5)
+    assert computed is True, "REST computed its own entry"
+    assert rest_elapsed < 0.5, f"REST waited {rest_elapsed:.2f}s behind the MCP compute"
+
+
+def test_stale_refreshes_are_capped_by_the_warm_slots(monkeypatch):
+    """R1 MUST #4: get_or_compute handed stale refreshes to a second thread, so
+    the slot was free while the real fan-out ran — 8 of 8 refreshed at once."""
+    from app.services import metasearch_compute as mc
+
+    _budget(monkeypatch, 2.0)
+    gate = threading.Event()
+    lock = threading.Lock()
+    running = {"now": 0, "max": 0}
+
+    def _blocking_compute(q, **kw):
+        with lock:
+            running["now"] += 1
+            running["max"] = max(running["max"], running["now"])
+        gate.wait(5)
+        with lock:
+            running["now"] -= 1
+        return [STE], ["recipes"], []
+
+    monkeypatch.setattr(mc, "build_unified_own_session", _blocking_compute)
+    queries = [f"stale-{i}" for i in range(8)]
+    for q in queries:
+        get_cache().put(q, mfs.mcp_cache_sources(), [STE], sources_ok=["recipes"])
+        _make_stale(q, mfs.mcp_cache_sources())
+    for q in queries:
+        rows, flag = mfs.federated_append(q)
+        assert flag == "stale" and rows
+    time.sleep(0.3)
+    observed = running["max"]
+    gate.set()
+    assert 1 <= observed <= mfs.MAX_CONCURRENT_WARMS, f"{observed} refreshes ran at once"
+
+
+def test_a_thread_that_cannot_start_releases_its_slot(monkeypatch):
+    """R1 #1: Thread.start() sat outside the try/finally — a start failure leaked
+    one slot forever."""
+
+    class _NoThread:
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    slots = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(mfs.threading, "Thread", _NoThread)
+    assert mfs._run_bounded(slots, lambda: None, "t") is None
+    assert slots.acquire(blocking=False), "the slot must be free again"
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"displayName": ["not-a-string"]},
+        {"summary": {"x": 1}},
+        {"slug": 7},
+        {"downloads": "many"},
+        {"downloads": True},
+    ],
+)
+def test_malformed_clawhub_fields_never_reach_the_merge(bad):
+    """R1 MUST #3: a list in ``displayName`` crashed the merge and failed the
+    WHOLE fan-out. Wrong-typed fields are dropped or the row is dropped."""
+    from app.services import clawhub_search as cs
+
+    rows = cs.parse_response({"results": [{**_hit("safe-looking", owner="alice"), **bad}]})
+    for row in rows:
+        assert isinstance(row["slug"], str) and isinstance(row["displayName"], str)
+        assert isinstance(row["summary"], str)
+        assert "downloads" not in row["stats"] or type(row["stats"]["downloads"]) in (int, float)
+
+
+def test_a_clawhub_hit_without_owner_uses_the_canonical_path_or_is_dropped():
+    from app.services import clawhub_search as cs
+
+    hit = _hit("obsidian")
+    hit.pop("ownerHandle")
+    hit["native"].pop("ownerHandle")
+    assert cs.parse_response({"results": [hit]}) == [], "no owner anywhere → no row, no live lookup"
+    hit["canonicalUrl"] = "/steipete/skills/obsidian"
+    assert cs.parse_response({"results": [hit]})[0]["ownerHandle"] == "steipete"
+
+
+def test_suspicious_browse_rows_are_dropped_too():
+    from app.services import clawhub_search as cs
+
+    assert cs.parse_response(
+        {"items": [{"slug": "ok"}, {"slug": "evil", "isSuspicious": True}, {"slug": 3}]}
+    ) == [{"slug": "ok"}]
+
+
+def test_one_malformed_row_is_dropped_and_the_rest_of_the_fanout_ships(monkeypatch):
+    """Defence in depth for R1 MUST #3, at the merge boundary for EVERY source."""
+    from app.services import metasearch_compute as mc
+    from app.services import metasearch_fanout as fo
+    from app.services.federation import ExternalSkill, InstallPath
+
+    def _skill(slug, title):
+        return ExternalSkill(
+            slug=slug,
+            title=title,
+            source="skills-sh",
+            install_path=InstallPath.FETCH_ORIGIN,
+            origin_url=f"https://www.skills.sh/o/r/{slug}",
+            license="MIT",
+            redistributable=True,
+        )
+
+    pairs = [(_skill("good", "Good"), {}), (_skill("bad", ["list-title"]), {})]
+    monkeypatch.setattr(
+        fo,
+        "fan_out",
+        lambda q, *, sources, **kw: fo.FanoutOutput(
+            pairs=pairs, sources_ok=["skills-sh"], sources_degraded=[]
+        ),
+    )
+    monkeypatch.setattr(mc, "curated_candidates", lambda db, q, limit: [])
+    monkeypatch.setattr("app.services.clawhub_owner_prime.prime_clawhub_owner_cache", lambda db: None)
+    skills, ok, _ = mc.build_unified(None, "q")
+    assert [s["slug"] for s in skills] == ["good"]
+
+
+def test_a_skills_sh_identifier_for_another_repo_never_links_its_page():
+    from app.services.hub_snapshot import origin_url_for_row
+
+    row = {
+        "source": "skills.sh",
+        "identifier": "skills-sh/attacker/other-repo/unrelated-skill",
+        "repo": "actual/skill-repo",
+        "path": "real-skill",
+    }
+    assert origin_url_for_row(row) == "https://github.com/actual/skill-repo/tree/main/real-skill"

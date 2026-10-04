@@ -1,35 +1,30 @@
-"""Cache-ONLY federated append for the MCP search path (unisearch_0709 P2).
+"""Federated append for the MCP search path: cache first, then a bounded live
+fan-out, then the local hub index (unisearch_0709 P2, reworked in fed1004).
 
 The problem, verified live 2026-09-08: ``loopskill_search("graft")`` returned
 ``{"results": [], "total": 0}`` while the metasearch fan-out found
 ``skills-sh:trailhq--graft--graft`` and ``loopskill_install`` installed it fine.
-Discovery disagreed with install, so every MCP-facing agent concluded LoopSkill
-has nothing on any federated topic.
+P2 appended rows from the shared cache, but ONLY from the cache — so on
+2026-10-04 every query no REST caller had warmed still answered ``cold`` with
+zero rows (``loopskill_search("ste100")``: nothing; REST metasearch: 30 rows).
 
-This module is the seam that fixes it, and its whole design is one sentence:
-**read the shared cache, never compute.**
+Three rules this module exists to hold, none of which the MCP tool restates:
 
-Three rules it exists to hold, none of which the MCP tool has to restate:
-
-1. **Bounded, never unbounded.** (fed1004 — supersedes "never a live fan-out".)
-   The cache is read first, in microseconds. On a MISS this module starts ONE
-   single-flight fan-out through the same compute and cache entry the REST route
-   uses (``metasearch_compute.warm``) and waits for it at most
-   ``settings.MCP_FEDERATED_LIVE_BUDGET_S`` (default 4s; a cold fan-out measured
-   ~2s on prod 2026-10-04). Finished in time → the fresh rows. Not finished →
-   rows from the LOCAL hub index (``federation_hub_skills``, a DB query, no
-   network) flagged ``warming``, while the fan-out completes in the background
-   and warms the cache for the next call. Budget 0 restores the old cache-only
-   behaviour. The old rule existed because a cold fan-out once took >90s; that
-   cost was ClawHub owner lookups (fixed by issue #148), and keeping the rule
-   after the cost was gone made every first-time query answer ``cold`` with
-   zero federated rows — ``loopskill_search("ste100")`` found nothing while the
-   REST metasearch found 30 skills.
-2. **Honest freshness.** ``fresh`` / ``stale`` / ``cold`` / ``degraded`` map
-   1:1 onto the reader's own states; ``warming`` means "a live fan-out is still
-   running — these rows come from the local index, ask again in a few seconds
-   for the full set". A Redis outage is ``degraded``, never an empty-but-fresh
-   answer and never an exception.
+1. **Bounded wall-clock, bounded work.** Cache reads take microseconds. On a
+   miss, ONE live fan-out starts on a warm slot and a local-index query starts
+   in parallel on a floor slot; the caller waits at most
+   ``settings.MCP_FEDERATED_LIVE_BUDGET_S`` in total. A slot is held for the
+   whole real compute (stale refreshes run synchronously via
+   ``refresh_now``), so ``MAX_CONCURRENT_WARMS`` caps fan-outs, not launchers.
+   The MCP compute writes its OWN cache key (``mcp_cache_sources``): it uses a
+   longer per-source deadline than the web UI, and a REST request must never
+   wait on it. It still READS the REST key, so a query the web warmed costs
+   nothing. Budget 0 restores the P2 cache-only behaviour exactly.
+2. **Honest freshness.** ``fresh`` / ``stale`` / ``degraded`` mirror the cache
+   reader. ``warming``: a live fan-out is still running; rows come from the
+   local index. ``cold``: no live result is available (budget 0, every slot
+   busy, or the fan-out failed); rows, if any, come from the local index.
+   Never an empty-but-``fresh`` answer, never an exception.
 3. **The source's verdict outranks the cache's claim.** A cached row's
    ``deployable`` field is a claim written by whoever wrote the entry. The
    deployability returned here is RE-DERIVED from the row's own descriptor
@@ -52,12 +47,20 @@ from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
-# Live warms that may run at once in this worker. A burst of distinct cold
-# queries must not become a burst of parallel fan-outs (each one already runs
-# up to 8 source threads); past this, a cold query is answered from the local
-# index alone and flagged ``cold``.
+# Live fan-outs (cold computes AND stale refreshes) that may run at once in this
+# worker. Each fan-out runs one thread per source, so this caps the source
+# threads at MAX_CONCURRENT_WARMS x len(sources). Past it, a query is answered
+# from the local index and flagged ``cold``.
 MAX_CONCURRENT_WARMS = 4
 _warm_slots = threading.BoundedSemaphore(MAX_CONCURRENT_WARMS)
+
+# Local-index queries that may run at once. A slow or locked table must not
+# pile up one blocked thread per MCP call.
+MAX_CONCURRENT_FLOORS = 4
+_floor_slots = threading.BoundedSemaphore(MAX_CONCURRENT_FLOORS)
+
+# Cache-key marker for the MCP compute (see rule 1). Sorts last in the key.
+MCP_KEY_TAG = "~mcp-live"
 
 # Hard ceiling on the budget whatever the setting says: an agent waiting longer
 # than this on a search reads the platform as broken.
@@ -185,24 +188,33 @@ def compact_row(row: Any) -> dict[str, Any] | None:
     }
 
 
-# Per-source fan-out deadline for an MCP warm, kept inside the wait budget with
-# room for the curated query + merge. The REST route keeps the fan-out default
-# (1.2s, sized for the web UI's 1.5s render budget); an agent can wait longer,
-# and ClawHub's search route answers in ~1.0-1.5s from prod (measured
+# Per-source fan-out deadline for an MCP warm. It must leave room inside the
+# wait budget for the fan-out's own scheduling slack, the curated DB query and
+# the merge, so a healthy fan-out finishes BEFORE the wait ends. The REST route
+# keeps the fan-out default (1.2s, sized for the web UI's 1.5s render budget);
+# ClawHub's search route answers in ~1.0-1.5s from prod (p95 ~2.2s, measured
 # 2026-10-04), so the UI deadline would cut it off on most cold queries.
 _MCP_SOURCE_DEADLINE_MAX_S = 3.0
-_MCP_SOURCE_DEADLINE_MIN_S = 1.2
-_MERGE_MARGIN_S = 0.75
+_MCP_SOURCE_DEADLINE_MIN_S = 0.3
+_FANOUT_OVERHEAD_S = 1.5
+# Share of the budget kept for collecting the local-index floor (which started
+# at t0, so it is normally long finished).
+_FLOOR_RESERVE_S = 0.5
+
+
+def mcp_cache_sources() -> tuple[str, ...]:
+    """Cache key sources for the MCP live compute: the REST tuple plus a tag."""
+    return (*federated_sources(), MCP_KEY_TAG)
 
 
 def mcp_source_deadline_s(budget_s: float) -> float:
-    """Per-source deadline for a warm started under ``budget_s``."""
-    return max(_MCP_SOURCE_DEADLINE_MIN_S, min(_MCP_SOURCE_DEADLINE_MAX_S, budget_s - _MERGE_MARGIN_S))
+    """Per-source fan-out deadline for a warm started under ``budget_s``."""
+    return max(_MCP_SOURCE_DEADLINE_MIN_S, min(_MCP_SOURCE_DEADLINE_MAX_S, budget_s - _FANOUT_OVERHEAD_S))
 
 
 def _warm_query(query: str, sources: tuple[str, ...]) -> None:
-    """The live fan-out. A module attribute so tests can swap it; production
-    goes through the single-flight cache entry shared with the REST route."""
+    """The live fan-out into the MCP cache key. A module attribute so tests can
+    swap it. Runs SYNCHRONOUSLY on the caller's (slot-holding) thread."""
     from app.services.metasearch_compute import warm
 
     warm(query, sources, per_source_deadline_s=mcp_source_deadline_s(live_budget_s()))
@@ -219,55 +231,64 @@ def live_budget_s() -> float:
     return max(0.0, min(budget, _MAX_LIVE_BUDGET_S))
 
 
-def _start_warm(
-    query: str, sources: tuple[str, ...], warm_fn: Callable[[str, tuple[str, ...]], None]
-) -> threading.Event | None:
-    """Run ``warm_fn`` on a daemon thread; return its done-Event, or None when
-    every warm slot is busy (the caller then answers without a live fan-out).
-    The thread never raises into anything: a failed warm only means the next
-    call is cold again."""
-    if not _warm_slots.acquire(blocking=False):
+class _Job:
+    """One bounded background job: a done-Event plus its result or error."""
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.result: Any = None
+        self.error: BaseException | None = None
+
+
+def _run_bounded(slots: threading.BoundedSemaphore, fn: Callable[[], Any], name: str) -> _Job | None:
+    """Run ``fn`` on a daemon thread that holds one of ``slots`` until ``fn``
+    returns. None when every slot is busy, or when the thread cannot start (the
+    slot is released — a start failure must never leak capacity)."""
+    if not slots.acquire(blocking=False):
         return None
-    done = threading.Event()
+    job = _Job()
 
     def _run() -> None:
         try:
-            warm_fn(query, sources)
-        # Rationale: a background warm is best-effort; its failure must never
-        # surface anywhere except the log.
-        except Exception:  # noqa: BLE001
-            logger.warning("federated live warm failed for %r", query, exc_info=True)
+            job.result = fn()
+        # Rationale: a background job is best-effort; its failure is recorded
+        # on the job and logged, never raised into anything.
+        except BaseException as exc:  # noqa: BLE001
+            job.error = exc
+            logger.warning("%s failed", name, exc_info=True)
         finally:
-            _warm_slots.release()
-            done.set()
+            slots.release()
+            job.done.set()
 
-    threading.Thread(target=_run, name="mcp-federated-warm", daemon=True).start()
-    return done
+    try:
+        threading.Thread(target=_run, name=name, daemon=True).start()
+    except BaseException:  # noqa: BLE001 — RuntimeError("can't start new thread") and friends
+        slots.release()
+        logger.warning("%s could not start a thread; slot released", name, exc_info=True)
+        return None
+    return job
 
 
 def local_floor(
     query: str | None, *, limit: int, exclude_slugs: frozenset[str] | set[str]
 ) -> list[dict[str, Any]]:
-    """Compact rows from the LOCAL hub index — no network, one DB query.
+    """Compact rows from the LOCAL hub index — no network, one bounded DB query.
 
     ``federation_hub_skills`` holds the ingested Hermes Hub snapshot (~100k
     skills across skills.sh, ClawHub, GitHub, LobeHub, browse.sh and the
     official set). It is what an agent gets while a live fan-out is still
     running, so a first-time query is never empty when the index knows the
     answer. Empty query → no floor (a bare catalog listing is the native pass's
-    job).
+    job). Deployability is re-derived per row by ``compact_row`` (rule 3).
     """
-    q = (query or "").strip()
-    if not q:
+    if not (query or "").strip():
         return []
     try:
-        from app.services.federation_adapters import get_adapter
+        from app.services.hub_local_search import search_hub_index
         from app.services.metasearch import unify_external
 
-        hub = get_adapter("hermes-hub")
-        skills = hub.search(q, limit=max(limit * 2, 10)) if hub is not None else []
         rows: list[dict[str, Any]] = []
-        for skill in skills:
+        for skill in search_hub_index(query, limit=max(limit * 2, 10)):
             if len(rows) >= limit:
                 break
             compact = compact_row(unify_external(skill).to_dict())
@@ -278,7 +299,7 @@ def local_floor(
     # Rationale: the floor is a fallback for a fallback — a DB hiccup here
     # degrades to "no floor rows", never to a failed search.
     except Exception:  # noqa: BLE001
-        logger.warning("federated local floor failed for %r", q, exc_info=True)
+        logger.warning("federated local floor failed for %r", query, exc_info=True)
         return []
 
 
@@ -307,39 +328,57 @@ def federated_append(
     ``limit`` is clamped to ``[1, FEDERATED_MAX_CAP]``; ``None`` (the MCP wire
     default, and any caller that did not ask) means ``FEDERATED_DEFAULT_CAP``.
 
-    Order: cache read → (miss) bounded live fan-out → (still running) local
-    index floor. A stale hit is served at once and refreshed in the background.
-    Blocks at most ``live_budget_s()`` and NEVER raises: any unexpected failure
-    degrades to ``([], "degraded")``, because a broken federated append must not
-    take down the native search it rides on.
+    Order: MCP cache entry → REST cache entry → (both miss) live fan-out on a
+    warm slot + local-index floor on a floor slot, collected within the budget.
+    A stale MCP entry is served at once and refreshed on a warm slot. Blocks at
+    most ``live_budget_s()`` and NEVER raises: any unexpected failure degrades
+    to ``([], "degraded")``, because a broken federated append must not take
+    down the native search it rides on.
     """
     try:
+        import time
+
         from app.services.metasearch_cache import get_cache
 
         requested = FEDERATED_DEFAULT_CAP if limit is None else int(limit)
         capped = max(1, min(requested, FEDERATED_MAX_CAP))
-        sources = federated_sources()
         q = query or ""
         cache = get_cache()
-        lookup = cache.get_entry(q, sources)
-        flag = _STATE_TO_FLAG.get(lookup.state, "degraded")
-        if lookup.entry is not None:
-            if lookup.state == "stale":
-                _start_warm(q, sources, _warm_query)  # SWR: serve now, refresh behind
-            return _rows_from_entry(lookup.entry, capped, exclude_slugs), flag
-
         budget = live_budget_s()
-        if budget <= 0:
-            return [], flag
-        done = _start_warm(q, sources, _warm_query)
-        if done is not None and done.wait(budget):
-            again = cache.get_entry(q, sources)
+        mcp_key = mcp_cache_sources()
+        # Reads use _count=False: the hit-rate stats belong to the REST route.
+        if budget > 0:
+            mine = cache.get_entry(q, mcp_key, _count=False)
+            if mine.entry is not None:
+                if mine.state == "stale":
+                    _run_bounded(_warm_slots, lambda: _warm_query(q, mcp_key), "mcp-federated-refresh")
+                return _rows_from_entry(mine.entry, capped, exclude_slugs), _STATE_TO_FLAG.get(
+                    mine.state, "degraded"
+                )
+        shared = cache.get_entry(q, federated_sources(), _count=False)
+        flag = _STATE_TO_FLAG.get(shared.state, "degraded")
+        if shared.entry is not None or budget <= 0:
+            rows = _rows_from_entry(shared.entry, capped, exclude_slugs) if shared.entry is not None else []
+            return rows, flag
+
+        t0 = time.monotonic()
+        warm = _run_bounded(_warm_slots, lambda: _warm_query(q, mcp_key), "mcp-federated-warm")
+        floor = _run_bounded(
+            _floor_slots,
+            lambda: local_floor(query, limit=capped, exclude_slugs=exclude_slugs),
+            "mcp-federated-floor",
+        )
+        reserve = min(_FLOOR_RESERVE_S, budget / 4)
+        if warm is not None and warm.done.wait(max(0.0, budget - reserve)):
+            again = cache.get_entry(q, mcp_key, _count=False)
             if again.entry is not None:
                 fresh_flag = "degraded" if again.state == "degraded" else "fresh"
                 return _rows_from_entry(again.entry, capped, exclude_slugs), fresh_flag
-        floor = local_floor(query, limit=capped, exclude_slugs=exclude_slugs)
-        still_running = done is not None and not done.is_set()
-        return floor, (WARMING if still_running else flag)
+        rows: list[dict[str, Any]] = []
+        if floor is not None and floor.done.wait(max(0.0, budget - (time.monotonic() - t0))):
+            rows = floor.result or []
+        still_running = warm is not None and not warm.done.is_set()
+        return rows, (WARMING if still_running else "cold")
     # Rationale: the federated append is best-effort garnish on the native
     # search — ANY failure in it (reader, decode, verdict) is reported as
     # degraded and never raised, or a cache hiccup would break search itself.

@@ -153,3 +153,21 @@ def test_reindex_cli_routes_hermes_hub_through_the_conditional_sync(monkeypatch,
     monkeypatch.setattr(sys, "argv", ["federation_reindex.py", "--source", "hermes-hub", "--if-changed"])
     fr.main()
     assert seen == ["sync"]
+
+
+def test_a_failed_conditional_sync_is_a_nonzero_exit(monkeypatch, db_session):
+    """R1 #11: an hourly job that always exits 0 reports health while the index
+    stays stale."""
+    import sys
+
+    import app.database as database
+    import scripts.federation_reindex as fr
+
+    monkeypatch.setattr(database, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(db_session, "close", lambda: None)
+    monkeypatch.setattr(
+        "app.services.hub_snapshot_sync.sync_hub_snapshot",
+        lambda db: {"status": "error", "indexed": None, "error": "unexpected status 500"},
+    )
+    monkeypatch.setattr(sys, "argv", ["federation_reindex.py", "--source", "hermes-hub", "--if-changed"])
+    assert fr.main() == 1

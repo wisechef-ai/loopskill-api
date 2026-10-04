@@ -15,11 +15,13 @@ agent asks. Verified live: ``loopskill_search("ste100")`` returned nothing while
 ``/api/skills/metasearch?q=ste100`` returned 30 rows, and the identical MCP call
 returned them the moment the REST call had warmed the cache.
 
-This module gives both surfaces the same compute, through the same
-single-flight cache entry (``HotQueryCache.get_or_compute``), so:
+This module gives both surfaces the same compute:
 
-- the MCP path warms exactly the key the REST route reads (one fan-out per
-  query per TTL fleet-wide, never two);
+- the REST route calls ``build_unified`` with the fan-out's default (web UI)
+  per-source deadline, under its own cache key;
+- MCP calls ``warm`` with a longer deadline under ITS own key (``mcp_cache_
+  sources``), so a REST request never waits behind a slower MCP compute (fed1004
+  R1); MCP still reads the REST key first;
 - a background compute uses its OWN database session — the request session is
   closed by the time a slow fan-out finishes.
 """
@@ -96,7 +98,11 @@ def build_unified(
     prime_clawhub_owner_cache(db)
     deadline = {} if per_source_deadline_s is None else {"per_source_deadline_s": per_source_deadline_s}
     fanout = _fanout.fan_out(q or "", sources=_fanout.DEFAULT_FANOUT_SOURCES, **deadline)
-    external = [unify_external(skill, raw_row=raw) for skill, raw in fanout.pairs]
+    external = []
+    for skill, raw in fanout.pairs:
+        unified = _safe_unify(unify_external, skill, raw)
+        if unified is not None:
+            external.append(unified)
     result = merge_unified(
         curated,
         external,
@@ -123,17 +129,53 @@ def build_unified_own_session(
         db.close()
 
 
-def warm(q: str | None, sources: tuple[str, ...], *, per_source_deadline_s: float | None = None) -> None:
-    """Fill (or refresh) the shared cache entry for ``(q, sources)``.
+def _safe_unify(unify_external: Any, skill: Any, raw: Any) -> Any:
+    """One external row → UnifiedSkill, or None when the row is malformed.
 
-    Goes through ``get_or_compute`` so it is single-flight with every REST
-    request for the same query in this process: a fresh entry returns at once, a
-    stale one is refreshed in the background, a hard miss computes once while
-    concurrent callers wait on it.
+    A single upstream row with a wrong-typed field (a list where a title
+    belongs) used to raise inside the merge and fail the WHOLE compute — every
+    source's rows lost for one bad hit (fed1004 R1). The row is dropped and
+    logged instead; the other rows ship.
+    """
+    try:
+        unified = unify_external(skill, raw_row=raw)
+    # Rationale: one malformed upstream row must never fail the whole fan-out.
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "dropping malformed federated row from %s", getattr(skill, "source", "?"), exc_info=True
+        )
+        return None
+    for field in ("slug", "title", "source", "origin_url", "install_ref"):
+        if not isinstance(getattr(unified, field, None), str):
+            logger.warning("dropping federated row with non-string %s from %s", field, unified.source)
+            return None
+    if not isinstance(getattr(unified, "description", ""), (str, type(None))):
+        return None
+    return unified
+
+
+def warm(q: str | None, sources: tuple[str, ...], *, per_source_deadline_s: float | None = None) -> None:
+    """Fill or refresh the cache entry for ``(q, sources)`` ON THE CALLING THREAD.
+
+    - fresh entry → nothing to do;
+    - stale entry → ``refresh_now``: synchronous, per-key guarded, CAS-stored;
+    - miss → ``get_or_compute``: synchronous single-flight with any other
+      caller of the same key in this process.
+
+    Synchronous on purpose: a caller that bounds its concurrency (MCP warm
+    slots) holds its slot for exactly as long as the fan-out runs.
     """
     from app.services.metasearch_cache import get_cache
+
+    cache = get_cache()
 
     def _compute() -> tuple[list[dict[str, Any]], list[str], list[str]]:
         return build_unified_own_session(q, per_source_deadline_s=per_source_deadline_s)
 
-    get_cache().get_or_compute((q or "", sources), _compute, refresh_fn=_compute)
+    lookup = cache.get_entry(q or "", sources, _count=False)
+    if lookup.entry is not None and lookup.entry.fresh:
+        return
+    if lookup.entry is not None and lookup.entry.stale:
+        cache.refresh_now((q or "", sources), _compute, expected_seq=lookup.entry.seq)
+        return
+    cache.get_or_compute((q or "", sources), _compute, refresh_fn=_compute)

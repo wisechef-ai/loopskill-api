@@ -20,12 +20,13 @@ every MCP-facing agent concluded LoopSkill has nothing on any federated topic.
 So the native pass runs EXACTLY as before, and federated rows are APPENDED after
 it by ``mcp_federated_search.federated_append``:
 
-1. The shared metasearch cache is read first (microseconds).
-2. On a miss, ONE single-flight live fan-out starts — the same compute and the
-   same cache entry as ``GET /api/skills/metasearch`` — and the tool waits for
-   it at most ``settings.MCP_FEDERATED_LIVE_BUDGET_S`` (default 4s).
+1. The MCP cache entry, then the REST cache entry, are read (microseconds).
+2. On a miss, ONE live fan-out starts (the same compute as
+   ``GET /api/skills/metasearch``, a longer per-source deadline, its own cache
+   key) and a local hub-index query starts in parallel. The tool waits at most
+   ``settings.MCP_FEDERATED_LIVE_BUDGET_S`` (default 4s) in total.
 3. If the fan-out is still running at the budget, the rows come from the local
-   hub index (no network) and the fan-out finishes in the background.
+   hub index and the fan-out finishes in the background.
 
 fed1004 replaced the P2 "never fan out" rule. That rule existed because a cold
 fan-out once took >90s (ClawHub owner lookups, removed by issue #148). With the
@@ -39,8 +40,9 @@ The ``federated`` key reports what happened:
   ``stale``    — past TTL, inside the grace window; served now, refreshed behind.
   ``warming``  — the live fan-out did not finish inside the budget; rows are from
                  the local hub index. Ask again in a few seconds for all rows.
-  ``cold``     — no live fan-out ran (budget 0, or every warm slot busy) and
-                 nothing was cached. Not a claim that federation has nothing.
+  ``cold``     — no live result is available (budget 0, every slot busy, or the
+                 fan-out failed); rows, if any, are from the local hub index.
+                 Not a claim that federation has nothing.
   ``degraded`` — the shared cache tier is unreachable, so freshness cannot be
                  confirmed fleet-wide.
 

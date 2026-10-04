@@ -41,10 +41,11 @@ def _core_tools() -> list[types.Tool]:
                 "Each federated row has an install_ref. Give the install_ref to "
                 "loopskill_install. The 'federated' key shows the state of the "
                 "federated rows: fresh, stale, warming, cold, or degraded. "
-                "If the key is 'warming', the live search is not complete and the "
+                "If the key is 'warming', the live search is not complete. The "
                 "rows come from the local index. Ask again after a few seconds "
-                "to get all rows. If the key is 'cold', the live search gave no "
-                "rows in time. This does not mean that no federated skill exists."
+                "to get all rows. If the key is 'cold', no live result is "
+                "available. The rows, if any, come from the local index. This "
+                "does not mean that no federated skill exists."
             ),
             inputSchema={
                 "type": "object",

@@ -267,6 +267,11 @@ def main() -> int:
         if _tap_ok(reports, tracked.source):
             _reconcile_bundle(tracked, dry_run=args.dry_run)
 
+    # The hourly --if-changed sync is a single-purpose job: a failed conditional
+    # sync is a non-zero exit, so a scheduler (or the canary) sees it. The full
+    # walk keeps exit 0 — one source down must not mark the whole walk failed.
+    if args.if_changed and any(r["status"] == "error" for r in reports):
+        return 1
     return 0
 
 

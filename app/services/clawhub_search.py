@@ -48,14 +48,28 @@ def _native_skill(hit: dict[str, Any]) -> dict[str, Any]:
     return skill if isinstance(skill, dict) else {}
 
 
+def _str(value: Any) -> str:
+    """A stripped string, or "" for anything that is not a string. Upstream JSON
+    is untrusted: a list where a title belongs used to crash the whole merge."""
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _owner_from_canonical(url: Any) -> str:
+    """``/<owner>/skills/<slug>`` → ``<owner>`` (ClawHub's canonical page path)."""
+    parts = [p for p in _str(url).split("/") if p]
+    return parts[0] if len(parts) == 3 and parts[1] == "skills" else ""
+
+
 def normalize_hit(hit: Any) -> dict[str, Any] | None:
     """Map one ``/api/v1/search`` hit to the legacy browse-row shape, or None.
 
-    None means "do not show": a non-dict, a non-ClawHub mirror row, a row
-    without a slug, or a row ClawHub itself flags as suspicious. The suspicious
-    filter is defensive — ClawHub already hides those from search today — but a
-    deep link to supply-chain-flagged content is the one row we must never
-    render, so the check does not depend on their filter staying on.
+    None means "do not show": a non-dict, a non-ClawHub mirror row, a row ClawHub
+    itself flags as suspicious, a row without a string slug, or a row without an
+    owner. The owner is required because a ClawHub deep link without one is a
+    soft-404, and because a missing owner made the adapter do a live per-row
+    owner lookup — the exact cost that once made a cold fan-out take >90s.
+    The suspicious filter is defensive: ClawHub hides those from search today,
+    but a deep link to supply-chain-flagged content must never render.
     """
     if not isinstance(hit, dict):
         return None
@@ -64,40 +78,55 @@ def normalize_hit(hit: Any) -> dict[str, Any] | None:
     if kind is not None and kind != _NATIVE_KIND:
         return None
     skill = _native_skill(hit)
-    if skill.get("isSuspicious") is True:
+    if skill.get("isSuspicious") is True or hit.get("isSuspicious") is True:
         return None
-    slug = str(hit.get("slug") or skill.get("slug") or "").strip()
+    slug = _str(hit.get("slug")) or _str(skill.get("slug"))
     if not slug:
         return None
-    raw_stats = skill.get("stats")
-    stats: dict[str, Any] = dict(raw_stats) if isinstance(raw_stats, dict) else {}
-    downloads = hit.get("downloads", stats.get("downloads"))
-    if downloads is not None:
-        stats["downloads"] = downloads
     raw_native = hit.get("native")
     native: dict[str, Any] = raw_native if isinstance(raw_native, dict) else {}
-    owner = hit.get("ownerHandle") or native.get("ownerHandle")
+    owner = (
+        _str(hit.get("ownerHandle"))
+        or _str(native.get("ownerHandle"))
+        or _owner_from_canonical(hit.get("canonicalUrl"))
+    )
+    if not owner:
+        return None
+    raw_stats = skill.get("stats")
+    stats: dict[str, Any] = (
+        {k: v for k, v in raw_stats.items() if isinstance(k, str)} if isinstance(raw_stats, dict) else {}
+    )
+    downloads = hit.get("downloads", stats.get("downloads"))
+    if isinstance(downloads, (int, float)) and not isinstance(downloads, bool):
+        stats["downloads"] = downloads
+    else:
+        stats.pop("downloads", None)
     raw_tags = skill.get("tags")
     return {
         "slug": slug,
-        "displayName": hit.get("displayName") or skill.get("displayName") or slug,
-        "summary": hit.get("summary") or skill.get("summary") or "",
-        "ownerHandle": owner if isinstance(owner, str) and owner else None,
+        "displayName": _str(hit.get("displayName")) or _str(skill.get("displayName")) or slug,
+        "summary": _str(hit.get("summary")) or _str(skill.get("summary")),
+        "ownerHandle": owner,
         "stats": stats,
         "tags": raw_tags if isinstance(raw_tags, dict) else {},
     }
 
 
+def _browse_row_ok(row: Any) -> bool:
+    return isinstance(row, dict) and bool(_str(row.get("slug"))) and row.get("isSuspicious") is not True
+
+
 def parse_response(data: Any) -> list[dict[str, Any]]:
     """Rows from either response shape: ``{"results": [...]}`` (search) is
-    normalised hit by hit; ``{"items": [...]}`` (browse) passes through."""
+    normalised hit by hit; ``{"items": [...]}`` (browse) passes through, minus
+    rows without a string slug and rows flagged suspicious."""
     if not isinstance(data, dict):
         return []
     if isinstance(data.get("results"), list):
         rows = (normalize_hit(h) for h in data["results"])
         return [r for r in rows if r is not None]
     items = data.get("items")
-    return [r for r in items if isinstance(r, dict)] if isinstance(items, list) else []
+    return [r for r in items if _browse_row_ok(r)] if isinstance(items, list) else []
 
 
 def fetch_rows(get_json: JsonGet, query: str) -> list[dict[str, Any]]:
