@@ -342,3 +342,47 @@ def test_r4_over_cap_query_still_ranks_by_its_final_subject():
     )
     rows = [_s("integration-index", "generic"), _s("pdf-reader", "automated integration guide")]
     assert _first(rows, q) == "pdf-reader"
+
+
+# ── fed1006 R5 kill-tests ───────────────────────────────────────────────────
+
+
+def test_r5_m1_mixed_script_slugs_split_at_script_boundaries():
+    assert (
+        _first([_s("日本語-index", "React tutorials"), _s("日本語React開発", "generic")], "日本語 React")
+        == "日本語React開発"
+    )
+    assert (
+        _first([_s("한국어-index", "React tutorials"), _s("한국어React개발", "generic")], "한국어 React")
+        == "한국어React개발"
+    )
+
+
+def test_r5_s1_three_letter_roots_match_only_through_silent_e():
+    assert (
+        _first([_s("coding-index", "refactor utilities"), _s("code-refactor", "generic")], "coding refactor")
+        == "code-refactor"
+    )
+    assert (
+        _first([_s("making-index", "diagrams tool"), _s("make-diagrams", "generic")], "making diagrams")
+        == "make-diagrams"
+    )
+    assert (
+        _first([_s("new-digest", "generic"), _s("news-reader", "digest headlines")], "news digest")
+        == "news-reader"
+    )
+
+
+def test_r5_s2_r4_regressions_are_guarded_at_rank_level():
+    assert _first([_s("ハック-検索", "generic"), _s("バッグ-index", "検索")], "バッグ 検索") == "バッグ-index"
+    assert _first([_s("요약-서비스", "문서 지원"), _s("문서요약기", "generic")], "문서 요약") == "문서요약기"
+
+
+def test_r5_nit_cjk_particles_are_stopwords():
+    assert _first([_s("我的翻译", "generic"), _s("翻译工具", "translation")], "的 翻译") in {
+        "翻译工具",
+        "我的翻译",
+    }
+    from app.services.query_coverage import significant_tokens
+
+    assert significant_tokens("的 翻译") == ["翻译"]

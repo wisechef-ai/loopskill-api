@@ -48,6 +48,7 @@ STOPWORDS = frozenset(
         "a", "an", "the", "to", "of", "for", "in", "on", "at", "by", "with", "and", "or", "into",
         "from", "as", "is", "it", "its", "my", "me", "i", "you", "your", "that", "this", "these",
         "how", "what", "which", "can", "do", "does", "some", "any", "want", "need",
+        "的", "の", "了", "和", "与", "與",
     }
 )  # fmt: skip
 GENERIC = frozenset(
@@ -84,8 +85,19 @@ def fold(text: str | None) -> str:
     return "".join(out).casefold()
 
 
+_SCRIPT_RUN = re.compile(
+    r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]+|[^\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]+"
+)
+
+
 def words(text: str | None) -> list[str]:
-    return [w for w in _WORD_SPLIT.split(fold(text)) if w]
+    """Folded words; a mixed CJK+Latin run ('日本語React開発') splits at each
+    script boundary into '日本語', 'react', '開発' (fed1006 R5)."""
+    out: list[str] = []
+    for w in _WORD_SPLIT.split(fold(text)):
+        if w:
+            out.extend(_SCRIPT_RUN.findall(w) if _CJK.search(w) else [w])
+    return out
 
 
 def significant_tokens(query: str | None) -> list[str]:
@@ -104,6 +116,11 @@ def weight(token: str) -> float:
 
 def _stems(word: str) -> set[str]:
     out = {word}
+    for suffix in ("ing", "ed"):
+        # A 3-letter root only through the silent-e form (coding ~ code,
+        # making ~ make); the bare 3-letter stem is never added (news != new).
+        if word.endswith(suffix) and len(word) - len(suffix) == 3:
+            out.add(word[: -len(suffix)] + "e")
     for suffix in _SUFFIXES:
         stem = word[: -len(suffix)]
         if not word.endswith(suffix) or len(stem) < _MIN_STEM:
