@@ -67,7 +67,10 @@ def test_degraded_ttl_never_exceeds_a_shorter_configured_ttl():
         ("cgoern/skills/simplified-technical-english", True),
         ("dylantarre/animation-principles/animation-principles---advanced", True),
         ("skills.volces.com/court-form-filling-pdf", False),
+        ("skills.volces.com/court-form-filling-pdf/v2", False),  # R2: nested domain path
+        ("open.feishu.cn/lark-wiki", False),
         ("lonely-skill", False),
+        ("-bad-/repo/skill", False),
     ],
 )
 def test_only_github_shaped_skills_sh_ids_are_installable(ident, installable):
@@ -132,3 +135,35 @@ def test_miss_and_hit_report_the_same_degraded_ttl(client, monkeypatch):
     get_cache().invalidate()
     assert (first["cache_hit"], second["cache_hit"]) == (False, True)
     assert first["cache_ttl_s"] == second["cache_ttl_s"] == DEGRADED_TTL_S
+
+
+def test_rest_refreshes_and_mcp_warms_share_one_budget():
+    """R2 MUST: a mixed REST+MCP burst ran 8 fan-outs on two 4-slot pools."""
+    import threading
+    import time
+
+    from app.services import mcp_federated_search as mfs
+    from app.services import metasearch_cache_swr as swr
+
+    assert mfs._warm_slots is swr._REFRESH_SLOTS
+    cache = _cache()
+    gate = threading.Event()
+
+    def _compute():
+        gate.wait(5)
+        return [], OK14, []
+
+    try:
+        started = [
+            cache._maybe_refresh(f"m{i}", f"m{i}", ("a",), _compute)
+            for i in range(swr.MAX_BACKGROUND_REFRESHES)
+        ]
+        assert all(started)
+        assert mfs._run_bounded(mfs._warm_slots, lambda: None, "mcp-test") is None, "budget is shared"
+    finally:
+        gate.set()
+    deadline = time.time() + 5
+    while cache._refreshing and time.time() < deadline:
+        time.sleep(0.02)
+    job = mfs._run_bounded(mfs._warm_slots, lambda: None, "mcp-test")
+    assert job is not None, "freed slots serve MCP again"

@@ -608,6 +608,8 @@ def test_concurrent_mcp_and_rest_cold_queries_fan_out_once(monkeypatch):
 def test_stale_refreshes_are_capped_by_the_warm_slots(monkeypatch):
     """R1 MUST #4: get_or_compute handed stale refreshes to a second thread, so
     the slot was free while the real fan-out ran — 8 of 8 refreshed at once."""
+    from app.services import metasearch_cache_swr as swr
+
     from app.services import metasearch_compute as mc
 
     _budget(monkeypatch, 2.0)
@@ -635,7 +637,7 @@ def test_stale_refreshes_are_capped_by_the_warm_slots(monkeypatch):
     time.sleep(0.3)
     observed = running["max"]
     gate.set()
-    assert 1 <= observed <= mfs.MAX_CONCURRENT_WARMS, f"{observed} refreshes ran at once"
+    assert 1 <= observed <= swr.MAX_BACKGROUND_REFRESHES, f"{observed} refreshes ran at once"
 
 
 def test_a_thread_that_cannot_start_releases_its_slot(monkeypatch):
