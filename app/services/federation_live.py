@@ -219,11 +219,14 @@ def hermes_origin_skill_md(slug: str, row: dict[str, Any] | None = None) -> tupl
             pass
 
     if repo and path:
-        for branch in ("main", "master"):
-            raw_url = f"{GITHUB_RAW_BASE}/{repo}/{branch}/{path.strip('/')}/SKILL.md"
-            resp = guarded_get(raw_url, timeout=_HTTP_TIMEOUT_S)
-            if resp is not None and resp.status_code == 200 and resp.text.strip():
-                return raw_url, resp.text
+        # fed1005: one resolver for every repo-backed row. The stored path is a
+        # hint (exact for official rows; only the skill id for rows mirrored
+        # from skills.sh); the resolver checks identity and walks the tree on a
+        # miss. A repo-backed row never falls through to the bundled convention.
+        from app.services.github_skill_path import resolve_repo_skill_md
+
+        leaf = path.strip("/").rsplit("/", 1)[-1]
+        return resolve_repo_skill_md(repo, leaf, hint_path=path.strip("/"))
 
     # Fallback: the string convention (bundled hermes-agent skills only).
     conv_path = (slug or "").replace("--", "/").strip("/")

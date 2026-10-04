@@ -13,6 +13,22 @@ import app.services.metasearch_install as mi
 from app.models import TelemetryEvent
 
 
+import pytest
+
+import app.metasearch_routes as _mr
+
+_REAL_BRANCH_FOR = _mr._branch_for
+
+
+@pytest.fixture(autouse=True)
+def _no_branch_lookup(monkeypatch):
+    """fed1005: the route asks GitHub for the default branch to build the
+    skills_cli tree URL; keep these route tests hermetic."""
+    import app.metasearch_routes as mr
+
+    monkeypatch.setattr(mr, "_branch_for", lambda origin: None)
+
+
 def setup_function(_):
     fl._cache.clear()
 
@@ -21,7 +37,7 @@ def test_install_resolves_fetch_origin_body(client, db_session, monkeypatch):
     monkeypatch.setattr(
         mi,
         "get_origin_fetcher",
-        lambda src: (lambda slug: ("https://raw.githubusercontent.com/o/r/main/s/SKILL.md", "# real skill")),
+        lambda src: lambda slug: ("https://raw.githubusercontent.com/o/r/main/s/SKILL.md", "# real skill"),
     )
     resp = client.get("/api/skills/metasearch/install?install_ref=skills-sh:o--r--s")
     assert resp.status_code == 200
@@ -33,7 +49,7 @@ def test_install_resolves_fetch_origin_body(client, db_session, monkeypatch):
 
 
 def test_install_fail_closed_returns_404(client, db_session, monkeypatch):
-    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: (lambda slug: None))
+    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: lambda slug: None)
     resp = client.get("/api/skills/metasearch/install?install_ref=well-known:host--x")
     assert resp.status_code == 404, "unresolvable ref must 404 (fail-closed, no dead button)"
     assert resp.json()["detail"]["reason"] == "unresolvable"
@@ -160,7 +176,7 @@ def test_install_intent_funnel_event_recorded(client, db_session, monkeypatch):
     monkeypatch.setattr(
         mi,
         "get_origin_fetcher",
-        lambda src: (lambda slug: ("https://raw.githubusercontent.com/o/r/main/s/SKILL.md", "# b")),
+        lambda src: lambda slug: ("https://raw.githubusercontent.com/o/r/main/s/SKILL.md", "# b"),
     )
     client.get("/api/skills/metasearch/install?install_ref=skills-sh:o--r--s")
     events = (
@@ -176,7 +192,7 @@ def test_install_intent_funnel_event_recorded(client, db_session, monkeypatch):
 
 def test_install_intent_recorded_even_on_fail_closed(client, db_session, monkeypatch):
     """A failed resolve is ALSO a funnel signal (search that couldn't convert)."""
-    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: (lambda slug: None))
+    monkeypatch.setattr(mi, "get_origin_fetcher", lambda src: lambda slug: None)
     client.get("/api/skills/metasearch/install?install_ref=well-known:host--x")
     events = (
         db_session.query(TelemetryEvent)
@@ -234,3 +250,42 @@ def test_curated_paid_body_visible_to_master_caller(db_session, monkeypatch):
     )
     assert resp.status_code == 200
     assert resp.json()["body"] == "# PAID body for paid caller", "master caller must see the paid body"
+
+
+def test_install_route_emits_runnable_commands_for_a_github_skill(client, db_session, monkeypatch):
+    """fed1005 R5: the REAL branch lookup runs (only GitHub's HTTP reply is
+    mocked) and sends the token to api.github.com. The raw fetch is stubbed
+    here; tokenless raw-CDN requests are pinned by
+    tests/test_fed1005_federated_install.py::test_tree_walk_is_one_authed_call_at_head."""
+    import app.metasearch_routes as mr
+    from app.services import github_skill_path as gsp
+
+    raw = "https://raw.githubusercontent.com/o/r/HEAD/skills/x/SKILL.md"
+    seen: list[tuple[str, dict]] = []
+
+    class _R:
+        def __init__(self, code, text):
+            self.status_code, self.text, self.headers = code, text, {}
+
+    def _gh(url, **kw):
+        seen.append((url, dict(kw.get("headers") or {})))
+        if url == "https://api.github.com/repos/o/r":
+            return _R(200, '{"default_branch": "main"}')
+        return _R(404, "")
+
+    monkeypatch.setenv("GITHUB_TOKEN", "tok-test")
+    monkeypatch.setattr(mr, "_branch_for", _REAL_BRANCH_FOR)
+    monkeypatch.setattr(gsp, "guarded_get", _gh)
+    monkeypatch.setattr(
+        mi, "get_origin_fetcher", lambda source: lambda slug: (raw, "---\nname: x\n---\n# X\n")
+    )
+    gsp._cache.clear()
+    resp = client.get("/api/skills/metasearch/install", params={"install_ref": "skills-sh:o--r--x"})
+    assert resp.status_code == 200, resp.text
+    cmds = resp.json()["commands"]
+    assert cmds["hermes"] == f"hermes skills install {raw}"
+    assert cmds["skills_cli"] == "npx skills add https://github.com/o/r/tree/main/skills/x"
+    assert cmds["claude_code"] == cmds["skills_cli"] + " -a claude-code"
+    assert [(u, h.get("Authorization")) for u, h in seen] == [
+        ("https://api.github.com/repos/o/r", "Bearer tok-test")
+    ]

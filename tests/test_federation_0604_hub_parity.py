@@ -15,7 +15,10 @@ Contract under test:
   - Slugs are collision-safe ("/" → "--") and round-trip through resolve().
   - get_adapter() returns every parity adapter; unknown → None.
 """
+
 from __future__ import annotations
+
+import pytest
 
 from app.services.federation import InstallPath, route_install
 from app.services.federation_adapters import (
@@ -26,7 +29,6 @@ from app.services.federation_adapters import (
     WellKnownAdapter,
     get_adapter,
 )
-
 
 # ── skills.sh (DEEP_LINK aggregator) ─────────────────────────────────────
 
@@ -251,7 +253,11 @@ class TestParityRegistry:
         from app.services.federation_install import ORIGIN_FETCHERS
 
         installable_default = {
-            "hermes-hub", "well-known", "browse-sh", "skills-sh", "lobehub",
+            "hermes-hub",
+            "well-known",
+            "browse-sh",
+            "skills-sh",
+            "lobehub",
         }
         # Every fetch-origin source must have an origin fetcher wired.
         for src in installable_default:
@@ -276,8 +282,20 @@ class TestLiveFetchWiring:
         fl._cache.clear()
         catalog = {
             "skills": [
-                {"slug": "a.com/traffic", "name": "traffic", "title": "Traffic", "description": "MPH", "tags": []},
-                {"slug": "b.com/weather", "name": "weather", "title": "Weather", "description": "rain", "tags": []},
+                {
+                    "slug": "a.com/traffic",
+                    "name": "traffic",
+                    "title": "Traffic",
+                    "description": "MPH",
+                    "tags": [],
+                },
+                {
+                    "slug": "b.com/weather",
+                    "name": "weather",
+                    "title": "Weather",
+                    "description": "rain",
+                    "tags": [],
+                },
             ]
         }
         monkeypatch.setattr(fl, "_safe_json_get", lambda *a, **k: catalog)
@@ -290,7 +308,9 @@ class TestLiveFetchWiring:
         from app.services import federation_live as fl
 
         fl._cache.clear()
-        index = {"agents": [{"identifier": "x", "meta": {"title": "X", "description": "puzzle", "tags": ["fun"]}}]}
+        index = {
+            "agents": [{"identifier": "x", "meta": {"title": "X", "description": "puzzle", "tags": ["fun"]}}]
+        }
         monkeypatch.setattr(fl, "_safe_json_get", lambda *a, **k: index)
         assert len(fl.lobehub_fetch("puzzle")) == 1
         assert fl.lobehub_fetch("nomatch") == []
@@ -301,7 +321,9 @@ class TestLiveFetchWiring:
 
         fl._cache.clear()
         monkeypatch.setattr(
-            fl, "_safe_json_get", lambda *a, **k: {"items": [{"slug": "z", "displayName": "Z", "summary": "s"}]}
+            fl,
+            "_safe_json_get",
+            lambda *a, **k: {"items": [{"slug": "z", "displayName": "Z", "summary": "s"}]},
         )
         assert len(fl.clawhub_fetch("z")) == 1
 
@@ -454,32 +476,33 @@ class TestOriginResolvers:
         # And it is NOT reachable through the install registry.
         assert fi.get_origin_fetcher("clawhub") is None
 
-    def test_skills_sh_resolves_via_anon_tree_walk(self, monkeypatch):
+    def test_skills_sh_resolves_via_the_repo_tree(self, monkeypatch):
+        """fed1005: no anonymous default-branch call; ONE tree walk at HEAD when
+        the conventional raw paths miss (see tests/test_fed1005_*)."""
         from app.services import federation_install as fi
+        from app.services import github_skill_path as gsp
 
-        fi._cache.clear()
-        # _safe_json_get is called twice: repo (default_branch), then trees.
-        def fake_json(url, **k):
-            if "/git/trees/" in url:
-                return {"tree": [
-                    {"path": "dev-toolkit/skills/web-scraping/SKILL.md"},
-                    {"path": "other/SKILL.md"},
-                ]}
-            return {"default_branch": "master"}  # repo metadata
-
-        monkeypatch.setattr(fi, "_safe_json_get", fake_json)
+        gsp._cache.clear()
+        md = "---\nname: web-scraping\n---\n# Scrape"
+        deep = "dev-toolkit/skills/web-scraping/SKILL.md"
 
         class _Resp:
-            status_code = 200
-            text = "---\nname: web-scraping\n---\n# Scrape"
+            def __init__(self, status, text=""):
+                self.status_code, self.text, self.headers = status, text, {}
 
-        # superset_0606 Phase A: the raw fetch routes through guarded_get now.
-        monkeypatch.setattr(fi, "guarded_get", lambda *a, **k: _Resp())
+        def fake_get(url, **k):
+            if "/git/trees/HEAD" in url:
+                return _Resp(200, '{"tree":[{"path":"%s"},{"path":"other/SKILL.md"}]}' % deep)
+            if url.endswith(f"/HEAD/{deep}"):
+                return _Resp(200, md)
+            return _Resp(404)
+
+        monkeypatch.setattr(gsp, "guarded_get", fake_get)
+        monkeypatch.setattr(fi, "_safe_json_get", lambda *a, **k: pytest.fail("no anonymous API call"))
         got = fi.skills_sh_origin_skill_md("jamditis--claude-skills-journalism--web-scraping")
         assert got is not None
         url, content = got
-        assert "web-scraping/SKILL.md" in url
-        assert "raw.githubusercontent.com" in url
+        assert url == f"https://raw.githubusercontent.com/jamditis/claude-skills-journalism/HEAD/{deep}"
         assert "# Scrape" in content
 
     def test_every_installable_source_has_a_live_origin_fetcher(self):
