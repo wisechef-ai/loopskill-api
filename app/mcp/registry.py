@@ -43,7 +43,9 @@ def _core_tools() -> list[types.Tool]:
                 "federated rows: fresh, stale, warming, cold, or degraded. "
                 "If the key is 'warming', the live search is not complete. The "
                 "rows come from the local index. Ask again after a few seconds "
-                "to get all rows. If the key is 'cold', no live result is "
+                "to get the completed live result. A slow source can be absent "
+                "from the live result. The local index still has its skills. "
+                "If the key is 'cold', no live result is "
                 "available. The rows, if any, come from the local index. This "
                 "does not mean that no federated skill exists."
             ),

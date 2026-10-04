@@ -39,7 +39,9 @@ The ``federated`` key reports what happened:
   ``fresh``    — cached or just-computed result, within TTL.
   ``stale``    — past TTL, inside the grace window; served now, refreshed behind.
   ``warming``  — the live fan-out did not finish inside the budget; rows are from
-                 the local hub index. Ask again in a few seconds for all rows.
+                 the local hub index. Ask again in a few seconds for the completed,
+                 deadline-bounded live result (a source slower than the deadline
+                 is absent from it; the local index still covers its skills).
   ``cold``     — no live result is available (budget 0, every slot busy, or the
                  fan-out failed); rows, if any, are from the local hub index.
                  Not a claim that federation has nothing.
