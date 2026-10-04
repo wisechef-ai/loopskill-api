@@ -18,10 +18,9 @@ It also carries each source's **raw row dict** alongside the mapped
 ``ExternalSkill`` so ``metasearch.unify_external`` can recover the popularity
 signal the adapters discard (council C5).
 
-ClawHub query-param bug (council C1 + live probe 2026-07-10): the existing
-``clawhub_fetch`` sends ``?q=`` but ClawHub's ``/api/v1/skills`` wants
-``?search=``. Fixed at the fetch layer in this module's ``_clawhub_fetch_fixed``
-wrapper so the fan-out gets real ClawHub results.
+ClawHub query routing (re-verified 2026-10-04): ``/api/v1/skills`` ignores every
+query parameter; only ``/api/v1/search?q=`` ranks by query. The routing lives in
+``clawhub_search`` and every ClawHub caller goes through it.
 """
 
 from __future__ import annotations
@@ -68,7 +67,11 @@ DEFAULT_FANOUT_SOURCES: tuple[str, ...] = _BASE_FANOUT_SOURCES + tuple(
 # being tried at all. The `sources_degraded` list stays honest about who missed.
 _PER_SOURCE_DEADLINE_S = 1.2
 _PER_SOURCE_TOP_N = 25
-_MAX_WORKERS = 8
+# One thread per source, capped. The sources are I/O-bound HTTP calls, so a
+# thread each is cheap; with the old fixed 8 for 14 sources, the last 6 could
+# only START after earlier ones finished and routinely blew the shared overall
+# deadline before their first byte (fed1004 — measured on prod 2026-10-04).
+_MAX_WORKERS = 16
 
 
 @dataclass
@@ -84,28 +87,14 @@ class SourceResult:
 
 
 def _clawhub_fetch_fixed(query: str) -> list[dict]:
-    """ClawHub fetch with the correct ``?search=`` param (council C1 fix).
-
-    The shipped ``federation_live.clawhub_fetch`` sends ``?q=`` which ClawHub's
-    ``/api/v1/skills`` ignores (verified 2026-07-10: ``?q=`` → default page,
-    ``?search=`` → real matches). We call the live JSON getter directly with the
-    right param and the same short TTL cache key namespace.
-    """
+    """ClawHub fetch for the fan-out. Kept as a named seam (tests and the
+    ``_fetch_for`` table address it), but the query routing now lives in ONE
+    place — ``federation_live.clawhub_fetch`` → ``clawhub_search.fetch_rows`` —
+    so the fan-out, resolve and browse paths can never disagree on which
+    ClawHub route honours a query again."""
     from app.services import federation_live as fl
 
-    q = (query or "").strip()
-    cache_key = f"clawhub-fixed:{q.lower()}"
-    cached = fl._cache.get(cache_key, fl._SEARCH_TTL_S)
-    if cached is not None:
-        return cached
-    params: dict[str, object] = {"limit": 100}
-    if q:
-        params["search"] = q  # the fix: ?search=, not ?q=
-    data = fl._safe_json_get(fl.CLAWHUB_SKILLS_URL, params=params)
-    rows = data.get("items", []) if isinstance(data, dict) else []
-    rows = rows if isinstance(rows, list) else []
-    fl._cache.put(cache_key, rows)
-    return rows
+    return fl.clawhub_fetch(query)
 
 
 def _fetch_for(source: str):
@@ -198,7 +187,7 @@ def fan_out(
     # per-request bound is `overall_deadline_s`; a straggler thread keeps running
     # up to _HTTP_TIMEOUT_S but its result is discarded and cannot mutate state.
     overall_deadline_s = per_source_deadline_s + 0.25  # parallel; +slack for pool scheduling
-    pool = concurrent.futures.ThreadPoolExecutor(max_workers=_MAX_WORKERS)
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(len(sources), _MAX_WORKERS)))
     try:
         futures = {pool.submit(_query_one_source, src, query, limit=per_source_top_n): src for src in sources}
         pending = set(futures)

@@ -567,6 +567,22 @@ funnel0928 (t_f0598839): fleet_exclusions.yaml gains adam-xps egress
     keys pinned by id, not by name. classify() compares normalised IPs, and
     _classify_install honours a pinned key before the IP rules. Verified
     against prod /api/healthz 0.9.52 before bumping.
+
+fed1004: federated search that finds what federation holds. Verified against
+    prod /api/healthz 0.9.53 before bumping.
+    (1) MCP loopskill_search: on a cache miss, ONE single-flight live fan-out
+    (same compute + cache entry as the REST route, metasearch_compute) waited
+    for at most MCP_FEDERATED_LIVE_BUDGET_S (default 4s), then the local hub
+    index as a floor, flagged "warming". Supersedes the unisearch P2
+    cache-only rule: its >90s premise was ClawHub owner lookups (fixed in
+    #148); a cold fan-out now measures ~2s, and cache-only answered
+    loopskill_search("ste100") with zero rows while REST found 30.
+    (2) ClawHub: /api/v1/skills ignores ?q= and ?search=; queries now go to
+    /api/v1/search?q= (owner inline, skills.sh mirrors and suspicious hits
+    dropped). Before: the same ~25 unrelated rows on every query.
+    (3) Hub origin URLs: skills.sh rows link the skills.sh page (40/40 resolve
+    vs 4-7/40), official rows link GitHub tree/HEAD (15/15 vs 0/15).
+    (4) Fan-out: one thread per source (was 8 threads for 14 sources).
 """
 
-__version__ = "0.9.53"
+__version__ = "0.9.54"

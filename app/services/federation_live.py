@@ -375,19 +375,17 @@ def skills_sh_fetch(query: str) -> list[dict[str, Any]]:
 
 
 def clawhub_fetch(query: str) -> list[dict[str, Any]]:
-    """Fetch callable for ClawHubAdapter. /api/v1/skills → {items:[{slug,
-    displayName, summary, tags, stats}]}."""
+    """Fetch callable for ClawHubAdapter. A query goes to ``/api/v1/search`` (the
+    browse list ignores every query param — see ``clawhub_search``); an empty
+    query browses ``/api/v1/skills``. Rows come back in the browse-row shape."""
+    from app.services.clawhub_search import fetch_rows
+
     q = (query or "").strip()
     cache_key = f"clawhub:{q.lower()}"
     cached = _cache.get(cache_key, _SEARCH_TTL_S)
     if cached is not None:
         return cached
-    params: dict[str, Any] = {"limit": 100}
-    if q:
-        params["q"] = q
-    data = _safe_json_get(CLAWHUB_SKILLS_URL, params=params)
-    rows = data.get("items", []) if isinstance(data, dict) else []
-    rows = rows if isinstance(rows, list) else []
+    rows = fetch_rows(_safe_json_get, q)
     _cache.put(cache_key, rows)
     return rows
 

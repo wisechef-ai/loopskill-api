@@ -83,22 +83,26 @@ def test_fan_out_respects_rate_limit_gate(monkeypatch):
     assert out.pairs == []
 
 
-def test_clawhub_fetch_uses_search_param_not_q(monkeypatch):
-    """Council C1 + live probe: ClawHub wants ?search=, not ?q=. Assert the fixed
-    fetcher passes 'search' to the JSON getter."""
-    captured_params = {}
+def test_clawhub_fetch_sends_the_query_to_the_search_route(monkeypatch):
+    """ClawHub's ``/api/v1/skills`` list ignores ``?q=`` AND ``?search=`` (re-
+    verified 2026-10-04 — the July ``?search=`` fix stopped working when ClawHub
+    moved search). A query must go to ``/api/v1/search?q=``; the browse list must
+    never be asked to filter."""
+    calls: list[tuple[str, dict]] = []
 
     def _fake_json_get(url, *, params=None, headers=None):
-        captured_params.update(params or {})
-        return {"items": [{"slug": "found", "displayName": "Found", "stats": {"downloads": 3}}]}
+        calls.append((url, dict(params or {})))
+        return {"results": [{"slug": "found", "displayName": "Found", "downloads": 3, "ownerHandle": "o"}]}
 
     import app.services.federation_live as fl
+    from app.services.clawhub_search import CLAWHUB_SEARCH_URL
 
     monkeypatch.setattr(fl, "_safe_json_get", _fake_json_get)
     fl._cache.clear()
     rows = fo._clawhub_fetch_fixed("humanizer")
-    assert captured_params.get("search") == "humanizer", "must send ?search="
-    assert "q" not in captured_params, "must NOT send ?q= (the shipped bug)"
+    assert [url for url, _ in calls] == [CLAWHUB_SEARCH_URL]
+    assert calls[0][1].get("q") == "humanizer"
+    assert "search" not in calls[0][1], "?search= is a dead parameter on every ClawHub route"
     assert rows and rows[0]["slug"] == "found"
 
 

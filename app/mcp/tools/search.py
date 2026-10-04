@@ -10,28 +10,37 @@ augment with ``recall_skills`` (BM25 + optional vector). This closes the
 "recall finds many, search finds zero" gap reported on a broad
 multi-keyword dev query.
 
-unisearch_0709 P2 — the federated append, and the honest guarantee it carries
------------------------------------------------------------------------------
+unisearch_0709 P2 / fed1004 — the federated append, and what it guarantees
+---------------------------------------------------------------------------
 Verified live 2026-09-08: this tool returned ``{"results": [], "total": 0}`` for
 ``"graft"`` while the metasearch fan-out found ``skills-sh:trailhq--graft--graft``
 and ``loopskill_install`` installed it fine. Discovery disagreed with install, so
 every MCP-facing agent concluded LoopSkill has nothing on any federated topic.
 
-So the native pass now runs EXACTLY as before, and federated rows are APPENDED
-after it from the shared metasearch cache. What that is and is not:
+So the native pass runs EXACTLY as before, and federated rows are APPENDED after
+it by ``mcp_federated_search.federated_append``:
 
-  **It is best-effort, from a cache. It is NOT a live, guaranteed fan-out.**
+1. The shared metasearch cache is read first (microseconds).
+2. On a miss, ONE single-flight live fan-out starts — the same compute and the
+   same cache entry as ``GET /api/skills/metasearch`` — and the tool waits for
+   it at most ``settings.MCP_FEDERATED_LIVE_BUDGET_S`` (default 4s).
+3. If the fan-out is still running at the budget, the rows come from the local
+   hub index (no network) and the fan-out finishes in the background.
 
-This tool never fans out on the caller's thread — a cold fan-out was measured at
->90s on prod, and an agent waiting 90s on a search reports the platform as
-broken. It performs one cache-only read (``metasearch_cache.get_entry``) and
-reports what it found through the ``federated`` key:
+fed1004 replaced the P2 "never fan out" rule. That rule existed because a cold
+fan-out once took >90s (ClawHub owner lookups, removed by issue #148). With the
+rule in place, every query no REST caller had warmed answered ``cold`` with zero
+federated rows: ``loopskill_search("ste100")`` found nothing on 2026-10-04 while
+the REST metasearch found 30 skills.
 
-  ``fresh``    — cached result within TTL.
-  ``stale``    — past TTL, inside the grace window; served as-is.
-  ``cold``     — nothing cached on this worker. Native results only. Not an
-                 error, and not a claim that federation has nothing: warm the
-                 query through ``GET /api/skills/metasearch`` and ask again.
+The ``federated`` key reports what happened:
+
+  ``fresh``    — cached or just-computed result, within TTL.
+  ``stale``    — past TTL, inside the grace window; served now, refreshed behind.
+  ``warming``  — the live fan-out did not finish inside the budget; rows are from
+                 the local hub index. Ask again in a few seconds for all rows.
+  ``cold``     — no live fan-out ran (budget 0, or every warm slot busy) and
+                 nothing was cached. Not a claim that federation has nothing.
   ``degraded`` — the shared cache tier is unreachable, so freshness cannot be
                  confirmed fleet-wide.
 
@@ -81,9 +90,8 @@ def loopskill_search(
     - ``backend = "keyword"`` — literal ILIKE pass alone.
     - ``backend = "hybrid"``  — literal + recall results unioned.
     - ``backend = "recall_only"`` — literal returned zero, recall provided all.
-    - ``federated`` — ``fresh`` | ``stale`` | ``cold`` | ``degraded``. Federation
-      is best-effort from a SHARED CACHE, never a live guaranteed fan-out; see
-      the module docstring. ``total`` counts NATIVE rows only.
+    - ``federated`` — ``fresh`` | ``stale`` | ``warming`` | ``cold`` |
+      ``degraded``; see the module docstring. ``total`` counts NATIVE rows only.
 
     ``federated_limit`` caps the append (None/omitted → 10, hard maximum 30) —
     a context-window budget, not a relevance judgement.
@@ -183,7 +191,7 @@ def loopskill_search(
         except Exception:  # noqa: BLE001
             logger.exception("loopskill_search hybrid fallback failed; returning keyword only")
 
-    # ── unisearch_0709 P2: federated append (cache ONLY, never a fan-out) ───
+    # ── unisearch_0709 P2 / fed1004: federated append (cache, then bounded live) ─
     # Native/curated rows are ALWAYS first; federated rows are appended after
     # them and never interleaved. `total` is deliberately NOT incremented — it
     # is an existing key with an existing meaning (the native match count), and
