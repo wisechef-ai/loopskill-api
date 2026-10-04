@@ -249,6 +249,18 @@ def ingest_sync_report(
     return recorded, truncated
 
 
+def utc_today() -> date:
+    """The current day on the rollup's clock.
+
+    Rollup buckets are UTC days (``day_start`` below is midnight UTC), so the
+    default day must be read on the SAME clock. ``date.today()`` is the host's
+    local date: on a non-UTC host it names a different day for up to the UTC
+    offset's worth of hours each night (00:00-02:00 under CEST), and a default
+    rollup then aggregates a window that holds none of the day's runs.
+    """
+    return datetime.now(UTC).date()
+
+
 def rollup_loop_runs(db: Session, day: date | None = None) -> int:
     """Aggregate all LoopRun rows for ``day`` into LoopRunDailyRollup.
 
@@ -259,7 +271,7 @@ def rollup_loop_runs(db: Session, day: date | None = None) -> int:
     Returns the number of rollup rows written.
     """
     if day is None:
-        day = date.today()
+        day = utc_today()
 
     # Find all distinct (fleet_id, member_id, loop_slug) groups for this day.
     # We compute the date from LoopRun.created_at (timezone-aware).
@@ -354,7 +366,7 @@ def cost_per_accepted_change(
     Returns sum(cost_usd_total) / nullif(sum(accepted_changes), 0), or None
     if there are zero accepted changes.
     """
-    since = date.today() - timedelta(days=days)
+    since = utc_today() - timedelta(days=days)
     q = db.query(
         func.sum(LoopRunDailyRollup.cost_usd_total),
         func.sum(LoopRunDailyRollup.accepted_changes),
