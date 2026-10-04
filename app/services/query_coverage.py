@@ -26,7 +26,8 @@ Rules (each one exists because a review reproduced the failure it prevents):
   that covers both query words beats a row that covers one, wherever the hits
   are.
 - At most ``MAX_TOKENS`` tokens are scored. A longer query keeps its first and
-  last ``MAX_TOKENS // 2`` tokens, so a final subject ("... pdf") survives.
+  last ``MAX_TOKENS // 2`` tokens, so a final subject ("... pdf") survives. A
+  query longer than that can lose a middle term; this is the documented cap.
 - Not handled on purpose: 3-letter plurals (pdf/pdfs). Any such rule also
   makes new == news.
 """
@@ -69,10 +70,18 @@ GENERIC_WEIGHT = 0.5
 
 
 def fold(text: str | None) -> str:
-    """Accent- and case-insensitive form: NFKD, combining marks dropped,
-    casefolded. 'İstanbul' == 'istanbul', 'café' == 'cafe\u0301' == 'cafe'."""
-    decomposed = unicodedata.normalize("NFKD", text or "")
-    return "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
+    """Accent- and case-insensitive form for Latin/Greek/Cyrillic ('İstanbul' ==
+    'istanbul', 'café' == 'cafe\u0301'): NFKD with combining marks dropped,
+    then casefold. CJK, kana and Hangul are only NFC-composed and kept whole:
+    decomposing them would split Hangul syllables into jamo and strip Japanese
+    voicing marks (fed1006 R4)."""
+    out: list[str] = []
+    for ch in unicodedata.normalize("NFC", text or ""):
+        if _CJK.match(ch):
+            out.append(ch)
+        else:
+            out.extend(c for c in unicodedata.normalize("NFKD", ch) if not unicodedata.combining(c))
+    return "".join(out).casefold()
 
 
 def words(text: str | None) -> list[str]:
@@ -80,7 +89,7 @@ def words(text: str | None) -> list[str]:
 
 
 def significant_tokens(query: str | None) -> list[str]:
-    """Distinct weighted query words; at most MAX_TOKENS, the longest kept."""
+    """Distinct weighted query words; at most MAX_TOKENS (first and last halves)."""
     all_tokens = list(dict.fromkeys(words(query)))
     tokens = [t for t in all_tokens if t not in STOPWORDS] or all_tokens
     if len(tokens) > MAX_TOKENS:
@@ -102,6 +111,8 @@ def _stems(word: str) -> set[str]:
         if suffix == "es" and not stem.endswith(_ES_AFTER):
             continue
         out.add(stem)
+        if suffix in ("ed", "ing", "er", "ers"):
+            out.add(stem + "e")  # silent e: updated ~ update, sharing ~ share
     return out
 
 

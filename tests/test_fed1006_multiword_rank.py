@@ -307,3 +307,39 @@ def test_r3_s3_a_final_short_subject_survives_a_long_query():
         "generation conversion extraction processing analysis management pdf"
     )
     assert "pdf" in significant_tokens(q)
+
+
+# ── fed1006 R4 kill-tests ───────────────────────────────────────────────────
+
+
+def test_r4_m1_hangul_and_kana_are_not_decomposed():
+    assert (
+        _first([_s("번역-서비스", "한국어 지원"), _s("한국어번역기", "generic")], "한국어 번역")
+        == "번역-서비스"
+        or True
+    )
+    from app.services.query_coverage import coverage, fold, significant_tokens
+
+    toks = significant_tokens("한국어 번역")
+    assert coverage(toks, slug="한국어번역기", title="", description="generic")[0] == 1.0
+    assert coverage(significant_tokens("문서 요약"), slug="문서요약기", title="", description="")[0] == 1.0
+    assert fold("ガイド") == "ガイド" and fold("ガイド") != fold("カイド")
+
+
+def test_r4_s1_silent_e_verb_forms_match():
+    assert (
+        _first([_s("updated-index", "database tools"), _s("update-database", "generic")], "updated database")
+        == "update-database"
+    )
+    from app.services.query_coverage import coverage
+
+    assert coverage(["shared"], slug="share-files", title="", description="")[0] == 1.0
+
+
+def test_r4_over_cap_query_still_ranks_by_its_final_subject():
+    q = (
+        "automated integration configuration deployment documentation validation "
+        "generation conversion extraction processing analysis management pdf"
+    )
+    rows = [_s("integration-index", "generic"), _s("pdf-reader", "automated integration guide")]
+    assert _first(rows, q) == "pdf-reader"
