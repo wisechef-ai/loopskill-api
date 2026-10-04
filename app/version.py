@@ -7,20 +7,8 @@ made "is the live box running the code we shipped?" unverifiable from
 ``/api/healthz``. Every deploy that changes behaviour MUST bump this constant
 so the healthz probe can prove the cutover landed.
 
-Entries for 0.9.4-0.9.13 are archived verbatim in docs/version-history.md.
-
-spotify_1507 Ph0 (0.9.19): bare GET /api/health is now a public, DB-independent
-liveness status (was 401 — a cold-path trust leak); no_external_promo linter
-allowlist widened with legitimate API-doc/source domains (arxiv, tavily, tenor,
-stripe, comfyui, modal, etc.) so real orphan-tarball skills stop false-blocking.
-
-atomic-habits/2026-07-13-rank8-catalog-hygiene: bumped past main (0.9.23) —
-adds a STARTER_LOOPS SSOT entry + LOOP_TAGS_BY_SLUG discovery tags for
-repo-steward-loop, which was published straight against the live DB without
-ever entering the seed pipeline (install_count=0, latest_version=null, zero
-discovery tags). Re-running seed_starter_catalog.py now produces a v1.0.0
-LoopVersion manifest for it carrying category + tags, matching the other 9
-starter loops. Data-only, no schema change.
+Entries for 0.9.4-0.9.13 and 0.9.19-0.9.23 are archived verbatim in
+docs/version-history.md.
 
 fleetos_1607 Phase 0 (0.9.25): the declarative fleet-artifact primitives that
 turn LoopSkill from a marketplace into the control plane for AI agent fleets.
@@ -594,6 +582,14 @@ fix-doctor-server-scope-reason: test-only. test_server_local_missing_path_
     remote-shaped (issue #112) and doctor correctly returns
     not_server_inspectable. The test now uses a fixed /srv/ path. No code
     change.
+fix-mesh0408-host-dependence: the loop-run rollup now defaults to the UTC
+    day. rollup_loop_runs buckets runs into UTC days, but its default day (and
+    POST /api/admin/loop-run-rollup's, and cost_per_accepted_change's window)
+    came from date.today(), the host's LOCAL date. On a non-UTC host that is a
+    different day for part of every night (00:00-02:00 under CEST), and the
+    default rollup aggregated an empty window. New sync_report.utc_today() is
+    the one clock for all three. Three mesh0408 tests failed nightly on a
+    Europe/Warsaw host for this reason while CI (UTC) stayed green.
 """
 
-__version__ = "0.9.58"
+__version__ = "0.9.59"

@@ -492,9 +492,10 @@ def admin_loop_run_rollup(
     if api_key_user_id is not None:
         raise HTTPException(status_code=403, detail="Admin only")
 
-    from app.services.sync_report import rollup_loop_runs
+    from app.services.sync_report import rollup_loop_runs, utc_today
 
-    target_day = body.day if body.day is not None else date.today()
+    # utc_today(), not date.today(): rollup buckets are UTC days.
+    target_day = body.day if body.day is not None else utc_today()
     count = rollup_loop_runs(db, day=target_day)
     logger.info("admin loop-run-rollup: %d rollup rows for %s", count, target_day)
     return {"rolled_up": count, "day": target_day.isoformat()}
