@@ -40,7 +40,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from app.services.federation import ExternalSkill, InstallPath, route_install
-from app.services.federation_relevance import relevance_tier
+from app.services.federation_relevance import NO_MATCH_TIER, relevance_tier
+from app.services.hub_local_search import query_tokens
 
 # ── Source priority (dedupe tie-break + rank prior) ──────────────────────────
 # Lower number = higher priority. Curated ("recipes") always wins. Order below
@@ -424,16 +425,34 @@ def rank(skills: list[UnifiedSkill], *, query: str | None = None) -> list[Unifie
         return scored
 
     tiers = {id(s): relevance_tier(q, slug=s.slug, title=s.title, description=s.description) for s in scored}
+    # fed1006: the ladder matches the WHOLE phrase, so a multi-word query leaves
+    # most rows in NO_MATCH_TIER, where shortest-slug used to decide (prod:
+    # "n8n" and "dots" ranked 3rd/4th for an ASD-STE100 query). Inside that tier
+    # only, token coverage decides first and slug length does not apply. Rows
+    # in a matching tier keep their exact previous order (coverage term = 0).
+    tokens = query_tokens(q)
+    cover = {id(s): _token_coverage(tokens, s) if tiers[id(s)] == NO_MATCH_TIER else 0.0 for s in scored}
     scored.sort(
         key=lambda s: (
             tiers[id(s)],
-            len(s.slug),
+            -cover[id(s)],
+            len(s.slug) if tiers[id(s)] != NO_MATCH_TIER else 0,
             -s.rank_score,
             _source_priority(s.source),
             s.title.lower(),
         )
     )
     return scored
+
+
+def _token_coverage(tokens: list[str], s: UnifiedSkill) -> float:
+    """Share of query tokens in a row: a slug/title hit counts 1, a hit in the
+    description only counts 0.5. 0.0 for an empty token list."""
+    if not tokens:
+        return 0.0
+    head = f"{s.slug} {s.title}".lower()
+    body = (s.description or "").lower()
+    return sum(1.0 if t in head else 0.5 if t in body else 0.0 for t in tokens) / len(tokens)
 
 
 def _with_score(s: UnifiedSkill, score: float) -> UnifiedSkill:

@@ -1,0 +1,121 @@
+"""fed1006 — multi-word queries rank by token coverage, not by slug length.
+
+Prod 2026-10-04, q="ASD-STE100 simplified technical english": the relevance
+ladder matches the WHOLE phrase, so almost every row fell into NO_MATCH_TIER and
+the next sort key — ``len(slug)`` — decided. ``n8n``, ``dots`` and ``dotfiles``
+(GitHub code-search hits with no query word in slug, title or description)
+ranked 3rd-6th; installable STE skills sat at 18 and below.
+
+Contract: inside NO_MATCH_TIER only, rows sort by the share of query tokens
+they contain (slug/title hit = 1, description-only hit = 0.5) BEFORE anything
+else, and slug length no longer applies there. Rows that match a ladder tier
+keep their exact previous order.
+"""
+
+from __future__ import annotations
+
+from app.services.federation_relevance import NO_MATCH_TIER, relevance_tier
+from app.services.metasearch import UnifiedSkill, rank
+
+Q = "ASD-STE100 simplified technical english"
+
+
+def _s(
+    slug: str, description: str = "", *, title: str | None = None, source: str = "github-oss"
+) -> UnifiedSkill:
+    return UnifiedSkill(
+        canonical_id=f"{source}:{slug}",
+        slug=slug,
+        title=title if title is not None else slug,
+        description=description,
+        source=source,
+        origin_url=f"https://example.com/{slug}",
+        install_ref=f"{source}:{slug}",
+        quality="community",
+        deployable=source != "github-oss",
+        install_path="fetch_origin",
+        popularity=None,
+        license=None,
+        updated_at=None,
+    )
+
+
+PROD_ROWS = [
+    _s("n8n", "Fair-code workflow automation platform with native AI capabilities"),
+    _s("dots", "Configuration I share across workspaces"),
+    _s("dotfiles", "Personal dotfiles"),
+    _s("avalanchego", "Go implementation of an Avalanche node."),
+    _s(
+        "simple-english",
+        "Rewrite text to ASD-STE100 Simplified Technical English.",
+        source="hermes-hub",
+    ),
+    _s(
+        "simplified-technical-english-skill",
+        "Reduce LLM word slop. Use ASD-STE100 Simplified Technical English rules.",
+    ),
+    _s("asd-ste100-skill", "Simplified Technical English for software documentation"),
+]
+
+
+def test_the_prod_case_puts_every_relevant_row_above_every_unrelated_one():
+    no_match = {
+        r.slug
+        for r in PROD_ROWS
+        if relevance_tier(Q, slug=r.slug, title=r.title, description=r.description) == NO_MATCH_TIER
+    }
+    # Two relevant rows contain the whole phrase (description tier); the third
+    # relevant row and all four unrelated rows match no tier: the defect zone.
+    assert no_match == {"n8n", "dots", "dotfiles", "avalanchego", "asd-ste100-skill"}
+    order = [r.slug for r in rank(PROD_ROWS, query=Q)]
+    relevant = {"simple-english", "simplified-technical-english-skill", "asd-ste100-skill"}
+    assert set(order[:3]) == relevant, order
+    assert set(order[3:]) == {"n8n", "dots", "dotfiles", "avalanchego"}
+
+
+def test_more_tokens_covered_ranks_higher():
+    rows = [
+        _s("a", "english"),
+        _s("b", "simplified technical english"),
+        _s("c", "technical english"),
+    ]
+    assert [r.slug for r in rank(rows, query="simplified technical english guide")] == ["b", "c", "a"]
+
+
+def test_a_title_hit_outweighs_the_same_hit_in_prose():
+    rows = [
+        _s("x-one", "a skill about english", title="Assistant"),
+        _s("x-two", "a generic helper", title="English writer"),
+    ]
+    assert [r.slug for r in rank(rows, query="english prose style")][0] == "x-two"
+
+
+def test_slug_length_no_longer_promotes_an_unrelated_row():
+    rows = [_s("ab", "nothing here"), _s("long-slug-that-covers-docs", "technical docs writer")]
+    assert rank(rows, query="technical docs style guide")[0].slug == "long-slug-that-covers-docs"
+
+
+def test_rows_in_a_matching_tier_keep_their_previous_order():
+    """A phrase match (any tier < NO_MATCH) still beats any token coverage, and
+    inside a matching tier the shortest slug still wins (fdeloop0808 B2)."""
+    rows = [
+        _s("code-review-terry", "code review helper"),
+        _s("code-review", "code review"),
+        _s("reviewer", "code and review and code review tips everywhere"),
+    ]
+    order = [r.slug for r in rank(rows, query="code review")]
+    assert order[:2] == ["code-review", "code-review-terry"]
+
+
+def test_single_word_query_order_is_unchanged_for_matched_rows():
+    rows = [_s("polymarket-markets"), _s("polymarket"), _s("polymarket-manual-trade")]
+    assert [r.slug for r in rank(rows, query="polymark")] == [
+        "polymarket",
+        "polymarket-markets",
+        "polymarket-manual-trade",
+    ]
+
+
+def test_no_query_path_is_untouched():
+    rows = [_s("b"), _s("a")]
+    assert [r.slug for r in rank(rows, query=None)] == [r.slug for r in rank(rows)]
