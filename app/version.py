@@ -588,6 +588,12 @@ fed1004: federated search that finds what federation holds. Verified against
     (6) Hub snapshot: hourly If-None-Match sync (federation_reindex.py
     --if-changed; migration fed1004_hub_upstream_etag). A 304 touches no row;
     the nightly 03:00 run stays a forced full ingest.
+fix-doctor-server-scope-reason: test-only. test_server_local_missing_path_
+    returns_install_dir_not_found built its "server-local" path from pytest's
+    tmp_path, which follows $TMPDIR; under a /home/<user>/ TMPDIR that path is
+    remote-shaped (issue #112) and doctor correctly returns
+    not_server_inspectable. The test now uses a fixed /srv/ path. No code
+    change.
 """
 
-__version__ = "0.9.57"
+__version__ = "0.9.58"

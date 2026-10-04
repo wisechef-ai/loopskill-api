@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from unittest.mock import MagicMock
 
 import pytest
 
-from app.mcp.tools.doctor import loopskill_doctor
+from app.mcp.tools.doctor import _looks_like_remote_path, loopskill_doctor
 
 
 @pytest.fixture
@@ -54,13 +55,19 @@ def test_remote_shaped_path_returns_not_server_inspectable(db, remote_path):
     assert out["install_dir"] == remote_path
 
 
-def test_server_local_missing_path_returns_install_dir_not_found(db, tmp_path):
-    # tmp_path lives under /tmp on Linux — NOT one of the remote-shaped
-    # prefixes, so this should fall through to install_dir_not_found.
-    missing = tmp_path / "does-not-exist"
-    out = loopskill_doctor(db, str(missing))
+def test_server_local_missing_path_returns_install_dir_not_found(db):
+    # A fixed server-shaped root (the server lives under /srv/ or /var/), NOT
+    # pytest's tmp_path: tmp_path follows $TMPDIR, and when that resolves
+    # under /home/<user>/ (agent sandboxes, CI runners with a home-scoped
+    # tmp) the path is remote-shaped by design and the code correctly answers
+    # not_server_inspectable — the test, not the code, was host-dependent.
+    missing = f"/srv/loopskill/skills/does-not-exist-{uuid.uuid4().hex}"
+    assert not os.path.exists(missing)
+    assert not _looks_like_remote_path(missing)
+    out = loopskill_doctor(db, missing)
     assert out["ok"] is False
     assert out["error"] == "install_dir_not_found"
+    assert out["install_dir"] == missing
 
 
 def test_valid_install_dir_no_violations(db, tmp_path):
