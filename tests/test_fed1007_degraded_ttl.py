@@ -117,3 +117,18 @@ def test_distinct_stale_keys_share_a_bounded_number_of_refreshes():
     assert cache._maybe_refresh("k7", "q7", ("a",), lambda: ([], OK14, [])), (
         "a freed slot serves the next read"
     )
+
+
+def test_miss_and_hit_report_the_same_degraded_ttl(client, monkeypatch):
+    """R1 SHOULD: the foreground (miss) response advertised the configured TTL."""
+    import app.metasearch_routes as mr
+    from app.services.metasearch_cache import get_cache
+
+    get_cache().invalidate()
+    row = {"slug": "x", "title": "x", "source": "recipes", "install_ref": "recipes:x"}
+    monkeypatch.setattr(mr, "build_unified", lambda db, q: ([row], OK14[:2], OK14[2:]))
+    first = client.get("/api/skills/metasearch", params={"q": "fed1007 degraded ttl"}).json()["cache"]
+    second = client.get("/api/skills/metasearch", params={"q": "fed1007 degraded ttl"}).json()["cache"]
+    get_cache().invalidate()
+    assert (first["cache_hit"], second["cache_hit"]) == (False, True)
+    assert first["cache_ttl_s"] == second["cache_ttl_s"] == DEGRADED_TTL_S
