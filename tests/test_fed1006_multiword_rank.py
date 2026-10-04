@@ -181,3 +181,83 @@ def test_r1_s2_a_matched_tier_ignores_coverage_even_when_it_differs():
     }
     assert tiers == {5}
     assert [r.slug for r in rank(rows, query="code review")] == ["a", "longer-slug"]
+
+
+# ── fed1006 R2 kill-tests ───────────────────────────────────────────────────
+
+
+def _first(rows, q):
+    return rank(rows, query=q)[0].slug
+
+
+def test_r2_m1_domain_nouns_keep_their_intent():
+    assert (
+        _first([_s("memory-helper", "generic"), _s("plugin-index", "memory storage")], "plugin memory")
+        == "plugin-index"
+    )
+    assert (
+        _first([_s("memory-helper", "generic"), _s("agent-index", "memory storage")], "agent memory")
+        == "agent-index"
+    )
+    assert (
+        _first([_s("calling-helper", "generic"), _s("tool-index", "calling apis")], "tool calling")
+        == "tool-index"
+    )
+
+
+def test_r2_m1_a_generic_word_cannot_outweigh_the_subject():
+    assert (
+        _first(
+            [_s("a-to-text-tool", "a generic helper"), _s("pdf-to-text", "Extract documents")],
+            "a pdf to text tool",
+        )
+        == "pdf-to-text"
+    )
+
+
+def test_r2_m2_cjk_tokens_match_inside_words():
+    assert _first([_s("a", "generic"), _s("中文助手", "翻译服务")], "中文 翻译") == "中文助手"
+
+
+def test_r2_m2_polish_words_stay_whole():
+    from app.services.query_coverage import significant_tokens
+
+    assert significant_tokens("żółć gęślą") == ["żółć", "gęślą"]
+    assert _first([_s("g-l", "generic"), _s("żółć-helper", "gęślą wsparcie")], "żółć gęślą") == "żółć-helper"
+
+
+def test_r2_m3_no_prefix_false_hits():
+    assert (
+        _first([_s("testament-harness", "generic"), _s("harness-kit", "test runner")], "test harness")
+        == "harness-kit"
+    )
+    assert (
+        _first([_s("reaction-hooks", "generic"), _s("hooks-kit", "React utilities")], "react hooks")
+        == "hooks-kit"
+    )
+    assert (
+        _first([_s("ste1000-pdf", "generic"), _s("ste100-reader", "PDF conversion")], "ste100 pdf")
+        == "ste100-reader"
+    )
+
+
+def test_r2_m3_word_forms_still_match():
+    from app.services.query_coverage import coverage
+
+    for q, slug in [
+        ("converting", "converter"),
+        ("images", "image"),
+        ("tests", "testing"),
+        ("boxes", "box-x"),
+    ]:
+        assert coverage([q], slug=slug, title="", description="")[0] == 1.0, (q, slug)
+
+
+def test_r2_s1_a_late_discriminator_survives_the_token_cap():
+    """13 tokens > MAX_TOKENS: the shortest ('mu') is dropped, not the last."""
+    from app.services.query_coverage import coverage, significant_tokens
+
+    q = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu target"
+    tokens = significant_tokens(q)
+    assert len(tokens) == 12 and "target" in tokens and "mu" not in tokens
+    assert coverage(tokens, slug="target-index", title="", description="specific target functionality")[0] > 0

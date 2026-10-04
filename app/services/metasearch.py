@@ -441,8 +441,16 @@ def rank(skills: list[UnifiedSkill], *, query: str | None = None) -> list[Unifie
         tier = tiers[id(s)]
         if tier != NO_MATCH_TIER:
             return (tier, 0.0, len(s.slug), -s.rank_score, _source_priority(s.source), s.title.lower(), "")
-        cov = coverage(tokens, slug=s.slug, title=s.title, description=s.description)
-        return (tier, -cov, 0, -s.rank_score, _source_priority(s.source), s.title.lower(), s.canonical_id)
+        anywhere, head = coverage(tokens, slug=s.slug, title=s.title, description=s.description)
+        return (
+            tier,
+            -anywhere,
+            -head,
+            -s.rank_score,
+            _source_priority(s.source),
+            s.title.lower(),
+            s.canonical_id,
+        )
 
     scored.sort(key=_key)
     return scored
