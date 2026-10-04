@@ -246,3 +246,24 @@ def test_curated_paid_body_visible_to_master_caller(db_session, monkeypatch):
     )
     assert resp.status_code == 200
     assert resp.json()["body"] == "# PAID body for paid caller", "master caller must see the paid body"
+
+
+def test_install_route_emits_runnable_commands_for_a_github_skill(client, db_session, monkeypatch):
+    """fed1005 R3: one route-level positive case with a mocked GitHub branch
+    lookup (overrides the autouse stub) — the response carries the exact
+    Hermes URL install and the skills CLI tree-URL install."""
+    import app.metasearch_routes as mr
+    from app.services import github_skill_path as gsp
+
+    raw = "https://raw.githubusercontent.com/o/r/HEAD/skills/x/SKILL.md"
+    monkeypatch.setattr(mr, "_branch_for", lambda origin: "main" if origin == raw else None)
+    monkeypatch.setattr(
+        mi, "get_origin_fetcher", lambda source: lambda slug: (raw, "---\nname: x\n---\n# X\n")
+    )
+    gsp._cache.clear()
+    resp = client.get("/api/skills/metasearch/install", params={"install_ref": "skills-sh:o--r--x"})
+    assert resp.status_code == 200, resp.text
+    cmds = resp.json()["commands"]
+    assert cmds["hermes"] == f"hermes skills install {raw}"
+    assert cmds["skills_cli"] == "npx skills add https://github.com/o/r/tree/main/skills/x"
+    assert cmds["claude_code"] == cmds["skills_cli"] + " -a claude-code"

@@ -625,3 +625,68 @@ def test_r2_s1_single_flight_memory_is_bounded():
 
 def test_r2_s4_no_skills_cli_without_a_default_branch():
     assert _matrix(f"{RAW}/o/r/HEAD/skills/x/SKILL.md", "x", None)["skills_cli"] == ""
+
+
+# ── fed1005 R3 kill-tests ───────────────────────────────────────────────────
+
+
+def test_r3_m1_hostile_yaml_fails_closed_never_raises(monkeypatch):
+    nested = "name: wanted\n" + "".join("  " * i + "x:\n" for i in range(500)) + "  " * 500 + "y: 1"
+    for body in (f"---\n{nested}\n---\n# hostile\n", "---\nname: wanted\n" + "d: " + "a" * 9000 + "\n---\n"):
+        gsp._cache.clear()
+        monkeypatch.setattr(gsp, "guarded_get", _serve({"skills/wanted/SKILL.md": body}, {"tree": []}))
+        assert gsp.resolve_repo_skill_md("o/r", "wanted") is None
+        assert gsp.frontmatter_name(body) is None
+
+
+@pytest.mark.parametrize(
+    ("requested", "declared"), [("foo.bar", "foo-bar"), ("foo_bar", "foo-bar"), ("foo-bar", "foo.bar")]
+)
+def test_r3_m2_punctuation_is_identity(monkeypatch, requested, declared):
+    monkeypatch.setattr(
+        gsp, "guarded_get", _serve({f"skills/{requested}/SKILL.md": _md(declared)}, {"tree": []})
+    )
+    assert gsp.resolve_repo_skill_md("o/r", requested) is None
+
+
+def test_r3_m2_case_and_spaces_still_fold():
+    assert gsp._identity_ok(
+        "skills/convex-best-practices/SKILL.md", _md("Convex Best Practices"), "convex-best-practices"
+    )
+
+
+@pytest.mark.parametrize("name", ["[other]", "false", "{x: other}", '""'])
+def test_r3_s1_an_invalid_explicit_name_is_not_an_absent_name(monkeypatch, name):
+    body = f"---\nname: {name}\n---\n# OTHER\n"
+    monkeypatch.setattr(gsp, "guarded_get", _serve({"skills/wanted/SKILL.md": body}, {"tree": []}))
+    assert gsp.resolve_repo_skill_md("o/r", "wanted") is None
+
+
+def test_r3_s2_a_slash_branch_yields_no_skills_cli_line(monkeypatch):
+    monkeypatch.setattr(gsp, "guarded_get", lambda url, **k: _Resp(200, '{"default_branch": "release/v2"}'))
+    assert gsp.default_branch("o/r") is None
+    assert _matrix(f"{RAW}/o/r/HEAD/skills/x/SKILL.md", "x", gsp.default_branch("o/r"))["skills_cli"] == ""
+
+
+def test_r3_s3_hub_lookup_is_case_insensitive_and_returns_original_case(db_session, monkeypatch):
+    import app.database as database
+    from app.models import FederationHubSkill
+
+    db_session.add(
+        FederationHubSkill(
+            slug="o-my-repo-x",
+            title="x",
+            description="",
+            source="hermes-hub",
+            upstream_source="skills-sh",
+            identifier="skills-sh/O/My--Repo/x",
+            origin_url="https://www.skills.sh/O/My--Repo/x",
+            install_path="fetch_origin",
+            repo="O/My--Repo",
+            path="x",
+        )
+    )
+    db_session.commit()
+    monkeypatch.setattr(database, "SessionLocal", lambda: db_session)
+    monkeypatch.setattr(db_session, "close", lambda: None)
+    assert gsp._hub_skills_sh_coordinates([("o/my", "repo--x"), ("o/my--repo", "x")]) == ("O/My--Repo", "x")

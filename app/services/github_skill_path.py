@@ -84,10 +84,6 @@ def _safe(repo: str, skill_id: str) -> bool:
     return all(_segment_ok(p) for p in (*parts, skill_id))
 
 
-def _slug(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-
-
 def github_api_headers() -> dict[str, str]:
     """Headers for an api.github.com READ — authed when a token exists (5,000/h
     instead of the 60/h anonymous quota the whole prod IP shares). Send these to
@@ -101,35 +97,58 @@ def github_api_headers() -> dict[str, str]:
 
 
 _FRONTMATTER = re.compile(r"\A---[ \t]*\n(.*?)\n---[ \t]*(?:\n|\Z)", re.S)
+MAX_FRONTMATTER_BYTES = 8192
+_INVALID = object()  # an explicit name that cannot be trusted -> fail closed
 
 
-def frontmatter_name(body: str) -> str | None:
-    """The ``name`` of a COMPLETE YAML frontmatter block, parsed as YAML (a
-    quoted ``"a # b"`` is the name ``a # b``), or None. BOM and CRLF tolerated;
-    the closing fence must be a whole ``---`` line."""
+def _frontmatter_name_state(body: str) -> object:
+    """None (no frontmatter / no ``name`` key), a name string, or _INVALID
+    (present but non-string/empty, YAML that does not parse, or a block over
+    MAX_FRONTMATTER_BYTES). Untrusted YAML is bounded BEFORE parsing and ANY
+    parser failure (RecursionError included) counts as invalid (fed1005 R3)."""
     import yaml
 
     text = (body or "").lstrip("\ufeff").replace("\r\n", "\n")
     m = _FRONTMATTER.match(text)
     if not m:
         return None
+    block = m.group(1)
+    if len(block.encode("utf-8", "replace")) > MAX_FRONTMATTER_BYTES:
+        return _INVALID
     try:
-        data = yaml.safe_load(m.group(1))
-    except yaml.YAMLError:
+        data = yaml.safe_load(block)
+    except Exception:  # noqa: BLE001 — YAMLError, RecursionError, MemoryError ...
+        return _INVALID
+    if not isinstance(data, dict) or "name" not in data:
         return None
-    name = data.get("name") if isinstance(data, dict) else None
-    return name.strip() or None if isinstance(name, str) else None
+    name = data["name"]
+    return name.strip() if isinstance(name, str) and name.strip() else _INVALID
+
+
+def frontmatter_name(body: str) -> str | None:
+    """The trusted frontmatter ``name`` string, or None."""
+    state = _frontmatter_name_state(body)
+    return state if isinstance(state, str) else None
 
 
 def _dir_of(path: str) -> str:
     return path.rsplit("/", 2)[-2] if "/" in path else ""
 
 
+def _name_key(value: str) -> str:
+    """Case and whitespace are folded ('Convex Best Practices' ==
+    'convex-best-practices'); '.', '_' and '-' stay distinct, because a repo may
+    hold separate 'foo.bar' and 'foo-bar' skills (fed1005 R3)."""
+    return re.sub(r"\s+", "-", value.strip()).casefold()
+
+
 def _identity_ok(path: str, body: str, skill_id: str) -> bool:
-    name = frontmatter_name(body)
-    if name is None:
+    state = _frontmatter_name_state(body)
+    if state is _INVALID:
+        return False
+    if state is None:
         return _dir_of(path) == skill_id
-    return _slug(name) == _slug(skill_id)
+    return _name_key(state) == _name_key(skill_id)
 
 
 def _raw(repo: str, path: str) -> str | None:
@@ -241,22 +260,31 @@ MAX_SLUG_SPLITS = 8
 
 def _hub_skills_sh_coordinates(candidates: list[tuple[str, str]]) -> tuple[str, str] | None:
     """The ONE candidate the hub snapshot lists with its original slashes
-    (``skills-sh/owner/repo/skill``), or None when zero or several match or
-    the DB is unavailable. One bounded IN query; no network."""
+    (``skills-sh/owner/repo/skill``, matched case-insensitively), returned in
+    the row's ORIGINAL case; None when zero or several rows match or the DB is
+    unavailable. One bounded IN query; no network."""
     try:
+        from sqlalchemy import func
+
         from app.database import SessionLocal
         from app.models import FederationHubSkill as M
 
-        wanted = {f"skills-sh/{repo}/{sid}": (repo, sid) for repo, sid in candidates}
+        wanted = [f"skills-sh/{repo}/{sid}".lower() for repo, sid in candidates]
         db = SessionLocal()
         try:
-            rows = {r[0] for r in db.query(M.identifier).filter(M.identifier.in_(list(wanted))).all()}
+            rows = {r[0] for r in db.query(M.identifier).filter(func.lower(M.identifier).in_(wanted)).all()}
         finally:
             db.close()
     except Exception:  # noqa: BLE001 — DB outage → fail closed, never 500
         logger.warning("skills.sh slug disambiguation unavailable", exc_info=True)
         return None
-    return wanted[rows.pop()] if len(rows) == 1 else None
+    if len(rows) != 1:
+        return None
+    parts = rows.pop().split("/")
+    if len(parts) != 4:
+        return None
+    _, owner, repo, skill = parts
+    return f"{owner}/{repo}", skill
 
 
 def resolve_skills_sh_slug(slug: str) -> tuple[str, str] | None:
@@ -305,6 +333,8 @@ def default_branch(repo: str) -> str | None:
         )
     except (TypeError, ValueError, AttributeError):
         branch = None
+    # A branch with '/' ('release/v2') cannot be told apart from the skill path
+    # in a tree URL, so it is treated as "no usable branch" (no skills_cli line).
     if isinstance(branch, str) and _segment_ok(branch):
         _cache.put(key, branch)
         return branch
