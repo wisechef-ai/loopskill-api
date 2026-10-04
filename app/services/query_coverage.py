@@ -73,11 +73,11 @@ GENERIC_WEIGHT = 0.5
 def fold(text: str | None) -> str:
     """Accent- and case-insensitive form for Latin/Greek/Cyrillic ('İstanbul' ==
     'istanbul', 'café' == 'cafe\u0301'): NFKD with combining marks dropped,
-    then casefold. CJK, kana and Hangul are only NFC-composed and kept whole:
+    then casefold. CJK, kana and Hangul are NFKC-composed (halfwidth ﾊﾞｯｸﾞ == バッグ) and kept whole:
     decomposing them would split Hangul syllables into jamo and strip Japanese
     voicing marks (fed1006 R4)."""
     out: list[str] = []
-    for ch in unicodedata.normalize("NFC", text or ""):
+    for ch in unicodedata.normalize("NFKC", text or ""):
         if _CJK.match(ch):
             out.append(ch)
         else:

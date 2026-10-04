@@ -382,3 +382,23 @@ def test_r5_nit_cjk_particles_are_stopwords():
     from app.services.query_coverage import significant_tokens
 
     assert significant_tokens("的 翻译") == ["翻译"]
+
+
+# ── fed1006 R6 ──────────────────────────────────────────────────────────────
+
+
+def test_r6_halfwidth_kana_folds_to_fullwidth():
+    from app.services.query_coverage import fold
+
+    assert fold("ﾊﾞｯｸﾞ") == fold("バッグ") == "バッグ"
+    assert _first([_s("ハック-検索", "generic"), _s("バッグ-index", "検索")], "ﾊﾞｯｸﾞ 検索") == "バッグ-index"
+
+
+def test_r6_query_tokens_split_at_script_boundaries_too():
+    from app.services.query_coverage import significant_tokens
+
+    assert significant_tokens("中文react") == ["中文", "react"]
+    assert (
+        _first([_s("中文-index", "React tutorials"), _s("中文React开发", "generic")], "中文 React")
+        == "中文React开发"
+    )
