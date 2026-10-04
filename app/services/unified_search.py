@@ -416,7 +416,6 @@ def search_federated_group(db: Session, q: str, limit: int) -> tuple[list[dict],
     #     has usable rows. A populated first_page with an empty hub table is a
     #     real, searchable state (hub snapshot lag) and must read warm.
     if len(rows) < limit:
-        from app.models import FederationIndexCache
         from app.services.federation_sources_config import adapter_source_ids, github_tap_rows
 
         sources = set(adapter_source_ids()) | {str(r["source_id"]) for r in github_tap_rows()}
