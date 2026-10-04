@@ -24,7 +24,8 @@ Worst case: 4 sequential round trips, 11 GETs — a stale cached path (1),
 one 16-worker pool; single-flight uses 64 striped locks (bounded memory).
 
 Identity rule (C1 — never install another skill's body): a body is accepted
-for ``skill_id`` when its frontmatter ``name`` (slugified) equals the id, or it
+for ``skill_id`` when its frontmatter ``name`` equals the id (case and
+whitespace folded; '.', '_' and '-' stay distinct), or it
 has no parseable name AND its directory is named ``skill_id``. A name that
 contradicts the id is rejected even at a matching path. Measured: 42/42
 directory hits on prod carry name == id, so this rejects nothing legitimate.
@@ -96,7 +97,7 @@ def github_api_headers() -> dict[str, str]:
     return headers
 
 
-_FRONTMATTER = re.compile(r"\A---[ \t]*\n(.*?)\n---[ \t]*(?:\n|\Z)", re.S)
+_FRONTMATTER = re.compile(r"\A---[ \t]*\n(?:(.*?)\n)?---[ \t]*(?:\n|\Z)", re.S)
 MAX_FRONTMATTER_BYTES = 8192
 _INVALID = object()  # an explicit name that cannot be trusted -> fail closed
 
@@ -111,15 +112,21 @@ def _frontmatter_name_state(body: str) -> object:
     text = (body or "").lstrip("\ufeff").replace("\r\n", "\n")
     m = _FRONTMATTER.match(text)
     if not m:
-        return None
-    block = m.group(1)
+        # Opens like frontmatter but never closes with a whole '---' line:
+        # malformed, not absent (fed1005 R4) — never fall back to the dir name.
+        return _INVALID if text.startswith("---") else None
+    block = m.group(1) or ""
     if len(block.encode("utf-8", "replace")) > MAX_FRONTMATTER_BYTES:
         return _INVALID
     try:
         data = yaml.safe_load(block)
     except Exception:  # noqa: BLE001 — YAMLError, RecursionError, MemoryError ...
         return _INVALID
-    if not isinstance(data, dict) or "name" not in data:
+    if data is None:
+        return None  # an empty frontmatter block
+    if not isinstance(data, dict):
+        return _INVALID  # a list/scalar where a mapping belongs
+    if "name" not in data:
         return None
     name = data["name"]
     return name.strip() if isinstance(name, str) and name.strip() else _INVALID
@@ -179,7 +186,9 @@ def _tree_paths(repo: str) -> list[str] | None:
     except (TypeError, ValueError):
         return None
     tree = data.get("tree") if isinstance(data, dict) else None
-    if not isinstance(tree, list):
+    if not isinstance(tree, list) or data.get("truncated"):
+        # A truncated tree is incomplete: it proves neither "this is the only
+        # skill" nor "there is no other match" (fed1005 R4) -> unusable.
         return None
     out: list[str] = []
     for entry in tree:

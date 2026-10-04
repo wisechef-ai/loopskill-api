@@ -690,3 +690,33 @@ def test_r3_s3_hub_lookup_is_case_insensitive_and_returns_original_case(db_sessi
     monkeypatch.setattr(database, "SessionLocal", lambda: db_session)
     monkeypatch.setattr(db_session, "close", lambda: None)
     assert gsp._hub_skills_sh_coordinates([("o/my", "repo--x"), ("o/my--repo", "x")]) == ("O/My--Repo", "x")
+
+
+# ── fed1005 R4 kill-tests ───────────────────────────────────────────────────
+
+
+def test_r4_m1_a_truncated_tree_proves_nothing(monkeypatch):
+    tree = {"truncated": True, "tree": [{"path": "SKILL.md", "type": "blob"}]}
+    monkeypatch.setattr(gsp, "guarded_get", _serve({"SKILL.md": _md("other")}, tree))
+    assert gsp.resolve_repo_skill_md("o/r", "wanted") is None
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "---\nname: other\n--- not a fence\n# OTHER SKILL\n",
+        "---\nname: other\n# no closing fence\n",
+        "---\n- name: other\n---\n# OTHER\n",
+        "---\njust a string\n---\n# OTHER\n",
+    ],
+)
+def test_r4_m2_malformed_or_non_mapping_frontmatter_fails_closed(monkeypatch, body):
+    monkeypatch.setattr(gsp, "guarded_get", _serve({"skills/wanted/SKILL.md": body}, {"tree": []}))
+    assert gsp.resolve_repo_skill_md("o/r", "wanted") is None
+
+
+def test_r4_no_frontmatter_and_empty_frontmatter_still_use_directory_identity(monkeypatch):
+    for body in ("# Wanted\nPlain markdown.\n", "---\n---\n# Wanted\n"):
+        gsp._cache.clear()
+        monkeypatch.setattr(gsp, "guarded_get", _serve({"skills/wanted/SKILL.md": body}, {"tree": []}))
+        assert gsp.resolve_repo_skill_md("o/r", "wanted") is not None, body
