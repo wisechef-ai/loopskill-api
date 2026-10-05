@@ -202,12 +202,12 @@ class TestRedProofLegacyThreeIndexDesignWasBroken:
     OR query STILL seq-scans a prod-scale table even with all 3 present.
     """
 
-    def test_three_column_indexes_with_or_still_seq_scans(self, tmp_path) -> None:
+    def test_three_column_indexes_with_or_still_seq_scans(self, tmp_path, monkeypatch) -> None:
         url = _postgres_test_url()
         if url is None:
             pytest.skip("no reachable Postgres — set TEST_DATABASE_URL to a postgres:// DSN to run this test")
         cfg = _alembic_cfg(url)
-        os.environ["WR_DATABASE_URL"] = url
+        monkeypatch.setenv("WR_DATABASE_URL", url)  # scoped: a raw write leaked into later tests
         command.upgrade(cfg, PRIOR_REVISION)  # pre-fix state: no expr index yet
 
         engine = sa.create_engine(url)
@@ -257,12 +257,12 @@ class TestPostgresIndexScan:
     """
 
     @pytest.fixture()
-    def pg_session(self, tmp_path):
+    def pg_session(self, tmp_path, monkeypatch):
         url = _postgres_test_url()
         if url is None:
             pytest.skip("no reachable Postgres — set TEST_DATABASE_URL to a postgres:// DSN to run this test")
         cfg = _alembic_cfg(url)
-        os.environ["WR_DATABASE_URL"] = url
+        monkeypatch.setenv("WR_DATABASE_URL", url)  # scoped: a raw write leaked into later tests
         command.upgrade(cfg, "head")
 
         engine = sa.create_engine(url)
@@ -333,12 +333,12 @@ class TestPostgresIndexScan:
 
 @pytest.mark.postgres_only
 class TestPostgresReversibility:
-    def test_downgrade_drops_index_upgrade_recreates_it(self, tmp_path) -> None:
+    def test_downgrade_drops_index_upgrade_recreates_it(self, tmp_path, monkeypatch) -> None:
         url = _postgres_test_url()
         if url is None:
             pytest.skip("no reachable Postgres — set TEST_DATABASE_URL to a postgres:// DSN to run this test")
         cfg = _alembic_cfg(url)
-        os.environ["WR_DATABASE_URL"] = url
+        monkeypatch.setenv("WR_DATABASE_URL", url)  # scoped: a raw write leaked into later tests
         command.upgrade(cfg, "head")
 
         engine = sa.create_engine(url)
@@ -373,12 +373,12 @@ class TestQueryResultEquivalence:
     """
 
     @pytest.fixture()
-    def pg_engine(self):
+    def pg_engine(self, monkeypatch):
         url = _postgres_test_url()
         if url is None:
             pytest.skip("no reachable Postgres — set TEST_DATABASE_URL to a postgres:// DSN to run this test")
         cfg = _alembic_cfg(url)
-        os.environ["WR_DATABASE_URL"] = url
+        monkeypatch.setenv("WR_DATABASE_URL", url)  # scoped: a raw write leaked into later tests
         command.upgrade(cfg, "head")
 
         engine = sa.create_engine(url)

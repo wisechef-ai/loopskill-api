@@ -49,16 +49,27 @@ def test_bare_import_succeeds_without_env_stubs(monkeypatch):
 
     import app.config as config
 
-    config = importlib.reload(config)
-    # Import a transitive consumer of app.database -> app.config (the exact
-    # reproduction from the issue body).
-    from app.services.external_install_resolver import validate_external_slug  # noqa: F401
+    # reload() rebinds app.config's namespace in place: a fresh, EMPTY
+    # _get_settings_cached and a new Settings class. Left un-restored, the
+    # next settings access on this worker rebuilds the singleton from
+    # whatever env is live at that moment, and modules that already did
+    # `from app.config import settings` hold a different instance than the
+    # one later code reads. Snapshot the namespace and put it back.
+    saved_namespace = dict(vars(config))
+    try:
+        config = importlib.reload(config)
+        # Import a transitive consumer of app.database -> app.config (the exact
+        # reproduction from the issue body).
+        from app.services.external_install_resolver import validate_external_slug  # noqa: F401
 
-    # PEP 562 __getattr__ only fires on cache miss: if import had constructed
-    # the singleton, 'settings' would be a real entry in __dict__.
-    assert "settings" not in vars(config), "settings singleton was constructed at import time"
-    assert callable(config.get_settings)
-    assert callable(config.run_production_boot_checks)
+        # PEP 562 __getattr__ only fires on cache miss: if import had constructed
+        # the singleton, 'settings' would be a real entry in __dict__.
+        assert "settings" not in vars(config), "settings singleton was constructed at import time"
+        assert callable(config.get_settings)
+        assert callable(config.run_production_boot_checks)
+    finally:
+        vars(config).clear()
+        vars(config).update(saved_namespace)
 
 
 def test_gate_fires_on_serve_in_prod_mode_with_bad_secrets(tmp_path):
