@@ -5,6 +5,23 @@ sits under the 600-line gate (`tests/test_w0_2_pyfile_size_discipline.py`), so
 the oldest entries are moved here verbatim when it fills up. Newest entries
 stay in `app/version.py`.
 
+## 0.9.26 (archived 2026-10-07, fix-metasearch-source-deadlines)
+
+fleetos_1607 Phase A (0.9.26): placements — the spine. Three additive tables
+(loop_placements, placement_confirmations, fleet_member_liveness) + the
+epoch-CAS placement service (app/services/placement.py): every transition is a
+compare-and-swap on a monotonic placement_epoch, so two concurrent writers
+cannot both win. Cooperative move = drain (epoch++) -> old-member confirm (deduped
+on member_seq) -> activate-new (epoch++); force_move retires the old placement,
+flags forced=True, and surfaces per-safety-class duplicate-risk text (no
+exactly-once claim, honest-guarantee doctrine). A Postgres partial unique index
+enforces the single-live-placement invariant at the DB layer. Manager surface
+(assign/evacuate/placements/force_move MCP tools) is gated by the new
+authz.can_manage_fleet capability — a bare fleet-member key gets 403, an
+operator/owner/master key gets through. Stale-member alert
+(app/services/stale_member_alert.py) replaces the deleted Phase F failover.
+13 RED-proofed tests. Additive-only, no data migration.
+
 ## 0.9.25 (archived 2026-10-06, ah_1006 metasearch install-first)
 
 fleetos_1607 Phase 0 (0.9.25): the declarative fleet-artifact primitives that

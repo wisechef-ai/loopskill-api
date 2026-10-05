@@ -9,8 +9,10 @@ source is queried in parallel under:
   - a per-source **token bucket + circuit breaker** (``metasearch_ratelimit``) —
     a dry bucket or open breaker drops that source from THIS request (graceful
     degrade; the list still returns from healthy sources);
-  - a hard **per-source deadline** (default 2.5s) enforced by the thread pool —
-    a slow source cannot drag the unified p95 (council C6: the 12s timeout made
+  - a hard **per-source deadline** enforced by the gather loop (1.2s for
+    cached catalog sources, a measured longer budget for the three live-search
+    sources — see ``_SOURCE_DEADLINE_S``) — a slow source cannot drag the
+    unified latency past its own budget (council C6: the old 12s timeout made
     the <1.5s SLO impossible);
   - a **bounded fan-out** (top-N per source) so no single source floods the merge.
 
@@ -27,6 +29,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import logging
+import time
 from dataclasses import dataclass
 
 from app.services import metasearch_ratelimit as rl
@@ -66,6 +69,25 @@ DEFAULT_FANOUT_SOURCES: tuple[str, ...] = _BASE_FANOUT_SOURCES + tuple(
 # unaffected; the circuit breaker demotes a persistently-slow source so it stops
 # being tried at all. The `sources_degraded` list stays honest about who missed.
 _PER_SOURCE_DEADLINE_S = 1.2
+# Scheduling slack added to every source's deadline (thread start + pool overhead).
+_DEADLINE_SLACK_S = 0.25
+
+# t_b9887867 (2026-10-05): the 1.2 s budget above suits catalog sources, which
+# answer from an in-process cache. It never fit the three sources that make a
+# LIVE upstream call per query. Measured FROM wisechef-hq in the app venv (200s,
+# full rows, no rate limit or WAF):
+#   clawhub     /api/v1/search?q=   1.62-2.14 s
+#   github-oss  GitHub code search  0.53-1.76 s
+#   skills-sh   /api/search         0.58-0.76 s, over budget under 14-thread load
+# Under the shared 1.45 s gather they were in `sources_degraded` on nearly every
+# cold compute, and each miss fed their breakers. They get their own budget. The
+# gather now ends when every source has answered or passed ITS deadline, so a
+# hung catalog source is still cut at 1.45 s and a fast query does not wait 3 s.
+_SOURCE_DEADLINE_S: dict[str, float] = {
+    "clawhub": 3.0,
+    "github-oss": 3.0,
+    "skills-sh": 2.5,
+}
 _PER_SOURCE_TOP_N = 25
 # One thread per source, capped. The sources are I/O-bound HTTP calls, so a
 # thread each is cheap; with the old fixed 8 for 14 sources, the last 6 could
@@ -157,81 +179,116 @@ class FanoutOutput:
     sources_degraded: list[str]
 
 
+def deadline_for(source: str, override: float | None = None) -> float:
+    """The deadline (excluding slack) one source gets. An explicit ``override``
+    applies uniformly to every source; otherwise live-search sources use their
+    measured budget from ``_SOURCE_DEADLINE_S`` and the rest the default."""
+    if override is not None:
+        return override
+    return _SOURCE_DEADLINE_S.get(source, _PER_SOURCE_DEADLINE_S)
+
+
 def fan_out(
     query: str,
     *,
     sources: tuple[str, ...] = DEFAULT_FANOUT_SOURCES,
     per_source_top_n: int = _PER_SOURCE_TOP_N,
-    per_source_deadline_s: float = _PER_SOURCE_DEADLINE_S,
+    per_source_deadline_s: float | None = None,
 ) -> FanoutOutput:
     """Query all sources CONCURRENTLY under per-source deadline + rate limit.
 
     Returns (ExternalSkill, raw_row) pairs so the caller can ``unify_external``
     with popularity, plus the ok/degraded source lists for the §8 predicate and
     the honest per-query "N results across M sources".
+
+    ``per_source_deadline_s=None`` (the default) gives each source its own
+    budget via ``deadline_for``; a number applies to every source.
     """
     pairs: list[tuple[ExternalSkill, dict]] = []
     ok: list[str] = []
     degraded: list[str] = []
 
-    # Concurrent gather with a HARD wall-clock budget. Council finding 1 + R2:
-    # the prior `as_completed(timeout=deadline*len)` was a whole-gather timeout
-    # and `fut.result()` on an already-complete future never fired, so a hung
-    # source escaped as an unhandled TimeoutError AND the `with` block blocked on
-    # shutdown(wait=True). Because sources run in PARALLEL, the per-source deadline
-    # IS the whole-gather budget (+ a small scheduling slack) — a slow source
-    # cannot extend it. On timeout: mark still-pending sources degraded, record
-    # their breaker failure from THIS (owning) thread, and shutdown(wait=False,
-    # cancel_futures=True) so a hung upstream never holds the request. The worker
-    # thread does NOT record health (R2 race fix) — only this loop does. The real
-    # per-request bound is `overall_deadline_s`; a straggler thread keeps running
-    # up to _HTTP_TIMEOUT_S but its result is discarded and cannot mutate state.
-    overall_deadline_s = per_source_deadline_s + 0.25  # parallel; +slack for pool scheduling
+    # Concurrent gather with a HARD wall-clock budget PER SOURCE. Council finding
+    # 1 + R2: a hung source must never escape as an unhandled TimeoutError or
+    # hold the request on shutdown(wait=True). Each source has its own cutoff
+    # (start + deadline_for(src) + slack); the gather waits for the next event
+    # (a completion or the earliest pending cutoff) and ends once every source
+    # has answered or passed its cutoff. So a hung 1.2 s catalog source is cut
+    # at 1.45 s even while ClawHub's 3 s budget is still open, and a query whose
+    # sources all answer fast never waits for the longest budget (t_b9887867).
+    # On a cutoff: mark the source degraded, record its breaker failure from
+    # THIS (owning) thread, cancel it. The worker thread does NOT record health
+    # (R2 race fix) — only this loop does. A straggler thread keeps running up
+    # to _HTTP_TIMEOUT_S but its result is discarded and cannot mutate state.
+    started = time.monotonic()
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, min(len(sources), _MAX_WORKERS)))
     try:
         futures = {pool.submit(_query_one_source, src, query, limit=per_source_top_n): src for src in sources}
+        cutoff = {
+            fut: started + deadline_for(src, per_source_deadline_s) + _DEADLINE_SLACK_S
+            for fut, src in futures.items()
+        }
         pending = set(futures)
-        try:
-            for fut in concurrent.futures.as_completed(futures, timeout=overall_deadline_s):
+        while pending:
+            now = time.monotonic()
+            for fut in [f for f in pending if cutoff[f] <= now]:
                 pending.discard(fut)
                 src = futures[fut]
-                try:
-                    result = fut.result()
-                # Rationale: a worker raising must not abort the fan-out gather.
-                except Exception:  # noqa: BLE001
-                    logger.warning("metasearch source '%s' worker error", src, exc_info=True)
-                    rl.record_failure(src)  # owning thread records health (R2)
-                    degraded.append(src)
+                if fut.done():  # finished at the wire: its answer is already here
+                    _consume(src, fut, pairs, ok, degraded)
                     continue
-                if not result.ok:
-                    # A GATED source (open circuit / dry bucket) never leased a
-                    # probe, so it needs no outcome. Everything else consumed
-                    # one and must resolve it, or the breaker holds a lease for
-                    # a call that never happened (mesh0408e2e).
-                    if result.reason != "rate_limited_or_open_circuit":
-                        rl.record_failure(src)
-                    degraded.append(src)
-                    continue
-                rl.record_success(src)  # owning thread records health (R2)
-                ok.append(src)
-                rows = result.raw_rows
-                for i, skill in enumerate(result.skills):
-                    raw = rows[i] if i < len(rows) else {}
-                    pairs.append((skill, raw))
-        except concurrent.futures.TimeoutError:
-            # Deadline hit: every still-pending source is degraded, not fatal.
-            for fut in pending:
-                src = futures[fut]
                 logger.warning(
-                    "metasearch source '%s' exceeded overall deadline %.1fs", src, overall_deadline_s
+                    "metasearch source '%s' exceeded its deadline %.2fs", src, cutoff[fut] - started
                 )
                 rl.record_failure(src)
                 if src not in degraded:
                     degraded.append(src)
                 fut.cancel()
+            if not pending:
+                break
+            done, _ = concurrent.futures.wait(
+                pending,
+                timeout=max(0.0, min(cutoff[f] for f in pending) - now),
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+            for fut in done:
+                pending.discard(fut)
+                _consume(futures[fut], fut, pairs, ok, degraded)
     finally:
         # Do NOT block on hung upstream threads (cancel_futures drops queued work;
         # already-running fetches are bounded by _HTTP_TIMEOUT_S). Python 3.9+.
         pool.shutdown(wait=False, cancel_futures=True)
 
     return FanoutOutput(pairs=pairs, sources_ok=ok, sources_degraded=degraded)
+
+
+def _consume(
+    src: str,
+    fut: concurrent.futures.Future,
+    pairs: list[tuple[ExternalSkill, dict]],
+    ok: list[str],
+    degraded: list[str],
+) -> None:
+    """Fold one finished source into the gather and record its breaker outcome
+    (from the owning request thread, never the worker — council R2)."""
+    try:
+        result = fut.result()
+    # Rationale: a worker raising must not abort the fan-out gather.
+    except Exception:  # noqa: BLE001
+        logger.warning("metasearch source '%s' worker error", src, exc_info=True)
+        rl.record_failure(src)
+        degraded.append(src)
+        return
+    if not result.ok:
+        # A GATED source (open circuit / dry bucket) never leased a probe, so it
+        # needs no outcome. Everything else consumed one and must resolve it, or
+        # the breaker holds a lease for a call that never happened (mesh0408e2e).
+        if result.reason != "rate_limited_or_open_circuit":
+            rl.record_failure(src)
+        degraded.append(src)
+        return
+    rl.record_success(src)
+    ok.append(src)
+    rows = result.raw_rows
+    for i, skill in enumerate(result.skills):
+        pairs.append((skill, rows[i] if i < len(rows) else {}))
