@@ -41,7 +41,6 @@ from app.services.claims_normalize import (  # noqa: F401
     _ENTITY,
     ALLOWED_TAG,
     LINK,
-    LINK_REWRITE,
     BLOCK_TAG,
     POSTIZ_TAG,
     TAG_READINGS,

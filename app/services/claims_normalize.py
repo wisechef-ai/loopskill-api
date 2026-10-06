@@ -148,10 +148,19 @@ def _decode_entity(m: re.Match) -> str:
 TAGLIKE = r"<[A-Za-z/!?][^>]*>?"
 # Attributes only as <a href="...">: any other attribute (data-mention-id is
 # rewritten per platform by Postiz's convertMention) is unsupported markup.
-ALLOWED_TAG = r'^(</?(p|br|strong|b|em|i|u|s|ul|ol|li|h[1-3]|span) ?/?>|<a href="[^"<>]*">|</a>)$'
+ALLOWED_TAG = r'^(</?(p|strong|b|em|i|u|s|ul|ol|li|h[1-3]|span)>|<br ?/?>|<a href="[^"<>]*">|</a>)$'
 # A whole link, matched the way Postiz's /<a.*?href="(.*?)".*?>(.*?)<\/a>/g
 # matches it (content runs to the FIRST "</a>"): \1 = href, \2 = text.
-LINK = r'<a href="([^"<>]*)">(([^<]|<[^/]|</[^a]|</a[^>])*)</a>'
+
+
+def upto(tag: str) -> str:
+    """Portable "any text up to the first </tag>" (no lookahead): every "<"
+    run must be followed by something that cannot start "</tag>"."""
+    stop = ["[^/<]"] + ["/" + tag[:k] + f"[^{tag[k]}]" for k in range(len(tag))] + [f"/{tag}[^>]"]
+    return r"((([^<]|<+(" + "|".join(stop) + r"))*)<*)"
+
+
+LINK = r'<a href="([^"<>]*)">' + upto("a") + "</a>"
 # Readings decide what an (allowed) tag becomes. A violation found in ANY
 # reading counts (claims_contract.check_text; install.sql violations):
 #   "join"   - nothing: Postiz's plain-text output (striptags);
@@ -168,17 +177,90 @@ BLOCK_TAG = (
     r"|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|legend|li|main|menu|nav|ol|p|pre"
     r"|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)\b[^>]*>?"
 )
-#   "link"   - Postiz replaceBold: a whole link becomes its href, joined to
-#              the text around it ("recipes<a href=".wisechef.ai">x</a>");
-#   "markdown" - Postiz markdown: a link becomes "[text](href)".
-# (Rounds 18-19, claude-opus.)
+#   "link"   - Postiz "normal" + replaceBold, emulated step by step
+#              (postiz_bold): <p> -> line break, a link -> its href, <li>
+#              content loses its newlines ("Pro\n+" -> "Pro+");
+#   "markdown" - Postiz "markdown", emulated step by step (postiz_markdown).
+# Both are property-tested against Postiz's real converter
+# (tests/fixtures/postiz_pipeline.json). Postiz's regexes run on parse5
+# output, which lowercases tags, so ours match case-insensitively.
 TAG_READINGS = ("join", "postiz", "html", "space", "link", "markdown")
-LINK_REWRITE = {"link": r"\1", "markdown": r"[\2](\1)"}
+LI_BLOCK = "<li>" + upto("li") + "</li>"
+P_BLOCK = "<p>" + upto("p") + "</p>"
+
+
+def _wrap(tag: str, before: str, after: str, h: str) -> str:
+    """Postiz's <tag>(content)</tag> -> <tag>{before}content{after}</tag>."""
+    return re.sub(
+        f"<{tag}>{upto(tag)}</{tag}>", lambda m: f"<{tag}>{before}{m.group(1)}{after}</{tag}>", h, flags=re.I
+    )
+
+
+def postiz_bold(h: str) -> str:
+    """stripHtmlValidation('normal', h, replaceBold=True), minus convertToAscii."""
+    h = re.sub(r"^<p>", "", h, flags=re.I)
+    h = re.sub(r"<p>", "\n", h, flags=re.I)
+    h = re.sub(r"</p>", "", h, flags=re.I)
+    h = re.sub(LINK, lambda m: m.group(1), h, flags=re.I)
+    h = re.sub(r"<ul>", "\n<ul>", h, count=1, flags=re.I)
+    h = re.sub(r"</ul>\n", "</ul>", h, count=1, flags=re.I)
+    h = re.sub(LI_BLOCK, lambda m: "- " + re.sub(r"[\r\n]", "", m.group(1)) + "\n", h, flags=re.I)
+    return re.sub(TAGLIKE, "", h)
+
+
+def postiz_markdown(h: str) -> str:
+    """stripHtmlValidation('markdown', h)."""
+    for n in (1, 2, 3):
+        h = _wrap(f"h{n}", "#" * n + " ", "", h)
+        h = re.sub(f"</h{n}>", f"</h{n}>\n", h, flags=re.I)
+    h = _wrap("u", "__", "__", h)
+    h = _wrap("strong", "**", "**", h)
+    h = re.sub(LI_BLOCK, lambda m: "<li>- " + re.sub(r"[\r\n]", "", m.group(1)) + "</li>", h, flags=re.I)
+    h = re.sub(P_BLOCK, lambda m: "<p>" + m.group(1) + "</p>\n", h, flags=re.I)
+    h = re.sub(LINK, lambda m: f"[{m.group(2)}]({m.group(1)})", h, flags=re.I)
+    return re.sub(TAGLIKE, "", h)
+
+
+BLOCK = ("p", "ul", "ol", "h1", "h2", "h3")
+
+
+def markup_structure_error(html: str) -> str:
+    """'' when the allowed tags form a tree HTML5 keeps exactly as written.
+
+    parse5 auto-closes / re-parents anything else ("<h2>x" gains "</h2>", an
+    unclosed <a> swallows the rest), which no reading can predict. So tags must
+    be balanced and nested by these rules (install.sql: claimgate.markup_structure):
+    p/ul/ol/h1-h3 only at top level or in <li>; <li> only in <ul>/<ol>; inline
+    elements never in <ul>/<ol> and <a> never in <a>; <br> is void.
+    """
+    stack: list[str] = []
+    for tok in re.findall(TAGLIKE, html or ""):
+        m = re.match(r"<(/?)([a-z0-9]+)", tok.lower())
+        if not m or m.group(2) == "br":
+            continue
+        closing, name = m.group(1) == "/", m.group(2)
+        top = stack[-1] if stack else ""
+        if closing:
+            if top != name:
+                return f"</{name}> closes <{top or 'nothing'}>"
+            stack.pop()
+            continue
+        if name in BLOCK and top not in ("", "li"):
+            return f"<{name}> inside <{top}>"
+        if name == "li" and top not in ("ul", "ol"):
+            return f"<li> inside <{top or 'top level'}>"
+        if name not in BLOCK and name != "li" and (top in ("ul", "ol") or (name == "a" and "a" in stack)):
+            return f"<{name}> inside <{top}>"
+        stack.append(name)
+    return f"<{stack[-1]}> is never closed" if stack else ""
 
 
 def unsupported_markup(html: str) -> list[str]:
-    """Every markup token outside the allowlist (install.sql: claimgate.markup_hits)."""
-    return [t for t in re.findall(TAGLIKE, html or "") if not re.match(ALLOWED_TAG, t, re.IGNORECASE)]
+    """Markup tokens outside the allowlist, plus a structure error if any
+    (install.sql: claimgate.markup_hits)."""
+    bad = [t for t in re.findall(TAGLIKE, html or "") if not re.match(ALLOWED_TAG, t, re.IGNORECASE)]
+    err = "" if bad else markup_structure_error(html)
+    return bad + ([err] if err else [])
 
 
 def markup_violations(html: str) -> list[dict]:
@@ -201,8 +283,10 @@ def strip_tags(html: str, reading: str = "join") -> str:
     """Remove markup per ``reading`` (install.sql: claimgate.strip_tags, same regexes)."""
     if reading not in TAG_READINGS:
         raise ValueError(f"unknown tag reading {reading!r}")
-    if reading in LINK_REWRITE:
-        html = re.sub(LINK, LINK_REWRITE[reading], html)
+    if reading == "link":
+        return postiz_bold(html)
+    if reading == "markdown":
+        return postiz_markdown(html)
     if reading == "space":
         return re.sub(TAGLIKE, " ", html)
     if reading == "postiz":

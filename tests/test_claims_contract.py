@@ -18,6 +18,7 @@ pro_plus went public:false and cookbooks became bundles. These tests pin:
 from __future__ import annotations
 
 import json
+import unicodedata
 from pathlib import Path
 import re
 
@@ -208,7 +209,23 @@ REVIEW_BYPASSES += [
     ('<p>Pro is $1<a href="9">and</a>/mo</p>', {"price-tier-pro"}),
     ('<a class="x" href="https://app.loopskill.io">ok</a>', {"unsupported-markup"}),
 ]
+# Round 20 (claude-opus): case and <li> newlines in Postiz's bold/markdown modes;
+# malformed structure that parse5 would re-shape.
+REVIEW_BYPASSES += [
+    ('<p>See <A HREF="https://recipes.wisechef.ai">our site</A></p>', {"brand-recipes-domain"}),
+    ("<p>x</p><ul><li>Our Pro\n+ plan</li></ul>", {"tier-not-public-pro_plus"}),
+    ("<p>x</p><ul><li>recipes.\nwisechef.ai</li></ul>", {"brand-recipes-domain"}),
+    ("<p>a</p><ul><li><p>Pro</p><p>+ plan</p></li></ul>", {"tier-not-public-pro_plus"}),
+    ("<h2>Pro</h2>+", {"tier-not-public-pro_plus"}),
+    ("<p>Pro<h2>+ for agencies</h2></p>", {"unsupported-markup"}),
+    ("<p>Pro is $9.95/month", {"unsupported-markup"}),
+    # Deliberately strict: Postiz's plain-text mode publishes a list as
+    # "...2 private bundlesPro: 50 private bundles" (no separator), so the 50
+    # binds to Free. Producers write one <p> per line (all 447 production posts).
+    ("<ul><li>Free: 2 private bundles</li><li>Pro: 50 private bundles</li></ul>", {"tier-bundle-cap"}),
+]
 REVIEW_MUST_PASS = [
+    "<p>Pro is $9.95/month.</p><p>Free: 2 private bundles.</p><p>Pro: 50 private bundles.</p>",
     '<p>Plans: <a href="https://app.loopskill.io/pricing">current pricing</a></p>',
     "We <3 our users. LoopSkill is free to self-host.",
     "<p>Pro is $9.95/month.</p><br><p>Free includes 2 private bundles.</p>",
@@ -424,7 +441,15 @@ def test_install_sql_patterns_match_python() -> None:
     assert f"unit_pat constant text := '{cc.to_pg(cc._UNIT.pattern)}';" in sql
     assert f"IF t ~ '{cc.THOUSANDS}' THEN" in sql
     assert "ARRAY['" + "', '".join(cc.TAG_READINGS) + "']" in sql
-    for pattern in (cc.TAGLIKE, cc.POSTIZ_TAG, cc.BLOCK_TAG, cc.ALLOWED_TAG, cc.LINK):
+    for pattern in (
+        cc.TAGLIKE,
+        cc.POSTIZ_TAG,
+        cc.BLOCK_TAG,
+        cc.ALLOWED_TAG,
+        cc.LINK,
+        cn.LI_BLOCK,
+        cn.P_BLOCK,
+    ):
         assert "'" + cc.to_pg(pattern).replace("'", "''") in sql, pattern
     assert f"IF t !~ '{cc.VALID_AMOUNT}' THEN" in sql
     assert f"lower(m[{cc.UNIT_GROUP}])" in sql
@@ -475,19 +500,27 @@ PIPELINE_FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "postiz_pipe
 
 
 def _published_norm(published: str) -> str:
-    """Postiz's published text through the gate's non-markup normalisation."""
+    """Postiz's published text through the gate's text normalisation. NFKC and
+    the combining low line undo replaceBold's convertToAscii restyling."""
+    published = unicodedata.normalize("NFKC", published).replace("\u0332", "")
     return re.sub(r"[ \t\r\n\f\v]+", " ", published.translate(cn._ZW_TABLE)).strip(" ")
 
 
-@pytest.mark.parametrize(("html", "published"), PIPELINE_FIXTURE)
-def test_join_reading_is_what_postiz_publishes(html: str, published: str) -> None:
+@pytest.mark.parametrize(("html", "none", "bold", "markdown"), PIPELINE_FIXTURE)
+def test_readings_are_what_postiz_publishes(html: str, none: str, bold: str, markdown: str) -> None:
     """For every input the gate does not reject as unsupported markup, the
-    'join' reading IS the text Postiz publishes (stripHtmlValidation, real
-    parse5 6.0.1 + striptags 3.2.0; fixture from gen_postiz_pipeline_fixture.js)."""
+    join / link / markdown readings ARE the text Postiz publishes in its plain,
+    replaceBold and markdown modes (real parse5 6.0.1 + striptags 3.2.0 +
+    strip.html.validation.js; fixture from gen_postiz_pipeline_fixture.js)."""
     if cc.unsupported_markup(html):
         assert "unsupported-markup" in {v["rule_id"] for v in cc.check_text(html)}
         return
-    assert cc.normalize(html, "join") == _published_norm(published)
+    cases = [("join", none), ("markdown", markdown)]
+    if re.search(r"<p>", html, re.IGNORECASE):  # without <p>, normal mode publishes the raw HTML
+        cases.append(("link", bold))
+    for reading, published in cases:
+        ours = unicodedata.normalize("NFKC", cc.normalize(html, reading))
+        assert ours == _published_norm(published), reading
 
 
 def test_production_markup_vocabulary_is_allowed() -> None:

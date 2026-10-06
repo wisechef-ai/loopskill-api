@@ -377,7 +377,7 @@ def test_drafts_are_not_gated_and_transitions_are_logged(post_table) -> None:
 
 
 def test_strip_tags_and_markup_agree(pg) -> None:
-    for html, _ in PIPELINE_FIXTURE:
+    for html, *_ in PIPELINE_FIXTURE:
         hits = pg.execute(text("SELECT claimgate.markup_hits(:h)"), {"h": html}).scalar()
         assert bool(hits) == bool(cc.unsupported_markup(html)), html
         for reading in cc.TAG_READINGS:

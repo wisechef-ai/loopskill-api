@@ -53,6 +53,8 @@ node deploy/claimgate/gen_postiz_pipeline_fixture.js pz 600 > tests/fixtures/pos
 ```
 `postiz_converter.lock.json` pins the converter this fixture came from: the `strip.html.validation.js` sha256 and the parse5 and striptags versions. Every `claimgate_sync.py` run compares the live container against it and records any difference in `claimgate.meta('converter_drift')`, and Tori's `claimgate-watch` reports it. After a Postiz upgrade, regenerate the fixture, run the tests, and update the lock in the same PR. Until then the gate keeps enforcing, but its model of the published text is unproven.
 
+**Deliberately strict:** in plain-text mode Postiz joins list items with no separator (`…2 private bundlesPro: 50 private bundles`). A per-tier list can therefore bind a number to the previous tier and be quarantined. Write one `<p>` per line instead, as every production post already does.
+
 **Out of scope** (accepted gaps, documented):
 - Author CSS. Postiz strips tags and styles before publishing, so no platform renders it.
 - HTML5 tree-construction effects (foster parenting, raw-text elements). Every element that has them is outside the allowlist and is therefore rejected.

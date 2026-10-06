@@ -195,26 +195,60 @@ $fn$;
 
 -- Mirror of claims_contract.normalize(): strip tags (no space inserted),
 -- decode entities once, NBSP -> space, collapse ASCII whitespace, trim.
--- Mirror of claims_normalize.strip_tags / unsupported_markup (same regexes,
--- pinned by tests). Tags open only where HTML5 says so (Postiz runs parse5
--- before striptags); markup outside ALLOWED_TAG is a violation in itself.
+-- GENERATED from claims_normalize (TAGLIKE, ALLOWED_TAG, LINK, LI_BLOCK,
+-- P_BLOCK, postiz_bold, postiz_markdown, markup_structure_error); every
+-- literal is pinned by tests and the readings are property-tested against
+-- Postiz's real converter (tests/fixtures/postiz_pipeline.json).
 DROP FUNCTION IF EXISTS claimgate.tag_sep(text, text);
+CREATE OR REPLACE FUNCTION claimgate.li_flat(html text, pre text, post text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE AS $fn$
+DECLARE
+    pos int := 1;
+    p   int;
+    tok text;
+    rep text;
+BEGIN
+    LOOP
+        p := regexp_instr(html, '<li>((([^<]|<+([^/<]|/[^l]|/l[^i]|/li[^>]))*)<*)</li>', pos, 1, 0, 'i');
+        EXIT WHEN p = 0;
+        tok := regexp_substr(html, '<li>((([^<]|<+([^/<]|/[^l]|/l[^i]|/li[^>]))*)<*)</li>', pos, 1, 'i');
+        rep := pre || regexp_replace((regexp_match(tok, '<li>((([^<]|<+([^/<]|/[^l]|/l[^i]|/li[^>]))*)<*)</li>', 'i'))[1], '[\r\n]', '', 'g') || post;
+        html := left(html, p - 1) || rep || substr(html, p + length(tok));
+        pos := p + length(rep);
+    END LOOP;
+    RETURN html;
+END;
+$fn$;
+
 CREATE OR REPLACE FUNCTION claimgate.strip_tags(html text, reading text DEFAULT 'join') RETURNS text
 LANGUAGE plpgsql IMMUTABLE AS $fn$
 BEGIN
     IF reading NOT IN ('join', 'postiz', 'html', 'space', 'link', 'markdown') THEN
         RAISE EXCEPTION 'claimgate: unknown tag reading %', reading;
     END IF;
-    -- claims_normalize.LINK / LINK_REWRITE (Postiz replaceBold / markdown)
-    IF reading = 'link' THEN
-        html := regexp_replace(html, '<a href="([^"<>]*)">(([^<]|<[^/]|</[^a]|</a[^>])*)</a>', '\1', 'g');
-    ELSIF reading = 'markdown' THEN
-        html := regexp_replace(html, '<a href="([^"<>]*)">(([^<]|<[^/]|</[^a]|</a[^>])*)</a>', '[\2](\1)', 'g');
-    END IF;
-    IF reading = 'space' THEN
+    IF reading = 'link' THEN  -- claims_normalize.postiz_bold
+        html := regexp_replace(html, '^<p>', '', 'i');
+        html := regexp_replace(html, '<p>', chr(10), 'gi');
+        html := regexp_replace(html, '</p>', '', 'gi');
+        html := regexp_replace(html, '<a href="([^"<>]*)">((([^<]|<+([^/<]|/[^a]|/a[^>]))*)<*)</a>', '\1', 'gi');
+        html := regexp_replace(html, '<ul>', chr(10) || '<ul>', 'i');
+        html := regexp_replace(html, '</ul>' || chr(10), '</ul>', 'i');
+        html := claimgate.li_flat(html, '- ', chr(10));
+    ELSIF reading = 'markdown' THEN  -- claims_normalize.postiz_markdown
+        html := regexp_replace(html, '<h1>((([^<]|<+([^/<]|/[^h]|/h[^1]|/h1[^>]))*)<*)</h1>', '<h1># \1</h1>', 'gi');
+        html := regexp_replace(html, '</h1>', '</h1>' || chr(10), 'gi');
+        html := regexp_replace(html, '<h2>((([^<]|<+([^/<]|/[^h]|/h[^2]|/h2[^>]))*)<*)</h2>', '<h2>## \1</h2>', 'gi');
+        html := regexp_replace(html, '</h2>', '</h2>' || chr(10), 'gi');
+        html := regexp_replace(html, '<h3>((([^<]|<+([^/<]|/[^h]|/h[^3]|/h3[^>]))*)<*)</h3>', '<h3>### \1</h3>', 'gi');
+        html := regexp_replace(html, '</h3>', '</h3>' || chr(10), 'gi');
+        html := regexp_replace(html, '<u>((([^<]|<+([^/<]|/[^u]|/u[^>]))*)<*)</u>', '<u>__\1__</u>', 'gi');
+        html := regexp_replace(html, '<strong>((([^<]|<+([^/<]|/[^s]|/s[^t]|/st[^r]|/str[^o]|/stro[^n]|/stron[^g]|/strong[^>]))*)<*)</strong>', '<strong>**\1**</strong>', 'gi');
+        html := claimgate.li_flat(html, '<li>- ', '</li>');
+        html := regexp_replace(html, '<p>((([^<]|<+([^/<]|/[^p]|/p[^>]))*)<*)</p>', '<p>\1</p>' || chr(10), 'gi');
+        html := regexp_replace(html, '<a href="([^"<>]*)">((([^<]|<+([^/<]|/[^a]|/a[^>]))*)<*)</a>', '[\2](\1)', 'gi');
+    ELSIF reading = 'space' THEN
         RETURN regexp_replace(html, '<[A-Za-z/!?][^>]*>?', ' ', 'g');
-    END IF;
-    IF reading = 'postiz' THEN
+    ELSIF reading = 'postiz' THEN
         html := regexp_replace(html, '<(p|li|ul|h[1-3])[^>]*>?', ' ', 'gi');
     ELSIF reading = 'html' THEN
         html := regexp_replace(html, '</?(address|article|aside|blockquote|br|caption|center|dd|details|dialog|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|legend|li|main|menu|nav|ol|p|pre|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)\y[^>]*>?', ' ', 'gi');
@@ -223,11 +257,49 @@ BEGIN
 END;
 $fn$;
 
+CREATE OR REPLACE FUNCTION claimgate.markup_structure_error(body text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE AS $fn$
+DECLARE
+    st  text[] := '{}';
+    tok text;
+    m   text[];
+    nm  text;
+    top text;
+BEGIN
+    FOR tok IN SELECT x.mm[1] FROM regexp_matches(coalesce(body, ''), '(' || '<[A-Za-z/!?][^>]*>?' || ')', 'g')
+                    WITH ORDINALITY AS x(mm, n) ORDER BY x.n LOOP
+        m := regexp_match(lower(tok), '^<(/?)([a-z0-9]+)');
+        CONTINUE WHEN m IS NULL OR m[2] = 'br';
+        nm := m[2];
+        top := coalesce(st[array_length(st, 1)], '');
+        IF m[1] = '/' THEN
+            IF top <> nm THEN
+                RETURN '</' || nm || '> closes <' || CASE WHEN top = '' THEN 'nothing' ELSE top END || '>';
+            END IF;
+            st := st[1:array_length(st, 1) - 1];
+            CONTINUE;
+        END IF;
+        IF nm IN ('p', 'ul', 'ol', 'h1', 'h2', 'h3') AND top NOT IN ('', 'li') THEN
+            RETURN '<' || nm || '> inside <' || top || '>';
+        END IF;
+        IF nm = 'li' AND top NOT IN ('ul', 'ol') THEN
+            RETURN '<li> inside <' || CASE WHEN top = '' THEN 'top level' ELSE top END || '>';
+        END IF;
+        IF nm NOT IN ('p', 'ul', 'ol', 'h1', 'h2', 'h3', 'li') AND (top IN ('ul', 'ol') OR (nm = 'a' AND 'a' = ANY (st))) THEN
+            RETURN '<' || nm || '> inside <' || top || '>';
+        END IF;
+        st := st || nm;
+    END LOOP;
+    RETURN CASE WHEN array_length(st, 1) > 0 THEN '<' || st[array_length(st, 1)] || '> is never closed' ELSE '' END;
+END;
+$fn$;
+
 CREATE OR REPLACE FUNCTION claimgate.markup_hits(body text) RETURNS text[]
 LANGUAGE sql IMMUTABLE AS $fn$
     SELECT CASE WHEN EXISTS (
-        SELECT 1 FROM regexp_matches(coalesce(body, ''), '(<[A-Za-z/!?][^>]*>?)', 'g') AS m
-         WHERE m[1] !~* '^(</?(p|br|strong|b|em|i|u|s|ul|ol|li|h[1-3]|span) ?/?>|<a href="[^"<>]*">|</a>)$')
+        SELECT 1 FROM regexp_matches(coalesce(body, ''), '(' || '<[A-Za-z/!?][^>]*>?' || ')', 'g') AS m
+         WHERE m[1] !~* '^(</?(p|strong|b|em|i|u|s|ul|ol|li|h[1-3]|span)>|<br ?/?>|<a href="[^"<>]*">|</a>)$')
+      OR claimgate.markup_structure_error(body) <> ''
     THEN ARRAY['unsupported-markup'] ELSE '{}'::text[] END
 $fn$;
 
