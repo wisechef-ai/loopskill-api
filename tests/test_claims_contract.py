@@ -100,7 +100,16 @@ REVIEW_BYPASSES += [
     ("Pro&#x10FFFF0; plan", {"unrecognised-html-entity"}),
     ("Pro&#" + "9" * 5000 + "; plan", {"unrecognised-html-entity"}),
 ]
+# Round 5 (gpt-6.1-sol).
+REVIEW_BYPASSES += [
+    ("Pro $9,950/month", {"price-tier-pro"}),
+    ("Pro costs only $199/month", {"price-tier-pro", "price-recurring"}),
+    ("Pro is only $199/month", {"price-tier-pro", "price-recurring"}),
+    ("LoopSkill is $199/month", {"price-recurring"}),
+    ("WiseChef: Pro costs $199/month", {"price-tier-pro"}),
+]
 REVIEW_MUST_PASS = [
+    "Done-for-you: WiseChef runs it for you from $199/month.",
     "AT&T and R&D teams, Q&A after.",
     "We share 3 key lessons from shipping agents.",
     "R&D on agent skills, Q&A included.",

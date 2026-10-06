@@ -14,7 +14,8 @@ Keeps the Postiz-side claims gate (install.sql) fed and honest:
                Every pattern is executed by Postgres inside that transaction,
                so a pattern the trigger could not run aborts the sync and the
                previous rules stay in force. Fetch failure = keep old rules.
-3. SWEEP       every post sitting in QUEUE is re-checked with BOTH engines:
+3. SWEEP       every post in QUEUE (and every DRAFT that was ever queued: its
+               publish workflow may still be sleeping) is re-checked with BOTH engines:
                the SQL rules (catches posts queued before a rule existed) and
                POST /api/marketing/claims/check (belt and braces: both engines
                implement the same rules, including tier binding). A violation quarantines the post the only
@@ -176,6 +177,18 @@ def sync() -> dict:
             "INSERT INTO claimgate.rule (id, kind, pg_pattern, amount_group, allowed, reason) VALUES "
             f"({lit(r['id'])}, 'amount', {lit(r['pg_pattern'])}, {int(r['amount_group'])}, {allowed}, {lit(r.get('reason'))});"
         )
+    for r in c.get("exempt_rules") or []:
+        stmts.append(
+            f"INSERT INTO claimgate.rule (id, kind, pg_pattern, reason) VALUES "
+            f"({lit(r['id'])}, 'exempt', {lit(r['pg_pattern'])}, {lit(r.get('reason'))});"
+        )
+    flagged = [r["id"] for r in amounts if r.get("exemptable")]
+    if flagged:
+        stmts.append(
+            "UPDATE claimgate.rule SET exemptable = true WHERE id IN ("
+            + ", ".join(lit(i) for i in flagged)
+            + ");"
+        )
     # Execute every pattern once inside the transaction: an invalid ARE aborts
     # the whole sync and the previous rules stay live.
     stmts.append("SELECT count(*) FROM claimgate.rule WHERE 'probe' ~* pg_pattern;")
@@ -195,7 +208,8 @@ def sweep() -> int:
     rows = psql(
         "SELECT coalesce(json_agg(json_build_object('id', p.id, 'content', p.content, "
         "'sqlv', claimgate.violations(p.content))), '[]') FROM \"Post\" p "
-        "WHERE p.state = 'QUEUE' AND p.\"deletedAt\" IS NULL "
+        "WHERE p.\"deletedAt\" IS NULL AND (p.state = 'QUEUE' OR (p.state = 'DRAFT' AND EXISTS "
+        "(SELECT 1 FROM claimgate.state_log l WHERE l.post_id = p.id AND l.new_state = 'QUEUE'))) "
         "AND NOT EXISTS (SELECT 1 FROM claimgate.override o WHERE o.post_id = p.id);"
     ).strip()
     quarantined = 0

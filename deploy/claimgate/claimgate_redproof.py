@@ -35,6 +35,18 @@ for r in contract["amount_rules"]:
         f"({lit(r['id'])}, 'amount', {lit(r['pg_pattern'])}, {int(r['amount_group'])}, {allowed});"
     )
 
+for r in contract.get("exempt_rules") or []:
+    load.append(
+        f"INSERT INTO claimgate.rule (id, kind, pg_pattern) VALUES ({lit(r['id'])}, 'exempt', {lit(r['pg_pattern'])});"
+    )
+_flagged = [r["id"] for r in contract["amount_rules"] if r.get("exemptable")]
+if _flagged:
+    load.append(
+        "UPDATE claimgate.rule SET exemptable = true WHERE id IN ("
+        + ", ".join(lit(i) for i in _flagged)
+        + ");"
+    )
+
 # Pick test rows: a DRAFT that violates, and DRAFTs that are clean.
 pick = psql(
     "SELECT json_build_object("

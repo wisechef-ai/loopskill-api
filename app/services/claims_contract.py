@@ -48,8 +48,10 @@ CONTRACT_YAML = _CONFIG / "claims_contract.yaml"
 
 MAX_CHECK_CHARS = 20_000
 
-# Amounts are bounded ({1,7}) so no input can force a huge int/float conversion.
-_NUM = r"([0-9]{1,7}([.,][0-9]{1,2})?)"
+# A WHOLE numeric token: the trailing \b forbids stopping inside one, so
+# "$9,950" can never be read as "$9,95" (it backtracks to "9" and is flagged).
+# Unbounded on purpose: float() of a 20k-digit token is inf, never an error.
+_NUM = r"([0-9]+([.,][0-9]{1,2})?)\b"
 _RECURRING = (
     r"(/ ?mo|/ ?m|/ ?month|per month|a month|monthly|/ ?yr|/ ?year|per year|a year|annually|yearly)\b"
 )
@@ -60,7 +62,10 @@ _ONE_TIME = r"(one-time|one time|once|lifetime)\b"
 _KEY_UNIT = r"((active |scoped |separate |client )?(API )?keys|(active |scoped |separate |client )?API key|(active|scoped|separate|client) key)"
 # Only explicit connectors bind a price to a tier ("Pro is $X", "Pro at $X",
 # "Pro: $X", "Pro plan for $X"), so "Pro saved $20 in API spend" is not a price.
-_TIER_LINK = r"( plan| tier)?( is| costs| at| for| from| only)?:? ?[-–—]? ?"
+_TIER_LINK = (
+    r"( plan| tier)?,?( is| costs| cost| at| for| from| only| just| now| starts| starting| priced| still| runs| goes){0,3}"
+    r":? ?[-–—]? ?"
+)
 
 _PORTABLE_FORBIDDEN = re.compile(r"\(\?|\\[1-9]|\\[AZzGkpPNdDwWsS]")
 
@@ -270,13 +275,15 @@ def _tier_price_rules(rule_id: str, name_pattern: str, allowed: list[float], lab
 def _amount_rules(public: list[dict], founding: dict | None, other_prices: list[dict]) -> list[dict]:
     """Amount-bearing claims. Each rule names the ONLY amounts it may carry."""
     recurring = {float(t["price_usd"]) for t in public if t["price_usd"] is not None}
-    recurring |= {float(o["amount_usd"]) for o in other_prices if o.get("cadence", "monthly") == "monthly"}
+    # Other products' prices are NOT added here: they are allowed only inside
+    # their own product context (exempt_rules), never as a free-floating amount.
     one_time = {0.0}
     if founding and founding.get("price_usd") is not None:
         one_time.add(float(founding["price_usd"]))
     rules = [
         {
             "id": "price-recurring",
+            "exemptable": True,
             "pattern": r"[$€] ?" + _NUM + " ?(USD|EUR)? ?" + _RECURRING,
             "amount_group": 1,
             "allowed": sorted(recurring),
@@ -284,6 +291,7 @@ def _amount_rules(public: list[dict], founding: dict | None, other_prices: list[
         },
         {
             "id": "price-recurring-suffix",
+            "exemptable": True,
             "pattern": r"\b" + _NUM + r" ?(USD|EUR|dollars|euros|bucks) ?" + _RECURRING,
             "amount_group": 1,
             "allowed": sorted(recurring),
@@ -291,6 +299,7 @@ def _amount_rules(public: list[dict], founding: dict | None, other_prices: list[
         },
         {
             "id": "price-one-time",
+            "exemptable": True,
             "pattern": r"[$€] ?" + _NUM + " ?(USD|EUR)?,? ?" + _ONE_TIME,
             "amount_group": 1,
             "allowed": sorted(one_time),
@@ -385,6 +394,17 @@ def _cached_contract(tiers_mtime: float, contract_mtime: float) -> str:
         if not op.get("evidence"):
             raise ValueError(f"other_prices entry without evidence: {op!r}")
 
+    exempt = []
+    for i, op in enumerate(other_prices):
+        if not op.get("context"):
+            raise ValueError(f"other_prices entry without a context pattern: {op!r}")
+        exempt.append(
+            {
+                "id": f"other-price-{i}",
+                "pattern": op["context"],
+                "reason": f"{op.get('product')} ({op.get('evidence')})",
+            }
+        )
     retired = (
         _derived_retired(tiers)
         + [
@@ -404,13 +424,13 @@ def _cached_contract(tiers_mtime: float, contract_mtime: float) -> str:
         ]
     )
     amounts = _amount_rules(public, founding, other_prices)
-    for r in retired + amounts:
+    for r in retired + amounts + exempt:
         assert_portable(r["pattern"])
         r["pg_pattern"] = to_pg(r["pattern"])
         r["reason"] = " ".join(str(r.get("reason") or "").split())
 
     body = {
-        "contract_version": 2,
+        "contract_version": 3,
         "public_tiers": public,
         "founding": (
             {
@@ -428,6 +448,7 @@ def _cached_contract(tiers_mtime: float, contract_mtime: float) -> str:
         "approved_facts": _facts(public, founding, contract_doc.get("facts") or []),
         "retired_rules": retired,
         "amount_rules": amounts,
+        "exempt_rules": exempt,
         "check_endpoint": "/api/marketing/claims/check",
     }
     body["contract_hash"] = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]
@@ -469,15 +490,22 @@ def check_text(text: str, contract: dict | None = None) -> list[dict]:
     for rule in c["retired_rules"]:
         for m in re.finditer(rule["pattern"], text, re.IGNORECASE):
             out.append(_violation("retired", rule["id"], m, text, rule["reason"], rule.get("replacement")))
+    # Generic price rules skip spans that state ANOTHER product's price in that
+    # product's own context ("WiseChef ... from $199/month"). Tier-bound rules
+    # still see the full text, so "WiseChef: Pro costs $199/month" is flagged.
+    exempted = text
+    for ex in c.get("exempt_rules") or []:
+        exempted = re.sub(ex["pattern"], " ", exempted, flags=re.IGNORECASE)
     for rule in c["amount_rules"]:
         allowed = {round(float(a), 2) for a in rule["allowed"]}
-        for m in re.finditer(rule["pattern"], text, re.IGNORECASE):
+        src = exempted if rule.get("exemptable") else text
+        for m in re.finditer(rule["pattern"], src, re.IGNORECASE):
             amount = round(float(m.group(rule["amount_group"]).replace(",", ".")), 2)
             if amount not in allowed:
                 shown = ", ".join(_num(a) for a in sorted(allowed)) or "none (contact only)"
                 out.append(
                     _violation(
-                        "amount", rule["id"], m, text, f"{rule['reason']}: {_num(amount)} (allowed: {shown})"
+                        "amount", rule["id"], m, src, f"{rule['reason']}: {_num(amount)} (allowed: {shown})"
                     )
                 )
     out += _tier_binding(text, c)

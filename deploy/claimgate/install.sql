@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS claimgate.rule (
 );
 ALTER TABLE claimgate.rule ADD COLUMN IF NOT EXISTS allowed numeric[];
 ALTER TABLE claimgate.rule DROP CONSTRAINT IF EXISTS rule_kind_check;
-ALTER TABLE claimgate.rule ADD CONSTRAINT rule_kind_check CHECK (kind IN ('retired', 'amount'));
+ALTER TABLE claimgate.rule ADD CONSTRAINT rule_kind_check CHECK (kind IN ('retired', 'amount', 'exempt'));
+ALTER TABLE claimgate.rule ADD COLUMN IF NOT EXISTS exemptable boolean NOT NULL DEFAULT false;
 DROP TABLE IF EXISTS claimgate.allowed_price;  -- v1: replaced by rule.allowed (per-rule amounts)
 
 -- Public tiers for the nearest-tier binding check (synced from the contract).
@@ -86,6 +87,7 @@ CREATE TABLE IF NOT EXISTS claimgate.state_log (
     violations     text,
     alerted        boolean NOT NULL DEFAULT false
 );
+CREATE INDEX IF NOT EXISTS state_log_post ON claimgate.state_log (post_id, new_state);
 CREATE INDEX IF NOT EXISTS state_log_unalerted ON claimgate.state_log (at) WHERE quarantined AND NOT alerted;
 
 -- Mirror of claims_contract.NAMED_ENTITIES + _decode_entity: ONE pass, left
@@ -268,6 +270,7 @@ DECLARE
     m    text[];
     amt  numeric;
     hits text[] := '{}';
+    body_ex text;
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM claimgate.rule WHERE kind = 'retired')
        OR NOT EXISTS (SELECT 1 FROM claimgate.rule WHERE kind = 'amount') THEN
@@ -282,8 +285,14 @@ BEGIN
             hits := hits || r.id;
         END IF;
     END LOOP;
+    -- mirror of check_text(): generic price rules skip other products' prices
+    -- stated in their own context; tier-bound rules see the full text
+    body_ex := body;
+    FOR r IN SELECT * FROM claimgate.rule WHERE kind = 'exempt' ORDER BY id LOOP
+        body_ex := regexp_replace(body_ex, r.pg_pattern, ' ', 'gi');
+    END LOOP;
     FOR r IN SELECT * FROM claimgate.rule WHERE kind = 'amount' LOOP
-        FOR m IN SELECT regexp_matches(body, r.pg_pattern, 'gi') LOOP
+        FOR m IN SELECT regexp_matches(CASE WHEN r.exemptable THEN body_ex ELSE body END, r.pg_pattern, 'gi') LOOP
             IF r.amount_group IS NULL OR m[r.amount_group] IS NULL THEN
                 RAISE EXCEPTION 'claimgate: rule % captured no amount (group %)', r.id, r.amount_group;
             END IF;
@@ -307,11 +316,21 @@ DECLARE
     v      text;
     entering_queue boolean;
 BEGIN
-    entering_queue := NEW.state::text = 'QUEUE' AND NEW."deletedAt" IS NULL AND (
-        TG_OP = 'INSERT'
-        OR OLD.state::text IS DISTINCT FROM 'QUEUE'
-        OR OLD."deletedAt" IS NOT NULL
-        OR OLD.content IS DISTINCT FROM NEW.content
+    entering_queue := NEW."deletedAt" IS NULL AND (
+        (NEW.state::text = 'QUEUE' AND (
+            TG_OP = 'INSERT'
+            OR OLD.state::text IS DISTINCT FROM 'QUEUE'
+            OR OLD."deletedAt" IS NOT NULL
+            OR OLD.content IS DISTINCT FROM NEW.content))
+        -- A post that is or ever was queued may still have a sleeping publish
+        -- workflow, which reloads the row WITHOUT re-checking state. So for
+        -- such a post, a content change or an un-delete is gated in ANY state
+        -- (QUEUE -> DRAFT + new content, or "restore" of a quarantined row).
+        OR (TG_OP = 'UPDATE'
+            AND (OLD.content IS DISTINCT FROM NEW.content OR OLD."deletedAt" IS NOT NULL)
+            AND (OLD.state::text = 'QUEUE'
+                 OR EXISTS (SELECT 1 FROM claimgate.state_log l
+                             WHERE l.post_id = NEW.id AND l.new_state = 'QUEUE')))
     );
 
     IF entering_queue AND NOT EXISTS (SELECT 1 FROM claimgate.override o WHERE o.post_id = NEW.id) THEN

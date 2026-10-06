@@ -115,6 +115,15 @@ def pg(db_session):
                 "a": "{" + ",".join(str(x) for x in r["allowed"]) + "}",
             },
         )
+    for r in contract["exempt_rules"]:
+        conn.execute(
+            text("INSERT INTO claimgate.rule (id, kind, pg_pattern) VALUES (:i, 'exempt', :p)"),
+            {"i": r["id"], "p": r["pg_pattern"]},
+        )
+    conn.execute(
+        text("UPDATE claimgate.rule SET exemptable = true WHERE id = ANY(:ids)"),
+        {"ids": [r["id"] for r in contract["amount_rules"] if r.get("exemptable")]},
+    )
     yield conn
     conn.exec_driver_sql("DROP SCHEMA IF EXISTS claimgate CASCADE")
 
@@ -236,6 +245,50 @@ def test_trigger_fails_closed_when_tier_table_empty(post_table) -> None:
     post_table.execute(text("DELETE FROM claimgate.tier"))
     deleted, log = _queue(post_table, "p10", "Pro includes 2 private bundles")
     assert deleted and "tier table empty" in log
+
+
+def test_trigger_gates_queue_to_draft_content_change(post_table) -> None:
+    """Round 5: queued clean, then flipped to DRAFT with new copy. The sleeping
+    publish workflow would still post it, so the trigger must quarantine."""
+    _queue(post_table, "p11", CLEAN_CORPUS[0])
+    post_table.execute(
+        text("UPDATE public.\"Post\" SET state = 'DRAFT', content = 'Pro+ for agencies' WHERE id = 'p11'")
+    )
+    assert post_table.execute(
+        text('SELECT "deletedAt" IS NOT NULL FROM public."Post" WHERE id = \'p11\'')
+    ).scalar()
+
+
+def test_trigger_gates_draft_edit_of_ever_queued_post(post_table) -> None:
+    _queue(post_table, "p12", CLEAN_CORPUS[0])
+    post_table.execute(text("UPDATE public.\"Post\" SET state = 'DRAFT' WHERE id = 'p12'"))
+    post_table.execute(text("UPDATE public.\"Post\" SET content = 'Pro is $20/mo' WHERE id = 'p12'"))
+    assert post_table.execute(
+        text('SELECT "deletedAt" IS NOT NULL FROM public."Post" WHERE id = \'p12\'')
+    ).scalar()
+
+
+def test_trigger_blocks_undelete_of_quarantined_post_as_draft(post_table) -> None:
+    deleted, _ = _queue(post_table, "p13", "Pro+ for agencies")
+    assert deleted
+    post_table.execute(
+        text("UPDATE public.\"Post\" SET state = 'DRAFT', \"deletedAt\" = NULL WHERE id = 'p13'")
+    )
+    assert post_table.execute(
+        text('SELECT "deletedAt" IS NOT NULL FROM public."Post" WHERE id = \'p13\'')
+    ).scalar()
+
+
+def test_never_queued_draft_edits_are_not_gated(post_table) -> None:
+    post_table.execute(
+        text("INSERT INTO public.\"Post\" (id, state, content) VALUES ('p14', 'DRAFT', 'clean')")
+    )
+    post_table.execute(
+        text("UPDATE public.\"Post\" SET content = 'Pro+ idea, fix before queueing' WHERE id = 'p14'")
+    )
+    assert not post_table.execute(
+        text('SELECT "deletedAt" IS NOT NULL FROM public."Post" WHERE id = \'p14\'')
+    ).scalar()
 
 
 def test_drafts_are_not_gated_and_transitions_are_logged(post_table) -> None:
