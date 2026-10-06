@@ -44,9 +44,8 @@ import yaml
 
 from app.services.claims_normalize import (  # noqa: F401  (re-exported: tests + install.sql parity)
     _ENTITY,
-    TAG,
-    BLOCK_TAG,
-    POSTIZ_BREAK,
+    BLOCK_PREFIX,
+    POSTIZ_PREFIX,
     TAG_READINGS,
     C1_REMAP,
     LEGACY_NO_SEMICOLON,
@@ -55,6 +54,7 @@ from app.services.claims_normalize import (  # noqa: F401  (re-exported: tests +
     UNRECOGNISED_ENTITY,
     ZERO_WIDTH,
     normalize,
+    strip_tags,
 )
 
 _CONFIG = Path(__file__).resolve().parent.parent.parent / "config"

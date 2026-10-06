@@ -1,0 +1,134 @@
+[
+ [
+  "",
+  ""
+ ],
+ [
+  "plain text, no tags",
+  "plain text, no tags"
+ ],
+ [
+  "Pro<b>+</b> for agencies",
+  "Pro+ for agencies"
+ ],
+ [
+  "<p>P<!--'-->ro+ for agencies</p>",
+  "Pro+ for agencies"
+ ],
+ [
+  "P<!---->ro+",
+  "Pro+"
+ ],
+ [
+  "P<!-- a -- b -->ro+",
+  "Pro+"
+ ],
+ [
+  "P<!-- unterminated",
+  "P"
+ ],
+ [
+  "P<!-->ro+",
+  "Pro+"
+ ],
+ [
+  "P<!--->ro+",
+  "Pro+"
+ ],
+ [
+  "Pro<b title=\">\">+</b>",
+  "Pro+"
+ ],
+ [
+  "Pro<b title='>'>+</b>",
+  "Pro+"
+ ],
+ [
+  "Pro<b title=\"'>\">+</b>",
+  "Pro+"
+ ],
+ [
+  "a < b and c > d",
+  "a < b and c > d"
+ ],
+ [
+  "x<y",
+  "x"
+ ],
+ [
+  "x< y",
+  "x< y"
+ ],
+ [
+  "x<\ny",
+  "x< y"
+ ],
+ [
+  "<<b>>Pro+",
+  "Pro+"
+ ],
+ [
+  "<a <b>>Pro+</a>",
+  "Pro+"
+ ],
+ [
+  "Pro<br>includes 2 private bundles",
+  "Proincludes 2 private bundles"
+ ],
+ [
+  "P<b>ro</b><br>includes 2 private bundles",
+  "Proincludes 2 private bundles"
+ ],
+ [
+  "P<br>ro<p>includes 2 private bundles</p>",
+  "Proincludes 2 private bundles"
+ ],
+ [
+  "<p>Pro is $9.95/month.</p><p>Free includes 2 private bundles.</p>",
+  "Pro is $9.95/month.Free includes 2 private bundles."
+ ],
+ [
+  "Rec<br>ipes<p>powers your agents</p>",
+  "Recipespowers your agents"
+ ],
+ [
+  "unterminated <b title=\"x",
+  "unterminated "
+ ],
+ [
+  "Pro<b title=\"a'b\">+</b>",
+  "Pro+"
+ ],
+ [
+  "<!DOCTYPE html>Pro+",
+  "Pro+"
+ ],
+ [
+  "<?xml version=\"1.0\"?>Pro+",
+  "Pro+"
+ ],
+ [
+  "Pro&#43; and <i>&amp;</i>",
+  "Pro&#43; and &amp;"
+ ],
+ [
+  "emoji 😀<b>Pro</b>+",
+  "emoji 😀Pro+"
+ ],
+ [
+  "<ul><li>Free: 2 private bundles</li><li>Pro: 50 private bundles</li></ul>",
+  "Free: 2 private bundlesPro: 50 private bundles"
+ ],
+ [
+  "<p>LoopSkill costs, unlike WiseChef, $199/month.</p>",
+  "LoopSkill costs, unlike WiseChef, $199/month."
+ ],
+ [
+  "tab<\tb>x",
+  "tabx"
+ ],
+ [
+  "<b\n>Pro</b>+",
+  "Pro+"
+ ]
+]

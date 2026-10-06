@@ -18,6 +18,7 @@ pro_plus went public:false and cookbooks became bundles. These tests pin:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import re
 
 import pytest
@@ -176,6 +177,10 @@ BLOCK_TAG_CASES: list[tuple[str, set[str]]] = [
     ("P<br>ro<p>includes 2 private bundles</p>", {"tier-bundle-cap"}),
     ("Rec<br>ipes<p>powers your agents</p>", {"brand-recipes-product"}),
     ("P<br>ro<pre>includes 2 private bundles</pre>", {"tier-bundle-cap"}),
+    # round 16: comments / quotes parsed exactly like striptags
+    ("<p>P<!--'-->ro+ for agencies</p>", {"tier-not-public-pro_plus"}),
+    ("P<!-- a -- b -->ro+ for agencies", {"tier-not-public-pro_plus"}),
+    ('Pro<b title="\'>">+</b> for agencies', {"tier-not-public-pro_plus"}),
 ]
 REVIEW_BYPASSES += BLOCK_TAG_CASES
 REVIEW_MUST_PASS = [
@@ -390,10 +395,11 @@ def test_install_sql_patterns_match_python() -> None:
     assert f"pat   constant text := '{cc._ENTITY.pattern}';" in sql
     assert f"unit_pat constant text := '{cc.to_pg(cc._UNIT.pattern)}';" in sql
     assert f"IF t ~ '{cc.THOUSANDS}' THEN" in sql
-    assert "'" + cc.to_pg(cc.TAG).replace("'", "''") + "', '', 'g')" in sql
-    assert "'" + cc.to_pg(cc.BLOCK_TAG).replace("'", "''") + "', ' ', 'gi')" in sql
     assert "ARRAY['" + "', '".join(cc.TAG_READINGS) + "']" in sql
-    assert "'" + cc.to_pg(cc.POSTIZ_BREAK).replace("'", "''") + "', ' ', 'gi')" in sql
+    assert (
+        "WHEN 'postiz' THEN CASE WHEN tag ~* '" + cc.to_pg(cc.POSTIZ_PREFIX).replace("'", "''") + "'" in sql
+    )
+    assert "ELSE CASE WHEN tag ~* '" + cc.to_pg(cc.BLOCK_PREFIX).replace("'", "''") + "'" in sql
     assert f"IF t !~ '{cc.VALID_AMOUNT}' THEN" in sql
     assert f"lower(m[{cc.UNIT_GROUP}])" in sql
     assert f"claimgate.parse_amount(m[{cc.NUM_AFTER_GUARD}])" in sql
@@ -437,3 +443,12 @@ def test_number_runs_stay_linear() -> None:
         t0 = time.perf_counter()
         cc.check_text(body[: cc.MAX_CHECK_CHARS])
         assert time.perf_counter() - t0 < 2.0, body[:20]
+
+
+STRIPTAGS_FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "striptags_3_2_0.json").read_text())
+
+
+@pytest.mark.parametrize(("html", "expected"), STRIPTAGS_FIXTURE)
+def test_strip_tags_join_is_real_striptags(html: str, expected: str) -> None:
+    """The 'join' reading IS what Postiz publishes: byte-for-byte striptags@3.2.0."""
+    assert cc.strip_tags(html, "join") == expected

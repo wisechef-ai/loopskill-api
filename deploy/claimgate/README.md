@@ -31,7 +31,7 @@ crontab (wisechef-hq):
 - **Who queued a post?** `state_log` records every state/`deletedAt` transition, with time, `application_name` and client address.
 
 ## Threat model: which text is checked
-The gate checks the post's source `content`, as written by producers or the Postiz editor, under every tag reading a real consumer uses. A violation in any reading counts (`claims_normalize.TAG_READINGS`; `claimgate.violations`):
+The gate checks the post's source `content`, as written by producers or the Postiz editor, under every tag reading a real consumer uses. Tags are located by a port of Postiz's own `striptags@3.2.0` state machine, not by a regex. The port is checked byte for byte against real striptags outputs in `tests/fixtures/striptags_3_2_0.json`, which `gen_striptags_fixture.js` regenerates. A violation in any reading counts (`claims_normalize.TAG_READINGS`; `claimgate.violations`):
 
 - **join**: every tag is removed with no separator. This is what Postiz sends to plain-text platforms (`stripHtmlValidation`: `<p>` becomes a newline, everything else goes through `striptags`, verified in the running container on 2026-10-06).
 - **postiz**: exactly what Postiz publishes. Opening tags matched by its regexes (`<p…>`, `<li…>`, `<ul>`, and `h1`–`h3` on HTML platforms) become a line break, and every other tag, `<br>` included, is removed with no separator (`POSTIZ_BREAK`).

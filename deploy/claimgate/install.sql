@@ -195,27 +195,106 @@ $fn$;
 
 -- Mirror of claims_contract.normalize(): strip tags (no space inserted),
 -- decode entities once, NBSP -> space, collapse ASCII whitespace, trim.
+-- Port of striptags@3.2.0 (claims_normalize.strip_tags; byte-for-byte checked
+-- against real striptags outputs in tests/fixtures/striptags_3_2_0.json).
+CREATE OR REPLACE FUNCTION claimgate.tag_sep(tag text, reading text) RETURNS text
+LANGUAGE sql IMMUTABLE AS $fn$
+    SELECT CASE reading
+        WHEN 'join' THEN ''
+        WHEN 'space' THEN ' '
+        WHEN 'postiz' THEN CASE WHEN tag ~* '^<(p|li|ul|h[1-3])' THEN ' ' ELSE '' END
+        ELSE CASE WHEN tag ~* '^<[ \t\r\n]*/?[ \t\r\n]*(address|article|aside|blockquote|br|caption|center|dd|details|dialog|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|legend|li|main|menu|nav|ol|p|pre|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)\y' THEN ' ' ELSE '' END
+    END
+$fn$;
+
+CREATE OR REPLACE FUNCTION claimgate.strip_tags(html text, reading text DEFAULT 'join') RETURNS text
+LANGUAGE plpgsql IMMUTABLE AS $fn$
+DECLARE
+    chars text[];
+    ch    text;
+    st    text := 'text';
+    buf   text := '';
+    depth int := 0;
+    q     text := '';
+    o     text[] := '{}';
+    i     int;
+BEGIN
+    IF reading NOT IN ('join', 'postiz', 'html', 'space') THEN
+        RAISE EXCEPTION 'claimgate: unknown tag reading %', reading;
+    END IF;
+    IF strpos(html, '<') = 0 THEN
+        RETURN html;
+    END IF;
+    chars := regexp_split_to_array(html, '');
+    FOR i IN 1 .. coalesce(array_length(chars, 1), 0) LOOP
+        ch := chars[i];
+        IF st = 'text' THEN
+            IF ch = '<' THEN
+                st := 'html';
+                buf := '<';
+            ELSE
+                o := o || ch;
+            END IF;
+        ELSIF st = 'html' THEN
+            IF ch = '<' THEN
+                IF q = '' THEN
+                    depth := depth + 1;
+                END IF;
+            ELSIF ch = '>' THEN
+                IF q <> '' THEN
+                    NULL;
+                ELSIF depth > 0 THEN
+                    depth := depth - 1;
+                ELSE
+                    q := '';
+                    st := 'text';
+                    o := o || claimgate.tag_sep(buf || '>', reading);
+                    buf := '';
+                END IF;
+            ELSIF ch = '"' OR ch = '''' THEN
+                IF ch = q THEN
+                    q := '';
+                ELSIF q = '' THEN
+                    q := ch;
+                END IF;
+                buf := buf || ch;
+            ELSIF ch = '-' THEN
+                IF buf = '<!-' THEN
+                    st := 'comment';
+                END IF;
+                buf := buf || ch;
+            ELSIF ch = ' ' OR ch = E'\n' THEN
+                IF buf = '<' THEN
+                    st := 'text';
+                    o := o || '< '::text;
+                    buf := '';
+                ELSE
+                    buf := buf || ch;
+                END IF;
+            ELSE
+                buf := buf || ch;
+            END IF;
+        ELSE
+            IF ch = '>' THEN
+                IF right(buf, 2) = '--' THEN
+                    st := 'text';
+                END IF;
+                buf := '';
+            ELSE
+                buf := buf || ch;
+            END IF;
+        END IF;
+    END LOOP;
+    RETURN array_to_string(o, '');
+END;
+$fn$;
+
 DROP FUNCTION IF EXISTS claimgate.normalize(text);
 DROP FUNCTION IF EXISTS claimgate.normalize(text, text);
 CREATE OR REPLACE FUNCTION claimgate.normalize(body text, reading text DEFAULT 'join') RETURNS text
 LANGUAGE plpgsql IMMUTABLE AS $fn$
 BEGIN
-    -- GENERATED from claims_normalize.TAG / BLOCK_TAG / TAG_READINGS
-    IF reading NOT IN ('join', 'postiz', 'html', 'space') THEN
-        RAISE EXCEPTION 'claimgate: unknown tag reading %', reading;
-    END IF;
-    body := coalesce(body, '');
-    IF reading = 'space' THEN
-        body := regexp_replace(body, '<([^>\"'']|\"[^\"]*\"|''[^'']*'')*>', ' ', 'g');
-    ELSE
-        IF reading = 'postiz' THEN
-            body := regexp_replace(body, '<(p|li|ul|h[1-3])([^>\"'']|\"[^\"]*\"|''[^'']*'')*>', ' ', 'gi');
-        END IF;
-        IF reading = 'html' THEN
-            body := regexp_replace(body, '<[ \t\r\n]*/?[ \t\r\n]*(address|article|aside|blockquote|br|caption|center|dd|details|dialog|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|legend|li|main|menu|nav|ol|p|pre|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)\y([^>\"'']|\"[^\"]*\"|''[^'']*'')*>', ' ', 'gi');
-        END IF;
-        body := regexp_replace(body, '<([^>\"'']|\"[^\"]*\"|''[^'']*'')*>', '', 'g');
-    END IF;
+    body := claimgate.strip_tags(coalesce(body, ''), reading);
     body := claimgate.decode_entities(body);
     -- GENERATED from claims_contract.ZERO_WIDTH / SPACE_LIKE (parity-tested)
     body := translate(body, chr(173)||chr(8203)||chr(8204)||chr(8205)||chr(8288)||chr(65279), '');
