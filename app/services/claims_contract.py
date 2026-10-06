@@ -64,9 +64,11 @@ CONTRACT_YAML = _CONFIG / "claims_contract.yaml"
 MAX_CHECK_CHARS = 20_000
 
 # number grammar: app/services/claims_numbers.py (re-exported for tests + install.sql parity)
+from app.services.claims_derived import _derived_retired, derived_fact_rules  # noqa: E402
 from app.services.claims_numbers import (  # noqa: E402,F401
     _COUNT,
     _GROUPED,
+    _KEY_UNIT,
     _NOT_AFTER_NUM,
     _NUM,
     _RUN,
@@ -80,12 +82,8 @@ from app.services.claims_numbers import (  # noqa: E402,F401
 # Public tier prices are MONTHLY; an annual price may only use an amount
 # tiers.yaml defines as annual_price_usd (round 21: "Pro is $9.95/year").
 _MONTHLY = r"(/ ?mo|/ ?m|/ ?month|per month|a month|monthly)\b"
-_ANNUAL = r"(/ ?yr|/ ?year|per year|a year|annually|yearly)\b"
+_ANNUAL = r"(/ ?yr|/ ?year|/ ?annum|per year|a year|per annum|annually|yearly)\b"
 _ONE_TIME = r"(one-time|one time|once|lifetime)\b"
-# An API-key count: "1 API key", "10 API keys", "20 keys", "20 scoped keys".
-# Plural "keys" after a number is always a count (fail closed); singular "key"
-# only with "API" or a qualifier, so "3 key lessons" is not a key count.
-_KEY_UNIT = r"((active |scoped |separate |client )?(API )?keys|(active |scoped |separate |client )?API key|(active|scoped|separate|client) key)"
 # Only explicit connectors bind a price to a tier ("Pro is $X", "Pro at $X",
 # "Pro: $X", "Pro plan for $X"), so "Pro saved $20 in API spend" is not a price.
 _TIER_LINK = (
@@ -193,34 +191,6 @@ def _load_yaml(path: Path) -> dict:
         return yaml.safe_load(fh) or {}
 
 
-def _derived_retired(tiers: dict) -> list[dict]:
-    """One retired rule per non-public tier: its display name, badge and slug."""
-    rules = []
-    for slug, cfg in tiers.items():
-        if cfg.get("public", True):
-            continue
-        names = {slug}
-        for key in ("display_name", "badge"):
-            if cfg.get(key):
-                names.add(str(cfg[key]))
-        if str(cfg.get("display_name", "")).endswith("+"):
-            names.add(str(cfg["display_name"])[:-1] + " Plus")
-        alts = sorted({re.escape(n).replace(r"\ ", " ") for n in names}, key=len, reverse=True)
-        rules.append(
-            {
-                "id": f"tier-not-public-{slug}",
-                "pattern": r"\b(" + "|".join(alts) + r")",
-                "reason": (
-                    f"Tier {cfg.get('display_name', slug)!r} is public: false in config/tiers.yaml; "
-                    "it is not on the public ladder and must not be advertised."
-                ),
-                "replacement": "the public tiers listed in this contract",
-                "source": "config/tiers.yaml",
-            }
-        )
-    return rules
-
-
 def _tier_price_rules(rule_id: str, name_pattern: str, allowed: list[float], label: str) -> list[dict]:
     """Two rules per tier: "Pro is $X" (prefix currency) and "Pro costs X USD" (suffix)."""
     # A trailing \b after a name ending in punctuation ("Pro\+") could never
@@ -243,6 +213,22 @@ def _tier_price_rules(rule_id: str, name_pattern: str, allowed: list[float], lab
             "id": rule_id + "-suffix",
             "pattern": head + _NUM + r" ?(USD|EUR|dollars|euros|bucks)\b",
             "amount_group": before + 1,
+            "allowed": sorted(allowed),
+            "reason": reason,
+        },
+        {  # "$9.95/month on the Free tier" (round 22)
+            "id": rule_id + "-trailing",
+            "pattern": _NOT_AFTER_NUM
+            + r"[$€]? ?"
+            + _NUM
+            + r" ?(USD|EUR|dollars|euros|bucks)? ?("
+            + "|".join((_MONTHLY, _ANNUAL, _ONE_TIME))
+            + r")?"
+            + ATTACH[1:]
+            + r"\b"
+            + name_pattern
+            + tail,
+            "amount_group": NUM_AFTER_GUARD,
             "allowed": sorted(allowed),
             "reason": reason,
         },
@@ -385,18 +371,9 @@ def _cached_contract(tiers_mtime: float, contract_mtime: float) -> str:
     ]
     veto = r"\b(" + "|".join(sorted({_lit(n) for n in veto_names}, key=len, reverse=True)) + r")"
     exempt = [_exempt_rule(i, op, veto) for i, op in enumerate(other_prices)]
-    no_annual = all(t.get("annual_price_usd") is None for t in public)
     retired = (
         _derived_retired(tiers)
-        + [
-            {
-                "id": "annual-billing-not-offered",
-                "pattern": r"\b(billed (annually|yearly)|(annual|yearly) (billing|plans?|subscriptions?|pricing))\b",
-                "reason": "no tier in config/tiers.yaml has an annual_price_usd: LoopSkill bills monthly",
-                "replacement": "per-month pricing from app.loopskill.io/pricing",
-                "source": "config/tiers.yaml",
-            }
-        ][: int(no_annual)]
+        + derived_fact_rules(public)
         + [
             {
                 "id": "unrecognised-html-entity",

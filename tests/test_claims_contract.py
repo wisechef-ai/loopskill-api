@@ -234,7 +234,24 @@ REVIEW_BYPASSES += [
     ("You get 50 private bundles, all on Free", {"tier-bundle-cap"}),
     ("LoopSkill gives you 50 private bundles on our Free plan, 2 more for referrals", {"tier-bundle-cap"}),
 ]
+# Round 22 (codex sol): trailing price tier; unlimited caps; annual phrasing.
+REVIEW_BYPASSES += [
+    ("LoopSkill costs $9.95/month on the Free tier.", {"price-tier-free-trailing"}),
+    ("LoopSkill: $0/month with Pro", {"price-tier-pro-trailing"}),
+    ("Talk to us: $500/month for On-demand", {"price-tier-contact-only-trailing"}),
+    (
+        "LoopSkill Free includes unlimited private bundles and unlimited API keys.",
+        {"unlimited-private-bundles", "unlimited-api-keys"},
+    ),
+    ("Create as many private bundles as you want on Pro", {"unlimited-private-bundles"}),
+    ("No limit on API keys with LoopSkill Pro", {"unlimited-api-keys"}),
+    ("LoopSkill Pro is $9.95/mo, paid annually.", {"annual-billing-not-offered"}),
+    ("LoopSkill Pro: $119.40 per annum", {"price-annual", "annual-billing-not-offered"}),
+]
 REVIEW_MUST_PASS = [
+    "LoopSkill Pro is $9.95/month on the Pro plan.",
+    "Public bundles are unlimited on every tier, including Free.",
+    "Start free, then $9.95/month for Pro.",
     "Free users upgrade to get 50 private bundles on Pro.",
     "50 private bundles (Free gives you 2).",
     "2 private bundles on Free and 50 private bundles on Pro.",

@@ -60,3 +60,9 @@ def parse_amount(token: str) -> float:
         return float(token.replace(",", "."))
     except ValueError:  # defensive: never raise from the check
         return float("nan")
+
+
+# An API-key count: "1 API key", "10 API keys", "20 keys", "20 scoped keys".
+# Plural "keys" after a number is always a count (fail closed); singular "key"
+# only with "API" or a qualifier, so "3 key lessons" is not a key count.
+_KEY_UNIT = r"((active |scoped |separate |client )?(API )?keys|(active |scoped |separate |client )?API key|(active|scoped|separate|client) key)"
