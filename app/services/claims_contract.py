@@ -66,6 +66,9 @@ MAX_CHECK_CHARS = 20_000
 # number grammar: app/services/claims_numbers.py (re-exported for tests + install.sql parity)
 from app.services.claims_derived import _derived_retired, derived_fact_rules, loss_exemptions  # noqa: E402
 from app.services.claims_numbers import (  # noqa: E402,F401
+    _CUR_PRE,
+    _CUR_SUF,
+    num_group,
     _ANNUAL,
     _FILLER,
     _MONTHLY,
@@ -135,14 +138,20 @@ def _exempt_rule(i: int, op: dict, veto: str) -> dict:
     return {
         "id": f"other-price-{i:02d}",
         "pattern": (
-            r"\b" + _lit(op["product_name"]) + r"\b[^0-9.!?$€]{0,120}("
-            r"[$€] ?"
+            r"\b"
+            + _lit(op["product_name"])
+            + r"\b[^0-9.!?$€£¥₹]{0,120}("
+            + _CUR_PRE
             + amt
-            + r" ?(USD|EUR)? ?"
+            + r" ?"
+            + _CUR_SUF
+            + "? ?"
             + cad
             + r"|\b"
             + amt
-            + r" ?(USD|EUR|dollars|euros) ?"
+            + r" ?"
+            + _CUR_SUF
+            + " ?"
             + cad
             + ")"
         ),
@@ -204,14 +213,14 @@ def _tier_price_rules(rule_id: str, name_pattern: str, allowed: list[float], lab
     return [
         {
             "id": rule_id,
-            "pattern": head + r"[$€] ?" + _NUM,
-            "amount_group": before + 1,
+            "pattern": head + _CUR_PRE + _NUM,
+            "amount_group": num_group(head + _CUR_PRE),
             "allowed": sorted(allowed),
             "reason": reason,
         },
         {
             "id": rule_id + "-suffix",
-            "pattern": head + _NUM + r" ?(USD|EUR|dollars|euros|bucks)\b",
+            "pattern": head + _NUM + r" ?" + _CUR_SUF + r"\b",
             "amount_group": before + 1,
             "allowed": sorted(allowed),
             "reason": reason,
@@ -219,16 +228,20 @@ def _tier_price_rules(rule_id: str, name_pattern: str, allowed: list[float], lab
         {  # "$9.95/month on the Free tier" (round 22)
             "id": rule_id + "-trailing",
             "pattern": _NOT_AFTER_NUM
-            + r"[$€]? ?"
+            + "("
+            + _CUR_PRE
+            + ")?"
             + _NUM
-            + r" ?(USD|EUR|dollars|euros|bucks)? ?("
+            + " ?"
+            + _CUR_SUF
+            + "? ?("
             + "|".join((_MONTHLY, _ANNUAL, _ONE_TIME))
             + r")?"
             + ATTACH[1:]
             + r"\b"
             + name_pattern
             + tail,
-            "amount_group": NUM_AFTER_GUARD,
+            "amount_group": num_group(_NOT_AFTER_NUM + "(" + _CUR_PRE + ")?"),
             "allowed": sorted(allowed),
             "reason": reason,
         },
@@ -254,15 +267,15 @@ def _amount_rules(public: list[dict], founding: dict | None, other_prices: list[
             {
                 "id": rid,
                 "exemptable": True,
-                "pattern": r"[$€] ?" + _NUM + " ?(USD|EUR)? ?" + cad,
-                "amount_group": 1,
+                "pattern": _CUR_PRE + _NUM + " ?" + _CUR_SUF + "? ?" + cad,
+                "amount_group": num_group(_CUR_PRE),
                 "allowed": sorted(allowed),
                 "reason": what,
             },
             {
                 "id": rid + "-suffix",
                 "exemptable": True,
-                "pattern": _NOT_AFTER_NUM + _NUM + r" ?(USD|EUR|dollars|euros|bucks) ?" + cad,
+                "pattern": _NOT_AFTER_NUM + _NUM + r" ?" + _CUR_SUF + " ?" + cad,
                 "amount_group": NUM_AFTER_GUARD,
                 "allowed": sorted(allowed),
                 "reason": what,
@@ -272,8 +285,8 @@ def _amount_rules(public: list[dict], founding: dict | None, other_prices: list[
         {
             "id": "price-one-time",
             "exemptable": True,
-            "pattern": r"[$€] ?" + _NUM + " ?(USD|EUR)?,? ?" + _ONE_TIME,
-            "amount_group": 1,
+            "pattern": _CUR_PRE + _NUM + " ?" + _CUR_SUF + "?,? ?" + _ONE_TIME,
+            "amount_group": num_group(_CUR_PRE),
             "allowed": sorted(one_time),
             "reason": "one-time price other than the Founding Member SKU",
         },

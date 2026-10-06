@@ -5,7 +5,16 @@ Rules are data: install.sql runs them unchanged via the contract sync."""
 
 import re
 
-from app.services.claims_numbers import _ANNUAL, _FILLER, _KEY_UNIT, _MONTHLY, _NUM, _OTHER_PERIOD
+from app.services.claims_numbers import (
+    _ANNUAL,
+    _CUR_PRE,
+    _CUR_SUF,
+    _FILLER,
+    _KEY_UNIT,
+    _MONTHLY,
+    _NUM,
+    _OTHER_PERIOD,
+)
 
 
 def _derived_retired(tiers: dict) -> list[dict]:
@@ -94,12 +103,16 @@ def loss_exemptions(veto: str) -> list[dict]:
     word and the amount ("just", "only", "for", "with" never do), and the
     sentence veto (LoopSkill / any tier) still applies (round 23)."""
     period = "(" + "|".join((_MONTHLY, _ANNUAL, _OTHER_PERIOD)) + ")"
-    amount = r"[$€] ?" + _NUM + r" ?(USD|EUR)? ?"
+    amount = _CUR_PRE + _NUM + r" ?" + _CUR_SUF + "? ?"
     trigger = r"\b(lose|loses|losing|lost|losses|loss|bleeding|burning|wasting|save|saves|saved|saving|worth)"
     return [
         {"id": rid, "pattern": pat, "veto": veto, "reason": "a loss / savings / value figure, not a price"}
         for rid, pat in (
             ("loss-figure-before", trigger + _FILLER + " " + amount + period),
-            ("loss-figure-after", amount + period + r" ?(in |of )?(lost|loss|losses|downtime)\b"),
+            (
+                "loss-figure-after",
+                amount + period + r" ?(in |of )?(missed |lost |wasted |forgone |extra |new )?"
+                r"(lost|loss|losses|downtime|revenue|sales|income|profits?|savings)\b",
+            ),
         )
     ]

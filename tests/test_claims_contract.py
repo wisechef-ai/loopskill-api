@@ -267,7 +267,27 @@ REVIEW_BYPASSES += [
     ("Save more for only $19/month.", {"price-recurring"}),
     ("It costs you $9.95/week.", {"price-unsupported-period"}),
 ]
+# Round 24 (codex sol): period lead words; non-dollar currencies.
+REVIEW_BYPASSES += [
+    ("LoopSkill costs $20 each month.", {"price-recurring"}),
+    ("LoopSkill Pro: $20 every month", {"price-recurring", "price-tier-pro"}),
+    ("LoopSkill costs $20 for each month you use it.", {"price-recurring"}),
+    ("LoopSkill Pro costs £999/month.", {"price-recurring", "price-tier-pro"}),
+    ("LoopSkill Pro: USD 20 per month", {"price-recurring", "price-tier-pro"}),
+    ("LoopSkill is 40 zł a month", {"price-recurring-suffix"}),
+    ("LoopSkill Pro is ¥2000/mo", {"price-recurring", "price-tier-pro"}),
+    ("LoopSkill: $9.95 every year", {"price-annual"}),
+    ("LoopSkill: $9.95 each week", {"price-unsupported-period"}),
+    ("£20/month on the Free tier", {"price-tier-free-trailing"}),
+    ("LoopSkill Pro: $20 each month in savings", {"price-recurring", "price-tier-pro"}),
+    ("Stop losing time for $20 each month.", {"price-recurring"}),
+]
 REVIEW_MUST_PASS = [
+    "LoopSkill Pro is $9.95 each month.",
+    # real production copy (round 24 scan): loss figures with "each <period>"
+    "If these crashes happen frequently, you could face losses exceeding $100,000 each year.",
+    "That totals a jaw-dropping $30,000 each month in missed revenue.",
+    "Pro: £9.95 every month.",
     "LoopSkill Free is $0 per week, every week.",
     # real pain-first copy from production (loss figures are not prices)
     "Downtime can lead to losses of around $8,000 a day.",

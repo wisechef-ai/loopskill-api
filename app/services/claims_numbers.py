@@ -70,14 +70,33 @@ _KEY_UNIT = r"((active |scoped |separate |client )?(API )?keys|(active |scoped |
 
 # Public tier prices are MONTHLY; an annual price may only use an amount
 # tiers.yaml defines as annual_price_usd (round 21: "Pro is $9.95/year").
-_MONTHLY = r"(/ ?mo|/ ?m|/ ?month|per month|a month|monthly)\b"
-_ANNUAL = r"(/ ?yr|/ ?year|/ ?annum|per year|a year|per annum|annually|yearly)\b"
+# A billing period is <lead><unit>, so EVERY lead combines with every unit
+# ("each month", "every year", "for each week"; round 24).
+_LEAD = r"(for |billed |paid |charged )?(/ ?|per |a |an |each |every )"
+_MONTHLY = r"(" + _LEAD + r"(months?|mos?|mths?)|/ ?m|monthly|month-to-month)\b"
+_ANNUAL = r"(" + _LEAD + r"(years?|yrs?|annum)|annually|yearly)\b"
 _FILLER = (
     r"( (of|around|about|over|up|to|nearly|almost|roughly|approximately|more|than|least|an|a|the|average"
+    r"|exceeding|topping|upwards|north|totaling|totalling|reaching|well"
     r"|estimated|them|you|your|team|teams|businesses|companies|clients|customers)){0,5}"
 )
 # Any OTHER billing period is unsupported (round 23: "$9.95/week").
 _OTHER_PERIOD = (
-    r"((/ ?|per |a |an |every )(wk|week|day|hr|hour|minute|min|quarter|qtr|fortnight|semester|decade)s?"
+    r"("
+    + _LEAD
+    + r"(wks?|weeks?|days?|hrs?|hours?|minutes?|mins?|quarters?|qtrs?|fortnights?|semesters?|decades?)"
     r"|weekly|daily|hourly|quarterly|biweekly|bi-weekly|fortnightly|semiannually|semi-annually)\b"
 )
+
+
+# Every currency marker a price can carry (round 24: "£999/month"). The gate
+# checks the AMOUNT against tiers.yaml whatever the marker, so a foreign
+# currency never hides a price. Prefix ends in an optional space.
+_CUR_PRE = r"([$€£¥₹]|(US|A|C|NZ|HK|S|R)\$|(USD|EUR|GBP|PLN|CHF|CAD|AUD|JPY|INR) ?) ?"
+_CUR_SUF = r"(USD|EUR|GBP|PLN|CHF|CAD|AUD|JPY|INR|zł|zloty|złoty|dollars|euros|pounds|quid|bucks|francs)"
+
+
+def num_group(prefix: str) -> int:
+    """Capture-group index of the number that follows ``prefix`` (computed from
+    the regex itself, never hard-coded: currency and guards carry groups)."""
+    return re.compile(prefix, re.IGNORECASE).groups + 1
