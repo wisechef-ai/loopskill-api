@@ -155,7 +155,18 @@ MALFORMED_RUNS: list[tuple[str, set[str]]] = [
     ("LoopSkill costs 9 95 USD/month", {"price-recurring-suffix"}),
 ]
 REVIEW_BYPASSES += MALFORMED_RUNS
+# Round 12 (gpt-6.1-sol): block tags separate words.
+BLOCK_TAG_CASES: list[tuple[str, set[str]]] = [
+    ("Pro<br>includes 2 private bundles", {"tier-bundle-cap"}),
+    ("Pro<br/>includes 2 private bundles", {"tier-bundle-cap"}),
+    ("<p>Pro</p><p>includes 2 private bundles</p>", {"tier-bundle-cap"}),
+    ("Recipes<br>powers your agents", {"brand-recipes-product"}),
+    ("Recipes<BR >powers your agents", {"brand-recipes-product"}),
+    ("Pro<b>+</b> for agencies", {"tier-not-public-pro_plus"}),
+]
+REVIEW_BYPASSES += BLOCK_TAG_CASES
 REVIEW_MUST_PASS = [
+    "<p>Pro is $9.95/month.</p><p>Free includes 2 private bundles.</p>",
     "Free: 2 private bundles. Pro: 50 private bundles.",
     "Pro: 50 private bundles,10 API keys.",
     "Free: 2 private bundles, 1 API key.",
@@ -366,6 +377,7 @@ def test_install_sql_patterns_match_python() -> None:
     assert f"pat   constant text := '{cc._ENTITY.pattern}';" in sql
     assert f"unit_pat constant text := '{cc.to_pg(cc._UNIT.pattern)}';" in sql
     assert f"IF t ~ '{cc.THOUSANDS}' THEN" in sql
+    assert f"'{cc.to_pg(cc.BLOCK_TAG)}', ' ', 'gi')" in sql
     assert f"IF t !~ '{cc.VALID_AMOUNT}' THEN" in sql
     assert f"lower(m[{cc.UNIT_GROUP}])" in sql
     assert f"claimgate.parse_amount(m[{cc.NUM_AFTER_GUARD}])" in sql

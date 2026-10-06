@@ -130,15 +130,26 @@ def _decode_entity(m: re.Match) -> str:
     return NAMED_ENTITIES.get(body, m.group(0))
 
 
+# Block-level / line-break tags separate words when rendered ("Pro<br>includes"
+# shows two lines), so they become a space; every other (inline) tag is removed
+# with NO space ("Pro<b>+</b>" renders "Pro+"). install.sql: claimgate.normalize.
+BLOCK_TAG = (
+    r"<[ \t\r\n]*/?[ \t\r\n]*(br|p|div|li|ul|ol|dl|dt|dd|h[1-6]|hr|tr|td|th|table|thead|tbody|tfoot"
+    r"|blockquote|pre|section|article|aside|header|footer|nav|main|figure|figcaption|address)\b[^>]*>"
+)
+
+
 def normalize(text: str) -> str:
     """The text BOTH engines check (install.sql: claimgate.normalize).
 
-    1. tags removed WITHOUT inserting a space (``Pro<b>+</b>`` -> ``Pro+``);
+    1. block tags -> space (``Pro<br>includes``); inline tags removed WITHOUT a
+       space (``Pro<b>+</b>`` -> ``Pro+``);
     2. entities decoded once, per the explicit spec above;
     3. ZERO_WIDTH deleted, SPACE_LIKE -> space;
     4. ASCII whitespace runs -> one space; trimmed of ASCII spaces only (the
        same thing Postgres btrim() does).
     """
-    text = re.sub(r"<[^>]+>", "", text or "")
+    text = re.sub(BLOCK_TAG, " ", text or "", flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
     text = _ENTITY.sub(_decode_entity, text).translate(_ZW_TABLE)
     return re.sub(r"[ \t\r\n\f\v]+", " ", text).strip(" ")

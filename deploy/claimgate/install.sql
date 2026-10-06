@@ -198,7 +198,9 @@ $fn$;
 CREATE OR REPLACE FUNCTION claimgate.normalize(body text) RETURNS text
 LANGUAGE plpgsql IMMUTABLE AS $fn$
 BEGIN
-    body := regexp_replace(coalesce(body, ''), '<[^>]+>', '', 'g');
+    -- GENERATED from claims_normalize.BLOCK_TAG: block tags -> space, inline tags -> ''
+    body := regexp_replace(coalesce(body, ''), '<[ \t\r\n]*/?[ \t\r\n]*(br|p|div|li|ul|ol|dl|dt|dd|h[1-6]|hr|tr|td|th|table|thead|tbody|tfoot|blockquote|pre|section|article|aside|header|footer|nav|main|figure|figcaption|address)\y[^>]*>', ' ', 'gi');
+    body := regexp_replace(body, '<[^>]+>', '', 'g');
     body := claimgate.decode_entities(body);
     -- GENERATED from claims_contract.ZERO_WIDTH / SPACE_LIKE (parity-tested)
     body := translate(body, chr(173)||chr(8203)||chr(8204)||chr(8205)||chr(8288)||chr(65279), '');

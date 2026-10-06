@@ -44,6 +44,7 @@ import yaml
 
 from app.services.claims_normalize import (  # noqa: F401  (re-exported: tests + install.sql parity)
     _ENTITY,
+    BLOCK_TAG,
     C1_REMAP,
     LEGACY_NO_SEMICOLON,
     NAMED_ENTITIES,

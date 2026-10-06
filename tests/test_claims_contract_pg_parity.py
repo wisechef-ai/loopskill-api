@@ -26,6 +26,7 @@ from sqlalchemy import text
 from app.services import claims_contract as cc
 from tests.test_claims_contract import (
     CLEAN_CORPUS,
+    BLOCK_TAG_CASES,
     MALFORMED_RUNS,
     REAL_INCIDENTS,
     REVIEW_BYPASSES,
@@ -337,7 +338,7 @@ def test_trigger_quarantines_misattributed_other_product_price(post_table) -> No
     )
 
 
-@pytest.mark.parametrize(("body", "expected"), MALFORMED_RUNS)
+@pytest.mark.parametrize(("body", "expected"), MALFORMED_RUNS + BLOCK_TAG_CASES)
 def test_trigger_quarantines_malformed_runs(post_table, body: str, expected: set[str]) -> None:
     pid = "m" + str(abs(hash(body)) % 10**9)
     deleted, log = _queue(post_table, pid, body)
