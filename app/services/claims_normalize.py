@@ -133,23 +133,43 @@ def _decode_entity(m: re.Match) -> str:
 # A tag, with quoted attribute values allowed to contain ">" ('<b title=">">').
 # Each alternative starts with a distinct character, so matching is linear.
 TAG = r"<([^>\"']|\"[^\"]*\"|'[^']*')*>"
-# Whether a tag joins or separates the text around it depends on CSS, not on
-# its name ("Pro<b>+</b>" renders "Pro+", "Pro<form>includes" renders two
-# lines), so no tag list can be right. The check runs on BOTH readings and
-# reports every violation found in either (claims_contract.check_text;
-# install.sql claimgate.violations).
-TAG_SEPARATORS = ("", " ")
+# Elements a browser displays as blocks / line breaks by default (the HTML
+# rendering spec's default stylesheet). Quoted attributes allowed, as in TAG.
+BLOCK_TAG = (
+    r"<[ \t\r\n]*/?[ \t\r\n]*(address|article|aside|blockquote|br|caption|center|dd|details|dialog|div|dl|dt"
+    r"|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|legend|li|main|menu|nav|ol|p|pre"
+    r"|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)\b([^>\"']|\"[^\"]*\"|'[^']*')*>"
+)
+# How a tag affects the words around it is decided by whoever renders it, so
+# the check covers every reading a real consumer uses and reports a violation
+# found in ANY of them (claims_contract.check_text; install.sql violations):
+#   "join"  - every tag removed with no separator: exactly what Postiz sends to
+#             plain-text platforms (striptags; deploy/claimgate/README.md);
+#   "html"  - default browser display: BLOCK_TAG separates, inline tags join
+#             ("P<b>ro</b><br>includes" reads "Pro includes");
+#   "space" - every tag separates.
+# CSS is out of scope: Postiz strips tags and styles before publishing, so no
+# platform ever renders author CSS.
+TAG_READINGS = ("join", "html", "space")
 
 
-def normalize(text: str, tag_sep: str = "") -> str:
-    """The text BOTH engines check (install.sql: claimgate.normalize(body, tag_sep)).
+def normalize(text: str, reading: str = "join") -> str:
+    """The text BOTH engines check (install.sql: claimgate.normalize(body, reading)).
 
-    1. every tag -> ``tag_sep`` ("" joins, " " separates; see TAG_SEPARATORS);
+    1. tags handled per ``reading`` (see TAG_READINGS);
     2. entities decoded once, per the explicit spec above;
     3. ZERO_WIDTH deleted, SPACE_LIKE -> space;
     4. ASCII whitespace runs -> one space; trimmed of ASCII spaces only (the
        same thing Postgres btrim() does).
     """
-    text = re.sub(TAG, tag_sep, text or "")
+    if reading not in TAG_READINGS:
+        raise ValueError(f"unknown tag reading {reading!r}")
+    text = text or ""
+    if reading == "space":
+        text = re.sub(TAG, " ", text)
+    else:
+        if reading == "html":
+            text = re.sub(BLOCK_TAG, " ", text, flags=re.IGNORECASE)
+        text = re.sub(TAG, "", text)
     text = _ENTITY.sub(_decode_entity, text).translate(_ZW_TABLE)
     return re.sub(r"[ \t\r\n\f\v]+", " ", text).strip(" ")

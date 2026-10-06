@@ -45,7 +45,8 @@ import yaml
 from app.services.claims_normalize import (  # noqa: F401  (re-exported: tests + install.sql parity)
     _ENTITY,
     TAG,
-    TAG_SEPARATORS,
+    BLOCK_TAG,
+    TAG_READINGS,
     C1_REMAP,
     LEGACY_NO_SEMICOLON,
     NAMED_ENTITIES,
@@ -518,8 +519,8 @@ def check_text(text: str, contract: dict | None = None) -> list[dict]:
     c = contract or build_contract()
     out: list[dict] = []
     seen: set[tuple] = set()
-    for sep in TAG_SEPARATORS:  # both readings of every tag (claims_normalize)
-        for v in _check_normalized(normalize(text, sep), c):
+    for reading in TAG_READINGS:  # every consumer's reading of the tags (claims_normalize)
+        for v in _check_normalized(normalize(text, reading), c):
             key = (v["rule_id"], v["match"])
             if key not in seen:
                 seen.add(key)

@@ -196,11 +196,23 @@ $fn$;
 -- Mirror of claims_contract.normalize(): strip tags (no space inserted),
 -- decode entities once, NBSP -> space, collapse ASCII whitespace, trim.
 DROP FUNCTION IF EXISTS claimgate.normalize(text);
-CREATE OR REPLACE FUNCTION claimgate.normalize(body text, tag_sep text DEFAULT '') RETURNS text
+DROP FUNCTION IF EXISTS claimgate.normalize(text, text);
+CREATE OR REPLACE FUNCTION claimgate.normalize(body text, reading text DEFAULT 'join') RETURNS text
 LANGUAGE plpgsql IMMUTABLE AS $fn$
 BEGIN
-    -- GENERATED from claims_normalize.TAG: every tag -> tag_sep (both readings are checked)
-    body := regexp_replace(coalesce(body, ''), '<([^>\"'']|\"[^\"]*\"|''[^'']*'')*>', tag_sep, 'g');
+    -- GENERATED from claims_normalize.TAG / BLOCK_TAG / TAG_READINGS
+    IF reading NOT IN ('join', 'html', 'space') THEN
+        RAISE EXCEPTION 'claimgate: unknown tag reading %', reading;
+    END IF;
+    body := coalesce(body, '');
+    IF reading = 'space' THEN
+        body := regexp_replace(body, '<([^>\"'']|\"[^\"]*\"|''[^'']*'')*>', ' ', 'g');
+    ELSE
+        IF reading = 'html' THEN
+            body := regexp_replace(body, '<[ \t\r\n]*/?[ \t\r\n]*(address|article|aside|blockquote|br|caption|center|dd|details|dialog|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|legend|li|main|menu|nav|ol|p|pre|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)\y([^>\"'']|\"[^\"]*\"|''[^'']*'')*>', ' ', 'gi');
+        END IF;
+        body := regexp_replace(body, '<([^>\"'']|\"[^\"]*\"|''[^'']*'')*>', '', 'g');
+    END IF;
     body := claimgate.decode_entities(body);
     -- GENERATED from claims_contract.ZERO_WIDTH / SPACE_LIKE (parity-tested)
     body := translate(body, chr(173)||chr(8203)||chr(8204)||chr(8205)||chr(8288)||chr(65279), '');
@@ -375,22 +387,20 @@ BEGIN
 END;
 $fn$;
 
--- Mirror of claims_contract.check_text: every tag read BOTH ways (joined and
--- separated, claims_normalize.TAG_SEPARATORS); a violation in either counts.
+-- Mirror of claims_contract.check_text: the text is checked under every tag
+-- reading (claims_normalize.TAG_READINGS); a violation in any of them counts.
 CREATE OR REPLACE FUNCTION claimgate.violations(body text) RETURNS text
 LANGUAGE plpgsql STABLE AS $fn$
 DECLARE
-    joined    text := claimgate.violations_norm(claimgate.normalize(body, ''));
-    separated text := claimgate.violations_norm(claimgate.normalize(body, ' '));
+    hits text := '';
+    rd   text;
 BEGIN
-    IF joined IS NULL AND separated IS NULL THEN
-        RETURN NULL;
-    END IF;
-    RETURN array_to_string(ARRAY(
-        SELECT DISTINCT h
-          FROM unnest(string_to_array(coalesce(joined, '') || '; ' || coalesce(separated, ''), '; ')) AS h
-         WHERE h <> ''
-         ORDER BY h), '; ');
+    FOREACH rd IN ARRAY ARRAY['join', 'html', 'space'] LOOP
+        hits := hits || '; ' || coalesce(claimgate.violations_norm(claimgate.normalize(body, rd)), '');
+    END LOOP;
+    hits := array_to_string(ARRAY(
+        SELECT DISTINCT h FROM unnest(string_to_array(hits, '; ')) AS h WHERE h <> '' ORDER BY h), '; ');
+    RETURN nullif(hits, '');
 END;
 $fn$;
 

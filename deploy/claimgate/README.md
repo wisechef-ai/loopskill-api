@@ -29,3 +29,20 @@ crontab (wisechef-hq):
 - **Confirmed false positive?** First run `INSERT INTO claimgate.override VALUES ('<post_id>', '<who>', '<why>');`, then clear `deletedAt` and re-queue. Also fix the rule or the prose in a PR and add the text to `CLEAN_CORPUS`.
 - **A false claim got through?** Add a rule to `config/claims_contract.yaml` and the real text to `REAL_INCIDENTS` in `tests/test_claims_contract.py`. The parity test proves the trigger catches it too.
 - **Who queued a post?** `state_log` records every state/`deletedAt` transition, with time, `application_name` and client address.
+
+## Threat model: which text is checked
+The gate checks the post's source `content`, as written by producers or the Postiz editor, under every tag reading a real consumer uses. A violation in any reading counts (`claims_normalize.TAG_READINGS`; `claimgate.violations`):
+
+- **join**: every tag is removed with no separator. This is what Postiz sends to plain-text platforms (`stripHtmlValidation`: `<p>` becomes a newline, everything else goes through `striptags`, verified in the running container on 2026-10-06).
+- **html**: default browser display. Block and line-break elements (`BLOCK_TAG`) separate words; inline elements join them.
+- **space**: every tag separates words.
+
+Entities are decoded by an explicit table. Anything left undecoded is itself a violation (`unrecognised-html-entity`). Invisible and space-like characters are normalised. Numbers are read as whole runs, and malformed runs are violations.
+
+**Out of scope** (accepted gaps, documented):
+- Author CSS. Postiz strips tags and styles before publishing, so no platform renders it.
+- Spelled-out prices ("twenty dollars a month").
+- Look-alike letters such as Cyrillic "Рro+".
+- Price phrasings with more than 3 connecting words between tier and price.
+
+Every false claim that ships, or any bypass found in review, becomes a fixture in `tests/test_claims_contract.py`. Fixtures are asserted with **expected verdicts** in the Python API, the SQL functions and the real trigger. Agreement between the two engines alone is not enough.

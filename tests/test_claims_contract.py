@@ -168,6 +168,10 @@ BLOCK_TAG_CASES: list[tuple[str, set[str]]] = [
     ("Pro<custom-el>includes 2 private bundles", {"tier-bundle-cap"}),
     ('Pro<b title=">">+</b> for agencies', {"tier-not-public-pro_plus"}),
     ("Pro<b title='>'>+</b> for agencies", {"tier-not-public-pro_plus"}),
+    # round 14: mixed inline + block tags
+    ("P<b>ro</b><br>includes 2 private bundles", {"tier-bundle-cap"}),
+    ("P<span>ro</span><p>includes 2 private bundles</p>", {"tier-bundle-cap"}),
+    ("Pro<i>+</i><br>for agencies", {"tier-not-public-pro_plus"}),
 ]
 REVIEW_BYPASSES += BLOCK_TAG_CASES
 REVIEW_MUST_PASS = [
@@ -382,7 +386,9 @@ def test_install_sql_patterns_match_python() -> None:
     assert f"pat   constant text := '{cc._ENTITY.pattern}';" in sql
     assert f"unit_pat constant text := '{cc.to_pg(cc._UNIT.pattern)}';" in sql
     assert f"IF t ~ '{cc.THOUSANDS}' THEN" in sql
-    assert "'" + cc.to_pg(cc.TAG).replace("'", "''") + "', tag_sep, 'g')" in sql
+    assert "'" + cc.to_pg(cc.TAG).replace("'", "''") + "', '', 'g')" in sql
+    assert "'" + cc.to_pg(cc.BLOCK_TAG).replace("'", "''") + "', ' ', 'gi')" in sql
+    assert "ARRAY['" + "', '".join(cc.TAG_READINGS) + "']" in sql
     assert f"IF t !~ '{cc.VALID_AMOUNT}' THEN" in sql
     assert f"lower(m[{cc.UNIT_GROUP}])" in sql
     assert f"claimgate.parse_amount(m[{cc.NUM_AFTER_GUARD}])" in sql
