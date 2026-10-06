@@ -31,6 +31,7 @@ stdlib only. Exit 0 always (a watchdog that crashes is a watchdog that stops).
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import urllib.request
@@ -140,8 +141,17 @@ def self_heal() -> None:
     meta("reinstalled_at", datetime.now(timezone.utc).isoformat())
 
 
+def load_contract() -> dict:
+    """Live contract, or CLAIMGATE_CONTRACT_FILE for bootstrap/offline runs
+    (e.g. before the API that serves contract v2 is deployed)."""
+    path = os.environ.get("CLAIMGATE_CONTRACT_FILE")
+    if path:
+        return json.loads(Path(path).read_text())
+    return first_ok(CONTRACT_URLS)
+
+
 def sync() -> dict:
-    c = first_ok(CONTRACT_URLS)
+    c = load_contract()
     retired, amounts = c.get("retired_rules") or [], c.get("amount_rules") or []
     if not retired or not amounts:
         raise RuntimeError("contract looks empty or pre-v2; refusing to replace rules")

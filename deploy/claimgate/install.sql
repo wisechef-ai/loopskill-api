@@ -30,7 +30,7 @@
 -- "who queued this?" has an answer next time.
 --
 -- Idempotent: safe to re-run. Without a public."Post" table (CI) only the
--- functions are installed. Remove: DROP TRIGGER claimgate_guard ON "Post";
+-- functions are installed. Remove: DROP TRIGGER claimgate_guard ON public."Post";
 
 CREATE SCHEMA IF NOT EXISTS claimgate;
 

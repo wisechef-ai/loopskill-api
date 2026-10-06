@@ -74,6 +74,11 @@ def pg(db_session):
     if db_session.bind.dialect.name != "postgresql":
         pytest.skip("trigger parity runs on the postgres CI leg only")
     conn = db_session.connection()
+    # install.sql writes to fixed names (schema claimgate, public."Post"), not
+    # the per-worker xdist schema. Everything below lives in db_session's outer
+    # transaction, which always rolls back, and this transaction-scoped lock
+    # serialises the claimgate tests across workers under ANY --dist mode.
+    conn.execute(text("SELECT pg_advisory_xact_lock(hashtext('claimgate-tests'))"))
     _run_install(conn)
     contract = cc.build_contract()
     conn.execute(text("DELETE FROM claimgate.rule"))
@@ -148,10 +153,11 @@ def post_table(pg):
 
 def _queue(conn, pid: str, content: str) -> tuple[bool, str | None]:
     conn.execute(
-        text("INSERT INTO \"Post\" (id, state, content) VALUES (:i, 'QUEUE', :c)"), {"i": pid, "c": content}
+        text("INSERT INTO public.\"Post\" (id, state, content) VALUES (:i, 'QUEUE', :c)"),
+        {"i": pid, "c": content},
     )
     deleted = conn.execute(
-        text('SELECT "deletedAt" IS NOT NULL FROM "Post" WHERE id = :i'), {"i": pid}
+        text('SELECT "deletedAt" IS NOT NULL FROM public."Post" WHERE id = :i'), {"i": pid}
     ).scalar()
     log = conn.execute(
         text("SELECT violations FROM claimgate.state_log WHERE post_id = :i AND quarantined"), {"i": pid}
@@ -175,8 +181,10 @@ def test_trigger_enforces_tier_binding(post_table) -> None:
 
 def test_trigger_rechecks_content_edit_and_requeue(post_table) -> None:
     _queue(post_table, "p4", CLEAN_CORPUS[0])
-    post_table.execute(text("UPDATE \"Post\" SET content = 'Pro is $20/mo' WHERE id = 'p4'"))
-    assert post_table.execute(text('SELECT "deletedAt" IS NOT NULL FROM "Post" WHERE id = \'p4\'')).scalar()
+    post_table.execute(text("UPDATE public.\"Post\" SET content = 'Pro is $20/mo' WHERE id = 'p4'"))
+    assert post_table.execute(
+        text('SELECT "deletedAt" IS NOT NULL FROM public."Post" WHERE id = \'p4\'')
+    ).scalar()
 
 
 def test_trigger_honours_override(post_table) -> None:
@@ -205,11 +213,13 @@ def test_trigger_fails_closed_when_contract_not_loaded(post_table) -> None:
 
 
 def test_drafts_are_not_gated_and_transitions_are_logged(post_table) -> None:
-    post_table.execute(text("INSERT INTO \"Post\" (id, state, content) VALUES ('p9', 'DRAFT', 'Pro+ draft')"))
+    post_table.execute(
+        text("INSERT INTO public.\"Post\" (id, state, content) VALUES ('p9', 'DRAFT', 'Pro+ draft')")
+    )
     assert not post_table.execute(
-        text('SELECT "deletedAt" IS NOT NULL FROM "Post" WHERE id = \'p9\'')
+        text('SELECT "deletedAt" IS NOT NULL FROM public."Post" WHERE id = \'p9\'')
     ).scalar()
-    post_table.execute(text("UPDATE \"Post\" SET state = 'QUEUE' WHERE id = 'p9'"))
+    post_table.execute(text("UPDATE public.\"Post\" SET state = 'QUEUE' WHERE id = 'p9'"))
     rows = post_table.execute(
         text(
             "SELECT op, old_state, new_state, quarantined FROM claimgate.state_log WHERE post_id = 'p9' ORDER BY id"
