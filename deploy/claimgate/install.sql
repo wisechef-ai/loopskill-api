@@ -319,7 +319,9 @@ END;
 $fn$;
 
 -- Mirror of claims_contract._tier_binding(): each "N private bundles" /
--- "N API keys" binds to the NEAREST preceding tier name in its sentence
+-- "N API keys" binds to an attached trailing tier ("on the Free tier"),
+-- else the NEAREST preceding tier name in its sentence, else the nearest
+-- following one
 -- (sentence end = ". " / "! " / "? ") and must equal that tier's cap.
 CREATE OR REPLACE FUNCTION claimgate.tier_binding(body text) RETURNS text[]
 LANGUAGE plpgsql STABLE AS $fn$
@@ -331,6 +333,7 @@ DECLARE
     e      int;
     sstart int;
     tok    text;
+    tok2   text;
     m      text[];
     last_name text;
     t      record;
@@ -358,10 +361,26 @@ BEGIN
             EXIT WHEN e = 0 OR e > cpos;
             sstart := e;
         END LOOP;
-        SELECT x.mm[1] INTO last_name
-          FROM regexp_matches(substr(body, sstart, cpos - sstart), '\y(' || names || ')\y', 'gi')
-               WITH ORDINALITY AS x(mm, ord)
-         ORDER BY x.ord DESC LIMIT 1;
+        -- attached > nearest preceding > nearest following (claims_contract._tier_binding)
+        last_name := (regexp_match(substr(body, p + length(tok)),
+                                   '^,? (on|with|in|for|under) (the |a |an |your |our )?\y(' || names || ')\y', 'i'))[3];
+        IF last_name IS NULL THEN
+            SELECT x.mm[1] INTO last_name
+              FROM regexp_matches(substr(body, sstart, cpos - sstart), '\y(' || names || ')\y', 'gi')
+                   WITH ORDINALITY AS x(mm, ord)
+             ORDER BY x.ord DESC LIMIT 1;
+        END IF;
+        IF last_name IS NULL THEN
+            e := regexp_instr(body, '[.!?] ', p + length(tok));
+            IF e = 0 THEN e := length(body) + 1; END IF;
+            tok2 := substr(body, p + length(tok), e - (p + length(tok)));
+            last_name := (regexp_match(tok2, '\y(' || names || ')\y', 'i'))[1];
+            -- a following name with its own number after it owns that number
+            IF last_name IS NOT NULL
+               AND substr(tok2, regexp_instr(tok2, '\y(' || names || ')\y', 1, 1, 1, 'i')) ~ '[0-9]' THEN
+                last_name := NULL;
+            END IF;
+        END IF;
         IF last_name IS NOT NULL THEN
             SELECT * INTO t FROM claimgate.tier WHERE lower(name) = lower(last_name);
             unitk := CASE WHEN lower(m[5]) LIKE '%key%' THEN 'key' ELSE 'bundle' END;

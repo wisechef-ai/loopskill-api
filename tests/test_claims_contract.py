@@ -224,7 +224,22 @@ REVIEW_BYPASSES += [
     # binds to Free. Producers write one <p> per line (all 447 production posts).
     ("<ul><li>Free: 2 private bundles</li><li>Pro: 50 private bundles</li></ul>", {"tier-bundle-cap"}),
 ]
+# Round 21 (codex sol): cadence ignored; tier named after the count.
+REVIEW_BYPASSES += [
+    ("LoopSkill Pro is $9.95/year.", {"price-annual"}),
+    ("Pro costs 9.95 USD per year", {"price-annual-suffix"}),
+    ("LoopSkill Pro: $9.95/mo, billed annually", {"annual-billing-not-offered"}),
+    ("LoopSkill gives you 50 private bundles on the Free tier.", {"tier-bundle-cap"}),
+    ("Get 2 private bundles with Pro", {"tier-bundle-cap"}),
+    ("You get 50 private bundles, all on Free", {"tier-bundle-cap"}),
+    ("LoopSkill gives you 50 private bundles on our Free plan, 2 more for referrals", {"tier-bundle-cap"}),
+]
 REVIEW_MUST_PASS = [
+    "Free users upgrade to get 50 private bundles on Pro.",
+    "50 private bundles (Free gives you 2).",
+    "2 private bundles on Free and 50 private bundles on Pro.",
+    "LoopSkill Free is $0/year, forever.",
+    "Teams save 100 hours a year with LoopSkill.",
     "<p>Pro is $9.95/month.</p><p>Free: 2 private bundles.</p><p>Pro: 50 private bundles.</p>",
     '<p>Plans: <a href="https://app.loopskill.io/pricing">current pricing</a></p>',
     "We <3 our users. LoopSkill is free to self-host.",
@@ -453,6 +468,8 @@ def test_install_sql_patterns_match_python() -> None:
         assert "'" + cc.to_pg(pattern).replace("'", "''") in sql, pattern
     assert f"IF t !~ '{cc.VALID_AMOUNT}' THEN" in sql
     assert f"lower(m[{cc.UNIT_GROUP}])" in sql
+    assert "'" + cc.ATTACH + "\\y(' || names || ')\\y'" in sql
+    assert "[" + str(cc._ATTACH_NAME) + "];" in sql
     assert f"claimgate.parse_amount(m[{cc.NUM_AFTER_GUARD}])" in sql
     c1 = sql.split("c1    constant text[] := ARRAY[", 1)[1].split("];", 1)[0]
     for cp, ch in cc.C1_REMAP.items():

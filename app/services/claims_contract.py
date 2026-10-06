@@ -63,67 +63,24 @@ CONTRACT_YAML = _CONFIG / "claims_contract.yaml"
 
 MAX_CHECK_CHARS = 20_000
 
-# A WHOLE numeric token: the trailing \b forbids stopping inside one, so
-# "$9,950" can never be read as "$9,95" (it backtracks to "9" and is flagged).
-# Unbounded on purpose: float() of a 20k-digit token is inf, never an error.
-# A number is only ever read as a WHOLE token:
-# * GROUPED "1,199" / "1.050,50" / "1 050" is one token (thousands grouping by
-#   comma, period or space, optional 1-2 digit decimals);
-# * the trailing \b forbids stopping inside a token ("$9,950" is never "$9,95");
-# * _NOT_AFTER_NUM forbids starting inside one ("1,050 private bundles" is
-#   never read as "050"): the character before must not be a digit, comma or
-#   period. Unbounded on purpose: parse_amount of a 20k-digit token is inf.
-# Thousands grouping must use ONE separator throughout, and a decimal part
-# must use the OTHER mark (no backreferences in the portable subset, so the
-# three shapes are spelled out): 1,199.50 / 1.050,50 / 1 050,50.
-_GROUPED = (
-    r"([0-9]{1,3}(,[0-9]{3})+([.][0-9]{1,2})?"
-    r"|[0-9]{1,3}([.][0-9]{3})+(,[0-9]{1,2})?"
-    r"|[0-9]{1,3}( [0-9]{3})+([.,][0-9]{1,2})?)"
+# number grammar: app/services/claims_numbers.py (re-exported for tests + install.sql parity)
+from app.services.claims_numbers import (  # noqa: E402,F401
+    _COUNT,
+    _GROUPED,
+    _NOT_AFTER_NUM,
+    _NUM,
+    _RUN,
+    NUM_AFTER_GUARD,
+    THOUSANDS,
+    VALID_AMOUNT,
+    parse_amount,
 )
-# The WHOLE run of digits and separators next to a unit/currency is captured
-# (never a tail of it); parse_amount then decides whether it is a well-formed
-# amount. A malformed run ("1,2,50", "1 50") is a violation, not "no claim"
-# (fail closed). Each repetition starts with a separator, so matching stays
-# linear.
-_RUN = r"[0-9]+([.,][0-9]+| [0-9]+)*"
-_NUM = r"(" + _RUN + r")\b"
-_COUNT = r"(" + _RUN + r")"
-# The character(s) before a number: not a digit, and not a comma / period /
-# space that itself follows a digit ("1,050" / "1 050" are one run, never
-# "050"). Punctuation after a word is fine ("bundles,20 API keys" reads 20).
-# Each run has exactly ONE possible start, which keeps scanning linear.
-_NOT_AFTER_NUM = r"(^|[^0-9,. ]|(^|[^0-9])[,. ])"
-# capture-group index of the number right after the guard (computed, never
-# hard-coded: the guard has its own groups)
-NUM_AFTER_GUARD = re.compile(_NOT_AFTER_NUM).groups + 1
-THOUSANDS = "^" + _GROUPED + "$"
-VALID_AMOUNT = "^(" + _GROUPED + "|[0-9]+([.,][0-9]{1,2})?)$"
 
 
-def parse_amount(token: str) -> float:
-    """Value of a run matched by _NUM / _COUNT (install.sql: claimgate.parse_amount).
-
-    Not a well-formed amount (VALID_AMOUNT) -> NaN, which matches no allowed
-    value (SQL: NULL, treated as a violation).
-
-    Grouped: the FIRST separator is the grouping one and is removed
-    ("1,199.50" -> 1199.5, "1.050,50" -> 1050.5, "1 050" -> 1050); then a
-    remaining comma is a decimal point ("9,95" -> 9.95).
-    """
-    if not re.match(VALID_AMOUNT, token):
-        return float("nan")  # malformed: equals nothing, so always a violation
-    if re.match(THOUSANDS, token):
-        token = token.replace(re.search(r"[., ]", token).group(0), "")
-    try:
-        return float(token.replace(",", "."))
-    except ValueError:  # defensive: never raise from the check
-        return float("nan")
-
-
-_RECURRING = (
-    r"(/ ?mo|/ ?m|/ ?month|per month|a month|monthly|/ ?yr|/ ?year|per year|a year|annually|yearly)\b"
-)
+# Public tier prices are MONTHLY; an annual price may only use an amount
+# tiers.yaml defines as annual_price_usd (round 21: "Pro is $9.95/year").
+_MONTHLY = r"(/ ?mo|/ ?m|/ ?month|per month|a month|monthly)\b"
+_ANNUAL = r"(/ ?yr|/ ?year|per year|a year|annually|yearly)\b"
 _ONE_TIME = r"(one-time|one time|once|lifetime)\b"
 # An API-key count: "1 API key", "10 API keys", "20 keys", "20 scoped keys".
 # Plural "keys" after a number is always a count (fail closed); singular "key"
@@ -157,7 +114,7 @@ def _lit(name: str) -> str:
 
 
 _CADENCE = {
-    "monthly": r"(/ ?mo|/ ?m|/ ?month|per month|a month|monthly)\b",
+    "monthly": _MONTHLY,
     "one-time": r"(one-time|one time|once|lifetime)\b",
 }
 
@@ -300,23 +257,31 @@ def _amount_rules(public: list[dict], founding: dict | None, other_prices: list[
     one_time = {0.0}
     if founding and founding.get("price_usd") is not None:
         one_time.add(float(founding["price_usd"]))
-    rules = [
-        {
-            "id": "price-recurring",
-            "exemptable": True,
-            "pattern": r"[$€] ?" + _NUM + " ?(USD|EUR)? ?" + _RECURRING,
-            "amount_group": 1,
-            "allowed": sorted(recurring),
-            "reason": "recurring price not on the public ladder",
-        },
-        {
-            "id": "price-recurring-suffix",
-            "exemptable": True,
-            "pattern": _NOT_AFTER_NUM + _NUM + r" ?(USD|EUR|dollars|euros|bucks) ?" + _RECURRING,
-            "amount_group": NUM_AFTER_GUARD,
-            "allowed": sorted(recurring),
-            "reason": "recurring price not on the public ladder",
-        },
+    annual = {0.0} | {float(t["annual_price_usd"]) for t in public if t.get("annual_price_usd") is not None}
+    rules = []
+    for rid, cad, allowed, what in (
+        ("price-recurring", _MONTHLY, recurring, "monthly price not on the public ladder"),
+        ("price-annual", _ANNUAL, annual, "annual price not in tiers.yaml (annual_price_usd)"),
+    ):
+        rules += [
+            {
+                "id": rid,
+                "exemptable": True,
+                "pattern": r"[$€] ?" + _NUM + " ?(USD|EUR)? ?" + cad,
+                "amount_group": 1,
+                "allowed": sorted(allowed),
+                "reason": what,
+            },
+            {
+                "id": rid + "-suffix",
+                "exemptable": True,
+                "pattern": _NOT_AFTER_NUM + _NUM + r" ?(USD|EUR|dollars|euros|bucks) ?" + cad,
+                "amount_group": NUM_AFTER_GUARD,
+                "allowed": sorted(allowed),
+                "reason": what,
+            },
+        ]
+    rules += [
         {
             "id": "price-one-time",
             "exemptable": True,
@@ -405,6 +370,7 @@ def _cached_contract(tiers_mtime: float, contract_mtime: float) -> str:
             "price_usd": cfg.get("price_usd"),
             "bundle_limit": cfg.get("bundle_limit", cfg.get("cookbook_limit")),
             "api_key_cap": cfg.get("api_key_cap"),
+            "annual_price_usd": cfg.get("annual_price_usd"),
         }
         for slug, cfg in tiers.items()
         if cfg.get("public", True)
@@ -419,8 +385,18 @@ def _cached_contract(tiers_mtime: float, contract_mtime: float) -> str:
     ]
     veto = r"\b(" + "|".join(sorted({_lit(n) for n in veto_names}, key=len, reverse=True)) + r")"
     exempt = [_exempt_rule(i, op, veto) for i, op in enumerate(other_prices)]
+    no_annual = all(t.get("annual_price_usd") is None for t in public)
     retired = (
         _derived_retired(tiers)
+        + [
+            {
+                "id": "annual-billing-not-offered",
+                "pattern": r"\b(billed (annually|yearly)|(annual|yearly) (billing|plans?|subscriptions?|pricing))\b",
+                "reason": "no tier in config/tiers.yaml has an annual_price_usd: LoopSkill bills monthly",
+                "replacement": "per-month pricing from app.loopskill.io/pricing",
+                "source": "config/tiers.yaml",
+            }
+        ][: int(no_annual)]
         + [
             {
                 "id": "unrecognised-html-entity",
@@ -565,6 +541,14 @@ _UNIT = re.compile(_NOT_AFTER_NUM + _COUNT + r" (private bundles?|" + _KEY_UNIT 
 UNIT_GROUP = re.compile(_NOT_AFTER_NUM + _COUNT).groups + 1
 
 
+ATTACH = r"^,? (on|with|in|for|under) (the |a |an |your |our )?"
+_ATTACH_NAME = re.compile(ATTACH).groups + 1
+
+
+def _attach(name_re: re.Pattern) -> re.Pattern:
+    return re.compile(ATTACH[1:] + name_re.pattern, re.IGNORECASE)
+
+
 def _tier_binding(text: str, c: dict) -> list[dict]:
     tiers = {t["display_name"].lower(): t for t in c["public_tiers"]}
     if not tiers:
@@ -577,10 +561,21 @@ def _tier_binding(text: str, c: dict) -> list[dict]:
         cstart = m.start(NUM_AFTER_GUARD)
         ends = [e.end() for e in _SENTENCE_END.finditer(text, 0, cstart)]
         start = ends[-1] if ends else 0
-        names = list(name_re.finditer(text, start, cstart))
-        if not names:
+        # attached ("50 private bundles on the Free tier") > nearest preceding
+        # in the sentence > nearest following in the sentence (round 21)
+        # A following name that has its own number after it ("50 private
+        # bundles (Free gives you 2)") owns that number, not this one.
+        nxt = _SENTENCE_END.search(text, m.end())
+        wend = nxt.start() if nxt else len(text)
+        after = list(name_re.finditer(text, m.end(), wend))[:1]
+        name = (
+            [a.group(_ATTACH_NAME) for a in [_attach(name_re).match(text, m.end())] if a]
+            or [n.group(1) for n in name_re.finditer(text, start, cstart)][-1:]
+            or [n.group(1) for n in after if not re.search("[0-9]", text[n.end() : wend])]
+        )
+        if not name:
             continue
-        tier = tiers[names[-1].group(1).lower()]
+        tier = tiers[name[0].lower()]
         unit = "key" if "key" in m.group(UNIT_GROUP).lower() else "bundle"
         cap = tier.get("api_key_cap") if unit == "key" else tier.get("bundle_limit")
         count = parse_amount(m.group(NUM_AFTER_GUARD))

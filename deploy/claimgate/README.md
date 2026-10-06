@@ -55,6 +55,8 @@ node deploy/claimgate/gen_postiz_pipeline_fixture.js pz 600 > tests/fixtures/pos
 
 **Deliberately strict:** in plain-text mode Postiz joins list items with no separator (`…2 private bundlesPro: 50 private bundles`). A per-tier list can therefore bind a number to the previous tier and be quarantined. Write one `<p>` per line instead, as every production post already does.
 
+**Tier binding** (`_tier_binding` / `claimgate.tier_binding`): a count binds to a tier attached after it (`50 private bundles on the Free tier`), else to the nearest tier before it in the sentence, else to the nearest tier after it. The exception: a tier after the count that has its own number after it (`50 private bundles (Free gives you 2)`) owns that number. Accepted gap: a trailing tier with no connector that is followed by another number is not bound.
+
 **Out of scope** (accepted gaps, documented):
 - Author CSS. Postiz strips tags and styles before publishing, so no platform renders it.
 - HTML5 tree-construction effects (foster parenting, raw-text elements). Every element that has them is outside the allowlist and is therefore rejected.
