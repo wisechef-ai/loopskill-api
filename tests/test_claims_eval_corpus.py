@@ -13,6 +13,12 @@ claims_eval_known_gaps.json. That list may only shrink:
 - a known gap the gate now gets right fails until its row is removed, so a fix
   can never silently regress later.
 Grow the corpus with every incident: add the real sentence with its label.
+
+HELD-OUT: each round, generate a fresh batch (tests/fixtures/
+claims_eval_gen_prompt_holdout.md, different models), score it ONCE before
+any fix and report that number, then append it here with its "batch" tag.
+holdout-1 (gpt-6-luna + claude-haiku, 418 rows) scored recall 85.3% /
+false positives 4.6% against rules tuned on corpus-1 (97.0% / 0.9%).
 """
 
 from __future__ import annotations
@@ -30,8 +36,8 @@ ROWS = [
 KNOWN_GAPS = set(json.loads((_FIX / "claims_eval_known_gaps.json").read_text())["known_gaps"])
 
 # Floors a little under the measurement; raise them as gaps close.
-RECALL_FLOOR = 0.75
-FP_CEILING = 0.05
+RECALL_FLOOR = 0.90
+FP_CEILING = 0.03
 
 
 def _flagged(text: str) -> bool:
@@ -71,3 +77,11 @@ def test_accuracy_floor() -> None:
         f"recall {recall:.1%} < {RECALL_FLOOR:.0%}; misses by category {dict(by_cat)}"
     )
     assert fp_rate <= FP_CEILING, f"false-positive rate {fp_rate:.1%} > {FP_CEILING:.0%}"
+
+
+def test_prefilter_never_changes_a_verdict(monkeypatch) -> None:
+    """The amount-rule "requires" prefilter is a pure speed-up."""
+    on = [sorted((v["rule_id"], v["match"]) for v in cc.check_text(r["text"])) for r in ROWS]
+    monkeypatch.setattr(cc, "PREFILTER", False)
+    off = [sorted((v["rule_id"], v["match"]) for v in cc.check_text(r["text"])) for r in ROWS]
+    assert on == off

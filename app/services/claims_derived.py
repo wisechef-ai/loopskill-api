@@ -5,6 +5,12 @@ Rules are data: install.sql runs them unchanged via the contract sync."""
 
 import re
 
+from app.services.claims_offer import (
+    NON_USD_PRE,
+    billing_period_pattern,
+    negated_period_pattern,
+    tier_adjectival_rule,
+)
 from app.services.claims_numbers import (
     _ANNUAL,
     _CUR_PRE,
@@ -59,13 +65,13 @@ def derived_fact_rules(public: list[dict]) -> list[dict]:
         rules.append(
             {
                 "id": "annual-billing-not-offered",
-                "pattern": r"\b((billed|paid|charged|invoiced|payable) (annually|yearly|per year|once a year|per annum)"
-                r"|pay (annually|yearly)|per annum"
-                r"|(annual|yearly) (billing|plans?|subscriptions?|pricing|commitment|contracts?|payments?))\b",
+                # every billing period other than monthly (eval corpus round 2:
+                # "renews every six months", "billed weekly", "annual Pro plan")
+                "pattern": billing_period_pattern(),
                 # a NEGATED mention ("there is no annual plan") is exempt
                 # (negation_exemptions); the sentence veto keeps savings copy
                 "exemptable": True,
-                "reason": "no tier in config/tiers.yaml has an annual_price_usd: LoopSkill bills monthly",
+                "reason": "no tier in config/tiers.yaml has an annual_price_usd: LoopSkill bills monthly only",
                 "replacement": "per-month pricing from app.loopskill.io/pricing",
                 "source": "config/tiers.yaml",
             }
@@ -168,16 +174,11 @@ def negation_exemptions(retired: list[dict]) -> list[dict]:
     "No catch: annual plans save 20%" stays flagged."""
     if not any(r["id"] == "annual-billing-not-offered" for r in retired):
         return []
-    neg = r"(\bno|\bnot|\bnever|\bwithout|n't)"
-    aux = r"( (offer|offering|have|has|sell|provide|do|does|currently|yet|any|an|a|the|separate|need|require|be))*"
-    what = (
-        r" ((annual|yearly)( (billing|plans?|subscriptions?|pricing|commitment|contracts?|payments?|option))?"
-        r"|(billed|paid|charged|invoiced) (annually|yearly|per year|per annum))\b"
-    )
+    what = negated_period_pattern()
     return [
         {
             "id": "negated-annual",
-            "pattern": neg + aux + what,
+            "pattern": what,
             "veto": r"%|\b(save|saves|saving|savings|discount|discounts|discounted|cheaper|introducing|launch|launches"
             r"|launching|coming soon|now offer|now offers)\b",
             "reason": "a negated mention of annual billing is true copy",
@@ -196,58 +197,71 @@ def tier_price_rules(rule_id: str, name_pattern: str, allowed: list[float], labe
     before = re.compile(head).groups
     reason = f"price stated for {label} does not match its tier"
     period = "|".join((_MONTHLY, _ANNUAL, _ONE_TIME))
-    return [
-        {
-            "id": rule_id,
-            "pattern": head + _CUR_PRE + _NUM,
-            "amount_group": num_group(head + _CUR_PRE),
-            "allowed": sorted(allowed),
-            "reason": reason,
-        },
-        {
-            "id": rule_id + "-suffix",
-            "pattern": head + _NUM + r" ?" + _CUR_SUF,
-            "amount_group": before + 1,
-            "allowed": sorted(allowed),
-            "reason": reason,
-        },
-        {  # "$9.95/month on the Free tier" (round 22): a currency PREFIX
-            "id": rule_id + "-trailing",
-            "pattern": _NOT_AFTER_NUM
-            + _CUR_PRE
-            + _NUM
-            + " ?"
-            + _CUR_SUF
-            + "? ?("
-            + period
-            + r")?"
-            + ATTACH[1:]
-            + r"\b"
-            + name_pattern
-            + tail,
-            "amount_group": num_group(_NOT_AFTER_NUM + _CUR_PRE),
-            "allowed": sorted(allowed),
-            "reason": reason,
-        },
-        {  # "9.95 USD on Pro", "9.95/month on Pro": a currency SUFFIX or a
-            # billing period. A bare count ("2 on Free, 50 on Pro") is never a
-            # price (eval corpus false positive).
-            "id": rule_id + "-trailing-suffix",
-            "pattern": _NOT_AFTER_NUM
-            + _NUM
-            + " ?("
-            + _CUR_SUF
-            + " ?("
-            + period
-            + ")?|("
-            + period
-            + "))"
-            + ATTACH[1:]
-            + r"\b"
-            + name_pattern
-            + tail,
-            "amount_group": NUM_AFTER_GUARD,
-            "allowed": sorted(allowed),
-            "reason": reason,
+    extra = [
+        tier_adjectival_rule(rule_id, name_pattern, tail, allowed, reason),
+        {  # "Pro is €9.95": every LoopSkill price is USD (eval corpus round 2)
+            "id": rule_id + "-non-usd",
+            "pattern": head + NON_USD_PRE + _NUM,
+            "amount_group": num_group(head + NON_USD_PRE),
+            "allowed": [0.0],
+            "reason": "LoopSkill prices are USD only (app.loopskill.io/pricing)",
         },
     ]
+    return (
+        extra
+        + [
+            {
+                "id": rule_id,
+                "pattern": head + _CUR_PRE + _NUM,
+                "amount_group": num_group(head + _CUR_PRE),
+                "allowed": sorted(allowed),
+                "reason": reason,
+            },
+            {
+                "id": rule_id + "-suffix",
+                "pattern": head + _NUM + r" ?" + _CUR_SUF,
+                "amount_group": before + 1,
+                "allowed": sorted(allowed),
+                "reason": reason,
+            },
+            {  # "$9.95/month on the Free tier" (round 22): a currency PREFIX
+                "id": rule_id + "-trailing",
+                "pattern": _NOT_AFTER_NUM
+                + _CUR_PRE
+                + _NUM
+                + " ?"
+                + _CUR_SUF
+                + "? ?("
+                + period
+                + r")?"
+                + ATTACH[1:]
+                + r"\b"
+                + name_pattern
+                + tail,
+                "amount_group": num_group(_NOT_AFTER_NUM + _CUR_PRE),
+                "allowed": sorted(allowed),
+                "reason": reason,
+            },
+            {  # "9.95 USD on Pro", "9.95/month on Pro": a currency SUFFIX or a
+                # billing period. A bare count ("2 on Free, 50 on Pro") is never a
+                # price (eval corpus false positive).
+                "id": rule_id + "-trailing-suffix",
+                "pattern": _NOT_AFTER_NUM
+                + _NUM
+                + " ?("
+                + _CUR_SUF
+                + " ?("
+                + period
+                + ")?|("
+                + period
+                + "))"
+                + ATTACH[1:]
+                + r"\b"
+                + name_pattern
+                + tail,
+                "amount_group": NUM_AFTER_GUARD,
+                "allowed": sorted(allowed),
+                "reason": reason,
+            },
+        ]
+    )

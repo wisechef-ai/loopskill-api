@@ -63,7 +63,6 @@ CLEAN_CORPUS = [
     "Self-host $0 forever. Free $0 · forever. Hosted by us. No card.",
     "WiseChef installs, updates, and runs this exact skill catalog for you, from $199/month.",
     # Ordinary prose that shares words with retired rules.
-    "We collected 50 skill recipes for chefs and a cookbook of prompts.",
     "Install the loopskill skill from app.loopskill.io/skill",
 ]
 
@@ -324,20 +323,56 @@ REVIEW_BYPASSES += [
     ("5 USD a month on Free", {"price-recurring-suffix", "price-tier-free-trailing-suffix"}),
     ("9/month on Free", {"price-tier-free-trailing-suffix"}),
 ]
+# Eval-corpus round 2: billing periods, Founding terms, non-USD prices, retired
+# vocabulary. LoopSkill prices are USD only (app.loopskill.io/pricing), so the
+# earlier must-pass "Pro: £9.95 every month" was itself a false claim.
+REVIEW_BYPASSES += [
+    ("Pro: £9.95 every month.", {"price-non-usd", "price-tier-pro-non-usd"}),
+    ("LoopSkill Pro: 9.95 €/month.", {"price-non-usd-suffix"}),
+    ("Pro is €9,95 per month.", {"price-non-usd", "price-tier-pro-non-usd"}),
+    (
+        "We collected 50 skill recipes for chefs and a cookbook of prompts.",
+        {"retired-vocab-cookbook-recipes"},
+    ),
+    ("Pro costs 9,95 € a month.", {"price-non-usd-suffix"}),
+    ("Pro is €9.95", {"price-tier-pro-non-usd"}),
+    ("Founding access costs €49 as a one-time payment.", {"price-non-usd"}),
+    ("Our $99 Founding pass includes Pro for life.", {"price-tier-founding-adjectival"}),
+    ("Only 37 Founding seats left!", {"founding-seats"}),
+    ("Founding Member gives you Pro for a year, $49 one-time.", {"founding-not-lifetime"}),
+    ("Get Pro for life with a $49 annual Founding fee.", {"annual-billing-not-offered"}),
+    ("Publish your cookbook on LoopSkill today.", {"retired-vocab-cookbook-recipes"}),
+    ("Discover Recipes, the home for AI-agent skills.", {"retired-vocab-cookbook-recipes"}),
+    ("Our chefs publish recipes on LoopSkill.", {"retired-vocab-cookbook-recipes"}),
+    ("Install the Kitchen Recipes skill from LoopSkill", {"retired-vocab-cookbook-recipes"}),
+    ("Pro renews every six months.", {"annual-billing-not-offered"}),
+    ("LoopSkill charges Pro every two weeks.", {"annual-billing-not-offered"}),
+    ("LoopSkill now offers a weekly plan for busy builders.", {"annual-billing-not-offered"}),
+    ("Monthly or annually: pick what works.", {"annual-billing-not-offered"}),
+]
 REVIEW_MUST_PASS = [
+    "Our kitchen team shares recipes for the new menu.",
+    "WiseChef helps restaurants cost recipes and plan menus.",
+    "A recipe for faster agents.",
+    "Build a weekly plan with your agent.",
+    "There is no weekly billing.",
+    "Downtime costs restaurants £8,000 a day.",
+    "Free is €0 a month.",
+    "US$9.95 a month for Pro",
+    "Ship a weekly release.",
+    "Pay monthly. No annual commitment.",
+    "100 Founding Member seats at $49 one-time.",
+    "Founding is a one-time offer with 100 seats.",
     "There is no annual plan: Pro is $9.95 a month.",
     "We don't offer yearly billing.",
     "Downtime costs teams $8,000 a day; plan for resilience.",
     "Keep private bundles to 2 on Free or 50 on Pro.",
     "LoopSkill Pro is $9.95 per calendar month.",
-    "LoopSkill Pro: 9.95 €/month.",
-    "Pro costs 9,95 € a month.",
     "We added 3 users per month on average.",
     "LoopSkill Pro is $9.95 each month.",
     # real production copy (round 24 scan): loss figures with "each <period>"
     "If these crashes happen frequently, you could face losses exceeding $100,000 each year.",
     "That totals a jaw-dropping $30,000 each month in missed revenue.",
-    "Pro: £9.95 every month.",
     "LoopSkill Free is $0 per week, every week.",
     # real pain-first copy from production (loss figures are not prices)
     "Downtime can lead to losses of around $8,000 a day.",
@@ -364,7 +399,6 @@ REVIEW_MUST_PASS = [
     "Free: 2 private bundles, 1 API key.",
     "Pro is $9.95/month. Free includes 2 private bundles.",
     "Pro &#150; $9.95/month",
-    "Pro is €9,95 per month.",
     "LoopSkill is free to self-host. WiseChef runs it for you from $199/month.",
     "WiseChef, the managed service, is $199 per month.",
     "Done-for-you: WiseChef runs it for you from $199/month.",
@@ -442,7 +476,8 @@ def test_tier_number_binds_to_nearest_tier() -> None:
 def test_price_contexts() -> None:
     assert _ids("Pro is $20/mo") == {"price-recurring", "price-tier-pro"}
     assert _ids("Pro at $12") == {"price-tier-pro"}
-    assert _ids("€9,95 per month") == set()
+    # USD only (eval corpus round 2): a euro price is no real LoopSkill price
+    assert _ids("€9,95 per month") == {"price-non-usd"}
     # A bare amount with no cadence and no tier word is not a price claim.
     assert _ids("We saved $3,000 in API spend.") == set()
 
@@ -618,13 +653,26 @@ def test_malformed_amount_is_nan(token: str) -> None:
 
 def test_number_runs_stay_linear() -> None:
     """Worst cases for the run pattern (separator-led repetitions) on the
-    20k-char API cap must stay fast: no catastrophic backtracking."""
+    20k-char API cap must stay LINEAR: no catastrophic backtracking.
+
+    A wall-clock limit measures machine load, not complexity (it went flaky
+    under a loaded CI box), so this compares each body at half and at full
+    length: linear work doubles (ratio ~2), backtracking explodes. A generous
+    absolute ceiling stays as a backstop."""
     import time
 
-    for body in ("1 " + "111 " * 4900, "1," * 9900, "$" + "1." * 9900, "1 111" * 3900):
+    def took(body: str) -> float:
         t0 = time.perf_counter()
-        cc.check_text(body[: cc.MAX_CHECK_CHARS])
-        assert time.perf_counter() - t0 < 2.0, body[:20]
+        cc.check_text(body)
+        return time.perf_counter() - t0
+
+    for body in ("1 " + "111 " * 4900, "1," * 9900, "$" + "1." * 9900, "1 111" * 3900):
+        full = body[: cc.MAX_CHECK_CHARS]
+        half = full[: len(full) // 2]
+        took(half)  # warm the regex cache
+        t_half, t_full = min(took(half) for _ in range(2)), min(took(full) for _ in range(2))
+        assert t_full < 3.0 * t_half + 0.05, (body[:20], t_half, t_full)
+        assert t_full < 10.0, body[:20]
 
 
 PIPELINE_FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "postiz_pipeline.json").read_text())

@@ -155,11 +155,19 @@ def test_python_and_postgres_agree(pg, body: str) -> None:
     assert _sql_ids(pg, body) == _py_ids(body)
 
 
-def test_eval_corpus_python_and_postgres_agree(pg) -> None:
+_EVAL_ROWS = [
+    json.loads(line)["text"]
+    for line in (Path(__file__).parent / "fixtures" / "claims_eval_corpus.jsonl").read_text().splitlines()
+    if line.strip()
+]
+_EVAL_CHUNK = 100  # rows per test: each stays far inside pytest-timeout (120 s)
+
+
+@pytest.mark.parametrize("start", range(0, len(_EVAL_ROWS), _EVAL_CHUNK))
+def test_eval_corpus_python_and_postgres_agree(pg, start: int) -> None:
     """Every row of the labelled eval corpus gets the same rule ids in both engines."""
-    path = Path(__file__).parent / "fixtures" / "claims_eval_corpus.jsonl"
-    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-    diff = [(r["text"], _sql_ids(pg, r["text"]), _py_ids(r["text"])) for r in rows]
+    rows = _EVAL_ROWS[start : start + _EVAL_CHUNK]
+    diff = [(t, _sql_ids(pg, t), _py_ids(t)) for t in rows]
     diff = [d for d in diff if d[1] != d[2]]
     assert not diff, diff[:10]
 

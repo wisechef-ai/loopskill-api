@@ -71,6 +71,7 @@ from app.services.claims_derived import (  # noqa: E402
     negation_exemptions,
     tier_price_rules as _tier_price_rules,
 )
+from app.services.claims_offer import founding_rules, non_usd_rules, vocab_rules  # noqa: E402
 from app.services.claims_numbers import (  # noqa: E402,F401
     _ONE_TIME,
     _TIER_LINK,
@@ -358,8 +359,11 @@ def _cached_contract(tiers_mtime: float, contract_mtime: float) -> str:
             for r in contract_doc.get("rules") or []
         ]
     )
-    exempt += negation_exemptions(retired)
-    amounts = _amount_rules(public, founding, other_prices)
+    f_amounts, f_retired = founding_rules(founding)
+    v_retired, v_exempt = vocab_rules()
+    retired += f_retired + v_retired
+    exempt += negation_exemptions(retired) + v_exempt
+    amounts = _amount_rules(public, founding, other_prices) + f_amounts + non_usd_rules()
     for r in retired + amounts + exempt:
         assert_portable(r["pattern"])
         r["pg_pattern"] = to_pg(r["pattern"])
@@ -456,6 +460,9 @@ def check_text(text: str, contract: dict | None = None) -> list[dict]:
     return out
 
 
+PREFILTER = True
+
+
 def _check_normalized(text: str, c: dict) -> list[dict]:
     out: list[dict] = []
     # Generic price rules skip spans that state ANOTHER product's price in that
@@ -471,6 +478,10 @@ def _check_normalized(text: str, c: dict) -> list[dict]:
     for rule in c["amount_rules"]:
         allowed = {round(float(a), 2) for a in rule["allowed"]}
         src = exempted if rule.get("exemptable") else text
+        # speed only: a rule whose every match contains "requires" cannot fire
+        # without it (test_prefilter_never_changes_a_verdict)
+        if PREFILTER and rule.get("requires") and not re.search(rule["requires"], src, re.IGNORECASE):
+            continue
         for m in _scan(re.compile(rule["pattern"], re.IGNORECASE), src):
             amount = round(parse_amount(m.group(rule["amount_group"])), 2)
             if amount not in allowed:

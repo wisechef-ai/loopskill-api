@@ -63,6 +63,16 @@ node deploy/claimgate/gen_postiz_pipeline_fixture.js pz 600 > tests/fixtures/pos
 
 **Negations and exemptable retired rules:** a retired rule may set `exemptable: true`; it then runs on the exempted text, like the generic price rules. `annual-billing-not-offered` is exemptable, and `negated-annual` strips true negations (`there is no annual plan`, `we don't offer yearly billing`). The negator may be followed only by auxiliary words (offer, have, any, an, ...). A sentence that sells savings, a discount, `%` or a launch vetoes the exemption, so `No catch: annual plans save 20%` stays flagged. Loss figures also count when anchored to an audience subject (`Downtime costs teams $8,000 a day`, `Teams spend $300 a month on ...`), never `costs you`. A trailing tier price (`... on Free`) needs a currency marker or a billing period, so a bare count (`2 on Free, 50 on Pro`) is not a price.
 
+**Offer-shape rules (`app/services/claims_offer.py`, eval corpus round 2):** claims with no price at all.
+- **Billing periods:** any period other than monthly is false (`annual Pro plan`, `renews every six months`, `billed weekly`, `monthly or annually`). The rule keeps the id `annual-billing-not-offered`, is exemptable, and the negation exemption covers every period.
+- **USD only:** a non-zero price in any other currency is false (`price-non-usd*`, `price-tier-*-non-usd`). `US$` stays USD.
+- **Founding terms:** seat counts other than `slot_cap` (`founding-seats*`, including scarcity copy such as `Only 37 Founding seats left`, since a live count cannot be verified), a fixed term (`Pro for a year`, `founding-not-lifetime`), and adjectival prices (`$99 Founding pass`, `price-tier-*-adjectival`).
+- **Retired vocabulary:** `cookbook(s)` and `recipes` are retired LoopSkill words in any sentence without a kitchen word (WiseChef's restaurant copy is exempt). The exemption window holds no digits or currency, so it can never hide a price, and it is vetoed by LoopSkill, bundle, install, catalog or publish context.
+
+**Before every deploy, run `deploy/claimgate/prod_diff.py posts.csv`.** It re-judges every real Postiz post under the working tree and the base ref. Newly flagged DRAFT/QUEUE posts need a human look: round 2 newly flagged 15 drafts, all stale Recipes-era LoopSkill copy (correct).
+
+**Held-out measurement:** a corpus you tuned on overstates accuracy. Each round, generate a fresh batch with a different prompt or models, score it ONCE before any fix, report that number, then fold the batch into the ratchet.
+
 **Accepted false positives (documented, in the known gaps):** a price list with no connectors (`$0 Free, $9.95 Pro per month` binds `$9.95` to Free). A WiseChef price in a sentence that also names LoopSkill, or in a sentence after the one naming WiseChef. Write `Free $0, Pro $9.95/month`, and keep WiseChef prices in their own sentence.
 
 **Out of scope** (accepted gaps, documented):
