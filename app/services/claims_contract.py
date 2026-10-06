@@ -10,23 +10,32 @@ generator and the publish rail compared copy against tiers.yaml.
 
 This module makes the comparison mechanical and keeps it in ONE place:
 
-* :func:`build_contract` derives approved facts, the allowed price set and the
-  retired-claim rules from ``config/tiers.yaml`` (prices, caps, public flag)
-  plus ``config/claims_contract.yaml`` (brand renames, retired vocabulary).
-  A tier flipped to ``public: false`` is retired everywhere on the next
+* :func:`build_contract` derives approved facts, retired-claim rules and
+  amount rules (prices, bundle and key counts, each with its own allowed set)
+  from ``config/tiers.yaml`` plus ``config/claims_contract.yaml``. A tier
+  flipped to ``public: false`` or repriced changes the verdict on the next
   request; no marketing file needs editing.
 * :func:`check_text` is the single implementation of the check. Producers
-  call it over HTTP (``POST /api/marketing/claims/check``); the Postiz
-  database trigger runs the same patterns (``pg_pattern``) synchronously.
+  call it over HTTP (``POST /api/marketing/claims/check``). The Postiz
+  database trigger (deploy/claimgate/install.sql) runs the SAME retired and
+  amount rules via ``pg_pattern``; tests/test_claims_contract_pg_parity.py
+  asserts both engines agree on a shared corpus (postgres CI leg).
+* The one check Postgres cannot express (binding a bundle/key count to the
+  nearest preceding tier name) is Python-only; the trigger still enforces the
+  coarse form (a count that is no tier's cap at all).
 
-Patterns are restricted to a regex subset that compiles identically under
-Python ``re`` and PostgreSQL ARE; :func:`to_pg` is the only translation
-(``\\b`` -> ``\\y``). The contract test enforces the subset.
+Portable regex subset (Python ``re`` and PostgreSQL ARE, en_US.utf8): literal
+text, ``[...]`` classes, ``[0-9]`` (never ``\\d``: Unicode digits differ),
+``\\b`` (translated to ``\\y``), groups, ``|``, ``?``, ``*``, ``+``,
+``{m,n}``. No lookarounds, backreferences, named groups, inline flags or
+``\\d \\w \\s`` shorthands. Both engines check the same normalised text
+(:func:`normalize`; install.sql ``claimgate.normalize``).
 """
 
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import re
 from functools import lru_cache
@@ -40,19 +49,17 @@ CONTRACT_YAML = _CONFIG / "claims_contract.yaml"
 
 MAX_CHECK_CHARS = 20_000
 
-# A money amount and the two contexts that make it a price claim. Each entry
-# is (pattern, amount_group): the Postgres trigger reads the same group index.
-_AMOUNT = r"[$€] ?(\d+([.,]\d{1,2})?)"
-_CADENCE = r" ?(/ ?mo|/ ?month|per month|a month|monthly|/ ?yr|/ ?year|per year|a year|one-time|forever)\b"
-PRICE_PATTERNS: tuple[tuple[str, int], ...] = (
-    # "$20/mo", "€100 per month", "$49 one-time"
-    (_AMOUNT + _CADENCE, 1),
-    # "Pro $20", "Pro at $20", "Founding Member: $49" — a tier word within a
-    # short window before the amount, no sentence break and no other amount.
-    (r"\b(Free|Pro|Founding|Enterprise|On-demand)\b[^.\n$€]{0,20}" + _AMOUNT, 2),
+# Amounts are bounded ({1,7}) so no input can force a huge int/float conversion.
+_NUM = r"([0-9]{1,7}([.,][0-9]{1,2})?)"
+_RECURRING = (
+    r"(/ ?mo|/ ?m|/ ?month|per month|a month|monthly|/ ?yr|/ ?year|per year|a year|annually|yearly)\b"
 )
+_ONE_TIME = r"(one-time|one time|once|lifetime)\b"
+# Only explicit connectors bind a price to a tier ("Pro is $X", "Pro at $X",
+# "Pro: $X", "Pro plan for $X"), so "Pro saved $20 in API spend" is not a price.
+_TIER_LINK = r"( plan| tier)?( is| costs| at| for| from| only)?:? ?[-–—]? ?"
 
-_PORTABLE_FORBIDDEN = re.compile(r"\(\?|\\[1-9]|\\[AZzGkpPN]|\(\?P")
+_PORTABLE_FORBIDDEN = re.compile(r"\(\?|\\[1-9]|\\[AZzGkpPNdDwWsS]")
 
 
 def to_pg(pattern: str) -> str:
@@ -61,14 +68,25 @@ def to_pg(pattern: str) -> str:
 
 
 def assert_portable(pattern: str) -> None:
-    """Raise ValueError if ``pattern`` uses syntax the Postgres trigger can't run."""
+    """Raise ValueError if ``pattern`` uses syntax the Postgres trigger can't run identically."""
     if _PORTABLE_FORBIDDEN.search(pattern):
         raise ValueError(f"non-portable regex construct in {pattern!r}")
     re.compile(pattern, re.IGNORECASE)
 
 
+def normalize(text: str) -> str:
+    """The text BOTH engines check: tags stripped, entities decoded, whitespace collapsed.
+
+    Tags are removed without inserting a space, so ``Pro<b>+</b>`` reads as
+    ``Pro+`` here exactly as it does in the trigger (claimgate.normalize).
+    """
+    text = re.sub(r"<[^>]+>", "", text or "")
+    text = html.unescape(text).replace("\u00a0", " ")
+    return re.sub(r"[ \t\r\n\f\v]+", " ", text).strip()
+
+
 def _num(value) -> str:
-    """Render a price the way copy writes it: 9.95, 49, 0."""
+    """Render a number the way copy writes it: 9.95, 49, 0."""
     f = float(value)
     return str(int(f)) if f.is_integer() else f"{f:.2f}"
 
@@ -78,7 +96,7 @@ def _load_yaml(path: Path) -> dict:
         return yaml.safe_load(fh) or {}
 
 
-def _derived_rules(tiers: dict) -> list[dict]:
+def _derived_retired(tiers: dict) -> list[dict]:
     """One retired rule per non-public tier: its display name, badge and slug."""
     rules = []
     for slug, cfg in tiers.items():
@@ -103,6 +121,90 @@ def _derived_rules(tiers: dict) -> list[dict]:
                 "source": "config/tiers.yaml",
             }
         )
+    return rules
+
+
+def _tier_price_rule(rule_id: str, name_pattern: str, allowed: list[float], label: str) -> dict:
+    groups_before = name_pattern.count("(") + _TIER_LINK.count("(")
+    # A trailing \b after a name ending in punctuation ("Pro\+") could never
+    # match before a space; only names ending in a word character get one.
+    tail = r"\b" if re.search(r"[A-Za-z0-9_)?]$", name_pattern) else ""
+    return {
+        "id": rule_id,
+        "pattern": r"\b" + name_pattern + tail + _TIER_LINK + r"[$€] ?" + _NUM,
+        "amount_group": groups_before + 1,
+        "allowed": sorted(allowed),
+        "reason": f"price stated for {label} does not match its tier",
+    }
+
+
+def _amount_rules(public: list[dict], founding: dict | None, other_prices: list[dict]) -> list[dict]:
+    """Amount-bearing claims. Each rule names the ONLY amounts it may carry."""
+    recurring = {float(t["price_usd"]) for t in public if t["price_usd"] is not None}
+    recurring |= {float(o["amount_usd"]) for o in other_prices if o.get("cadence", "monthly") == "monthly"}
+    one_time = {0.0}
+    if founding and founding.get("price_usd") is not None:
+        one_time.add(float(founding["price_usd"]))
+    rules = [
+        {
+            "id": "price-recurring",
+            "pattern": r"[$€] ?" + _NUM + " ?(USD|EUR)? ?" + _RECURRING,
+            "amount_group": 1,
+            "allowed": sorted(recurring),
+            "reason": "recurring price not on the public ladder",
+        },
+        {
+            "id": "price-recurring-suffix",
+            "pattern": r"\b" + _NUM + r" ?(USD|EUR|dollars|euros|bucks) ?" + _RECURRING,
+            "amount_group": 1,
+            "allowed": sorted(recurring),
+            "reason": "recurring price not on the public ladder",
+        },
+        {
+            "id": "price-one-time",
+            "pattern": r"[$€] ?" + _NUM + " ?(USD|EUR)?,? ?" + _ONE_TIME,
+            "amount_group": 1,
+            "allowed": sorted(one_time),
+            "reason": "one-time price other than the Founding Member SKU",
+        },
+    ]
+    for t in public:
+        if t["price_usd"] is not None:
+            rules.append(
+                _tier_price_rule(
+                    f"price-tier-{t['slug']}",
+                    re.escape(t["display_name"]),
+                    [float(t["price_usd"])],
+                    t["display_name"],
+                )
+            )
+    if founding and founding.get("price_usd") is not None:
+        rules.append(
+            _tier_price_rule(
+                "price-tier-founding", "Founding( Member)?", [float(founding["price_usd"])], "Founding Member"
+            )
+        )
+    rules.append(
+        _tier_price_rule("price-tier-contact-only", "(Enterprise|On-demand)", [], "On-demand (contact only)")
+    )
+    bundle_caps = {int(t["bundle_limit"]) for t in public if t.get("bundle_limit") is not None}
+    key_caps = {int(t["api_key_cap"]) for t in public if t.get("api_key_cap") is not None}
+    rules += [
+        {
+            "id": "count-private-bundles",
+            "pattern": r"\b([0-9]{1,6}) private bundles?\b",
+            "amount_group": 1,
+            "allowed": sorted(bundle_caps),
+            "reason": "private-bundle count is no tier's cap",
+        },
+        {
+            "id": "count-api-keys",
+            "pattern": r"\b([0-9]{1,6}) (active |scoped |separate )?(API )?keys\b",
+            "amount_group": 1,
+            "allowed": sorted(key_caps),
+            "reason": "API-key count is no tier's cap",
+        },
+    ]
     return rules
 
 
@@ -153,27 +255,24 @@ def _cached_contract(tiers_mtime: float, contract_mtime: float) -> str:
         for slug, cfg in tiers.items()
         if cfg.get("public", True)
     ]
-    allowed = {float(t["price_usd"]) for t in public if t["price_usd"] is not None}
-    if founding and founding.get("price_usd") is not None:
-        allowed.add(float(founding["price_usd"]))
     other_prices = contract_doc.get("other_prices") or []
     for op in other_prices:
         if not op.get("evidence"):
             raise ValueError(f"other_prices entry without evidence: {op!r}")
-        allowed.add(float(op["amount_usd"]))
 
-    rules = _derived_rules(tiers) + [
+    retired = _derived_retired(tiers) + [
         {k: r.get(k) for k in ("id", "pattern", "reason", "replacement", "since")}
         | {"source": "config/claims_contract.yaml"}
         for r in contract_doc.get("rules") or []
     ]
-    for r in rules:
+    amounts = _amount_rules(public, founding, other_prices)
+    for r in retired + amounts:
         assert_portable(r["pattern"])
         r["pg_pattern"] = to_pg(r["pattern"])
         r["reason"] = " ".join(str(r.get("reason") or "").split())
 
     body = {
-        "contract_version": 1,
+        "contract_version": 2,
         "public_tiers": public,
         "founding": (
             {
@@ -184,11 +283,13 @@ def _cached_contract(tiers_mtime: float, contract_mtime: float) -> str:
             if founding
             else None
         ),
-        "allowed_prices_usd": sorted(allowed),
+        "allowed_prices_usd": sorted(
+            {p for r in amounts if r["id"].startswith("price-") for p in r["allowed"]}
+        ),
         "other_prices": other_prices,
         "approved_facts": _facts(public, founding, contract_doc.get("facts") or []),
-        "retired_rules": rules,
-        "price_rules": [{"pattern": p, "pg_pattern": to_pg(p), "amount_group": g} for p, g in PRICE_PATTERNS],
+        "retired_rules": retired,
+        "amount_rules": amounts,
         "check_endpoint": "/api/marketing/claims/check",
     }
     body["contract_hash"] = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]
@@ -200,81 +301,82 @@ def build_contract() -> dict:
     return json.loads(_cached_contract(TIERS_YAML.stat().st_mtime, CONTRACT_YAML.stat().st_mtime))
 
 
-def _excerpt(text: str, m: re.Match) -> str:
+def _violation(kind: str, rule_id: str, m: re.Match, text: str, reason: str, replacement=None) -> dict:
     lo, hi = max(0, m.start() - 30), min(len(text), m.end() + 30)
-    return " ".join(text[lo:hi].split())
+    return {
+        "kind": kind,
+        "rule_id": rule_id,
+        "match": m.group(0),
+        "excerpt": text[lo:hi],
+        "reason": reason,
+        "replacement": replacement,
+    }
 
 
 def check_text(text: str, contract: dict | None = None) -> list[dict]:
     """Return every claim violation in ``text`` (empty list = clean).
 
-    Three checks, in the order a reader would notice them:
-    1. retired rules (non-public tiers, brand renames, retired vocabulary);
-    2. prices: every amount with a cadence or next to a tier name must be on
-       the public ladder (``allowed_prices_usd``);
-    3. tier numbers: "<tier> ... N private bundles / API keys" must equal that
-       tier's live cap. The gap between tier name and number may not contain
-       digits, so "Free gives you 2, Pro gives you 50 bundles" binds 50 to Pro.
+    1. retired rules: non-public tiers, brand renames, retired vocabulary;
+    2. amount rules: every price / private-bundle count / API-key count must
+       be one of the amounts its rule allows (the trigger runs 1 and 2 with
+       identical patterns on identically normalised text);
+    3. tier binding (Python only): a bundle/key count is bound to the NEAREST
+       preceding tier name in the same sentence and must equal that tier's
+       cap. "Free users can upgrade to Pro for 50 private bundles" binds 50 to
+       Pro; "Pro includes 50 private bundles and 20 API keys" flags the 20.
     """
     c = contract or build_contract()
-    text = text or ""
+    text = normalize(text)
     out: list[dict] = []
     for rule in c["retired_rules"]:
         for m in re.finditer(rule["pattern"], text, re.IGNORECASE):
-            out.append(
-                {
-                    "kind": "retired",
-                    "rule_id": rule["id"],
-                    "match": m.group(0),
-                    "excerpt": _excerpt(text, m),
-                    "reason": rule["reason"],
-                    "replacement": rule.get("replacement"),
-                }
-            )
-    allowed = {round(float(p), 2) for p in c["allowed_prices_usd"]}
-    seen: set[tuple[int, int]] = set()
-    for pat, group in PRICE_PATTERNS:
-        for m in re.finditer(pat, text, re.IGNORECASE):
-            amount_text = m.group(group)
-            span = m.span(group)
-            if span in seen:
-                continue
-            seen.add(span)
-            amount = round(float(amount_text.replace(",", ".")), 2)
+            out.append(_violation("retired", rule["id"], m, text, rule["reason"], rule.get("replacement")))
+    for rule in c["amount_rules"]:
+        allowed = {round(float(a), 2) for a in rule["allowed"]}
+        for m in re.finditer(rule["pattern"], text, re.IGNORECASE):
+            amount = round(float(m.group(rule["amount_group"]).replace(",", ".")), 2)
             if amount not in allowed:
+                shown = ", ".join(_num(a) for a in sorted(allowed)) or "none (contact only)"
                 out.append(
-                    {
-                        "kind": "price",
-                        "rule_id": "price-not-on-ladder",
-                        "match": m.group(0),
-                        "excerpt": _excerpt(text, m),
-                        "reason": f"{_num(amount)} is not a public price; allowed: "
-                        + ", ".join(_num(p) for p in sorted(allowed)),
-                        "replacement": None,
-                    }
+                    _violation(
+                        "amount", rule["id"], m, text, f"{rule['reason']}: {_num(amount)} (allowed: {shown})"
+                    )
                 )
-    for tier in c["public_tiers"]:
-        caps = {
-            "bundle": tier.get("bundle_limit"),
-            "key": tier.get("api_key_cap"),
-        }
-        pat = (
-            r"\b"
-            + re.escape(tier["display_name"])
-            + r"\b[^.\n\d]{0,40}?\b(\d+) (private )?(bundles?|API keys?|keys?)\b"
-        )
-        for m in re.finditer(pat, text, re.IGNORECASE):
-            n = int(m.group(1))
-            unit = "key" if "key" in m.group(3).lower() else "bundle"
-            if caps[unit] is not None and n != caps[unit]:
-                out.append(
-                    {
-                        "kind": "tier-number",
-                        "rule_id": f"tier-{unit}-cap",
-                        "match": m.group(0),
-                        "excerpt": _excerpt(text, m),
-                        "reason": f"{tier['display_name']} {unit} cap is {caps[unit]}, copy says {n}",
-                        "replacement": None,
-                    }
+    out += _tier_binding(text, c)
+    return out
+
+
+_SENTENCE_END = re.compile(r"[.!?] ")
+_UNIT = re.compile(
+    r"\b([0-9]{1,6}) (private bundles?|(active |scoped |separate )?(API )?keys)\b", re.IGNORECASE
+)
+
+
+def _tier_binding(text: str, c: dict) -> list[dict]:
+    tiers = {t["display_name"].lower(): t for t in c["public_tiers"]}
+    if not tiers:
+        return []
+    name_re = re.compile(r"\b(" + "|".join(re.escape(n) for n in tiers) + r")\b", re.IGNORECASE)
+    out = []
+    for m in _UNIT.finditer(text):
+        # sentence start = after the last ".", "!" or "?" FOLLOWED BY a space
+        # ("$9.95" is not a sentence end)
+        ends = [e.end() for e in _SENTENCE_END.finditer(text, 0, m.start())]
+        start = ends[-1] if ends else 0
+        names = list(name_re.finditer(text, start, m.start()))
+        if not names:
+            continue
+        tier = tiers[names[-1].group(1).lower()]
+        unit = "key" if "key" in m.group(2).lower() else "bundle"
+        cap = tier.get("api_key_cap") if unit == "key" else tier.get("bundle_limit")
+        if cap is not None and int(m.group(1)) != int(cap):
+            out.append(
+                _violation(
+                    "tier-number",
+                    f"tier-{unit}-cap",
+                    m,
+                    text,
+                    f"{tier['display_name']} {unit} cap is {cap}, copy says {int(m.group(1))}",
                 )
+            )
     return out

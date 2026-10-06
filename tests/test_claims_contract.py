@@ -18,6 +18,7 @@ pro_plus went public:false and cookbooks became bundles. These tests pin:
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 import yaml
@@ -38,7 +39,7 @@ REAL_INCIDENTS: list[tuple[str, set[str]]] = [
     (  # x.com/adkrawcz/status/2078042238152540645 — 2026-07-17
         "$20/mo for Pro, zero recipes installed on your agent. Free tier gets you one cookbook. "
         "Pro is $20/mo for a single cookbook with its own API key. Pro Plus gives you 20 cookbooks.",
-        {"price-not-on-ladder", "cookbook-tier-allowance", "tier-not-public-pro_plus"},
+        {"price-recurring", "price-tier-pro", "cookbook-tier-allowance", "tier-not-public-pro_plus"},
     ),
     (  # x.com/adkrawcz/status/2057023531842498747 — 2026-05-20
         "Recipes = the cookbook your AI agent fleet reads from. Pro+: 20 cookbooks, 20 API keys. "
@@ -64,8 +65,49 @@ CLEAN_CORPUS = [
 ]
 
 
+# Adversarial review of PR #384 (gpt-6.1-sol, REQUEST_CHANGES): every bypass it
+# found must now be caught, and every false positive it found must pass.
+REVIEW_BYPASSES: list[tuple[str, set[str]]] = [
+    ("LoopSkill costs 20 USD/mo", {"price-recurring-suffix"}),
+    ("LoopSkill costs $20/m", {"price-recurring"}),
+    ("Pro $199/month", {"price-tier-pro"}),
+    ("Pro $49/month", {"price-tier-pro", "price-recurring"}),
+    ("Founding Member $9.95 monthly", {"price-tier-founding"}),
+    ("Pro at $9.95/month includes 20 private bundles", {"count-private-bundles", "tier-bundle-cap"}),
+    ("Pro includes 50 private bundles and 20 API keys", {"count-api-keys", "tier-key-cap"}),
+    ("Pro includes 20 private bundles", {"count-private-bundles", "tier-bundle-cap"}),
+    ("Free gets two cookbooks", {"cookbook-tier-allowance"}),
+    ("Pro gets 20  cookbooks", {"cookbook-tier-allowance"}),
+    ("Recipes powers your agents", {"brand-recipes-product"}),
+    ("Pro<b>+</b> for agencies", {"tier-not-public-pro_plus"}),
+    ("Pro&#43; for agencies", {"tier-not-public-pro_plus"}),
+    ("On-demand is $500", {"price-tier-contact-only"}),
+]
+REVIEW_MUST_PASS = [
+    "Pro saved $20 in API spend",
+    "Free users can upgrade to Pro for 50 private bundles",
+    "Founding Member: $49 one-time, Pro for life.",
+]
+
+
 def _ids(text: str) -> set[str]:
     return {v["rule_id"] for v in cc.check_text(text)}
+
+
+@pytest.mark.parametrize(("text", "expected"), REVIEW_BYPASSES)
+def test_review_bypasses_are_caught(text: str, expected: set[str]) -> None:
+    missing = expected - _ids(text)
+    assert not missing, f"rules did not fire: {missing} (got {_ids(text)})"
+
+
+@pytest.mark.parametrize("text", REVIEW_MUST_PASS)
+def test_review_false_positives_pass(text: str) -> None:
+    assert cc.check_text(text) == []
+
+
+def test_huge_numbers_cannot_crash_the_check() -> None:
+    # 5000-digit token under the 20k cap: bounded patterns never convert it.
+    cc.check_text("Free " + "1" * 5000 + " API keys and $" + "9" * 5000 + "/mo")
 
 
 @pytest.mark.parametrize(("text", "expected"), REAL_INCIDENTS)
@@ -103,13 +145,15 @@ def test_snapshot_prose_passes_the_contract(db_session) -> None:
 
 def test_tier_number_binds_to_nearest_tier() -> None:
     assert _ids("Free gives you 2, Pro gives you 50 private bundles.") == set()
-    assert _ids("Pro gives you 10 private bundles.") == {"tier-bundle-cap"}
-    assert _ids("Free includes 3 API keys.") == {"tier-key-cap"}
+    assert _ids("Pro gives you 10 private bundles.") == {"count-private-bundles", "tier-bundle-cap"}
+    assert _ids("Free includes 3 API keys.") == {"count-api-keys", "tier-key-cap"}
+    # a cap that is real for ANOTHER tier: only the Python binding can see it
+    assert _ids("Free includes 10 API keys.") == {"tier-key-cap"}
 
 
 def test_price_contexts() -> None:
-    assert _ids("Pro is $20/mo") == {"price-not-on-ladder"}
-    assert _ids("Pro at $12") == {"price-not-on-ladder"}
+    assert _ids("Pro is $20/mo") == {"price-recurring", "price-tier-pro"}
+    assert _ids("Pro at $12") == {"price-tier-pro"}
     assert _ids("€9,95 per month") == set()
     # A bare amount with no cadence and no tier word is not a price claim.
     assert _ids("We saved $3,000 in API spend.") == set()
@@ -144,13 +188,13 @@ def test_public_flag_drives_retirement(monkeypatch, tmp_path) -> None:
 def test_reprice_retires_old_price(monkeypatch, tmp_path) -> None:
     assert _ids("Pro $9.95/month") == set()
     _with_tiers(monkeypatch, tmp_path, lambda d: d["tiers"]["pro"].__setitem__("price_usd", 12))
-    assert _ids("Pro $9.95/month") == {"price-not-on-ladder"}
+    assert {"price-recurring", "price-tier-pro"} <= _ids("Pro $9.95/month")
     assert any("$12/month" in f for f in cc.build_contract()["approved_facts"])
 
 
 def test_cap_change_flows_into_facts(monkeypatch, tmp_path) -> None:
     _with_tiers(monkeypatch, tmp_path, lambda d: d["tiers"]["pro"].__setitem__("bundle_limit", 75))
-    assert _ids("Pro gives you 50 private bundles.") == {"tier-bundle-cap"}
+    assert "tier-bundle-cap" in _ids("Pro gives you 50 private bundles.")
     assert any("Pro 75" in f for f in cc.build_contract()["approved_facts"])
 
 
@@ -173,11 +217,16 @@ def test_every_pattern_is_portable() -> None:
         cc.assert_portable(r["pattern"])
         assert r["pg_pattern"] == cc.to_pg(r["pattern"])
         assert r"\b" not in r["pg_pattern"]
-    for pr in c["price_rules"]:
-        cc.assert_portable(pr["pattern"])
+    for ar in c["amount_rules"]:
+        cc.assert_portable(ar["pattern"])
+        assert ar["pg_pattern"] == cc.to_pg(ar["pattern"])
+        # the amount group really captures a number in Python
+        assert re.compile(ar["pattern"]).groups >= ar["amount_group"]
 
 
-@pytest.mark.parametrize("bad", [r"(?<!x)Pro", r"(?i)pro", r"(a)\1", r"(?P<n>x)"])
+@pytest.mark.parametrize(
+    "bad", [r"(?<!x)Pro", r"(?i)pro", r"(a)\1", r"(?P<n>x)", r"\d+ keys", r"\s+Pro", r"\wPro"]
+)
 def test_non_portable_patterns_rejected(bad: str) -> None:
     with pytest.raises(ValueError):
         cc.assert_portable(bad)
@@ -218,3 +267,6 @@ def test_routes_anonymous(db_session, monkeypatch) -> None:
 
     r = client.post("/api/marketing/claims/check", json={"text": "x" * (cc.MAX_CHECK_CHARS + 1)})
     assert r.status_code == 413
+
+    r = client.post("/api/marketing/claims/check", json={"text": "Free " + "1" * 5000 + " API keys"})
+    assert r.status_code == 200
