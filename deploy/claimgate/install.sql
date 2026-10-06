@@ -89,13 +89,14 @@ CREATE TABLE IF NOT EXISTS claimgate.state_log (
 CREATE INDEX IF NOT EXISTS state_log_unalerted ON claimgate.state_log (at) WHERE quarantined AND NOT alerted;
 
 -- Mirror of claims_contract.NAMED_ENTITIES + _decode_entity: ONE pass, left
--- to right; numeric (";" optional) and the named table (";" required); code
+-- to right; numeric (";" optional, matched whole), the named table (";"
+-- required) and LEGACY_NO_SEMICOLON names without ";"; code
 -- points 0, surrogates and > U+10FFFF stay literal. GENERATED from the Python
 -- table: tests/test_claims_contract_pg_parity.py fails if they drift.
 CREATE OR REPLACE FUNCTION claimgate.decode_entities(body text) RETURNS text
 LANGUAGE plpgsql IMMUTABLE AS $fn$
 DECLARE
-    pat   constant text := '&(#0*[0-9]{1,7};?|#[xX]0*[0-9a-fA-F]{1,6};?|[A-Za-z][A-Za-z0-9]{0,31};)';
+    pat   constant text := '&(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[A-Za-z][A-Za-z0-9]{0,31};|(nbsp|amp|lt|gt|quot|copy|reg|times|divide|middot|cent|pound|yen|shy))';
     named constant text[][] := ARRAY[
         ['amp', '&'],
         ['lt', '<'],
@@ -162,11 +163,14 @@ BEGIN
         rep := tok;
         IF left(ent, 1) = '#' THEN
             IF substr(ent, 2, 1) IN ('x', 'X') THEN
-                cp := ('x' || lpad(coalesce(nullif(ltrim(substr(ent, 3), '0'), ''), '0'), 8, '0'))::bit(32)::bigint;
+                ent := coalesce(nullif(ltrim(substr(ent, 3), '0'), ''), '0');
+                cp := CASE WHEN length(ent) > 6 THEN NULL
+                           ELSE ('x' || lpad(ent, 8, '0'))::bit(32)::bigint END;
             ELSE
-                cp := coalesce(nullif(ltrim(substr(ent, 2), '0'), ''), '0')::bigint;
+                ent := coalesce(nullif(ltrim(substr(ent, 2), '0'), ''), '0');
+                cp := CASE WHEN length(ent) > 7 THEN NULL ELSE ent::bigint END;
             END IF;
-            IF NOT (cp = 0 OR cp BETWEEN 55296 AND 57343 OR cp > 1114111) THEN
+            IF cp IS NOT NULL AND NOT (cp = 0 OR cp BETWEEN 55296 AND 57343 OR cp > 1114111) THEN
                 rep := chr(cp::int);
             END IF;
         ELSE
@@ -205,7 +209,7 @@ $fn$;
 CREATE OR REPLACE FUNCTION claimgate.tier_binding(body text) RETURNS text[]
 LANGUAGE plpgsql STABLE AS $fn$
 DECLARE
-    unit_pat constant text := '\y([0-9]{1,6}) (private bundles?|((active |scoped |separate |client )?API keys?|(active|scoped|separate|client) keys?))\y';
+    unit_pat constant text := '\y([0-9]{1,6}) (private bundles?|((active |scoped |separate |client )?(API )?keys|(active |scoped |separate |client )?API key|(active|scoped|separate|client) key))\y';
     names  text;
     pos    int := 1;
     p      int;

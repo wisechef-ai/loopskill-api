@@ -54,9 +54,10 @@ _RECURRING = (
     r"(/ ?mo|/ ?m|/ ?month|per month|a month|monthly|/ ?yr|/ ?year|per year|a year|annually|yearly)\b"
 )
 _ONE_TIME = r"(one-time|one time|once|lifetime)\b"
-# An API-key count: "1 API key", "10 API keys", "20 scoped keys". A bare
-# "3 key lessons" is NOT a key count (no "API" / qualifier), so it never fires.
-_KEY_UNIT = r"((active |scoped |separate |client )?API keys?|(active|scoped|separate|client) keys?)"
+# An API-key count: "1 API key", "10 API keys", "20 keys", "20 scoped keys".
+# Plural "keys" after a number is always a count (fail closed); singular "key"
+# only with "API" or a qualifier, so "3 key lessons" is not a key count.
+_KEY_UNIT = r"((active |scoped |separate |client )?(API )?keys|(active |scoped |separate |client )?API key|(active|scoped|separate|client) key)"
 # Only explicit connectors bind a price to a tier ("Pro is $X", "Pro at $X",
 # "Pro: $X", "Pro plan for $X"), so "Pro saved $20 in API spend" is not a price.
 _TIER_LINK = r"( plan| tier)?( is| costs| at| for| from| only)?:? ?[-–—]? ?"
@@ -132,7 +133,29 @@ NAMED_ENTITIES: dict[str, str] = {
     "emsp": " ",
     "thinsp": " ",
 }
-_ENTITY = re.compile(r"&(#0*[0-9]{1,7};?|#[xX]0*[0-9a-fA-F]{1,6};?|[A-Za-z][A-Za-z0-9]{0,31};)")
+# HTML "legacy" named references that browsers decode WITHOUT a trailing ";"
+# ("Pro&nbsp$199"), restricted to names in NAMED_ENTITIES.
+LEGACY_NO_SEMICOLON = (
+    "nbsp",
+    "amp",
+    "lt",
+    "gt",
+    "quot",
+    "copy",
+    "reg",
+    "times",
+    "divide",
+    "middot",
+    "cent",
+    "pound",
+    "yen",
+    "shy",
+)
+# Numeric tokens are matched WHOLE (any length) and range-checked afterwards,
+# so "&#11141110;" stays literal (and is flagged) instead of decoding a prefix.
+_ENTITY = re.compile(
+    r"&(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[A-Za-z][A-Za-z0-9]{0,31};|(" + "|".join(LEGACY_NO_SEMICOLON) + r"))"
+)
 # Invisible / space-like characters, mapped identically in install.sql
 # (claimgate.normalize generates its translate() lists from these via the
 # parity test): ZERO_WIDTH are deleted ("Pro\u200b+" reads "Pro+"), SPACE_LIKE
@@ -154,6 +177,8 @@ def _decode_entity(m: re.Match) -> str:
     if body.startswith("#"):
         hexa = body[1:2] in ("x", "X")
         digits = (body[2:] if hexa else body[1:]).lstrip("0") or "0"
+        if len(digits) > (6 if hexa else 7):  # > U+10FFFF without a huge int()
+            return m.group(0)
         cp = int(digits, 16) if hexa else int(digits)
         if cp == 0 or 0xD800 <= cp <= 0xDFFF or cp > 0x10FFFF:
             return m.group(0)

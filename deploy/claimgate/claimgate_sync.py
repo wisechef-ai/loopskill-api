@@ -16,8 +16,8 @@ Keeps the Postiz-side claims gate (install.sql) fed and honest:
                previous rules stay in force. Fetch failure = keep old rules.
 3. SWEEP       every post sitting in QUEUE is re-checked with BOTH engines:
                the SQL rules (catches posts queued before a rule existed) and
-               POST /api/marketing/claims/check (adds the tier-number check the
-               trigger cannot do). A violation quarantines the post the only
+               POST /api/marketing/claims/check (belt and braces: both engines
+               implement the same rules, including tier binding). A violation quarantines the post the only
                way Postiz respects: deletedAt = now(). Restore = clear it, or
                add a claimgate.override row first.
 

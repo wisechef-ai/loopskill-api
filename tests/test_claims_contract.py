@@ -92,7 +92,16 @@ REVIEW_BYPASSES += [
     ("Pro includes 1 API key", {"tier-key-cap"}),
     ("Pro&amp;plus; plan", {"unrecognised-html-entity"}),
 ]
+# Round 4 (gpt-6.1-sol).
+REVIEW_BYPASSES += [
+    ("Pro includes 20 keys for API access", {"count-api-keys", "tier-key-cap"}),
+    ("Pro&nbsp$199/month", {"price-tier-pro"}),
+    ("Pro&#11141110; plan", {"unrecognised-html-entity"}),
+    ("Pro&#x10FFFF0; plan", {"unrecognised-html-entity"}),
+    ("Pro&#" + "9" * 5000 + "; plan", {"unrecognised-html-entity"}),
+]
 REVIEW_MUST_PASS = [
+    "AT&T and R&D teams, Q&A after.",
     "We share 3 key lessons from shipping agents.",
     "R&D on agent skills, Q&A included.",
     "Free has 1 API key; Pro has 10 API keys.",
@@ -282,3 +291,13 @@ def test_routes_anonymous(db_session, monkeypatch) -> None:
 
     r = client.post("/api/marketing/claims/check", json={"text": "Free " + "1" * 5000 + " API keys"})
     assert r.status_code == 200
+
+
+def test_install_sql_patterns_match_python() -> None:
+    """install.sql hard-codes the entity and unit patterns; they must be the
+    Python ones, byte for byte (a stale copy shipped once in round 4)."""
+    from pathlib import Path
+
+    sql = (Path(__file__).resolve().parent.parent / "deploy" / "claimgate" / "install.sql").read_text()
+    assert f"pat   constant text := '{cc._ENTITY.pattern}';" in sql
+    assert f"unit_pat constant text := '{cc.to_pg(cc._UNIT.pattern)}';" in sql
