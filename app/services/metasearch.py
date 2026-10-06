@@ -40,7 +40,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from app.services.federation import ExternalSkill, InstallPath, route_install
-from app.services.federation_relevance import NO_MATCH_TIER, relevance_tier
+from app.services.federation_relevance import NO_MATCH_TIER, leaf_slug, relevance_tier
 from app.services.query_coverage import coverage, significant_tokens
 
 # ── Source priority (dedupe tie-break + rank prior) ──────────────────────────
@@ -428,7 +428,13 @@ def rank(skills: list[UnifiedSkill], *, query: str | None = None) -> list[Unifie
         )
         return scored
 
-    tiers = {id(s): relevance_tier(q, slug=s.slug, title=s.title, description=s.description) for s in scored}
+    tiers = {
+        id(s): min(
+            relevance_tier(q, slug=s.slug, title=s.title, description=s.description),
+            relevance_tier(q, slug=leaf_slug(s.slug), title=s.title, description=s.description),
+        )
+        for s in scored
+    }
     # fed1006: the ladder matches the WHOLE phrase, so a multi-word query leaves
     # most rows in NO_MATCH_TIER, where shortest-slug used to decide (prod:
     # "n8n" and "dots" ranked 3rd/4th for an ASD-STE100 query). Inside that tier
@@ -437,13 +443,28 @@ def rank(skills: list[UnifiedSkill], *, query: str | None = None) -> list[Unifie
     # source finished first. Rows in a matching tier keep their exact order.
     tokens = significant_tokens(q)
 
+    # ah_1006: within a tier, installable beats link-only (prod q=pdf: 25
+    # deep_link hub rows at 0-24). Right after tier, so relevance stays primary.
+    def _link_only(s: UnifiedSkill) -> int:
+        return 1 if s.install_path == InstallPath.DEEP_LINK.value else 0
+
     def _key(s: UnifiedSkill) -> tuple:
         tier = tiers[id(s)]
         if tier != NO_MATCH_TIER:
-            return (tier, 0.0, len(s.slug), -s.rank_score, _source_priority(s.source), s.title.lower(), "")
+            return (
+                tier,
+                _link_only(s),
+                0.0,
+                len(leaf_slug(s.slug)),
+                -s.rank_score,
+                _source_priority(s.source),
+                s.title.lower(),
+                "",
+            )
         anywhere, head = coverage(tokens, slug=s.slug, title=s.title, description=s.description)
         return (
             tier,
+            _link_only(s),
             -anywhere,
             -head,
             -s.rank_score,

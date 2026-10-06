@@ -7,20 +7,8 @@ made "is the live box running the code we shipped?" unverifiable from
 ``/api/healthz``. Every deploy that changes behaviour MUST bump this constant
 so the healthz probe can prove the cutover landed.
 
-Entries for 0.9.4-0.9.13 and 0.9.19-0.9.23 are archived verbatim in
+Entries for 0.9.4-0.9.13, 0.9.19-0.9.23 and 0.9.25 are archived verbatim in
 docs/version-history.md.
-
-fleetos_1607 Phase 0 (0.9.25): the declarative fleet-artifact primitives that
-turn LoopSkill from a marketplace into the control plane for AI agent fleets.
-Three additive tables (loop_manifests, scripts_packs, host_profiles) + a pure
-services module (app/services/fleet_artifacts.py): canonical loop-manifest
-serialization with byte-identical round-trip, a scripts-pack secret-scan gate
-that REUSES the shipped security_scan.scan_tarball (planted key => refused,
-RED-proofed), and host-profile compatibility validation (typed requires{} vs
-os/runtimes/packages). The soul artifact was deleted by the 5-step pass — the
-existing Personality model already is the deployable-SOUL primitive. Migration
-547f9f97e64d is portable (plain CREATE TABLE, no PL/pgSQL) and round-trips on
-SQLite + Postgres. Additive-only, no data migration.
 
 fleetos_1607 Phase A (0.9.26): placements — the spine. Three additive tables
 (loop_placements, placement_confirmations, fleet_member_liveness) + the
@@ -590,6 +578,14 @@ fix-mesh0408-host-dependence: the loop-run rollup now defaults to the UTC
     default rollup aggregated an empty window. New sync_report.utc_today() is
     the one clock for all three. Three mesh0408 tests failed nightly on a
     Europe/Warsaw host for this reason while CI (UTC) stayed green.
+ah_1006 install-funnel ranking (0.9.60): metasearch rank() now scores the
+    relevance tier and shortest-slug tiebreak on the LEAF of a namespace-escaped
+    slug (skills.sh ``anthropics--skills--pdf`` -> ``pdf``), and adds an
+    installable-before-link-only key right after the tier. Prod q=pdf put 25
+    hermes-hub deep_link rows (metasearch/install -> 404) at ranks 0-24 and the
+    installable anthropics/openai ``pdf`` skills at 26-27; the whole-slug tier
+    filed exact-name skills.sh rows under slug-contains. unified_search's
+    _federated_relevance gets the same deployable-first key inside a bucket.
 """
 
-__version__ = "0.9.59"
+__version__ = "0.9.60"

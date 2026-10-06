@@ -104,7 +104,10 @@ def test_curated_carries_quality_chip_and_outranks_equal_external(client, db_ses
     _fake_fanout(
         monkeypatch,
         {
-            "skills-sh": [{"id": "e/r/tie", "name": "Tie External", "installs": 1, "source": "e/r"}],
+            # ah_1006: tier + shortest-slug now read the leaf after the last
+            # "--" (e--r--abc-tie -> abc-tie), so the external leaf is sized to
+            # tie "cur-tie" exactly (same tier, same length): a genuine tie.
+            "skills-sh": [{"id": "e/r/abc-tie", "name": "Tie External", "installs": 1, "source": "e/r"}],
         },
     )
     resp = client.get("/api/skills/metasearch?q=tie")
