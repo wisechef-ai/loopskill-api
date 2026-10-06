@@ -40,7 +40,7 @@ for r in contract.get("exempt_rules") or []:
         "INSERT INTO claimgate.rule (id, kind, pg_pattern, veto) VALUES "
         f"({lit(r['id'])}, 'exempt', {lit(r['pg_pattern'])}, {lit(r['pg_veto'])});"
     )
-_flagged = [r["id"] for r in contract["amount_rules"] if r.get("exemptable")]
+_flagged = [r["id"] for r in contract["retired_rules"] + contract["amount_rules"] if r.get("exemptable")]
 if _flagged:
     load.append(
         "UPDATE claimgate.rule SET exemptable = true WHERE id IN ("

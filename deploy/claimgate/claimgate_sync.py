@@ -223,7 +223,7 @@ def sync() -> dict:
             f"INSERT INTO claimgate.rule (id, kind, pg_pattern, veto, reason) VALUES "
             f"({lit(r['id'])}, 'exempt', {lit(r['pg_pattern'])}, {lit(r['pg_veto'])}, {lit(r.get('reason'))});"
         )
-    flagged = [r["id"] for r in amounts if r.get("exemptable")]
+    flagged = [r["id"] for r in retired + amounts if r.get("exemptable")]
     if flagged:
         stmts.append(
             "UPDATE claimgate.rule SET exemptable = true WHERE id IN ("

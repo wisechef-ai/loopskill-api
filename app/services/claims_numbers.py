@@ -116,3 +116,13 @@ def num_group(prefix: str) -> int:
     """Capture-group index of the number that follows ``prefix`` (computed from
     the regex itself, never hard-coded: currency and guards carry groups)."""
     return re.compile(prefix, re.IGNORECASE).groups + 1
+
+
+_ONE_TIME = r"(one-time|one time|once|lifetime)\b"
+# Only explicit connectors bind a price to a tier ("Pro is $X", "Pro at $X",
+# "Pro: $X", "Pro plan for $X"), so "Pro saved $20 in API spend" is not a price.
+_TIER_LINK = (
+    r"( plan| tier)?,?( is| costs| cost| at| for| from| only| just| now| starts| starting| priced| still| runs| goes){0,3}"
+    r":? ?[-–—]? ?"
+)
+ATTACH = r"^,? (on|with|in|for|under) (the |a |an |your |our )?"

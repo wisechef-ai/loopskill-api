@@ -307,7 +307,28 @@ REVIEW_BYPASSES += [
     ("LoopSkill: $20 per calendar month", {"price-recurring"}),
     ("LoopSkill Pro is $9.95 for a full year.", {"price-annual"}),
 ]
+# Eval-corpus round 1: negation / audience-cost / bare-count exemptions must
+# not open holes.
+REVIEW_BYPASSES += [
+    ("No catch: annual plans save 20%.", {"annual-billing-not-offered"}),
+    ("No more monthly fees: switch to the annual plan.", {"annual-billing-not-offered"}),
+    ("Not sure? Try the annual plan.", {"annual-billing-not-offered"}),
+    ("Don't pay monthly, pay yearly.", {"annual-billing-not-offered"}),
+    ("No annual plan yet, but introducing yearly billing soon!", {"annual-billing-not-offered"}),
+    ("Teams spend just $9.95/week on LoopSkill.", {"price-unsupported-period"}),
+    (
+        "Businesses spend $20 a month on Pro.",
+        {"price-recurring", "price-tier-pro-trailing", "price-tier-pro-trailing-suffix"},
+    ),
+    ("$5 on Free", {"price-tier-free-trailing"}),
+    ("5 USD a month on Free", {"price-recurring-suffix", "price-tier-free-trailing-suffix"}),
+    ("9/month on Free", {"price-tier-free-trailing-suffix"}),
+]
 REVIEW_MUST_PASS = [
+    "There is no annual plan: Pro is $9.95 a month.",
+    "We don't offer yearly billing.",
+    "Downtime costs teams $8,000 a day; plan for resilience.",
+    "Keep private bundles to 2 on Free or 50 on Pro.",
     "LoopSkill Pro is $9.95 per calendar month.",
     "LoopSkill Pro: 9.95 €/month.",
     "Pro costs 9,95 € a month.",

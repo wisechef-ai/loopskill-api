@@ -131,7 +131,11 @@ def pg(db_session):
         )
     conn.execute(
         text("UPDATE claimgate.rule SET exemptable = true WHERE id = ANY(:ids)"),
-        {"ids": [r["id"] for r in contract["amount_rules"] if r.get("exemptable")]},
+        {
+            "ids": [
+                r["id"] for r in contract["retired_rules"] + contract["amount_rules"] if r.get("exemptable")
+            ]
+        },
     )
     yield conn
     conn.exec_driver_sql("DROP SCHEMA IF EXISTS claimgate CASCADE")

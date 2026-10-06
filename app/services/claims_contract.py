@@ -64,8 +64,17 @@ CONTRACT_YAML = _CONFIG / "claims_contract.yaml"
 MAX_CHECK_CHARS = 20_000
 
 # number grammar: app/services/claims_numbers.py (re-exported for tests + install.sql parity)
-from app.services.claims_derived import _derived_retired, derived_fact_rules, loss_exemptions  # noqa: E402
+from app.services.claims_derived import (  # noqa: E402
+    _derived_retired,
+    derived_fact_rules,
+    loss_exemptions,
+    negation_exemptions,
+    tier_price_rules as _tier_price_rules,
+)
 from app.services.claims_numbers import (  # noqa: E402,F401
+    _ONE_TIME,
+    _TIER_LINK,
+    ATTACH,
     _CUR_PRE,
     _CUR_SUF,
     num_group,
@@ -85,14 +94,6 @@ from app.services.claims_numbers import (  # noqa: E402,F401
     parse_amount,
 )
 
-
-_ONE_TIME = r"(one-time|one time|once|lifetime)\b"
-# Only explicit connectors bind a price to a tier ("Pro is $X", "Pro at $X",
-# "Pro: $X", "Pro plan for $X"), so "Pro saved $20 in API spend" is not a price.
-_TIER_LINK = (
-    r"( plan| tier)?,?( is| costs| cost| at| for| from| only| just| now| starts| starting| priced| still| runs| goes){0,3}"
-    r":? ?[-–—]? ?"
-)
 
 _PORTABLE_FORBIDDEN = re.compile(r"\(\?|\\[1-9]|\\[AZzGkpPNdDwWsS]")
 
@@ -198,54 +199,6 @@ def _num(value) -> str:
 def _load_yaml(path: Path) -> dict:
     with open(path) as fh:
         return yaml.safe_load(fh) or {}
-
-
-def _tier_price_rules(rule_id: str, name_pattern: str, allowed: list[float], label: str) -> list[dict]:
-    """Two rules per tier: "Pro is $X" (prefix currency) and "Pro costs X USD" (suffix)."""
-    # A trailing \b after a name ending in punctuation ("Pro\+") could never
-    # match before a space; only names ending in a word character get one.
-    tail = r"\b" if re.search(r"[A-Za-z0-9_)?]$", name_pattern) else ""
-    head = r"\b" + name_pattern + tail + _TIER_LINK
-    # amount group = every capture group before the number, counted by the
-    # regex engine itself (escaped literal parentheses do not count)
-    before = re.compile(head).groups
-    reason = f"price stated for {label} does not match its tier"
-    return [
-        {
-            "id": rule_id,
-            "pattern": head + _CUR_PRE + _NUM,
-            "amount_group": num_group(head + _CUR_PRE),
-            "allowed": sorted(allowed),
-            "reason": reason,
-        },
-        {
-            "id": rule_id + "-suffix",
-            "pattern": head + _NUM + r" ?" + _CUR_SUF,
-            "amount_group": before + 1,
-            "allowed": sorted(allowed),
-            "reason": reason,
-        },
-        {  # "$9.95/month on the Free tier" (round 22)
-            "id": rule_id + "-trailing",
-            "pattern": _NOT_AFTER_NUM
-            + "("
-            + _CUR_PRE
-            + ")?"
-            + _NUM
-            + " ?"
-            + _CUR_SUF
-            + "? ?("
-            + "|".join((_MONTHLY, _ANNUAL, _ONE_TIME))
-            + r")?"
-            + ATTACH[1:]
-            + r"\b"
-            + name_pattern
-            + tail,
-            "amount_group": num_group(_NOT_AFTER_NUM + "(" + _CUR_PRE + ")?"),
-            "allowed": sorted(allowed),
-            "reason": reason,
-        },
-    ]
 
 
 def _amount_rules(public: list[dict], founding: dict | None, other_prices: list[dict]) -> list[dict]:
@@ -405,6 +358,7 @@ def _cached_contract(tiers_mtime: float, contract_mtime: float) -> str:
             for r in contract_doc.get("rules") or []
         ]
     )
+    exempt += negation_exemptions(retired)
     amounts = _amount_rules(public, founding, other_prices)
     for r in retired + amounts + exempt:
         assert_portable(r["pattern"])
@@ -504,13 +458,16 @@ def check_text(text: str, contract: dict | None = None) -> list[dict]:
 
 def _check_normalized(text: str, c: dict) -> list[dict]:
     out: list[dict] = []
-    for rule in c["retired_rules"]:
-        for m in re.finditer(rule["pattern"], text, re.IGNORECASE):
-            out.append(_violation("retired", rule["id"], m, text, rule["reason"], rule.get("replacement")))
     # Generic price rules skip spans that state ANOTHER product's price in that
     # product's own context ("WiseChef ... from $199/month"). Tier-bound rules
     # still see the full text, so "WiseChef: Pro costs $199/month" is flagged.
+    # Retired rules opt in the same way ("there is no annual plan" is a true
+    # negation, not an annual-plan claim).
     exempted = _apply_exemptions(text, c)
+    for rule in c["retired_rules"]:
+        src = exempted if rule.get("exemptable") else text
+        for m in re.finditer(rule["pattern"], src, re.IGNORECASE):
+            out.append(_violation("retired", rule["id"], m, src, rule["reason"], rule.get("replacement")))
     for rule in c["amount_rules"]:
         allowed = {round(float(a), 2) for a in rule["allowed"]}
         src = exempted if rule.get("exemptable") else text
@@ -535,7 +492,6 @@ _UNIT = re.compile(_NOT_AFTER_NUM + _COUNT + r" (private bundles?|" + _KEY_UNIT 
 UNIT_GROUP = re.compile(_NOT_AFTER_NUM + _COUNT).groups + 1
 
 
-ATTACH = r"^,? (on|with|in|for|under) (the |a |an |your |our )?"
 _ATTACH_NAME = re.compile(ATTACH).groups + 1
 
 

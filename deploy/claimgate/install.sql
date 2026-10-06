@@ -437,11 +437,6 @@ BEGIN
     IF body = '' THEN
         RETURN NULL;
     END IF;
-    FOR r IN SELECT * FROM claimgate.rule WHERE kind = 'retired' LOOP
-        IF body ~* r.pg_pattern THEN
-            hits := hits || r.id;
-        END IF;
-    END LOOP;
     -- mirror of check_text(): generic price rules skip other products' prices
     -- stated in their own context; tier-bound rules see the full text
     body_ex := body;
@@ -473,6 +468,12 @@ BEGIN
                 pos := p + 1;
             END IF;
         END LOOP;
+    END LOOP;
+    -- retired rules opt into exemptions too ("there is no annual plan")
+    FOR r IN SELECT * FROM claimgate.rule WHERE kind = 'retired' LOOP
+        IF (CASE WHEN r.exemptable THEN body_ex ELSE body END) ~* r.pg_pattern THEN
+            hits := hits || r.id;
+        END IF;
     END LOOP;
     FOR r IN SELECT * FROM claimgate.rule WHERE kind = 'amount' LOOP
         src := CASE WHEN r.exemptable THEN body_ex ELSE body END;
