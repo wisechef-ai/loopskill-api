@@ -295,7 +295,20 @@ REVIEW_BYPASSES += [
     ("Pro is $9.95/month. Teams pay $19 per user per month.", {"price-recurring"}),
     ("LoopSkill: $5 per seat per week", {"price-unsupported-period"}),
 ]
+# Round 26 (codex sol): commerce words veto the loss exemption; period qualifiers.
+REVIEW_BYPASSES += [
+    (
+        "LoopSkill pricing. Our subscription is worth $199/month, and that's what we charge.",
+        {"price-recurring"},
+    ),
+    ("Our plan is worth $199/month.", {"price-recurring"}),
+    ("Save $19/month when you upgrade.", {"price-recurring"}),
+    ("LoopSkill Pro costs $9.95 per calendar year.", {"price-annual"}),
+    ("LoopSkill: $20 per calendar month", {"price-recurring"}),
+    ("LoopSkill Pro is $9.95 for a full year.", {"price-annual"}),
+]
 REVIEW_MUST_PASS = [
+    "LoopSkill Pro is $9.95 per calendar month.",
     "LoopSkill Pro: 9.95 €/month.",
     "Pro costs 9,95 € a month.",
     "We added 3 users per month on average.",

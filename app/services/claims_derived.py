@@ -101,12 +101,25 @@ def loss_exemptions(veto: str) -> list[dict]:
     them an average of $150,000 per year", "a $50,000 weekly loss") are not
     prices. Tight on purpose: only _FILLER words may sit between the trigger
     word and the amount ("just", "only", "for", "with" never do), and the
-    sentence veto (LoopSkill / any tier) still applies (round 23)."""
+    sentence veto (LoopSkill / any tier / any commerce word) still applies
+    (rounds 23, 26)."""
     period = "(" + "|".join((_MONTHLY, _ANNUAL, _OTHER_PERIOD)) + ")"
     amount = _CUR_PRE + _NUM + r" ?" + _CUR_SUF + "? ?"
     trigger = r"\b(lose|loses|losing|lost|losses|loss|bleeding|burning|wasting|save|saves|saved|saving|worth)"
+    # A sentence about what anyone CHARGES is a price sentence, never a loss
+    # figure: "Our subscription is worth $199/month, and that's what we
+    # charge" (round 26). Commerce words join the LoopSkill / tier veto.
+    commerce = (
+        r"|\b(subscriptions?|subscribe|plans?|pricing|priced|prices?|charges?|charged|charging|billed|billing"
+        r"|tiers?|memberships?|upgrade|checkout|sign up|signup)\b"
+    )
     return [
-        {"id": rid, "pattern": pat, "veto": veto, "reason": "a loss / savings / value figure, not a price"}
+        {
+            "id": rid,
+            "pattern": pat,
+            "veto": veto + commerce,
+            "reason": "a loss / savings / value figure, not a price",
+        }
         for rid, pat in (
             ("loss-figure-before", trigger + _FILLER + " " + amount + period),
             (

@@ -72,7 +72,12 @@ _KEY_UNIT = r"((active |scoped |separate |client )?(API )?keys|(active |scoped |
 # tiers.yaml defines as annual_price_usd (round 21: "Pro is $9.95/year").
 # A billing period is <lead><unit>, so EVERY lead combines with every unit
 # ("each month", "every year", "for each week"; round 24).
-_LEAD = r"(for |billed |paid |charged )?(/ ?|per |a |an |each |every )"
+# An optional qualifier between lead and unit: "per calendar year", "every
+# billing month", "a full year" (round 26).
+_LEAD = (
+    r"(for |billed |paid |charged )?(/ ?|per |a |an |each |every )"
+    r"((calendar|fiscal|financial|billing|full|whole|single|entire|subscription) )?"
+)
 # An optional per-seat unit before the period: "$19 per user per month",
 # "$19/seat/mo" (round 25). It sits AFTER the amount, so no amount group
 # index moves.

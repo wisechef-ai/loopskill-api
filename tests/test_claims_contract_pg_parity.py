@@ -18,6 +18,7 @@ test_expected_verdicts_in_postgres below re-asserts them on the trigger side.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -148,6 +149,15 @@ def _py_ids(body: str) -> set[str]:
 @pytest.mark.parametrize("body", _corpus())
 def test_python_and_postgres_agree(pg, body: str) -> None:
     assert _sql_ids(pg, body) == _py_ids(body)
+
+
+def test_eval_corpus_python_and_postgres_agree(pg) -> None:
+    """Every row of the labelled eval corpus gets the same rule ids in both engines."""
+    path = Path(__file__).parent / "fixtures" / "claims_eval_corpus.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    diff = [(r["text"], _sql_ids(pg, r["text"]), _py_ids(r["text"])) for r in rows]
+    diff = [d for d in diff if d[1] != d[2]]
+    assert not diff, diff[:10]
 
 
 def test_normalize_agrees(pg) -> None:
