@@ -5,7 +5,7 @@ Rules are data: install.sql runs them unchanged via the contract sync."""
 
 import re
 
-from app.services.claims_numbers import _KEY_UNIT
+from app.services.claims_numbers import _ANNUAL, _FILLER, _KEY_UNIT, _MONTHLY, _NUM, _OTHER_PERIOD
 
 
 def _derived_retired(tiers: dict) -> list[dict]:
@@ -56,7 +56,13 @@ def derived_fact_rules(public: list[dict]) -> list[dict]:
     as_many = r"as many "
     want = r" as you (want|like|need)\b"
     for key, unit, rid in (
-        ("bundle_limit", r"private bundles?", "unlimited-private-bundles"),
+        # "private bundles", "private and public bundles", "public and private
+        # bundles", "private/public bundles" (round 23)
+        (
+            "bundle_limit",
+            r"([a-z]+ ?(and|or|&|/) ?)?private( ?(and|or|&|/) ?[a-z]+)? bundles?",
+            "unlimited-private-bundles",
+        ),
         ("api_key_cap", _KEY_UNIT, "unlimited-api-keys"),
     ):
         if all(t.get(key) is not None for t in public):
@@ -79,3 +85,21 @@ def derived_fact_rules(public: list[dict]) -> list[dict]:
                 }
             )
     return rules
+
+
+def loss_exemptions(veto: str) -> list[dict]:
+    """Loss / savings / value figures ("losses of around $8,000 a day", "saving
+    them an average of $150,000 per year", "a $50,000 weekly loss") are not
+    prices. Tight on purpose: only _FILLER words may sit between the trigger
+    word and the amount ("just", "only", "for", "with" never do), and the
+    sentence veto (LoopSkill / any tier) still applies (round 23)."""
+    period = "(" + "|".join((_MONTHLY, _ANNUAL, _OTHER_PERIOD)) + ")"
+    amount = r"[$€] ?" + _NUM + r" ?(USD|EUR)? ?"
+    trigger = r"\b(lose|loses|losing|lost|losses|loss|bleeding|burning|wasting|save|saves|saved|saving|worth)"
+    return [
+        {"id": rid, "pattern": pat, "veto": veto, "reason": "a loss / savings / value figure, not a price"}
+        for rid, pat in (
+            ("loss-figure-before", trigger + _FILLER + " " + amount + period),
+            ("loss-figure-after", amount + period + r" ?(in |of )?(lost|loss|losses|downtime)\b"),
+        )
+    ]

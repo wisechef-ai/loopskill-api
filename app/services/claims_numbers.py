@@ -66,3 +66,18 @@ def parse_amount(token: str) -> float:
 # Plural "keys" after a number is always a count (fail closed); singular "key"
 # only with "API" or a qualifier, so "3 key lessons" is not a key count.
 _KEY_UNIT = r"((active |scoped |separate |client )?(API )?keys|(active |scoped |separate |client )?API key|(active|scoped|separate|client) key)"
+
+
+# Public tier prices are MONTHLY; an annual price may only use an amount
+# tiers.yaml defines as annual_price_usd (round 21: "Pro is $9.95/year").
+_MONTHLY = r"(/ ?mo|/ ?m|/ ?month|per month|a month|monthly)\b"
+_ANNUAL = r"(/ ?yr|/ ?year|/ ?annum|per year|a year|per annum|annually|yearly)\b"
+_FILLER = (
+    r"( (of|around|about|over|up|to|nearly|almost|roughly|approximately|more|than|least|an|a|the|average"
+    r"|estimated|them|you|your|team|teams|businesses|companies|clients|customers)){0,5}"
+)
+# Any OTHER billing period is unsupported (round 23: "$9.95/week").
+_OTHER_PERIOD = (
+    r"((/ ?|per |a |an |every )(wk|week|day|hr|hour|minute|min|quarter|qtr|fortnight|semester|decade)s?"
+    r"|weekly|daily|hourly|quarterly|biweekly|bi-weekly|fortnightly|semiannually|semi-annually)\b"
+)

@@ -57,6 +57,8 @@ node deploy/claimgate/gen_postiz_pipeline_fixture.js pz 600 > tests/fixtures/pos
 
 **Tier binding** (`_tier_binding` / `claimgate.tier_binding`): a count binds to a tier attached after it (`50 private bundles on the Free tier`), else to the nearest tier before it in the sentence, else to the nearest tier after it. The exception: a tier after the count that has its own number after it (`50 private bundles (Free gives you 2)`) owns that number. Accepted gap: a trailing tier with no connector that is followed by another number is not bound.
 
+**Prices and billing periods:** LoopSkill bills monthly. A price may carry a monthly period (a public tier price), an annual one (only an `annual_price_usd` from tiers.yaml; none today, so only $0), or any other period (`/week`, `per day`, `quarterly`: only $0). **Loss, savings and value figures are not prices** (`losses of around $8,000 a day`, `saving them an average of $150,000 per year`, `a $50,000 weekly loss`). They are exempt (`claims_derived.loss_exemptions`) only when a trigger word (lose…, save…, worth, bleeding, burning, wasting) is followed by filler words alone, and the sentence names neither LoopSkill nor a tier. Accepted false positive: a bare rate with no adjacent trigger (`At $120 per minute, that's over $4,300 lost`) is quarantined. Put the loss word next to the rate (`losing $120 per minute`).
+
 **Out of scope** (accepted gaps, documented):
 - Author CSS. Postiz strips tags and styles before publishing, so no platform renders it.
 - HTML5 tree-construction effects (foster parenting, raw-text elements). Every element that has them is outside the allowlist and is therefore rejected.

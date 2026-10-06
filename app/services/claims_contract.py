@@ -64,8 +64,12 @@ CONTRACT_YAML = _CONFIG / "claims_contract.yaml"
 MAX_CHECK_CHARS = 20_000
 
 # number grammar: app/services/claims_numbers.py (re-exported for tests + install.sql parity)
-from app.services.claims_derived import _derived_retired, derived_fact_rules  # noqa: E402
+from app.services.claims_derived import _derived_retired, derived_fact_rules, loss_exemptions  # noqa: E402
 from app.services.claims_numbers import (  # noqa: E402,F401
+    _ANNUAL,
+    _FILLER,
+    _MONTHLY,
+    _OTHER_PERIOD,
     _COUNT,
     _GROUPED,
     _KEY_UNIT,
@@ -79,10 +83,6 @@ from app.services.claims_numbers import (  # noqa: E402,F401
 )
 
 
-# Public tier prices are MONTHLY; an annual price may only use an amount
-# tiers.yaml defines as annual_price_usd (round 21: "Pro is $9.95/year").
-_MONTHLY = r"(/ ?mo|/ ?m|/ ?month|per month|a month|monthly)\b"
-_ANNUAL = r"(/ ?yr|/ ?year|/ ?annum|per year|a year|per annum|annually|yearly)\b"
 _ONE_TIME = r"(one-time|one time|once|lifetime)\b"
 # Only explicit connectors bind a price to a tier ("Pro is $X", "Pro at $X",
 # "Pro: $X", "Pro plan for $X"), so "Pro saved $20 in API spend" is not a price.
@@ -248,6 +248,7 @@ def _amount_rules(public: list[dict], founding: dict | None, other_prices: list[
     for rid, cad, allowed, what in (
         ("price-recurring", _MONTHLY, recurring, "monthly price not on the public ladder"),
         ("price-annual", _ANNUAL, annual, "annual price not in tiers.yaml (annual_price_usd)"),
+        ("price-unsupported-period", _OTHER_PERIOD, {0.0}, "LoopSkill bills monthly only"),
     ):
         rules += [
             {
@@ -371,6 +372,7 @@ def _cached_contract(tiers_mtime: float, contract_mtime: float) -> str:
     ]
     veto = r"\b(" + "|".join(sorted({_lit(n) for n in veto_names}, key=len, reverse=True)) + r")"
     exempt = [_exempt_rule(i, op, veto) for i, op in enumerate(other_prices)]
+    exempt += loss_exemptions(veto)
     retired = (
         _derived_retired(tiers)
         + derived_fact_rules(public)

@@ -248,7 +248,34 @@ REVIEW_BYPASSES += [
     ("LoopSkill Pro is $9.95/mo, paid annually.", {"annual-billing-not-offered"}),
     ("LoopSkill Pro: $119.40 per annum", {"price-annual", "annual-billing-not-offered"}),
 ]
+# Round 23 (codex sol): unsupported billing period; coordinated "unlimited".
+REVIEW_BYPASSES += [
+    ("LoopSkill Pro is $9.95/week.", {"price-unsupported-period"}),
+    ("Pro: $2 per day", {"price-unsupported-period"}),
+    ("LoopSkill Pro, $29.85 quarterly", {"price-unsupported-period"}),
+    ("Pro costs 9.95 USD a week", {"price-unsupported-period-suffix"}),
+    ("LoopSkill Free includes unlimited private and public bundles.", {"unlimited-private-bundles"}),
+    ("LoopSkill Free includes unlimited public and private bundles.", {"unlimited-private-bundles"}),
+    ("Unlimited private/public bundles on every plan", {"unlimited-private-bundles"}),
+]
+REVIEW_BYPASSES += [
+    # loss-figure exemption must not open a hole
+    ("Stop losing time and pay just $9.95/week.", {"price-unsupported-period"}),
+    ("Stop losing time, just $9.95/week.", {"price-unsupported-period"}),
+    ("You keep losing over $9.95/week until you buy LoopSkill Pro.", {"price-unsupported-period"}),
+    ("Save with just $9.95/week.", {"price-unsupported-period"}),
+    ("Save more for only $19/month.", {"price-recurring"}),
+    ("It costs you $9.95/week.", {"price-unsupported-period"}),
+]
 REVIEW_MUST_PASS = [
+    "LoopSkill Free is $0 per week, every week.",
+    # real pain-first copy from production (loss figures are not prices)
+    "Downtime can lead to losses of around $8,000 a day.",
+    "One error could snowball into a $50,000 weekly loss if not caught in time.",
+    "You're losing over $1,000 every hour, and you have no idea it's even down.",
+    "Teams report a 70% drop in incidents, saving them an average of $150,000 per year.",
+    "A loyal customer can be worth up to $1,000 a year to your business.",
+    "Install skills in seconds, every day.",
     "LoopSkill Pro is $9.95/month on the Pro plan.",
     "Public bundles are unlimited on every tier, including Free.",
     "Start free, then $9.95/month for Pro.",
