@@ -73,15 +73,22 @@ _KEY_UNIT = r"((active |scoped |separate |client )?(API )?keys|(active |scoped |
 # A billing period is <lead><unit>, so EVERY lead combines with every unit
 # ("each month", "every year", "for each week"; round 24).
 _LEAD = r"(for |billed |paid |charged )?(/ ?|per |a |an |each |every )"
-_MONTHLY = r"(" + _LEAD + r"(months?|mos?|mths?)|/ ?m|monthly|month-to-month)\b"
-_ANNUAL = r"(" + _LEAD + r"(years?|yrs?|annum)|annually|yearly)\b"
+# An optional per-seat unit before the period: "$19 per user per month",
+# "$19/seat/mo" (round 25). It sits AFTER the amount, so no amount group
+# index moves.
+_PER_UNIT = (
+    r"((/ ?|per |a |an |each |every )"
+    r"(users?|seats?|members?|agents?|persons?|people|heads?|licen[cs]es?|accounts?|workspaces?) ?)?"
+)
+_MONTHLY = _PER_UNIT + r"(" + _LEAD + r"(months?|mos?|mths?)|/ ?m|monthly|month-to-month)\b"
+_ANNUAL = _PER_UNIT + r"(" + _LEAD + r"(years?|yrs?|annum)|annually|yearly)\b"
 _FILLER = (
     r"( (of|around|about|over|up|to|nearly|almost|roughly|approximately|more|than|least|an|a|the|average"
     r"|exceeding|topping|upwards|north|totaling|totalling|reaching|well"
     r"|estimated|them|you|your|team|teams|businesses|companies|clients|customers)){0,5}"
 )
 # Any OTHER billing period is unsupported (round 23: "$9.95/week").
-_OTHER_PERIOD = (
+_OTHER_PERIOD = _PER_UNIT + (
     r"("
     + _LEAD
     + r"(wks?|weeks?|days?|hrs?|hours?|minutes?|mins?|quarters?|qtrs?|fortnights?|semesters?|decades?)"
@@ -93,7 +100,11 @@ _OTHER_PERIOD = (
 # checks the AMOUNT against tiers.yaml whatever the marker, so a foreign
 # currency never hides a price. Prefix ends in an optional space.
 _CUR_PRE = r"([$€£¥₹]|(US|A|C|NZ|HK|S|R)\$|(USD|EUR|GBP|PLN|CHF|CAD|AUD|JPY|INR) ?) ?"
-_CUR_SUF = r"(USD|EUR|GBP|PLN|CHF|CAD|AUD|JPY|INR|zł|zloty|złoty|dollars|euros|pounds|quid|bucks|francs)"
+# Words end at a word boundary ("USDC" is no currency); symbols may sit
+# right after the amount, the European way ("19 €/month", "19€"; round 25).
+_CUR_SUF = (
+    r"((USD|EUR|GBP|PLN|CHF|CAD|AUD|JPY|INR|zł|zloty|złoty|dollars|euros|pounds|quid|bucks|francs)\b|[€£¥₹$])"
+)
 
 
 def num_group(prefix: str) -> int:

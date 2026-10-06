@@ -282,7 +282,23 @@ REVIEW_BYPASSES += [
     ("LoopSkill Pro: $20 each month in savings", {"price-recurring", "price-tier-pro"}),
     ("Stop losing time for $20 each month.", {"price-recurring"}),
 ]
+# Round 25 (claude-opus): symbol after the amount; per-seat before the period.
+REVIEW_BYPASSES += [
+    ("LoopSkill Pro: 19 €/month.", {"price-recurring-suffix", "price-tier-pro-suffix"}),
+    ("LoopSkill costs 19€/month.", {"price-recurring-suffix"}),
+    ("LoopSkill Pro is 19£/month.", {"price-recurring-suffix", "price-tier-pro-suffix"}),
+    ("Pro costs 19€ a month.", {"price-recurring-suffix", "price-tier-pro-suffix"}),
+    ("LoopSkill costs $19 per user per month.", {"price-recurring"}),
+    ("LoopSkill costs $19 per seat per month.", {"price-recurring"}),
+    ("LoopSkill costs $19/user/month.", {"price-recurring"}),
+    ("LoopSkill hosting runs $19/seat/mo.", {"price-recurring"}),
+    ("Pro is $9.95/month. Teams pay $19 per user per month.", {"price-recurring"}),
+    ("LoopSkill: $5 per seat per week", {"price-unsupported-period"}),
+]
 REVIEW_MUST_PASS = [
+    "LoopSkill Pro: 9.95 €/month.",
+    "Pro costs 9,95 € a month.",
+    "We added 3 users per month on average.",
     "LoopSkill Pro is $9.95 each month.",
     # real production copy (round 24 scan): loss figures with "each <period>"
     "If these crashes happen frequently, you could face losses exceeding $100,000 each year.",

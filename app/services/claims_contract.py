@@ -220,7 +220,7 @@ def _tier_price_rules(rule_id: str, name_pattern: str, allowed: list[float], lab
         },
         {
             "id": rule_id + "-suffix",
-            "pattern": head + _NUM + r" ?" + _CUR_SUF + r"\b",
+            "pattern": head + _NUM + r" ?" + _CUR_SUF,
             "amount_group": before + 1,
             "allowed": sorted(allowed),
             "reason": reason,
