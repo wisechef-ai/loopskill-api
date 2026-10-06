@@ -195,12 +195,12 @@ $fn$;
 
 -- Mirror of claims_contract.normalize(): strip tags (no space inserted),
 -- decode entities once, NBSP -> space, collapse ASCII whitespace, trim.
-CREATE OR REPLACE FUNCTION claimgate.normalize(body text) RETURNS text
+DROP FUNCTION IF EXISTS claimgate.normalize(text);
+CREATE OR REPLACE FUNCTION claimgate.normalize(body text, tag_sep text DEFAULT '') RETURNS text
 LANGUAGE plpgsql IMMUTABLE AS $fn$
 BEGIN
-    -- GENERATED from claims_normalize.BLOCK_TAG: block tags -> space, inline tags -> ''
-    body := regexp_replace(coalesce(body, ''), '<[ \t\r\n]*/?[ \t\r\n]*(br|p|div|li|ul|ol|dl|dt|dd|h[1-6]|hr|tr|td|th|table|thead|tbody|tfoot|blockquote|pre|section|article|aside|header|footer|nav|main|figure|figcaption|address)\y[^>]*>', ' ', 'gi');
-    body := regexp_replace(body, '<[^>]+>', '', 'g');
+    -- GENERATED from claims_normalize.TAG: every tag -> tag_sep (both readings are checked)
+    body := regexp_replace(coalesce(body, ''), '<([^>\"'']|\"[^\"]*\"|''[^'']*'')*>', tag_sep, 'g');
     body := claimgate.decode_entities(body);
     -- GENERATED from claims_contract.ZERO_WIDTH / SPACE_LIKE (parity-tested)
     body := translate(body, chr(173)||chr(8203)||chr(8204)||chr(8205)||chr(8288)||chr(65279), '');
@@ -287,7 +287,7 @@ $fn$;
 
 -- Returns NULL when clean, else a '; '-joined, de-duplicated list of
 -- "rule_id" (retired) / "rule_id:amount" (amount) hits.
-CREATE OR REPLACE FUNCTION claimgate.violations(body text) RETURNS text
+CREATE OR REPLACE FUNCTION claimgate.violations_norm(body text) RETURNS text
 LANGUAGE plpgsql STABLE AS $fn$
 DECLARE
     r    record;
@@ -307,7 +307,6 @@ BEGIN
        OR NOT EXISTS (SELECT 1 FROM claimgate.rule WHERE kind = 'amount') THEN
         RAISE EXCEPTION 'claimgate: contract not loaded (rule table empty)';
     END IF;
-    body := claimgate.normalize(body);
     IF body = '' THEN
         RETURN NULL;
     END IF;
@@ -373,6 +372,25 @@ BEGIN
         RETURN NULL;
     END IF;
     RETURN array_to_string(ARRAY(SELECT DISTINCT h FROM unnest(hits) AS h ORDER BY h), '; ');
+END;
+$fn$;
+
+-- Mirror of claims_contract.check_text: every tag read BOTH ways (joined and
+-- separated, claims_normalize.TAG_SEPARATORS); a violation in either counts.
+CREATE OR REPLACE FUNCTION claimgate.violations(body text) RETURNS text
+LANGUAGE plpgsql STABLE AS $fn$
+DECLARE
+    joined    text := claimgate.violations_norm(claimgate.normalize(body, ''));
+    separated text := claimgate.violations_norm(claimgate.normalize(body, ' '));
+BEGIN
+    IF joined IS NULL AND separated IS NULL THEN
+        RETURN NULL;
+    END IF;
+    RETURN array_to_string(ARRAY(
+        SELECT DISTINCT h
+          FROM unnest(string_to_array(coalesce(joined, '') || '; ' || coalesce(separated, ''), '; ')) AS h
+         WHERE h <> ''
+         ORDER BY h), '; ');
 END;
 $fn$;
 

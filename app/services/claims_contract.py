@@ -44,7 +44,8 @@ import yaml
 
 from app.services.claims_normalize import (  # noqa: F401  (re-exported: tests + install.sql parity)
     _ENTITY,
-    BLOCK_TAG,
+    TAG,
+    TAG_SEPARATORS,
     C1_REMAP,
     LEGACY_NO_SEMICOLON,
     NAMED_ENTITIES,
@@ -515,7 +516,18 @@ def check_text(text: str, contract: dict | None = None) -> list[dict]:
        Pro; "Pro includes 50 private bundles and 20 API keys" flags the 20.
     """
     c = contract or build_contract()
-    text = normalize(text)
+    out: list[dict] = []
+    seen: set[tuple] = set()
+    for sep in TAG_SEPARATORS:  # both readings of every tag (claims_normalize)
+        for v in _check_normalized(normalize(text, sep), c):
+            key = (v["rule_id"], v["match"])
+            if key not in seen:
+                seen.add(key)
+                out.append(v)
+    return out
+
+
+def _check_normalized(text: str, c: dict) -> list[dict]:
     out: list[dict] = []
     for rule in c["retired_rules"]:
         for m in re.finditer(rule["pattern"], text, re.IGNORECASE):

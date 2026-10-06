@@ -150,10 +150,10 @@ def test_python_and_postgres_agree(pg, body: str) -> None:
 
 
 def test_normalize_agrees(pg) -> None:
-    for body in _corpus():
-        assert pg.execute(text("SELECT claimgate.normalize(:b)"), {"b": body}).scalar() == cc.normalize(
-            body
-        ), body
+    for sep in cc.TAG_SEPARATORS:
+        for body in _corpus():
+            got = pg.execute(text("SELECT claimgate.normalize(:b, :s)"), {"b": body, "s": sep}).scalar()
+            assert got == cc.normalize(body, sep), (sep, body)
 
 
 @pytest.mark.parametrize(("body", "expected"), REAL_INCIDENTS + REVIEW_BYPASSES)

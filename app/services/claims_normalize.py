@@ -130,26 +130,26 @@ def _decode_entity(m: re.Match) -> str:
     return NAMED_ENTITIES.get(body, m.group(0))
 
 
-# Block-level / line-break tags separate words when rendered ("Pro<br>includes"
-# shows two lines), so they become a space; every other (inline) tag is removed
-# with NO space ("Pro<b>+</b>" renders "Pro+"). install.sql: claimgate.normalize.
-BLOCK_TAG = (
-    r"<[ \t\r\n]*/?[ \t\r\n]*(br|p|div|li|ul|ol|dl|dt|dd|h[1-6]|hr|tr|td|th|table|thead|tbody|tfoot"
-    r"|blockquote|pre|section|article|aside|header|footer|nav|main|figure|figcaption|address)\b[^>]*>"
-)
+# A tag, with quoted attribute values allowed to contain ">" ('<b title=">">').
+# Each alternative starts with a distinct character, so matching is linear.
+TAG = r"<([^>\"']|\"[^\"]*\"|'[^']*')*>"
+# Whether a tag joins or separates the text around it depends on CSS, not on
+# its name ("Pro<b>+</b>" renders "Pro+", "Pro<form>includes" renders two
+# lines), so no tag list can be right. The check runs on BOTH readings and
+# reports every violation found in either (claims_contract.check_text;
+# install.sql claimgate.violations).
+TAG_SEPARATORS = ("", " ")
 
 
-def normalize(text: str) -> str:
-    """The text BOTH engines check (install.sql: claimgate.normalize).
+def normalize(text: str, tag_sep: str = "") -> str:
+    """The text BOTH engines check (install.sql: claimgate.normalize(body, tag_sep)).
 
-    1. block tags -> space (``Pro<br>includes``); inline tags removed WITHOUT a
-       space (``Pro<b>+</b>`` -> ``Pro+``);
+    1. every tag -> ``tag_sep`` ("" joins, " " separates; see TAG_SEPARATORS);
     2. entities decoded once, per the explicit spec above;
     3. ZERO_WIDTH deleted, SPACE_LIKE -> space;
     4. ASCII whitespace runs -> one space; trimmed of ASCII spaces only (the
        same thing Postgres btrim() does).
     """
-    text = re.sub(BLOCK_TAG, " ", text or "", flags=re.IGNORECASE)
-    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(TAG, tag_sep, text or "")
     text = _ENTITY.sub(_decode_entity, text).translate(_ZW_TABLE)
     return re.sub(r"[ \t\r\n\f\v]+", " ", text).strip(" ")
