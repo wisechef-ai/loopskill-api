@@ -275,6 +275,9 @@ DECLARE
     pos  int;
     p    int;
     tok  text;
+    e    int;
+    sstart int;
+    send int;
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM claimgate.rule WHERE kind = 'retired')
        OR NOT EXISTS (SELECT 1 FROM claimgate.rule WHERE kind = 'amount') THEN
@@ -301,7 +304,19 @@ BEGIN
             p := regexp_instr(body_ex, r.pg_pattern, pos, 1, 0, 'i');
             EXIT WHEN p = 0;
             tok := regexp_substr(body_ex, r.pg_pattern, pos, 1, 'i');
-            IF tok ~* r.veto THEN
+            -- veto checks the WHOLE sentence around the match (claims_contract._apply_exemptions)
+            sstart := 1;
+            e := 1;
+            LOOP
+                e := regexp_instr(body_ex, '[.!?] ', e, 1, 1);
+                EXIT WHEN e = 0 OR e > p;
+                sstart := e;
+            END LOOP;
+            send := regexp_instr(body_ex, '[.!?] ', p + length(tok));
+            IF send = 0 THEN
+                send := length(body_ex) + 1;
+            END IF;
+            IF substr(body_ex, sstart, send - sstart) ~* r.veto THEN
                 pos := p + length(tok);
             ELSE
                 body_ex := left(body_ex, p - 1) || ' ' || substr(body_ex, p + length(tok));

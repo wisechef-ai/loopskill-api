@@ -234,7 +234,15 @@ def _exempt_rule(i: int, op: dict, veto: str) -> dict:
         "id": f"other-price-{i:02d}",
         "pattern": (
             r"\b" + _lit(op["product_name"]) + r"\b[^.!?$€]{0,120}("
-            r"[$€] ?" + amt + r" ?(USD|EUR)? ?" + cad + "|" + amt + r" ?(USD|EUR|dollars|euros) ?" + cad + ")"
+            r"[$€] ?"
+            + amt
+            + r" ?(USD|EUR)? ?"
+            + cad
+            + r"|\b"
+            + amt
+            + r" ?(USD|EUR|dollars|euros) ?"
+            + cad
+            + ")"
         ),
         "veto": veto,
         "reason": f"{op.get('product')} ({op.get('evidence')})",
@@ -242,13 +250,31 @@ def _exempt_rule(i: int, op: dict, veto: str) -> dict:
 
 
 def _apply_exemptions(text: str, c: dict) -> str:
-    """Blank out other products' own price claims (install.sql mirrors this
-    left-to-right, non-overlapping scan in claimgate.violations)."""
+    """Blank out other products' own price claims.
+
+    The veto is checked against the WHOLE SENTENCE around the match (not just
+    the matched span), so "LoopSkill costs, unlike WiseChef, $199/month." and
+    "WiseChef costs $199/month, and so does LoopSkill." are never exempted.
+    Step-by-step scan on the progressively blanked text, identical to
+    claimgate.violations in install.sql.
+    """
     for ex in c.get("exempt_rules") or []:
+        pat = re.compile(ex["pattern"], re.IGNORECASE)
         veto = re.compile(ex["veto"], re.IGNORECASE)
-        text = re.sub(
-            ex["pattern"], lambda m: m.group(0) if veto.search(m.group(0)) else " ", text, flags=re.IGNORECASE
-        )
+        pos = 0
+        while True:
+            m = pat.search(text, pos)
+            if not m:
+                break
+            ends = [e.end() for e in _SENTENCE_END.finditer(text, 0, m.start())]
+            sstart = ends[-1] if ends else 0
+            nxt = _SENTENCE_END.search(text, m.end())
+            send = nxt.start() if nxt else len(text)
+            if veto.search(text[sstart:send]):
+                pos = m.end()
+            else:
+                text = text[: m.start()] + " " + text[m.end() :]
+                pos = m.start() + 1
     return text
 
 

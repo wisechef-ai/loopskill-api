@@ -114,7 +114,14 @@ REVIEW_BYPASSES += [
     ("WiseChef costs $199 one-time", {"price-one-time"}),
     ("WiseChef integrates with LoopSkill which costs $199/month", {"price-recurring"}),
 ]
+# Round 7 (gpt-6.1-sol).
+REVIEW_BYPASSES += [
+    ("WiseChef costs 1199 USD/month", {"price-recurring-suffix"}),
+    ("LoopSkill costs, unlike WiseChef, $199/month.", {"price-recurring"}),
+    ("WiseChef costs $199/month, and so does LoopSkill.", {"price-recurring"}),
+]
 REVIEW_MUST_PASS = [
+    "LoopSkill is free to self-host. WiseChef runs it for you from $199/month.",
     "WiseChef, the managed service, is $199 per month.",
     "Done-for-you: WiseChef runs it for you from $199/month.",
     "AT&T and R&D teams, Q&A after.",

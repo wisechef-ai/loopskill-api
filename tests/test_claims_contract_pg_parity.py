@@ -320,6 +320,17 @@ def test_exempt_rule_without_veto_fails_closed(pg) -> None:
         pg.execute(text("SELECT claimgate.violations('WiseChef runs it from $199/month')")).scalar()
 
 
+def test_trigger_quarantines_misattributed_other_product_price(post_table) -> None:
+    deleted, log = _queue(post_table, "p15", "LoopSkill costs, unlike WiseChef, $199/month.")
+    assert deleted and "price-recurring" in log
+    assert _queue(
+        post_table, "p16", "LoopSkill is free to self-host. WiseChef runs it for you from $199/month."
+    ) == (
+        False,
+        None,
+    )
+
+
 def test_never_queued_draft_edits_are_not_gated(post_table) -> None:
     post_table.execute(
         text("INSERT INTO public.\"Post\" (id, state, content) VALUES ('p14', 'DRAFT', 'clean')")
