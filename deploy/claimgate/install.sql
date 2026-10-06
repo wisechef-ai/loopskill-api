@@ -157,6 +157,8 @@ DECLARE
     rep   text;
     cp    bigint;
     i     int;
+    -- GENERATED from claims_normalize.C1_REMAP (index = code point - 127)
+    c1    constant text[] := ARRAY['€', chr(129), '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', chr(141), 'Ž', chr(143), chr(144), '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ', chr(157), 'ž', 'Ÿ'];
 BEGIN
     LOOP
         p := regexp_instr(body, pat, pos);
@@ -174,7 +176,7 @@ BEGIN
                 cp := CASE WHEN length(ent) > 7 THEN NULL ELSE ent::bigint END;
             END IF;
             IF cp IS NOT NULL AND NOT (cp = 0 OR cp BETWEEN 55296 AND 57343 OR cp > 1114111) THEN
-                rep := chr(cp::int);
+                rep := CASE WHEN cp BETWEEN 128 AND 159 THEN c1[cp - 127] ELSE chr(cp::int) END;
             END IF;
         ELSE
             FOR i IN 1 .. array_length(named, 1) LOOP
@@ -212,7 +214,7 @@ $fn$;
 CREATE OR REPLACE FUNCTION claimgate.tier_binding(body text) RETURNS text[]
 LANGUAGE plpgsql STABLE AS $fn$
 DECLARE
-    unit_pat constant text := '\y([0-9]{1,6}) (private bundles?|((active |scoped |separate |client )?(API )?keys|(active |scoped |separate |client )?API key|(active|scoped|separate|client) key))\y';
+    unit_pat constant text := '(^|[^0-9,. ]|(^|[^0-9]) )([0-9]+([.,][0-9]+| [0-9]{3})*) (private bundles?|((active |scoped |separate |client )?(API )?keys|(active |scoped |separate |client )?API key|(active|scoped|separate|client) key))\y';
     names  text;
     pos    int := 1;
     p      int;
@@ -224,6 +226,7 @@ DECLARE
     t      record;
     cap    int;
     unitk  text;
+    cpos   int;
     hits   text[] := '{}';
 BEGIN
     SELECT string_agg(regexp_replace(name, '([.^$*+?()\[\]{}|\\])', '\\\1', 'g'), '|') INTO names
@@ -236,22 +239,24 @@ BEGIN
         EXIT WHEN p = 0;
         tok := regexp_substr(body, unit_pat, pos, 1, 'i');
         m := regexp_match(tok, unit_pat, 'i');
+        -- the count starts AFTER the guard char m[1] (claims_contract: m.start(2))
+        cpos := p + length(coalesce(m[1], ''));
         sstart := 1;
         e := 1;
         LOOP
             e := regexp_instr(body, '[.!?] ', e, 1, 1);
-            EXIT WHEN e = 0 OR e > p;
+            EXIT WHEN e = 0 OR e > cpos;
             sstart := e;
         END LOOP;
         SELECT x.mm[1] INTO last_name
-          FROM regexp_matches(substr(body, sstart, p - sstart), '\y(' || names || ')\y', 'gi')
+          FROM regexp_matches(substr(body, sstart, cpos - sstart), '\y(' || names || ')\y', 'gi')
                WITH ORDINALITY AS x(mm, ord)
          ORDER BY x.ord DESC LIMIT 1;
         IF last_name IS NOT NULL THEN
             SELECT * INTO t FROM claimgate.tier WHERE lower(name) = lower(last_name);
-            unitk := CASE WHEN lower(m[2]) LIKE '%key%' THEN 'key' ELSE 'bundle' END;
+            unitk := CASE WHEN lower(m[5]) LIKE '%key%' THEN 'key' ELSE 'bundle' END;
             cap := CASE WHEN unitk = 'key' THEN t.key_cap ELSE t.bundle_cap END;
-            IF cap IS NOT NULL AND m[1]::int <> cap THEN
+            IF cap IS NOT NULL AND claimgate.parse_amount(m[3]) IS DISTINCT FROM cap THEN
                 hits := hits || ('tier-' || unitk || '-cap');
             END IF;
         END IF;
@@ -259,6 +264,20 @@ BEGIN
         pos := p + length(tok);
     END LOOP;
     RETURN hits;
+END;
+$fn$;
+
+-- Mirror of claims_contract.parse_amount (THOUSANDS literal pinned by tests).
+CREATE OR REPLACE FUNCTION claimgate.parse_amount(t text) RETURNS numeric
+LANGUAGE plpgsql IMMUTABLE AS $fn$
+BEGIN
+    IF t !~ '^([0-9]{1,3}([., ][0-9]{3})+([.,][0-9]{1,2})?|[0-9]+([.,][0-9]{1,2})?)$' THEN
+        RETURN NULL;  -- malformed: the caller treats NULL as a violation
+    END IF;
+    IF t ~ '^[0-9]{1,3}([., ][0-9]{3})+([.,][0-9]{1,2})?$' THEN
+        t := replace(t, substring(t from '[., ]'), '');
+    END IF;
+    RETURN replace(t, ',', '.')::numeric;
 END;
 $fn$;
 
@@ -329,12 +348,9 @@ BEGIN
             IF r.amount_group IS NULL OR m[r.amount_group] IS NULL THEN
                 RAISE EXCEPTION 'claimgate: rule % captured no amount (group %)', r.id, r.amount_group;
             END IF;
-            -- claims_contract.parse_amount: thousands-grouped vs European decimal
-            amt := round((CASE WHEN m[r.amount_group] ~ '^[0-9]{1,3}(,[0-9]{3})+([.][0-9]{1,2})?$'
-                               THEN replace(m[r.amount_group], ',', '')
-                               ELSE replace(m[r.amount_group], ',', '.') END)::numeric, 2);
-            IF NOT (amt = ANY (coalesce(r.allowed, '{}'::numeric[]))) THEN
-                hits := hits || (r.id || ':' || amt::text);
+            amt := round(claimgate.parse_amount(m[r.amount_group]), 2);
+            IF amt IS NULL OR NOT (amt = ANY (coalesce(r.allowed, '{}'::numeric[]))) THEN
+                hits := hits || (r.id || ':' || coalesce(amt::text, 'malformed'));
             END IF;
         END LOOP;
     END LOOP;

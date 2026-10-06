@@ -128,7 +128,21 @@ REVIEW_BYPASSES += [
     ("LoopSkill costs $1,199/month", {"price-recurring"}),
     ("Pro is $1,995.00/month", {"price-recurring", "price-tier-pro"}),
 ]
+# Round 9 (gpt-6.1-sol): whole count tokens; Windows-1252 numeric references.
+REVIEW_BYPASSES += [
+    ("Pro includes 1,050 private bundles", {"count-private-bundles", "tier-bundle-cap"}),
+    ("Pro includes 1,010 API keys", {"count-api-keys", "tier-key-cap"}),
+    ("Pro includes 1.050 private bundles", {"count-private-bundles", "tier-bundle-cap"}),
+    ("Pro includes 1 050 private bundles", {"count-private-bundles", "tier-bundle-cap"}),
+    ("Pro includes 1,2,50 private bundles", {"tier-bundle-cap"}),
+    ("LoopSkill costs &#128;20/month", {"price-recurring"}),
+    ("LoopSkill costs &#x80;20/month", {"price-recurring"}),
+    ("LoopSkill costs 1,2,20 USD/month", {"price-recurring-suffix"}),
+    ("Pro is $9.9.5/month", {"price-recurring", "price-tier-pro"}),
+]
 REVIEW_MUST_PASS = [
+    "Pro is $9.95/month. Free includes 2 private bundles.",
+    "Pro &#150; $9.95/month",
     "Pro is €9,95 per month.",
     "LoopSkill is free to self-host. WiseChef runs it for you from $199/month.",
     "WiseChef, the managed service, is $199 per month.",
@@ -333,12 +347,43 @@ def test_install_sql_patterns_match_python() -> None:
     sql = (Path(__file__).resolve().parent.parent / "deploy" / "claimgate" / "install.sql").read_text()
     assert f"pat   constant text := '{cc._ENTITY.pattern}';" in sql
     assert f"unit_pat constant text := '{cc.to_pg(cc._UNIT.pattern)}';" in sql
-    assert cc.THOUSANDS in sql
+    assert f"IF t ~ '{cc.THOUSANDS}' THEN" in sql
+    assert f"IF t !~ '{cc.VALID_AMOUNT}' THEN" in sql
+    assert f"lower(m[{cc.UNIT_GROUP}])" in sql
+    assert f"claimgate.parse_amount(m[{cc.NUM_AFTER_GUARD}])" in sql
+    c1 = sql.split("c1    constant text[] := ARRAY[", 1)[1].split("];", 1)[0]
+    for cp, ch in cc.C1_REMAP.items():
+        assert f"'{ch}'" in c1, hex(cp)
 
 
 @pytest.mark.parametrize(
     ("token", "value"),
-    [("1,199", 1199.0), ("1,199.50", 1199.5), ("9,95", 9.95), ("9.95", 9.95), ("49", 49.0)],
+    [
+        ("1,199", 1199.0),
+        ("1,199.50", 1199.5),
+        ("1.050,50", 1050.5),
+        ("1 050", 1050.0),
+        ("9,95", 9.95),
+        ("9.95", 9.95),
+        ("49", 49.0),
+    ],
 )
 def test_parse_amount(token: str, value: float) -> None:
     assert cc.parse_amount(token) == value
+
+
+@pytest.mark.parametrize("token", ["1,2,50", "9.9.5", "1,0500", "1 05"])
+def test_malformed_amount_is_nan(token: str) -> None:
+    v = cc.parse_amount(token)
+    assert v != v
+
+
+def test_number_runs_stay_linear() -> None:
+    """Worst cases for the run pattern (separator-led repetitions) on the
+    20k-char API cap must stay fast: no catastrophic backtracking."""
+    import time
+
+    for body in ("1 " + "111 " * 4900, "1," * 9900, "$" + "1." * 9900, "1 111" * 3900):
+        t0 = time.perf_counter()
+        cc.check_text(body[: cc.MAX_CHECK_CHARS])
+        assert time.perf_counter() - t0 < 2.0, body[:20]

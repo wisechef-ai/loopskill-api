@@ -44,6 +44,7 @@ import yaml
 
 from app.services.claims_normalize import (  # noqa: F401  (re-exported: tests + install.sql parity)
     _ENTITY,
+    C1_REMAP,
     LEGACY_NO_SEMICOLON,
     NAMED_ENTITIES,
     SPACE_LIKE,
@@ -61,15 +62,46 @@ MAX_CHECK_CHARS = 20_000
 # A WHOLE numeric token: the trailing \b forbids stopping inside one, so
 # "$9,950" can never be read as "$9,95" (it backtracks to "9" and is flagged).
 # Unbounded on purpose: float() of a 20k-digit token is inf, never an error.
-_NUM = r"([0-9]{1,3}(,[0-9]{3})+([.][0-9]{1,2})?|[0-9]+([.,][0-9]{1,2})?)\b"
-# "1,199" / "1,199.50" are thousands-grouped (commas removed); "9,95" is a
-# European decimal (comma -> point). Same test in install.sql (pinned).
-THOUSANDS = r"^[0-9]{1,3}(,[0-9]{3})+([.][0-9]{1,2})?$"
+# A number is only ever read as a WHOLE token:
+# * GROUPED "1,199" / "1.050,50" / "1 050" is one token (thousands grouping by
+#   comma, period or space, optional 1-2 digit decimals);
+# * the trailing \b forbids stopping inside a token ("$9,950" is never "$9,95");
+# * _NOT_AFTER_NUM forbids starting inside one ("1,050 private bundles" is
+#   never read as "050"): the character before must not be a digit, comma or
+#   period. Unbounded on purpose: parse_amount of a 20k-digit token is inf.
+_GROUPED = r"[0-9]{1,3}([., ][0-9]{3})+([.,][0-9]{1,2})?"
+# The WHOLE run of digits and separators next to a unit/currency is captured
+# (never a tail of it); parse_amount then decides whether it is a well-formed
+# amount. A malformed run ("1,2,50") is a violation, not "no claim" (fail
+# closed). Each repetition starts with a separator, so matching stays linear.
+_RUN = r"[0-9]+([.,][0-9]+| [0-9]{3})*"
+_NUM = r"(" + _RUN + r")\b"
+_COUNT = r"(" + _RUN + r")"
+# The character(s) before a number: not a digit, comma or period, and not a
+# space that itself follows a digit ("1 050" is one run, never "050"). This
+# also gives each run exactly ONE possible start, which keeps scanning linear.
+_NOT_AFTER_NUM = r"(^|[^0-9,. ]|(^|[^0-9]) )"
+# capture-group index of the number right after the guard (computed, never
+# hard-coded: the guard has its own groups)
+NUM_AFTER_GUARD = re.compile(_NOT_AFTER_NUM).groups + 1
+THOUSANDS = "^" + _GROUPED + "$"
+VALID_AMOUNT = "^(" + _GROUPED + "|[0-9]+([.,][0-9]{1,2})?)$"
 
 
 def parse_amount(token: str) -> float:
+    """Value of a run matched by _NUM / _COUNT (install.sql: claimgate.parse_amount).
+
+    Not a well-formed amount (VALID_AMOUNT) -> NaN, which matches no allowed
+    value (SQL: NULL, treated as a violation).
+
+    Grouped: the FIRST separator is the grouping one and is removed
+    ("1,199.50" -> 1199.5, "1.050,50" -> 1050.5, "1 050" -> 1050); then a
+    remaining comma is a decimal point ("9,95" -> 9.95).
+    """
+    if not re.match(VALID_AMOUNT, token):
+        return float("nan")  # malformed: equals nothing, so always a violation
     if re.match(THOUSANDS, token):
-        return float(token.replace(",", ""))
+        token = token.replace(re.search(r"[., ]", token).group(0), "")
     return float(token.replace(",", "."))
 
 
@@ -264,8 +296,8 @@ def _amount_rules(public: list[dict], founding: dict | None, other_prices: list[
         {
             "id": "price-recurring-suffix",
             "exemptable": True,
-            "pattern": r"\b" + _NUM + r" ?(USD|EUR|dollars|euros|bucks) ?" + _RECURRING,
-            "amount_group": 1,
+            "pattern": _NOT_AFTER_NUM + _NUM + r" ?(USD|EUR|dollars|euros|bucks) ?" + _RECURRING,
+            "amount_group": NUM_AFTER_GUARD,
             "allowed": sorted(recurring),
             "reason": "recurring price not on the public ladder",
         },
@@ -298,15 +330,15 @@ def _amount_rules(public: list[dict], founding: dict | None, other_prices: list[
     rules += [
         {
             "id": "count-private-bundles",
-            "pattern": r"\b([0-9]{1,6}) private bundles?\b",
-            "amount_group": 1,
+            "pattern": _NOT_AFTER_NUM + _COUNT + r" private bundles?\b",
+            "amount_group": NUM_AFTER_GUARD,
             "allowed": sorted(bundle_caps),
             "reason": "private-bundle count is no tier's cap",
         },
         {
             "id": "count-api-keys",
-            "pattern": r"\b([0-9]{1,6}) " + _KEY_UNIT + r"\b",
-            "amount_group": 1,
+            "pattern": _NOT_AFTER_NUM + _COUNT + " " + _KEY_UNIT + r"\b",
+            "amount_group": NUM_AFTER_GUARD,
             "allowed": sorted(key_caps),
             "reason": "API-key count is no tier's cap",
         },
@@ -480,7 +512,11 @@ def check_text(text: str, contract: dict | None = None) -> list[dict]:
 
 
 _SENTENCE_END = re.compile(r"[.!?] ")
-_UNIT = re.compile(r"\b([0-9]{1,6}) (private bundles?|" + _KEY_UNIT + r")\b", re.IGNORECASE)
+_UNIT = re.compile(_NOT_AFTER_NUM + _COUNT + r" (private bundles?|" + _KEY_UNIT + r")\b", re.IGNORECASE)
+# capture groups: 1 = guard, NUM_AFTER_GUARD = count, UNIT_GROUP = unit word.
+# Computed from the regex; install.sql tier_binding reads the same indices
+# (pinned by test_install_sql_patterns_match_python).
+UNIT_GROUP = re.compile(_NOT_AFTER_NUM + _COUNT).groups + 1
 
 
 def _tier_binding(text: str, c: dict) -> list[dict]:
@@ -490,24 +526,27 @@ def _tier_binding(text: str, c: dict) -> list[dict]:
     name_re = re.compile(r"\b(" + "|".join(re.escape(n) for n in tiers) + r")\b", re.IGNORECASE)
     out = []
     for m in _UNIT.finditer(text):
-        # sentence start = after the last ".", "!" or "?" FOLLOWED BY a space
-        # ("$9.95" is not a sentence end)
-        ends = [e.end() for e in _SENTENCE_END.finditer(text, 0, m.start())]
+        # the count starts AFTER the guard char; sentence start = after the
+        # last ".", "!" or "?" FOLLOWED BY a space ("$9.95" is no sentence end)
+        cstart = m.start(NUM_AFTER_GUARD)
+        ends = [e.end() for e in _SENTENCE_END.finditer(text, 0, cstart)]
         start = ends[-1] if ends else 0
-        names = list(name_re.finditer(text, start, m.start()))
+        names = list(name_re.finditer(text, start, cstart))
         if not names:
             continue
         tier = tiers[names[-1].group(1).lower()]
-        unit = "key" if "key" in m.group(2).lower() else "bundle"
+        unit = "key" if "key" in m.group(UNIT_GROUP).lower() else "bundle"
         cap = tier.get("api_key_cap") if unit == "key" else tier.get("bundle_limit")
-        if cap is not None and int(m.group(1)) != int(cap):
+        count = parse_amount(m.group(NUM_AFTER_GUARD))
+        if cap is not None and count != float(cap):
+            shown = _num(count) if count == count and count != float("inf") else m.group(NUM_AFTER_GUARD)
             out.append(
                 _violation(
                     "tier-number",
                     f"tier-{unit}-cap",
                     m,
                     text,
-                    f"{tier['display_name']} {unit} cap is {cap}, copy says {int(m.group(1))}",
+                    f"{tier['display_name']} {unit} cap is {cap}, copy says {shown}",
                 )
             )
     return out

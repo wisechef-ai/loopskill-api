@@ -105,6 +105,17 @@ _ZW_TABLE = {ord(c): None for c in ZERO_WIDTH} | {ord(c): " " for c in SPACE_LIK
 UNRECOGNISED_ENTITY = r"&(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[A-Za-z][A-Za-z0-9]{0,31};)"
 
 
+# HTML spec "numeric character reference end state": references 128-159
+# render as their Windows-1252 characters (#128 shows the euro sign). Codes
+# without a mapping stay as-is. Mirrored as claimgate.decode_entities' c1 array.
+C1_REMAP: dict[int, str] = {
+    0x80: "€", 0x82: "‚", 0x83: "ƒ", 0x84: "„", 0x85: "…", 0x86: "†", 0x87: "‡",
+    0x88: "ˆ", 0x89: "‰", 0x8A: "Š", 0x8B: "‹", 0x8C: "Œ", 0x8E: "Ž", 0x91: "‘",
+    0x92: "’", 0x93: "“", 0x94: "”", 0x95: "•", 0x96: "–", 0x97: "—", 0x98: "˜",
+    0x99: "™", 0x9A: "š", 0x9B: "›", 0x9C: "œ", 0x9E: "ž", 0x9F: "Ÿ",
+}  # fmt: skip
+
+
 def _decode_entity(m: re.Match) -> str:
     body = m.group(1).rstrip(";")
     if body.startswith("#"):
@@ -115,7 +126,7 @@ def _decode_entity(m: re.Match) -> str:
         cp = int(digits, 16) if hexa else int(digits)
         if cp == 0 or 0xD800 <= cp <= 0xDFFF or cp > 0x10FFFF:
             return m.group(0)
-        return chr(cp)
+        return C1_REMAP.get(cp, chr(cp))
     return NAMED_ENTITIES.get(body, m.group(0))
 
 
