@@ -147,7 +147,16 @@ REVIEW_BYPASSES += [
     ("LoopSkill costs $1.000,000/month", {"price-recurring"}),
     ("Free: 2 private bundles,50 private bundles", {"tier-bundle-cap"}),
 ]
+# Round 11 (gpt-6.1-sol): malformed space-separated runs.
+MALFORMED_RUNS: list[tuple[str, set[str]]] = [
+    ("Pro includes 1 50 private bundles", {"count-private-bundles", "tier-bundle-cap"}),
+    ("LoopSkill costs $1 20/month", {"price-recurring"}),
+    ("Free includes 1 0 API keys", {"count-api-keys", "tier-key-cap"}),
+    ("LoopSkill costs 9 95 USD/month", {"price-recurring-suffix"}),
+]
+REVIEW_BYPASSES += MALFORMED_RUNS
 REVIEW_MUST_PASS = [
+    "Free: 2 private bundles. Pro: 50 private bundles.",
     "Pro: 50 private bundles,10 API keys.",
     "Free: 2 private bundles, 1 API key.",
     "Pro is $9.95/month. Free includes 2 private bundles.",

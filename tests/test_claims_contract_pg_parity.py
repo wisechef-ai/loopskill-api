@@ -24,7 +24,13 @@ import pytest
 from sqlalchemy import text
 
 from app.services import claims_contract as cc
-from tests.test_claims_contract import CLEAN_CORPUS, REAL_INCIDENTS, REVIEW_BYPASSES, REVIEW_MUST_PASS
+from tests.test_claims_contract import (
+    CLEAN_CORPUS,
+    MALFORMED_RUNS,
+    REAL_INCIDENTS,
+    REVIEW_BYPASSES,
+    REVIEW_MUST_PASS,
+)
 
 INSTALL_SQL = Path(__file__).resolve().parent.parent / "deploy" / "claimgate" / "install.sql"
 
@@ -329,6 +335,14 @@ def test_trigger_quarantines_misattributed_other_product_price(post_table) -> No
         False,
         None,
     )
+
+
+@pytest.mark.parametrize(("body", "expected"), MALFORMED_RUNS)
+def test_trigger_quarantines_malformed_runs(post_table, body: str, expected: set[str]) -> None:
+    pid = "m" + str(abs(hash(body)) % 10**9)
+    deleted, log = _queue(post_table, pid, body)
+    assert deleted, body
+    assert expected <= {h.split(":")[0] for h in log.split("; ")}, log
 
 
 def test_never_queued_draft_edits_are_not_gated(post_table) -> None:

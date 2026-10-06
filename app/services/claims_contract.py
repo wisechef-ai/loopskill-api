@@ -79,9 +79,10 @@ _GROUPED = (
 )
 # The WHOLE run of digits and separators next to a unit/currency is captured
 # (never a tail of it); parse_amount then decides whether it is a well-formed
-# amount. A malformed run ("1,2,50") is a violation, not "no claim" (fail
-# closed). Each repetition starts with a separator, so matching stays linear.
-_RUN = r"[0-9]+([.,][0-9]+| [0-9]{3})*"
+# amount. A malformed run ("1,2,50", "1 50") is a violation, not "no claim"
+# (fail closed). Each repetition starts with a separator, so matching stays
+# linear.
+_RUN = r"[0-9]+([.,][0-9]+| [0-9]+)*"
 _NUM = r"(" + _RUN + r")\b"
 _COUNT = r"(" + _RUN + r")"
 # The character(s) before a number: not a digit, and not a comma / period /

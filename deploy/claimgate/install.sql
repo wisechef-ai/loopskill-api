@@ -214,7 +214,7 @@ $fn$;
 CREATE OR REPLACE FUNCTION claimgate.tier_binding(body text) RETURNS text[]
 LANGUAGE plpgsql STABLE AS $fn$
 DECLARE
-    unit_pat constant text := '(^|[^0-9,. ]|(^|[^0-9])[,. ])([0-9]+([.,][0-9]+| [0-9]{3})*) (private bundles?|((active |scoped |separate |client )?(API )?keys|(active |scoped |separate |client )?API key|(active|scoped|separate|client) key))\y';
+    unit_pat constant text := '(^|[^0-9,. ]|(^|[^0-9])[,. ])([0-9]+([.,][0-9]+| [0-9]+)*) (private bundles?|((active |scoped |separate |client )?(API )?keys|(active |scoped |separate |client )?API key|(active|scoped|separate|client) key))\y';
     names  text;
     pos    int := 1;
     p      int;
