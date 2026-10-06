@@ -120,7 +120,16 @@ REVIEW_BYPASSES += [
     ("LoopSkill costs, unlike WiseChef, $199/month.", {"price-recurring"}),
     ("WiseChef costs $199/month, and so does LoopSkill.", {"price-recurring"}),
 ]
+# Round 8 (gpt-6.1-sol) + the thousands-separator gap found while fixing it.
+REVIEW_BYPASSES += [
+    ("WiseChef costs 1,199 USD/month", {"price-recurring-suffix"}),
+    ("WiseChef costs 1 199 USD/month", {"price-recurring-suffix"}),
+    ("WiseChef costs $1,199/month", {"price-recurring"}),
+    ("LoopSkill costs $1,199/month", {"price-recurring"}),
+    ("Pro is $1,995.00/month", {"price-recurring", "price-tier-pro"}),
+]
 REVIEW_MUST_PASS = [
+    "Pro is €9,95 per month.",
     "LoopSkill is free to self-host. WiseChef runs it for you from $199/month.",
     "WiseChef, the managed service, is $199 per month.",
     "Done-for-you: WiseChef runs it for you from $199/month.",
@@ -324,3 +333,12 @@ def test_install_sql_patterns_match_python() -> None:
     sql = (Path(__file__).resolve().parent.parent / "deploy" / "claimgate" / "install.sql").read_text()
     assert f"pat   constant text := '{cc._ENTITY.pattern}';" in sql
     assert f"unit_pat constant text := '{cc.to_pg(cc._UNIT.pattern)}';" in sql
+    assert cc.THOUSANDS in sql
+
+
+@pytest.mark.parametrize(
+    ("token", "value"),
+    [("1,199", 1199.0), ("1,199.50", 1199.5), ("9,95", 9.95), ("9.95", 9.95), ("49", 49.0)],
+)
+def test_parse_amount(token: str, value: float) -> None:
+    assert cc.parse_amount(token) == value

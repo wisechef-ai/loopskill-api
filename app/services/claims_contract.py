@@ -61,7 +61,18 @@ MAX_CHECK_CHARS = 20_000
 # A WHOLE numeric token: the trailing \b forbids stopping inside one, so
 # "$9,950" can never be read as "$9,95" (it backtracks to "9" and is flagged).
 # Unbounded on purpose: float() of a 20k-digit token is inf, never an error.
-_NUM = r"([0-9]+([.,][0-9]{1,2})?)\b"
+_NUM = r"([0-9]{1,3}(,[0-9]{3})+([.][0-9]{1,2})?|[0-9]+([.,][0-9]{1,2})?)\b"
+# "1,199" / "1,199.50" are thousands-grouped (commas removed); "9,95" is a
+# European decimal (comma -> point). Same test in install.sql (pinned).
+THOUSANDS = r"^[0-9]{1,3}(,[0-9]{3})+([.][0-9]{1,2})?$"
+
+
+def parse_amount(token: str) -> float:
+    if re.match(THOUSANDS, token):
+        return float(token.replace(",", ""))
+    return float(token.replace(",", "."))
+
+
 _RECURRING = (
     r"(/ ?mo|/ ?m|/ ?month|per month|a month|monthly|/ ?yr|/ ?year|per year|a year|annually|yearly)\b"
 )
@@ -108,7 +119,8 @@ def _exempt_rule(i: int, op: dict, veto: str) -> dict:
 
     Matches "<product_name> ... <complete amount> <cadence>" inside one
     sentence, so "$199.95/month" or "$199 one-time" never qualify for a
-    monthly $199. The veto (LoopSkill or any tier name inside the span) keeps
+    monthly $199. The window between the name and the price holds no digits,
+    so "1,199" / "1 199" / "1199" can never lend their tail "199". The veto (LoopSkill or any tier name inside the span) keeps
     "WiseChef integrates with LoopSkill which costs $199/month" a LoopSkill
     price claim.
     """
@@ -120,7 +132,7 @@ def _exempt_rule(i: int, op: dict, veto: str) -> dict:
     return {
         "id": f"other-price-{i:02d}",
         "pattern": (
-            r"\b" + _lit(op["product_name"]) + r"\b[^.!?$€]{0,120}("
+            r"\b" + _lit(op["product_name"]) + r"\b[^0-9.!?$€]{0,120}("
             r"[$€] ?"
             + amt
             + r" ?(USD|EUR)? ?"
@@ -455,7 +467,7 @@ def check_text(text: str, contract: dict | None = None) -> list[dict]:
         allowed = {round(float(a), 2) for a in rule["allowed"]}
         src = exempted if rule.get("exemptable") else text
         for m in re.finditer(rule["pattern"], src, re.IGNORECASE):
-            amount = round(float(m.group(rule["amount_group"]).replace(",", ".")), 2)
+            amount = round(parse_amount(m.group(rule["amount_group"])), 2)
             if amount not in allowed:
                 shown = ", ".join(_num(a) for a in sorted(allowed)) or "none (contact only)"
                 out.append(

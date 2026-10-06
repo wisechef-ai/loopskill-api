@@ -329,7 +329,10 @@ BEGIN
             IF r.amount_group IS NULL OR m[r.amount_group] IS NULL THEN
                 RAISE EXCEPTION 'claimgate: rule % captured no amount (group %)', r.id, r.amount_group;
             END IF;
-            amt := round(replace(m[r.amount_group], ',', '.')::numeric, 2);
+            -- claims_contract.parse_amount: thousands-grouped vs European decimal
+            amt := round((CASE WHEN m[r.amount_group] ~ '^[0-9]{1,3}(,[0-9]{3})+([.][0-9]{1,2})?$'
+                               THEN replace(m[r.amount_group], ',', '')
+                               ELSE replace(m[r.amount_group], ',', '.') END)::numeric, 2);
             IF NOT (amt = ANY (coalesce(r.allowed, '{}'::numeric[]))) THEN
                 hits := hits || (r.id || ':' || amt::text);
             END IF;
