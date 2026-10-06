@@ -35,7 +35,6 @@ text, ``[...]`` classes, ``[0-9]`` (never ``\\d``: Unicode digits differ),
 from __future__ import annotations
 
 import hashlib
-import html
 import json
 import re
 from functools import lru_cache
@@ -74,14 +73,84 @@ def assert_portable(pattern: str) -> None:
     re.compile(pattern, re.IGNORECASE)
 
 
-def normalize(text: str) -> str:
-    """The text BOTH engines check: tags stripped, entities decoded, whitespace collapsed.
+# Entity decoding is an explicit SPEC shared verbatim with install.sql
+# (claimgate.decode_entities), not html.unescape: the two engines must agree
+# byte for byte, and html.unescape's 2,200-name HTML5 table cannot be mirrored
+# in SQL. Single pass, left to right: numeric (decimal / hex, ";" optional)
+# and the named entities below (";" required). Anything else stays literal.
+# Code points 0, U+D800-U+DFFF and > U+10FFFF stay literal.
+NAMED_ENTITIES: dict[str, str] = {
+    "amp": "&",
+    "lt": "<",
+    "gt": ">",
+    "quot": '"',
+    "apos": "'",
+    "nbsp": " ",
+    "Tab": "\t",
+    "NewLine": "\n",
+    "plus": "+",
+    "num": "#",
+    "percnt": "%",
+    "excl": "!",
+    "quest": "?",
+    "colon": ":",
+    "semi": ";",
+    "comma": ",",
+    "period": ".",
+    "sol": "/",
+    "bsol": "\\",
+    "lpar": "(",
+    "rpar": ")",
+    "ast": "*",
+    "equals": "=",
+    "lowbar": "_",
+    "dollar": "$",
+    "euro": "€",
+    "pound": "£",
+    "cent": "¢",
+    "yen": "¥",
+    "copy": "©",
+    "reg": "®",
+    "trade": "™",
+    "times": "×",
+    "divide": "÷",
+    "middot": "·",
+    "hellip": "…",
+    "ndash": "–",
+    "mdash": "—",
+    "dash": "‐",
+    "hyphen": "‐",
+    "lsquo": "‘",
+    "rsquo": "’",
+    "ldquo": "“",
+    "rdquo": "”",
+    "shy": "",
+    "ensp": " ",
+    "emsp": " ",
+    "thinsp": " ",
+}
+_ENTITY = re.compile(r"&(#[0-9]{1,7};?|#[xX][0-9a-fA-F]{1,6};?|[A-Za-z][A-Za-z0-9]{0,31};)")
 
-    Tags are removed without inserting a space, so ``Pro<b>+</b>`` reads as
-    ``Pro+`` here exactly as it does in the trigger (claimgate.normalize).
+
+def _decode_entity(m: re.Match) -> str:
+    body = m.group(1).rstrip(";")
+    if body.startswith("#"):
+        cp = int(body[2:], 16) if body[1:2] in ("x", "X") else int(body[1:])
+        if cp == 0 or 0xD800 <= cp <= 0xDFFF or cp > 0x10FFFF:
+            return m.group(0)
+        return chr(cp)
+    return NAMED_ENTITIES.get(body, m.group(0))
+
+
+def normalize(text: str) -> str:
+    """The text BOTH engines check (install.sql: claimgate.normalize).
+
+    1. tags removed WITHOUT inserting a space (``Pro<b>+</b>`` -> ``Pro+``);
+    2. entities decoded once, per the explicit spec above;
+    3. NBSP -> space; ASCII whitespace runs -> one space; trimmed.
     """
     text = re.sub(r"<[^>]+>", "", text or "")
-    text = html.unescape(text).replace("\u00a0", " ")
+    text = _ENTITY.sub(_decode_entity, text).replace("\u00a0", " ")
     return re.sub(r"[ \t\r\n\f\v]+", " ", text).strip()
 
 
@@ -124,18 +193,32 @@ def _derived_retired(tiers: dict) -> list[dict]:
     return rules
 
 
-def _tier_price_rule(rule_id: str, name_pattern: str, allowed: list[float], label: str) -> dict:
-    groups_before = name_pattern.count("(") + _TIER_LINK.count("(")
+def _tier_price_rules(rule_id: str, name_pattern: str, allowed: list[float], label: str) -> list[dict]:
+    """Two rules per tier: "Pro is $X" (prefix currency) and "Pro costs X USD" (suffix)."""
     # A trailing \b after a name ending in punctuation ("Pro\+") could never
     # match before a space; only names ending in a word character get one.
     tail = r"\b" if re.search(r"[A-Za-z0-9_)?]$", name_pattern) else ""
-    return {
-        "id": rule_id,
-        "pattern": r"\b" + name_pattern + tail + _TIER_LINK + r"[$€] ?" + _NUM,
-        "amount_group": groups_before + 1,
-        "allowed": sorted(allowed),
-        "reason": f"price stated for {label} does not match its tier",
-    }
+    head = r"\b" + name_pattern + tail + _TIER_LINK
+    # amount group = every capture group before the number, counted by the
+    # regex engine itself (escaped literal parentheses do not count)
+    before = re.compile(head).groups
+    reason = f"price stated for {label} does not match its tier"
+    return [
+        {
+            "id": rule_id,
+            "pattern": head + r"[$€] ?" + _NUM,
+            "amount_group": before + 1,
+            "allowed": sorted(allowed),
+            "reason": reason,
+        },
+        {
+            "id": rule_id + "-suffix",
+            "pattern": head + _NUM + r" ?(USD|EUR|dollars|euros|bucks)\b",
+            "amount_group": before + 1,
+            "allowed": sorted(allowed),
+            "reason": reason,
+        },
+    ]
 
 
 def _amount_rules(public: list[dict], founding: dict | None, other_prices: list[dict]) -> list[dict]:
@@ -170,22 +253,18 @@ def _amount_rules(public: list[dict], founding: dict | None, other_prices: list[
     ]
     for t in public:
         if t["price_usd"] is not None:
-            rules.append(
-                _tier_price_rule(
-                    f"price-tier-{t['slug']}",
-                    re.escape(t["display_name"]),
-                    [float(t["price_usd"])],
-                    t["display_name"],
-                )
+            rules += _tier_price_rules(
+                f"price-tier-{t['slug']}",
+                re.escape(t["display_name"]),
+                [float(t["price_usd"])],
+                t["display_name"],
             )
     if founding and founding.get("price_usd") is not None:
-        rules.append(
-            _tier_price_rule(
-                "price-tier-founding", "Founding( Member)?", [float(founding["price_usd"])], "Founding Member"
-            )
+        rules += _tier_price_rules(
+            "price-tier-founding", "Founding( Member)?", [float(founding["price_usd"])], "Founding Member"
         )
-    rules.append(
-        _tier_price_rule("price-tier-contact-only", "(Enterprise|On-demand)", [], "On-demand (contact only)")
+    rules += _tier_price_rules(
+        "price-tier-contact-only", "(Enterprise|On-demand)", [], "On-demand (contact only)"
     )
     bundle_caps = {int(t["bundle_limit"]) for t in public if t.get("bundle_limit") is not None}
     key_caps = {int(t["api_key_cap"]) for t in public if t.get("api_key_cap") is not None}

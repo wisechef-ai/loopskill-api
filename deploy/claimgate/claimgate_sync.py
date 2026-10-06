@@ -30,9 +30,7 @@ stdlib only. Exit 0 always (a watchdog that crashes is a watchdog that stops).
 
 from __future__ import annotations
 
-import html
 import json
-import re
 import subprocess
 import sys
 import urllib.request
@@ -147,7 +145,16 @@ def sync() -> dict:
     retired, amounts = c.get("retired_rules") or [], c.get("amount_rules") or []
     if not retired or not amounts:
         raise RuntimeError("contract looks empty or pre-v2; refusing to replace rules")
-    stmts = ["BEGIN;", "DELETE FROM claimgate.rule;"]
+    tiers = c.get("public_tiers") or []
+    if not tiers:
+        raise RuntimeError("contract has no public tiers; refusing to sync")
+    stmts = ["BEGIN;", "DELETE FROM claimgate.rule;", "DELETE FROM claimgate.tier;"]
+    for t in tiers:
+        b = "NULL" if t.get("bundle_limit") is None else int(t["bundle_limit"])
+        k = "NULL" if t.get("api_key_cap") is None else int(t["api_key_cap"])
+        stmts.append(
+            f"INSERT INTO claimgate.tier (name, bundle_cap, key_cap) VALUES ({lit(t['display_name'])}, {b}, {k});"
+        )
     for r in retired:
         stmts.append(
             "INSERT INTO claimgate.rule (id, kind, pg_pattern, reason) VALUES "
@@ -174,10 +181,6 @@ def sync() -> dict:
     return c
 
 
-def plain(content: str) -> str:
-    return " ".join(html.unescape(re.sub(r"<[^>]+>", " ", content or "")).split())
-
-
 def sweep() -> int:
     rows = psql(
         "SELECT coalesce(json_agg(json_build_object('id', p.id, 'content', p.content, "
@@ -191,7 +194,7 @@ def sweep() -> int:
         if post.get("sqlv"):
             reasons.append(post["sqlv"])
         try:
-            res = first_ok(CHECK_URLS, {"text": plain(post["content"])[:20000]})
+            res = first_ok(CHECK_URLS, {"text": (post["content"] or "")[:20000]})
             reasons += [v["rule_id"] + ":" + v["match"] for v in res.get("violations") or []]
         except Exception as e:  # noqa: BLE001 — API down: the SQL verdict still stands
             log(f"check API unavailable for {post['id']}: {e}")

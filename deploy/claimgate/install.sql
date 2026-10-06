@@ -15,6 +15,10 @@
 -- row is invisible to both the workflow (getPost -> "No Post") and the hourly
 -- missing-post sweep (WHERE deletedAt IS NULL). Restore = clear deletedAt.
 --
+-- Fails CLOSED: an empty rule table (contract never loaded) or a rule that
+-- errors / captures nothing raises inside violations(), and guard() turns any
+-- exception into a quarantine. Never "no rules = everything passes".
+--
 -- RULES come from GET /api/marketing/claims (LoopSkill, derived from
 -- config/tiers.yaml) and are synced into claimgate.rule by claimgate_sync.py.
 -- Python (app/services/claims_contract.py) and this file run the SAME patterns
@@ -43,6 +47,13 @@ ALTER TABLE claimgate.rule ADD COLUMN IF NOT EXISTS allowed numeric[];
 ALTER TABLE claimgate.rule DROP CONSTRAINT IF EXISTS rule_kind_check;
 ALTER TABLE claimgate.rule ADD CONSTRAINT rule_kind_check CHECK (kind IN ('retired', 'amount'));
 DROP TABLE IF EXISTS claimgate.allowed_price;  -- v1: replaced by rule.allowed (per-rule amounts)
+
+-- Public tiers for the nearest-tier binding check (synced from the contract).
+CREATE TABLE IF NOT EXISTS claimgate.tier (
+    name       text PRIMARY KEY,
+    bundle_cap int,
+    key_cap    int
+);
 
 -- Human escape hatch for a confirmed false positive: one row per post id.
 CREATE TABLE IF NOT EXISTS claimgate.override (
@@ -77,40 +88,168 @@ CREATE TABLE IF NOT EXISTS claimgate.state_log (
 );
 CREATE INDEX IF NOT EXISTS state_log_unalerted ON claimgate.state_log (at) WHERE quarantined AND NOT alerted;
 
--- Mirror of claims_contract.normalize(): strip tags (no space inserted),
--- decode entities, NBSP -> space, collapse ASCII whitespace, trim.
-CREATE OR REPLACE FUNCTION claimgate.normalize(body text) RETURNS text
+-- Mirror of claims_contract.NAMED_ENTITIES + _decode_entity: ONE pass, left
+-- to right; numeric (";" optional) and the named table (";" required); code
+-- points 0, surrogates and > U+10FFFF stay literal. GENERATED from the Python
+-- table: tests/test_claims_contract_pg_parity.py fails if they drift.
+CREATE OR REPLACE FUNCTION claimgate.decode_entities(body text) RETURNS text
 LANGUAGE plpgsql IMMUTABLE AS $fn$
 DECLARE
-    m text[];
+    pat   constant text := '&(#[0-9]{1,7};?|#[xX][0-9a-fA-F]{1,6};?|[A-Za-z][A-Za-z0-9]{0,31};)';
     named constant text[][] := ARRAY[
-        ['&nbsp;', ' '], ['&lt;', '<'], ['&gt;', '>'], ['&quot;', '"'], ['&apos;', ''''],
-        ['&plus;', '+'], ['&euro;', '€'], ['&dollar;', '$'], ['&ndash;', '–'], ['&mdash;', '—'],
-        ['&middot;', '·'], ['&hellip;', '…'], ['&rsquo;', '’'], ['&lsquo;', '‘'],
-        ['&ldquo;', '“'], ['&rdquo;', '”']];
-    i int;
+        ['amp', '&'],
+        ['lt', '<'],
+        ['gt', '>'],
+        ['quot', '"'],
+        ['apos', ''''],
+        ['nbsp', ' '],
+        ['Tab', '	'],
+        ['NewLine', '
+'],
+        ['plus', '+'],
+        ['num', '#'],
+        ['percnt', '%'],
+        ['excl', '!'],
+        ['quest', '?'],
+        ['colon', ':'],
+        ['semi', ';'],
+        ['comma', ','],
+        ['period', '.'],
+        ['sol', '/'],
+        ['bsol', '\'],
+        ['lpar', '('],
+        ['rpar', ')'],
+        ['ast', '*'],
+        ['equals', '='],
+        ['lowbar', '_'],
+        ['dollar', '$'],
+        ['euro', '€'],
+        ['pound', '£'],
+        ['cent', '¢'],
+        ['yen', '¥'],
+        ['copy', '©'],
+        ['reg', '®'],
+        ['trade', '™'],
+        ['times', '×'],
+        ['divide', '÷'],
+        ['middot', '·'],
+        ['hellip', '…'],
+        ['ndash', '–'],
+        ['mdash', '—'],
+        ['dash', '‐'],
+        ['hyphen', '‐'],
+        ['lsquo', '‘'],
+        ['rsquo', '’'],
+        ['ldquo', '“'],
+        ['rdquo', '”'],
+        ['shy', ''],
+        ['ensp', ' '],
+        ['emsp', ' '],
+        ['thinsp', ' ']];
+    pos   int := 1;
+    p     int;
+    tok   text;
+    ent text;
+    rep   text;
+    cp    bigint;
+    i     int;
+BEGIN
+    LOOP
+        p := regexp_instr(body, pat, pos);
+        EXIT WHEN p = 0;
+        tok := regexp_substr(body, pat, pos);
+        ent := rtrim(substr(tok, 2), ';');
+        rep := tok;
+        IF left(ent, 1) = '#' THEN
+            IF substr(ent, 2, 1) IN ('x', 'X') THEN
+                cp := ('x' || lpad(substr(ent, 3), 8, '0'))::bit(32)::bigint;
+            ELSE
+                cp := substr(ent, 2)::bigint;
+            END IF;
+            IF NOT (cp = 0 OR cp BETWEEN 55296 AND 57343 OR cp > 1114111) THEN
+                rep := chr(cp::int);
+            END IF;
+        ELSE
+            FOR i IN 1 .. array_length(named, 1) LOOP
+                IF named[i][1] = ent THEN
+                    rep := named[i][2];
+                    EXIT;
+                END IF;
+            END LOOP;
+        END IF;
+        body := left(body, p - 1) || rep || substr(body, p + length(tok));
+        pos := p + length(rep);
+    END LOOP;
+    RETURN body;
+END;
+$fn$;
+
+-- Mirror of claims_contract.normalize(): strip tags (no space inserted),
+-- decode entities once, NBSP -> space, collapse ASCII whitespace, trim.
+CREATE OR REPLACE FUNCTION claimgate.normalize(body text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE AS $fn$
 BEGIN
     body := regexp_replace(coalesce(body, ''), '<[^>]+>', '', 'g');
-    FOR m IN SELECT regexp_matches(body, '&#([0-9]{1,7});', 'g') LOOP
-        BEGIN
-            body := replace(body, '&#' || m[1] || ';', chr(m[1]::int));
-        EXCEPTION WHEN others THEN NULL;
-        END;
-    END LOOP;
-    FOR m IN SELECT regexp_matches(body, '&#[xX]([0-9a-fA-F]{1,6});', 'g') LOOP
-        BEGIN
-            body := replace(body, '&#x' || m[1] || ';', chr(('x' || lpad(m[1], 8, '0'))::bit(32)::int));
-            body := replace(body, '&#X' || m[1] || ';', chr(('x' || lpad(m[1], 8, '0'))::bit(32)::int));
-        EXCEPTION WHEN others THEN NULL;
-        END;
-    END LOOP;
-    FOR i IN 1 .. array_length(named, 1) LOOP
-        body := replace(body, named[i][1], named[i][2]);
-    END LOOP;
-    body := replace(body, '&amp;', '&');  -- last, so "&amp;lt;" stays "&lt;" like html.unescape
+    body := claimgate.decode_entities(body);
     body := replace(body, chr(160), ' ');
     body := regexp_replace(body, E'[ \\t\\r\\n\\f\\v]+', ' ', 'g');
     RETURN btrim(body);
+END;
+$fn$;
+
+-- Mirror of claims_contract._tier_binding(): each "N private bundles" /
+-- "N API keys" binds to the NEAREST preceding tier name in its sentence
+-- (sentence end = ". " / "! " / "? ") and must equal that tier's cap.
+CREATE OR REPLACE FUNCTION claimgate.tier_binding(body text) RETURNS text[]
+LANGUAGE plpgsql STABLE AS $fn$
+DECLARE
+    unit_pat constant text := '\y([0-9]{1,6}) (private bundles?|(active |scoped |separate )?(API )?keys)\y';
+    names  text;
+    pos    int := 1;
+    p      int;
+    e      int;
+    sstart int;
+    tok    text;
+    m      text[];
+    last_name text;
+    t      record;
+    cap    int;
+    unitk  text;
+    hits   text[] := '{}';
+BEGIN
+    SELECT string_agg(regexp_replace(name, '([.^$*+?()\[\]{}|\\])', '\\\1', 'g'), '|') INTO names
+      FROM claimgate.tier;
+    IF names IS NULL THEN
+        RETURN hits;
+    END IF;
+    LOOP
+        p := regexp_instr(body, unit_pat, pos, 1, 0, 'i');
+        EXIT WHEN p = 0;
+        tok := regexp_substr(body, unit_pat, pos, 1, 'i');
+        m := regexp_match(tok, unit_pat, 'i');
+        sstart := 1;
+        e := 1;
+        LOOP
+            e := regexp_instr(body, '[.!?] ', e, 1, 1);
+            EXIT WHEN e = 0 OR e > p;
+            sstart := e;
+        END LOOP;
+        SELECT x.mm[1] INTO last_name
+          FROM regexp_matches(substr(body, sstart, p - sstart), '\y(' || names || ')\y', 'gi')
+               WITH ORDINALITY AS x(mm, ord)
+         ORDER BY x.ord DESC LIMIT 1;
+        IF last_name IS NOT NULL THEN
+            SELECT * INTO t FROM claimgate.tier WHERE lower(name) = lower(last_name);
+            unitk := CASE WHEN lower(m[2]) LIKE '%key%' THEN 'key' ELSE 'bundle' END;
+            cap := CASE WHEN unitk = 'key' THEN t.key_cap ELSE t.bundle_cap END;
+            IF cap IS NOT NULL AND m[1]::int <> cap THEN
+                hits := hits || ('tier-' || unitk || '-cap');
+            END IF;
+        END IF;
+        last_name := NULL;
+        pos := p + length(tok);
+    END LOOP;
+    RETURN hits;
 END;
 $fn$;
 
@@ -124,6 +263,10 @@ DECLARE
     amt  numeric;
     hits text[] := '{}';
 BEGIN
+    IF NOT EXISTS (SELECT 1 FROM claimgate.rule WHERE kind = 'retired')
+       OR NOT EXISTS (SELECT 1 FROM claimgate.rule WHERE kind = 'amount') THEN
+        RAISE EXCEPTION 'claimgate: contract not loaded (rule table empty)';
+    END IF;
     body := claimgate.normalize(body);
     IF body = '' THEN
         RETURN NULL;
@@ -135,12 +278,16 @@ BEGIN
     END LOOP;
     FOR r IN SELECT * FROM claimgate.rule WHERE kind = 'amount' LOOP
         FOR m IN SELECT regexp_matches(body, r.pg_pattern, 'gi') LOOP
+            IF r.amount_group IS NULL OR m[r.amount_group] IS NULL THEN
+                RAISE EXCEPTION 'claimgate: rule % captured no amount (group %)', r.id, r.amount_group;
+            END IF;
             amt := round(replace(m[r.amount_group], ',', '.')::numeric, 2);
             IF NOT (amt = ANY (coalesce(r.allowed, '{}'::numeric[]))) THEN
                 hits := hits || (r.id || ':' || amt::text);
             END IF;
         END LOOP;
     END LOOP;
+    hits := hits || claimgate.tier_binding(body);
     IF array_length(hits, 1) IS NULL THEN
         RETURN NULL;
     END IF;
