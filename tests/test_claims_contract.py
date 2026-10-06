@@ -493,3 +493,13 @@ def test_join_reading_is_what_postiz_publishes(html: str, published: str) -> Non
 def test_production_markup_vocabulary_is_allowed() -> None:
     """Every tag found in the 447 production posts (2026-10-06): <p>, </p>, <br>."""
     assert cc.unsupported_markup("<p>a</p><br><br/><br /><p>b</p>") == []
+
+
+def test_postiz_converter_lock_is_complete() -> None:
+    """The pipeline fixture is only valid for the converter it was generated
+    from; claimgate_sync.py alarms when the live one differs from this lock."""
+    lock = json.loads(
+        (Path(__file__).parent.parent / "deploy" / "claimgate" / "postiz_converter.lock.json").read_text()
+    )
+    assert len(lock["strip_js_sha256"]) == 64
+    assert lock["parse5"] and lock["striptags"] and lock["container"] and lock["strip_js"]

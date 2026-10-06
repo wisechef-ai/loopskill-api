@@ -47,6 +47,7 @@ CONTRACT_URLS = (
 )
 CHECK_URLS = tuple(u + "/check" for u in CONTRACT_URLS)
 CONTAINER = "postiz-postgres"
+CONVERTER_LOCK = HERE / "postiz_converter.lock.json"
 UA = {"User-Agent": "claimgate/1.0 (wisechef-hq)", "Content-Type": "application/json"}
 
 
@@ -140,6 +141,46 @@ def self_heal() -> None:
     psql(INSTALL_SQL.read_text())
     meta("install_sql_hash", sql_hash)
     meta("reinstalled_at", datetime.now(timezone.utc).isoformat())
+
+
+def converter_fingerprint(lock: dict) -> dict:
+    """Live fingerprint of Postiz's text converter (see postiz_converter.lock.json)."""
+    script = (
+        f"sha256sum {lock['strip_js']} | cut -d' ' -f1; "
+        "grep -m1 '\"version\"' /app/node_modules/parse5/package.json; "
+        "grep -m1 '\"version\"' /app/node_modules/striptags/package.json"
+    )
+    r = subprocess.run(
+        ["docker", "exec", lock["container"], "sh", "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+    lines = [ln.strip() for ln in r.stdout.splitlines()]
+    ver = [ln.split('"')[3] for ln in lines[1:3]]
+    return {"strip_js_sha256": lines[0], "parse5": ver[0], "striptags": ver[1]}
+
+
+def check_converter() -> str:
+    """'' when the live converter matches the lock; otherwise what drifted.
+
+    The gate's model of the published text (the readings in
+    claims_normalize.py) is proven against one converter version only. A
+    Postiz upgrade must re-run that proof, so drift is recorded for
+    claimgate-watch to report. Unreadable counts as drift (fail loud).
+    """
+    lock = json.loads(CONVERTER_LOCK.read_text())
+    try:
+        live = converter_fingerprint(lock)
+    except Exception as e:  # noqa: BLE001
+        return f"cannot read the postiz converter: {e}"[:300]
+    diffs = [
+        f"{k}: locked {lock[k]} != live {live[k]}"
+        for k in ("strip_js_sha256", "parse5", "striptags")
+        if live[k] != lock[k]
+    ]
+    return "; ".join(diffs)
 
 
 def load_contract() -> dict:
@@ -254,6 +295,13 @@ def main() -> int:
             meta("last_sync_error", f"{datetime.now(timezone.utc).isoformat()} {e}"[:500])
         except Exception:  # noqa: BLE001
             pass
+    try:
+        drift = check_converter()
+        meta("converter_drift", drift)
+        if drift:
+            log(f"POSTIZ CONVERTER DRIFT (regenerate the pipeline fixture): {drift}")
+    except Exception as e:  # noqa: BLE001
+        log(f"converter check failed: {e}")
     try:
         n = sweep()
         if n:

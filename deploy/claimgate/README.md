@@ -51,7 +51,7 @@ mkdir -p pz/node_modules && tar xzf pz.tgz -C pz/node_modules
 ssh wisechef-hq 'docker exec postiz cat /app/apps/backend/dist/libraries/helpers/src/utils/strip.html.validation.js' > pz/strip.js
 node deploy/claimgate/gen_postiz_pipeline_fixture.js pz 600 > tests/fixtures/postiz_pipeline.json
 ```
-Re-run this whenever Postiz is upgraded. A changed converter shows up as test failures, not as a silent bypass.
+`postiz_converter.lock.json` pins the converter this fixture came from: the `strip.html.validation.js` sha256 and the parse5 and striptags versions. Every `claimgate_sync.py` run compares the live container against it and records any difference in `claimgate.meta('converter_drift')`, and Tori's `claimgate-watch` reports it. After a Postiz upgrade, regenerate the fixture, run the tests, and update the lock in the same PR. Until then the gate keeps enforcing, but its model of the published text is unproven.
 
 **Out of scope** (accepted gaps, documented):
 - Author CSS. Postiz strips tags and styles before publishing, so no platform renders it.
