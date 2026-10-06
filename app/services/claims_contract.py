@@ -16,20 +16,14 @@ This module makes the comparison mechanical and keeps it in ONE place:
   flipped to ``public: false`` or repriced changes the verdict on the next
   request; no marketing file needs editing.
 * :func:`check_text` is the single implementation of the check. Producers
-  call it over HTTP (``POST /api/marketing/claims/check``). The Postiz
-  database trigger (deploy/claimgate/install.sql) runs the SAME retired and
-  amount rules via ``pg_pattern``; tests/test_claims_contract_pg_parity.py
-  asserts both engines agree on a shared corpus (postgres CI leg).
-* Every check, including binding a bundle/key count to the nearest
-  preceding tier name, runs in both engines (install.sql:
-  claimgate.tier_binding); there is no Python-only rule.
+  call it over HTTP (``POST /api/marketing/claims/check``); the Postiz
+  trigger (deploy/claimgate/install.sql) runs the same rules, tier binding
+  included. tests/test_claims_contract_pg_parity.py proves both engines give
+  the same EXPECTED verdicts. Threat model: deploy/claimgate/README.md.
 
-Portable regex subset (Python ``re`` and PostgreSQL ARE, en_US.utf8): literal
-text, ``[...]`` classes, ``[0-9]`` (never ``\\d``: Unicode digits differ),
-``\\b`` (translated to ``\\y``), groups, ``|``, ``?``, ``*``, ``+``,
-``{m,n}``. No lookarounds, backreferences, named groups, inline flags or
-``\\d \\w \\s`` shorthands. Both engines check the same normalised text
-(:func:`normalize`; install.sql ``claimgate.normalize``).
+Portable regex subset (Python ``re`` and PostgreSQL ARE): ``[0-9]`` never
+``\\d``, ``\\b`` (translated to ``\\y``), no lookarounds, backreferences,
+named groups, inline flags or ``\\d \\w \\s`` (``assert_portable``).
 """
 
 from __future__ import annotations
@@ -42,11 +36,14 @@ from pathlib import Path
 
 import yaml
 
-from app.services.claims_normalize import (  # noqa: F401  (re-exported: tests + install.sql parity)
+# re-exported for tests and install.sql parity
+from app.services.claims_normalize import (  # noqa: F401
     _ENTITY,
-    BLOCK_PREFIX,
-    POSTIZ_PREFIX,
+    ALLOWED_TAG,
+    BLOCK_TAG,
+    POSTIZ_TAG,
     TAG_READINGS,
+    TAGLIKE,
     C1_REMAP,
     LEGACY_NO_SEMICOLON,
     NAMED_ENTITIES,
@@ -54,7 +51,9 @@ from app.services.claims_normalize import (  # noqa: F401  (re-exported: tests +
     UNRECOGNISED_ENTITY,
     ZERO_WIDTH,
     normalize,
+    markup_violations,
     strip_tags,
+    unsupported_markup,
 )
 
 _CONFIG = Path(__file__).resolve().parent.parent.parent / "config"
@@ -520,6 +519,9 @@ def check_text(text: str, contract: dict | None = None) -> list[dict]:
     c = contract or build_contract()
     out: list[dict] = []
     seen: set[tuple] = set()
+    for v in markup_violations(text):  # fail closed on markup outside the allowlist
+        seen.add((v["rule_id"], v["match"]))
+        out.append(v)
     for reading in TAG_READINGS:  # every consumer's reading of the tags (claims_normalize)
         for v in _check_normalized(normalize(text, reading), c):
             key = (v["rule_id"], v["match"])

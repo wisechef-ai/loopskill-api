@@ -130,101 +130,74 @@ def _decode_entity(m: re.Match) -> str:
     return NAMED_ENTITIES.get(body, m.group(0))
 
 
-# Tags are found by a port of striptags@3.2.0's state machine, the exact
-# library Postiz uses (md5-verified against the postiz container), NOT by a
-# regex: quotes, comments, nested "<", "< " and unterminated tags all behave
-# exactly as in the published text. tests/fixtures/striptags_3_2_0.json holds
-# real striptags outputs (deploy/claimgate/gen_striptags_fixture.js); the
-# "join" reading must reproduce them byte for byte in BOTH engines.
-#
-# Each reading only decides what a CLOSED tag becomes (comments and an
-# unterminated trailing tag always vanish, as in striptags):
-#   "join"   - nothing: exactly striptags, i.e. what Postiz sends to plain-text
-#              platforms;
-#   "postiz" - a line break for opening tags Postiz turns into one (its
-#              regexes <p[^>]*>, <li.*?>, <ul>; h1-h3 kept on HTML platforms),
-#              nothing for the rest (<br> included);
-#   "html"   - a space for default block / line-break elements, nothing for
+# What Postiz publishes is stripHtmlValidation(): parse5 (HTML5) parse +
+# serialize, THEN striptags. So a "<" opens a tag only where HTML5 says it
+# does ("<" + ASCII letter, "/", "!" or "?"); "We <3 you" keeps its "<3" as
+# text. Rather than re-implement HTML5 tree construction (tables, textarea,
+# comments, foster parenting...), marketing markup is ALLOWLISTED:
+#   * TAGLIKE finds every token HTML5 would treat as markup, up to the first
+#     ">" (or the end of the text);
+#   * a token that is not a plain ALLOWED_TAG (the vocabulary producers and
+#     the Postiz editor emit: production uses only <p> and <br>) is itself a
+#     violation, "unsupported-markup": comments, <! / <? constructs, unknown
+#     elements, single-quoted or ">"-containing attributes, unterminated tags.
+# For text that passes the allowlist, the "join" reading equals what Postiz
+# publishes, byte for byte after whitespace normalisation: property-tested
+# against Postiz's real converter (parse5 6.0.1 + striptags 3.2.0, copied from
+# the running container) in tests/fixtures/postiz_pipeline.json.
+TAGLIKE = r"<[A-Za-z/!?][^>]*>?"
+ALLOWED_TAG = r"^</?(p|br|strong|b|em|i|u|s|a|ul|ol|li|h[1-3]|span)( [a-z-]+=\"[^\"<>]*\")* ?/?>$"
+# Readings decide what an (allowed) tag becomes. A violation found in ANY
+# reading counts (claims_contract.check_text; install.sql violations):
+#   "join"   - nothing: Postiz's plain-text output (striptags);
+#   "postiz" - a separator for opening tags Postiz's own regexes turn into a
+#              line break (<p[^>]*>, <li.*?>, <ul>; h1-h3 kept on HTML
+#              platforms), nothing for the rest (<br> included);
+#   "html"   - a separator for default block / line-break elements, nothing for
 #              inline ones ("P<b>ro</b><br>includes" reads "Pro includes");
-#   "space"  - a space for every tag.
-# A violation found in ANY reading counts (claims_contract.check_text;
-# install.sql claimgate.violations). CSS is out of scope: Postiz strips tags
-# and styles before publishing, so no platform renders author CSS.
-POSTIZ_PREFIX = r"^<(p|li|ul|h[1-3])"
-BLOCK_PREFIX = (
-    r"^<[ \t\r\n]*/?[ \t\r\n]*(address|article|aside|blockquote|br|caption|center|dd|details|dialog|div|dl|dt"
+#   "space"  - a separator for every tag.
+# CSS is out of scope: Postiz strips tags and styles before publishing.
+POSTIZ_TAG = r"<(p|li|ul|h[1-3])[^>]*>?"
+BLOCK_TAG = (
+    r"</?(address|article|aside|blockquote|br|caption|center|dd|details|dialog|div|dl|dt"
     r"|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|legend|li|main|menu|nav|ol|p|pre"
-    r"|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)\b"
+    r"|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)\b[^>]*>?"
 )
 TAG_READINGS = ("join", "postiz", "html", "space")
 
 
-def _tag_sep(tag: str, reading: str) -> str:
-    if reading == "join":
-        return ""
-    if reading == "space":
-        return " "
-    prefix = POSTIZ_PREFIX if reading == "postiz" else BLOCK_PREFIX
-    return " " if re.match(prefix, tag, re.IGNORECASE) else ""
+def unsupported_markup(html: str) -> list[str]:
+    """Every markup token outside the allowlist (install.sql: claimgate.markup_hits)."""
+    return [t for t in re.findall(TAGLIKE, html or "") if not re.match(ALLOWED_TAG, t, re.IGNORECASE)]
+
+
+def markup_violations(html: str) -> list[dict]:
+    """One violation per distinct markup token outside the allowlist."""
+    return [
+        {
+            "kind": "markup",
+            "rule_id": "unsupported-markup",
+            "match": tok[:80],
+            "excerpt": tok[:80],
+            "reason": "markup outside the marketing allowlist (ALLOWED_TAG): its published text "
+            "cannot be predicted, so it is rejected",
+            "replacement": 'plain text, or <p>/<br>/<strong>/<em>/<a href="...">',
+        }
+        for tok in dict.fromkeys(unsupported_markup(html))
+    ]
 
 
 def strip_tags(html: str, reading: str = "join") -> str:
-    """striptags@3.2.0's state machine (install.sql: claimgate.strip_tags).
-
-    Line-by-line port of striptags_internal(): "<" and ">" inside quotes and
-    nested "<"/">" are swallowed exactly as the original does.
-    """
+    """Remove markup per ``reading`` (install.sql: claimgate.strip_tags, same regexes)."""
     if reading not in TAG_READINGS:
         raise ValueError(f"unknown tag reading {reading!r}")
-    if "<" not in html:
-        return html
-    out: list[str] = []
-    state, buf, depth, quote = "text", "", 0, ""
-    for ch in html:
-        if state == "text":
-            if ch == "<":
-                state, buf = "html", "<"
-            else:
-                out.append(ch)
-        elif state == "html":
-            if ch == "<":
-                if not quote:
-                    depth += 1
-            elif ch == ">":
-                if quote:
-                    pass
-                elif depth:
-                    depth -= 1
-                else:
-                    quote, state = "", "text"
-                    out.append(_tag_sep(buf + ">", reading))
-                    buf = ""
-            elif ch in "\"'":
-                if ch == quote:
-                    quote = ""
-                elif not quote:
-                    quote = ch
-                buf += ch
-            elif ch == "-":
-                if buf == "<!-":
-                    state = "comment"
-                buf += ch
-            elif ch in " \n":
-                if buf == "<":
-                    state, buf = "text", ""
-                    out.append("< ")
-                else:
-                    buf += ch
-            else:
-                buf += ch
-        else:  # comment
-            if ch == ">":
-                if buf[-2:] == "--":
-                    state = "text"
-                buf = ""
-            else:
-                buf += ch
-    return "".join(out)
+    if reading == "space":
+        return re.sub(TAGLIKE, " ", html)
+    if reading == "postiz":
+        html = re.sub(POSTIZ_TAG, " ", html, flags=re.IGNORECASE)
+    elif reading == "html":
+        html = re.sub(BLOCK_TAG, " ", html, flags=re.IGNORECASE)
+    return re.sub(TAGLIKE, "", html)
 
 
 def normalize(text: str, reading: str = "join") -> str:

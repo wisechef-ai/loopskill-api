@@ -31,7 +31,7 @@ from tests.test_claims_contract import (
     REAL_INCIDENTS,
     REVIEW_BYPASSES,
     REVIEW_MUST_PASS,
-    STRIPTAGS_FIXTURE,
+    PIPELINE_FIXTURE,
 )
 
 INSTALL_SQL = Path(__file__).resolve().parent.parent / "deploy" / "claimgate" / "install.sql"
@@ -376,14 +376,10 @@ def test_drafts_are_not_gated_and_transitions_are_logged(post_table) -> None:
     assert rows[-1] == ("UPDATE", "DRAFT", "QUEUE", True)
 
 
-@pytest.mark.parametrize(("html", "expected"), STRIPTAGS_FIXTURE)
-def test_sql_strip_tags_is_real_striptags(pg, html: str, expected: str) -> None:
-    got = pg.execute(text("SELECT claimgate.strip_tags(:h, 'join')"), {"h": html}).scalar()
-    assert got == expected
-
-
-def test_strip_tags_readings_agree(pg) -> None:
-    for html, _ in STRIPTAGS_FIXTURE:
+def test_strip_tags_and_markup_agree(pg) -> None:
+    for html, _ in PIPELINE_FIXTURE:
+        hits = pg.execute(text("SELECT claimgate.markup_hits(:h)"), {"h": html}).scalar()
+        assert bool(hits) == bool(cc.unsupported_markup(html)), html
         for reading in cc.TAG_READINGS:
             got = pg.execute(text("SELECT claimgate.strip_tags(:h, :r)"), {"h": html, "r": reading}).scalar()
             assert got == cc.strip_tags(html, reading), (reading, html)

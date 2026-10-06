@@ -26,6 +26,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from app.services import claims_contract as cc
+from app.services import claims_normalize as cn
 from tests._app_factory import build_test_app
 
 # (text, rule ids that MUST fire). Real published copy, trimmed to the claim.
@@ -167,8 +168,8 @@ BLOCK_TAG_CASES: list[tuple[str, set[str]]] = [
     # round 13: any tag may separate or join; quoted ">" inside attributes
     ("Pro<form>includes 2 private bundles</form>", {"tier-bundle-cap"}),
     ("Pro<custom-el>includes 2 private bundles", {"tier-bundle-cap"}),
-    ('Pro<b title=">">+</b> for agencies', {"tier-not-public-pro_plus"}),
-    ("Pro<b title='>'>+</b> for agencies", {"tier-not-public-pro_plus"}),
+    ('Pro<b title=">">+</b> for agencies', {"unsupported-markup"}),
+    ("Pro<b title='>'>+</b> for agencies", {"unsupported-markup"}),
     # round 14: mixed inline + block tags
     ("P<b>ro</b><br>includes 2 private bundles", {"tier-bundle-cap"}),
     ("P<span>ro</span><p>includes 2 private bundles</p>", {"tier-bundle-cap"}),
@@ -180,10 +181,26 @@ BLOCK_TAG_CASES: list[tuple[str, set[str]]] = [
     # round 16: comments / quotes parsed exactly like striptags
     ("<p>P<!--'-->ro+ for agencies</p>", {"tier-not-public-pro_plus"}),
     ("P<!-- a -- b -->ro+ for agencies", {"tier-not-public-pro_plus"}),
-    ('Pro<b title="\'>">+</b> for agencies', {"tier-not-public-pro_plus"}),
+    ('Pro<b title="\'>">+</b> for agencies', {"unsupported-markup"}),
 ]
 REVIEW_BYPASSES += BLOCK_TAG_CASES
+# Round 17 (claude-opus): Postiz runs parse5 BEFORE striptags; "<" that HTML5
+# keeps as text must not hide the rest of the post.
+REVIEW_BYPASSES += [
+    ("We <3 you. Pro+ is $9/month", {"tier-not-public-pro_plus", "price-recurring"}),
+    ("We <3 the Studio plan", {"legacy-tier-names"}),
+    (
+        "<p>We <3 LoopSkill. Pro+ is $100/month on the Cook plan.</p>",
+        {"tier-not-public-pro_plus", "legacy-tier-names"},
+    ),
+    ("Plans <= Pro+ is $9/month", {"tier-not-public-pro_plus", "price-recurring"}),
+    ("Pricing <\tPro+ is $9/month", {"tier-not-public-pro_plus", "price-recurring"}),
+    ("<!-- x --!>Pro+ is $9/month<!-- -->", {"unsupported-markup"}),
+    ('<?x "> Pro+ is $9/month <"?>', {"unsupported-markup"}),
+]
 REVIEW_MUST_PASS = [
+    "We <3 our users. LoopSkill is free to self-host.",
+    "<p>Pro is $9.95/month.</p><br><p>Free includes 2 private bundles.</p>",
     "<p>Pro is $9.95/month.</p><p>Free includes 2 private bundles.</p>",
     "Free: 2 private bundles. Pro: 50 private bundles.",
     "Pro: 50 private bundles,10 API keys.",
@@ -396,10 +413,8 @@ def test_install_sql_patterns_match_python() -> None:
     assert f"unit_pat constant text := '{cc.to_pg(cc._UNIT.pattern)}';" in sql
     assert f"IF t ~ '{cc.THOUSANDS}' THEN" in sql
     assert "ARRAY['" + "', '".join(cc.TAG_READINGS) + "']" in sql
-    assert (
-        "WHEN 'postiz' THEN CASE WHEN tag ~* '" + cc.to_pg(cc.POSTIZ_PREFIX).replace("'", "''") + "'" in sql
-    )
-    assert "ELSE CASE WHEN tag ~* '" + cc.to_pg(cc.BLOCK_PREFIX).replace("'", "''") + "'" in sql
+    for pattern in (cc.TAGLIKE, cc.POSTIZ_TAG, cc.BLOCK_TAG, cc.ALLOWED_TAG):
+        assert "'" + cc.to_pg(pattern).replace("'", "''") in sql, pattern
     assert f"IF t !~ '{cc.VALID_AMOUNT}' THEN" in sql
     assert f"lower(m[{cc.UNIT_GROUP}])" in sql
     assert f"claimgate.parse_amount(m[{cc.NUM_AFTER_GUARD}])" in sql
@@ -445,10 +460,25 @@ def test_number_runs_stay_linear() -> None:
         assert time.perf_counter() - t0 < 2.0, body[:20]
 
 
-STRIPTAGS_FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "striptags_3_2_0.json").read_text())
+PIPELINE_FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "postiz_pipeline.json").read_text())
 
 
-@pytest.mark.parametrize(("html", "expected"), STRIPTAGS_FIXTURE)
-def test_strip_tags_join_is_real_striptags(html: str, expected: str) -> None:
-    """The 'join' reading IS what Postiz publishes: byte-for-byte striptags@3.2.0."""
-    assert cc.strip_tags(html, "join") == expected
+def _published_norm(published: str) -> str:
+    """Postiz's published text through the gate's non-markup normalisation."""
+    return re.sub(r"[ \t\r\n\f\v]+", " ", published.translate(cn._ZW_TABLE)).strip(" ")
+
+
+@pytest.mark.parametrize(("html", "published"), PIPELINE_FIXTURE)
+def test_join_reading_is_what_postiz_publishes(html: str, published: str) -> None:
+    """For every input the gate does not reject as unsupported markup, the
+    'join' reading IS the text Postiz publishes (stripHtmlValidation, real
+    parse5 6.0.1 + striptags 3.2.0; fixture from gen_postiz_pipeline_fixture.js)."""
+    if cc.unsupported_markup(html):
+        assert "unsupported-markup" in {v["rule_id"] for v in cc.check_text(html)}
+        return
+    assert cc.normalize(html, "join") == _published_norm(published)
+
+
+def test_production_markup_vocabulary_is_allowed() -> None:
+    """Every tag found in the 447 production posts (2026-10-06): <p>, </p>, <br>."""
+    assert cc.unsupported_markup("<p>a</p><br><br/><br /><p>b</p>") == []

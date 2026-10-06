@@ -195,98 +195,34 @@ $fn$;
 
 -- Mirror of claims_contract.normalize(): strip tags (no space inserted),
 -- decode entities once, NBSP -> space, collapse ASCII whitespace, trim.
--- Port of striptags@3.2.0 (claims_normalize.strip_tags; byte-for-byte checked
--- against real striptags outputs in tests/fixtures/striptags_3_2_0.json).
-CREATE OR REPLACE FUNCTION claimgate.tag_sep(tag text, reading text) RETURNS text
-LANGUAGE sql IMMUTABLE AS $fn$
-    SELECT CASE reading
-        WHEN 'join' THEN ''
-        WHEN 'space' THEN ' '
-        WHEN 'postiz' THEN CASE WHEN tag ~* '^<(p|li|ul|h[1-3])' THEN ' ' ELSE '' END
-        ELSE CASE WHEN tag ~* '^<[ \t\r\n]*/?[ \t\r\n]*(address|article|aside|blockquote|br|caption|center|dd|details|dialog|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|legend|li|main|menu|nav|ol|p|pre|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)\y' THEN ' ' ELSE '' END
-    END
-$fn$;
-
+-- Mirror of claims_normalize.strip_tags / unsupported_markup (same regexes,
+-- pinned by tests). Tags open only where HTML5 says so (Postiz runs parse5
+-- before striptags); markup outside ALLOWED_TAG is a violation in itself.
+DROP FUNCTION IF EXISTS claimgate.tag_sep(text, text);
 CREATE OR REPLACE FUNCTION claimgate.strip_tags(html text, reading text DEFAULT 'join') RETURNS text
 LANGUAGE plpgsql IMMUTABLE AS $fn$
-DECLARE
-    chars text[];
-    ch    text;
-    st    text := 'text';
-    buf   text := '';
-    depth int := 0;
-    q     text := '';
-    o     text[] := '{}';
-    i     int;
 BEGIN
     IF reading NOT IN ('join', 'postiz', 'html', 'space') THEN
         RAISE EXCEPTION 'claimgate: unknown tag reading %', reading;
     END IF;
-    IF strpos(html, '<') = 0 THEN
-        RETURN html;
+    IF reading = 'space' THEN
+        RETURN regexp_replace(html, '<[A-Za-z/!?][^>]*>?', ' ', 'g');
     END IF;
-    chars := regexp_split_to_array(html, '');
-    FOR i IN 1 .. coalesce(array_length(chars, 1), 0) LOOP
-        ch := chars[i];
-        IF st = 'text' THEN
-            IF ch = '<' THEN
-                st := 'html';
-                buf := '<';
-            ELSE
-                o := o || ch;
-            END IF;
-        ELSIF st = 'html' THEN
-            IF ch = '<' THEN
-                IF q = '' THEN
-                    depth := depth + 1;
-                END IF;
-            ELSIF ch = '>' THEN
-                IF q <> '' THEN
-                    NULL;
-                ELSIF depth > 0 THEN
-                    depth := depth - 1;
-                ELSE
-                    q := '';
-                    st := 'text';
-                    o := o || claimgate.tag_sep(buf || '>', reading);
-                    buf := '';
-                END IF;
-            ELSIF ch = '"' OR ch = '''' THEN
-                IF ch = q THEN
-                    q := '';
-                ELSIF q = '' THEN
-                    q := ch;
-                END IF;
-                buf := buf || ch;
-            ELSIF ch = '-' THEN
-                IF buf = '<!-' THEN
-                    st := 'comment';
-                END IF;
-                buf := buf || ch;
-            ELSIF ch = ' ' OR ch = E'\n' THEN
-                IF buf = '<' THEN
-                    st := 'text';
-                    o := o || '< '::text;
-                    buf := '';
-                ELSE
-                    buf := buf || ch;
-                END IF;
-            ELSE
-                buf := buf || ch;
-            END IF;
-        ELSE
-            IF ch = '>' THEN
-                IF right(buf, 2) = '--' THEN
-                    st := 'text';
-                END IF;
-                buf := '';
-            ELSE
-                buf := buf || ch;
-            END IF;
-        END IF;
-    END LOOP;
-    RETURN array_to_string(o, '');
+    IF reading = 'postiz' THEN
+        html := regexp_replace(html, '<(p|li|ul|h[1-3])[^>]*>?', ' ', 'gi');
+    ELSIF reading = 'html' THEN
+        html := regexp_replace(html, '</?(address|article|aside|blockquote|br|caption|center|dd|details|dialog|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|legend|li|main|menu|nav|ol|p|pre|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)\y[^>]*>?', ' ', 'gi');
+    END IF;
+    RETURN regexp_replace(html, '<[A-Za-z/!?][^>]*>?', '', 'g');
 END;
+$fn$;
+
+CREATE OR REPLACE FUNCTION claimgate.markup_hits(body text) RETURNS text[]
+LANGUAGE sql IMMUTABLE AS $fn$
+    SELECT CASE WHEN EXISTS (
+        SELECT 1 FROM regexp_matches(coalesce(body, ''), '(<[A-Za-z/!?][^>]*>?)', 'g') AS m
+         WHERE m[1] !~* '^</?(p|br|strong|b|em|i|u|s|a|ul|ol|li|h[1-3]|span)( [a-z-]+=\"[^\"<>]*\")* ?/?>$')
+    THEN ARRAY['unsupported-markup'] ELSE '{}'::text[] END
 $fn$;
 
 DROP FUNCTION IF EXISTS claimgate.normalize(text);
@@ -477,6 +413,7 @@ DECLARE
     hits text := '';
     rd   text;
 BEGIN
+    hits := '; ' || array_to_string(claimgate.markup_hits(body), '; ');
     FOREACH rd IN ARRAY ARRAY['join', 'postiz', 'html', 'space'] LOOP
         hits := hits || '; ' || coalesce(claimgate.violations_norm(claimgate.normalize(body, rd)), '');
     END LOOP;

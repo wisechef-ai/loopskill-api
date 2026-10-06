@@ -31,17 +31,30 @@ crontab (wisechef-hq):
 - **Who queued a post?** `state_log` records every state/`deletedAt` transition, with time, `application_name` and client address.
 
 ## Threat model: which text is checked
-The gate checks the post's source `content`, as written by producers or the Postiz editor, under every tag reading a real consumer uses. Tags are located by a port of Postiz's own `striptags@3.2.0` state machine, not by a regex. The port is checked byte for byte against real striptags outputs in `tests/fixtures/striptags_3_2_0.json`, which `gen_striptags_fixture.js` regenerates. A violation in any reading counts (`claims_normalize.TAG_READINGS`; `claimgate.violations`):
+What a platform receives is Postiz's `stripHtmlValidation()`: **parse5** (HTML5) parse and serialize, then **striptags**, then an entity decode. That is parse5 6.0.1 and striptags 3.2.0, verified in the running container on 2026-10-06. The gate does not re-implement HTML5 tree construction. Instead:
 
-- **join**: every tag is removed with no separator. This is what Postiz sends to plain-text platforms (`stripHtmlValidation`: `<p>` becomes a newline, everything else goes through `striptags`, verified in the running container on 2026-10-06).
-- **postiz**: exactly what Postiz publishes. Opening tags matched by its regexes (`<p…>`, `<li…>`, `<ul>`, and `h1`–`h3` on HTML platforms) become a line break, and every other tag, `<br>` included, is removed with no separator (`POSTIZ_BREAK`).
-- **html**: default browser display. Block and line-break elements (`BLOCK_TAG`) separate words; inline elements join them.
-- **space**: every tag separates words.
+1. **Markup is allowlisted.** `TAGLIKE` finds every token HTML5 treats as markup: `<` followed by an ASCII letter, `/`, `!` or `?`, up to the first `>`. Any token that is not a plain `ALLOWED_TAG` (`p br strong b em i u s a ul ol li h1-h3 span`, double-quoted attributes without `<` or `>`) is itself a violation, **`unsupported-markup`**: comments, `<!`/`<?` constructs, unknown elements, odd quoting, unterminated tags. Production used only `<p>` and `<br>` across all 447 posts (2026-10-06), so legitimate copy never trips it. A `<` that HTML5 keeps as text (`We <3 you`, `<=`) stays text, as in the published post.
+2. **For everything that passes the allowlist, the `join` reading equals the published text.** This is property-tested against Postiz's REAL converter in `tests/fixtures/postiz_pipeline.json`: 619 curated and seeded-fuzz cases, plus a 20,000-case local fuzz with 0 mismatches. `gen_postiz_pipeline_fixture.js` regenerates it.
+3. **Every reading is checked and the violations are unioned** (`claims_normalize.TAG_READINGS`; `claimgate.violations`):
+   - **join**: allowed tags are removed with no separator. This is Postiz's plain-text output.
+   - **postiz**: opening tags that Postiz's own regexes turn into a line break (`<p…>`, `<li…>`, `<ul>`, and `h1`–`h3` on HTML platforms) become a separator; everything else, `<br>` included, joins.
+   - **html**: default browser display. Block and line-break elements separate words; inline elements join them.
+   - **space**: every tag separates words.
 
 Entities are decoded by an explicit table. Anything left undecoded is itself a violation (`unrecognised-html-entity`). Invisible and space-like characters are normalised. Numbers are read as whole runs, and malformed runs are violations.
 
+### Regenerating the pipeline fixture
+```bash
+ssh wisechef-hq 'docker exec postiz sh -c "cd /app/node_modules && tar czf - parse5 entities striptags tslib"' > pz.tgz
+mkdir -p pz/node_modules && tar xzf pz.tgz -C pz/node_modules
+ssh wisechef-hq 'docker exec postiz cat /app/apps/backend/dist/libraries/helpers/src/utils/strip.html.validation.js' > pz/strip.js
+node deploy/claimgate/gen_postiz_pipeline_fixture.js pz 600 > tests/fixtures/postiz_pipeline.json
+```
+Re-run this whenever Postiz is upgraded. A changed converter shows up as test failures, not as a silent bypass.
+
 **Out of scope** (accepted gaps, documented):
 - Author CSS. Postiz strips tags and styles before publishing, so no platform renders it.
+- HTML5 tree-construction effects (foster parenting, raw-text elements). Every element that has them is outside the allowlist and is therefore rejected.
 - Spelled-out prices ("twenty dollars a month").
 - Look-alike letters such as Cyrillic "Рro+".
 - Price phrasings with more than 3 connecting words between tier and price.
