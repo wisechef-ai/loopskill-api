@@ -509,10 +509,15 @@ LANGUAGE plpgsql STABLE AS $fn$
 DECLARE
     hits text := '';
     rd   text;
+    nb   text;
+    done text[] := '{}';
 BEGIN
     hits := '; ' || array_to_string(claimgate.markup_hits(body), '; ');
     FOREACH rd IN ARRAY ARRAY['join', 'postiz', 'html', 'space', 'link', 'markdown'] LOOP
-        hits := hits || '; ' || coalesce(claimgate.violations_norm(claimgate.normalize(body, rd)), '');
+        nb := claimgate.normalize(body, rd);
+        CONTINUE WHEN nb = ANY (done);  -- identical readings are checked once
+        done := done || nb;
+        hits := hits || '; ' || coalesce(claimgate.violations_norm(nb), '');
     END LOOP;
     hits := array_to_string(ARRAY(
         SELECT DISTINCT h FROM unnest(string_to_array(hits, '; ')) AS h WHERE h <> '' ORDER BY h), '; ');

@@ -476,8 +476,10 @@ def check_text(text: str, contract: dict | None = None) -> list[dict]:
     for v in markup_violations(text):  # fail closed on markup outside the allowlist
         seen.add((v["rule_id"], v["match"]))
         out.append(v)
-    for reading in TAG_READINGS:  # every consumer's reading of the tags (claims_normalize)
-        for v in _check_normalized(normalize(text, reading), c):
+    # every consumer's reading of the tags (claims_normalize); identical
+    # readings (all of them, for tag-free text) are checked once
+    for norm in dict.fromkeys(normalize(text, reading) for reading in TAG_READINGS):
+        for v in _check_normalized(norm, c):
             key = (v["rule_id"], v["match"])
             if key not in seen:
                 seen.add(key)
