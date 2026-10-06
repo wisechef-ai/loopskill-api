@@ -32,6 +32,7 @@ def _run_install(conn) -> None:
     test's own transaction."""
     conn.connection.dbapi_connection.cursor().execute(INSTALL_SQL.read_text())
 
+
 EDGE_CASES = [
     # round-2 review inputs
     "Pro costs 199 USD/month",
