@@ -140,17 +140,25 @@ BLOCK_TAG = (
     r"|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|legend|li|main|menu|nav|ol|p|pre"
     r"|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)\b([^>\"']|\"[^\"]*\"|'[^']*')*>"
 )
+# Postiz's own converter (stripHtmlValidation, read from the running
+# container): an opening tag matching its regexes <p[^>]*> (so also <pre>,
+# <param>...), <li.*?> or <ul> becomes a line break; striptags removes every
+# other tag with no separator (<br> included). On HTML platforms only
+# p/li/ul/h1-h3 survive as blocks. This is the text that is actually published.
+POSTIZ_BREAK = r"<(p|li|ul|h[1-3])([^>\"']|\"[^\"]*\"|'[^']*')*>"
 # How a tag affects the words around it is decided by whoever renders it, so
 # the check covers every reading a real consumer uses and reports a violation
 # found in ANY of them (claims_contract.check_text; install.sql violations):
 #   "join"  - every tag removed with no separator: exactly what Postiz sends to
 #             plain-text platforms (striptags; deploy/claimgate/README.md);
+#   "postiz" - exactly what Postiz publishes: POSTIZ_BREAK separates, every
+#             other tag joins ("P<br>ro<p>includes" reads "Pro includes");
 #   "html"  - default browser display: BLOCK_TAG separates, inline tags join
 #             ("P<b>ro</b><br>includes" reads "Pro includes");
 #   "space" - every tag separates.
 # CSS is out of scope: Postiz strips tags and styles before publishing, so no
 # platform ever renders author CSS.
-TAG_READINGS = ("join", "html", "space")
+TAG_READINGS = ("join", "postiz", "html", "space")
 
 
 def normalize(text: str, reading: str = "join") -> str:
@@ -170,6 +178,8 @@ def normalize(text: str, reading: str = "join") -> str:
     else:
         if reading == "html":
             text = re.sub(BLOCK_TAG, " ", text, flags=re.IGNORECASE)
+        elif reading == "postiz":
+            text = re.sub(POSTIZ_BREAK, " ", text, flags=re.IGNORECASE)
         text = re.sub(TAG, "", text)
     text = _ENTITY.sub(_decode_entity, text).translate(_ZW_TABLE)
     return re.sub(r"[ \t\r\n\f\v]+", " ", text).strip(" ")

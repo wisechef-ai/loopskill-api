@@ -201,13 +201,16 @@ CREATE OR REPLACE FUNCTION claimgate.normalize(body text, reading text DEFAULT '
 LANGUAGE plpgsql IMMUTABLE AS $fn$
 BEGIN
     -- GENERATED from claims_normalize.TAG / BLOCK_TAG / TAG_READINGS
-    IF reading NOT IN ('join', 'html', 'space') THEN
+    IF reading NOT IN ('join', 'postiz', 'html', 'space') THEN
         RAISE EXCEPTION 'claimgate: unknown tag reading %', reading;
     END IF;
     body := coalesce(body, '');
     IF reading = 'space' THEN
         body := regexp_replace(body, '<([^>\"'']|\"[^\"]*\"|''[^'']*'')*>', ' ', 'g');
     ELSE
+        IF reading = 'postiz' THEN
+            body := regexp_replace(body, '<(p|li|ul|h[1-3])([^>\"'']|\"[^\"]*\"|''[^'']*'')*>', ' ', 'gi');
+        END IF;
         IF reading = 'html' THEN
             body := regexp_replace(body, '<[ \t\r\n]*/?[ \t\r\n]*(address|article|aside|blockquote|br|caption|center|dd|details|dialog|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|legend|li|main|menu|nav|ol|p|pre|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)\y([^>\"'']|\"[^\"]*\"|''[^'']*'')*>', ' ', 'gi');
         END IF;
@@ -395,7 +398,7 @@ DECLARE
     hits text := '';
     rd   text;
 BEGIN
-    FOREACH rd IN ARRAY ARRAY['join', 'html', 'space'] LOOP
+    FOREACH rd IN ARRAY ARRAY['join', 'postiz', 'html', 'space'] LOOP
         hits := hits || '; ' || coalesce(claimgate.violations_norm(claimgate.normalize(body, rd)), '');
     END LOOP;
     hits := array_to_string(ARRAY(

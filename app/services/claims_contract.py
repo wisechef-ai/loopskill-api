@@ -46,6 +46,7 @@ from app.services.claims_normalize import (  # noqa: F401  (re-exported: tests +
     _ENTITY,
     TAG,
     BLOCK_TAG,
+    POSTIZ_BREAK,
     TAG_READINGS,
     C1_REMAP,
     LEGACY_NO_SEMICOLON,

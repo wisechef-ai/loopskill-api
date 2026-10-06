@@ -172,6 +172,10 @@ BLOCK_TAG_CASES: list[tuple[str, set[str]]] = [
     ("P<b>ro</b><br>includes 2 private bundles", {"tier-bundle-cap"}),
     ("P<span>ro</span><p>includes 2 private bundles</p>", {"tier-bundle-cap"}),
     ("Pro<i>+</i><br>for agencies", {"tier-not-public-pro_plus"}),
+    # round 15: Postiz's exact conversion (<p> breaks, <br> joins)
+    ("P<br>ro<p>includes 2 private bundles</p>", {"tier-bundle-cap"}),
+    ("Rec<br>ipes<p>powers your agents</p>", {"brand-recipes-product"}),
+    ("P<br>ro<pre>includes 2 private bundles</pre>", {"tier-bundle-cap"}),
 ]
 REVIEW_BYPASSES += BLOCK_TAG_CASES
 REVIEW_MUST_PASS = [
@@ -389,6 +393,7 @@ def test_install_sql_patterns_match_python() -> None:
     assert "'" + cc.to_pg(cc.TAG).replace("'", "''") + "', '', 'g')" in sql
     assert "'" + cc.to_pg(cc.BLOCK_TAG).replace("'", "''") + "', ' ', 'gi')" in sql
     assert "ARRAY['" + "', '".join(cc.TAG_READINGS) + "']" in sql
+    assert "'" + cc.to_pg(cc.POSTIZ_BREAK).replace("'", "''") + "', ' ', 'gi')" in sql
     assert f"IF t !~ '{cc.VALID_AMOUNT}' THEN" in sql
     assert f"lower(m[{cc.UNIT_GROUP}])" in sql
     assert f"claimgate.parse_amount(m[{cc.NUM_AFTER_GUARD}])" in sql

@@ -34,6 +34,7 @@ crontab (wisechef-hq):
 The gate checks the post's source `content`, as written by producers or the Postiz editor, under every tag reading a real consumer uses. A violation in any reading counts (`claims_normalize.TAG_READINGS`; `claimgate.violations`):
 
 - **join**: every tag is removed with no separator. This is what Postiz sends to plain-text platforms (`stripHtmlValidation`: `<p>` becomes a newline, everything else goes through `striptags`, verified in the running container on 2026-10-06).
+- **postiz**: exactly what Postiz publishes. Opening tags matched by its regexes (`<p…>`, `<li…>`, `<ul>`, and `h1`–`h3` on HTML platforms) become a line break, and every other tag, `<br>` included, is removed with no separator (`POSTIZ_BREAK`).
 - **html**: default browser display. Block and line-break elements (`BLOCK_TAG`) separate words; inline elements join them.
 - **space**: every tag separates words.
 
