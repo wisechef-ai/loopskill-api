@@ -83,7 +83,19 @@ REVIEW_BYPASSES: list[tuple[str, set[str]]] = [
     ("Pro&#43; for agencies", {"tier-not-public-pro_plus"}),
     ("On-demand is $500", {"price-tier-contact-only"}),
 ]
+# Round 3 (gpt-6.1-sol): shared bypasses in BOTH engines, now caught.
+REVIEW_BYPASSES += [
+    ("Pro&#0000000043; plan", {"tier-not-public-pro_plus"}),
+    ("Pro&NonBreakingSpace;$199/month", {"unrecognised-html-entity"}),
+    ("Pro\u200b+ for agencies", {"tier-not-public-pro_plus"}),
+    ("Pro\u2003$199/month", {"price-tier-pro"}),
+    ("Pro includes 1 API key", {"tier-key-cap"}),
+    ("Pro&amp;plus; plan", {"unrecognised-html-entity"}),
+]
 REVIEW_MUST_PASS = [
+    "We share 3 key lessons from shipping agents.",
+    "R&D on agent skills, Q&A included.",
+    "Free has 1 API key; Pro has 10 API keys.",
     "Pro saved $20 in API spend",
     "Free users can upgrade to Pro for 50 private bundles",
     "Founding Member: $49 one-time, Pro for life.",

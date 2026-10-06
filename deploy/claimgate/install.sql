@@ -95,7 +95,7 @@ CREATE INDEX IF NOT EXISTS state_log_unalerted ON claimgate.state_log (at) WHERE
 CREATE OR REPLACE FUNCTION claimgate.decode_entities(body text) RETURNS text
 LANGUAGE plpgsql IMMUTABLE AS $fn$
 DECLARE
-    pat   constant text := '&(#[0-9]{1,7};?|#[xX][0-9a-fA-F]{1,6};?|[A-Za-z][A-Za-z0-9]{0,31};)';
+    pat   constant text := '&(#0*[0-9]{1,7};?|#[xX]0*[0-9a-fA-F]{1,6};?|[A-Za-z][A-Za-z0-9]{0,31};)';
     named constant text[][] := ARRAY[
         ['amp', '&'],
         ['lt', '<'],
@@ -162,9 +162,9 @@ BEGIN
         rep := tok;
         IF left(ent, 1) = '#' THEN
             IF substr(ent, 2, 1) IN ('x', 'X') THEN
-                cp := ('x' || lpad(substr(ent, 3), 8, '0'))::bit(32)::bigint;
+                cp := ('x' || lpad(coalesce(nullif(ltrim(substr(ent, 3), '0'), ''), '0'), 8, '0'))::bit(32)::bigint;
             ELSE
-                cp := substr(ent, 2)::bigint;
+                cp := coalesce(nullif(ltrim(substr(ent, 2), '0'), ''), '0')::bigint;
             END IF;
             IF NOT (cp = 0 OR cp BETWEEN 55296 AND 57343 OR cp > 1114111) THEN
                 rep := chr(cp::int);
@@ -191,9 +191,11 @@ LANGUAGE plpgsql IMMUTABLE AS $fn$
 BEGIN
     body := regexp_replace(coalesce(body, ''), '<[^>]+>', '', 'g');
     body := claimgate.decode_entities(body);
-    body := replace(body, chr(160), ' ');
+    -- GENERATED from claims_contract.ZERO_WIDTH / SPACE_LIKE (parity-tested)
+    body := translate(body, chr(173)||chr(8203)||chr(8204)||chr(8205)||chr(8288)||chr(65279), '');
+    body := translate(body, chr(133)||chr(160)||chr(5760)||chr(8192)||chr(8193)||chr(8194)||chr(8195)||chr(8196)||chr(8197)||chr(8198)||chr(8199)||chr(8200)||chr(8201)||chr(8202)||chr(8232)||chr(8233)||chr(8239)||chr(8287)||chr(12288), repeat(' ', 19));
     body := regexp_replace(body, E'[ \\t\\r\\n\\f\\v]+', ' ', 'g');
-    RETURN btrim(body);
+    RETURN btrim(body, ' ');
 END;
 $fn$;
 
@@ -203,7 +205,7 @@ $fn$;
 CREATE OR REPLACE FUNCTION claimgate.tier_binding(body text) RETURNS text[]
 LANGUAGE plpgsql STABLE AS $fn$
 DECLARE
-    unit_pat constant text := '\y([0-9]{1,6}) (private bundles?|(active |scoped |separate )?(API )?keys)\y';
+    unit_pat constant text := '\y([0-9]{1,6}) (private bundles?|((active |scoped |separate |client )?API keys?|(active|scoped|separate|client) keys?))\y';
     names  text;
     pos    int := 1;
     p      int;
@@ -220,7 +222,7 @@ BEGIN
     SELECT string_agg(regexp_replace(name, '([.^$*+?()\[\]{}|\\])', '\\\1', 'g'), '|') INTO names
       FROM claimgate.tier;
     IF names IS NULL THEN
-        RETURN hits;
+        RAISE EXCEPTION 'claimgate: contract not loaded (tier table empty)';
     END IF;
     LOOP
         p := regexp_instr(body, unit_pat, pos, 1, 0, 'i');

@@ -10,7 +10,10 @@ tests/test_claims_contract.py plus encoding edge cases.
 
 Postgres only (the SQLite leg skips): it is the engine the trigger runs on.
 Every check, including the nearest-tier binding, runs in both engines;
-there is no Python-only rule left for "post now" to slip past.
+there is no Python-only rule left for "post now" to slip past. Agreement
+alone is not enough (both engines could share a wrong verdict), so the
+fixtures in tests/test_claims_contract.py also pin the EXPECTED verdict, and
+test_expected_verdicts_in_postgres below re-asserts them on the trigger side.
 """
 
 from __future__ import annotations
@@ -32,6 +35,11 @@ def _run_install(conn) -> None:
     test's own transaction."""
     conn.connection.dbapi_connection.cursor().execute(INSTALL_SQL.read_text())
 
+
+# Every invisible / space-like character the normalisation maps, in context.
+CHAR_CASES = [f"Pro{c}+ and Pro{c}$199/month" for c in cc.ZERO_WIDTH + cc.SPACE_LIKE] + [
+    f"{c}Pro{c}" for c in cc.ZERO_WIDTH + cc.SPACE_LIKE
+]
 
 EDGE_CASES = [
     # round-2 review inputs
@@ -66,6 +74,7 @@ def _corpus() -> list[str]:
         + list(CLEAN_CORPUS)
         + list(REVIEW_MUST_PASS)
         + EDGE_CASES
+        + CHAR_CASES
     )
 
 
@@ -129,6 +138,17 @@ def test_normalize_agrees(pg) -> None:
         assert pg.execute(text("SELECT claimgate.normalize(:b)"), {"b": body}).scalar() == cc.normalize(
             body
         ), body
+
+
+@pytest.mark.parametrize(("body", "expected"), REAL_INCIDENTS + REVIEW_BYPASSES)
+def test_expected_verdicts_in_postgres(pg, body: str, expected: set[str]) -> None:
+    missing = expected - _sql_ids(pg, body)
+    assert not missing, f"trigger missed {missing}"
+
+
+@pytest.mark.parametrize("body", list(CLEAN_CORPUS) + list(REVIEW_MUST_PASS))
+def test_clean_copy_passes_in_postgres(pg, body: str) -> None:
+    assert _sql_ids(pg, body) == set()
 
 
 def test_named_entity_table_matches_python(pg) -> None:
@@ -210,6 +230,12 @@ def test_trigger_fails_closed_when_contract_not_loaded(post_table) -> None:
     post_table.execute(text("DELETE FROM claimgate.rule"))
     deleted, log = _queue(post_table, "p8", CLEAN_CORPUS[0])
     assert deleted and "contract not loaded" in log
+
+
+def test_trigger_fails_closed_when_tier_table_empty(post_table) -> None:
+    post_table.execute(text("DELETE FROM claimgate.tier"))
+    deleted, log = _queue(post_table, "p10", "Pro includes 2 private bundles")
+    assert deleted and "tier table empty" in log
 
 
 def test_drafts_are_not_gated_and_transitions_are_logged(post_table) -> None:

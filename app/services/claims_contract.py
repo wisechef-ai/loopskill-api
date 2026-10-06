@@ -20,9 +20,9 @@ This module makes the comparison mechanical and keeps it in ONE place:
   database trigger (deploy/claimgate/install.sql) runs the SAME retired and
   amount rules via ``pg_pattern``; tests/test_claims_contract_pg_parity.py
   asserts both engines agree on a shared corpus (postgres CI leg).
-* The one check Postgres cannot express (binding a bundle/key count to the
-  nearest preceding tier name) is Python-only; the trigger still enforces the
-  coarse form (a count that is no tier's cap at all).
+* Every check, including binding a bundle/key count to the nearest
+  preceding tier name, runs in both engines (install.sql:
+  claimgate.tier_binding); there is no Python-only rule.
 
 Portable regex subset (Python ``re`` and PostgreSQL ARE, en_US.utf8): literal
 text, ``[...]`` classes, ``[0-9]`` (never ``\\d``: Unicode digits differ),
@@ -54,6 +54,9 @@ _RECURRING = (
     r"(/ ?mo|/ ?m|/ ?month|per month|a month|monthly|/ ?yr|/ ?year|per year|a year|annually|yearly)\b"
 )
 _ONE_TIME = r"(one-time|one time|once|lifetime)\b"
+# An API-key count: "1 API key", "10 API keys", "20 scoped keys". A bare
+# "3 key lessons" is NOT a key count (no "API" / qualifier), so it never fires.
+_KEY_UNIT = r"((active |scoped |separate |client )?API keys?|(active|scoped|separate|client) keys?)"
 # Only explicit connectors bind a price to a tier ("Pro is $X", "Pro at $X",
 # "Pro: $X", "Pro plan for $X"), so "Pro saved $20 in API spend" is not a price.
 _TIER_LINK = r"( plan| tier)?( is| costs| at| for| from| only)?:? ?[-–—]? ?"
@@ -129,13 +132,29 @@ NAMED_ENTITIES: dict[str, str] = {
     "emsp": " ",
     "thinsp": " ",
 }
-_ENTITY = re.compile(r"&(#[0-9]{1,7};?|#[xX][0-9a-fA-F]{1,6};?|[A-Za-z][A-Za-z0-9]{0,31};)")
+_ENTITY = re.compile(r"&(#0*[0-9]{1,7};?|#[xX]0*[0-9a-fA-F]{1,6};?|[A-Za-z][A-Za-z0-9]{0,31};)")
+# Invisible / space-like characters, mapped identically in install.sql
+# (claimgate.normalize generates its translate() lists from these via the
+# parity test): ZERO_WIDTH are deleted ("Pro\u200b+" reads "Pro+"), SPACE_LIKE
+# become an ASCII space ("Pro\u2003$199" reads "Pro $199").
+ZERO_WIDTH = "\u00ad\u200b\u200c\u200d\u2060\ufeff"
+SPACE_LIKE = (
+    "\u0085\u00a0\u1680" + "".join(chr(c) for c in range(0x2000, 0x200B)) + "\u2028\u2029\u202f\u205f\u3000"
+)
+_ZW_TABLE = {ord(c): None for c in ZERO_WIDTH} | {ord(c): " " for c in SPACE_LIKE}
+# An entity left in the text after the single decoding pass is either outside
+# the explicit table (an alias like &NonBreakingSpace; that a browser WOULD
+# render) or out of range. Both engines flag it instead of guessing: a
+# whitelist cannot be exhaustive, so unknown = violation (fail closed).
+UNRECOGNISED_ENTITY = r"&(#[0-9]+;?|#[xX][0-9a-fA-F]+;?|[A-Za-z][A-Za-z0-9]{0,31};)"
 
 
 def _decode_entity(m: re.Match) -> str:
     body = m.group(1).rstrip(";")
     if body.startswith("#"):
-        cp = int(body[2:], 16) if body[1:2] in ("x", "X") else int(body[1:])
+        hexa = body[1:2] in ("x", "X")
+        digits = (body[2:] if hexa else body[1:]).lstrip("0") or "0"
+        cp = int(digits, 16) if hexa else int(digits)
         if cp == 0 or 0xD800 <= cp <= 0xDFFF or cp > 0x10FFFF:
             return m.group(0)
         return chr(cp)
@@ -147,11 +166,13 @@ def normalize(text: str) -> str:
 
     1. tags removed WITHOUT inserting a space (``Pro<b>+</b>`` -> ``Pro+``);
     2. entities decoded once, per the explicit spec above;
-    3. NBSP -> space; ASCII whitespace runs -> one space; trimmed.
+    3. ZERO_WIDTH deleted, SPACE_LIKE -> space;
+    4. ASCII whitespace runs -> one space; trimmed of ASCII spaces only (the
+       same thing Postgres btrim() does).
     """
     text = re.sub(r"<[^>]+>", "", text or "")
-    text = _ENTITY.sub(_decode_entity, text).replace("\u00a0", " ")
-    return re.sub(r"[ \t\r\n\f\v]+", " ", text).strip()
+    text = _ENTITY.sub(_decode_entity, text).translate(_ZW_TABLE)
+    return re.sub(r"[ \t\r\n\f\v]+", " ", text).strip(" ")
 
 
 def _num(value) -> str:
@@ -278,7 +299,7 @@ def _amount_rules(public: list[dict], founding: dict | None, other_prices: list[
         },
         {
             "id": "count-api-keys",
-            "pattern": r"\b([0-9]{1,6}) (active |scoped |separate )?(API )?keys\b",
+            "pattern": r"\b([0-9]{1,6}) " + _KEY_UNIT + r"\b",
             "amount_group": 1,
             "allowed": sorted(key_caps),
             "reason": "API-key count is no tier's cap",
@@ -339,11 +360,24 @@ def _cached_contract(tiers_mtime: float, contract_mtime: float) -> str:
         if not op.get("evidence"):
             raise ValueError(f"other_prices entry without evidence: {op!r}")
 
-    retired = _derived_retired(tiers) + [
-        {k: r.get(k) for k in ("id", "pattern", "reason", "replacement", "since")}
-        | {"source": "config/claims_contract.yaml"}
-        for r in contract_doc.get("rules") or []
-    ]
+    retired = (
+        _derived_retired(tiers)
+        + [
+            {
+                "id": "unrecognised-html-entity",
+                "pattern": UNRECOGNISED_ENTITY,
+                "reason": "HTML entity outside the decoding table (or out of range): its rendered text "
+                "cannot be checked, so it is rejected. Write the character itself.",
+                "replacement": "the plain character",
+                "source": "app/services/claims_contract.py",
+            }
+        ]
+        + [
+            {k: r.get(k) for k in ("id", "pattern", "reason", "replacement", "since")}
+            | {"source": "config/claims_contract.yaml"}
+            for r in contract_doc.get("rules") or []
+        ]
+    )
     amounts = _amount_rules(public, founding, other_prices)
     for r in retired + amounts:
         assert_portable(r["pattern"])
@@ -399,7 +433,7 @@ def check_text(text: str, contract: dict | None = None) -> list[dict]:
     2. amount rules: every price / private-bundle count / API-key count must
        be one of the amounts its rule allows (the trigger runs 1 and 2 with
        identical patterns on identically normalised text);
-    3. tier binding (Python only): a bundle/key count is bound to the NEAREST
+    3. tier binding (also in install.sql claimgate.tier_binding): a bundle/key count is bound to the NEAREST
        preceding tier name in the same sentence and must equal that tier's
        cap. "Free users can upgrade to Pro for 50 private bundles" binds 50 to
        Pro; "Pro includes 50 private bundles and 20 API keys" flags the 20.
@@ -426,9 +460,7 @@ def check_text(text: str, contract: dict | None = None) -> list[dict]:
 
 
 _SENTENCE_END = re.compile(r"[.!?] ")
-_UNIT = re.compile(
-    r"\b([0-9]{1,6}) (private bundles?|(active |scoped |separate )?(API )?keys)\b", re.IGNORECASE
-)
+_UNIT = re.compile(r"\b([0-9]{1,6}) (private bundles?|" + _KEY_UNIT + r")\b", re.IGNORECASE)
 
 
 def _tier_binding(text: str, c: dict) -> list[dict]:
