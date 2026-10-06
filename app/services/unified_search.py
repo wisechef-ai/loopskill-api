@@ -108,7 +108,7 @@ def _truncate(text: str | None) -> str | None:
     return text[:_DESC_TRUNCATE].rstrip() + "…"
 
 
-def _federated_relevance(row: dict, q: str) -> tuple[int, str, str]:
+def _federated_relevance(row: dict, q: str) -> tuple[int, int, str, str]:
     """Return the explainable, stable ranking key for a cached federated row.
 
     Multi-term aware (2026-09-13): with tokenised matching, a row can be a
@@ -139,7 +139,10 @@ def _federated_relevance(row: dict, q: str) -> tuple[int, str, str]:
         bucket = 6
     else:
         bucket = 7
-    return bucket, title, slug
+    # ah_1006: within a bucket, an installable row (deployable = the cache
+    # row's install_path is fetch_origin) beats a link-only one (hub rows are
+    # hard-set deployable:False). Second key, so relevance still decides first.
+    return bucket, 0 if row.get("deployable") else 1, title, slug
 
 
 def search_skills_group(db: Session, q: str, limit: int) -> list[dict]:

@@ -590,6 +590,14 @@ fix-mesh0408-host-dependence: the loop-run rollup now defaults to the UTC
     default rollup aggregated an empty window. New sync_report.utc_today() is
     the one clock for all three. Three mesh0408 tests failed nightly on a
     Europe/Warsaw host for this reason while CI (UTC) stayed green.
+ah_1006 install-funnel ranking (0.9.60): metasearch rank() now scores the
+    relevance tier and shortest-slug tiebreak on the LEAF of a namespace-escaped
+    slug (skills.sh ``anthropics--skills--pdf`` -> ``pdf``), and adds an
+    installable-before-link-only key right after the tier. Prod q=pdf put 25
+    hermes-hub deep_link rows (metasearch/install -> 404) at ranks 0-24 and the
+    installable anthropics/openai ``pdf`` skills at 26-27; the whole-slug tier
+    filed exact-name skills.sh rows under slug-contains. unified_search's
+    _federated_relevance gets the same deployable-first key inside a bucket.
 """
 
-__version__ = "0.9.59"
+__version__ = "0.9.60"
