@@ -74,12 +74,12 @@ def test_q_pdf_exact_installable_rows_outrank_link_only_exact_row():
 
 def test_installable_rows_are_never_below_a_same_tier_link_only_row():
     from app.services.federation_relevance import relevance_tier
-    from app.services.metasearch import _leaf_slug
+    from app.services.federation_relevance import leaf_slug
 
     def tier(s: UnifiedSkill) -> int:
         return min(
             relevance_tier("pdf", slug=s.slug, title=s.title, description=s.description),
-            relevance_tier("pdf", slug=_leaf_slug(s.slug), title=s.title, description=s.description),
+            relevance_tier("pdf", slug=leaf_slug(s.slug), title=s.title, description=s.description),
         )
 
     ranked = rank(_pdf_slate(), query="pdf")
@@ -112,11 +112,11 @@ def test_browse_path_without_query_is_unchanged():
 
 
 def test_leaf_slug_only_strips_namespace_escapes():
-    from app.services.metasearch import _leaf_slug
+    from app.services.federation_relevance import leaf_slug
 
-    assert _leaf_slug("anthropics--skills--pdf") == "pdf"
-    assert _leaf_slug("pdf-merge") == "pdf-merge"
-    assert _leaf_slug("pdf") == "pdf"
+    assert leaf_slug("anthropics--skills--pdf") == "pdf"
+    assert leaf_slug("pdf-merge") == "pdf-merge"
+    assert leaf_slug("pdf") == "pdf"
 
 
 def test_federated_relevance_prefers_deployable_within_bucket_only():

@@ -212,3 +212,15 @@ def relevance_order_clauses(model: Any, query: str | None) -> list[Any]:
         whens.append((sql_builder(cols, q, sq), idx))
 
     return [case(*whens, else_=NO_MATCH_TIER), func.length(model.slug)]
+
+
+def leaf_slug(slug: str) -> str:
+    """The skill's own name inside a namespace-escaped slug.
+
+    ah_1006: skills.sh escapes ``owner/repo/name`` as ``owner--repo--name``
+    (``anthropics--skills--pdf``). Scoring the WHOLE string filed the exact-name
+    ``pdf`` skill under slug-contains, below every hub ``pdf*`` slug-prefix row,
+    and charged it the owner's length in the shortest-slug tiebreak.
+    ``metasearch.rank()`` scores the leaf too. Slugs without ``--`` are unchanged.
+    """
+    return slug.rsplit("--", 1)[-1] if "--" in slug else slug

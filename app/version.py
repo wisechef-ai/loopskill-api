@@ -7,20 +7,8 @@ made "is the live box running the code we shipped?" unverifiable from
 ``/api/healthz``. Every deploy that changes behaviour MUST bump this constant
 so the healthz probe can prove the cutover landed.
 
-Entries for 0.9.4-0.9.13 and 0.9.19-0.9.23 are archived verbatim in
+Entries for 0.9.4-0.9.13, 0.9.19-0.9.23 and 0.9.25 are archived verbatim in
 docs/version-history.md.
-
-fleetos_1607 Phase 0 (0.9.25): the declarative fleet-artifact primitives that
-turn LoopSkill from a marketplace into the control plane for AI agent fleets.
-Three additive tables (loop_manifests, scripts_packs, host_profiles) + a pure
-services module (app/services/fleet_artifacts.py): canonical loop-manifest
-serialization with byte-identical round-trip, a scripts-pack secret-scan gate
-that REUSES the shipped security_scan.scan_tarball (planted key => refused,
-RED-proofed), and host-profile compatibility validation (typed requires{} vs
-os/runtimes/packages). The soul artifact was deleted by the 5-step pass — the
-existing Personality model already is the deployable-SOUL primitive. Migration
-547f9f97e64d is portable (plain CREATE TABLE, no PL/pgSQL) and round-trips on
-SQLite + Postgres. Additive-only, no data migration.
 
 fleetos_1607 Phase A (0.9.26): placements — the spine. Three additive tables
 (loop_placements, placement_confirmations, fleet_member_liveness) + the

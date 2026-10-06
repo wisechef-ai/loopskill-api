@@ -5,6 +5,20 @@ sits under the 600-line gate (`tests/test_w0_2_pyfile_size_discipline.py`), so
 the oldest entries are moved here verbatim when it fills up. Newest entries
 stay in `app/version.py`.
 
+## 0.9.25 (archived 2026-10-06, ah_1006 metasearch install-first)
+
+fleetos_1607 Phase 0 (0.9.25): the declarative fleet-artifact primitives that
+turn LoopSkill from a marketplace into the control plane for AI agent fleets.
+Three additive tables (loop_manifests, scripts_packs, host_profiles) + a pure
+services module (app/services/fleet_artifacts.py): canonical loop-manifest
+serialization with byte-identical round-trip, a scripts-pack secret-scan gate
+that REUSES the shipped security_scan.scan_tarball (planted key => refused,
+RED-proofed), and host-profile compatibility validation (typed requires{} vs
+os/runtimes/packages). The soul artifact was deleted by the 5-step pass — the
+existing Personality model already is the deployable-SOUL primitive. Migration
+547f9f97e64d is portable (plain CREATE TABLE, no PL/pgSQL) and round-trips on
+SQLite + Postgres. Additive-only, no data migration.
+
 ## 0.9.19 – 0.9.23 (archived 2026-10-05, fix-mesh0408-host-dependence)
 
 spotify_1507 Ph0 (0.9.19): bare GET /api/health is now a public, DB-independent

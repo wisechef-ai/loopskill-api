@@ -40,7 +40,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from app.services.federation import ExternalSkill, InstallPath, route_install
-from app.services.federation_relevance import NO_MATCH_TIER, relevance_tier
+from app.services.federation_relevance import NO_MATCH_TIER, leaf_slug, relevance_tier
 from app.services.query_coverage import coverage, significant_tokens
 
 # ── Source priority (dedupe tie-break + rank prior) ──────────────────────────
@@ -365,18 +365,6 @@ def _percentiles_within_source(skills: list[UnifiedSkill]) -> dict[int, float]:
     return out
 
 
-def _leaf_slug(slug: str) -> str:
-    """The skill's own name inside a namespace-escaped slug.
-
-    ah_1006: skills.sh slugs escape ``owner/repo/name`` as ``owner--repo--name``
-    (``anthropics--skills--pdf``). Scoring the WHOLE string put the exact-name
-    ``pdf`` skill in the slug-contains tier, below every hub ``pdf*`` slug-prefix
-    row, and charged it the owner's length in the shortest-slug tiebreak. The
-    leaf is what a user typed against. Slugs without ``--`` are returned as-is.
-    """
-    return slug.rsplit("--", 1)[-1] if "--" in slug else slug
-
-
 def rank(skills: list[UnifiedSkill], *, query: str | None = None) -> list[UnifiedSkill]:
     """Assign rank_score and return a new list sorted best-first.
 
@@ -443,7 +431,7 @@ def rank(skills: list[UnifiedSkill], *, query: str | None = None) -> list[Unifie
     tiers = {
         id(s): min(
             relevance_tier(q, slug=s.slug, title=s.title, description=s.description),
-            relevance_tier(q, slug=_leaf_slug(s.slug), title=s.title, description=s.description),
+            relevance_tier(q, slug=leaf_slug(s.slug), title=s.title, description=s.description),
         )
         for s in scored
     }
@@ -455,12 +443,8 @@ def rank(skills: list[UnifiedSkill], *, query: str | None = None) -> list[Unifie
     # source finished first. Rows in a matching tier keep their exact order.
     tokens = significant_tokens(q)
 
-    # ah_1006: inside a relevance tier, a row the install route can actually
-    # resolve beats a link-only (deep_link) row. Prod q=pdf returned 25
-    # hermes-hub deep_link rows (metasearch/install -> 404) at ranks 0-24 and
-    # the installable anthropics/openai ``pdf`` skills at 26-27, because no key
-    # read install_path. Second key, right after tier: relevance still decides
-    # first, so an installable row with a worse tier never jumps a better match.
+    # ah_1006: within a tier, installable beats link-only (prod q=pdf: 25
+    # deep_link hub rows at 0-24). Right after tier, so relevance stays primary.
     def _link_only(s: UnifiedSkill) -> int:
         return 1 if s.install_path == InstallPath.DEEP_LINK.value else 0
 
@@ -471,7 +455,7 @@ def rank(skills: list[UnifiedSkill], *, query: str | None = None) -> list[Unifie
                 tier,
                 _link_only(s),
                 0.0,
-                len(_leaf_slug(s.slug)),
+                len(leaf_slug(s.slug)),
                 -s.rank_score,
                 _source_priority(s.source),
                 s.title.lower(),
