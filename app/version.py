@@ -590,16 +590,9 @@ fix-mesh0408-host-dependence: the loop-run rollup now defaults to the UTC
     default rollup aggregated an empty window. New sync_report.utc_today() is
     the one clock for all three. Three mesh0408 tests failed nightly on a
     Europe/Warsaw host for this reason while CI (UTC) stayed green.
-claimgate_1006 (0.9.60): marketing claims contract. A scheduled X post
-    (2026-10-04) advertised Pro+ / cookbook allowances retired weeks earlier;
-    the copy generator held a hand-typed fact string frozen in June. New
-    GET /api/marketing/claims derives approved facts, the allowed price set and
-    retired-claim rules from config/tiers.yaml (public:false tiers retire
-    automatically) plus config/claims_contract.yaml (brand renames, retired
-    vocabulary); POST /api/marketing/claims/check is the single check every
-    producer calls, and the Postiz database trigger runs the same patterns.
-    The snapshot's Pro bullets and a "push cookbooks on Pro+" proof point were
-    false under the contract and were rewritten; pro_plus_cookbooks removed.
+claimgate_1006 (0.9.60): GET /api/marketing/claims + POST .../claims/check —
+    marketing claims derived from config/tiers.yaml + config/claims_contract.yaml;
+    the Postiz publish trigger runs the same patterns. See claims_contract.py.
 """
 
 __version__ = "0.9.60"

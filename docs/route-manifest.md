@@ -3,7 +3,7 @@
 
 # Route Manifest (bundles_0811 P7)
 
-Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **321** distinct (method, path) surfaces.
+Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **323** distinct (method, path) surfaces.
 
 ## How classification works
 
@@ -24,7 +24,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | admin | 11 |
 | authenticated | 200 |
 | internal | 2 |
-| public | 108 |
+| public | 110 |
 
 ## Full manifest
 
@@ -262,6 +262,8 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | POST | `/api/loops/{slug}/like` | public | `app.artifact_like_routes` | engagement, engagement |
 | POST | `/api/loops/{slug}/rate` | public | `app.verifier_routes` | verifiers |
 | POST | `/api/loops/{slug}/run` | public | `app.verifier_routes` | verifiers |
+| GET | `/api/marketing/claims` | public | `app.claims_routes` | marketing |
+| POST | `/api/marketing/claims/check` | public | `app.claims_routes` | marketing |
 | GET | `/api/marketing/counts` | public | `app.marketing_routes` | marketing, marketing |
 | GET | `/api/marketing/snapshot` | public | `app.marketing_routes` | marketing, marketing |
 | GET | `/api/mcp/healthz` | public | `app.mcp.server` | mcp, mcp |

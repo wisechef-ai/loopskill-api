@@ -1,12 +1,12 @@
 {
   "source": "app.main.app.routes + app.middleware.api_key.APIKeyMiddleware (dispatch tree replayed), derived at import time",
   "generator": "scripts/generate_route_manifest.py",
-  "route_count": 321,
+  "route_count": 323,
   "counts_by_classification": {
     "admin": 11,
     "authenticated": 200,
     "internal": 2,
-    "public": 108
+    "public": 110
   },
   "routes": [
     {
@@ -2885,6 +2885,28 @@
       ],
       "classification": "public",
       "summary": "Execute a verifier's verification under its enforced bounds; return pass/fail."
+    },
+    {
+      "method": "GET",
+      "path": "/api/marketing/claims",
+      "name": "get_claims_contract",
+      "module": "app.claims_routes",
+      "tags": [
+        "marketing"
+      ],
+      "classification": "public",
+      "summary": ""
+    },
+    {
+      "method": "POST",
+      "path": "/api/marketing/claims/check",
+      "name": "post_claims_check",
+      "module": "app.claims_routes",
+      "tags": [
+        "marketing"
+      ],
+      "classification": "public",
+      "summary": ""
     },
     {
       "method": "GET",
