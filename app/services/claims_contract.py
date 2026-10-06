@@ -205,6 +205,53 @@ def normalize(text: str) -> str:
     return re.sub(r"[ \t\r\n\f\v]+", " ", text).strip(" ")
 
 
+def _lit(name: str) -> str:
+    """A literal name as a portable pattern (spaces and hyphens unescaped)."""
+    return re.escape(name).replace(r"\ ", " ").replace(r"\-", "-")
+
+
+_CADENCE = {
+    "monthly": r"(/ ?mo|/ ?m|/ ?month|per month|a month|monthly)\b",
+    "one-time": r"(one-time|one time|once|lifetime)\b",
+}
+
+
+def _exempt_rule(i: int, op: dict, veto: str) -> dict:
+    """Exemption for ANOTHER product's price, generated (never hand-written).
+
+    Matches "<product_name> ... <complete amount> <cadence>" inside one
+    sentence, so "$199.95/month" or "$199 one-time" never qualify for a
+    monthly $199. The veto (LoopSkill or any tier name inside the span) keeps
+    "WiseChef integrates with LoopSkill which costs $199/month" a LoopSkill
+    price claim.
+    """
+    cadence = op.get("cadence", "monthly")
+    if not op.get("product_name") or cadence not in _CADENCE:
+        raise ValueError(f"other_prices entry needs product_name and cadence in {sorted(_CADENCE)}: {op!r}")
+    amt = re.escape(_num(op["amount_usd"]))
+    cad = _CADENCE[cadence]
+    return {
+        "id": f"other-price-{i:02d}",
+        "pattern": (
+            r"\b" + _lit(op["product_name"]) + r"\b[^.!?$€]{0,120}("
+            r"[$€] ?" + amt + r" ?(USD|EUR)? ?" + cad + "|" + amt + r" ?(USD|EUR|dollars|euros) ?" + cad + ")"
+        ),
+        "veto": veto,
+        "reason": f"{op.get('product')} ({op.get('evidence')})",
+    }
+
+
+def _apply_exemptions(text: str, c: dict) -> str:
+    """Blank out other products' own price claims (install.sql mirrors this
+    left-to-right, non-overlapping scan in claimgate.violations)."""
+    for ex in c.get("exempt_rules") or []:
+        veto = re.compile(ex["veto"], re.IGNORECASE)
+        text = re.sub(
+            ex["pattern"], lambda m: m.group(0) if veto.search(m.group(0)) else " ", text, flags=re.IGNORECASE
+        )
+    return text
+
+
 def _num(value) -> str:
     """Render a number the way copy writes it: 9.95, 49, 0."""
     f = float(value)
@@ -394,17 +441,11 @@ def _cached_contract(tiers_mtime: float, contract_mtime: float) -> str:
         if not op.get("evidence"):
             raise ValueError(f"other_prices entry without evidence: {op!r}")
 
-    exempt = []
-    for i, op in enumerate(other_prices):
-        if not op.get("context"):
-            raise ValueError(f"other_prices entry without a context pattern: {op!r}")
-        exempt.append(
-            {
-                "id": f"other-price-{i}",
-                "pattern": op["context"],
-                "reason": f"{op.get('product')} ({op.get('evidence')})",
-            }
-        )
+    veto_names = ["LoopSkill", "Founding", "On-demand", "Enterprise"] + [
+        str(cfg.get("display_name", slug)) for slug, cfg in tiers.items()
+    ]
+    veto = r"\b(" + "|".join(sorted({_lit(n) for n in veto_names}, key=len, reverse=True)) + r")"
+    exempt = [_exempt_rule(i, op, veto) for i, op in enumerate(other_prices)]
     retired = (
         _derived_retired(tiers)
         + [
@@ -427,10 +468,13 @@ def _cached_contract(tiers_mtime: float, contract_mtime: float) -> str:
     for r in retired + amounts + exempt:
         assert_portable(r["pattern"])
         r["pg_pattern"] = to_pg(r["pattern"])
+        if "veto" in r:
+            assert_portable(r["veto"])
+            r["pg_veto"] = to_pg(r["veto"])
         r["reason"] = " ".join(str(r.get("reason") or "").split())
 
     body = {
-        "contract_version": 3,
+        "contract_version": 4,
         "public_tiers": public,
         "founding": (
             {
@@ -493,9 +537,7 @@ def check_text(text: str, contract: dict | None = None) -> list[dict]:
     # Generic price rules skip spans that state ANOTHER product's price in that
     # product's own context ("WiseChef ... from $199/month"). Tier-bound rules
     # still see the full text, so "WiseChef: Pro costs $199/month" is flagged.
-    exempted = text
-    for ex in c.get("exempt_rules") or []:
-        exempted = re.sub(ex["pattern"], " ", exempted, flags=re.IGNORECASE)
+    exempted = _apply_exemptions(text, c)
     for rule in c["amount_rules"]:
         allowed = {round(float(a), 2) for a in rule["allowed"]}
         src = exempted if rule.get("exemptable") else text

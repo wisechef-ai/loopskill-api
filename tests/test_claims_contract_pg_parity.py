@@ -117,8 +117,8 @@ def pg(db_session):
         )
     for r in contract["exempt_rules"]:
         conn.execute(
-            text("INSERT INTO claimgate.rule (id, kind, pg_pattern) VALUES (:i, 'exempt', :p)"),
-            {"i": r["id"], "p": r["pg_pattern"]},
+            text("INSERT INTO claimgate.rule (id, kind, pg_pattern, veto) VALUES (:i, 'exempt', :p, :v)"),
+            {"i": r["id"], "p": r["pg_pattern"], "v": r["pg_veto"]},
         )
     conn.execute(
         text("UPDATE claimgate.rule SET exemptable = true WHERE id = ANY(:ids)"),
@@ -277,6 +277,47 @@ def test_trigger_blocks_undelete_of_quarantined_post_as_draft(post_table) -> Non
     assert post_table.execute(
         text('SELECT "deletedAt" IS NOT NULL FROM public."Post" WHERE id = \'p13\'')
     ).scalar()
+
+
+_POST_DDL = (
+    'CREATE TABLE public."Post" (id text PRIMARY KEY, state text NOT NULL, "deletedAt" timestamptz, '
+    'content text, "publishDate" timestamptz, "integrationId" text)'
+)
+
+
+def test_pre_install_queued_post_is_gated(pg) -> None:
+    """Round 6: a row queued BEFORE the trigger existed, then DRAFTed, then
+    edited, must still be gated (install snapshot + old_state history)."""
+    pg.exec_driver_sql(_POST_DDL)
+    pg.execute(
+        text("INSERT INTO public.\"Post\" (id, state, content) VALUES ('p20', 'QUEUE', :c)"),
+        {"c": CLEAN_CORPUS[0]},
+    )
+    _run_install(pg)  # installs the trigger + snapshots p20
+    pg.execute(text("UPDATE public.\"Post\" SET state = 'DRAFT' WHERE id = 'p20'"))
+    pg.execute(text("UPDATE public.\"Post\" SET content = 'Pro+ for agencies' WHERE id = 'p20'"))
+    assert pg.execute(text('SELECT "deletedAt" IS NOT NULL FROM public."Post" WHERE id = \'p20\'')).scalar()
+
+
+def test_old_state_history_alone_gates(pg) -> None:
+    """Without the snapshot row, the QUEUE->DRAFT transition logged as
+    old_state = QUEUE is enough history."""
+    pg.exec_driver_sql(_POST_DDL)
+    pg.execute(
+        text("INSERT INTO public.\"Post\" (id, state, content) VALUES ('p21', 'QUEUE', :c)"),
+        {"c": CLEAN_CORPUS[0]},
+    )
+    _run_install(pg)
+    pg.execute(text("DELETE FROM claimgate.state_log WHERE post_id = 'p21' AND op = 'SNAPSHOT'"))
+    pg.execute(text("UPDATE public.\"Post\" SET state = 'DRAFT' WHERE id = 'p21'"))
+    pg.execute(text("UPDATE public.\"Post\" SET content = 'Pro is $20/mo' WHERE id = 'p21'"))
+    assert pg.execute(text('SELECT "deletedAt" IS NOT NULL FROM public."Post" WHERE id = \'p21\'')).scalar()
+
+
+def test_exempt_rule_without_veto_fails_closed(pg) -> None:
+    pg.execute(text("UPDATE claimgate.rule SET veto = NULL WHERE kind = 'exempt'"))
+    with pytest.raises(Exception), pg.begin_nested():
+        pg.execute(text("SELECT claimgate.violations('WiseChef runs it from $199/month')")).scalar()
 
 
 def test_never_queued_draft_edits_are_not_gated(post_table) -> None:

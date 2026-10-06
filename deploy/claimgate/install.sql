@@ -47,6 +47,7 @@ ALTER TABLE claimgate.rule ADD COLUMN IF NOT EXISTS allowed numeric[];
 ALTER TABLE claimgate.rule DROP CONSTRAINT IF EXISTS rule_kind_check;
 ALTER TABLE claimgate.rule ADD CONSTRAINT rule_kind_check CHECK (kind IN ('retired', 'amount', 'exempt'));
 ALTER TABLE claimgate.rule ADD COLUMN IF NOT EXISTS exemptable boolean NOT NULL DEFAULT false;
+ALTER TABLE claimgate.rule ADD COLUMN IF NOT EXISTS veto text;
 DROP TABLE IF EXISTS claimgate.allowed_price;  -- v1: replaced by rule.allowed (per-rule amounts)
 
 -- Public tiers for the nearest-tier binding check (synced from the contract).
@@ -271,6 +272,9 @@ DECLARE
     amt  numeric;
     hits text[] := '{}';
     body_ex text;
+    pos  int;
+    p    int;
+    tok  text;
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM claimgate.rule WHERE kind = 'retired')
        OR NOT EXISTS (SELECT 1 FROM claimgate.rule WHERE kind = 'amount') THEN
@@ -289,7 +293,21 @@ BEGIN
     -- stated in their own context; tier-bound rules see the full text
     body_ex := body;
     FOR r IN SELECT * FROM claimgate.rule WHERE kind = 'exempt' ORDER BY id LOOP
-        body_ex := regexp_replace(body_ex, r.pg_pattern, ' ', 'gi');
+        IF r.veto IS NULL THEN
+            RAISE EXCEPTION 'claimgate: exempt rule % has no veto', r.id;
+        END IF;
+        pos := 1;
+        LOOP
+            p := regexp_instr(body_ex, r.pg_pattern, pos, 1, 0, 'i');
+            EXIT WHEN p = 0;
+            tok := regexp_substr(body_ex, r.pg_pattern, pos, 1, 'i');
+            IF tok ~* r.veto THEN
+                pos := p + length(tok);
+            ELSE
+                body_ex := left(body_ex, p - 1) || ' ' || substr(body_ex, p + length(tok));
+                pos := p + 1;
+            END IF;
+        END LOOP;
     END LOOP;
     FOR r IN SELECT * FROM claimgate.rule WHERE kind = 'amount' LOOP
         FOR m IN SELECT regexp_matches(CASE WHEN r.exemptable THEN body_ex ELSE body END, r.pg_pattern, 'gi') LOOP
@@ -330,7 +348,7 @@ BEGIN
             AND (OLD.content IS DISTINCT FROM NEW.content OR OLD."deletedAt" IS NOT NULL)
             AND (OLD.state::text = 'QUEUE'
                  OR EXISTS (SELECT 1 FROM claimgate.state_log l
-                             WHERE l.post_id = NEW.id AND l.new_state = 'QUEUE')))
+                             WHERE l.post_id = NEW.id AND (l.new_state = 'QUEUE' OR l.old_state = 'QUEUE'))))
     );
 
     IF entering_queue AND NOT EXISTS (SELECT 1 FROM claimgate.override o WHERE o.post_id = NEW.id) THEN
@@ -371,6 +389,14 @@ BEGIN
         CREATE TRIGGER claimgate_guard
             BEFORE INSERT OR UPDATE ON public."Post"
             FOR EACH ROW EXECUTE FUNCTION claimgate.guard();
+        -- Rows already queued at install time get a history row, so their
+        -- later DRAFT edits / un-deletes are gated like any other ever-queued post.
+        INSERT INTO claimgate.state_log (post_id, op, new_state, new_deleted_at, publish_date, integration_id)
+        SELECT p.id, 'SNAPSHOT', p.state::text, p."deletedAt", p."publishDate", p."integrationId"
+          FROM public."Post" p
+         WHERE p.state::text = 'QUEUE' AND p."deletedAt" IS NULL
+           AND NOT EXISTS (SELECT 1 FROM claimgate.state_log l
+                            WHERE l.post_id = p.id AND (l.new_state = 'QUEUE' OR l.old_state = 'QUEUE'));
     END IF;
 END;
 $do$;

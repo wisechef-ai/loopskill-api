@@ -179,8 +179,8 @@ def sync() -> dict:
         )
     for r in c.get("exempt_rules") or []:
         stmts.append(
-            f"INSERT INTO claimgate.rule (id, kind, pg_pattern, reason) VALUES "
-            f"({lit(r['id'])}, 'exempt', {lit(r['pg_pattern'])}, {lit(r.get('reason'))});"
+            f"INSERT INTO claimgate.rule (id, kind, pg_pattern, veto, reason) VALUES "
+            f"({lit(r['id'])}, 'exempt', {lit(r['pg_pattern'])}, {lit(r['pg_veto'])}, {lit(r.get('reason'))});"
         )
     flagged = [r["id"] for r in amounts if r.get("exemptable")]
     if flagged:
@@ -209,7 +209,7 @@ def sweep() -> int:
         "SELECT coalesce(json_agg(json_build_object('id', p.id, 'content', p.content, "
         "'sqlv', claimgate.violations(p.content))), '[]') FROM \"Post\" p "
         "WHERE p.\"deletedAt\" IS NULL AND (p.state = 'QUEUE' OR (p.state = 'DRAFT' AND EXISTS "
-        "(SELECT 1 FROM claimgate.state_log l WHERE l.post_id = p.id AND l.new_state = 'QUEUE'))) "
+        "(SELECT 1 FROM claimgate.state_log l WHERE l.post_id = p.id AND (l.new_state = 'QUEUE' OR l.old_state = 'QUEUE')))) "
         "AND NOT EXISTS (SELECT 1 FROM claimgate.override o WHERE o.post_id = p.id);"
     ).strip()
     quarantined = 0

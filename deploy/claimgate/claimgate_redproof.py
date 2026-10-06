@@ -37,7 +37,8 @@ for r in contract["amount_rules"]:
 
 for r in contract.get("exempt_rules") or []:
     load.append(
-        f"INSERT INTO claimgate.rule (id, kind, pg_pattern) VALUES ({lit(r['id'])}, 'exempt', {lit(r['pg_pattern'])});"
+        "INSERT INTO claimgate.rule (id, kind, pg_pattern, veto) VALUES "
+        f"({lit(r['id'])}, 'exempt', {lit(r['pg_pattern'])}, {lit(r['pg_veto'])});"
     )
 _flagged = [r["id"] for r in contract["amount_rules"] if r.get("exemptable")]
 if _flagged:

@@ -72,9 +72,11 @@ rules:
 other_prices:
   - amount_usd: 199
     cadence: monthly
-    # The amount is allowed ONLY in this product's own context; anywhere else
-    # (e.g. "Pro costs only $199/month") it is a LoopSkill price claim.
-    context: '\bWiseChef\b[^.!?$€]{0,120}([$€] ?199|199 ?(USD|EUR|dollars|euros))\b'
+    # Allowed ONLY as this product's own price: the exemption pattern is
+    # GENERATED from product_name + amount + cadence (claims_contract.py
+    # _exempt_rule), needs the complete amount AND cadence, and is vetoed when
+    # the span also names LoopSkill or any tier.
+    product_name: WiseChef
     product: WiseChef managed service ("from $199/month")
     evidence: app.loopskill.io homepage, WiseChef section
 
