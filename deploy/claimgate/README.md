@@ -34,12 +34,13 @@ crontab (wisechef-hq):
 What a platform receives is Postiz's `stripHtmlValidation()`: **parse5** (HTML5) parse and serialize, then **striptags**, then an entity decode. That is parse5 6.0.1 and striptags 3.2.0, verified in the running container on 2026-10-06. The gate does not re-implement HTML5 tree construction. Instead:
 
 1. **Markup is allowlisted.** `TAGLIKE` finds every token HTML5 treats as markup: `<` followed by an ASCII letter, `/`, `!` or `?`, up to the first `>`. Any token that is not a plain `ALLOWED_TAG` (`p br strong b em i u s a ul ol li h1-h3 span`, double-quoted attributes without `<` or `>`) is itself a violation, **`unsupported-markup`**: comments, `<!`/`<?` constructs, unknown elements, odd quoting, unterminated tags. Production used only `<p>` and `<br>` across all 447 posts (2026-10-06), so legitimate copy never trips it. A `<` that HTML5 keeps as text (`We <3 you`, `<=`) stays text, as in the published post.
-2. **For everything that passes the allowlist, the `join` reading equals the published text.** This is property-tested against Postiz's REAL converter in `tests/fixtures/postiz_pipeline.json`: 619 curated and seeded-fuzz cases, plus a 20,000-case local fuzz with 0 mismatches. `gen_postiz_pipeline_fixture.js` regenerates it.
+2. **For everything that passes the allowlist, the `join` reading equals the published text** in Postiz's plain-text mode. Modes that publish attribute values are covered by the `attrs` reading. This is property-tested against Postiz's REAL converter in `tests/fixtures/postiz_pipeline.json`: 619 curated and seeded-fuzz cases, plus a 20,000-case local fuzz with 0 mismatches. `gen_postiz_pipeline_fixture.js` regenerates it.
 3. **Every reading is checked and the violations are unioned** (`claims_normalize.TAG_READINGS`; `claimgate.violations`):
    - **join**: allowed tags are removed with no separator. This is Postiz's plain-text output.
    - **postiz**: opening tags that Postiz's own regexes turn into a line break (`<p…>`, `<li…>`, `<ul>`, and `h1`–`h3` on HTML platforms) become a separator; everything else, `<br>` included, joins.
    - **html**: default browser display. Block and line-break elements separate words; inline elements join them.
    - **space**: every tag separates words.
+   - **attrs**: each tag becomes its attribute values, in place. Postiz publishes link targets as text: replaceBold swaps the link text for the `href`, markdown appends `(href)`, and mentions publish `data-mention-id`. So `<a href="https://recipes.wisechef.ai">` is checked like visible copy.
 
 Entities are decoded by an explicit table. Anything left undecoded is itself a violation (`unrecognised-html-entity`). Invisible and space-like characters are normalised. Numbers are read as whole runs, and malformed runs are violations.
 

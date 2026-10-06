@@ -40,6 +40,7 @@ import yaml
 from app.services.claims_normalize import (  # noqa: F401
     _ENTITY,
     ALLOWED_TAG,
+    ATTR_VALUE,
     BLOCK_TAG,
     POSTIZ_TAG,
     TAG_READINGS,

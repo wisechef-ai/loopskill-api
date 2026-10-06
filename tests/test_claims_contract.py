@@ -198,7 +198,14 @@ REVIEW_BYPASSES += [
     ("<!-- x --!>Pro+ is $9/month<!-- -->", {"unsupported-markup"}),
     ('<?x "> Pro+ is $9/month <"?>', {"unsupported-markup"}),
 ]
+# Round 18 (claude-opus): attribute values are published as text.
+REVIEW_BYPASSES += [
+    ('<p>Get it at <a href="https://recipes.wisechef.ai">our site</a></p>', {"brand-recipes-domain"}),
+    ('<a href="https://wisechef.ai/recipes/pro">pricing</a>', {"brand-recipes-domain"}),
+    ('<span data-mention-id="Pro+ for agencies">team</span>', {"tier-not-public-pro_plus"}),
+]
 REVIEW_MUST_PASS = [
+    '<p>Plans: <a href="https://app.loopskill.io/pricing">current pricing</a></p>',
     "We <3 our users. LoopSkill is free to self-host.",
     "<p>Pro is $9.95/month.</p><br><p>Free includes 2 private bundles.</p>",
     "<p>Pro is $9.95/month.</p><p>Free includes 2 private bundles.</p>",
@@ -413,7 +420,7 @@ def test_install_sql_patterns_match_python() -> None:
     assert f"unit_pat constant text := '{cc.to_pg(cc._UNIT.pattern)}';" in sql
     assert f"IF t ~ '{cc.THOUSANDS}' THEN" in sql
     assert "ARRAY['" + "', '".join(cc.TAG_READINGS) + "']" in sql
-    for pattern in (cc.TAGLIKE, cc.POSTIZ_TAG, cc.BLOCK_TAG, cc.ALLOWED_TAG):
+    for pattern in (cc.TAGLIKE, cc.POSTIZ_TAG, cc.BLOCK_TAG, cc.ALLOWED_TAG, cc.ATTR_VALUE):
         assert "'" + cc.to_pg(pattern).replace("'", "''") in sql, pattern
     assert f"IF t !~ '{cc.VALID_AMOUNT}' THEN" in sql
     assert f"lower(m[{cc.UNIT_GROUP}])" in sql

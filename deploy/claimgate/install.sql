@@ -201,9 +201,28 @@ $fn$;
 DROP FUNCTION IF EXISTS claimgate.tag_sep(text, text);
 CREATE OR REPLACE FUNCTION claimgate.strip_tags(html text, reading text DEFAULT 'join') RETURNS text
 LANGUAGE plpgsql IMMUTABLE AS $fn$
+DECLARE
+    pos int;
+    p   int;
+    tok text;
+    rep text;
 BEGIN
-    IF reading NOT IN ('join', 'postiz', 'html', 'space') THEN
+    IF reading NOT IN ('join', 'postiz', 'html', 'space', 'attrs') THEN
         RAISE EXCEPTION 'claimgate: unknown tag reading %', reading;
+    END IF;
+    IF reading = 'attrs' THEN
+        -- claims_normalize.strip_tags 'attrs': each tag -> its attribute values, in place
+        pos := 1;
+        LOOP
+            p := regexp_instr(html, '<[A-Za-z/!?][^>]*>?', pos);
+            EXIT WHEN p = 0;
+            tok := regexp_substr(html, '<[A-Za-z/!?][^>]*>?', pos);
+            rep := ' ' || array_to_string(ARRAY(
+                       SELECT m[1] FROM regexp_matches(tok, '"([^"]*)"', 'g') WITH ORDINALITY AS x(m, n) ORDER BY n), ' ') || ' ';
+            html := left(html, p - 1) || rep || substr(html, p + length(tok));
+            pos := p + length(rep);
+        END LOOP;
+        RETURN html;
     END IF;
     IF reading = 'space' THEN
         RETURN regexp_replace(html, '<[A-Za-z/!?][^>]*>?', ' ', 'g');
@@ -414,7 +433,7 @@ DECLARE
     rd   text;
 BEGIN
     hits := '; ' || array_to_string(claimgate.markup_hits(body), '; ');
-    FOREACH rd IN ARRAY ARRAY['join', 'postiz', 'html', 'space'] LOOP
+    FOREACH rd IN ARRAY ARRAY['join', 'postiz', 'html', 'space', 'attrs'] LOOP
         hits := hits || '; ' || coalesce(claimgate.violations_norm(claimgate.normalize(body, rd)), '');
     END LOOP;
     hits := array_to_string(ARRAY(

@@ -163,7 +163,12 @@ BLOCK_TAG = (
     r"|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|legend|li|main|menu|nav|ol|p|pre"
     r"|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)\b[^>]*>?"
 )
-TAG_READINGS = ("join", "postiz", "html", "space")
+#   "attrs"  - each tag becomes its double-quoted attribute VALUES, in place:
+#              Postiz publishes link targets as text (replaceBold swaps the
+#              link text for the href; markdown appends "(href)"), and
+#              mentions publish data-mention-id. Round 18 (claude-opus).
+TAG_READINGS = ("join", "postiz", "html", "space", "attrs")
+ATTR_VALUE = r'"([^"]*)"'
 
 
 def unsupported_markup(html: str) -> list[str]:
@@ -191,6 +196,8 @@ def strip_tags(html: str, reading: str = "join") -> str:
     """Remove markup per ``reading`` (install.sql: claimgate.strip_tags, same regexes)."""
     if reading not in TAG_READINGS:
         raise ValueError(f"unknown tag reading {reading!r}")
+    if reading == "attrs":
+        return re.sub(TAGLIKE, lambda m: " " + " ".join(re.findall(ATTR_VALUE, m.group(0))) + " ", html)
     if reading == "space":
         return re.sub(TAGLIKE, " ", html)
     if reading == "postiz":
