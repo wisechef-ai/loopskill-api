@@ -254,12 +254,17 @@ def marketing_snapshot(db: Session = Depends(get_db)) -> dict:
     snap["counts"]["last_added_at"] = live["last_added_at"]
 
     # Bundle caps — read from the tiers.yaml SSOT (loopclose_3005 Phase A) so
-    # bullets interpolate {pro_cookbooks}/{pro_plus_cookbooks} and can never
+    # bullets interpolate {pro_private_bundles} and can never
     # drift from the number bundle_routes.py enforces.
     from app.tier_labels import bundle_limit
 
+    snap["counts"]["free_private_bundles"] = bundle_limit("free")
+    snap["counts"]["pro_private_bundles"] = bundle_limit("pro")
+    # Deprecated alias kept for one release so external readers do not break.
+    # The pro_plus count was REMOVED (claimgate_1006): pro_plus is public:false,
+    # and a public marketing SSOT serving its allowance is how a retired tier
+    # got back into a published post.
     snap["counts"]["pro_cookbooks"] = bundle_limit("pro")
-    snap["counts"]["pro_plus_cookbooks"] = bundle_limit("pro_plus")
 
     # (0) Reachability counts — the three owner-requested public headline
     # numbers (top1pct_marketing_reach): federated skill superset,

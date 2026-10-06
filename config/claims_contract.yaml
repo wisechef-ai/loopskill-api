@@ -1,0 +1,91 @@
+# Claims contract — the hand-maintained half of what marketing may and may not say.
+#
+# GET /api/marketing/claims serves the union of:
+#   (a) rules DERIVED from config/tiers.yaml: every tier with `public: false`
+#       (its display name, badge and db_slug), every tier price that is not on
+#       the public ladder. A pricing change in tiers.yaml retires the old claim
+#       automatically; nothing here needs editing for that.
+#   (b) the `rules` below: claims that are false for reasons tiers.yaml cannot
+#       express (brand renames, retired vocabulary, retired numbers).
+#
+# The same rules are enforced in three places, all reading this contract:
+#   1. POST /api/marketing/claims/check — every copy producer checks before
+#      it creates a post.
+#   2. The claimgate trigger on the Postiz database — a post entering QUEUE
+#      that matches a rule is quarantined (soft-deleted) before any publish
+#      workflow can load it, whoever or whatever queued it.
+#   3. The claimgate sweeper — re-checks queued posts and alerts on anything
+#      that slipped through.
+#
+# COMPOUNDING RULE: every false claim that reaches a public surface gets a rule
+# here AND its real text as a regression fixture in
+# tests/test_claims_contract.py (REAL_INCIDENTS). Never widen a pattern to fix a
+# false positive; fix the prose or add an `unless`.
+#
+# Pattern syntax: a portable regex subset that must compile under both Python
+# `re` and PostgreSQL ARE (the trigger runs the same pattern). Allowed: literal
+# text, character classes, `\b` (translated to `\y` for Postgres), `\s`, `\d`,
+# `\+`, `\.`, groups `( | )`, `?`, `*`, `+`, `{m,n}`. NOT allowed: lookarounds,
+# backreferences, named groups, inline flags. Matching is case-insensitive.
+# tests/test_claims_contract.py enforces this subset.
+
+version: 1
+
+rules:
+  - id: brand-recipes-domain
+    pattern: 'recipes\.wisechef\.ai|wisechef\.ai/recipes'
+    reason: >-
+      Recipes was renamed to LoopSkill; recipes.wisechef.ai 301-redirects to
+      app.loopskill.io. Linking the old domain advertises a retired product.
+    replacement: app.loopskill.io
+    since: '2026-07-10'
+
+  - id: brand-recipes-product
+    pattern: '\bRecipes (Pro|marketplace|catalog|exists|is the|by WiseChef|gives|lets)\b|\bWiseRecipes\b'
+    reason: >-
+      "Recipes" as a product name is retired; the product is LoopSkill.
+      (Plain lowercase "recipes" in other contexts is not matched.)
+    replacement: LoopSkill
+    since: '2026-07-10'
+
+  - id: cookbook-tier-allowance
+    pattern: '\b\d+ cookbooks?\b|\b(one|a single) cookbook\b|cookbooks?,? each with|cookbook per client'
+    reason: >-
+      Cookbooks were renamed to bundles and the tier allowances changed:
+      Free = 2 private bundles, Pro = 50 private bundles. Every cookbook count
+      in old copy (1 / 20 / 50 / 200) describes a retired ladder.
+    replacement: '"private bundles" with the live bundle_limit from this contract'
+    since: '2026-08-03'
+
+  - id: legacy-tier-names
+    pattern: '\b(Studio|Cook) (plan|tier)\b'
+    reason: Studio and Cook are legacy tier names, not on the public ladder.
+    replacement: Free / Pro / On-demand
+    since: '2026-06-01'
+
+# Prices of OTHER products that legitimately appear in posts on the shared
+# publishing rail (Postiz carries WiseChef posts too). Each needs evidence of
+# where the price is published. tiers.yaml prices are added automatically.
+other_prices:
+  - amount_usd: 199
+    product: WiseChef managed service ("from $199/month")
+    evidence: app.loopskill.io homepage, WiseChef section
+
+# Facts tiers.yaml cannot express. Tier names, prices, bundle and key caps are
+# NOT written here: the contract derives those sentences from tiers.yaml so a
+# reprice can never leave a stale fact behind.
+facts:
+  - >-
+    The whole platform is open source (MPL-2.0) and can be self-hosted for $0
+    with no account and no caps.
+  - >-
+    Free skills install with no API key. The install is one sentence to your
+    agent: "Install the loopskill skill from app.loopskill.io/skill".
+  - >-
+    Install guides exist for Claude Code, Codex, Cursor, Cline, Hermes and
+    OpenClaw; any MCP-capable agent can connect to the MCP server.
+  - >-
+    Public bundles are unlimited on every tier, including Free.
+  - >-
+    For organisations there is an On-demand option: contact us, no published
+    price.

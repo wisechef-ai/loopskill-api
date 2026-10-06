@@ -59,12 +59,14 @@ tiers:
   pro:
     display_name: Pro
     price_usd: 9.95
+    # claimgate_1006: bullets mirror the live /pricing card. Every bullet must
+    # pass POST /api/marketing/claims/check (tests/test_claims_contract.py
+    # enforces it), so this block can no longer drift from tiers.yaml.
     bullets:
-      - Every paid skill in the catalog ({pro_skills} today, growing weekly)
-      - "Up to {pro_cookbooks} cookbooks + fleet sync"
-      - Cross-vendor (Claude Code, Cursor, Cline, OpenClaw, Hermes, Windsurf)
-      - Per-key install visibility
-      - Cancel anytime
+      - "{pro_private_bundles} private bundles (Free gives you {free_private_bundles})"
+      - Everything in Free, nothing is taken away
+      - Priority on catalog fixes and support
+      - Cancel anytime; installed skills keep working
   # Enterprise is a sales conversation, not an automated meter (hub D-005) —
   # `contact_only: true` and `price_usd: null` mean "no Stripe price object,
   # ever." Existing Enterprise-shaped customers are assigned the `pro_plus`
@@ -142,5 +144,8 @@ proof_points:
     surfaces: [docs_mcp, homepage_hero]
   - text: "Curated weekly. Signed and versioned. No cloud round-trip at run time."
     surfaces: [homepage_hero, docs_sync]
-  - text: "On Pro+, push pre-built cookbooks straight into agents you operate for clients."
+  # claimgate_1006: replaced "On Pro+, push pre-built cookbooks straight into
+  # agents you operate for clients." Pro+ is public:false, cookbooks are
+  # bundles, and LoopSkill never pushes (agents pull). Wording mirrors /docs.
+  - text: "Scope a key to a bundle and hand a client one install line; their agent pulls it and reconciles on its own schedule."
     surfaces: [homepage_hero, docs_deployment, pricing]
