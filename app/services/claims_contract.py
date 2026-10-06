@@ -69,7 +69,14 @@ MAX_CHECK_CHARS = 20_000
 # * _NOT_AFTER_NUM forbids starting inside one ("1,050 private bundles" is
 #   never read as "050"): the character before must not be a digit, comma or
 #   period. Unbounded on purpose: parse_amount of a 20k-digit token is inf.
-_GROUPED = r"[0-9]{1,3}([., ][0-9]{3})+([.,][0-9]{1,2})?"
+# Thousands grouping must use ONE separator throughout, and a decimal part
+# must use the OTHER mark (no backreferences in the portable subset, so the
+# three shapes are spelled out): 1,199.50 / 1.050,50 / 1 050,50.
+_GROUPED = (
+    r"([0-9]{1,3}(,[0-9]{3})+([.][0-9]{1,2})?"
+    r"|[0-9]{1,3}([.][0-9]{3})+(,[0-9]{1,2})?"
+    r"|[0-9]{1,3}( [0-9]{3})+([.,][0-9]{1,2})?)"
+)
 # The WHOLE run of digits and separators next to a unit/currency is captured
 # (never a tail of it); parse_amount then decides whether it is a well-formed
 # amount. A malformed run ("1,2,50") is a violation, not "no claim" (fail
@@ -77,10 +84,11 @@ _GROUPED = r"[0-9]{1,3}([., ][0-9]{3})+([.,][0-9]{1,2})?"
 _RUN = r"[0-9]+([.,][0-9]+| [0-9]{3})*"
 _NUM = r"(" + _RUN + r")\b"
 _COUNT = r"(" + _RUN + r")"
-# The character(s) before a number: not a digit, comma or period, and not a
-# space that itself follows a digit ("1 050" is one run, never "050"). This
-# also gives each run exactly ONE possible start, which keeps scanning linear.
-_NOT_AFTER_NUM = r"(^|[^0-9,. ]|(^|[^0-9]) )"
+# The character(s) before a number: not a digit, and not a comma / period /
+# space that itself follows a digit ("1,050" / "1 050" are one run, never
+# "050"). Punctuation after a word is fine ("bundles,20 API keys" reads 20).
+# Each run has exactly ONE possible start, which keeps scanning linear.
+_NOT_AFTER_NUM = r"(^|[^0-9,. ]|(^|[^0-9])[,. ])"
 # capture-group index of the number right after the guard (computed, never
 # hard-coded: the guard has its own groups)
 NUM_AFTER_GUARD = re.compile(_NOT_AFTER_NUM).groups + 1
@@ -102,7 +110,10 @@ def parse_amount(token: str) -> float:
         return float("nan")  # malformed: equals nothing, so always a violation
     if re.match(THOUSANDS, token):
         token = token.replace(re.search(r"[., ]", token).group(0), "")
-    return float(token.replace(",", "."))
+    try:
+        return float(token.replace(",", "."))
+    except ValueError:  # defensive: never raise from the check
+        return float("nan")
 
 
 _RECURRING = (
@@ -461,6 +472,22 @@ def build_contract() -> dict:
     return json.loads(_cached_contract(TIERS_YAML.stat().st_mtime, CONTRACT_YAML.stat().st_mtime))
 
 
+def _scan(rx: re.Pattern, text: str):
+    """All matches of ``rx``, left to right, restarting ONE character before
+    the end of each match: the last character of a match ("...bundles") may be
+    the guard of the next one (",20 API keys"). install.sql loops identically
+    (pos := p + greatest(length(tok) - 1, 1)). Never yields the same match
+    twice: every pattern scanned here ends in a letter or digit that cannot
+    start a new match."""
+    pos = 0
+    while True:
+        m = rx.search(text, pos)
+        if not m:
+            return
+        yield m
+        pos = max(m.end() - 1, m.start() + 1)
+
+
 def _violation(kind: str, rule_id: str, m: re.Match, text: str, reason: str, replacement=None) -> dict:
     lo, hi = max(0, m.start() - 30), min(len(text), m.end() + 30)
     return {
@@ -498,7 +525,7 @@ def check_text(text: str, contract: dict | None = None) -> list[dict]:
     for rule in c["amount_rules"]:
         allowed = {round(float(a), 2) for a in rule["allowed"]}
         src = exempted if rule.get("exemptable") else text
-        for m in re.finditer(rule["pattern"], src, re.IGNORECASE):
+        for m in _scan(re.compile(rule["pattern"], re.IGNORECASE), src):
             amount = round(parse_amount(m.group(rule["amount_group"])), 2)
             if amount not in allowed:
                 shown = ", ".join(_num(a) for a in sorted(allowed)) or "none (contact only)"
@@ -525,7 +552,7 @@ def _tier_binding(text: str, c: dict) -> list[dict]:
         return []
     name_re = re.compile(r"\b(" + "|".join(re.escape(n) for n in tiers) + r")\b", re.IGNORECASE)
     out = []
-    for m in _UNIT.finditer(text):
+    for m in _scan(_UNIT, text):
         # the count starts AFTER the guard char; sentence start = after the
         # last ".", "!" or "?" FOLLOWED BY a space ("$9.95" is no sentence end)
         cstart = m.start(NUM_AFTER_GUARD)

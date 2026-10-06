@@ -214,7 +214,7 @@ $fn$;
 CREATE OR REPLACE FUNCTION claimgate.tier_binding(body text) RETURNS text[]
 LANGUAGE plpgsql STABLE AS $fn$
 DECLARE
-    unit_pat constant text := '(^|[^0-9,. ]|(^|[^0-9]) )([0-9]+([.,][0-9]+| [0-9]{3})*) (private bundles?|((active |scoped |separate |client )?(API )?keys|(active |scoped |separate |client )?API key|(active|scoped|separate|client) key))\y';
+    unit_pat constant text := '(^|[^0-9,. ]|(^|[^0-9])[,. ])([0-9]+([.,][0-9]+| [0-9]{3})*) (private bundles?|((active |scoped |separate |client )?(API )?keys|(active |scoped |separate |client )?API key|(active|scoped|separate|client) key))\y';
     names  text;
     pos    int := 1;
     p      int;
@@ -261,7 +261,7 @@ BEGIN
             END IF;
         END IF;
         last_name := NULL;
-        pos := p + length(tok);
+        pos := p + greatest(length(tok) - 1, 1);  -- claims_contract._scan
     END LOOP;
     RETURN hits;
 END;
@@ -271,13 +271,15 @@ $fn$;
 CREATE OR REPLACE FUNCTION claimgate.parse_amount(t text) RETURNS numeric
 LANGUAGE plpgsql IMMUTABLE AS $fn$
 BEGIN
-    IF t !~ '^([0-9]{1,3}([., ][0-9]{3})+([.,][0-9]{1,2})?|[0-9]+([.,][0-9]{1,2})?)$' THEN
+    IF t !~ '^(([0-9]{1,3}(,[0-9]{3})+([.][0-9]{1,2})?|[0-9]{1,3}([.][0-9]{3})+(,[0-9]{1,2})?|[0-9]{1,3}( [0-9]{3})+([.,][0-9]{1,2})?)|[0-9]+([.,][0-9]{1,2})?)$' THEN
         RETURN NULL;  -- malformed: the caller treats NULL as a violation
     END IF;
-    IF t ~ '^[0-9]{1,3}([., ][0-9]{3})+([.,][0-9]{1,2})?$' THEN
+    IF t ~ '^([0-9]{1,3}(,[0-9]{3})+([.][0-9]{1,2})?|[0-9]{1,3}([.][0-9]{3})+(,[0-9]{1,2})?|[0-9]{1,3}( [0-9]{3})+([.,][0-9]{1,2})?)$' THEN
         t := replace(t, substring(t from '[., ]'), '');
     END IF;
     RETURN replace(t, ',', '.')::numeric;
+EXCEPTION WHEN others THEN
+    RETURN NULL;  -- defensive: never raise from the check (Python: NaN)
 END;
 $fn$;
 
@@ -291,6 +293,7 @@ DECLARE
     amt  numeric;
     hits text[] := '{}';
     body_ex text;
+    src  text;
     pos  int;
     p    int;
     tok  text;
@@ -344,7 +347,16 @@ BEGIN
         END LOOP;
     END LOOP;
     FOR r IN SELECT * FROM claimgate.rule WHERE kind = 'amount' LOOP
-        FOR m IN SELECT regexp_matches(CASE WHEN r.exemptable THEN body_ex ELSE body END, r.pg_pattern, 'gi') LOOP
+        src := CASE WHEN r.exemptable THEN body_ex ELSE body END;
+        pos := 1;
+        LOOP
+            p := regexp_instr(src, r.pg_pattern, pos, 1, 0, 'i');
+            EXIT WHEN p = 0;
+            tok := regexp_substr(src, r.pg_pattern, pos, 1, 'i');
+            m := regexp_match(tok, r.pg_pattern, 'i');
+            -- restart ONE char before the end: the last char of this match may
+            -- be the next match's guard (claims_contract._scan)
+            pos := p + greatest(length(tok) - 1, 1);
             IF r.amount_group IS NULL OR m[r.amount_group] IS NULL THEN
                 RAISE EXCEPTION 'claimgate: rule % captured no amount (group %)', r.id, r.amount_group;
             END IF;

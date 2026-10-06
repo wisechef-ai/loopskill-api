@@ -140,7 +140,16 @@ REVIEW_BYPASSES += [
     ("LoopSkill costs 1,2,20 USD/month", {"price-recurring-suffix"}),
     ("Pro is $9.9.5/month", {"price-recurring", "price-tier-pro"}),
 ]
+# Round 10 (gpt-6.1-sol): punctuation comma before a count; mixed grouping.
+REVIEW_BYPASSES += [
+    ("Pro includes 50 private bundles,20 API keys", {"count-api-keys", "tier-key-cap"}),
+    ("LoopSkill costs $1,000.000.000/month", {"price-recurring"}),
+    ("LoopSkill costs $1.000,000/month", {"price-recurring"}),
+    ("Free: 2 private bundles,50 private bundles", {"tier-bundle-cap"}),
+]
 REVIEW_MUST_PASS = [
+    "Pro: 50 private bundles,10 API keys.",
+    "Free: 2 private bundles, 1 API key.",
     "Pro is $9.95/month. Free includes 2 private bundles.",
     "Pro &#150; $9.95/month",
     "Pro is €9,95 per month.",
@@ -363,6 +372,8 @@ def test_install_sql_patterns_match_python() -> None:
         ("1,199.50", 1199.5),
         ("1.050,50", 1050.5),
         ("1 050", 1050.0),
+        ("1 000,50", 1000.5),
+        ("1.000.000", 1000000.0),
         ("9,95", 9.95),
         ("9.95", 9.95),
         ("49", 49.0),
@@ -372,7 +383,9 @@ def test_parse_amount(token: str, value: float) -> None:
     assert cc.parse_amount(token) == value
 
 
-@pytest.mark.parametrize("token", ["1,2,50", "9.9.5", "1,0500", "1 05"])
+@pytest.mark.parametrize(
+    "token", ["1,2,50", "9.9.5", "1,0500", "1 05", "1,000.000.000", "1.000,000", "1,000,00"]
+)
 def test_malformed_amount_is_nan(token: str) -> None:
     v = cc.parse_amount(token)
     assert v != v
