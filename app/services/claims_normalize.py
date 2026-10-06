@@ -146,7 +146,12 @@ def _decode_entity(m: re.Match) -> str:
 # against Postiz's real converter (parse5 6.0.1 + striptags 3.2.0, copied from
 # the running container) in tests/fixtures/postiz_pipeline.json.
 TAGLIKE = r"<[A-Za-z/!?][^>]*>?"
-ALLOWED_TAG = r"^</?(p|br|strong|b|em|i|u|s|a|ul|ol|li|h[1-3]|span)( [a-z-]+=\"[^\"<>]*\")* ?/?>$"
+# Attributes only as <a href="...">: any other attribute (data-mention-id is
+# rewritten per platform by Postiz's convertMention) is unsupported markup.
+ALLOWED_TAG = r'^(</?(p|br|strong|b|em|i|u|s|ul|ol|li|h[1-3]|span) ?/?>|<a href="[^"<>]*">|</a>)$'
+# A whole link, matched the way Postiz's /<a.*?href="(.*?)".*?>(.*?)<\/a>/g
+# matches it (content runs to the FIRST "</a>"): \1 = href, \2 = text.
+LINK = r'<a href="([^"<>]*)">(([^<]|<[^/]|</[^a]|</a[^>])*)</a>'
 # Readings decide what an (allowed) tag becomes. A violation found in ANY
 # reading counts (claims_contract.check_text; install.sql violations):
 #   "join"   - nothing: Postiz's plain-text output (striptags);
@@ -163,12 +168,12 @@ BLOCK_TAG = (
     r"|fieldset|figcaption|figure|footer|form|h[1-6]|header|hgroup|hr|legend|li|main|menu|nav|ol|p|pre"
     r"|section|summary|table|tbody|td|tfoot|th|thead|tr|ul)\b[^>]*>?"
 )
-#   "attrs"  - each tag becomes its double-quoted attribute VALUES, in place:
-#              Postiz publishes link targets as text (replaceBold swaps the
-#              link text for the href; markdown appends "(href)"), and
-#              mentions publish data-mention-id. Round 18 (claude-opus).
-TAG_READINGS = ("join", "postiz", "html", "space", "attrs")
-ATTR_VALUE = r'"([^"]*)"'
+#   "link"   - Postiz replaceBold: a whole link becomes its href, joined to
+#              the text around it ("recipes<a href=".wisechef.ai">x</a>");
+#   "markdown" - Postiz markdown: a link becomes "[text](href)".
+# (Rounds 18-19, claude-opus.)
+TAG_READINGS = ("join", "postiz", "html", "space", "link", "markdown")
+LINK_REWRITE = {"link": r"\1", "markdown": r"[\2](\1)"}
 
 
 def unsupported_markup(html: str) -> list[str]:
@@ -196,8 +201,8 @@ def strip_tags(html: str, reading: str = "join") -> str:
     """Remove markup per ``reading`` (install.sql: claimgate.strip_tags, same regexes)."""
     if reading not in TAG_READINGS:
         raise ValueError(f"unknown tag reading {reading!r}")
-    if reading == "attrs":
-        return re.sub(TAGLIKE, lambda m: " " + " ".join(re.findall(ATTR_VALUE, m.group(0))) + " ", html)
+    if reading in LINK_REWRITE:
+        html = re.sub(LINK, LINK_REWRITE[reading], html)
     if reading == "space":
         return re.sub(TAGLIKE, " ", html)
     if reading == "postiz":

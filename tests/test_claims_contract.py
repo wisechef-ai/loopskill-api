@@ -202,7 +202,11 @@ REVIEW_BYPASSES += [
 REVIEW_BYPASSES += [
     ('<p>Get it at <a href="https://recipes.wisechef.ai">our site</a></p>', {"brand-recipes-domain"}),
     ('<a href="https://wisechef.ai/recipes/pro">pricing</a>', {"brand-recipes-domain"}),
-    ('<span data-mention-id="Pro+ for agencies">team</span>', {"tier-not-public-pro_plus"}),
+    ('<span data-mention-id="Pro+ for agencies">team</span>', {"unsupported-markup"}),
+    # round 19: replaceBold joins the href to the neighbouring text
+    ('<p>Get it at recipes<a href=".wisechef.ai">x</a></p>', {"brand-recipes-domain"}),
+    ('<p>Pro is $1<a href="9">and</a>/mo</p>', {"price-tier-pro"}),
+    ('<a class="x" href="https://app.loopskill.io">ok</a>', {"unsupported-markup"}),
 ]
 REVIEW_MUST_PASS = [
     '<p>Plans: <a href="https://app.loopskill.io/pricing">current pricing</a></p>',
@@ -420,7 +424,7 @@ def test_install_sql_patterns_match_python() -> None:
     assert f"unit_pat constant text := '{cc.to_pg(cc._UNIT.pattern)}';" in sql
     assert f"IF t ~ '{cc.THOUSANDS}' THEN" in sql
     assert "ARRAY['" + "', '".join(cc.TAG_READINGS) + "']" in sql
-    for pattern in (cc.TAGLIKE, cc.POSTIZ_TAG, cc.BLOCK_TAG, cc.ALLOWED_TAG, cc.ATTR_VALUE):
+    for pattern in (cc.TAGLIKE, cc.POSTIZ_TAG, cc.BLOCK_TAG, cc.ALLOWED_TAG, cc.LINK):
         assert "'" + cc.to_pg(pattern).replace("'", "''") in sql, pattern
     assert f"IF t !~ '{cc.VALID_AMOUNT}' THEN" in sql
     assert f"lower(m[{cc.UNIT_GROUP}])" in sql

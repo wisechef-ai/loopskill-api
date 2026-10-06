@@ -201,28 +201,15 @@ $fn$;
 DROP FUNCTION IF EXISTS claimgate.tag_sep(text, text);
 CREATE OR REPLACE FUNCTION claimgate.strip_tags(html text, reading text DEFAULT 'join') RETURNS text
 LANGUAGE plpgsql IMMUTABLE AS $fn$
-DECLARE
-    pos int;
-    p   int;
-    tok text;
-    rep text;
 BEGIN
-    IF reading NOT IN ('join', 'postiz', 'html', 'space', 'attrs') THEN
+    IF reading NOT IN ('join', 'postiz', 'html', 'space', 'link', 'markdown') THEN
         RAISE EXCEPTION 'claimgate: unknown tag reading %', reading;
     END IF;
-    IF reading = 'attrs' THEN
-        -- claims_normalize.strip_tags 'attrs': each tag -> its attribute values, in place
-        pos := 1;
-        LOOP
-            p := regexp_instr(html, '<[A-Za-z/!?][^>]*>?', pos);
-            EXIT WHEN p = 0;
-            tok := regexp_substr(html, '<[A-Za-z/!?][^>]*>?', pos);
-            rep := ' ' || array_to_string(ARRAY(
-                       SELECT m[1] FROM regexp_matches(tok, '"([^"]*)"', 'g') WITH ORDINALITY AS x(m, n) ORDER BY n), ' ') || ' ';
-            html := left(html, p - 1) || rep || substr(html, p + length(tok));
-            pos := p + length(rep);
-        END LOOP;
-        RETURN html;
+    -- claims_normalize.LINK / LINK_REWRITE (Postiz replaceBold / markdown)
+    IF reading = 'link' THEN
+        html := regexp_replace(html, '<a href="([^"<>]*)">(([^<]|<[^/]|</[^a]|</a[^>])*)</a>', '\1', 'g');
+    ELSIF reading = 'markdown' THEN
+        html := regexp_replace(html, '<a href="([^"<>]*)">(([^<]|<[^/]|</[^a]|</a[^>])*)</a>', '[\2](\1)', 'g');
     END IF;
     IF reading = 'space' THEN
         RETURN regexp_replace(html, '<[A-Za-z/!?][^>]*>?', ' ', 'g');
@@ -240,7 +227,7 @@ CREATE OR REPLACE FUNCTION claimgate.markup_hits(body text) RETURNS text[]
 LANGUAGE sql IMMUTABLE AS $fn$
     SELECT CASE WHEN EXISTS (
         SELECT 1 FROM regexp_matches(coalesce(body, ''), '(<[A-Za-z/!?][^>]*>?)', 'g') AS m
-         WHERE m[1] !~* '^</?(p|br|strong|b|em|i|u|s|a|ul|ol|li|h[1-3]|span)( [a-z-]+=\"[^\"<>]*\")* ?/?>$')
+         WHERE m[1] !~* '^(</?(p|br|strong|b|em|i|u|s|ul|ol|li|h[1-3]|span) ?/?>|<a href="[^"<>]*">|</a>)$')
     THEN ARRAY['unsupported-markup'] ELSE '{}'::text[] END
 $fn$;
 
@@ -433,7 +420,7 @@ DECLARE
     rd   text;
 BEGIN
     hits := '; ' || array_to_string(claimgate.markup_hits(body), '; ');
-    FOREACH rd IN ARRAY ARRAY['join', 'postiz', 'html', 'space', 'attrs'] LOOP
+    FOREACH rd IN ARRAY ARRAY['join', 'postiz', 'html', 'space', 'link', 'markdown'] LOOP
         hits := hits || '; ' || coalesce(claimgate.violations_norm(claimgate.normalize(body, rd)), '');
     END LOOP;
     hits := array_to_string(ARRAY(
