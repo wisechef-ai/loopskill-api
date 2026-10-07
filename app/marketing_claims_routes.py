@@ -80,7 +80,8 @@ def _claims_contract() -> tuple[dict, tuple[dict, ...]]:
         bundles = cfg.get("bundle_limit", cfg.get("cookbook_limit"))
         keys = cfg.get("api_key_cap")
 
-        facts.append(f"{name} tier: {price_s}, {bundles} private bundles, {keys} active API keys.")
+        keys_s = f"{keys} active API key{'s' if keys != 1 else ''}"
+        facts.append(f"{name} tier: {price_s}, {bundles} private bundles, {keys_s}.")
         if not is_public:
             facts.append(
                 f"{name} is NOT on the public pricing ladder. Never name it, never price it, never list its allowances in public copy."
