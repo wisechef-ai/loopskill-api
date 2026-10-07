@@ -45,6 +45,7 @@ from app.intent_survey_routes import router as intent_survey_router
 from app.internal_routes import router as internal_router
 from app.marketing_routes import router as marketing_router
 from app.marketing_routes import wisechef_router
+from app.marketing_claims_routes import router as marketing_claims_router  # claimgate 2026-10-07
 from app.mcp.server import (
     router as mcp_router,
 )
@@ -298,6 +299,7 @@ def create_app() -> FastAPI:
     app.include_router(org_router, tags=["orgs"])  # activate_0701 Phase TEN
     app.include_router(referral_router, tags=["referral"])
     app.include_router(marketing_router, tags=["marketing"])
+    app.include_router(marketing_claims_router, prefix="/api/marketing", tags=["marketing"])  # claimgate: /claims + /claims/check
     app.include_router(sse_router, tags=["sse"])
     app.include_router(share_token_router, tags=["share"])
     app.include_router(mcp_router, tags=["mcp"])
