@@ -7,23 +7,8 @@ made "is the live box running the code we shipped?" unverifiable from
 ``/api/healthz``. Every deploy that changes behaviour MUST bump this constant
 so the healthz probe can prove the cutover landed.
 
-Entries for 0.9.4-0.9.13, 0.9.19-0.9.23 and 0.9.25 are archived verbatim in
+Entries for 0.9.4-0.9.13, 0.9.19-0.9.23 and 0.9.25-0.9.26 are archived verbatim in
 docs/version-history.md.
-
-fleetos_1607 Phase A (0.9.26): placements — the spine. Three additive tables
-(loop_placements, placement_confirmations, fleet_member_liveness) + the
-epoch-CAS placement service (app/services/placement.py): every transition is a
-compare-and-swap on a monotonic placement_epoch, so two concurrent writers
-cannot both win. Cooperative move = drain (epoch++) -> old-member confirm (deduped
-on member_seq) -> activate-new (epoch++); force_move retires the old placement,
-flags forced=True, and surfaces per-safety-class duplicate-risk text (no
-exactly-once claim, honest-guarantee doctrine). A Postgres partial unique index
-enforces the single-live-placement invariant at the DB layer. Manager surface
-(assign/evacuate/placements/force_move MCP tools) is gated by the new
-authz.can_manage_fleet capability — a bare fleet-member key gets 403, an
-operator/owner/master key gets through. Stale-member alert
-(app/services/stale_member_alert.py) replaces the deleted Phase F failover.
-13 RED-proofed tests. Additive-only, no data migration.
 
 fleetos_1607 Phase B (0.9.27): harvest — reverse GitOps via the SHIPPED feedback
 rail. An agent submits its live-state manifest; the server diffs it against the
@@ -586,6 +571,16 @@ ah_1006 install-funnel ranking (0.9.60): metasearch rank() now scores the
     installable anthropics/openai ``pdf`` skills at 26-27; the whole-slug tier
     filed exact-name skills.sh rows under slug-contains. unified_search's
     _federated_relevance gets the same deployable-first key inside a bucket.
+fix-metasearch-source-deadlines (0.9.61): clawhub, skills-sh and github-oss
+    were in sources_degraded on nearly every cold /api/skills/metasearch.
+    Probed from wisechef-hq they answer 200 with rows, in 1.6-2.1s (ClawHub
+    search), 0.5-1.8s (GitHub code search) and 0.6-0.8s (skills.sh), past the
+    single 1.2s (+0.25s) deadline every source shared. Live-search sources now
+    have their own budget (clawhub 3.0s, github-oss 3.0s, skills-sh 2.5s);
+    catalog sources keep 1.2s. The gather cuts each source at ITS deadline and
+    ends once every source has answered or expired, so a hung catalog source
+    is still cut at 1.45s. Trade-off: a true cold miss now costs the slowest
+    live source (~2s, ClawHub) instead of ~1.45s; SWR still serves repeats.
 """
 
-__version__ = "0.9.60"
+__version__ = "0.9.61"

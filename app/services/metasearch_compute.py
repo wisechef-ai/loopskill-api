@@ -6,7 +6,8 @@ search path was forbidden to fan out (a cold fan-out once measured >90s). That
 cost came from ClawHub owner lookups — one live HTTP call per row — and was
 removed by ``prime_clawhub_owner_cache`` (issue #148) and by ClawHub search hits
 carrying ``ownerHandle`` inline. Re-measured on prod 2026-10-04: a cold fan-out
-over every source finishes in ~2s (per-source deadline 1.2s, run in parallel).
+over every source finishes in ~2s (sources run in parallel, each under its
+own deadline: ``metasearch_fanout.deadline_for``).
 
 What the cache-only rule cost in exchange: ``loopskill_search`` answered
 ``federated: cold`` with ZERO federated rows for every query no REST caller had
@@ -18,9 +19,11 @@ Contract (fed1004, after three adversarial review rounds):
 - ONE cache key per query and ONE per-source deadline for every caller, so a
   cold query fans out once per process no matter which surface asks first, and
   no caller ever waits longer than the web UI's own compute.
-- A source slower than the deadline is dropped from THAT compute and demoted by
-  its breaker, exactly as before. ClawHub's live search (p50 ~1.25s from prod)
-  is therefore a best-effort bonus: ClawHub COVERAGE comes from the hourly hub
+- A source slower than ITS deadline is dropped from THAT compute and demoted
+  by its breaker, exactly as before. ClawHub's live search measured 1.6-2.1s
+  from prod on 2026-10-05, so under the old shared 1.2s budget it was degraded
+  on nearly every cold compute (t_b9887867); the live-search sources now carry
+  their own budget. ClawHub COVERAGE still also comes from the hourly hub
   snapshot (79k ClawHub rows, searched locally by the ``hermes-hub`` source).
   A late-merge of stragglers was built and deleted in review: it could
   overwrite a newer cache generation and the breaker defeated it anyway.
