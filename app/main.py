@@ -299,7 +299,9 @@ def create_app() -> FastAPI:
     app.include_router(org_router, tags=["orgs"])  # activate_0701 Phase TEN
     app.include_router(referral_router, tags=["referral"])
     app.include_router(marketing_router, tags=["marketing"])
-    app.include_router(marketing_claims_router, prefix="/api/marketing", tags=["marketing"])  # claimgate: /claims + /claims/check
+    app.include_router(
+        marketing_claims_router, prefix="/api/marketing", tags=["marketing"]
+    )  # claimgate: /claims + /claims/check
     app.include_router(sse_router, tags=["sse"])
     app.include_router(share_token_router, tags=["share"])
     app.include_router(mcp_router, tags=["mcp"])
