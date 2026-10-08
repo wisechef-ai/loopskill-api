@@ -81,11 +81,12 @@ def _claims_contract() -> tuple[dict, tuple[dict, ...]]:
         keys = cfg.get("api_key_cap")
 
         keys_s = f"{keys} active API key{'s' if keys != 1 else ''}"
-        facts.append(f"{name} tier: {price_s}, {bundles} private bundles, {keys_s}.")
         if not is_public:
-            facts.append(
-                f"{name} is NOT on the public pricing ladder. Never name it, never price it, never list its allowances in public copy."
-            )
+            # ah_1008: a non-public tier contributes a RULE, never a fact.
+            # 0.9.61 appended its priced fact here too, so the public no-key
+            # GET /claims published the hidden name+price while /claims/check
+            # flagged that same sentence — the contract approved what its own
+            # gate rejects. Even the "do not name it" warning named it.
             # Any mention of a non-public tier in marketing copy is a
             # violation. Match the display name and the db_slug.
             rules.append(
@@ -96,6 +97,14 @@ def _claims_contract() -> tuple[dict, tuple[dict, ...]]:
                     "replacement": "Pro",
                 }
             )
+            continue
+        facts.append(f"{name} tier: {price_s}, {bundles} private bundles, {keys_s}.")
+
+    # Generic ladder discipline, stated WITHOUT naming any hidden tier, so the
+    # instruction itself passes /claims/check (invariant pinned in tests).
+    facts.append(
+        "Only the tiers listed above are on the public pricing ladder. Never name, price or list allowances for any other tier."
+    )
 
     # Product-name discipline (claimgate: the 10-04 post called the product
     # by a retired name and advertised retired allowances).

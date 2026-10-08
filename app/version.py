@@ -581,6 +581,13 @@ fix-metasearch-source-deadlines (0.9.61): clawhub, skills-sh and github-oss
     ends once every source has answered or expired, so a hung catalog source
     is still cut at 1.45s. Trade-off: a true cold miss now costs the slowest
     live source (~2s, ClawHub) instead of ~1.45s; SWR still serves repeats.
+ah_1008 claimgate self-contradiction (0.9.62): GET /api/marketing/claims
+    served "Pro+ tier: $100/month, ..." as an approved fact while
+    /claims/check flagged that sentence tier-not-public-pro_plus. A public
+    no-key endpoint was publishing a hidden price, and copygen was fed a fact
+    the gate rejects. A public:false tier now contributes only its retired
+    rule; the ladder warning is generic. Pinned: every approved fact passes
+    /claims/check, and no hidden tier name/slug/price appears in the facts.
 """
 
-__version__ = "0.9.61"
+__version__ = "0.9.62"
