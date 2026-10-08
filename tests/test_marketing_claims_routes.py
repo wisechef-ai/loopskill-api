@@ -49,10 +49,39 @@ def test_approved_facts_derived_from_tiers_yaml(client):
     facts = "\n".join(body["approved_facts"])
     for slug, cfg in tiers.items():
         if cfg.get("public", True) is False:
-            continue  # non-public tiers get a "not public" fact, not a priced fact
+            continue  # non-public tiers contribute a retired RULE only, never a fact (ah_1008)
         price = cfg.get("price_usd")
         if price is not None:
             assert f"${price}/month" in facts, f"{slug} price {price} missing from facts"
+
+
+def test_every_approved_fact_passes_the_check(client):
+    """ah_1008 invariant: the contract may never approve what its own gate rejects.
+
+    0.9.61 served "Pro+ tier: $100/month, ..." as an approved fact while
+    /claims/check flagged that exact sentence tier-not-public-pro_plus — a
+    no-key public endpoint publishing a non-public price, and copygen fed a
+    fact the gate then refuses.
+    """
+    facts = client.get("/api/marketing/claims").json()["approved_facts"]
+    for fact in facts:
+        v = client.post("/api/marketing/claims/check", json={"text": fact}).json()["violations"]
+        assert v == [], f"approved fact fails the gate: {fact!r} -> {v}"
+
+
+def test_non_public_tier_is_never_named_in_approved_facts(client):
+    """No name, slug or price of a public:false tier may appear in the facts."""
+    tiers = yaml.safe_load(open(TIERS_YAML))["tiers"]
+    hidden = {s: c for s, c in tiers.items() if (c or {}).get("public", True) is False}
+    assert hidden, "fixture premise: tiers.yaml carries at least one non-public tier"
+    public_prices = {c.get("price_usd") for c in tiers.values() if (c or {}).get("public", True) is not False}
+    facts = "\n".join(client.get("/api/marketing/claims").json()["approved_facts"])
+    for slug, cfg in hidden.items():
+        assert cfg.get("display_name", slug) not in facts, slug
+        assert slug not in facts, slug
+        price = cfg.get("price_usd")
+        if price is not None and price not in public_prices:
+            assert f"${price}/month" not in facts, f"{slug} price leaked"
 
 
 def test_check_flags_non_public_tier_mention(client):
