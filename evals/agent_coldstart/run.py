@@ -702,6 +702,12 @@ def run_codex_harness(prompt: str, home: Path, max_minutes: int) -> HarnessResul
     # `item.completed`/`item.started` events; top-level `type` is only
     # the envelope kind (thread.started, turn.completed, etc.).
     TOOL_ITEM_TYPES = {"command_execution", "file_change", "web_search", "search"}
+    # coldstart_1010 — codex stillborn-leg detection (run 20261009-77b2aec1):
+    # `codex exec --json` reports HARNESS failures (account usage limit, auth,
+    # quota) as a top-level {"type": "error"} envelope followed by
+    # {"type": "turn.failed"} with ZERO tool items — the agent never started.
+    # Scored `fail` that charged an account artifact against the product.
+    harness_error_msgs: list[str] = []
     for line in stdout.splitlines():
         line = line.strip()
         if not line or not line.startswith("{"):
@@ -716,10 +722,33 @@ def run_codex_harness(prompt: str, home: Path, max_minutes: int) -> HarnessResul
         item_type = str(item.get("type") or "")
         if envelope_type == "item.completed" and item_type in TOOL_ITEM_TYPES:
             tool_calls += 1
+        if envelope_type == "error":
+            harness_error_msgs.append(str(event.get("message") or ""))
+        elif envelope_type == "turn.failed":
+            turn_err = event.get("error") or {}
+            if isinstance(turn_err, dict):
+                harness_error_msgs.append(str(turn_err.get("message") or ""))
+            else:
+                harness_error_msgs.append(str(turn_err))
         usage = event.get("usage") or (event.get("msg") or {}).get("usage")
         if usage:
             tokens_in = usage.get("input_tokens", tokens_in)
             tokens_out = usage.get("output_tokens", tokens_out)
+
+    harness_error: str | None = None
+    if not timed_out and harness_error_msgs and tool_calls == 0:
+        # Rationale: error/turn.failed envelopes with no completed tool items
+        # mean the harness died before the agent took a single action (usage
+        # limit, auth, quota). That is a harness artifact, not agent behavior
+        # — per RUBRIC.md it must score `error` (excluded), never `fail`.
+        # Mirror of the claude `is_error` precedent (#321) and the hermes
+        # stillbirth banner (d46b67c). A turn.failed AFTER real tool work is
+        # NOT stillbirth and stays scored as agent behavior.
+        first_msg = next((m for m in harness_error_msgs if m), "")
+        harness_error = (
+            f"codex harness error: {first_msg[:200] or 'turn failed before any tool use'} "
+            f"(tool_calls=0); the cold agent never started"
+        )
 
     return HarnessResult(
         tool_calls=tool_calls if saw_event else None,
@@ -727,6 +756,7 @@ def run_codex_harness(prompt: str, home: Path, max_minutes: int) -> HarnessResul
         tokens_out=tokens_out,
         transcript_path=str(transcript_path),
         timed_out=timed_out,
+        error=harness_error,
     )
 
 
