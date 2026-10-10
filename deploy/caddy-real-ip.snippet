@@ -1,0 +1,48 @@
+# Caddy — real client IP propagation to loopskill-api (:3370)
+# chef_2026-10-09-E. Baseline: 88% of 24h 4xx/5xx were dead-credential MCP 401s
+# on /api/mcp/http/ that uvicorn logged as ::1 because neither Caddy nor
+# uvicorn propagated the real client IP (Cf-Connecting-IP set by Cloudflare).
+#
+# WHAT: in every site block / snippet that reverse-proxies to 127.0.0.1:3370
+# (the `(loopskill_site)` snippet is the one that matters in production — it
+# is imported by both `app.loopskill.io` and the `:3362` tunnel origin), add
+# `header_up X-Real-IP {http.request.header.Cf-Connecting-IP}` to the
+# reverse_proxy handlers. Caddy 2 already sets X-Forwarded-For itself; the
+# X-Real-IP line carries Cloudflare's verified edge-observed client IP so
+# uvicorn --proxy-headers (see deploy/loopskill-api.service) rewrites
+# request.client to it.
+#
+# APPLY (prod, via PR merge + ops runbook — do NOT hot-edit):
+#   1. Edit /etc/caddy/Caddyfile — inside (loopskill_site), change every
+#      `reverse_proxy 127.0.0.1:3370` to the block form below. A one-time
+#      sed is safe because the upstream is uniform on this host:
+#        sed -i 's|reverse_proxy 127.0.0.1:3370$|reverse_proxy 127.0.0.1:3370 {\n\t\t\theader_up X-Real-IP {http.request.header.Cf-Connecting-IP}\n\t\t}|' /etc/caddy/Caddyfile
+#      (Review with `git diff`-style eyeballing + `caddy validate` BEFORE
+#      reload; take a timestamped backup first — the house convention.)
+#   2. sudo caddy validate --config /etc/caddy/Caddyfile
+#   3. sudo systemctl reload caddy
+#   4. Install the unit file from deploy/loopskill-api.service:
+#      sudo cp deploy/loopskill-api.service /etc/systemd/system/loopskill-api.service
+#      sudo systemctl daemon-reload && sudo systemctl restart loopskill-api
+#   5. Verify: `curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+#      -H 'x-api-key: rec_live_doesnotexist' https://app.loopskill.io/api/mcp/http/`
+#      → 401; then `journalctl -u loopskill-api -n 3` shows the source as the
+#      caller IP (or CF edge), not ::1.
+#
+# Verification of correctness (why header_up and not a site-wide `header`):
+# `header` in a site block mutates the RESPONSE (downstream) direction by
+# default; only `header_up` inside reverse_proxy mutates the request as it is
+# proxied upstream. A site-wide response-mutating `header` line would have
+# silently done nothing — which is exactly the failure mode that let this fix
+# sit unlanded for 16 days after being proposed (t_ffdc11c0, 2026-09-24).
+
+(loopskill_api_upstream) {
+	reverse_proxy 127.0.0.1:3370 {
+		header_up X-Real-IP {http.request.header.Cf-Connecting-IP}
+		flush_interval -1
+		transport http {
+			read_timeout 0
+			response_header_timeout 0
+		}
+	}
+}

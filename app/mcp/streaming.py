@@ -5,6 +5,7 @@ Contains:
   _http_session_manager — global StreamableHTTPSessionManager
   get_http_session_manager / _reset_http_session_manager — lifecycle
   _build_streamable_http_mount — Starlette Mount factory
+  _DEAD_KEY_401_HEADERS — Retry-After hint attached to dead-key 401s
   run_streamable_http — async context manager for lifespan
   run_stdio — stdio entry-point (Claude Desktop)
 """
@@ -25,6 +26,15 @@ from app.auth_ctx import AuthContext
 from app.config import settings
 
 logger = logging.getLogger("loopskill.mcp")
+
+# Dead-key 401 backoff hint (chef_2026-10-09-E): the 24h error baseline showed
+# ~88% of all 4xx/5xx are dead-credential MCP clients hammering /api/mcp/http/
+# in blind retry loops (~75s cadence, indefinitely — key format-valid, 0 rows in
+# api_keys). A bare 401 gives compliant clients no signal to slow down. These
+# headers tell any RFC-compliant backoff: "do not retry before N seconds".
+# Deliberately a fixed window (not per-key state): the credential is DEAD, so
+# there is nothing to recover within the window — backing off is always correct.
+_DEAD_KEY_401_HEADERS = {"Retry-After": "3600"}
 
 
 _sse_transport = SseServerTransport("/api/mcp/messages/")
@@ -88,6 +98,7 @@ def _build_streamable_http_mount() -> Mount:
                 response = JSONResponse(
                     {"detail": "Invalid or missing x-api-key header"},
                     status_code=401,
+                    headers=_DEAD_KEY_401_HEADERS,
                 )
                 await response(scope, receive, send)
                 return
@@ -117,6 +128,7 @@ def _build_streamable_http_mount() -> Mount:
                     response = JSONResponse(
                         {"detail": "Invalid or missing x-api-key header"},
                         status_code=401,
+                        headers=_DEAD_KEY_401_HEADERS,
                     )
                     await response(scope, receive, send)
                     return
