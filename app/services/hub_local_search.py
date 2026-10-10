@@ -38,14 +38,48 @@ def _like(token: str) -> str:
     return f"%{escaped}%"
 
 
-def search_hub_index(query: str | None, *, limit: int) -> list[Any]:
+RELAX_MIN_TOKENS = 3
+
+
+def relaxable_tokens(query: str | None) -> list[str]:
+    """The query's SUBJECT tokens when a relaxed (one-word-may-miss) pass is
+    allowed, else ``[]``.
+
+    ah_1010: agents ask in 3-5 words ("postgres index advisor"). Requiring every
+    word returned zero rows while every 2-word subset returned plenty, and the
+    zero was then logged as a false "missing skill" demand signal. Only the
+    subject words count here: grammatical stopwords and the generic words every
+    skill query carries ("skill", "tool", "agent") are dropped, so "postgres
+    index skill" is a 2-word query and is NOT relaxed — dropping one of two
+    subject words is a different search, not a looser one.
+    """
+    from app.services.query_coverage import GENERIC, STOPWORDS
+
+    core = [t for t in dict.fromkeys(query_tokens(query)) if t not in STOPWORDS and t not in GENERIC]
+    return core if len(core) >= RELAX_MIN_TOKENS else []
+
+
+def search_hub_index_relaxed(query: str | None, *, limit: int) -> list[Any]:
+    """Hub rows containing all-but-one of the query's subject words, rows that
+    cover more words first. ``[]`` when the query is not relaxable."""
+    core = relaxable_tokens(query)
+    if not core:
+        return []
+    return search_hub_index(" ".join(core), limit=limit, min_match=len(core) - 1)
+
+
+def search_hub_index(query: str | None, *, limit: int, min_match: int | None = None) -> list[Any]:
     """``ExternalSkill`` rows from the hub index that contain every query token,
     most relevant first. Empty query → ``[]``. Raises on DB failure (the caller
-    owns degradation)."""
+    owns degradation).
+
+    ``min_match`` (ah_1010) loosens "every token" to "at least ``min_match``
+    tokens"; rows matching more tokens sort first. ``None`` keeps the strict
+    every-token contract."""
     tokens = query_tokens(query)
     if not tokens:
         return []
-    from sqlalchemy import and_, or_, text
+    from sqlalchemy import and_, case, or_, text
 
     from app.database import SessionLocal
     from app.models import FederationHubSkill as M
@@ -57,21 +91,36 @@ def search_hub_index(query: str | None, *, limit: int) -> list[Any]:
         if db.get_bind().dialect.name == "postgresql":
             # SET LOCAL cannot take a bind parameter; the value is an int constant.
             db.execute(text(f"SET LOCAL statement_timeout = {int(STATEMENT_TIMEOUT_MS)}"))
-        match_all = and_(
-            *[
-                or_(
-                    M.slug.ilike(_like(t), escape="\\"),
-                    M.title.ilike(_like(t), escape="\\"),
-                    M.identifier.ilike(_like(t), escape="\\"),
-                    M.description.ilike(_like(t), escape="\\"),
-                )
-                for t in tokens
-            ]
-        )
+        per_token = [
+            or_(
+                M.slug.ilike(_like(t), escape="\\"),
+                M.title.ilike(_like(t), escape="\\"),
+                M.identifier.ilike(_like(t), escape="\\"),
+                M.description.ilike(_like(t), escape="\\"),
+            )
+            for t in tokens
+        ]
         q = " ".join(tokens)
-        rows = (
-            db.query(M).filter(match_all).order_by(*relevance_order_clauses(M, q), M.title).limit(limit).all()
-        )
+        if min_match is None or min_match >= len(tokens):
+            rows = (
+                db.query(M)
+                .filter(and_(*per_token))
+                .order_by(*relevance_order_clauses(M, q), M.title)
+                .limit(limit)
+                .all()
+            )
+        else:
+            hits = [case((cond, 1), else_=0) for cond in per_token]
+            covered = hits[0]
+            for hit in hits[1:]:
+                covered = covered + hit
+            rows = (
+                db.query(M)
+                .filter(covered >= max(1, int(min_match)))
+                .order_by(covered.desc(), *relevance_order_clauses(M, q), M.title)
+                .limit(limit)
+                .all()
+            )
         adapter = HermesHubAdapter()
         return [adapter._map_hub_skill(r) for r in rows]
     finally:

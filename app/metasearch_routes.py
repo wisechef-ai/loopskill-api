@@ -119,6 +119,12 @@ def _record_demand_signal(db: Session, q: str | None, result: dict, request: Req
     record_missing_skill_query(db, q, api_key_id=api_key_id, client_ip=client_ip)
 
 
+def _is_relaxed(skills: list) -> bool:
+    """ah_1010: True when the ranking is a near-match retry (one query word
+    allowed to miss, ``metasearch_compute._relaxed_or``), not an exact answer."""
+    return bool(skills) and all(isinstance(s, dict) and s.get("relaxed") is True for s in skills)
+
+
 @router.get("/metasearch", tags=["skills", "metasearch"])
 def metasearch(
     request: Request,
@@ -178,6 +184,7 @@ def metasearch(
             "sources_ok": entry.sources_ok,
             "sources_degraded": entry.sources_degraded,
             "source_count": len(entry.sources_ok) + len(entry.sources_degraded),
+            "relaxed": _is_relaxed(entry.skills),
             "render_contract": {
                 "cards_dropped_dead": 0,
                 "latency_ms": round((time.perf_counter() - t0) * 1000.0, 2),
@@ -196,6 +203,7 @@ def metasearch(
         "sources_ok": entry.sources_ok if entry else [],
         "sources_degraded": entry.sources_degraded if entry else [],
         "source_count": len((entry.sources_ok if entry else []) + (entry.sources_degraded if entry else [])),
+        "relaxed": _is_relaxed(contracted),
     }
 
     meta = RenderContractMeta(
