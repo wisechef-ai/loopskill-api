@@ -580,6 +580,16 @@ loopskill-api#407 one "latest" (0.9.70): install used upload order (created_at) 
     2026.10.1 beats any 2.x.y); created_at is only the equal-version tiebreak.
     reconcile-apply, fleet-sync, metasearch deploy and bundle deploy now write
     pin_mode='pin' with pinned_version (no half pins); fork/handoff copy the mode.
+crawler-networks (0.9.71, t_af0935a6): 30 of 38 installed:stranger rows were
+    anonymous crawler installs. An IP-only subject at a VERIFIED crawler
+    address now classifies ``unknown`` with the vendor and proof named in the
+    evidence (config/crawler_networks.txt, same bisect loader as
+    hosting_networks). Admission: vendor-PUBLISHED autonomous crawler lists
+    only (Google, Bing, GPTBot, OAI-SearchBot), or an exact /32 proven by
+    forward-confirmed reverse DNS (Baidu: 18 IPs). Meta publishes no crawler
+    range list, so 57.141.20.x stays stranger. A subject with an email or key
+    is never downgraded. Network calls live only in
+    scripts/refresh_crawler_networks.py.
 """
 
-__version__ = "0.9.70"
+__version__ = "0.9.71"

@@ -165,6 +165,7 @@ def classify(
     email: str | None = None,
     ip: str | None = None,
     api_key_id: str | None = None,
+    allow_crawler_downgrade: bool = True,
 ) -> tuple[Classification, str]:
     """Classify a subject as fleet / stranger / unknown, with evidence.
 
@@ -212,6 +213,20 @@ def classify(
         provider = hosting_network(ip)
         if provider:
             return "unknown", f"ip:{ip} in hosting network ({provider}), no email/key"
+
+    # t_af0935a6: an IP-only subject at a VERIFIED crawler address (a vendor's
+    # published crawler range, or an exact /32 proven by forward-confirmed
+    # reverse DNS) is a bot, not a person. Same guard as hosting: an email or
+    # key anchors the subject to a human and is never downgraded. Callers that
+    # know a key exists but classify by IP alone pass
+    # allow_crawler_downgrade=False (see funnel_backfill._classify_install).
+    if ip and not email and not api_key_id and allow_crawler_downgrade:
+        from app.services.crawler_networks import crawler_network
+
+        crawler = crawler_network(ip)
+        if crawler:
+            vendor, source = crawler
+            return "unknown", f"ip:{ip} is verified crawler ({vendor}, {source}), no email/key"
 
     return "stranger", "no fleet-exclusion match"
 
