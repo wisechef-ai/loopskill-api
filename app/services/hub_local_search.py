@@ -68,6 +68,14 @@ def search_hub_index_relaxed(query: str | None, *, limit: int) -> list[Any]:
     return search_hub_index(" ".join(core), limit=limit, min_match=len(core) - 1)
 
 
+def _count_true(terms: list[Any]) -> Any:
+    """SQL sum of 0/1 ``CASE`` terms (one per token)."""
+    total = terms[0]
+    for term in terms[1:]:
+        total = total + term
+    return total
+
+
 def search_hub_index(query: str | None, *, limit: int, min_match: int | None = None) -> list[Any]:
     """``ExternalSkill`` rows from the hub index that contain every query token,
     most relevant first. Empty query → ``[]``. Raises on DB failure (the caller
@@ -79,7 +87,7 @@ def search_hub_index(query: str | None, *, limit: int, min_match: int | None = N
     tokens = query_tokens(query)
     if not tokens:
         return []
-    from sqlalchemy import and_, case, or_, text
+    from sqlalchemy import and_, case, func, or_, text
 
     from app.database import SessionLocal
     from app.models import FederationHubSkill as M
@@ -110,14 +118,25 @@ def search_hub_index(query: str | None, *, limit: int, min_match: int | None = N
                 .all()
             )
         else:
-            hits = [case((cond, 1), else_=0) for cond in per_token]
-            covered = hits[0]
-            for hit in hits[1:]:
-                covered = covered + hit
+            # Relaxed: the whole-phrase relevance ladder means nothing when the
+            # phrase is known to match nothing, so order by how many words a row
+            # covers, then how many sit in its slug/title, then shortest slug.
+            # Without the head term the DB pre-selected the page alphabetically
+            # from thousands of equal-coverage rows ("argus" before "code-review").
+            covered = _count_true([case((cond, 1), else_=0) for cond in per_token])
+            in_head = _count_true(
+                [
+                    case(
+                        (or_(M.slug.ilike(_like(t), escape="\\"), M.title.ilike(_like(t), escape="\\")), 1),
+                        else_=0,
+                    )
+                    for t in tokens
+                ]
+            )
             rows = (
                 db.query(M)
                 .filter(covered >= max(1, int(min_match)))
-                .order_by(covered.desc(), *relevance_order_clauses(M, q), M.title)
+                .order_by(covered.desc(), in_head.desc(), func.length(M.slug), M.title)
                 .limit(limit)
                 .all()
             )

@@ -202,3 +202,16 @@ def test_rest_exact_answer_is_not_flagged(client, hub, monkeypatch):
     body = client.get("/api/skills/metasearch", params={"q": "kafka advisor"}).json()
     assert body["result_count"] == 0
     assert body["relaxed"] is False
+
+
+def test_relaxed_page_prefers_words_in_slug_or_title_over_prose(hub):
+    """Live 0.9.63: ``code review qzxwvj`` returned ``argus`` and ``code111``
+    first. Every row covered 2 of 3 words, so the alphabetical tiebreak picked
+    the page. Words in the slug/title must outrank words only in the prose,
+    and a shorter slug must win among those."""
+    _hub_row(hub, "aaa-helper", "aaa", "does code review for teams")  # words only in prose
+    _hub_row(hub, "code-review-assistant-pro", "Code review assistant", "pr helper")
+    _hub_row(hub, "code-review", "code review", "pr helper")
+    hub.commit()
+    rows = search_hub_index("code review qzxwvj", limit=3, min_match=2)
+    assert [r.slug for r in rows] == ["code-review", "code-review-assistant-pro", "aaa-helper"]
