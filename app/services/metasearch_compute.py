@@ -94,7 +94,50 @@ def build_unified(db: Session, q: str | None) -> tuple[list[dict[str, Any]], lis
     prime_clawhub_owner_cache(db)
     fanout = _fanout.fan_out(q or "", sources=_fanout.DEFAULT_FANOUT_SOURCES)
     external = _unify_pairs(unify_external, fanout.pairs)
-    return _merge(q, curated, external, ["recipes", *fanout.sources_ok], list(fanout.sources_degraded))
+    sources_ok = ["recipes", *fanout.sources_ok]
+    merged = _merge(q, curated, external, sources_ok, list(fanout.sources_degraded))
+    if merged[0]:
+        return merged
+    return _relaxed_or(merged, q, sources_ok, list(fanout.sources_degraded))
+
+
+RELAXED_CAP = 30
+
+
+def _relaxed_or(
+    strict: tuple[list[dict[str, Any]], list[str], list[str]],
+    q: str | None,
+    sources_ok: list[str],
+    sources_degraded: list[str],
+) -> tuple[list[dict[str, Any]], list[str], list[str]]:
+    """ah_1010: a 3+ subject-word query that every source answered with zero
+    rows retries against the local hub index with ONE word allowed to miss.
+
+    Every 2-word subset of "postgres index advisor" returned rows; the 3-word
+    query returned none, because each source requires every word (or the whole
+    phrase). Each relaxed card carries ``relaxed: True`` so a caller can tell a
+    near match from an exact one. ``merge_unified`` ranks the cards by word
+    coverage (``query_coverage``), so rows covering more of the query lead.
+
+    The strict (empty) result stands when the query is not relaxable, when the
+    index has no near match, or when the index read fails, because a relaxed
+    pass must never turn a search into an error.
+    """
+    from app.services.hub_local_search import search_hub_index_relaxed
+    from app.services.metasearch import unify_external
+
+    try:
+        near = search_hub_index_relaxed(q, limit=RELAXED_CAP)
+    # Rationale: the relaxed pass is a second chance on an already-empty answer;
+    # a DB hiccup here degrades to that empty answer, never to a 500.
+    except Exception:  # noqa: BLE001
+        logger.warning("relaxed hub pass failed for %r", q, exc_info=True)
+        return strict
+    if not near:
+        return strict
+    external = _unify_pairs(unify_external, [(skill, None) for skill in near])
+    skills, ok, degraded = _merge(q, [], external, sources_ok, sources_degraded)
+    return [{**card, "relaxed": True} for card in skills], ok, degraded
 
 
 def _merge(

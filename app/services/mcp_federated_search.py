@@ -178,7 +178,7 @@ def compact_row(row: Any) -> dict[str, Any] | None:
     install_ref = _text(row.get("install_ref"), _MAX_REF_LEN)
     if not install_ref:
         return None
-    return {
+    compact = {
         "slug": _text(row.get("slug"), _MAX_SLUG_LEN),
         "title": _text(row.get("title") or row.get("slug"), _MAX_TITLE_LEN),
         "install_ref": install_ref,
@@ -187,6 +187,10 @@ def compact_row(row: Any) -> dict[str, Any] | None:
         "origin_url": _text(row.get("origin_url"), _MAX_URL_LEN),
         "quality": _text(row.get("quality"), _MAX_SHORT_LEN),
     }
+    if row.get("relaxed") is True:
+        # ah_1010: a near match (one query word missing) stays labelled as one.
+        compact["relaxed"] = True
+    return compact
 
 
 def _warm_query(query: str, sources: tuple[str, ...]) -> None:
@@ -261,16 +265,26 @@ def local_floor(
     if not (query or "").strip():
         return []
     try:
-        from app.services.hub_local_search import search_hub_index
+        from app.services.hub_local_search import search_hub_index, search_hub_index_relaxed
         from app.services.metasearch import unify_external
 
+        fetch = max(limit * 2, 10)
+        hits = search_hub_index(query, limit=fetch)
+        relaxed = False
+        if not hits:
+            # ah_1010: a 3+ subject-word query lets one word miss (see
+            # metasearch_compute._relaxed_or); the rows are flagged relaxed.
+            hits = search_hub_index_relaxed(query, limit=fetch)
+            relaxed = bool(hits)
         rows: list[dict[str, Any]] = []
-        for skill in search_hub_index(query, limit=max(limit * 2, 10)):
+        for skill in hits:
             if len(rows) >= limit:
                 break
             compact = compact_row(unify_external(skill).to_dict())
             if compact is None or compact["slug"] in exclude_slugs:
                 continue
+            if relaxed:
+                compact["relaxed"] = True
             rows.append(compact)
         return rows
     # Rationale: the floor is a fallback for a fallback — a DB hiccup here

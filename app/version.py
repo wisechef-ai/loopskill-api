@@ -7,21 +7,8 @@ made "is the live box running the code we shipped?" unverifiable from
 ``/api/healthz``. Every deploy that changes behaviour MUST bump this constant
 so the healthz probe can prove the cutover landed.
 
-Entries for 0.9.4-0.9.13, 0.9.19-0.9.23 and 0.9.25-0.9.26 are archived verbatim in
+Entries for 0.9.4-0.9.13, 0.9.19-0.9.23 and 0.9.25-0.9.27 are archived verbatim in
 docs/version-history.md.
-
-fleetos_1607 Phase B (0.9.27): harvest — reverse GitOps via the SHIPPED feedback
-rail. An agent submits its live-state manifest; the server diffs it against the
-golden bundle (new-local / modified-local / missing-local) and routes the drift
-back as a proposal through the EXISTING loopclose_3005 Phase J rail (per-bundle
-feedback_repo + Fernet PAT vault + dispatch_issue) — ZERO new tables, ZERO new
-auth model (§0 #13). Every harvested loop is secret-scanned + path-escape-scanned
-BEFORE it can become a proposal (a poisoned member is BLOCKED, never proposed);
-reports are HMAC-signed by the member key (lock #13). No feedback_repo configured
-=> in-app feed fallback. The MCP _dispatch god node was refactored: the delegated
-dispatch chain (fleet-write / placement / harvest) moved to app/mcp/dispatch_chain.py
-to keep server.py under the 600-line gate. 11 RED-proofed tests (diff, poison
-block, signature, routing, non-owner 403, end-to-end). Additive-only, no migration.
 
 fleetos_1607 Phase E (0.9.28): BYO-repo registries — metadata-only = the
 hyperscale gate. Two additive tables (artifact_origins, origin_drift_events) +
@@ -588,6 +575,14 @@ ah_1008 claimgate self-contradiction (0.9.62): GET /api/marketing/claims
     the gate rejects. A public:false tier now contributes only its retired
     rule; the ladder warning is generic. Pinned: every approved fact passes
     /claims/check, and no hidden tier name/slug/price appears in the facts.
+ah_1010 metasearch relaxed retry (0.9.63): "postgres index advisor" returned
+    0 rows on REST metasearch and MCP loopskill_search while every 2-word subset
+    returned 10+: the hub index required every word, the adapters the whole
+    phrase, and the empty answer was logged as a false missing-skill demand
+    signal. A query of 3+ subject words (stopwords and generic words like
+    "skill" excluded) that all sources answer with zero rows now retries the
+    local hub index with ONE word allowed to miss, ranked by word coverage.
+    Each such card and the response carry relaxed:true; exact answers never do.
 """
 
-__version__ = "0.9.62"
+__version__ = "0.9.63"

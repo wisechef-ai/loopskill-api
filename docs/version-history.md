@@ -5,6 +5,21 @@ sits under the 600-line gate (`tests/test_w0_2_pyfile_size_discipline.py`), so
 the oldest entries are moved here verbatim when it fills up. Newest entries
 stay in `app/version.py`.
 
+## 0.9.27 (archived 2026-10-10, ah_1010 metasearch relaxed retry)
+
+fleetos_1607 Phase B (0.9.27): harvest — reverse GitOps via the SHIPPED feedback
+rail. An agent submits its live-state manifest; the server diffs it against the
+golden bundle (new-local / modified-local / missing-local) and routes the drift
+back as a proposal through the EXISTING loopclose_3005 Phase J rail (per-bundle
+feedback_repo + Fernet PAT vault + dispatch_issue) — ZERO new tables, ZERO new
+auth model (§0 #13). Every harvested loop is secret-scanned + path-escape-scanned
+BEFORE it can become a proposal (a poisoned member is BLOCKED, never proposed);
+reports are HMAC-signed by the member key (lock #13). No feedback_repo configured
+=> in-app feed fallback. The MCP _dispatch god node was refactored: the delegated
+dispatch chain (fleet-write / placement / harvest) moved to app/mcp/dispatch_chain.py
+to keep server.py under the 600-line gate. 11 RED-proofed tests (diff, poison
+block, signature, routing, non-owner 403, end-to-end). Additive-only, no migration.
+
 ## 0.9.26 (archived 2026-10-07, fix-metasearch-source-deadlines)
 
 fleetos_1607 Phase A (0.9.26): placements — the spine. Three additive tables
