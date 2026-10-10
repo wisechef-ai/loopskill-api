@@ -583,6 +583,10 @@ ah_1010 metasearch relaxed retry (0.9.63): "postgres index advisor" returned
     "skill" excluded) that all sources answer with zero rows now retries the
     local hub index with ONE word allowed to miss, ranked by word coverage.
     Each such card and the response carry relaxed:true; exact answers never do.
+ah_1010 relaxed ordering (0.9.64): live 0.9.63 answered "code review qzxwvj"
+    with argus/code111 first: every row covered 2 of 3 words and the title
+    tiebreak picked the page from thousands. Relaxed rows now order by words
+    covered, then words in slug/title, then shortest slug.
 """
 
-__version__ = "0.9.63"
+__version__ = "0.9.64"
