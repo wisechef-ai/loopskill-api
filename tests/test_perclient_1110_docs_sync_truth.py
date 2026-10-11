@@ -76,6 +76,10 @@ def test_readme_pricing_names_both_caps_and_the_pro_only_tools():
     # fork/recipify/sync-SSE are Pro-gated but tombstoned (docs/ops/tombstones.md): disclose, never sell
     assert "don't buy it for those" in text
     assert "unlocks the hosted authoring tools" not in text
+    disclosure = re.search(r"endpoints \(([^)]*)\) also require Pro", text)
+    assert disclosure, "Pro-gated endpoint disclosure missing"
+    for name in ("skill forks", "draft-to-skill", "sync streaming", "bundle deploys"):
+        assert name in disclosure.group(1), name
     assert "whole difference" not in text.lower()
 
 
@@ -104,3 +108,10 @@ def test_quickstart_scopes_its_two_machine_claim():
     text = _read("QUICKSTART-subscriber.md")
     assert "Every call below was run" not in text
     assert "bundle steps" in text
+
+
+def test_skill_md_has_no_tool_inventory_count_and_recall_uses_tier_filter():
+    text = _read("SKILL.md")
+    assert not re.search(r"^#+\s*\d+\s+MCP tools", text, re.M)
+    assert "`tier_filter`" in text
+    assert "`tier` parameter of `loopskill_recall`" not in text

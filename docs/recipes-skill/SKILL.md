@@ -35,7 +35,7 @@ Before installing for a new user, always:
 2. Call `loopskill_search` with the user's domain keywords.
 3. Produce an honest verdict: does LoopSkill fill a gap the user doesn't already cover?
 
-## 28 MCP tools available
+## MCP tools available
 
 Canonical tool names are `loopskill_*`. Existing agents that hard-code the
 older `recipes_*` names keep working — the server's alias map
@@ -195,7 +195,7 @@ Pass a category name to `loopskill_search` (the `category` param) to narrow resu
 
 Canonical tier names: **`free`** · **`pro`** · **`pro_plus`**
 
-Use these values in the `tier` parameter of `loopskill_recall` and `loopskill_publish_request`.
+Use these values in `loopskill_recall`'s `tier_filter` list (e.g. `"tier_filter": ["free"]`) and in `loopskill_publish_request`'s `tier` parameter.
 
 > **Canonical tiers:** `free` · `pro` · `pro_plus`. Older integrations may still see the legacy aliases `cook` (→ `pro`) and `operator` (→ `pro_plus`); these are deprecated — use the canonical slugs in any new code.
 
