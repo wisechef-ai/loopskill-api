@@ -308,8 +308,8 @@ held leftovers from an earlier run. Ask the user before
 
 **`healthz` fails for the first few seconds after `docker compose up -d`.**
 The container is still migrating and seeding.
-Keep polling `healthz` (the loop above allows ~2 minutes); in the cold run it
-answered on the 4th try (~10 s). Check progress with
+Keep polling `healthz` (the loop above allows ~2 minutes); in the two cold
+runs it answered on the 4th and 7th try (roughly 10–20 s). Check progress with
 `docker compose logs api | tail -30` — the `LoopSkill is ready!` banner
 precedes the server start.
 
@@ -322,9 +322,9 @@ Ask the user; do not stop the other process.
 volume reused from an older image. The fix is `docker compose down -v`, which
 **deletes the registry database** — ask the user first.
 
-**Loop run returns an auth error instead of `"passed"`.** `KEY` is empty —
-the banner was not in the logs yet. `echo ${#KEY}` should print `37`; re-read
-it after `healthz` is ok.
+**Loop run returns `{"detail":"authentication required to run a verifier"}`
+(HTTP 401).** `KEY` is empty — usually the banner was not in the logs yet.
+`echo ${#KEY}` should print `37`; re-read it after `healthz` is ok.
 
 ---
 
