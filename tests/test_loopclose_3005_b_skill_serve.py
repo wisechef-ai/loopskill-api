@@ -56,9 +56,9 @@ class TestSkillServeRoute:
     def test_correct_tool_count_and_tailor_tools_present(self):
         with _client() as client:
             body = client.get("/skill").text
-        # loopclose_3005 Phase C: the canonical doc lists 28 tools, incl. the
+        # loopclose_3005 Phase C: the canonical doc lists the tools, incl. the
         # full tailor loop (tailor -> tailor_version -> cookbook_attach).
-        assert "28 MCP tools available" in body
+        assert "## MCP tools available" in body  # no inventory count (stale: 28 vs 47 live)
         assert "`loopskill_tailor`" in body
         assert "`loopskill_fork_list`" in body
         assert "`loopskill_tailor_version`" in body
@@ -113,7 +113,7 @@ class TestSkillPublicViaMiddleware:
             f"/skill must be public at the middleware seam, got {r.status_code}: {r.text[:200]}"
         )
         assert r.headers["content-type"].startswith("text/plain")
-        assert "28 MCP tools available" in r.text
+        assert "## MCP tools available" in r.text
 
     def test_skill_aliases_public(self, _db, monkeypatch):
         from tests._app_factory import build_test_app
