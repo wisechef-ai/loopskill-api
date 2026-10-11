@@ -99,7 +99,7 @@ Once connected, your agent gets these tools (a selection — `tools/list` on the
 
 Two capacity limits differ: private bundles (Free 2, Pro 50) and API keys (Free 1, Pro 10). Your Liked list is a private bundle and counts as one from the moment you open your Library, so Free leaves room for one more. One API key works on every machine at once; separate keys let you revoke one machine or client without touching the rest. Public bundles are unlimited on every tier.
 
-Pro also unlocks the hosted authoring and deploy tools: forking a skill into your own editable copy, turning a draft into a skill, managed bundle deploys with rollback, and a live sync subscription. Every catalog skill is free on both tiers, and re-running the install to update works the same on both.
+Pro also unlocks the hosted authoring tools: forking a skill into your own editable copy, turning a draft into a skill, and a live sync subscription. Every catalog skill is free on both tiers, and re-running the install to update works the same on both.
 
 You may not need Pro at all: public bundles are free and unlimited, self-hosting the whole platform is free (MPL-2.0), and a private git repo with symlinks also keeps skills in sync across machines at no cost.
 
