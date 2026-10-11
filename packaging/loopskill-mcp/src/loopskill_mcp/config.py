@@ -46,8 +46,10 @@ class BridgeConfig:
 def resolve_api_key(env: Mapping[str, str] | None = None) -> str | None:
     """Resolve the LoopSkill API key from env vars, canonical name first.
 
-    Returns ``None`` (anonymous mode) when no supported var is set — this is
-    a normal, documented mode, not an error.
+    Returns ``None`` when no supported var is set. The bridge still starts,
+    but the hosted MCP endpoint rejects keyless calls with 401
+    (``Invalid or missing x-api-key header``); keyless use only applies to
+    public REST endpoints or a self-hosted server configured to allow it.
     """
     source: Mapping[str, str] = env if env is not None else os.environ
     for var in API_KEY_ENV_VARS:
