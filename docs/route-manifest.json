@@ -1,12 +1,12 @@
 {
   "source": "app.main.app.routes + app.middleware.api_key.APIKeyMiddleware (dispatch tree replayed), derived at import time",
   "generator": "scripts/generate_route_manifest.py",
-  "route_count": 323,
+  "route_count": 324,
   "counts_by_classification": {
     "admin": 11,
     "authenticated": 200,
     "internal": 2,
-    "public": 110
+    "public": 111
   },
   "routes": [
     {
@@ -3173,6 +3173,18 @@
       ],
       "classification": "public",
       "summary": "Like a personality by slug. Writes to the typed Liked bundle."
+    },
+    {
+      "method": "POST",
+      "path": "/api/pv",
+      "name": "record_page_view",
+      "module": "app.pageview_routes",
+      "tags": [
+        "telemetry",
+        "telemetry"
+      ],
+      "classification": "public",
+      "summary": "Record one page view; always 204 with no body."
     },
     {
       "method": "POST",

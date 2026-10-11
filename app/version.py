@@ -592,6 +592,14 @@ ah_1011 claimgate v2 contract (0.9.66): the Postiz-side rule sync on
     contract_hash no longer depends on PYTHONHASHSEED (equal-length alternatives
     were ordered from a set). deploy/claimgate/ is the source of the hq scripts,
     plus rule_strictness_diff.py: run it before any sync that replaces rules.
+perclient_1110 page-view beacon (0.9.67): app.loopskill.io has no access log,
+    so a new portal page had no way to count its visitors. POST /api/pv is an
+    anonymous same-origin beacon (sendBeacon text/plain or fetch JSON) that
+    writes one telemetry_events row (event_type=page_view) for paths under
+    /use-cases/ or /blog/: path, utm_*, referrer host only, ua_bot and the
+    funnel_ledger fleet/stranger/unknown class. Junk, oversized (>2 KB),
+    non-allowlisted and over-limit (30/min/IP) requests get the same empty 204
+    and write nothing. No migration, no cookies.
 """
 
-__version__ = "0.9.66"
+__version__ = "0.9.67"

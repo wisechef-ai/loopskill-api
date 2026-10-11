@@ -271,6 +271,9 @@ def create_app() -> FastAPI:
     from app.federation_propose_routes import router as federation_propose_router  # bundles_0811 P3.5
 
     app.include_router(federation_propose_router, tags=["federation"])
+    from app.pageview_routes import router as pageview_router  # perclient_1110: POST /api/pv
+
+    app.include_router(pageview_router, tags=["telemetry"])
     from app.fleet_routes import router as fleet_router  # portal_0610 J3
     from app.fleet_member_routes import router as fleet_member_router  # activate_0701 Phase 1
 

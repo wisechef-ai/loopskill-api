@@ -5,6 +5,22 @@ sits under the 600-line gate (`tests/test_w0_2_pyfile_size_discipline.py`), so
 the oldest entries are moved here verbatim when it fills up. Newest entries
 stay in `app/version.py`.
 
+## 0.9.28 (archived 2026-10-11, perclient_1110 page-view beacon)
+
+fleetos_1607 Phase E (0.9.28): BYO-repo registries — metadata-only = the
+hyperscale gate. Two additive tables (artifact_origins, origin_drift_events) +
+app/services/byo_origin.py. A private fleet brings its OWN GitHub repo; LoopSkill
+stores the artifact ORIGIN (github:owner/repo@<sha>:<path>, SHA always — tags move,
+force-push exists) + a content-hash LOCK, and NOTHING ELSE. Agents fetch the bytes
+DIRECTLY from the user's repo with the user's token (secretRef) and verify the
+fetched content's hash against the lock — refusing FAIL-CLOSED on mismatch and
+recording an origin-drift event (force-push / tamper / wrong-SHA audit trail).
+Server content_bytes_stored == 0 by design — storage stays flat per private fleet
+(the hyperscale receipt, §0 #8). Public catalog unchanged (durable store).
+10 RED-proofed tests (SHA-only pin, lock storage, hash-verify OK, force-push
+fail-closed + drift event, failed-fetch fail-closed, metadata-only footprint).
+Migration a520ed06c5d2 round-trips on SQLite + Postgres. Additive-only.
+
 ## 0.9.27 (archived 2026-10-10, ah_1010 metasearch relaxed retry)
 
 fleetos_1607 Phase B (0.9.27): harvest — reverse GitOps via the SHIPPED feedback
