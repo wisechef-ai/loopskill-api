@@ -35,7 +35,7 @@ Mirrors the promise in [`docs/SELF_HOST.md`](../../docs/SELF_HOST.md)
 
 | Variable | When to use |
 |----------|-------------|
-| `LOOPSKILL_API_KEY` | Canonical — the standard key for any MCP client. Optional: free-tier search/install works anonymously with no key at all. |
+| `LOOPSKILL_API_KEY` | Canonical — the standard key for any MCP client. **Required**: the hosted endpoint answers `401` to every MCP request (including `initialize` and `tools/list`) that has no valid `x-api-key`. A free key is enough for search and free-skill install — see "Getting an API key" below. |
 | `MCP_LOOPSKILL_API_KEY` | Same key, alternate name used by the Hermes wizard integration. |
 | `RECIPES_API_KEY` / `MCP_RECIPES_API_KEY` | Legacy names, still accepted for existing integrations. |
 | `LOOPSKILL_MCP_URL` | Escape hatch to point at a self-hosted LoopSkill instance (default: `https://app.loopskill.io/api/mcp/http/`). Not part of the public promise; for `docs/SELF_HOST.md` deployments. |
@@ -43,9 +43,24 @@ Mirrors the promise in [`docs/SELF_HOST.md`](../../docs/SELF_HOST.md)
 Precedence when more than one is set: `LOOPSKILL_API_KEY` >
 `MCP_LOOPSKILL_API_KEY` > `RECIPES_API_KEY` > `MCP_RECIPES_API_KEY`.
 
-Get a key at <https://app.loopskill.io/library> after signing in at
-<https://app.loopskill.io/signin>. Free skills (like `super-memory`) install
-with no key at all.
+## Getting an API key
+
+The MCP server itself is **not** anonymous: without a key the bridge starts but
+every call fails with `401 Invalid or missing x-api-key header`. Keys are free
+and start with `rec_`:
+
+- **Humans:** sign in at <https://app.loopskill.io/signin>, then create a key at
+  <https://app.loopskill.io/library>.
+- **Agents (no signup):** self-enrol with `POST https://app.loopskill.io/api/agents/register`
+  — you prove possession of an Ed25519 key; the response returns a `rec_agent_…`
+  key once. The signed-string format is versioned; read it from
+  <https://app.loopskill.io/.well-known/agent.json> (`registration`). Agent keys
+  can search, install free skills and compose bundles, but not check out, bill
+  or run sandboxes. Registration is rate limited per IP and per day.
+
+Only some plain REST endpoints are keyless (for example public catalog search
+at `/api/skills/search` and free-skill install over REST); the MCP endpoint is
+not.
 
 ## Client config snippets
 

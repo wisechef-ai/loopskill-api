@@ -6,8 +6,9 @@ Env-var names and precedence mirror the promise documented in this repo:
 ``LOOPSKILL_API_KEY`` as the canonical stdio env var, with
 ``MCP_LOOPSKILL_API_KEY`` reserved for the Hermes wizard integration and the
 legacy ``RECIPES_API_KEY`` / ``MCP_RECIPES_API_KEY`` names kept working
-"during the transition" per the same doc. Anonymous (no key) is a supported
-mode — SELF_HOST.md: "free skills... install with no key at all".
+"during the transition" per the same doc. With no key the bridge
+still starts (resolve returns None), but the hosted endpoint answers 401 to
+every MCP request; only the plain REST catalog endpoints are keyless.
 """
 
 from __future__ import annotations
