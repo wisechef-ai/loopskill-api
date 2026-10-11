@@ -80,7 +80,7 @@ def runtime_repo_reads() -> set[tuple[str, str]]:
                 continue
             # URL / HTTP route literals ("/api/bundles/install.sh", "https://...")
             # name endpoints, not repo files.
-            if any(s.startswith(("/api/", "/install", "http://", "https://")) or "://" in s for s in seg):
+            if any(s.startswith(("/api/", "http://", "https://")) or "://" in s for s in seg):
                 continue
             parts = [p for s in seg for p in s.split("/") if p and p not in (".", "..")]
             # every suffix: the anchor (ROOT, parents[1], __file__...) is not a literal
@@ -111,7 +111,9 @@ def test_scanner_finds_known_runtime_reads():
 # module, so that entry is scoped to the decorator's ledger= keyword usage below.
 NOT_RUNTIME_READS: dict[str, tuple[str, ...]] = {
     # skill_patch_validation.py blocks a skill-TARBALL member of this name.
-    "install.sh": ("app/skill_patch_validation.py",),
+    # bundle_install_script_routes.py: the route literal @_h.get("/install.sh");
+    # the script body is built inline, the repo file is never opened.
+    "install.sh": ("app/skill_patch_validation.py", "app/bundle_install_script_routes.py"),
     # @tombstoned(ledger=...) stores the path as a label in TOMBSTONES; never opened.
     "docs/ops/tombstones.md": ("@tombstoned-ledger",),
 }
@@ -125,13 +127,20 @@ def _tombstone_ledger_only(mod: str) -> bool:
         for n in ast.walk(tree)
         if isinstance(n, ast.Constant) and isinstance(n.value, str) and n.value.endswith("tombstones.md")
     )
+
+    def _is_tombstoned(func: ast.AST) -> bool:
+        return (isinstance(func, ast.Name) and func.id == "tombstoned") or (
+            isinstance(func, ast.Attribute) and func.attr == "tombstoned"
+        )
+
     as_ledger = sum(
         1
-        for n in ast.walk(tree)
-        if isinstance(n, ast.keyword)
-        and n.arg == "ledger"
-        and isinstance(n.value, ast.Constant)
-        and str(n.value.value).endswith("tombstones.md")
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call) and _is_tombstoned(call.func)
+        for kw in call.keywords
+        if kw.arg == "ledger"
+        and isinstance(kw.value, ast.Constant)
+        and str(kw.value.value).endswith("tombstones.md")
     )
     return total == as_ledger
 
