@@ -7,22 +7,8 @@ made "is the live box running the code we shipped?" unverifiable from
 ``/api/healthz``. Every deploy that changes behaviour MUST bump this constant
 so the healthz probe can prove the cutover landed.
 
-Entries for 0.9.4-0.9.13, 0.9.19-0.9.23 and 0.9.25-0.9.27 are archived verbatim in
+Entries for 0.9.4-0.9.13, 0.9.19-0.9.23 and 0.9.25-0.9.28 are archived verbatim in
 docs/version-history.md.
-
-fleetos_1607 Phase E (0.9.28): BYO-repo registries — metadata-only = the
-hyperscale gate. Two additive tables (artifact_origins, origin_drift_events) +
-app/services/byo_origin.py. A private fleet brings its OWN GitHub repo; LoopSkill
-stores the artifact ORIGIN (github:owner/repo@<sha>:<path>, SHA always — tags move,
-force-push exists) + a content-hash LOCK, and NOTHING ELSE. Agents fetch the bytes
-DIRECTLY from the user's repo with the user's token (secretRef) and verify the
-fetched content's hash against the lock — refusing FAIL-CLOSED on mismatch and
-recording an origin-drift event (force-push / tamper / wrong-SHA audit trail).
-Server content_bytes_stored == 0 by design — storage stays flat per private fleet
-(the hyperscale receipt, §0 #8). Public catalog unchanged (durable store).
-10 RED-proofed tests (SHA-only pin, lock storage, hash-verify OK, force-push
-fail-closed + drift event, failed-fetch fail-closed, metadata-only footprint).
-Migration a520ed06c5d2 round-trips on SQLite + Postgres. Additive-only.
 
 fleetos_1607 Phase D (0.9.29): fleet run registry — honest event semantics.
 Upgrades the shipped loop_runs facts table (activate_0701, at-least-once emitter,
@@ -594,6 +580,18 @@ ah_1011 MCP Registry listing (0.9.65): server.json (remote-only, streamable-http
     anonymous MCP access: the hosted endpoint 401s every keyless request; a free
     key comes from the library page or POST /api/agents/register. No app
     behaviour or auth change.
+ah_1011 claimgate v2 contract (0.9.66): the Postiz-side rule sync on
+    wisechef-hq failed 800/800 runs since 2026-10-06: GET /api/marketing/claims
+    served v1 (retired_rules as id strings, no amount_rules/public_tiers) and
+    sync() refuses a pre-v2 contract, so Postgres kept rules bootstrapped once
+    from a file and a tiers.yaml reprice would never reach the gate. /claims now
+    also serves the v2 rule set built by app/services/claims_contract.py (ported
+    from claimgate-1006) from config/tiers.yaml + config/claims_contract.yaml.
+    approved_facts and /claims/check are unchanged; the v1 rule ids moved to
+    retired_rule_ids (the only consumer, Chef's claims_gate, checks truthiness).
+    contract_hash no longer depends on PYTHONHASHSEED (equal-length alternatives
+    were ordered from a set). deploy/claimgate/ is the source of the hq scripts,
+    plus rule_strictness_diff.py: run it before any sync that replaces rules.
 """
 
-__version__ = "0.9.65"
+__version__ = "0.9.66"
