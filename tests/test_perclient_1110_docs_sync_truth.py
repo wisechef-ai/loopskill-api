@@ -28,7 +28,9 @@ def test_scans_real_files():
 
 
 def test_no_doc_claims_sync_auto_updates_installed_skills():
-    bad = re.compile(r"auto-update|self-updating skill library|downloads and applies new versions", re.I)
+    bad = re.compile(
+        r"auto-updat|self-updating skill library|downloads and applies new versions|zero config drift", re.I
+    )
     hits = [f"{p.name}: {m.group(0)}" for p in FILES for m in bad.finditer(p.read_text(encoding="utf-8"))]
     assert hits == []
 
@@ -41,10 +43,28 @@ def test_no_doc_uses_the_nonexistent_mode_argument():
 
 
 def test_sync_docs_say_reinstall_updates_local_files():
+    """Each doc must say sync moves pins and that re-running bundle_install updates files."""
     for name in ("README.md", "SKILL.md", "QUICKSTART-subscriber.md"):
         text = _read(name)
-        assert "loopskill_sync" in text, name
-        assert "loopskill_bundle_install" in text, name
+        sync_lines = [ln for ln in text.splitlines() if "loopskill_sync" in ln and "pin" in ln.lower()]
+        assert sync_lines, f"{name}: no line says loopskill_sync moves pins"
+        assert re.search(r"re-run(ning)? `?loopskill_bundle_install", text, re.I), name
+
+
+def test_quickstart_uses_real_argument_names():
+    """Dispatch reads args['slug'] for install; recall requires `query` (else query_required)."""
+    text = _read("QUICKSTART-subscriber.md")
+    assert "skill_slug" not in text
+    assert re.search(r'loopskill_install\(\{"slug":', text)
+    assert re.search(r'loopskill_recall\(\{"query":', text)
+    # the bundle used for updates must be created before it is updated
+    assert text.index("loopskill_compose_bundle_from_links") < text.index("loopskill_sync")
+
+
+def test_stub_tools_are_not_advertised():
+    """loopskill_subskill_resolve ignores its input and returns a constant (Phase C stub)."""
+    for p in FILES:
+        assert "subskill_resolve" not in p.read_text(encoding="utf-8"), p.name
 
 
 def test_readme_pricing_names_both_caps_and_the_pro_only_tools():
@@ -56,12 +76,11 @@ def test_readme_pricing_names_both_caps_and_the_pro_only_tools():
 
 
 def test_tool_table_names_only_registered_mcp_tools():
-    from app import mcp as mcp_pkg
+    from app.mcp.registry import _tool_definitions  # the exact list tools/list serves
 
-    root = Path(mcp_pkg.__file__).resolve().parent
-    src = "\n".join(p.read_text(encoding="utf-8") for p in root.rglob("*.py"))
+    registered = {t.name for t in _tool_definitions()}
     table = _read("README.md").split("## MCP tools", 1)[1].split("\n---\n", 1)[0]
     names = re.findall(r"^\| `([a-z_]+)` \|", table, re.M)
     assert names, "tool table not found"
-    missing = [n for n in names if f'"{n}"' not in src]
+    missing = [n for n in names if n not in registered]
     assert missing == []

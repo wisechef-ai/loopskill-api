@@ -1,86 +1,66 @@
-# Quickstart: Install & Update Your First Skill in 5 Minutes
+# Quickstart: Install & Update Your First Skills in 5 Minutes
 
-This guide shows you how to install a skill from the LoopSkill marketplace and keep it up to date.
+This guide shows you how to install skills from the LoopSkill marketplace, keep them in one bundle, and update them on every machine you use. Every call below was run end to end on two machines (Debian x86_64 and macOS arm64) on 2026-10-11.
 
 ## Prerequisites
 
-- An API key from [app.loopskill.io](https://app.loopskill.io) (free tier works)
-- An MCP-connected agent (Hermes, Claude Desktop, Codex CLI, etc.)
+- An API key: sign in at [app.loopskill.io](https://app.loopskill.io/signin), then copy the key from your Library or create one on your Account page (the free tier works). Free catalog skills also install with no key at all.
+- An MCP-connected agent pointed at `https://app.loopskill.io/api/mcp/http/` with the header `x-api-key: <your key>`.
 
-## Step 1: Search for a Skill
-
-Use `loopskill_search` to find skills relevant to your use case:
+## Step 1: Search for a skill
 
 ```
-> loopskill_search({"query": "SEO audit for marketing agencies"})
+> loopskill_search({"query": "code review"})
 ```
 
-You'll get ranked results with descriptions, ratings, and install counts.
+Each result carries a `slug` — that is the identifier the next steps use.
 
-## Step 2: Install the Skill
-
-Use `loopskill_install` to add the skill to your workspace:
+## Step 2: Install one skill
 
 ```
-> loopskill_install({"skill_slug": "seo-audit-pro"})
+> loopskill_install({"slug": "code-review"})
 ```
 
-This downloads the skill files to your `skills/` directory and makes them immediately available to your agent.
+The response is a download envelope: `tarball_url`, `checksum_sha256`, `version`. Download the tarball, check that the sha256 of the bytes matches `checksum_sha256`, and unpack it into your agent's skills folder (for Claude Code: `~/.claude/skills/<slug>/`).
 
-## Step 3: Check Your Bundle Status
+## Step 3: Put your skills in a bundle (once)
 
-Use `loopskill_list_bundle` to see all installed skills and their update status:
-
-```
-> loopskill_list_bundle({})
-```
-
-The response includes a `cookbook_status` block for each skill:
-
-```json
-{
-  "cookbook_id": "abc-123",
-  "skills": [
-    {
-      "slug": "seo-audit-pro",
-      "version": "1.2.0",
-      "status": "current",
-      "latest_version": "1.2.0"
-    }
-  ]
-}
-```
-
-## Step 4: Update when a new version is published
-
-Updating is two moves: move the bundle's pins on the server, then refresh the files on each machine.
+A bundle is a named list of skills you install together. Create it once, from any machine:
 
 ```
-> loopskill_sync({"bundle_id": "<your bundle id>", "dry_run": true})    # preview the pin changes
-> loopskill_sync({"bundle_id": "<your bundle id>"})                     # apply them
-> loopskill_bundle_install({"bundle_id": "<your bundle id>"})           # on EACH machine
+> loopskill_compose_bundle_from_links({"links": ["skill://code-review", "skill://pr-draft"], "name": "client-a"})
 ```
 
-`loopskill_sync` only changes the bundle's version pins on the server — it never touches files on your machine. `loopskill_bundle_install` returns a download URL and sha256 for every skill; download each tarball, check its sha256, and unpack it into your skills folder. Re-running the install is the update.
+Keep the returned `bundle` id. To add a skill later: `POST /api/bundles/<bundle id>/skills` with `{"slug": "<slug>"}` (there is no MCP tool for this yet).
 
-## Step 5: Recall a Skill Anytime
+On the Free tier the bundle is private and counts toward your private-bundle limit; your Liked list counts too.
 
-Need the full content of a previously installed skill?
+## Step 4: Install the bundle on every machine
 
 ```
-> loopskill_recall({"skill_slug": "seo-audit-pro"})
+> loopskill_bundle_install({"bundle_id": "<bundle id>"})
 ```
 
-Returns the complete skill body — no re-download needed.
+It returns one download envelope per skill. Do the same download → sha256 check → unpack for each, and keep a small lockfile of slug, version and sha256 so the next run can skip unchanged skills.
 
-## The update loop
+## Step 5: Update
 
-Here's the recommended pattern for production agents:
+```
+> loopskill_sync({"bundle_id": "<bundle id>", "dry_run": true})   # preview the pin changes
+> loopskill_sync({"bundle_id": "<bundle id>"})                    # move the pins to the latest versions
+> loopskill_bundle_install({"bundle_id": "<bundle id>"})          # then, on EACH machine
+```
 
-1. **On startup**: Call `loopskill_list_bundle` to check current state
-2. **Periodically** (hourly/daily): `loopskill_sync` the bundle, then re-run `loopskill_bundle_install` on each machine and replace any skill whose sha256 changed
-3. **On demand**: Use `loopskill_recall` to refresh any skill's instructions
+`loopskill_sync` only changes the bundle's version pins on the server — it never touches files on your machine. Re-running `loopskill_bundle_install` and replacing any skill whose sha256 changed is what updates a machine.
+
+## Step 6: Find a skill by what it does
+
+```
+> loopskill_recall({"query": "summarise a pull request"})
+```
+
+`loopskill_recall` is ranked search (BM25 + vector) over the catalog; use `loopskill_install` to fetch a result.
 
 ---
 
-**That's it.** The same bundle, verified by sha256, on every machine you run.
+**That's it.** One bundle, the same sha256 on every machine you run.

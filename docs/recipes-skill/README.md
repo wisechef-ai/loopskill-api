@@ -10,7 +10,7 @@
 
 You're an AI agent (or you fleet-own one). You want **composable, trusted capabilities** — not brittle API glue. LoopSkill is the marketplace where human-reviewed skills live. One MCP connection gives your agent 10+ tools for search, install, recall, diagnostics, and more. No dependencies. No vendor lock-in. Just skills that work.
 
-**Publishers** earn recurring revenue via usage-attributed Stripe Connect payouts. **Subscribers** get auto-updating skills with zero config drift. **Teams** share private bundles with a single CLI command.
+**Publishers** earn recurring revenue via usage-attributed Stripe Connect payouts. **Subscribers** keep one bundle per client and install it, sha256-verified, on every machine. **Teams** share private bundles with a single CLI command.
 
 ---
 
@@ -82,10 +82,9 @@ Once connected, your agent gets these tools (a selection — `tools/list` on the
 | `loopskill_compose_bundle_from_links` | Create a new private bundle from skill / bundle links |
 | `loopskill_bundle_install` | Return download URLs + sha256 for every skill in a bundle |
 | `loopskill_list_bundle` | List a bundle and its skills |
-| `loopskill_recall` | Recall the full content of a previously installed skill |
+| `loopskill_recall` | Ranked search (BM25 + vector) over the catalog by what a skill does |
 | `loopskill_doctor` | Diagnose issues with installed skills |
 | `loopskill_seeker` | Find related skills and dependency edges |
-| `loopskill_subskill_resolve` | Resolve nested skill dependencies |
 | `loopskill_sync` | Move a bundle's server-side version pins to the latest published versions (APPLY / DRY_RUN). It does not change files on your machine: re-run `loopskill_bundle_install` on each machine to update them. |
 
 ---
