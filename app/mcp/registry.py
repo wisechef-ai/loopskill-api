@@ -208,10 +208,13 @@ def _core_tools() -> list[types.Tool]:
         types.Tool(
             name="loopskill_sync",
             description=(
-                "Synchronise a bundle's skills to their latest published "
-                "versions. By default (dry_run=false) this APplies updates "
-                "immediately. Pass dry_run=true to preview the diff without "
-                "mutating state."
+                "Optional: PINS a bundle's skills to their current latest "
+                "versions, so every machine stays on the same versions. Not "
+                "needed to get updates: an unpinned bundle always installs the "
+                "latest. To update a machine, re-run loopskill_bundle_install; "
+                "sync changes no files. dry_run=true previews the pin changes; "
+                "unpin=true clears the pins so the bundle follows the latest "
+                "again. Applies by default (dry_run=false)."
             ),
             inputSchema={
                 "type": "object",
@@ -237,6 +240,14 @@ def _core_tools() -> list[types.Tool]:
                         "description": (
                             "If true, return the diff without applying changes. "
                             "Default is false (apply immediately)."
+                        ),
+                    },
+                    "unpin": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "If true, clear the bundle's pins instead of setting them, "
+                            "so its skills install the latest version again."
                         ),
                     },
                 },

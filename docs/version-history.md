@@ -5,6 +5,19 @@ sits under the 600-line gate (`tests/test_w0_2_pyfile_size_discipline.py`), so
 the oldest entries are moved here verbatim when it fills up. Newest entries
 stay in `app/version.py`.
 
+## 0.9.30 (archived 2026-10-12, loopskill-api#405 one pin model)
+
+fleetos_1607 Phase T (0.9.30): the trojan skill — the fleet control-plane front
+door. GET /fleet/skill serves a complete fleet-control-plane SKILL.md
+(docs/fleet-skill/SKILL.md) as text/plain, no redirect (larrybrain pattern) —
+any agent that reads markdown becomes a fleet CLIENT in one curl (enroll,
+reconcile, report runs, harvest, and with an operator key, placements). Public
+GET-only (added to APIKeyMiddleware.EXEMPT_PATHS); distinct from /skill (the
+marketplace skill). Registered in main.py + tests/_app_factory._ROUTER_SPECS.
+AGENTS.md refreshed with the fleetos control-plane framing + the dispatch_chain
+convention. 4 RED-proofed tests (cold-agent keyless 200, alt paths, route in real
+create_app, EXEMPT_PATHS pin). No schema, no migration.
+
 ## 0.9.29 (archived 2026-10-11, perclient_1110 rebase onto 0.9.66)
 
 fleetos_1607 Phase D (0.9.29): fleet run registry — honest event semantics.

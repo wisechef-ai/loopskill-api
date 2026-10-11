@@ -1,8 +1,9 @@
 """bundle_status — query outdated skills for a user's bundles.
 
 Used by the MCP dispatcher to inject a ``bundle_status`` block into every
-tool response when the authenticated user has skills with newer versions
-available.
+tool response when the authenticated user has PINNED skills whose pin is behind
+the latest version (loopskill-api#405: unpinned skills install the latest and
+are never reported).
 
 Caching: Redis with 60 s TTL, keyed on ``bundle_status:<user_id>:<org_id>``.
 If Redis is unavailable (e.g., in the test environment), caching is skipped
@@ -37,6 +38,16 @@ logger = logging.getLogger("loopskill.bundle_status")
 
 _TTL = 60  # seconds
 
+# loopskill-api#405: only pinned-behind skills are reported, so the hint is about
+# pins. Unpinned skills always install the latest and are never listed here.
+_PINNED_BEHIND_HINT = (
+    "These skills are pinned below their latest version. To move the pins to the "
+    "latest versions call loopskill_sync(<bundle_id>); to stop pinning and follow "
+    "the latest call loopskill_sync(<bundle_id>, unpin=true). Either way, re-run "
+    "loopskill_bundle_install on each machine to update its files. Unpinned skills "
+    "always install the latest: re-run loopskill_bundle_install to update them."
+)
+
 
 def _redis_client():  # pragma: no cover — optional dependency
     """Return a Redis client if available, else None."""
@@ -62,10 +73,13 @@ def get_bundle_status(
     caller's ``user_id`` without their tenant can therefore no longer widen the
     result set by accident.
 
+    Only PINNED skills whose pin is behind the latest are reported (#405): an
+    unpinned skill always installs the latest, so it is never outdated.
+
     Returns *None* when:
       - user_id is None
       - the caller has no cookbooks IN THIS TENANT
-      - all pinned versions are already at latest
+      - no pinned skill is behind its latest version
     """
     if user_id is None:
         return None
@@ -122,13 +136,16 @@ def get_bundle_status(
 
     latest_by_skill = latest_semver_for_skills(db, {r.skill_id for r in candidate_rows})
 
-    # Outdated when the skill has a latest version AND (pin is NULL or pin != latest).
+    # loopskill-api#405: outdated ONLY when the skill is pinned (install honours
+    # pinned_version, bundle_install._resolve_version) and the pin is behind the
+    # latest. An unpinned row always installs the latest, so it is never stale —
+    # counting it told every agent to sync, and sync PINS, freezing the bundle.
     rows = []
     for r in candidate_rows:
         latest = latest_by_skill.get(r.skill_id)
-        if latest is None:
+        if latest is None or r.pinned_version is None:
             continue
-        if r.pinned_version is None or r.pinned_version != latest:
+        if r.pinned_version != latest:
             rows.append(
                 type(
                     "Row",
@@ -170,7 +187,7 @@ def get_bundle_status(
 
     result: dict[str, Any] = {
         "your_cookbooks": list(cookbooks_map.values()),
-        "hint": "Call loopskill_sync(<cookbook_id>) to apply updates.",
+        "hint": _PINNED_BEHIND_HINT,
     }
 
     _cache_set(cache_key, result)

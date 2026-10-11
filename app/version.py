@@ -7,19 +7,8 @@ made "is the live box running the code we shipped?" unverifiable from
 ``/api/healthz``. Every deploy that changes behaviour MUST bump this constant
 so the healthz probe can prove the cutover landed.
 
-Entries for 0.9.4-0.9.13, 0.9.19-0.9.23 and 0.9.25-0.9.28 are archived verbatim in
+Entries for 0.9.4-0.9.13, 0.9.19-0.9.23 and 0.9.25-0.9.30 are archived verbatim in
 docs/version-history.md.
-
-fleetos_1607 Phase T (0.9.30): the trojan skill — the fleet control-plane front
-door. GET /fleet/skill serves a complete fleet-control-plane SKILL.md
-(docs/fleet-skill/SKILL.md) as text/plain, no redirect (larrybrain pattern) —
-any agent that reads markdown becomes a fleet CLIENT in one curl (enroll,
-reconcile, report runs, harvest, and with an operator key, placements). Public
-GET-only (added to APIKeyMiddleware.EXEMPT_PATHS); distinct from /skill (the
-marketplace skill). Registered in main.py + tests/_app_factory._ROUTER_SPECS.
-AGENTS.md refreshed with the fleetos control-plane framing + the dispatch_chain
-convention. 4 RED-proofed tests (cold-agent keyless 200, alt paths, route in real
-create_app, EXEMPT_PATHS pin). No schema, no migration.
 
 fleetos_1607 Phase C (0.9.31): golden bundle composition + bootstrap planner.
 app/services/golden_bundle.py composes ALL artifact types (loop manifests +
@@ -586,6 +575,13 @@ perclient_1110 page-view beacon (0.9.67): app.loopskill.io has no access log,
     funnel_ledger fleet/stranger/unknown class. Junk, oversized (>2 KB),
     non-allowlisted and over-limit (30/min/IP) requests get the same empty 204
     and write nothing. No migration, no cookies.
+loopskill-api#405 one pin model (0.9.68): bundle_status counted every unpinned
+    skill as outdated and told the agent to loopskill_sync "to apply updates";
+    sync PINS, so following the hint froze the bundle (prod 224/224 unpinned).
+    Now only a pinned skill behind its latest is outdated, the hint says sync
+    advances pins and re-install updates. Sync writes pin_mode='pin' with
+    pinned_version (the lock resolver reads pin_mode) and re-syncs the lock;
+    loopskill_sync(unpin=true) clears pins back to 'track'. Registry text fixed.
 """
 
-__version__ = "0.9.67"
+__version__ = "0.9.68"
