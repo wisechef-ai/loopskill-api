@@ -389,6 +389,49 @@ def flow_wellknown_agent_json(ctx: VerifyContext) -> dict[str, Any]:
     }
 
 
+def flow_page_view_beacon(ctx: VerifyContext) -> dict[str, Any]:
+    import json as _json_mod
+    import uuid as _uuid
+
+    from app.models import TelemetryEvent
+
+    page = f"/use-cases/verify-beacon-{_uuid.uuid4().hex[:8]}/"
+    junk_path = "/admin/not-allowlisted"
+
+    def _paths() -> list[str | None]:
+        session = ctx.session()
+        try:
+            rows = session.query(TelemetryEvent).filter(TelemetryEvent.event_type == "page_view").all()
+            return [_json_mod.loads(r.payload or "{}").get("path") for r in rows]
+        finally:
+            session.close()
+
+    before = _paths()
+    ok = ctx.client.post(
+        "/api/pv", content=_json_mod.dumps({"path": page}), headers={"content-type": "text/plain"}
+    )
+    junk = ctx.client.post("/api/pv", json={"path": junk_path})
+    after = _paths()
+    _require(
+        ok.status_code == 204 and ok.content == b"", f"page_view_beacon: allowlisted -> {ok.status_code}"
+    )
+    _require(junk.status_code == 204 and junk.content == b"", f"page_view_beacon: junk -> {junk.status_code}")
+    _require(
+        len(after) - len(before) == 1, f"page_view_beacon: expected +1 row, got +{len(after) - len(before)}"
+    )
+    _require(after.count(page) == 1, f"page_view_beacon: expected one row for {page}")
+    _require(
+        after.count(junk_path) == before.count(junk_path), "page_view_beacon: non-allowlisted path was stored"
+    )
+    return {
+        "ok": True,
+        "steps": [
+            "POST /api/pv <unique /use-cases/ path> (text/plain) -> 204, exactly +1 page_view row",
+            f"POST /api/pv {junk_path} -> 204, no row",
+        ],
+    }
+
+
 FLOW_RUNNERS: dict[str, FlowRunner] = {
     "health": flow_health,
     "skill_search": flow_skill_search,
@@ -400,6 +443,7 @@ FLOW_RUNNERS: dict[str, FlowRunner] = {
     "mcp_tools_list": flow_mcp_tools_list,
     "fleet_skill_serve": flow_fleet_skill_serve,
     "wellknown_agent_json": flow_wellknown_agent_json,
+    "page_view_beacon": flow_page_view_beacon,
 }
 
 

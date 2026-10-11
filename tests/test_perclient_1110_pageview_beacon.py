@@ -221,3 +221,72 @@ def test_allowlist_is_a_module_constant():
     from app.services import pageview
 
     assert pageview.ALLOWED_PATH_PREFIXES == ("/use-cases/", "/blog/")
+
+
+# ── review hardening (codex gpt-6.1-sol SHOULD-FIX on PR #402) ─────────────
+
+
+def test_chunked_oversized_body_without_content_length_writes_nothing(db_session, monkeypatch):
+    """A streamed body with no Content-Length is bounded by the reader, not the header."""
+    c = _client(db_session, monkeypatch)
+    big = json.dumps({"path": PAGE, "utm_content": "a" * 5000}).encode()
+
+    def gen():
+        yield big[:10]
+        yield big[10:]
+
+    r = c.post("/api/pv", content=gen(), headers={"content-type": "text/plain"})
+    assert "content-length" not in {k.lower() for k in r.request.headers}
+    assert r.status_code == 204
+    assert _rows(db_session) == []
+
+
+def test_chunked_small_body_without_content_length_is_recorded(db_session, monkeypatch):
+    c = _client(db_session, monkeypatch)
+    body = json.dumps({"path": PAGE}).encode()
+
+    def gen():
+        yield body[:5]
+        yield body[5:]
+
+    r = c.post("/api/pv", content=gen(), headers={"content-type": "text/plain", "user-agent": HUMAN_UA})
+    assert r.status_code == 204
+    assert len(_rows(db_session)) == 1
+
+
+def test_spoofed_forwarded_for_from_untrusted_peer_is_ignored(db_session, monkeypatch):
+    """A direct (untrusted) caller cannot claim a fleet IP via X-Forwarded-For."""
+    monkeypatch.setattr(settings, "TRUSTED_PROXY_CIDRS", ["127.0.0.1/32"], raising=False)
+    c = _client(db_session, monkeypatch, ip=STRANGER_IP)
+    r = c.post(
+        "/api/pv",
+        json={"path": PAGE},
+        headers={"user-agent": HUMAN_UA, "x-forwarded-for": FLEET_IP, "cf-connecting-ip": FLEET_IP},
+    )
+    assert r.status_code == 204
+    row = _rows(db_session)[0]
+    assert row.client_ip == STRANGER_IP
+    assert _payload(row)["class"] == "stranger"
+
+
+def test_forwarded_for_from_trusted_proxy_is_honoured(db_session, monkeypatch):
+    monkeypatch.setattr(settings, "TRUSTED_PROXY_CIDRS", ["127.0.0.1/32"], raising=False)
+    c = _client(db_session, monkeypatch, ip="127.0.0.1")
+    r = c.post(
+        "/api/pv", json={"path": PAGE}, headers={"user-agent": HUMAN_UA, "x-forwarded-for": STRANGER_IP}
+    )
+    assert r.status_code == 204
+    assert _rows(db_session)[0].client_ip == STRANGER_IP
+
+
+def test_db_write_failure_is_still_204(db_session, monkeypatch):
+    """A failed commit must never surface as a 5xx (best-effort analytics)."""
+    c = _client(db_session, monkeypatch)
+
+    def boom(*_a, **_k):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(db_session, "commit", boom)
+    r = c.post("/api/pv", json={"path": PAGE}, headers={"user-agent": HUMAN_UA})
+    assert r.status_code == 204
+    assert r.content == b""

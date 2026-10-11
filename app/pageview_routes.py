@@ -5,9 +5,10 @@ visits to a portal page. The static portal calls ``navigator.sendBeacon``
 (Content-Type text/plain) or same-origin ``fetch`` (application/json); either
 way the raw body is parsed as JSON here, so no content-type is required.
 
-Contract: the response is ALWAYS an empty 204 — valid, junk, oversized,
-non-allowlisted, rate-limited or a failed write all look identical to the
-caller. Anonymous by design: ``/api/pv`` is in APIKeyMiddleware's
+Contract: this handler always answers an empty 204 — valid, junk, oversized,
+non-allowlisted, per-IP rate-limited or a failed write all look identical to
+the caller. (The global RateLimitMiddleware in front of every anonymous route
+can still answer 429 before the request reaches this handler.) Anonymous by design: ``/api/pv`` is in APIKeyMiddleware's
 PUBLIC_POST_ONLY_PATHS. Parsing/classification lives in app/services/pageview.py.
 """
 
@@ -36,9 +37,11 @@ async def _bounded_body(request: Request) -> bytes | None:
         return None
     buf = bytearray()
     async for chunk in request.stream():
-        buf.extend(chunk)
-        if len(buf) > pageview.MAX_BODY_BYTES:
+        # Check BEFORE copying: a single huge chunk (chunked transfer, no
+        # Content-Length) must never be buffered past the bound.
+        if len(buf) + len(chunk) > pageview.MAX_BODY_BYTES:
             return None
+        buf.extend(chunk)
     return bytes(buf)
 
 
