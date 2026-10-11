@@ -1,0 +1,26 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.wisechef-ai/loopskill",
+  "title": "LoopSkill",
+  "description": "Search, install and compose AI agent skills, loops and bundles from the LoopSkill marketplace.",
+  "version": "0.9.65",
+  "websiteUrl": "https://app.loopskill.io",
+  "repository": {
+    "url": "https://github.com/wisechef-ai/loopskill-api",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://app.loopskill.io/api/mcp/http/",
+      "headers": [
+        {
+          "name": "x-api-key",
+          "description": "LoopSkill API key (starts with rec_). Free: an agent can self-enrol via POST https://app.loopskill.io/api/agents/register (Ed25519 proof, no signup); humans can create one at https://app.loopskill.io/library.",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

@@ -587,6 +587,13 @@ ah_1010 relaxed ordering (0.9.64): live 0.9.63 answered "code review qzxwvj"
     with argus/code111 first: every row covered 2 of 3 words and the title
     tiebreak picked the page from thousands. Relaxed rows now order by words
     covered, then words in slug/title, then shortest slug.
+ah_1011 MCP Registry listing (0.9.65): server.json (remote-only, streamable-http,
+    x-api-key declared as a required secret header, name io.github.wisechef-ai/
+    loopskill) + a manual workflow_dispatch OIDC workflow that publishes it to
+    registry.modelcontextprotocol.io. The loopskill-mcp README no longer claims
+    anonymous MCP access: the hosted endpoint 401s every keyless request; a free
+    key comes from the library page or POST /api/agents/register. No app
+    behaviour or auth change.
 """
 
-__version__ = "0.9.64"
+__version__ = "0.9.65"
