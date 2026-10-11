@@ -93,8 +93,10 @@ Once connected, your agent gets these tools — no extra configuration:
 
 | Tier | Price | What you get |
 |------|-------|-------------|
-| **Free** | $0 | Install every public skill and bundle, unlimited installs, 2 private bundles |
-| **Pro** | $9.95/mo | Everything in Free, 50 private bundles |
+| **Free** | $0 | Install every public skill and bundle, unlimited installs, 2 private bundles, 1 API key |
+| **Pro** | $9.95/mo | Everything in Free, 50 private bundles, 10 API keys |
+
+Two limits differ: private bundles (Free 2, Pro 50) and API keys (Free 1, Pro 10). Your Liked list is a private bundle and counts as one from the moment you open your Library, so Free leaves room for one more. One API key works on every machine at once; separate keys let you revoke one machine or client without touching the rest. Public bundles are unlimited on every tier.
 
 Free skills also install with no account at all. Canonical, current pricing: https://app.loopskill.io/pricing
 
