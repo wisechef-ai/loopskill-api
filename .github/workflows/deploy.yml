@@ -26,6 +26,11 @@ on:
       # #403 bcb64cd, 2026-10-12).
       - "docs/recipes-skill/**"
       - "docs/fleet-skill/**"
+      # retired-skills.txt is read at import time (install/skill routes) — a
+      # retire-only merge must ship. alembic.ini: the deploy job runs alembic.
+      # tests/test_deploy_paths_cover_runtime_docs.py derives this list from app/.
+      - "retired-skills.txt"
+      - "alembic.ini"
       - "requirements.txt"
       - "pyproject.toml"
       - ".github/workflows/deploy.yml"
