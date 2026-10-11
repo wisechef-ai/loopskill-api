@@ -43,12 +43,31 @@ def test_no_doc_uses_the_nonexistent_mode_argument():
 
 
 def test_sync_docs_say_reinstall_updates_local_files():
-    """Each doc must say sync moves pins and that re-running bundle_install updates files."""
+    """Re-running bundle_install is the update; sync is optional and PINS the bundle.
+
+    app/mcp/tools/bundle_install._resolve_version serves the pin if set, else the
+    latest; compose leaves pinned_version NULL; loopskill_sync writes pins.
+    """
     for name in ("README.md", "SKILL.md", "QUICKSTART-subscriber.md"):
         text = _read(name)
+        assert re.search(r"re-run(ning)? `?loopskill_bundle_install", text, re.I) or (
+            name == "QUICKSTART-subscriber.md" and "that is the whole update" in text
+        ), name
         sync_lines = [ln for ln in text.splitlines() if "loopskill_sync" in ln and "pin" in ln.lower()]
-        assert sync_lines, f"{name}: no line says loopskill_sync moves pins"
-        assert re.search(r"re-run(ning)? `?loopskill_bundle_install", text, re.I), name
+        assert sync_lines, f"{name}: no line says loopskill_sync pins"
+        for ln in sync_lines:
+            assert "move the pins to the latest" not in ln.lower(), (
+                f"{name}: sync presented as an update step"
+            )
+    quick = _read("QUICKSTART-subscriber.md")
+    step5 = quick.split("## Step 5", 1)[1].split("## Step 6", 1)[0]
+    assert step5.index("loopskill_bundle_install") < step5.index("loopskill_sync"), "install must come first"
+
+
+def test_self_host_states_pro_key_cap():
+    text = (DOCS.parent / "SELF_HOST.md").read_text(encoding="utf-8")
+    assert "Free and Pro accounts may hold **one** active key" not in text
+    assert "Free 1, Pro 10" in text
 
 
 def test_quickstart_uses_real_argument_names():

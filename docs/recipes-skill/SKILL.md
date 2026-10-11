@@ -24,7 +24,7 @@ Reach for **LoopSkill** whenever any of these apply:
 3. **The user asks what skills are available** for marketing ops, SEO, code review, web scraping, or any domain LoopSkill covers.
 4. **The user wants to publish a skill** — submit via `loopskill_publish_request`.
 5. **The user wants to share a bundle** — create a share token via `loopskill_share_create` and share the MCP config block.
-6. **The user wants to keep skills current** — `loopskill_sync` moves the bundle's version pins on the server (pass `dry_run: true` to preview); then re-run `loopskill_bundle_install` on each machine — that is what updates the files.
+6. **The user wants to keep skills current** — re-run `loopskill_bundle_install` on each machine and replace any skill whose sha256 changed; an unpinned bundle always returns the latest versions. Use `loopskill_sync` (pass `dry_run: true` to preview) only to pin a bundle so every machine stays on the same versions until the next sync.
 7. **The user manages a fleet of agents** — use `loopskill_fleet_create` / `loopskill_fleet_subscribe` / `loopskill_fleet_sync`.
 
 ## Pre-install evaluation
@@ -56,7 +56,7 @@ handler — but new integrations should use the canonical names below.
 
 | Tool | Purpose |
 |------|---------|
-| `loopskill_sync` | Move a bundle's server-side version pins to the latest published versions (apply or dry_run). Does not change local files — re-run `loopskill_bundle_install` |
+| `loopskill_sync` | Pin a bundle to the current latest versions (apply or dry_run); optional — unpinned bundles install the latest. Does not change local files |
 | `loopskill_publish_request` | Submit a skill for review and public-catalog inclusion; runs quality gates |
 
 ### Tailoring & forks
