@@ -216,6 +216,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         "/api/intent-survey",
         "/api/federation/propose",
         "/api/agents/register",
+        "/api/pv",  # perclient_1110: anon page-view beacon; always 204, own per-IP cap
     }
     # Public skill-detail GETs match path-shape /api/skills/{slug} (no trailing path).
     # Distinguished from /api/skills/install (auth) and /api/skills/_download (auth)

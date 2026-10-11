@@ -10,20 +10,6 @@ so the healthz probe can prove the cutover landed.
 Entries for 0.9.4-0.9.13, 0.9.19-0.9.23 and 0.9.25-0.9.28 are archived verbatim in
 docs/version-history.md.
 
-fleetos_1607 Phase D (0.9.29): fleet run registry — honest event semantics.
-Upgrades the shipped loop_runs facts table (activate_0701, at-least-once emitter,
-no dedup) into an HONEST registry. Five additive nullable columns (tick_id,
-attempt, placement_epoch, member_seq, stale_epoch) + app/services/run_registry.py:
-dedup on (loop, tick, attempt, epoch) so duplicate delivery cannot inflate a pass
-rate; `unknown` is a first-class outcome distinct from fail (a killed / non-terminal
-run is unknown, excluded from the pass numerator, visible in the total); a
-stale-epoch run (epoch < the loop's current live placement epoch) is flagged and
-excluded from pass numerators but counted in the health denominator. pass_rate =
-passes / (total - unknown - stale), honest None when nothing counts. fleet_state +
-trust_ledger_view expose the same numbers (trust-log.sh API parity). Existing prod
-rows (NULL tick_id) are exempt from dedup by design. 6 RED-proofed tests. Migration
-7c51d9bc2d36 additive (ADD COLUMN, all nullable) — safe on the populated prod table.
-
 fleetos_1607 Phase T (0.9.30): the trojan skill — the fleet control-plane front
 door. GET /fleet/skill serves a complete fleet-control-plane SKILL.md
 (docs/fleet-skill/SKILL.md) as text/plain, no redirect (larrybrain pattern) —
@@ -592,6 +578,14 @@ ah_1011 claimgate v2 contract (0.9.66): the Postiz-side rule sync on
     contract_hash no longer depends on PYTHONHASHSEED (equal-length alternatives
     were ordered from a set). deploy/claimgate/ is the source of the hq scripts,
     plus rule_strictness_diff.py: run it before any sync that replaces rules.
+perclient_1110 page-view beacon (0.9.67): app.loopskill.io has no access log,
+    so a new portal page had no way to count its visitors. POST /api/pv is an
+    anonymous same-origin beacon (sendBeacon text/plain or fetch JSON) that
+    writes one telemetry_events row (event_type=page_view) for paths under
+    /use-cases/ or /blog/: path, utm_*, referrer host only, ua_bot and the
+    funnel_ledger fleet/stranger/unknown class. Junk, oversized (>2 KB),
+    non-allowlisted and over-limit (30/min/IP) requests get the same empty 204
+    and write nothing. No migration, no cookies.
 """
 
-__version__ = "0.9.66"
+__version__ = "0.9.67"

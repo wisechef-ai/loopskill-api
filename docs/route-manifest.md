@@ -3,7 +3,7 @@
 
 # Route Manifest (bundles_0811 P7)
 
-Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **323** distinct (method, path) surfaces.
+Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **324** distinct (method, path) surfaces.
 
 ## How classification works
 
@@ -24,7 +24,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | admin | 11 |
 | authenticated | 200 |
 | internal | 2 |
-| public | 110 |
+| public | 111 |
 
 ## Full manifest
 
@@ -286,6 +286,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | GET | `/api/personalities/{slug}` | public | `app.personality_routes` | personalities, personalities |
 | DELETE | `/api/personalities/{slug}/like` | public | `app.artifact_like_routes` | engagement, engagement |
 | POST | `/api/personalities/{slug}/like` | public | `app.artifact_like_routes` | engagement, engagement |
+| POST | `/api/pv` | public | `app.pageview_routes` | telemetry, telemetry |
 | POST | `/api/recall` | authenticated | `app.recall_routes` | recall, recall |
 | GET | `/api/recipes/{slug}` | authenticated | `app.recipe_routes` | recipes, recipes, recipes |
 | POST | `/api/recipify` | authenticated | `app.recipify_routes` | recipify, recipify |

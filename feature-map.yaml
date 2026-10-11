@@ -128,3 +128,17 @@ features:
           - The canonical string is the v1 Ed25519 template.
           - Registration points to /api/agents/register and MCP to /api/mcp/http.
     verify: wellknown_agent_json
+  page_view_beacon:
+    path: /api/pv
+    auth: public
+    entry: The static portal fires navigator.sendBeacon (text/plain JSON) on allowlisted pages.
+    source: app/pageview_routes.py
+    flows:
+      - name: anonymous_beacon_roundtrip
+        steps:
+          - POST /api/pv anonymously with an allowlisted path as a text/plain JSON body.
+          - POST /api/pv with a non-allowlisted path.
+        invariants:
+          - Both answer an empty 204.
+          - Exactly one telemetry_events row with event_type=page_view is written, for the allowlisted path only.
+    verify: page_view_beacon

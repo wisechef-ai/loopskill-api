@@ -156,8 +156,8 @@ loop's success check under enforced bounds and hands you a verdict.
 
 ## What's actually in this codebase (and the honest answer to "why so big")
 
-338 app Python files, 83,357 lines of app code, 118 Alembic migrations,
-486 test files (clean-checkout counts; the local tree carries one untracked
+340 app Python files, 83,592 lines of app code, 118 Alembic migrations,
+487 test files (clean-checkout counts; the local tree carries one untracked
 junk test that CI never sees), **2 GitHub stars, 0 forks** (measured 2026-08-21 via `gh
 repo view wisechef-ai/loopskill-api --json stargazerCount,forkCount`).
 

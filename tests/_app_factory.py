@@ -153,6 +153,7 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.first_key_routes", "router", ""),
     ("app.agent_wellknown_routes", "router", ""),
     ("app.agent_registration_routes", "router", ""),
+    ("app.pageview_routes", "router", ""),  # perclient_1110: POST /api/pv beacon
 ]
 
 
