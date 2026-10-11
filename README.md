@@ -14,6 +14,30 @@ network call for `import`/`diff`.
 
 ---
 
+## Get started with your coding agent
+
+Paste this into Claude Code, Codex, Cursor or any coding agent with a shell:
+
+```text
+Clone https://github.com/wisechef-ai/loopskill-api, read AGENT_SETUP.md in it,
+and follow it to install the loopskill CLI and verify it with the drift demo.
+Only set up the self-hosted registry (Docker) if I ask for it.
+Ask me before deleting any data, stopping containers or processes, using sudo,
+or writing into my real skill directories. Never paste API keys or tokens
+into this chat. When it works, show me the verify output and what to do next.
+```
+
+The agent will:
+
+- check Python, `venv` and the demo directory first, and stop on anything it
+  would have to delete or overwrite;
+- install the CLI into a project-local `.venv` and call it by path;
+- prove it works with the drift demo below (drift found, then in sync);
+- hand back the next command for your real skills, plus which commands touch
+  the network or write files.
+
+---
+
 ## 60 seconds: see skill drift, reproducibly
 
 This is a literal, self-contained transcript. Paste every command below
