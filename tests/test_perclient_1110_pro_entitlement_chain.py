@@ -300,5 +300,7 @@ def test_incomplete_pro_subscription_stays_on_free_limits(db, buyer, pro_prices)
     db.expire_all()
     user = db.query(User).filter(User.id == buyer.id).one()
     assert user.subscription_status == "incomplete"
+    # The paid tier IS stored; only the status gate keeps it on Free limits.
+    assert user.subscription_tier == "pro"
 
     _assert_entitlement(client, db, user, bundles=FREE_PRIVATE_BUNDLES, keys=FREE_API_KEYS)
