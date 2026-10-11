@@ -28,7 +28,9 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -105,7 +107,7 @@ INLINE_ALLOWLIST_MARKERS: tuple[str, ...] = (
     "Operator must",  # human role
     "operator can",  # human role
     "operator before",  # human role
-    "operator key",    # auth key, not tier
+    "operator key",  # auth key, not tier
     "operator-scoped",  # auth-scope compound (fleetos manager key), not tier
     "operator/owner",  # auth-scope enumeration (fleetos manager capability), not tier
     "appointed operator",  # fleet-manager capability holder, not tier
@@ -173,9 +175,51 @@ def _line_in_allowed_window(lines: list[str], idx: int) -> bool:
     return any(is_allowed_line(lines[j]) for j in range(lo, hi))
 
 
+def _git_ignored_files(repo_root: Path) -> set[str] | None:
+    """Paths git considers ignored, or None when git is unavailable.
+
+    The live-tree walk must not audit files the repo itself ignores: a local
+    venv created inside the tree (e.g. ``packaging/loopskill-mcp/.venv``) puts
+    thousands of third-party site-packages files under the root, and their
+    incidental use of the words 'operator'/'studio' fails the audit on a
+    machine-by-machine basis. Git is the source of truth for 'not part of this
+    repo', so ask it; SKIP_DIR_PREFIXES below stays as the fallback for
+    checkouts without git.
+    """
+    try:
+        top = subprocess.run(
+            ["git", "-C", str(repo_root), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            check=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    # Only filter when the scan root IS a git work-tree top. A scan root that
+    # merely sits INSIDE some other repo (a tmp dir under a parent checkout)
+    # must not inherit that repo's ignore rules — the caller chose those files.
+    if Path(os.fsdecode(top.stdout.strip())) != repo_root:
+        return None
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo_root), "ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
+            capture_output=True,
+            check=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    # Paths are relative to repo_root (we passed -C); keep them as strings so
+    # they compare directly against _rel() output.
+    return {os.fsdecode(part) for part in proc.stdout.split(b"\0") if part}
+
+
 def scan(repo_root: Path) -> list[tuple[Path, int, str]]:
     """Walk the repo and return (file, lineno, line) tuples for violations."""
     violations: list[tuple[Path, int, str]] = []
+
+    repo_root = repo_root.resolve()
+    ignored = _git_ignored_files(repo_root)
 
     for path in sorted(repo_root.rglob("*")):
         if path.is_dir():
@@ -184,6 +228,11 @@ def scan(repo_root: Path) -> list[tuple[Path, int, str]]:
         rel = _rel(path, repo_root)
 
         if is_allowed_path(rel):
+            continue
+
+        # Untracked-and-ignored (local envs, caches, scratch) — git says these
+        # are not part of the repo; never audit them.
+        if ignored is not None and rel in ignored:
             continue
 
         if path.suffix not in SCAN_EXTENSIONS:
