@@ -1,0 +1,720 @@
+"""claimgate_1006 — the claims contract and its check.
+
+Incident: a scheduled X post (2026-10-04) advertised "Pro gets you 1 cookbook.
+Pro+ gets you 20 cookbooks ... Tiers are free / pro / pro_plus" weeks after
+pro_plus went public:false and cookbooks became bundles. These tests pin:
+
+* REAL_INCIDENTS: real published text is caught, with the right rule ids.
+  COMPOUNDING: every future false claim that ships gets a row here.
+* CLEAN_CORPUS: the live pricing card and the contract's own approved facts
+  pass. A contract that flags its own facts would be useless to producers.
+* Derivation: retired tiers and allowed prices come from config/tiers.yaml,
+  not from literals. Flipping a tier's public flag or repricing it changes
+  the verdict with no other edit (the RED-proof that this is class-level).
+* Portability: every pattern runs unchanged in the Postgres trigger.
+* Routes: anonymous GET /api/marketing/claims and POST .../claims/check.
+"""
+
+from __future__ import annotations
+
+import json
+import unicodedata
+from pathlib import Path
+import re
+
+import pytest
+import yaml
+from fastapi.testclient import TestClient
+
+from app.services import claims_contract as cc
+from app.services import claims_normalize as cn
+from tests._app_factory import build_test_app
+
+# (text, rule ids that MUST fire). Real published copy, trimmed to the claim.
+REAL_INCIDENTS: list[tuple[str, set[str]]] = [
+    (  # x.com/adkrawcz/status/2106658548880953759 — 2026-10-04
+        "Recipes exists to close it. The tier math matters if you touch client work. "
+        "Pro gets you 1 cookbook for your own setup. Pro+ gets you 20 cookbooks, each with "
+        "its own API key, so client #1 through client #20 never share credentials. "
+        "Tiers are free / pro / pro_plus.",
+        {"brand-recipes-product", "cookbook-tier-allowance", "tier-not-public-pro_plus"},
+    ),
+    (  # x.com/adkrawcz/status/2078042238152540645 — 2026-07-17
+        "$20/mo for Pro, zero recipes installed on your agent. Free tier gets you one cookbook. "
+        "Pro is $20/mo for a single cookbook with its own API key. Pro Plus gives you 20 cookbooks.",
+        {"price-recurring", "price-tier-pro", "cookbook-tier-allowance", "tier-not-public-pro_plus"},
+    ),
+    (  # x.com/adkrawcz/status/2057023531842498747 — 2026-05-20
+        "Recipes = the cookbook your AI agent fleet reads from. Pro+: 20 cookbooks, 20 API keys. "
+        "https://recipes.wisechef.ai/docs?ref=x",
+        {"tier-not-public-pro_plus", "cookbook-tier-allowance", "brand-recipes-domain"},
+    ),
+    (  # linkedin 2026-06-12
+        "Recipes Pro+ solves this with cookbook handoff to up to 200 cookbooks in one call.",
+        {"brand-recipes-product", "tier-not-public-pro_plus", "cookbook-tier-allowance"},
+    ),
+]
+
+CLEAN_CORPUS = [
+    # Live /pricing card (rendered 2026-10-06).
+    "Private bundles: Free gives you 2, Pro gives you 50. That is the whole difference.",
+    "Pro $9.95/month. 50 private bundles (Free gives you 2). Cancel anytime.",
+    "Founding Member — $49, forever. Pay once, get Pro for life. Capped at 100 seats.",
+    "Self-host $0 forever. Free $0 · forever. Hosted by us. No card.",
+    "WiseChef installs, updates, and runs this exact skill catalog for you, from $199/month.",
+    # Ordinary prose that shares words with retired rules.
+    "Install the loopskill skill from app.loopskill.io/skill",
+]
+
+
+# Adversarial review of PR #384 (gpt-6.1-sol, REQUEST_CHANGES): every bypass it
+# found must now be caught, and every false positive it found must pass.
+REVIEW_BYPASSES: list[tuple[str, set[str]]] = [
+    ("LoopSkill costs 20 USD/mo", {"price-recurring-suffix"}),
+    ("LoopSkill costs $20/m", {"price-recurring"}),
+    ("Pro $199/month", {"price-tier-pro"}),
+    ("Pro $49/month", {"price-tier-pro", "price-recurring"}),
+    ("Founding Member $9.95 monthly", {"price-tier-founding"}),
+    ("Pro at $9.95/month includes 20 private bundles", {"count-private-bundles", "tier-bundle-cap"}),
+    ("Pro includes 50 private bundles and 20 API keys", {"count-api-keys", "tier-key-cap"}),
+    ("Pro includes 20 private bundles", {"count-private-bundles", "tier-bundle-cap"}),
+    ("Free gets two cookbooks", {"cookbook-tier-allowance"}),
+    ("Pro gets 20  cookbooks", {"cookbook-tier-allowance"}),
+    ("Recipes powers your agents", {"brand-recipes-product"}),
+    ("Pro<b>+</b> for agencies", {"tier-not-public-pro_plus"}),
+    ("Pro&#43; for agencies", {"tier-not-public-pro_plus"}),
+    ("On-demand is $500", {"price-tier-contact-only"}),
+]
+# Round 3 (gpt-6.1-sol): shared bypasses in BOTH engines, now caught.
+REVIEW_BYPASSES += [
+    ("Pro&#0000000043; plan", {"tier-not-public-pro_plus"}),
+    ("Pro&NonBreakingSpace;$199/month", {"unrecognised-html-entity"}),
+    ("Pro\u200b+ for agencies", {"tier-not-public-pro_plus"}),
+    ("Pro\u2003$199/month", {"price-tier-pro"}),
+    ("Pro includes 1 API key", {"tier-key-cap"}),
+    ("Pro&amp;plus; plan", {"unrecognised-html-entity"}),
+]
+# Round 4 (gpt-6.1-sol).
+REVIEW_BYPASSES += [
+    ("Pro includes 20 keys for API access", {"count-api-keys", "tier-key-cap"}),
+    ("Pro&nbsp$199/month", {"price-tier-pro"}),
+    ("Pro&#11141110; plan", {"unrecognised-html-entity"}),
+    ("Pro&#x10FFFF0; plan", {"unrecognised-html-entity"}),
+    ("Pro&#" + "9" * 5000 + "; plan", {"unrecognised-html-entity"}),
+]
+# Round 5 (gpt-6.1-sol).
+REVIEW_BYPASSES += [
+    ("Pro $9,950/month", {"price-tier-pro"}),
+    ("Pro costs only $199/month", {"price-tier-pro", "price-recurring"}),
+    ("Pro is only $199/month", {"price-tier-pro", "price-recurring"}),
+    ("LoopSkill is $199/month", {"price-recurring"}),
+    ("WiseChef: Pro costs $199/month", {"price-tier-pro"}),
+]
+# Round 6 (gpt-6.1-sol).
+REVIEW_BYPASSES += [
+    ("WiseChef costs $199.95/month", {"price-recurring"}),
+    ("WiseChef costs $199 one-time", {"price-one-time"}),
+    ("WiseChef integrates with LoopSkill which costs $199/month", {"price-recurring"}),
+]
+# Round 7 (gpt-6.1-sol).
+REVIEW_BYPASSES += [
+    ("WiseChef costs 1199 USD/month", {"price-recurring-suffix"}),
+    ("LoopSkill costs, unlike WiseChef, $199/month.", {"price-recurring"}),
+    ("WiseChef costs $199/month, and so does LoopSkill.", {"price-recurring"}),
+]
+# Round 8 (gpt-6.1-sol) + the thousands-separator gap found while fixing it.
+REVIEW_BYPASSES += [
+    ("WiseChef costs 1,199 USD/month", {"price-recurring-suffix"}),
+    ("WiseChef costs 1 199 USD/month", {"price-recurring-suffix"}),
+    ("WiseChef costs $1,199/month", {"price-recurring"}),
+    ("LoopSkill costs $1,199/month", {"price-recurring"}),
+    ("Pro is $1,995.00/month", {"price-recurring", "price-tier-pro"}),
+]
+# Round 9 (gpt-6.1-sol): whole count tokens; Windows-1252 numeric references.
+REVIEW_BYPASSES += [
+    ("Pro includes 1,050 private bundles", {"count-private-bundles", "tier-bundle-cap"}),
+    ("Pro includes 1,010 API keys", {"count-api-keys", "tier-key-cap"}),
+    ("Pro includes 1.050 private bundles", {"count-private-bundles", "tier-bundle-cap"}),
+    ("Pro includes 1 050 private bundles", {"count-private-bundles", "tier-bundle-cap"}),
+    ("Pro includes 1,2,50 private bundles", {"tier-bundle-cap"}),
+    ("LoopSkill costs &#128;20/month", {"price-recurring"}),
+    ("LoopSkill costs &#x80;20/month", {"price-recurring"}),
+    ("LoopSkill costs 1,2,20 USD/month", {"price-recurring-suffix"}),
+    ("Pro is $9.9.5/month", {"price-recurring", "price-tier-pro"}),
+]
+# Round 10 (gpt-6.1-sol): punctuation comma before a count; mixed grouping.
+REVIEW_BYPASSES += [
+    ("Pro includes 50 private bundles,20 API keys", {"count-api-keys", "tier-key-cap"}),
+    ("LoopSkill costs $1,000.000.000/month", {"price-recurring"}),
+    ("LoopSkill costs $1.000,000/month", {"price-recurring"}),
+    ("Free: 2 private bundles,50 private bundles", {"tier-bundle-cap"}),
+]
+# Round 11 (gpt-6.1-sol): malformed space-separated runs.
+MALFORMED_RUNS: list[tuple[str, set[str]]] = [
+    ("Pro includes 1 50 private bundles", {"count-private-bundles", "tier-bundle-cap"}),
+    ("LoopSkill costs $1 20/month", {"price-recurring"}),
+    ("Free includes 1 0 API keys", {"count-api-keys", "tier-key-cap"}),
+    ("LoopSkill costs 9 95 USD/month", {"price-recurring-suffix"}),
+]
+REVIEW_BYPASSES += MALFORMED_RUNS
+# Round 12 (gpt-6.1-sol): block tags separate words.
+BLOCK_TAG_CASES: list[tuple[str, set[str]]] = [
+    ("Pro<br>includes 2 private bundles", {"tier-bundle-cap"}),
+    ("Pro<br/>includes 2 private bundles", {"tier-bundle-cap"}),
+    ("<p>Pro</p><p>includes 2 private bundles</p>", {"tier-bundle-cap"}),
+    ("Recipes<br>powers your agents", {"brand-recipes-product"}),
+    ("Recipes<BR >powers your agents", {"brand-recipes-product"}),
+    ("Pro<b>+</b> for agencies", {"tier-not-public-pro_plus"}),
+    # round 13: any tag may separate or join; quoted ">" inside attributes
+    ("Pro<form>includes 2 private bundles</form>", {"tier-bundle-cap"}),
+    ("Pro<custom-el>includes 2 private bundles", {"tier-bundle-cap"}),
+    ('Pro<b title=">">+</b> for agencies', {"unsupported-markup"}),
+    ("Pro<b title='>'>+</b> for agencies", {"unsupported-markup"}),
+    # round 14: mixed inline + block tags
+    ("P<b>ro</b><br>includes 2 private bundles", {"tier-bundle-cap"}),
+    ("P<span>ro</span><p>includes 2 private bundles</p>", {"tier-bundle-cap"}),
+    ("Pro<i>+</i><br>for agencies", {"tier-not-public-pro_plus"}),
+    # round 15: Postiz's exact conversion (<p> breaks, <br> joins)
+    ("P<br>ro<p>includes 2 private bundles</p>", {"tier-bundle-cap"}),
+    ("Rec<br>ipes<p>powers your agents</p>", {"brand-recipes-product"}),
+    ("P<br>ro<pre>includes 2 private bundles</pre>", {"tier-bundle-cap"}),
+    # round 16: comments / quotes parsed exactly like striptags
+    ("<p>P<!--'-->ro+ for agencies</p>", {"tier-not-public-pro_plus"}),
+    ("P<!-- a -- b -->ro+ for agencies", {"tier-not-public-pro_plus"}),
+    ('Pro<b title="\'>">+</b> for agencies', {"unsupported-markup"}),
+]
+REVIEW_BYPASSES += BLOCK_TAG_CASES
+# Round 17 (claude-opus): Postiz runs parse5 BEFORE striptags; "<" that HTML5
+# keeps as text must not hide the rest of the post.
+REVIEW_BYPASSES += [
+    ("We <3 you. Pro+ is $9/month", {"tier-not-public-pro_plus", "price-recurring"}),
+    ("We <3 the Studio plan", {"legacy-tier-names"}),
+    (
+        "<p>We <3 LoopSkill. Pro+ is $100/month on the Cook plan.</p>",
+        {"tier-not-public-pro_plus", "legacy-tier-names"},
+    ),
+    ("Plans <= Pro+ is $9/month", {"tier-not-public-pro_plus", "price-recurring"}),
+    ("Pricing <\tPro+ is $9/month", {"tier-not-public-pro_plus", "price-recurring"}),
+    ("<!-- x --!>Pro+ is $9/month<!-- -->", {"unsupported-markup"}),
+    ('<?x "> Pro+ is $9/month <"?>', {"unsupported-markup"}),
+]
+# Round 18 (claude-opus): attribute values are published as text.
+REVIEW_BYPASSES += [
+    ('<p>Get it at <a href="https://recipes.wisechef.ai">our site</a></p>', {"brand-recipes-domain"}),
+    ('<a href="https://wisechef.ai/recipes/pro">pricing</a>', {"brand-recipes-domain"}),
+    ('<span data-mention-id="Pro+ for agencies">team</span>', {"unsupported-markup"}),
+    # round 19: replaceBold joins the href to the neighbouring text
+    ('<p>Get it at recipes<a href=".wisechef.ai">x</a></p>', {"brand-recipes-domain"}),
+    ('<p>Pro is $1<a href="9">and</a>/mo</p>', {"price-tier-pro"}),
+    ('<a class="x" href="https://app.loopskill.io">ok</a>', {"unsupported-markup"}),
+]
+# Round 20 (claude-opus): case and <li> newlines in Postiz's bold/markdown modes;
+# malformed structure that parse5 would re-shape.
+REVIEW_BYPASSES += [
+    ('<p>See <A HREF="https://recipes.wisechef.ai">our site</A></p>', {"brand-recipes-domain"}),
+    ("<p>x</p><ul><li>Our Pro\n+ plan</li></ul>", {"tier-not-public-pro_plus"}),
+    ("<p>x</p><ul><li>recipes.\nwisechef.ai</li></ul>", {"brand-recipes-domain"}),
+    ("<p>a</p><ul><li><p>Pro</p><p>+ plan</p></li></ul>", {"tier-not-public-pro_plus"}),
+    ("<h2>Pro</h2>+", {"tier-not-public-pro_plus"}),
+    ("<p>Pro<h2>+ for agencies</h2></p>", {"unsupported-markup"}),
+    ("<p>Pro is $9.95/month", {"unsupported-markup"}),
+    # Deliberately strict: Postiz's plain-text mode publishes a list as
+    # "...2 private bundlesPro: 50 private bundles" (no separator), so the 50
+    # binds to Free. Producers write one <p> per line (all 447 production posts).
+    ("<ul><li>Free: 2 private bundles</li><li>Pro: 50 private bundles</li></ul>", {"tier-bundle-cap"}),
+]
+# Round 21 (codex sol): cadence ignored; tier named after the count.
+REVIEW_BYPASSES += [
+    ("LoopSkill Pro is $9.95/year.", {"price-annual"}),
+    ("Pro costs 9.95 USD per year", {"price-annual-suffix"}),
+    ("LoopSkill Pro: $9.95/mo, billed annually", {"annual-billing-not-offered"}),
+    ("LoopSkill gives you 50 private bundles on the Free tier.", {"tier-bundle-cap"}),
+    ("Get 2 private bundles with Pro", {"tier-bundle-cap"}),
+    ("You get 50 private bundles, all on Free", {"tier-bundle-cap"}),
+    ("LoopSkill gives you 50 private bundles on our Free plan, 2 more for referrals", {"tier-bundle-cap"}),
+]
+# Round 22 (codex sol): trailing price tier; unlimited caps; annual phrasing.
+REVIEW_BYPASSES += [
+    ("LoopSkill costs $9.95/month on the Free tier.", {"price-tier-free-trailing"}),
+    ("LoopSkill: $0/month with Pro", {"price-tier-pro-trailing"}),
+    ("Talk to us: $500/month for On-demand", {"price-tier-contact-only-trailing"}),
+    (
+        "LoopSkill Free includes unlimited private bundles and unlimited API keys.",
+        {"unlimited-private-bundles", "unlimited-api-keys"},
+    ),
+    ("Create as many private bundles as you want on Pro", {"unlimited-private-bundles"}),
+    ("No limit on API keys with LoopSkill Pro", {"unlimited-api-keys"}),
+    ("LoopSkill Pro is $9.95/mo, paid annually.", {"annual-billing-not-offered"}),
+    ("LoopSkill Pro: $119.40 per annum", {"price-annual", "annual-billing-not-offered"}),
+]
+# Round 23 (codex sol): unsupported billing period; coordinated "unlimited".
+REVIEW_BYPASSES += [
+    ("LoopSkill Pro is $9.95/week.", {"price-unsupported-period"}),
+    ("Pro: $2 per day", {"price-unsupported-period"}),
+    ("LoopSkill Pro, $29.85 quarterly", {"price-unsupported-period"}),
+    ("Pro costs 9.95 USD a week", {"price-unsupported-period-suffix"}),
+    ("LoopSkill Free includes unlimited private and public bundles.", {"unlimited-private-bundles"}),
+    ("LoopSkill Free includes unlimited public and private bundles.", {"unlimited-private-bundles"}),
+    ("Unlimited private/public bundles on every plan", {"unlimited-private-bundles"}),
+]
+REVIEW_BYPASSES += [
+    # loss-figure exemption must not open a hole
+    ("Stop losing time and pay just $9.95/week.", {"price-unsupported-period"}),
+    ("Stop losing time, just $9.95/week.", {"price-unsupported-period"}),
+    ("You keep losing over $9.95/week until you buy LoopSkill Pro.", {"price-unsupported-period"}),
+    ("Save with just $9.95/week.", {"price-unsupported-period"}),
+    ("Save more for only $19/month.", {"price-recurring"}),
+    ("It costs you $9.95/week.", {"price-unsupported-period"}),
+]
+# Round 24 (codex sol): period lead words; non-dollar currencies.
+REVIEW_BYPASSES += [
+    ("LoopSkill costs $20 each month.", {"price-recurring"}),
+    ("LoopSkill Pro: $20 every month", {"price-recurring", "price-tier-pro"}),
+    ("LoopSkill costs $20 for each month you use it.", {"price-recurring"}),
+    ("LoopSkill Pro costs £999/month.", {"price-recurring", "price-tier-pro"}),
+    ("LoopSkill Pro: USD 20 per month", {"price-recurring", "price-tier-pro"}),
+    ("LoopSkill is 40 zł a month", {"price-recurring-suffix"}),
+    ("LoopSkill Pro is ¥2000/mo", {"price-recurring", "price-tier-pro"}),
+    ("LoopSkill: $9.95 every year", {"price-annual"}),
+    ("LoopSkill: $9.95 each week", {"price-unsupported-period"}),
+    ("£20/month on the Free tier", {"price-tier-free-trailing"}),
+    ("LoopSkill Pro: $20 each month in savings", {"price-recurring", "price-tier-pro"}),
+    ("Stop losing time for $20 each month.", {"price-recurring"}),
+]
+# Round 25 (claude-opus): symbol after the amount; per-seat before the period.
+REVIEW_BYPASSES += [
+    ("LoopSkill Pro: 19 €/month.", {"price-recurring-suffix", "price-tier-pro-suffix"}),
+    ("LoopSkill costs 19€/month.", {"price-recurring-suffix"}),
+    ("LoopSkill Pro is 19£/month.", {"price-recurring-suffix", "price-tier-pro-suffix"}),
+    ("Pro costs 19€ a month.", {"price-recurring-suffix", "price-tier-pro-suffix"}),
+    ("LoopSkill costs $19 per user per month.", {"price-recurring"}),
+    ("LoopSkill costs $19 per seat per month.", {"price-recurring"}),
+    ("LoopSkill costs $19/user/month.", {"price-recurring"}),
+    ("LoopSkill hosting runs $19/seat/mo.", {"price-recurring"}),
+    ("Pro is $9.95/month. Teams pay $19 per user per month.", {"price-recurring"}),
+    ("LoopSkill: $5 per seat per week", {"price-unsupported-period"}),
+]
+# Round 26 (codex sol): commerce words veto the loss exemption; period qualifiers.
+REVIEW_BYPASSES += [
+    (
+        "LoopSkill pricing. Our subscription is worth $199/month, and that's what we charge.",
+        {"price-recurring"},
+    ),
+    ("Our plan is worth $199/month.", {"price-recurring"}),
+    ("Save $19/month when you upgrade.", {"price-recurring"}),
+    ("LoopSkill Pro costs $9.95 per calendar year.", {"price-annual"}),
+    ("LoopSkill: $20 per calendar month", {"price-recurring"}),
+    ("LoopSkill Pro is $9.95 for a full year.", {"price-annual"}),
+]
+# Eval-corpus round 1: negation / audience-cost / bare-count exemptions must
+# not open holes.
+REVIEW_BYPASSES += [
+    ("No catch: annual plans save 20%.", {"annual-billing-not-offered"}),
+    ("No more monthly fees: switch to the annual plan.", {"annual-billing-not-offered"}),
+    ("Not sure? Try the annual plan.", {"annual-billing-not-offered"}),
+    ("Don't pay monthly, pay yearly.", {"annual-billing-not-offered"}),
+    ("No annual plan yet, but introducing yearly billing soon!", {"annual-billing-not-offered"}),
+    ("Teams spend just $9.95/week on LoopSkill.", {"price-unsupported-period"}),
+    (
+        "Businesses spend $20 a month on Pro.",
+        {"price-recurring", "price-tier-pro-trailing", "price-tier-pro-trailing-suffix"},
+    ),
+    ("$5 on Free", {"price-tier-free-trailing"}),
+    ("5 USD a month on Free", {"price-recurring-suffix", "price-tier-free-trailing-suffix"}),
+    ("9/month on Free", {"price-tier-free-trailing-suffix"}),
+]
+# Eval-corpus round 2: billing periods, Founding terms, non-USD prices, retired
+# vocabulary. LoopSkill prices are USD only (app.loopskill.io/pricing), so the
+# earlier must-pass "Pro: £9.95 every month" was itself a false claim.
+REVIEW_BYPASSES += [
+    ("Pro: £9.95 every month.", {"price-non-usd", "price-tier-pro-non-usd"}),
+    ("LoopSkill Pro: 9.95 €/month.", {"price-non-usd-suffix"}),
+    ("Pro is €9,95 per month.", {"price-non-usd", "price-tier-pro-non-usd"}),
+    (
+        "We collected 50 skill recipes for chefs and a cookbook of prompts.",
+        {"retired-vocab-cookbook-recipes"},
+    ),
+    ("Pro costs 9,95 € a month.", {"price-non-usd-suffix"}),
+    ("Pro is €9.95", {"price-tier-pro-non-usd"}),
+    ("Founding access costs €49 as a one-time payment.", {"price-non-usd"}),
+    ("Our $99 Founding pass includes Pro for life.", {"price-tier-founding-adjectival"}),
+    ("Only 37 Founding seats left!", {"founding-seats"}),
+    ("Founding Member gives you Pro for a year, $49 one-time.", {"founding-not-lifetime"}),
+    ("Get Pro for life with a $49 annual Founding fee.", {"annual-billing-not-offered"}),
+    ("Publish your cookbook on LoopSkill today.", {"retired-vocab-cookbook-recipes"}),
+    ("Discover Recipes, the home for AI-agent skills.", {"retired-vocab-cookbook-recipes"}),
+    ("Our chefs publish recipes on LoopSkill.", {"retired-vocab-cookbook-recipes"}),
+    ("Install the Kitchen Recipes skill from LoopSkill", {"retired-vocab-cookbook-recipes"}),
+    ("Pro renews every six months.", {"annual-billing-not-offered"}),
+    ("LoopSkill charges Pro every two weeks.", {"annual-billing-not-offered"}),
+    ("LoopSkill now offers a weekly plan for busy builders.", {"annual-billing-not-offered"}),
+    ("Monthly or annually: pick what works.", {"annual-billing-not-offered"}),
+]
+REVIEW_MUST_PASS = [
+    "Our kitchen team shares recipes for the new menu.",
+    "WiseChef helps restaurants cost recipes and plan menus.",
+    "A recipe for faster agents.",
+    "Build a weekly plan with your agent.",
+    "There is no weekly billing.",
+    "Downtime costs restaurants £8,000 a day.",
+    "Free is €0 a month.",
+    "US$9.95 a month for Pro",
+    "Ship a weekly release.",
+    "Pay monthly. No annual commitment.",
+    "100 Founding Member seats at $49 one-time.",
+    "Founding is a one-time offer with 100 seats.",
+    "There is no annual plan: Pro is $9.95 a month.",
+    "We don't offer yearly billing.",
+    "Downtime costs teams $8,000 a day; plan for resilience.",
+    "Keep private bundles to 2 on Free or 50 on Pro.",
+    "LoopSkill Pro is $9.95 per calendar month.",
+    "We added 3 users per month on average.",
+    "LoopSkill Pro is $9.95 each month.",
+    # real production copy (round 24 scan): loss figures with "each <period>"
+    "If these crashes happen frequently, you could face losses exceeding $100,000 each year.",
+    "That totals a jaw-dropping $30,000 each month in missed revenue.",
+    "LoopSkill Free is $0 per week, every week.",
+    # real pain-first copy from production (loss figures are not prices)
+    "Downtime can lead to losses of around $8,000 a day.",
+    "One error could snowball into a $50,000 weekly loss if not caught in time.",
+    "You're losing over $1,000 every hour, and you have no idea it's even down.",
+    "Teams report a 70% drop in incidents, saving them an average of $150,000 per year.",
+    "A loyal customer can be worth up to $1,000 a year to your business.",
+    "Install skills in seconds, every day.",
+    "LoopSkill Pro is $9.95/month on the Pro plan.",
+    "Public bundles are unlimited on every tier, including Free.",
+    "Start free, then $9.95/month for Pro.",
+    "Free users upgrade to get 50 private bundles on Pro.",
+    "50 private bundles (Free gives you 2).",
+    "2 private bundles on Free and 50 private bundles on Pro.",
+    "LoopSkill Free is $0/year, forever.",
+    "Teams save 100 hours a year with LoopSkill.",
+    "<p>Pro is $9.95/month.</p><p>Free: 2 private bundles.</p><p>Pro: 50 private bundles.</p>",
+    '<p>Plans: <a href="https://app.loopskill.io/pricing">current pricing</a></p>',
+    "We <3 our users. LoopSkill is free to self-host.",
+    "<p>Pro is $9.95/month.</p><br><p>Free includes 2 private bundles.</p>",
+    "<p>Pro is $9.95/month.</p><p>Free includes 2 private bundles.</p>",
+    "Free: 2 private bundles. Pro: 50 private bundles.",
+    "Pro: 50 private bundles,10 API keys.",
+    "Free: 2 private bundles, 1 API key.",
+    "Pro is $9.95/month. Free includes 2 private bundles.",
+    "Pro &#150; $9.95/month",
+    "LoopSkill is free to self-host. WiseChef runs it for you from $199/month.",
+    "WiseChef, the managed service, is $199 per month.",
+    "Done-for-you: WiseChef runs it for you from $199/month.",
+    "AT&T and R&D teams, Q&A after.",
+    "We share 3 key lessons from shipping agents.",
+    "R&D on agent skills, Q&A included.",
+    "Free has 1 API key; Pro has 10 API keys.",
+    "Pro saved $20 in API spend",
+    "Free users can upgrade to Pro for 50 private bundles",
+    "Founding Member: $49 one-time, Pro for life.",
+]
+
+
+def _ids(text: str) -> set[str]:
+    return {v["rule_id"] for v in cc.check_text(text)}
+
+
+@pytest.mark.parametrize(("text", "expected"), REVIEW_BYPASSES)
+def test_review_bypasses_are_caught(text: str, expected: set[str]) -> None:
+    missing = expected - _ids(text)
+    assert not missing, f"rules did not fire: {missing} (got {_ids(text)})"
+
+
+@pytest.mark.parametrize("text", REVIEW_MUST_PASS)
+def test_review_false_positives_pass(text: str) -> None:
+    assert cc.check_text(text) == []
+
+
+def test_huge_numbers_cannot_crash_the_check() -> None:
+    # 5000-digit token under the 20k cap: bounded patterns never convert it.
+    cc.check_text("Free " + "1" * 5000 + " API keys and $" + "9" * 5000 + "/mo")
+
+
+@pytest.mark.parametrize(("text", "expected"), REAL_INCIDENTS)
+def test_real_incidents_are_caught(text: str, expected: set[str]) -> None:
+    missing = expected - _ids(text)
+    assert not missing, f"rules did not fire: {missing}"
+
+
+@pytest.mark.parametrize("text", CLEAN_CORPUS)
+def test_clean_corpus_passes(text: str) -> None:
+    assert cc.check_text(text) == []
+
+
+def test_approved_facts_pass_their_own_check() -> None:
+    contract = cc.build_contract()
+    assert contract["approved_facts"]
+    for fact in contract["approved_facts"]:
+        assert cc.check_text(fact, contract) == [], fact
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="ah_1011: config/recipes-marketing.yaml still serves 'Up to {pro_cookbooks} cookbooks' and a "
+    "Pro+ proof point on /api/marketing/snapshot. Rewriting public pricing copy is a separate, owner-reviewed "
+    "change (claimgate-1006 has a draft); strict xfail flips red the day the copy is fixed.",
+)
+def test_snapshot_prose_passes_the_contract(db_session) -> None:
+    """The public marketing snapshot is subject to the same contract."""
+    from app.marketing_routes import marketing_snapshot
+
+    snap = marketing_snapshot(db_session)
+    prose = []
+    for tier in (snap.get("tiers") or {}).values():
+        prose += [b for b in tier.get("bullets") or [] if isinstance(b, str)]
+    prose += [pp["text"] for pp in snap.get("proof_points") or [] if isinstance(pp, dict) and "text" in pp]
+    prose += [b for b in (snap.get("founding") or {}).get("bullets") or [] if isinstance(b, str)]
+    assert prose
+    for line in prose:
+        assert cc.check_text(line) == [], line
+
+
+def test_tier_number_binds_to_nearest_tier() -> None:
+    assert _ids("Free gives you 2, Pro gives you 50 private bundles.") == set()
+    assert _ids("Pro gives you 10 private bundles.") == {"count-private-bundles", "tier-bundle-cap"}
+    assert _ids("Free includes 3 API keys.") == {"count-api-keys", "tier-key-cap"}
+    # a cap that is real for ANOTHER tier: only the Python binding can see it
+    assert _ids("Free includes 10 API keys.") == {"tier-key-cap"}
+
+
+def test_price_contexts() -> None:
+    assert _ids("Pro is $20/mo") == {"price-recurring", "price-tier-pro"}
+    assert _ids("Pro at $12") == {"price-tier-pro"}
+    # USD only (eval corpus round 2): a euro price is no real LoopSkill price
+    assert _ids("€9,95 per month") == {"price-non-usd"}
+    # A bare amount with no cadence and no tier word is not a price claim.
+    assert _ids("We saved $3,000 in API spend.") == set()
+
+
+# ── derivation: the contract follows tiers.yaml, not literals ────────────────
+
+
+def _with_tiers(monkeypatch, tmp_path, mutate) -> None:
+    doc = yaml.safe_load(cc.TIERS_YAML.read_text())
+    mutate(doc)
+    p = tmp_path / "tiers.yaml"
+    p.write_text(yaml.safe_dump(doc))
+    monkeypatch.setattr(cc, "TIERS_YAML", p)
+    cc._cached_contract.cache_clear()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_cache():
+    cc._cached_contract.cache_clear()
+    yield
+    cc._cached_contract.cache_clear()
+
+
+def test_public_flag_drives_retirement(monkeypatch, tmp_path) -> None:
+    assert "tier-not-public-pro_plus" in _ids("Pro+ is great")
+    _with_tiers(monkeypatch, tmp_path, lambda d: d["tiers"]["pro_plus"].__setitem__("public", True))
+    assert _ids("Pro+ is great") == set()
+    assert 100.0 in cc.build_contract()["allowed_prices_usd"]
+
+
+def test_reprice_retires_old_price(monkeypatch, tmp_path) -> None:
+    assert _ids("Pro $9.95/month") == set()
+    _with_tiers(monkeypatch, tmp_path, lambda d: d["tiers"]["pro"].__setitem__("price_usd", 12))
+    assert {"price-recurring", "price-tier-pro"} <= _ids("Pro $9.95/month")
+    assert any("$12/month" in f for f in cc.build_contract()["approved_facts"])
+
+
+def test_cap_change_flows_into_facts(monkeypatch, tmp_path) -> None:
+    _with_tiers(monkeypatch, tmp_path, lambda d: d["tiers"]["pro"].__setitem__("bundle_limit", 75))
+    assert "tier-bundle-cap" in _ids("Pro gives you 50 private bundles.")
+    assert any("Pro 75" in f for f in cc.build_contract()["approved_facts"])
+
+
+def test_other_price_requires_evidence(monkeypatch, tmp_path) -> None:
+    doc = yaml.safe_load(cc.CONTRACT_YAML.read_text())
+    doc["other_prices"] = [{"amount_usd": 5, "product": "x"}]
+    p = tmp_path / "claims_contract.yaml"
+    p.write_text(yaml.safe_dump(doc))
+    monkeypatch.setattr(cc, "CONTRACT_YAML", p)
+    with pytest.raises(ValueError, match="evidence"):
+        cc.build_contract()
+
+
+# ── portability: the Postgres trigger runs the same patterns ─────────────────
+
+
+def test_every_pattern_is_portable() -> None:
+    c = cc.build_contract()
+    for r in c["retired_rules"]:
+        cc.assert_portable(r["pattern"])
+        assert r["pg_pattern"] == cc.to_pg(r["pattern"])
+        assert r"\b" not in r["pg_pattern"]
+    for ar in c["amount_rules"]:
+        cc.assert_portable(ar["pattern"])
+        assert ar["pg_pattern"] == cc.to_pg(ar["pattern"])
+        # the amount group really captures a number in Python
+        assert re.compile(ar["pattern"]).groups >= ar["amount_group"]
+
+
+@pytest.mark.parametrize(
+    "bad", [r"(?<!x)Pro", r"(?i)pro", r"(a)\1", r"(?P<n>x)", r"\d+ keys", r"\s+Pro", r"\wPro"]
+)
+def test_non_portable_patterns_rejected(bad: str) -> None:
+    with pytest.raises(ValueError):
+        cc.assert_portable(bad)
+
+
+def test_contract_hash_is_stable_and_content_addressed() -> None:
+    a = cc.build_contract()
+    b = cc.build_contract()
+    assert a["contract_hash"] == b["contract_hash"]
+    body = {k: v for k, v in a.items() if k != "contract_hash"}
+    import hashlib
+
+    assert a["contract_hash"] == hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]
+
+
+# ── routes ───────────────────────────────────────────────────────────────────
+
+
+def test_routes_anonymous(db_session, monkeypatch) -> None:
+    """GET /claims serves this contract (plus v1 compat keys) to anonymous
+    callers. /claims/check keeps its v1 engine and shape (ah_1011: serving the
+    v2 rules to the Postgres sync must not change what producers' checks see)."""
+    client = TestClient(build_test_app(db_session=db_session, monkeypatch=monkeypatch))
+    r = client.get("/api/marketing/claims")
+    assert r.status_code == 200
+    body = r.json()
+    built = cc.build_contract()
+    for key in (
+        "retired_rules",
+        "amount_rules",
+        "exempt_rules",
+        "public_tiers",
+        "founding",
+        "allowed_prices_usd",
+    ):
+        assert body[key] == built[key], key
+
+    r = client.post("/api/marketing/claims/check", json={"text": "Pro+ gets you 20 cookbooks"})
+    assert r.status_code == 200
+    assert r.json()["violations"]
+
+
+def test_install_sql_patterns_match_python() -> None:
+    """install.sql hard-codes the entity and unit patterns; they must be the
+    Python ones, byte for byte (a stale copy shipped once in round 4)."""
+    from pathlib import Path
+
+    sql = (Path(__file__).resolve().parent.parent / "deploy" / "claimgate" / "install.sql").read_text()
+    assert f"pat   constant text := '{cc._ENTITY.pattern}';" in sql
+    assert f"unit_pat constant text := '{cc.to_pg(cc._UNIT.pattern)}';" in sql
+    assert f"IF t ~ '{cc.THOUSANDS}' THEN" in sql
+    assert "ARRAY['" + "', '".join(cc.TAG_READINGS) + "']" in sql
+    for pattern in (
+        cc.TAGLIKE,
+        cc.POSTIZ_TAG,
+        cc.BLOCK_TAG,
+        cc.ALLOWED_TAG,
+        cc.LINK,
+        cn.LI_BLOCK,
+        cn.P_BLOCK,
+    ):
+        assert "'" + cc.to_pg(pattern).replace("'", "''") in sql, pattern
+    assert f"IF t !~ '{cc.VALID_AMOUNT}' THEN" in sql
+    assert f"lower(m[{cc.UNIT_GROUP}])" in sql
+    assert "'" + cc.ATTACH + "\\y(' || names || ')\\y'" in sql
+    assert "[" + str(cc._ATTACH_NAME) + "];" in sql
+    assert f"claimgate.parse_amount(m[{cc.NUM_AFTER_GUARD}])" in sql
+    c1 = sql.split("c1    constant text[] := ARRAY[", 1)[1].split("];", 1)[0]
+    for cp, ch in cc.C1_REMAP.items():
+        assert f"'{ch}'" in c1, hex(cp)
+
+
+@pytest.mark.parametrize(
+    ("token", "value"),
+    [
+        ("1,199", 1199.0),
+        ("1,199.50", 1199.5),
+        ("1.050,50", 1050.5),
+        ("1 050", 1050.0),
+        ("1 000,50", 1000.5),
+        ("1.000.000", 1000000.0),
+        ("9,95", 9.95),
+        ("9.95", 9.95),
+        ("49", 49.0),
+    ],
+)
+def test_parse_amount(token: str, value: float) -> None:
+    assert cc.parse_amount(token) == value
+
+
+@pytest.mark.parametrize(
+    "token", ["1,2,50", "9.9.5", "1,0500", "1 05", "1,000.000.000", "1.000,000", "1,000,00"]
+)
+def test_malformed_amount_is_nan(token: str) -> None:
+    v = cc.parse_amount(token)
+    assert v != v
+
+
+def test_number_runs_stay_linear() -> None:
+    """Worst cases for the run pattern (separator-led repetitions) on the
+    20k-char API cap must stay LINEAR: no catastrophic backtracking.
+
+    A wall-clock limit measures machine load, not complexity (it went flaky
+    under a loaded CI box), so this compares each body at half and at full
+    length: linear work doubles (ratio ~2), backtracking explodes. A generous
+    absolute ceiling stays as a backstop."""
+    import time
+
+    def took(body: str) -> float:
+        t0 = time.perf_counter()
+        cc.check_text(body)
+        return time.perf_counter() - t0
+
+    for body in ("1 " + "111 " * 4900, "1," * 9900, "$" + "1." * 9900, "1 111" * 3900):
+        full = body[: cc.MAX_CHECK_CHARS]
+        half = full[: len(full) // 2]
+        took(half)  # warm the regex cache
+        t_half, t_full = min(took(half) for _ in range(2)), min(took(full) for _ in range(2))
+        assert t_full < 3.0 * t_half + 0.05, (body[:20], t_half, t_full)
+        assert t_full < 10.0, body[:20]
+
+
+PIPELINE_FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "postiz_pipeline.json").read_text())
+
+
+def _published_norm(published: str) -> str:
+    """Postiz's published text through the gate's text normalisation. NFKC and
+    the combining low line undo replaceBold's convertToAscii restyling."""
+    published = unicodedata.normalize("NFKC", published).replace("\u0332", "")
+    return re.sub(r"[ \t\r\n\f\v]+", " ", published.translate(cn._ZW_TABLE)).strip(" ")
+
+
+@pytest.mark.parametrize(("html", "none", "bold", "markdown"), PIPELINE_FIXTURE)
+def test_readings_are_what_postiz_publishes(html: str, none: str, bold: str, markdown: str) -> None:
+    """For every input the gate does not reject as unsupported markup, the
+    join / link / markdown readings ARE the text Postiz publishes in its plain,
+    replaceBold and markdown modes (real parse5 6.0.1 + striptags 3.2.0 +
+    strip.html.validation.js; fixture from gen_postiz_pipeline_fixture.js)."""
+    if cc.unsupported_markup(html):
+        assert "unsupported-markup" in {v["rule_id"] for v in cc.check_text(html)}
+        return
+    cases = [("join", none), ("markdown", markdown)]
+    if re.search(r"<p>", html, re.IGNORECASE):  # without <p>, normal mode publishes the raw HTML
+        cases.append(("link", bold))
+    for reading, published in cases:
+        ours = unicodedata.normalize("NFKC", cc.normalize(html, reading))
+        assert ours == _published_norm(published), reading
+
+
+def test_production_markup_vocabulary_is_allowed() -> None:
+    """Every tag found in the 447 production posts (2026-10-06): <p>, </p>, <br>."""
+    assert cc.unsupported_markup("<p>a</p><br><br/><br /><p>b</p>") == []
+
+
+def test_postiz_converter_lock_is_complete() -> None:
+    """The pipeline fixture is only valid for the converter it was generated
+    from; claimgate_sync.py alarms when the live one differs from this lock."""
+    lock = json.loads(
+        (Path(__file__).parent.parent / "deploy" / "claimgate" / "postiz_converter.lock.json").read_text()
+    )
+    assert len(lock["strip_js_sha256"]) == 64
+    assert lock["parse5"] and lock["striptags"] and lock["container"] and lock["strip_js"]

@@ -13,25 +13,37 @@ retired pricing ladder (Pro+ / cookbook allowances) to X. The contract is
 derived LIVE from config/tiers.yaml (the same SSOT every other surface
 reads), so a reprice or tier change propagates here with no second copy.
 
-Contract shape (pinned by the consumer's wiring tests, test_claims_gate_wiring.py):
+Contract shape (ah_1011, v2 + v1 compat):
     GET /claims ->
-        {"approved_facts": [str, ...],       # list, non-empty
-         "retired_rules":  [dict, ...]}      # list (may be empty)
-    POST /claims/check {"text": str} ->
+        {"approved_facts": [str, ...],       # list, non-empty (v1, unchanged)
+         "retired_rules":  [dict, ...],      # v2: {id, pattern, pg_pattern, reason, ...}
+         "retired_rule_ids": [str, ...],     # v1 ids of the /claims/check rules
+         "amount_rules", "exempt_rules", "public_tiers", "founding",
+         "allowed_prices_usd", "other_prices", "contract_version",
+         "check_endpoint", "source", "contract_hash"}
+    POST /claims/check {"text": str} ->      # unchanged (v1 engine)
         {"violations": [{"rule_id": str, "match": str, "reason": str,
                          "replacement": str | absent}]}
 
-stdlib + fastapi only; no DB access — pure config derivation.
+The v2 fields feed the Postgres publish gate on wisechef-hq
+(deploy/claimgate/claimgate_sync.py, every 10 min).
+
+fastapi + yaml only; no DB access — pure config derivation.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from functools import lru_cache
 from pathlib import Path
 
 import yaml
 from fastapi import APIRouter
+
+from app.services import claims_contract as _cc
+from app.services.claims_contract import build_contract
 
 router = APIRouter()
 
@@ -43,17 +55,25 @@ TIERS_YAML = Path(__file__).resolve().parent.parent / "config" / "tiers.yaml"
 MAX_CHECK_TEXT = 20_000  # consumer truncates to this; mirror the cap here
 
 
-def _load_tiers() -> dict:
+def _load_tiers(path: Path | None = None) -> dict:
     """Parse config/tiers.yaml. Raises on missing/corrupt — fail closed."""
-    with open(TIERS_YAML) as f:
+    with open(path or TIERS_YAML) as f:
         data = yaml.safe_load(f)
     if not isinstance(data.get("tiers"), dict) or not data["tiers"]:
         raise ValueError("config/tiers.yaml has no tiers map")
     return data
 
 
-@lru_cache(maxsize=1)
 def _claims_contract() -> tuple[dict, tuple[dict, ...]]:
+    """v1 contract for the CURRENT tiers.yaml revision (ah_1011: keyed by mtime,
+    the same key build_contract() uses, so GET can never pair fresh v2 rules
+    with stale v1 facts)."""
+    path = _cc.TIERS_YAML  # the one path build_contract() reads
+    return _claims_contract_at(path, path.stat().st_mtime)
+
+
+@lru_cache(maxsize=4)
+def _claims_contract_at(path: Path, mtime: float) -> tuple[dict, tuple[dict, ...]]:
     """Build (contract_dict, retired_rules_tuple) from the tiers SSOT.
 
     lru_cached: the yaml only changes on deploy (it is in the deploy.yml
@@ -64,7 +84,7 @@ def _claims_contract() -> tuple[dict, tuple[dict, ...]]:
     price, bundle cap and key cap are read from the same yaml block the API
     enforces, so copy can only ever state what the code actually grants.
     """
-    data = _load_tiers()
+    data = _load_tiers(path)
     tiers = data["tiers"]
 
     facts: list[str] = []
@@ -170,14 +190,27 @@ def _violations(text: str) -> list[dict]:
 
 @router.get("/claims")
 def get_claims() -> dict:
-    """The claims contract: approved facts + retired rule ids.
+    """The claims contract: v2 rule set + v1-compatible facts.
 
-    Consumer requires BOTH keys non-empty (approved_facts) / present
-    (retired_rules) or it fails closed, which is the correct behavior when
-    the SSOT itself is broken.
+    ah_1011: the Postiz-side sync (deploy/claimgate/claimgate_sync.py) needs
+    the v2 fields (retired_rules as {id, pg_pattern, reason} objects,
+    amount_rules, exempt_rules, public_tiers). They are built by
+    app/services/claims_contract.build_contract() from config/tiers.yaml (every
+    price, tier and cap) plus config/claims_contract.yaml (rule patterns only).
+
+    v1 compatibility: approved_facts is unchanged (copygen prompts read it);
+    the ids of the rules /claims/check enforces stay under retired_rule_ids.
+    Chef's claims_gate only requires approved_facts and retired_rules to be
+    non-empty, which both remain.
     """
-    contract, _ = _claims_contract()
-    return contract
+    v1, _ = _claims_contract()
+    body = build_contract()
+    body.pop("contract_hash", None)
+    body["approved_facts"] = list(v1["approved_facts"])
+    body["retired_rule_ids"] = list(v1["retired_rules"])
+    body["source"] = "config/tiers.yaml + config/claims_contract.yaml"
+    body["contract_hash"] = hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]
+    return body
 
 
 @router.post("/claims/check")

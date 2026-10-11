@@ -1,0 +1,9 @@
+{
+  "_doc": "Fingerprint of the Postiz text converter that tests/fixtures/postiz_pipeline.json was generated from. claimgate_sync.py compares the live postiz container against it every run and records drift in claimgate.meta('converter_drift'); claimgate-watch reports it. On drift: regenerate the fixture (deploy/claimgate/README.md 'Regenerating the pipeline fixture'), run the tests, and update this file in the same PR.",
+  "container": "postiz",
+  "strip_js": "/app/apps/backend/dist/libraries/helpers/src/utils/strip.html.validation.js",
+  "strip_js_sha256": "ae17287fcbff4a6fa2115d959ffa9b3f3cfbeda0e9373c69f619bffe8652088d",
+  "parse5": "6.0.1",
+  "striptags": "3.2.0",
+  "verified_at": "2026-10-06"
+}

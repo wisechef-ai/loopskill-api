@@ -2895,7 +2895,7 @@
         "marketing"
       ],
       "classification": "public",
-      "summary": "The claims contract: approved facts + retired rule ids."
+      "summary": "The claims contract: v2 rule set + v1-compatible facts."
     },
     {
       "method": "POST",
