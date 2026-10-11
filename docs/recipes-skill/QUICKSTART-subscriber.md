@@ -1,6 +1,6 @@
-# Quickstart: Install & Auto-Update Your First Skill in 5 Minutes
+# Quickstart: Install & Update Your First Skill in 5 Minutes
 
-This guide shows you how to subscribe to a skill from the LoopSkill marketplace and keep it automatically updated.
+This guide shows you how to install a skill from the LoopSkill marketplace and keep it up to date.
 
 ## Prerequisites
 
@@ -51,26 +51,17 @@ The response includes a `cookbook_status` block for each skill:
 }
 ```
 
-## Step 4: Auto-Update with loopskill_sync
+## Step 4: Update when a new version is published
 
-When a publisher releases a new version, `loopskill_sync` keeps you current:
-
-```
-> loopskill_sync({"mode": "APPLY"})
-```
-
-This:
-1. Checks all installed skills for updates
-2. Downloads and applies new versions
-3. Returns a summary of what changed
-
-Want to preview first? Use `DRY_RUN` mode:
+Updating is two moves: move the bundle's pins on the server, then refresh the files on each machine.
 
 ```
-> loopskill_sync({"mode": "DRY_RUN"})
+> loopskill_sync({"bundle_id": "<your bundle id>", "dry_run": true})    # preview the pin changes
+> loopskill_sync({"bundle_id": "<your bundle id>"})                     # apply them
+> loopskill_bundle_install({"bundle_id": "<your bundle id>"})           # on EACH machine
 ```
 
-This shows what *would* change without modifying anything.
+`loopskill_sync` only changes the bundle's version pins on the server — it never touches files on your machine. `loopskill_bundle_install` returns a download URL and sha256 for every skill; download each tarball, check its sha256, and unpack it into your skills folder. Re-running the install is the update.
 
 ## Step 5: Recall a Skill Anytime
 
@@ -82,14 +73,14 @@ Need the full content of a previously installed skill?
 
 Returns the complete skill body — no re-download needed.
 
-## The Auto-Update Loop
+## The update loop
 
 Here's the recommended pattern for production agents:
 
 1. **On startup**: Call `loopskill_list_bundle` to check current state
-2. **Periodically** (hourly/daily): Call `loopskill_sync({"mode": "APPLY"})` to pull updates
+2. **Periodically** (hourly/daily): `loopskill_sync` the bundle, then re-run `loopskill_bundle_install` on each machine and replace any skill whose sha256 changed
 3. **On demand**: Use `loopskill_recall` to refresh any skill's instructions
 
 ---
 
-**That's it.** Your agent now has a self-updating skill library. No manual config. No drift. 🎯
+**That's it.** The same bundle, verified by sha256, on every machine you run.

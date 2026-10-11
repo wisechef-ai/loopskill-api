@@ -66,26 +66,27 @@ export LOOPSKILL_API_KEY=YOUR_API_KEY
 | Guide | Time | What you'll do |
 |-------|------|----------------|
 | [Publisher quickstart](./QUICKSTART-publisher.md) | 5 min | Publish your first skill to the marketplace |
-| [Subscriber quickstart](./QUICKSTART-subscriber.md) | 5 min | Install + auto-update your first skill |
+| [Subscriber quickstart](./QUICKSTART-subscriber.md) | 5 min | Install + update your first skill |
 | [Bundle sharing](./QUICKSTART-share.md) | 3 min | Share a private bundle with another agent |
 
 ---
 
-## The 10 MCP Tools
+## MCP tools
 
-Once connected, your agent gets these tools — no extra configuration:
+Once connected, your agent gets these tools (a selection — `tools/list` on the MCP endpoint returns the full set):
 
 | Tool | What it does |
 |------|-------------|
 | `loopskill_search` | BM25 + semantic search across all marketplace skills |
-| `loopskill_install` | Install a skill into your agent's workspace |
-| `loopskill_list_bundle` | List all bundles (and their skills) you have access to |
+| `loopskill_install` | Return a signed download URL + sha256 for one skill |
+| `loopskill_compose_bundle_from_links` | Create a new private bundle from skill / bundle links |
+| `loopskill_bundle_install` | Return download URLs + sha256 for every skill in a bundle |
+| `loopskill_list_bundle` | List a bundle and its skills |
 | `loopskill_recall` | Recall the full content of a previously installed skill |
-| `loopskill_recipify` | Classify + validate a skill before publishing |
 | `loopskill_doctor` | Diagnose issues with installed skills |
 | `loopskill_seeker` | Find related skills and dependency edges |
-| `loopskill_subrecipe_resolve` | Resolve nested skill dependencies |
-| `loopskill_sync` | Auto-update installed skills (APPLY / DRY_RUN) |
+| `loopskill_subskill_resolve` | Resolve nested skill dependencies |
+| `loopskill_sync` | Move a bundle's server-side version pins to the latest published versions (APPLY / DRY_RUN). It does not change files on your machine: re-run `loopskill_bundle_install` on each machine to update them. |
 
 ---
 
@@ -96,7 +97,11 @@ Once connected, your agent gets these tools — no extra configuration:
 | **Free** | $0 | Install every public skill and bundle, unlimited installs, 2 private bundles, 1 API key |
 | **Pro** | $9.95/mo | Everything in Free, 50 private bundles, 10 API keys |
 
-Two limits differ: private bundles (Free 2, Pro 50) and API keys (Free 1, Pro 10). Your Liked list is a private bundle and counts as one from the moment you open your Library, so Free leaves room for one more. One API key works on every machine at once; separate keys let you revoke one machine or client without touching the rest. Public bundles are unlimited on every tier.
+Two capacity limits differ: private bundles (Free 2, Pro 50) and API keys (Free 1, Pro 10). Your Liked list is a private bundle and counts as one from the moment you open your Library, so Free leaves room for one more. One API key works on every machine at once; separate keys let you revoke one machine or client without touching the rest. Public bundles are unlimited on every tier.
+
+Pro also unlocks the hosted authoring and deploy tools: forking a skill into your own editable copy, turning a draft into a skill, managed bundle deploys with rollback, and a live sync subscription. Every catalog skill is free on both tiers, and re-running the install to update works the same on both.
+
+You may not need Pro at all: public bundles are free and unlimited, self-hosting the whole platform is free (MPL-2.0), and a private git repo with symlinks also keeps skills in sync across machines at no cost.
 
 Free skills also install with no account at all. Canonical, current pricing: https://app.loopskill.io/pricing
 
@@ -105,7 +110,7 @@ Free skills also install with no account at all. Canonical, current pricing: htt
 ## What's New in v7.1
 
 - **Bundle share tokens** — share a bundle with any agent via a single `cbt_` token
-- **Auto-update via `loopskill_sync`** — keep installed skills current with zero effort
+- **`loopskill_sync`** — moves a bundle's version pins to the latest releases; re-run `loopskill_bundle_install` on each machine to update its files
 - **StreamableHTTP MCP** — cleaner transport, better error handling, no SSE fallback needed
 - **BM25 reindex on publish** — new skills are searchable within seconds
 
