@@ -42,6 +42,7 @@ from pathlib import Path
 import yaml
 from fastapi import APIRouter
 
+from app.services import claims_contract as _cc
 from app.services.claims_contract import build_contract
 
 router = APIRouter()
@@ -54,17 +55,25 @@ TIERS_YAML = Path(__file__).resolve().parent.parent / "config" / "tiers.yaml"
 MAX_CHECK_TEXT = 20_000  # consumer truncates to this; mirror the cap here
 
 
-def _load_tiers() -> dict:
+def _load_tiers(path: Path | None = None) -> dict:
     """Parse config/tiers.yaml. Raises on missing/corrupt — fail closed."""
-    with open(TIERS_YAML) as f:
+    with open(path or TIERS_YAML) as f:
         data = yaml.safe_load(f)
     if not isinstance(data.get("tiers"), dict) or not data["tiers"]:
         raise ValueError("config/tiers.yaml has no tiers map")
     return data
 
 
-@lru_cache(maxsize=1)
 def _claims_contract() -> tuple[dict, tuple[dict, ...]]:
+    """v1 contract for the CURRENT tiers.yaml revision (ah_1011: keyed by mtime,
+    the same key build_contract() uses, so GET can never pair fresh v2 rules
+    with stale v1 facts)."""
+    path = _cc.TIERS_YAML  # the one path build_contract() reads
+    return _claims_contract_at(path, path.stat().st_mtime)
+
+
+@lru_cache(maxsize=4)
+def _claims_contract_at(path: Path, mtime: float) -> tuple[dict, tuple[dict, ...]]:
     """Build (contract_dict, retired_rules_tuple) from the tiers SSOT.
 
     lru_cached: the yaml only changes on deploy (it is in the deploy.yml
@@ -75,7 +84,7 @@ def _claims_contract() -> tuple[dict, tuple[dict, ...]]:
     price, bundle cap and key cap are read from the same yaml block the API
     enforces, so copy can only ever state what the code actually grants.
     """
-    data = _load_tiers()
+    data = _load_tiers(path)
     tiers = data["tiers"]
 
     facts: list[str] = []

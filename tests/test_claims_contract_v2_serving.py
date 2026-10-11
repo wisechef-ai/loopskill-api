@@ -236,5 +236,34 @@ def test_strictness_diff_gate(served):
     assert any(w.startswith("TIER") for w in rsd.diff(enforced, weaker)[0])
 
     weaker = json.loads(json.dumps(served))
+    v = weaker["exempt_rules"][0]["pg_veto"]
+    weaker["exempt_rules"][0]["pg_veto"] = v[:-3] + ")ro" if v.endswith("|Pro)") else v + "|zz"
+    assert any(".veto" in w for w in rsd.diff(enforced, weaker)[0])
+
+    weaker = json.loads(json.dumps(served))
     weaker["exempt_rules"].append({"id": "x", "pg_pattern": "x", "pg_veto": "y"})
     assert "NEW exempt rule x" in rsd.diff(enforced, weaker)[0]
+
+
+def test_served_facts_and_rules_refresh_together(tmp_path, monkeypatch):
+    """Review of #395: the v1 facts cache never refreshed while the v2 rules did,
+    so a tier going public:false left its priced fact approved next to rules
+    that reject it. Both now key on the same tiers.yaml revision."""
+    mcr.get_claims()  # warm both caches on the real file
+    doc = yaml.safe_load(TIERS_YAML.read_text())
+    doc["tiers"]["pro"]["public"] = False
+    alt = tmp_path / "tiers.yaml"
+    alt.write_text(yaml.safe_dump(doc))
+    monkeypatch.setattr(cc, "TIERS_YAML", alt)
+    try:
+        body = mcr.get_claims()
+        assert "pro" not in {t["slug"] for t in body["public_tiers"]}
+        assert not any("Pro tier" in f for f in body["approved_facts"]), body["approved_facts"]
+        for fact in body["approved_facts"]:
+            assert mcr.check_claims({"text": fact})["violations"] == [], fact
+            assert cc.check_text(fact, cc.build_contract()) == [], fact
+    finally:
+        monkeypatch.undo()
+        cc._cached_contract.cache_clear()
+        mcr._claims_contract_at.cache_clear()
+    assert any("Pro tier" in f for f in mcr.get_claims()["approved_facts"])

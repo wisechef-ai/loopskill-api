@@ -55,8 +55,9 @@ rules:
     pattern: '\b([0-9]+|one|two|three|four|five|six|seven|eight|nine|ten|twenty|fifty|a hundred|hundreds of|two hundred|unlimited) cookbooks?\b|\ba single cookbook\b|cookbooks?,? each with|cookbook per client'
     reason: >-
       Cookbooks were renamed to bundles and the tier allowances changed:
-      Free = 2 private bundles, Pro = 50 private bundles. Every cookbook count
-      in old copy (1 / 20 / 50 / 200) describes a retired ladder.
+      the live private-bundle caps are the bundle_limit values in this
+      contract's public_tiers (from tiers.yaml). Every cookbook count in old
+      copy (1 / 20 / 50 / 200) describes a retired ladder.
     replacement: '"private bundles" with the live bundle_limit from this contract'
     since: '2026-08-03'
 

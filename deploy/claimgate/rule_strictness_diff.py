@@ -14,8 +14,7 @@ became exemptable, and the tier caps are unchanged or lower.
     curl -s https://app.loopskill.io/api/marketing/claims > new.json
     python3 rule_strictness_diff.py enforced.json new.json
 
-A veto (exempt rule) that is a plain alternation of literals compares as a
-SET of alternatives, so a reordering of equal-length names is not reported.
+Vetoes compare exactly: any change is reported as weaker (review it by hand).
 Exit codes: 0 = at least as strict, 1 = weaker (do NOT sync), 2 = bad input.
 stdlib only.
 """
@@ -62,26 +61,6 @@ def _old_rules(e: dict) -> dict[str, dict]:
     }
 
 
-def _alts(pattern: str | None):
-    """Top-level '|' alternatives of a pattern (paren depth 0 and 1 inside a leading group)."""
-    if pattern is None:
-        return None
-    parts, depth, cur = [], 0, ""
-    for i, ch in enumerate(pattern):
-        escaped = i > 0 and pattern[i - 1] == "\\"
-        if ch == "(" and not escaped:
-            depth += 1
-        elif ch == ")" and not escaped:
-            depth -= 1
-        if ch == "|" and depth <= 1 and not escaped:
-            parts.append(cur)
-            cur = ""
-        else:
-            cur += ch
-    parts.append(cur)
-    return sorted(p.replace("(", "").replace(")", "") for p in parts)
-
-
 def diff(enforced: dict, new: dict) -> tuple[list[str], list[str]]:
     old_r, new_r = _old_rules(enforced), _new_rules(new)
     weaker, notes = [], []
@@ -102,10 +81,9 @@ def diff(enforced: dict, new: dict) -> tuple[list[str], list[str]]:
         if n["exemptable"] and not o["exemptable"]:
             weaker.append(f"NOW EXEMPTABLE {rid}")
         if o["veto"] != n["veto"]:
-            if sorted(o["veto"] or "") == sorted(n["veto"] or "") and _alts(o["veto"]) == _alts(n["veto"]):
-                notes.append(f"veto of {rid}: same alternatives, reordered")
-            else:
-                weaker.append(f"CHANGED {rid}.veto: {o['veto']!r} -> {n['veto']!r}")
+            # Exact compare: a regex veto has no safe "equivalent" short of a
+            # proof, and a looser veto exempts more text (review of #395).
+            weaker.append(f"CHANGED {rid}.veto: {o['veto']!r} -> {n['veto']!r}")
     for rid in sorted(new_r.keys() - old_r.keys()):
         (weaker if new_r[rid]["kind"] == "exempt" else notes).append(f"NEW {new_r[rid]['kind']} rule {rid}")
     old_t = {t["name"]: t for t in enforced.get("tiers") or []}
