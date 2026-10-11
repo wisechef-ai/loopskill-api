@@ -85,7 +85,7 @@ Once connected, your agent gets these tools (a selection — `tools/list` on the
 | `loopskill_recall` | Ranked search (BM25 + vector) over the catalog by what a skill does |
 | `loopskill_doctor` | Diagnose issues with installed skills |
 | `loopskill_seeker` | Find related skills and dependency edges |
-| `loopskill_sync` | Move a bundle's server-side version pins to the latest published versions (APPLY / DRY_RUN). It does not change files on your machine: re-run `loopskill_bundle_install` on each machine to update them. |
+| `loopskill_sync` | Pin a bundle to the current latest versions (APPLY / DRY_RUN); optional — an unpinned bundle always installs the latest. Never changes files on your machine |
 
 ---
 
@@ -109,7 +109,7 @@ Free skills also install with no account at all. Canonical, current pricing: htt
 ## What's New in v7.1
 
 - **Bundle share tokens** — share a bundle with any agent via a single `cbt_` token
-- **`loopskill_sync`** — moves a bundle's version pins to the latest releases; re-run `loopskill_bundle_install` on each machine to update its files
+- **`loopskill_sync`** — pins a bundle to the current latest versions; to update a machine, re-run `loopskill_bundle_install` (unpinned bundles always install the latest)
 - **StreamableHTTP MCP** — cleaner transport, better error handling, no SSE fallback needed
 - **BM25 reindex on publish** — new skills are searchable within seconds
 

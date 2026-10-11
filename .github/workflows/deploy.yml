@@ -19,6 +19,18 @@ on:
       # no Python diff, so omitting this path made such merges land green on
       # main and silently never deploy.
       - "config/**"
+      # docs/recipes-skill/SKILL.md (/skill) and docs/fleet-skill/SKILL.md
+      # (fleet skill route) are READ AT RUNTIME by app/skill_serve_routes.py and
+      # app/fleet_skill_serve_routes.py — same trap as config/: a docs-only merge
+      # landed green on main and /skill kept serving the old text (perclient_1110,
+      # #403 bcb64cd, 2026-10-12).
+      - "docs/recipes-skill/**"
+      - "docs/fleet-skill/**"
+      # retired-skills.txt is read at import time (install/skill routes) — a
+      # retire-only merge must ship. alembic.ini: the deploy job runs alembic.
+      # tests/test_deploy_paths_cover_runtime_docs.py derives this list from app/.
+      - "retired-skills.txt"
+      - "alembic.ini"
       - "requirements.txt"
       - "pyproject.toml"
       - ".github/workflows/deploy.yml"

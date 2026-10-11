@@ -126,8 +126,8 @@ curl -X POST https://your-host/api/api-keys \
 # → {"key": "rec_live_…"}  — returned ONCE. This is rec_live_OWNER_KEY below.
 ```
 
-Free and Pro accounts may hold **one** active key at a time; a second mint
-returns 403 `key_cap_exceeded`. Revoke with `DELETE /api/api-keys/{key_id}`.
+Each tier caps active keys (defaults in `config/tiers.yaml`: Free 1, Pro 10);
+minting past the cap returns 403 `key_cap_exceeded`. Revoke with `DELETE /api/api-keys/{key_id}`.
 
 ### 3. Create a bundle and put a skill in it
 

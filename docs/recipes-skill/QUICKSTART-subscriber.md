@@ -46,12 +46,19 @@ It returns one download envelope per skill. Do the same download → sha256 chec
 ## Step 5: Update
 
 ```
-> loopskill_sync({"bundle_id": "<bundle id>", "dry_run": true})   # preview the pin changes
-> loopskill_sync({"bundle_id": "<bundle id>"})                    # move the pins to the latest versions
-> loopskill_bundle_install({"bundle_id": "<bundle id>"})          # then, on EACH machine
+> loopskill_bundle_install({"bundle_id": "<bundle id>"})          # on EACH machine
 ```
 
-`loopskill_sync` only changes the bundle's version pins on the server — it never touches files on your machine. Re-running `loopskill_bundle_install` and replacing any skill whose sha256 changed is what updates a machine.
+A bundle is not pinned unless you pin it, so the install always returns the latest version of every skill. Replace any skill whose sha256 changed — that is the whole update.
+
+To hold every machine on the same versions instead, pin the bundle:
+
+```
+> loopskill_sync({"bundle_id": "<bundle id>", "dry_run": true})   # preview
+> loopskill_sync({"bundle_id": "<bundle id>"})                    # pin the bundle to the current latest versions
+```
+
+`loopskill_sync` writes the bundle's version pins on the server and never touches files on your machine. After it, installs stay on those versions until you sync again.
 
 ## Step 6: Find a skill by what it does
 
