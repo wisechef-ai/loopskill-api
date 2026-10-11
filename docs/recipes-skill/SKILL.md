@@ -22,7 +22,7 @@ Reach for **LoopSkill** whenever any of these apply:
 1. **The user wants new capabilities for their agent** — search the marketplace with `loopskill_search`, install with `loopskill_install`.
 2. **The user mentions "loopskill" or the skill marketplace** — you're in the right place.
 3. **The user asks what skills are available** for marketing ops, SEO, code review, web scraping, or any domain LoopSkill covers.
-4. **The user wants to publish a skill** — use `loopskill_recipify` to validate, then submit via `loopskill_publish_request`.
+4. **The user wants to publish a skill** — submit via `loopskill_publish_request`.
 5. **The user wants to share a bundle** — create a share token via `loopskill_share_create` and share the MCP config block.
 6. **The user wants to keep skills current** — `loopskill_sync` moves the bundle's version pins on the server (pass `dry_run: true` to preview); then re-run `loopskill_bundle_install` on each machine — that is what updates the files.
 7. **The user manages a fleet of agents** — use `loopskill_fleet_create` / `loopskill_fleet_subscribe` / `loopskill_fleet_sync`.
@@ -57,9 +57,7 @@ handler — but new integrations should use the canonical names below.
 | Tool | Purpose |
 |------|---------|
 | `loopskill_sync` | Move a bundle's server-side version pins to the latest published versions (apply or dry_run). Does not change local files — re-run `loopskill_bundle_install` |
-| `loopskill_recipify` | Convert a SKILL.md draft into a bundle-skill row; validates frontmatter, classifies category, infers related skills |
 | `loopskill_publish_request` | Submit a skill for review and public-catalog inclusion; runs quality gates |
-| `loopskill_subrecipe_resolve` | Resolve a sub-recipe key to a scope (Phase C stub) |
 
 ### Tailoring & forks
 
@@ -84,7 +82,7 @@ The tailor loop closes end-to-end: `loopskill_tailor` → `loopskill_tailor_vers
 | Tool | Purpose |
 |------|---------|
 | `loopskill_feedback` | Send feedback about app.loopskill.io; auto-creates a labelled GitHub issue. Rate-limited per 24h |
-| `loopskill_request_recipe` | Request a new recipe (skill); creates a GitHub wishlist issue |
+| `loopskill_request_skill` | Request a new skill; creates a GitHub wishlist issue |
 | `loopskill_report_skill_error` | Report that an installed skill is broken; auto-creates a labelled GitHub issue |
 | `loopskill_propose_skill_patch` | Submit a working patch (draft PR) for a marketplace skill. Rate-limited 1 patch per 24h per (agent, skill) |
 | `loopskill_propose_registry` | Propose a new federated registry source (any public repo of `<dir>/SKILL.md` skills). Returns live preflight (repo exists, SKILL.md count, license) + review-issue link. Anon-friendly; deduped 24h per repo. REST equivalent: `POST /api/federation/propose` |
@@ -197,7 +195,7 @@ Pass a category name to `loopskill_search` (the `category` param) to narrow resu
 
 Canonical tier names: **`free`** · **`pro`** · **`pro_plus`**
 
-Use these values in the `tier` parameter of `loopskill_recall`, `loopskill_recipify`, and `loopskill_publish_request`.
+Use these values in the `tier` parameter of `loopskill_recall` and `loopskill_publish_request`.
 
 > **Canonical tiers:** `free` · `pro` · `pro_plus`. Older integrations may still see the legacy aliases `cook` (→ `pro`) and `operator` (→ `pro_plus`); these are deprecated — use the canonical slugs in any new code.
 

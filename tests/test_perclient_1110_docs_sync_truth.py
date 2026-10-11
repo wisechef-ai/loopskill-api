@@ -64,14 +64,18 @@ def test_quickstart_uses_real_argument_names():
 def test_stub_tools_are_not_advertised():
     """loopskill_subskill_resolve ignores its input and returns a constant (Phase C stub)."""
     for p in FILES:
-        assert "subskill_resolve" not in p.read_text(encoding="utf-8"), p.name
+        text = p.read_text(encoding="utf-8")
+        for stale in ("subskill_resolve", "subrecipe_resolve"):
+            assert stale not in text, f"{p.name}: {stale}"
 
 
 def test_readme_pricing_names_both_caps_and_the_pro_only_tools():
     text = _read("README.md")
     assert re.search(r"API keys \(Free 1, Pro 10\)", text)
     assert re.search(r"private bundles \(Free 2, Pro 50\)", text)
-    assert "forking a skill into your own editable copy" in text
+    # fork/recipify/sync-SSE are Pro-gated but tombstoned (docs/ops/tombstones.md): disclose, never sell
+    assert "don't buy it for those" in text
+    assert "unlocks the hosted authoring tools" not in text
     assert "whole difference" not in text.lower()
 
 
@@ -84,3 +88,19 @@ def test_tool_table_names_only_registered_mcp_tools():
     assert names, "tool table not found"
     missing = [n for n in names if n not in registered]
     assert missing == []
+
+
+def test_skill_md_tool_names_are_registered():
+    """SKILL.md is served verbatim at /skill — every `loopskill_*` it names must be a live tool."""
+    from app.mcp.registry import _tool_definitions
+
+    registered = {t.name for t in _tool_definitions()}
+    named = set(re.findall(r"`(loopskill_[a-z_]+)`", _read("SKILL.md")))
+    assert named, "no tool names found"
+    assert sorted(named - registered) == []
+
+
+def test_quickstart_scopes_its_two_machine_claim():
+    text = _read("QUICKSTART-subscriber.md")
+    assert "Every call below was run" not in text
+    assert "bundle steps" in text

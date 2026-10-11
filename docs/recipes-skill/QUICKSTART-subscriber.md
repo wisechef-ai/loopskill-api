@@ -1,6 +1,6 @@
 # Quickstart: Install & Update Your First Skills in 5 Minutes
 
-This guide shows you how to install skills from the LoopSkill marketplace, keep them in one bundle, and update them on every machine you use. Every call below was run end to end on two machines (Debian x86_64 and macOS arm64) on 2026-10-11.
+This guide shows you how to install skills from the LoopSkill marketplace, keep them in one bundle, and update them on every machine you use. The bundle steps (create once, then install and re-install on each machine) were reproduced on two machines (Debian x86_64 and macOS arm64) on 2026-10-11.
 
 ## Prerequisites
 
