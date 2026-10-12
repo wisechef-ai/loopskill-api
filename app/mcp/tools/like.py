@@ -1,10 +1,12 @@
 """MCP verb for mutating a caller's typed Liked library."""
 
+import re
 from typing import Literal
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app import authz
 from app.auth_ctx import AuthContext
 from app.library_service import (
     LikedArtifactForbiddenError,
@@ -12,6 +14,26 @@ from app.library_service import (
     set_liked_artifact,
 )
 from app.mcp.tools.composite_loop_catalog import _NOT_HANDLED
+from app.models import Skill
+
+# Shape of a skill slug an agent may hold after ``loopskill_search``. Anything
+# else is rejected before it reaches the database.
+_SKILL_SLUG_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def _resolve_skill_slug(db: Session, slug: str, ctx: AuthContext) -> UUID | None:
+    """Map a skill slug to its id; ``None`` when absent OR not readable by ``ctx``.
+
+    Unreadable collapses into absent so a slug cannot be used as an existence
+    oracle for someone else's private skill (the UUID path already answers
+    ``forbidden`` for a UUID the caller had to know).
+    """
+    if not _SKILL_SLUG_RE.match(slug):
+        return None
+    skill = db.query(Skill).filter(Skill.slug == slug).first()
+    if skill is None or not authz.can_read_skill(ctx, skill, db):
+        return None
+    return skill.id
 
 
 def loopskill_like(
@@ -24,6 +46,9 @@ def loopskill_like(
 ) -> dict:
     """Idempotently like or unlike one artifact in the authenticated user's library.
 
+    ``id`` is the artifact UUID; for ``type="skill"`` the skill slug is also
+    accepted (a successful response always carries the resolved UUID).
+
     Authorization: enforced at the shared chokepoint ``set_liked_artifact`` (so
     the HTTP route and this MCP verb share one gate). Liking a skill calls
     ``authz.can_read_skill`` there — you cannot like a private skill you may not
@@ -35,8 +60,17 @@ def loopskill_like(
         return {"error": "forbidden", "detail": "Authentication required"}
     try:
         artifact_id = UUID(id)
-    except (ValueError, AttributeError):
-        return {"error": "invalid_id", "id": id}
+    except (ValueError, AttributeError, TypeError):
+        # Agents hold SLUGS after loopskill_search, so a skill may be named by
+        # slug (#401). Personalities and loops keep requiring the UUID.
+        resolved = None
+        if type == "skill" and isinstance(id, str):
+            resolved = _resolve_skill_slug(db, id.strip(), ctx)
+            if resolved is None and _SKILL_SLUG_RE.match(id.strip()):
+                return {"error": "not_found", "type": type, "id": id}
+        if resolved is None:
+            return {"error": "invalid_id", "id": id}
+        artifact_id = resolved
     if action not in {"like", "unlike"}:
         return {"error": "invalid_action", "action": action}
     if type not in {"skill", "personality", "loop"}:

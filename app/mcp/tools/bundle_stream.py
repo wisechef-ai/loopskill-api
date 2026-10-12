@@ -70,6 +70,7 @@ from app.services.bundle_external import (
     materialize_external_skill,
 )
 from app.services.bundle_quota import quota_status
+from app.tier_labels import effective_tier
 
 logger = logging.getLogger(__name__)
 
@@ -434,7 +435,7 @@ def loopskill_compose_bundle_from_links(
     if quota["blocked"]:
         raise CookbookInstallError(
             "cookbook_limit",  # compat-alias — wire-visible error code
-            f"private bundle limit reached for tier '{ctx.tier}' "
+            f"private bundle limit reached for tier '{effective_tier(ctx.tier)}' "
             f"({quota['used']}/{quota['limit']}). Publishing a bundle frees its slot "
             f"(public bundles are unlimited); or upgrade to compose more.",
             status=403,

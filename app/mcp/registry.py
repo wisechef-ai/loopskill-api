@@ -29,7 +29,14 @@ def _core_tools() -> list[types.Tool]:
                 "properties": {
                     "action": {"type": "string", "enum": ["like", "unlike"]},
                     "type": {"type": "string", "enum": ["skill", "personality", "loop"]},
-                    "id": {"type": "string", "description": "Artifact UUID."},
+                    "id": {
+                        "type": "string",
+                        "description": (
+                            "Artifact UUID. For type=skill the skill slug (as returned by "
+                            "loopskill_search) is also accepted; personalities and loops "
+                            "need the UUID."
+                        ),
+                    },
                 },
             },
         ),

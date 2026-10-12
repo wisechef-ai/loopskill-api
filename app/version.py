@@ -582,6 +582,11 @@ loopskill-api#405 one pin model (0.9.68): bundle_status counted every unpinned
     advances pins and re-install updates. Sync writes pin_mode='pin' with
     pinned_version (the lock resolver reads pin_mode) and re-syncs the lock;
     loopskill_sync(unpin=true) clears pins back to 'track'. Registry text fixed.
+agent_ux_399_401 (0.9.69): the private-bundle cap refusal names the tier the
+    gate actually used (NULL tier -> "free", never "None"; tier_labels.
+    effective_tier, #399). loopskill_like accepts a skill SLUG as well as the
+    UUID (unreadable slug == absent, no existence oracle; #401). Verified
+    against prod /api/healthz 0.9.67 before bumping.
 """
 
-__version__ = "0.9.68"
+__version__ = "0.9.69"
