@@ -177,3 +177,35 @@ def test_like_non_string_id_does_not_crash(db_session):
     for bad in (None, 123, ["a"], {"x": 1}):
         out = _like(db_session, ctx, id=bad)
         assert out["error"] == "invalid_id"
+
+
+# ───────────────────────── #397 (agent.json half) ─────────────────────────
+
+
+def test_agent_json_documents_the_private_bundle_lifecycle():
+    from app.agent_wellknown_routes import build_agent_descriptor
+
+    pb = build_agent_descriptor()["private_bundles"]
+    steps = {s["step"]: s for s in pb["steps"]}
+    assert list(steps) == ["create", "add_skill", "install", "update_another_machine"]
+    assert steps["create"]["mcp_tool"] == "loopskill_compose_bundle_from_links"
+    assert steps["install"]["mcp_tool"] == "loopskill_bundle_install"
+    assert steps["update_another_machine"]["mcp_tool"] == "loopskill_bundle_install"
+    assert (
+        steps["add_skill"]["rest"].startswith("POST ")
+        and "/api/bundles/{bundle_id}/skills" in steps["add_skill"]["rest"]
+    )
+
+
+def test_agent_json_private_bundle_tools_exist_and_route_is_real():
+    """No-404-links promise: every tool / route the descriptor names is real."""
+    from app.agent_wellknown_routes import build_agent_descriptor
+    from app.main import app
+
+    names = {t.name for t in _tool_definitions()}
+    pb = build_agent_descriptor()["private_bundles"]
+    for step in pb["steps"]:
+        if "mcp_tool" in step:
+            assert step["mcp_tool"] in names
+    paths = {(m, r.path) for r in app.routes for m in getattr(r, "methods", set()) or set()}
+    assert ("POST", "/api/bundles/{cookbook_id}/skills") in paths

@@ -199,6 +199,39 @@ def build_agent_descriptor() -> dict:
             "trending": f"{origin}/api/skills/trending",
             "bundles": f"{origin}/api/bundles/discover",
         },
+        # #397 — the private-bundle lifecycle, so an agent that reads only this
+        # descriptor can build "one private bundle per client, identical on every
+        # machine". Verbs are real: compose creates a NEW private bundle; the REST
+        # add route is the only add-skill path (no MCP tool yet); install is
+        # idempotent, so re-running it IS the update.
+        "private_bundles": {
+            "requires": "x-api-key from registration",
+            "steps": [
+                {
+                    "step": "create",
+                    "mcp_tool": "loopskill_compose_bundle_from_links",
+                    "note": "links: skill://<slug>, bundle://<slug> or <source>:<slug>; "
+                    "creates a NEW private bundle, id in the 'bundle' field",
+                },
+                {
+                    "step": "add_skill",
+                    "rest": f"POST {origin}/api/bundles/{{bundle_id}}/skills",
+                    "body": {"slug": "<slug>"},
+                    "note": "no MCP tool for this yet; add external_source for a federated skill",
+                },
+                {
+                    "step": "install",
+                    "mcp_tool": "loopskill_bundle_install",
+                    "note": "returns tarball_url + checksum_sha256 per skill; verify the sha256",
+                },
+                {
+                    "step": "update_another_machine",
+                    "mcp_tool": "loopskill_bundle_install",
+                    "note": "re-run with the same bundle_id and replace skills whose sha256 changed; "
+                    "loopskill_sync is optional and only pins versions on the server",
+                },
+            ],
+        },
         "docs": {
             "api": f"{origin}/docs",
             "skill": f"{origin}/skill",
