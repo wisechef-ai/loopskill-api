@@ -588,6 +588,14 @@ agent_ux_399_401 (0.9.69): the private-bundle cap refusal names the tier the
     UUID (unreadable slug == absent, no existence oracle; #401). agent.json
     gains private_bundles (create/add/install/update steps, #397). Verified
     against prod /api/healthz 0.9.67 before bumping.
+loopskill-api#407 one "latest" (0.9.70): install used upload order (created_at) while
+    sync / bundle_status / drift used the highest version number, so a backport
+    1.4.3 uploaded after 2.0.0 was served as "latest" by install but pinned as
+    2.0.0 by sync. Every latest (MCP + REST install, bundle apply, display
+    fields) is now the highest dotted-numeric version (CalVer-compatible:
+    2026.10.1 beats any 2.x.y); created_at is only the equal-version tiebreak.
+    reconcile-apply, fleet-sync, metasearch deploy and bundle deploy now write
+    pin_mode='pin' with pinned_version (no half pins); fork/handoff copy the mode.
 """
 
-__version__ = "0.9.69"
+__version__ = "0.9.70"

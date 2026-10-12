@@ -62,7 +62,7 @@ def _skill_to_out(
     install_count_7d: int = 0,
 ) -> SkillOut:
     """Convert a Skill ORM object to a SkillOut schema instance."""
-    latest = skill.versions[0].semver if skill.versions else None
+    latest = skill.latest_version_row.semver if skill.versions else None
     return SkillOut(
         id=skill.id,
         slug=skill.slug,
@@ -273,7 +273,7 @@ def _resolve_related(db: Session, skill: Skill) -> list:
         r = by_slug.get(slug)
         if not r:
             continue
-        latest = r.versions[0].semver if r.versions else None
+        latest = r.latest_version_row.semver if r.versions else None
         out.append(
             {
                 "id": r.id,
@@ -312,7 +312,7 @@ def _hydrate_skill_outs(db: Session, slugs: list[str]) -> list[dict]:
         r = by_slug.get(slug)
         if not r:
             continue
-        latest = r.versions[0].semver if r.versions else None
+        latest = r.latest_version_row.semver if r.versions else None
         out.append(
             {
                 "id": r.id,

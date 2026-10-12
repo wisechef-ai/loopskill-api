@@ -194,6 +194,7 @@ def _do_fork(
             skill_id=cs.skill_id,
             source=cs.source,
             pinned_version=cs.pinned_version,
+            pin_mode=cs.pin_mode,  # #407: a copied pin keeps its mode
         )
         db.add(new_cs)
 

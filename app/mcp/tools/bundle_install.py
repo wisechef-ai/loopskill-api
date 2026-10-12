@@ -34,6 +34,7 @@ from app.auth_ctx import AuthContext
 from app.config import settings
 from app import config
 from app.models import Bundle, BundleSkill, Skill, SkillVersion
+from app.services.semver import latest_version_row_for_skill
 
 
 def _ctx_request(ctx: AuthContext) -> SimpleNamespace:
@@ -168,12 +169,8 @@ def _resolve_version(db: Session, skill: Skill, pinned_version: str | None) -> S
             .first()
         )
     if version is None:
-        version = (
-            db.query(SkillVersion)
-            .filter(SkillVersion.skill_id == skill.id)
-            .order_by(SkillVersion.created_at.desc())
-            .first()
-        )
+        # #407: newest by version number (CalVer-compatible), not upload order.
+        version = latest_version_row_for_skill(db, skill.id)
     return version
 
 

@@ -100,6 +100,10 @@ def _bulk_declare_junction(
         if extra_field is not None:
             src_key, kw_name = extra_field
             kwargs[kw_name] = it.get(src_key)
+            # #407: a declared pin is a pin — pin_mode is what the lock/drift
+            # resolver reads, so pinned_version alone is a half pin.
+            if kw_name == "pinned_version" and kwargs[kw_name] and hasattr(junction_model, "pin_mode"):
+                kwargs["pin_mode"] = "pin"
         if static_kwargs:
             kwargs.update(static_kwargs)
         db.add(junction_model(**kwargs))

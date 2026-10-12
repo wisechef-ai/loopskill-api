@@ -53,8 +53,8 @@ from app.models import (
     BundleApplyJobItem,
     BundleDeployment,
     Skill,
-    SkillVersion,
 )
+from app.services.semver import latest_version_row_for_skill
 
 logger = logging.getLogger(__name__)
 
@@ -176,14 +176,9 @@ def resolve_bundle_targets(db: Session, bundle: Bundle) -> BundleResolution:
 
 
 def _latest_semver(db: Session, skill_id: UUID) -> str | None:
-    """Newest published semver for a skill, matching ``Skill.versions`` ordering."""
-    row = (
-        db.query(SkillVersion.semver)
-        .filter(SkillVersion.skill_id == skill_id)
-        .order_by(SkillVersion.created_at.desc())
-        .first()
-    )
-    return row[0] if row else None
+    """Newest published version for a skill (``semver_key`` order, #407)."""
+    row = latest_version_row_for_skill(db, skill_id)  # #407: by version number, not upload order
+    return row.semver if row else None
 
 
 def create_apply_job(
