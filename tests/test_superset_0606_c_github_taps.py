@@ -48,8 +48,9 @@ class TestTapList:
         # pr294 — +1 curated tap (github-marketing-os).
         # +1 trusted tap (github-ripwire, redhat-et/ripwire, Apache-2.0).
         # +1 trusted tap (github-opencodereview, alibaba/open-code-review, Apache-2.0).
+        # +1 curated tap (github-autoprompt, Spielewoy/autoprompt-skill, MIT — #354).
         # Growth is a deliberate two-place edit: yaml + this pin.
-        assert len(GITHUB_TAPS) == 25
+        assert len(GITHUB_TAPS) == 26
         assert set(GITHUB_FACET_SOURCES) == {
             "github-anthropic", "github-openai", "github-huggingface",
             "github-nvidia", "github-gstack", "github-superpowers", "github-botmaker",
@@ -67,6 +68,8 @@ class TestTapList:
             "github-marketing-os",
             "github-ripwire",
             "github-opencodereview",
+            # self-serve proposal #354 accepted (Adam, 2026-10-12)
+            "github-autoprompt",
         }
 
     def test_per_skill_license_repos_have_no_repo_license(self):

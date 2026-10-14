@@ -225,3 +225,15 @@ github_taps:
     repo_license: "Apache-2.0"
     trust: trusted-source
     in_metasearch: true
+  # Spielewoy/autoprompt-skill — MIT, 1.2k stars, active (updated 2026-10-12).
+  # Autoprompt v2 multi-runtime agent orchestration (claude/codex/deepseek/
+  # grok/hermes/kilo ports + reasonix tree). Accepted from self-serve proposal
+  # #354 (Adam, 2026-10-12). Layout is one skill-dir per RUNTIME under agents/,
+  # so rows surface as github-autoprompt:<runtime> all titled "autoprompt" —
+  # kept out of metasearch until a tap-level name prefix lands (see #354).
+  - source_id: github-autoprompt
+    repo: Spielewoy/autoprompt-skill
+    path: "agents/"
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
