@@ -1,3 +1,5 @@
+> Asked to install or set up this project for a user? Follow [AGENT_SETUP.md](AGENT_SETUP.md). This file is for contributors.
+
 # AGENTS.md — LoopSkill API contributor guide for AI agents
 
 This file describes the repo layout, auth flow, and toolchain conventions for
