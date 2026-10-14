@@ -109,18 +109,22 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          SEED_ARG=()
-          if [ -n "${SEED_INPUT}" ]; then
-            if ! [[ "${SEED_INPUT}" =~ ^[0-9]+$ ]]; then
-              echo "::error::seed input must be an integer, got '${SEED_INPUT}'"
-              exit 2
-            fi
-            SEED_ARG=("--randomly-seed=${SEED_INPUT}")
+          # Always pass an EXPLICIT seed and echo it ourselves: `-q` suppresses
+          # pytest-randomly's "Using --randomly-seed=N" header, so relying on the
+          # plugin to print it loses the seed.
+          SEED="${SEED_INPUT}"
+          if [ -z "${SEED}" ]; then
+            SEED=$(python -c 'import random; print(random.SystemRandom().randrange(1, 2**32))')
+          elif ! [[ "${SEED}" =~ ^[0-9]+$ ]]; then
+            echo "::error::seed input must be an integer, got '${SEED}'"
+            exit 2
           fi
-          python -m pytest -q -p no:cacheprovider -p randomly "${SEED_ARG[@]}" \
+          echo "Using --randomly-seed=${SEED}" | tee pytest-random-order.log
+          echo "SEED=${SEED}" >> "$GITHUB_ENV"
+          python -m pytest -q -p no:cacheprovider -p randomly --randomly-seed="${SEED}" \
             -n auto --dist loadfile \
             --junitxml="junit-random-order-${{ matrix.engine }}.xml" \
-            2>&1 | tee pytest-random-order.log
+            2>&1 | tee -a pytest-random-order.log
       - name: Summarize seed and result
         if: always()
         shell: bash
