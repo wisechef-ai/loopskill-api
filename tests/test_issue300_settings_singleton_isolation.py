@@ -13,6 +13,7 @@ main (``assert 503 == 302`` from the OAuth guard):
 
 Guards below: a static scan for (1), and a behavioural pin for (2).
 """
+
 from __future__ import annotations
 
 import ast
@@ -38,8 +39,10 @@ def _bare_settings_assignments(path: Path) -> list[tuple[int, str]]:
                 continue
             base = t.value
             # ``settings.X`` / ``cfg.X`` and dotted forms like ``config.settings.X``
-            base_name = base.id if isinstance(base, ast.Name) else (
-                base.attr if isinstance(base, ast.Attribute) else None
+            base_name = (
+                base.id
+                if isinstance(base, ast.Name)
+                else (base.attr if isinstance(base, ast.Attribute) else None)
             )
             if base_name in _SETTINGS_NAMES:
                 hits.append((node.lineno, f"{base_name}.{t.attr}"))
@@ -55,8 +58,7 @@ def test_no_test_assigns_to_settings_singleton_attributes():
             offenders.append(f"{path.relative_to(TESTS_DIR)}:{lineno} {expr} = ...")
     assert not offenders, (
         "Bare assignment to the shared Settings singleton leaks across tests "
-        "(#300). Use monkeypatch.setattr(settings, NAME, value) instead:\n  "
-        + "\n  ".join(offenders)
+        "(#300). Use monkeypatch.setattr(settings, NAME, value) instead:\n  " + "\n  ".join(offenders)
     )
 
 
@@ -68,7 +70,10 @@ def test_scanner_detects_the_antipattern(tmp_path):
         "    config.settings.BAR = 2\n    settings.BAZ: int = 3\n"
     )
     assert [e for _, e in _bare_settings_assignments(bad)] == [
-        "cfg.REDIS_URL", "settings.FOO", "settings.BAR", "settings.BAZ",
+        "cfg.REDIS_URL",
+        "settings.FOO",
+        "settings.BAR",
+        "settings.BAZ",
     ]
     ok = tmp_path / "test_ok.py"
     ok.write_text("def test_x(monkeypatch):\n    monkeypatch.setattr(cfg, 'REDIS_URL', '')\n")
