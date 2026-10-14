@@ -190,31 +190,27 @@ class TestGetRedisHelpers:
             mw._redis_available = original_avail
             mw._redis_next_retry_at = original_retry
 
-    def test_empty_redis_url_returns_none_not_raises(self):
+    def test_empty_redis_url_returns_none_not_raises(self, monkeypatch):
         """Zero-config self-host (WR_REDIS_URL="") must fall back to in-memory.
 
         Regression: redis.from_url("") raises ValueError, which was NOT caught,
         so every anonymous request 500'd on a fresh `docker compose up`. An
         empty/blank/whitespace REDIS_URL must return None (in-memory fallback),
         never raise.
+
+        Issue #300: every mutation goes through ``monkeypatch.setattr`` (scoped
+        to this test, auto-restored even if an assertion fails) -- never bare
+        attribute assignment on the shared Settings singleton.
         """
         import app.middleware as mw
         from app.config import settings as cfg
-        original_client = mw._redis_client
-        original_avail = mw._redis_available
-        original_url = cfg.REDIS_URL
         for blank in ("", "   ", None):
-            try:
-                mw._redis_client = None
-                mw._redis_available = None
-                cfg.REDIS_URL = blank
-                result = get_redis()  # must not raise
-                assert result is None
-                assert mw._redis_available is False
-            finally:
-                mw._redis_client = original_client
-                mw._redis_available = original_avail
-                cfg.REDIS_URL = original_url
+            monkeypatch.setattr(mw, "_redis_client", None)
+            monkeypatch.setattr(mw, "_redis_available", None)
+            monkeypatch.setattr(cfg, "REDIS_URL", blank)
+            result = get_redis()  # must not raise
+            assert result is None
+            assert mw._redis_available is False
 
     def test_get_redis_returns_existing_client_when_available(self):
         """If _redis_client is set and _redis_available is True, returns it (line 164-165)."""
