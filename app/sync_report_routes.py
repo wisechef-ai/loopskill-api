@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.reconcile_abuse_ceiling import check_reconcile_abuse_ceiling
 from app.services.fleet_members import resolve_member_for_key
+from app.services.sync_activity import SOURCE_SYNC_REPORT, record_sync_day
 from app.services.sync_report import MAX_BODY_BYTES, ingest_sync_report
 
 router = APIRouter(prefix="/api", tags=["sync-report"])
@@ -93,5 +94,8 @@ async def post_sync_report(
         raise HTTPException(status_code=422, detail="invalid_payload")
 
     recorded, truncated = ingest_sync_report(db, member, payload)
+    # paywall_0925: a member's cycle report is a sync day for the key's owner.
+    owner = getattr(auth_ctx, "user_id", None) or getattr(request.state, "api_key_user_id", None)
+    record_sync_day(db, owner, source=SOURCE_SYNC_REPORT)
 
     return {"recorded": recorded, "truncated": truncated}

@@ -165,6 +165,17 @@ async def create_api_key(
         .count()
     )
     if active_count >= cap:
+        from app.services.paywall_hits import GATE_API_KEY_CAP, client_ip_of, record_paywall_hit
+
+        record_paywall_hit(
+            db,
+            gate=GATE_API_KEY_CAP,
+            http_status=403,
+            tier=tier,
+            user_id=user.id,
+            email=user.email,
+            ip=client_ip_of(request),
+        )
         raise HTTPException(
             status_code=403,
             detail=f"key_cap_exceeded — max {cap} active key(s) on {tier} tier",

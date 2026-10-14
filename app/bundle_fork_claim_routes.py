@@ -198,6 +198,16 @@ def claim_bundle_fork(body: ForkClaimIn, request: Request, db: Session = Depends
     tier = entitled_tier_or_free(user) if user is not None else "free"
     quota = quota_status(db, ctx.user_id, tier)
     if quota["blocked"]:
+        from app.services.paywall_hits import GATE_FORK_CLAIM_PRIVATE_CAP, record_paywall_hit
+
+        record_paywall_hit(
+            db,
+            gate=GATE_FORK_CLAIM_PRIVATE_CAP,
+            http_status=403,
+            tier=tier,
+            user_id=ctx.user_id,
+            email=getattr(user, "email", None),
+        )
         raise HTTPException(
             status_code=403,
             detail={

@@ -28,6 +28,7 @@ from app import authz
 from app.auth_ctx import AuthContext
 from app.models import Bundle, BundleSkill, Skill
 from app.services.bundle_lock_sync import try_sync_bundle_lock
+from app.services.sync_activity import SOURCE_MCP_SYNC, record_sync_day
 
 # BundleSkill.pin_mode vocabulary (models.BundleSkill, drift_service).
 PIN = "pin"
@@ -126,6 +127,9 @@ def loopskill_sync(
 
     if unpin:
         return _unpin(db, cb, cookbook_id, dry_run=dry_run, created_by=ctx.user_id)
+
+    # paywall_0925: an authorized sync (no-op included) counts toward repeat use.
+    record_sync_day(db, ctx.user_id, source=SOURCE_MCP_SYNC)
 
     outdated = _find_outdated_skills(db, cb_uuid)
 
