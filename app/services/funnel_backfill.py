@@ -145,6 +145,10 @@ def _classify_install(event: InstallEvent, ip: str | None) -> tuple[str, str]:
         by_key = classify(api_key_id=str(event.api_key_id))
         if by_key[0] == "fleet":
             return by_key
+        # t_af0935a6: a keyed install is anchored to an account, so the
+        # verified-crawler rule never downgrades it. The hosting rule keeps
+        # its pricing0928 behaviour (IP-only view) unchanged.
+        return classify(ip=ip, allow_crawler_downgrade=False)
     return classify(ip=ip)
 
 
