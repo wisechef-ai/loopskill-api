@@ -1,0 +1,155 @@
+name: Random order tests (non-blocking)
+
+# Runs the FULL pytest suite in randomized order with pytest-randomly, on both
+# engines, to surface order-dependent tests (shared-state leaks). NON-BLOCKING by
+# design: issue #300 owner decision (2026-10-15) was to add this as a regression
+# guard first and only consider gating once it has been stable for a while.
+#
+#   - `continue-on-error: true` at the job level: a red run here never fails the
+#     workflow run or a PR. Do NOT add these checks to branch protection / required
+#     status checks. Kept in its own file so it can never break ci.yml.
+#   - Failures found here are tracked as separate issues (see #300, #420); this
+#     workflow only detects, it does not fix.
+#
+# Why pytest-randomly (not pytest-random-order): it prints the seed in the pytest
+# header (`Using --randomly-seed=N`), shuffles modules, classes and functions, and
+# also reseeds `random` per test. It is installed ONLY in this workflow's install
+# step; it is not (and must not be) in requirements.txt or ci.yml.
+#
+# Reproducing a failure locally (use the seed from the run log / job summary):
+#
+#   # same relative order, serial, deterministic:
+#   DATABASE_URL=<sqlite:///:memory: | postgresql://...> \
+#     python -m pytest -q -p no:cacheprovider -p randomly -n 0 --randomly-seed=N
+#   # NOTE: use `-n 0`, NOT `-p no:xdist`: the suite uses xdist's `worker_id`
+#   # fixture, which only exists while the plugin is loaded (`-n 0` = in-process).
+#
+#   # one file's order only (fast triage): add the suspect test files after the options.
+#
+# xdist note: this job uses `-n auto --dist loadfile` like ci.yml. pytest-randomly
+# seeds every xdist worker identically, so all workers see the same shuffled order,
+# and `loadfile` then keeps each file on one worker. Which files share a worker is
+# decided at run time by xdist scheduling and is NOT reproducible from the seed, so
+# the serial command above reproduces the ORDER, not the shard composition. If a
+# failure only appears under xdist, re-run with `-n 8 --dist loadfile
+# --randomly-seed=N` (best effort) and read the per-worker test list in the log.
+#
+# The same seed can be replayed in CI via workflow_dispatch (`seed` input).
+# To turn the shuffle off for a given run use `-p no:randomly`.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Nightly, 03:17 UTC (off the hour to avoid the scheduler rush).
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: "pytest-randomly seed to replay (integer). Empty = random seed."
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: random-order-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  random-order:
+    name: random-order pytest (${{ matrix.engine }}, non-blocking)
+    runs-on: ubuntu-latest
+    # NON-BLOCKING: see header. A failure here must never fail the workflow run.
+    continue-on-error: true
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [sqlite, postgres]
+    # Same Postgres service as ci.yml (postgres:17 matches docker-compose.prod.yml).
+    # Started on both legs; the sqlite leg simply never connects to it.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: loopskill
+          POSTGRES_PASSWORD: loopskill
+          POSTGRES_DB: loopskill_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      WR_DATABASE_URL: "sqlite:///:memory:"
+      # Same engine-selection contract as ci.yml: DATABASE_URL drives
+      # tests/conftest.py, WR_DATABASE_URL stays sqlite.
+      DATABASE_URL: ${{ matrix.engine == 'postgres' && 'postgresql://loopskill:loopskill@localhost:5432/loopskill_test' || 'sqlite:///:memory:' }}
+      SEED_INPUT: ${{ github.event.inputs.seed }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # pytest-randomly is installed HERE ONLY (never in requirements.txt).
+          pip install pytest pytest-xdist pytest-timeout pytest-randomly
+      - name: Run tests in random order
+        id: pytest
+        shell: bash
+        run: |
+          set -o pipefail
+          # Always pass an EXPLICIT seed and echo it ourselves: `-q` suppresses
+          # pytest-randomly's "Using --randomly-seed=N" header, so relying on the
+          # plugin to print it loses the seed.
+          SEED="${SEED_INPUT}"
+          if [ -z "${SEED}" ]; then
+            SEED=$(python -c 'import random; print(random.SystemRandom().randrange(1, 2**32))')
+          elif ! [[ "${SEED}" =~ ^[0-9]+$ ]]; then
+            echo "::error::seed input must be an integer, got '${SEED}'"
+            exit 2
+          fi
+          echo "Using --randomly-seed=${SEED}" | tee pytest-random-order.log
+          echo "SEED=${SEED}" >> "$GITHUB_ENV"
+          python -m pytest -q -p no:cacheprovider -p randomly --randomly-seed="${SEED}" \
+            -n auto --dist loadfile \
+            --junitxml="junit-random-order-${{ matrix.engine }}.xml" \
+            2>&1 | tee -a pytest-random-order.log
+      - name: Summarize seed and result
+        if: always()
+        shell: bash
+        run: |
+          SEED=$(grep -m1 -o 'randomly-seed=[0-9]*' pytest-random-order.log | cut -d= -f2 || true)
+          OUTCOME="${{ steps.pytest.outcome }}"
+          {
+            echo "### random-order pytest (${{ matrix.engine }}): ${OUTCOME}"
+            echo ""
+            echo "- seed: \`${SEED:-unknown}\`"
+            echo "- reproduce (serial): \`python -m pytest -q -p no:cacheprovider -p randomly -n 0 --randomly-seed=${SEED:-N}\`"
+            echo "- replay in CI: Actions → Random order tests → Run workflow → seed=${SEED:-N}"
+            echo ""
+            grep -E '^(FAILED|ERROR) ' pytest-random-order.log | head -50 || true
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${OUTCOME}" != "success" ]; then
+            echo "::warning title=random-order (${{ matrix.engine }}) failed::seed=${SEED:-unknown}; non-blocking. See job summary / junit artifact."
+          fi
+      - name: Upload junit XML and log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: random-order-${{ matrix.engine }}
+          path: |
+            junit-random-order-${{ matrix.engine }}.xml
+            pytest-random-order.log
+          if-no-files-found: warn
+          retention-days: 14
