@@ -10,8 +10,9 @@ caller that is already signed in gets no hint.
 
 Copy rules (claim-grounded, checked against the code on 2026-09-28):
 * "save it to a bundle": /library, bundle add. Free includes private bundles.
-* "keep it in sync across your agents": ``loopskill_sync`` / fleet sync update
-  bundle members to their latest published version.
+* "keep it in sync across your agents": re-running ``loopskill_bundle_install``
+  on an unpinned bundle installs the latest on every agent; ``loopskill_sync``
+  pins them all to the same versions (loopskill-api#405).
 * NOT "breakage alerts". Skill-error reports route to the skill's creator, and
   nothing notifies the installer, so saying it would be a lie.
 

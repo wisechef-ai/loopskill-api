@@ -1,13 +1,19 @@
-"""loopskill_sync — apply or preview pending skill version updates for a cookbook.
+"""loopskill_sync — PIN a bundle's skills to their current latest versions (or unpin).
 
-Default behaviour (``dry_run=False``): writes back ``pinned_version`` to the
-latest semver for every outdated skill in the specified cookbook.  Returns the
-same diff shape as ``dry_run=True`` plus ``applied=True`` and optional
-tarball URLs the caller should pull.
+Pin model (loopskill-api#405): an UNPINNED skill always installs the latest
+version (``bundle_install._resolve_version``), so it never needs a sync. Sync
+is the optional "hold every machine on the same versions" verb: it writes
+``pinned_version`` = latest semver AND ``pin_mode='pin'`` for every skill whose
+pin differs, so install and the lock/drift resolver (which decides on
+``pin_mode``) serve the same version. It never touches the agent's files; to
+update a machine, re-run ``loopskill_bundle_install``.
 
-With ``dry_run=True``: returns the diff only — no DB mutations.
+``unpin=True`` is the inverse: clears ``pinned_version`` and resets
+``pin_mode='track'`` so the bundle follows the latest again.
 
-Adam directive 2026-05-07: default ``dry_run=False`` is NON-NEGOTIABLE.
+Default behaviour (``dry_run=False``) applies; ``dry_run=True`` returns the
+diff only — no DB mutations. Adam directive 2026-05-07: default
+``dry_run=False`` is NON-NEGOTIABLE.
 """
 
 from __future__ import annotations
@@ -21,6 +27,11 @@ from sqlalchemy.orm import Session
 from app import authz
 from app.auth_ctx import AuthContext
 from app.models import Bundle, BundleSkill, Skill
+from app.services.bundle_lock_sync import try_sync_bundle_lock
+
+# BundleSkill.pin_mode vocabulary (models.BundleSkill, drift_service).
+PIN = "pin"
+TRACK = "track"
 
 
 def _find_outdated_skills(db: Session, cookbook_id: UUID) -> list[dict[str, Any]]:
@@ -68,10 +79,11 @@ def loopskill_sync(
     *,
     cookbook_id: str,
     dry_run: bool = False,
+    unpin: bool = False,
     caller: dict[str, Any] | None = None,  # kept for backwards compat; prefer ctx
     ctx: AuthContext | None = None,
 ) -> dict[str, Any]:
-    """Synchronise a cookbook's skills to their latest published versions.
+    """Pin a bundle's skills to their latest published versions (``unpin=True`` clears the pins).
 
     Phase B (Issue #15):
     - (a) Uses db.commit() instead of db.flush() so writes persist.
@@ -112,6 +124,9 @@ def loopskill_sync(
             "cookbook_id": cookbook_id,  # compat-alias
         }
 
+    if unpin:
+        return _unpin(db, cb, cookbook_id, dry_run=dry_run, created_by=ctx.user_id)
+
     outdated = _find_outdated_skills(db, cb_uuid)
 
     if not outdated:
@@ -147,7 +162,7 @@ def loopskill_sync(
         db.query(BundleSkill).filter(
             BundleSkill.bundle_id == cb_uuid,  # compat-alias
             BundleSkill.skill_id == o["skill_id"],
-        ).update({"pinned_version": o["to"]})
+        ).update({"pinned_version": o["to"], "pin_mode": PIN})  # #405: never a half pin
 
     # evergreen_0206 Phase A: a pin-write changes the bundle's declared state,
     # so advance the generation token (Bundle.updated_at). SQLAlchemy onupdate
@@ -159,6 +174,9 @@ def loopskill_sync(
         {"updated_at": func.now()}, synchronize_session=False
     )
 
+    # converge_0208: a pin change moves what members resolve — keep the lock in
+    # step (best-effort: a refusal keeps the previous valid revision).
+    try_sync_bundle_lock(db, cb, created_by=ctx.user_id)
     db.commit()  # Phase B (Issue #15a): commit, not flush
 
     # Build tarball URLs for the updated skills (same logic as loopskill_install)
@@ -167,6 +185,41 @@ def loopskill_sync(
     if install_urls:
         result["install_urls"] = install_urls
 
+    return result
+
+
+def _unpin(db: Session, cb: Bundle, cookbook_id: str, *, dry_run: bool, created_by) -> dict[str, Any]:
+    """Clear every pin in *cb* so its skills follow the latest again (#405).
+
+    Same row scope as sync (local skills only). Honours ``dry_run``.
+    """
+    rows = (
+        db.query(BundleSkill, Skill.slug)
+        .join(Skill, Skill.id == BundleSkill.skill_id)
+        .filter(BundleSkill.bundle_id == cb.id)  # compat-alias
+        .filter((BundleSkill.pinned_version.isnot(None)) | (BundleSkill.pin_mode != TRACK))
+        .all()
+    )
+    result: dict[str, Any] = {
+        "bundle_id": cookbook_id,  # canonical
+        "cookbook_id": cookbook_id,  # compat-alias: legacy wire name
+        "changes": [
+            {"slug": slug, "from": bs.pinned_version, "to": None, "action": "unpin"} for bs, slug in rows
+        ],
+    }
+    if not rows:
+        result.update(applied=not dry_run, message="No skills are pinned.")
+        return result
+    if dry_run:
+        return result
+
+    for bs, _slug in rows:
+        bs.pinned_version = None
+        bs.pin_mode = TRACK
+    db.query(Bundle).filter(Bundle.id == cb.id).update({"updated_at": func.now()}, synchronize_session=False)
+    try_sync_bundle_lock(db, cb, created_by=created_by)
+    db.commit()
+    result["applied"] = True
     return result
 
 

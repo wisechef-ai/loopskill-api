@@ -257,6 +257,7 @@ def _dispatch(name: str, db: Session, args: dict[str, Any], caller: dict[str, An
             cookbook_id=_bundle_id_arg(args),
             dry_run=args.get("dry_run", False),
             ctx=ctx,
+            **({"unpin": True} if args.get("unpin") else {}),  # #405; omitted = legacy call shape
         )
     if name == "loopskill_feedback":
         return _tool_ns.get("loopskill_feedback", loopskill_feedback)(
