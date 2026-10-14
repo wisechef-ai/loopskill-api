@@ -321,6 +321,55 @@ def build_ai_plugin_manifest() -> dict:
     }
 
 
+def build_mcp_server_card() -> dict:
+    """The ``/.well-known/mcp/server-card.json`` body (MCP SEP-1649 static card).
+
+    Why it exists: MCP directories (Smithery first) scan a server by calling
+    ``tools/list``. Ours sits behind ``x-api-key``, so a scan dead-ends at 401
+    and the server cannot be listed. The static card is the documented bypass:
+    the directory reads capability metadata from this public document instead.
+
+    Single-sourced, never hand-listed: ``serverInfo`` is the same name/version
+    the live server answers ``initialize`` with, and ``tools`` IS
+    ``app.mcp.registry._tool_definitions()`` — the exact list the
+    authenticated ``tools/list`` returns. Add a tool there and this card
+    changes with it; nothing to keep in sync. Pure — no request, no DB, no PII.
+    Imported lazily so loading the well-known router never drags the MCP
+    package (and its import graph) into module import order.
+    """
+    from app.mcp.registry import _tool_definitions
+    from app.mcp.server import SERVER_NAME, SERVER_VERSION
+
+    origin = public_origin()
+    return {
+        "serverInfo": {
+            "name": SERVER_NAME,
+            "title": "LoopSkill",
+            "version": SERVER_VERSION,
+        },
+        "description": (
+            "LoopSkill MCP server — search, install and compose skills, loops "
+            "and bundles; file feedback; propose registries."
+        ),
+        "transport": {
+            "type": "streamable-http",
+            "url": f"{origin}/api/mcp/http",
+        },
+        "authentication": {
+            "required": True,
+            "schemes": ["apiKey"],
+            "header": "x-api-key",
+            "self_registration": f"{origin}/api/agents/register",
+            "discovery": f"{origin}/.well-known/agent.json",
+        },
+        "tools": [
+            tool.model_dump(mode="json", by_alias=True, exclude_none=True) for tool in _tool_definitions()
+        ],
+        "resources": [],
+        "prompts": [],
+    }
+
+
 @router.get("/.well-known/agent.json")
 def agent_descriptor() -> Response:
     """Public agent-discovery document. Unauthenticated by design."""
@@ -340,3 +389,11 @@ def ai_plugin_manifest() -> Response:
     docstring for the live 401 defect this closes.
     """
     return _etagged_json(build_ai_plugin_manifest())
+
+
+@router.get("/.well-known/mcp/server-card.json")
+def mcp_server_card() -> Response:
+    """Public MCP static server card (SEP-1649). Unauthenticated by design:
+    it is what a directory reads INSTEAD of the key-gated ``tools/list``.
+    """
+    return _etagged_json(build_mcp_server_card())
