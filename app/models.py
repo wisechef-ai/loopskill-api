@@ -348,6 +348,18 @@ class Skill(Base):
     carousel_entries = relationship("CarouselEntry", back_populates="skill")
     install_events = relationship("InstallEvent", back_populates="skill")
 
+    @property
+    def latest_version_row(self):
+        """The newest version by version number (loopskill-api#407), not upload order.
+
+        ``versions`` is ordered by ``created_at`` desc — upload order — so
+        ``versions[0]`` is the *last uploaded*, which is wrong once a backport
+        lands after a newer release. Every "latest" decision uses this instead.
+        """
+        from app.services.semver import latest_of
+
+        return latest_of(self.versions)
+
 
 class SkillVersion(Base):
     __tablename__ = "skill_versions"

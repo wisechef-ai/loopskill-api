@@ -153,6 +153,7 @@ def metasearch_fleet_deploy(
             )
         existing.source = "overridden"  # provenance: explicitly deploy-pinned
         existing.pinned_version = pin.pinned_semver
+        existing.pin_mode = "pin"  # #407: never a half pin
         _touch_bundle_generation(db, cb.id)
         db.commit()
         _record_deploy_event(
@@ -185,6 +186,7 @@ def metasearch_fleet_deploy(
         skill_id=pin.skill_uuid,
         source="overridden",  # deploy-pinned provenance
         pinned_version=pin.pinned_semver,
+        pin_mode="pin",  # #407: never a half pin
     )
     db.add(row)
     _touch_bundle_generation(db, cb.id)

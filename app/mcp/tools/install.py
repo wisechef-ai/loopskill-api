@@ -281,7 +281,7 @@ def loopskill_install(
                 "available_versions": [v.semver for v in skill.versions],
             }
     else:
-        target = skill.versions[0]
+        target = skill.latest_version_row
 
     # Issue #27 (secfix_1905/I-followup): salt MUST match install_routes._verify_signed_token.
     # Phase 3+4: primary salt changed to "loopskill-install"; verifier accepts both.

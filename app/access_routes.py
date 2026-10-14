@@ -107,6 +107,6 @@ def skill_access(
         fork_eligible=user_rank >= TIER_RANK["pro_plus"],
         cookbook_deploy_eligible=user_rank >= TIER_RANK["pro_plus"],
         bucket_eligible=user_rank >= TIER_RANK["pro_plus"],
-        latest_version=s.versions[0].semver if s.versions else None,
+        latest_version=s.latest_version_row.semver if s.versions else None,
         license=s.license,
     )

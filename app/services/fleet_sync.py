@@ -115,7 +115,7 @@ def sync_fleet(
                 db.query(BundleSkill).filter(
                     BundleSkill.bundle_id == sub.bundle_id,  # compat-alias
                     BundleSkill.skill_id == o["skill_id"],
-                ).update({"pinned_version": o["to"]})
+                ).update({"pinned_version": o["to"], "pin_mode": "pin"})  # #407: never a half pin
             # evergreen_0206 Phase A: advance the generation token on mutation.
             db.query(Bundle).filter(Bundle.id == sub.bundle_id).update(  # compat-alias
                 {"updated_at": func.now()}, synchronize_session=False

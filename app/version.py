@@ -7,24 +7,8 @@ made "is the live box running the code we shipped?" unverifiable from
 ``/api/healthz``. Every deploy that changes behaviour MUST bump this constant
 so the healthz probe can prove the cutover landed.
 
-Entries for 0.9.4-0.9.13, 0.9.19-0.9.23 and 0.9.25-0.9.30 are archived verbatim in
+Entries for 0.9.4-0.9.13, 0.9.19-0.9.23 and 0.9.25-0.9.31 are archived verbatim in
 docs/version-history.md.
-
-fleetos_1607 Phase C (0.9.31): golden bundle composition + bootstrap planner.
-app/services/golden_bundle.py composes ALL artifact types (loop manifests +
-aggregated secret_refs + personalities/soul + host_profile ref) into one
-declarative desired state (compose_golden_bundle), and plans a restore/kickstart
-onto a target host (plan_bootstrap) with the host_profile validated FIRST — an
-incompatible host yields ok=False with the NAMED unmet requirement, and missing
-required secrets block with the named secret (a restore never silently proceeds
-onto an incompatible host). triage_loops_for_bundle classifies loops portable vs
-host-bound (the coverage audit IS the triage). The phoenix drill itself is
-host-gated (needs a fresh VM) so it ships as a standing predicate +
-scheduled/manual op: ~/.hermes/goals/checks/phoenix-drill-current.sh (drill <100d).
-5 RED-proofed tests (compose gathers+dedups, bootstrap ok on compatible host,
-fail-named on incompatible host, fail on missing secret, portable/host-bound
-triage). No schema, no migration. Reuses Phase 0 validate_host_profile +
-manifest_to_transport.
 
 fleetos_1607 Phase I (0.9.32): the ingest surface — the missing write path.
 Phases 0/A shipped LoopManifest + FleetMemberLiveness schema + read/compute/authz
@@ -588,6 +572,14 @@ agent_ux_399_401 (0.9.69): the private-bundle cap refusal names the tier the
     UUID (unreadable slug == absent, no existence oracle; #401). agent.json
     gains private_bundles (create/add/install/update steps, #397). Verified
     against prod /api/healthz 0.9.67 before bumping.
+loopskill-api#407 one "latest" (0.9.70): install used upload order (created_at) while
+    sync / bundle_status / drift used the highest version number, so a backport
+    1.4.3 uploaded after 2.0.0 was served as "latest" by install but pinned as
+    2.0.0 by sync. Every latest (MCP + REST install, bundle apply, display
+    fields) is now the highest dotted-numeric version (CalVer-compatible:
+    2026.10.1 beats any 2.x.y); created_at is only the equal-version tiebreak.
+    reconcile-apply, fleet-sync, metasearch deploy and bundle deploy now write
+    pin_mode='pin' with pinned_version (no half pins); fork/handoff copy the mode.
 """
 
-__version__ = "0.9.69"
+__version__ = "0.9.70"

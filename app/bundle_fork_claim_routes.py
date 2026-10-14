@@ -229,6 +229,7 @@ def claim_bundle_fork(body: ForkClaimIn, request: Request, db: Session = Depends
                 skill_id=skill.id,
                 source="forked",
                 pinned_version=cs.pinned_version,
+                pin_mode=cs.pin_mode,  # #407: a copied pin keeps its mode
             )
         )
         copied += 1
@@ -241,6 +242,7 @@ def claim_bundle_fork(body: ForkClaimIn, request: Request, db: Session = Depends
                 federated_slug=fed.federated_slug,
                 source="forked",
                 pinned_version=fed.pinned_version,
+                pin_mode=fed.pin_mode,
             )
         )
         copied += 1

@@ -137,12 +137,9 @@ def _build_prompt(skill: Skill, version: SkillVersion | None, reports: list[Inci
 
 
 def _latest_version(db: Session, skill_id: Any) -> SkillVersion | None:
-    return (
-        db.query(SkillVersion)
-        .filter(SkillVersion.skill_id == skill_id)
-        .order_by(SkillVersion.created_at.desc())
-        .first()
-    )
+    from app.services.semver import latest_version_row_for_skill
+
+    return latest_version_row_for_skill(db, skill_id)  # #407
 
 
 def _top_reports(db: Session, skill_id: Any, signature: str, limit: int = 3) -> list[IncidentReport]:

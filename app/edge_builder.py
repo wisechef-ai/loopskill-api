@@ -77,8 +77,8 @@ def extract_tags(skill: Skill) -> list[str]:
     """
     if not skill.versions:
         return []
-    # `versions` is ordered by created_at desc in the model relationship
-    latest = skill.versions[0]
+    # #407: newest by version number (Skill.latest_version_row), not upload order
+    latest = skill.latest_version_row
     if not latest.skill_toml:
         return []
     try:
@@ -99,7 +99,7 @@ def extract_related_skills(skill: Skill) -> list[str]:
     """
     if not skill.versions:
         return []
-    latest = skill.versions[0]
+    latest = skill.latest_version_row
     if not latest.skill_toml:
         return []
     try:

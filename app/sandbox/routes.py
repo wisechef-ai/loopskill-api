@@ -90,7 +90,7 @@ def sandbox_status(slug: str, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=f"Skill '{slug}' not found")
 
     # Check latest version for skill_toml with [sandbox] block
-    latest = skill.versions[0] if skill.versions else None
+    latest = skill.latest_version_row if skill.versions else None
     if not latest or not latest.skill_toml:
         return SandboxStatusResponse(
             slug=slug,
@@ -165,7 +165,7 @@ def sandbox_run(
         if not version:
             raise HTTPException(status_code=404, detail=f"Version '{body.version}' not found")
     else:
-        version = skill.versions[0] if skill.versions else None
+        version = skill.latest_version_row if skill.versions else None
 
     if not version:
         raise HTTPException(status_code=404, detail="No versions available")

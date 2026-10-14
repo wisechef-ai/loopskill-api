@@ -252,7 +252,7 @@ def _build_install_urls(db: Session, outdated: list[dict[str, Any]]) -> list[dic
         skill = skills_by_id.get(o["skill_id"])
         if not skill or not skill.versions:
             continue
-        latest = skill.versions[0]
+        latest = skill.latest_version_row
         token = serializer.dumps({"slug": o["slug"], "version_id": str(latest.id), "mode": "files"})
         urls.append(
             {

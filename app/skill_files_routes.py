@@ -200,7 +200,7 @@ def _get_latest_version_and_tarball(skill: Skill):
         if tar_path.is_file():
             return version, str(tar_path)
 
-    head = skill.versions[0]
+    head = skill.latest_version_row
     raise HTTPException(
         status_code=404,
         detail=(

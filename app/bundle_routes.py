@@ -58,6 +58,7 @@ from app.services.bundle_external import (
 from app.services.bundle_lock_sync import sync_bundle_lock
 from app.services.bundle_quota import quota_status
 from app.services.federated_titles import federated_title_for, resolve_federated_hub_titles
+from app.services.semver import latest_version_row_for_skill
 from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 logger = logging.getLogger(__name__)
@@ -2334,12 +2335,7 @@ def install_cookbook(
                 .first()
             )
         if version is None:
-            version = (
-                db.query(SkillVersion)
-                .filter(SkillVersion.skill_id == skill.id)
-                .order_by(SkillVersion.created_at.desc())
-                .first()
-            )
+            version = latest_version_row_for_skill(db, skill.id)  # #407
 
         entry = {
             "slug": skill.slug,
@@ -2756,12 +2752,7 @@ def install_single_skill_from_cookbook(
             .first()
         )
     if version is None:
-        version = (
-            db.query(SkillVersion)
-            .filter(SkillVersion.skill_id == skill.id)
-            .order_by(SkillVersion.created_at.desc())
-            .first()
-        )
+        version = latest_version_row_for_skill(db, skill.id)  # #407
 
     if version is None:
         raise HTTPException(status_code=404, detail="no_versions")

@@ -39,9 +39,15 @@ def semver_key(semver: str | None) -> tuple:
     m = _CORE_RE.match(semver)
     if not m:
         return (-1, 0, 0, 0)
-    major = int(m.group(1))
-    minor = int(m.group(2) or 0)
-    patch = int(m.group(3) or 0)
+    try:
+        major = int(m.group(1))
+        minor = int(m.group(2) or 0)
+        patch = int(m.group(3) or 0)
+    except ValueError:
+        # >4300-digit component (CPython int-str limit). The DB column is
+        # String(32) so this is unreachable from stored rows, but "latest" is
+        # now computed on every install — a hostile string must floor, not 500.
+        return (-1, 0, 0, 0)
     # A release (no -prerelease) outranks its prereleases: trailing 1, else 0.
     has_prerelease = "-" in semver.split("+", 1)[0]
     release_rank = 0 if has_prerelease else 1
@@ -57,6 +63,31 @@ def max_semver(semvers: Iterable[str | None]) -> str | None:
     if not candidates:
         return None
     return max(candidates, key=semver_key)
+
+
+def latest_of(versions: Iterable):
+    """Return the newest SkillVersion-like row in *versions* (or None).
+
+    loopskill-api#407 — THE one definition of "latest" for install, sync,
+    bundle_status, lock/drift and every ``latest_version`` the API displays:
+    the highest dotted-numeric version (``semver_key``), ``created_at`` only as
+    the tiebreak for rows whose keys are equal (e.g. ``1.2.3`` vs ``v1.2.3``).
+
+    CalVer-compatible by construction (Adam 2026-10-12: "latest" follows
+    calendar versioning): ``2026.10.1`` out-ranks every legacy ``2.x.y`` because
+    the comparison is numeric component by component, so a skill that moves
+    from semver to ``YYYY.MM.N`` keeps ordering correctly with no migration.
+    Upload order does not matter — a backport ``1.4.3`` uploaded after
+    ``2.0.0`` is NOT latest.
+    """
+    best = None
+    best_key: tuple | None = None
+    for v in versions:
+        created = getattr(v, "created_at", None)
+        k = (semver_key(v.semver), created is not None, created.timestamp() if created is not None else 0.0)
+        if best_key is None or k > best_key:
+            best, best_key = v, k
+    return best
 
 
 def latest_semver_for_skills(db, skill_ids: Iterable[UUID]) -> dict[UUID, str]:
@@ -100,7 +131,4 @@ def latest_version_row_for_skill(db, skill_id: UUID, *, promoted_only: bool = Fa
     q = db.query(SkillVersion).filter(SkillVersion.skill_id == skill_id)
     if promoted_only:
         q = q.filter(SkillVersion.promoted_to_stable_at.isnot(None))
-    rows = q.all()
-    if not rows:
-        return None
-    return max(rows, key=lambda v: semver_key(v.semver))
+    return latest_of(q.all())

@@ -428,7 +428,7 @@ def install_skill(
             )
         latest = target
     else:
-        latest = skill.versions[0]
+        latest = skill.latest_version_row  # #407: newest by version number, not upload order
 
     # Generate a signed token (HMAC-style with itsdangerous)
     # Issue #24 (secfix_1905/H): salt added so install tokens cannot be

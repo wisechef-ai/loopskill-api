@@ -315,7 +315,7 @@ def _attach_tarball_urls(db: Session, plan: ReconcilePlan) -> None:
                     .first()
                 )
             if version is None and skill.versions:
-                version = skill.versions[0]
+                version = skill.latest_version_row
             if version is None:
                 continue
             token = serializer.dumps({"slug": slug, "version_id": str(version.id), "mode": "files"})
@@ -502,7 +502,7 @@ def recipes_reconcile(
         db.query(BundleSkill).filter(
             BundleSkill.bundle_id == cb_uuid,  # compat-alias
             BundleSkill.skill_id == skill.id,
-        ).update({"pinned_version": to_version})
+        ).update({"pinned_version": to_version, "pin_mode": "pin"})  # #407: never a half pin
         mutated = True
 
     if mutated:
