@@ -31,7 +31,22 @@ from sqlalchemy import (
 )
 from sqlalchemy import false as sa_false
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import DeclarativeBase, relationship, validates
+
+
+@compiles(UUID, "sqlite")
+def _compile_uuid_sqlite(type_, compiler, **kw):  # noqa: ARG001
+    """Declare UUID columns as CHAR(32) on SQLite (issue #420).
+
+    Production is Postgres (native uuid; this hook is never consulted there).
+    On SQLite the bare ``UUID`` type name gets NUMERIC affinity, so a uuid
+    whose 32 hex chars look like a number (``...e<digits>`` / all digits) is
+    coerced to REAL/INTEGER on write and read back as ``inf`` / ``int``,
+    crashing ``uuid.UUID(...)``. CHAR(32) gets TEXT affinity and stores the
+    hex verbatim, which is what SQLAlchemy's SQLite UUID bind processor emits.
+    """
+    return "CHAR(32)"
 
 
 class Base(DeclarativeBase):
