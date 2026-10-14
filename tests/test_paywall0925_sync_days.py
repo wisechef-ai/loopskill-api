@@ -146,6 +146,25 @@ class TestMcpSyncRecordsSyncDay:
         rows = _days(db_session, u)
         assert len(rows) == 1 and rows[0].first_source == sync_activity.SOURCE_MCP_SYNC
 
+    def test_unpin_records_nothing(self, db_session):
+        # #370 x #406 merge decision: unpin is the user stepping OUT of maintenance,
+        # so it must not count toward repeat_sync_users_30d. The guard is the
+        # unpin early-return sitting ABOVE record_sync_day() in loopskill_sync.
+        from app.auth_ctx import AuthContext
+        from app.mcp.tools.loopskill_sync import loopskill_sync
+
+        u = _user(db_session)
+        b = _bundle(db_session, u)
+        db_session.commit()
+        out = loopskill_sync(
+            db_session,
+            cookbook_id=str(b.id),
+            unpin=True,
+            ctx=AuthContext(scope="user", user_id=u.id, tier="free"),
+        )
+        assert "error" not in out, out
+        assert _days(db_session, u) == []
+
     def test_not_found_records_nothing(self, db_session):
         from app.auth_ctx import AuthContext
         from app.mcp.tools.loopskill_sync import loopskill_sync
