@@ -38,6 +38,16 @@ def _canonical(slug: str) -> str:
     return _LEGACY_SLUG_MAP.get(slug, slug)
 
 
+def effective_tier(tier: str | None) -> str:
+    """Return the canonical tier slug a caller is actually held to.
+
+    A NULL/empty stored tier (every agent-registered principal)
+    is gated as ``free`` by ``bundle_limit`` and friends; any message that names
+    the tier must say the same thing instead of interpolating ``None`` (#399).
+    """
+    return _canonical(tier) if tier else "free"
+
+
 def display_label(db_slug: str) -> str:
     """Return the user-facing display name for a DB tier slug.
 
