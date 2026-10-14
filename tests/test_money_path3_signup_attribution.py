@@ -221,7 +221,7 @@ def auth_client(db_session: Session):
     everything downstream (find_or_create_user_by_github, the attribution
     capture, the DB write) runs for real against the sqlite test session.
     """
-    from app.config import settings as real_settings
+    from app.auth_routes import settings as real_settings  # the object the routes READ (#300)
 
     test_app = FastAPI()
 
@@ -825,7 +825,7 @@ class TestGoogleCallbackVariant:
     def test_ref_cookie_persisted_on_google_signup(self, auth_client, db_session):
         """money-path-3 must not be a GitHub-only fix — same write-once
         attribution capture is wired into the Google callback."""
-        from app.config import settings as real_settings
+        from app.auth_routes import settings as real_settings  # the object the routes READ (#300)
 
         with (
             patch.object(real_settings, "GOOGLE_CLIENT_ID", "test_google_id"),
@@ -840,7 +840,7 @@ class TestGoogleCallbackVariant:
         assert user.signup_attribution["ref"] == "yt"
 
     def test_google_second_login_does_not_overwrite(self, auth_client, db_session):
-        from app.config import settings as real_settings
+        from app.auth_routes import settings as real_settings  # the object the routes READ (#300)
 
         with (
             patch.object(real_settings, "GOOGLE_CLIENT_ID", "test_google_id"),
@@ -860,7 +860,7 @@ class TestGoogleCallbackVariant:
 
     def test_login_stamps_utm_ctx_cookie_google(self, auth_client):
         """P1-c producer wired symmetrically into the Google /login route."""
-        from app.config import settings as real_settings
+        from app.auth_routes import settings as real_settings  # the object the routes READ (#300)
 
         with (
             patch.object(real_settings, "GOOGLE_CLIENT_ID", "test_google_id"),
