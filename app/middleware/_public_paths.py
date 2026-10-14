@@ -179,5 +179,10 @@ EXEMPT_PATHS: frozenset[str] = frozenset(
         # are the whole fix — a cold agent that tries the ai-plugin
         # convention now gets the manifest instead of a dead end.
         "/.well-known/ai-plugin.json",
+        # ah_1014 — MCP static server card (SEP-1649). Smithery's scanner calls
+        # tools/list, which is x-api-key gated here, so the scan 401s and the
+        # server cannot be listed. The card is the documented bypass; it is
+        # built from the same _tool_definitions() tools/list returns, no secrets.
+        "/.well-known/mcp/server-card.json",
     }
 )

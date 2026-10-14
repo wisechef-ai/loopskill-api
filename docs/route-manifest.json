@@ -1,12 +1,12 @@
 {
   "source": "app.main.app.routes + app.middleware.api_key.APIKeyMiddleware (dispatch tree replayed), derived at import time",
   "generator": "scripts/generate_route_manifest.py",
-  "route_count": 324,
+  "route_count": 325,
   "counts_by_classification": {
     "admin": 11,
     "authenticated": 200,
     "internal": 2,
-    "public": 111
+    "public": 112
   },
   "routes": [
     {
@@ -75,6 +75,20 @@
       ],
       "classification": "public",
       "summary": "Public MCP server descriptor. Unauthenticated by design."
+    },
+    {
+      "method": "GET",
+      "path": "/.well-known/mcp/server-card.json",
+      "name": "mcp_server_card",
+      "module": "app.agent_wellknown_routes",
+      "tags": [
+        "agents",
+        "agents",
+        "well-known",
+        "well-known"
+      ],
+      "classification": "public",
+      "summary": "Public MCP static server card (SEP-1649). Unauthenticated by design:"
     },
     {
       "method": "GET",
