@@ -5,6 +5,24 @@ sits under the 600-line gate (`tests/test_w0_2_pyfile_size_discipline.py`), so
 the oldest entries are moved here verbatim when it fills up. Newest entries
 stay in `app/version.py`.
 
+## 0.9.31 (archived 2026-10-14, loopskill-api#407 rebase onto 0.9.69)
+
+fleetos_1607 Phase C (0.9.31): golden bundle composition + bootstrap planner.
+app/services/golden_bundle.py composes ALL artifact types (loop manifests +
+aggregated secret_refs + personalities/soul + host_profile ref) into one
+declarative desired state (compose_golden_bundle), and plans a restore/kickstart
+onto a target host (plan_bootstrap) with the host_profile validated FIRST — an
+incompatible host yields ok=False with the NAMED unmet requirement, and missing
+required secrets block with the named secret (a restore never silently proceeds
+onto an incompatible host). triage_loops_for_bundle classifies loops portable vs
+host-bound (the coverage audit IS the triage). The phoenix drill itself is
+host-gated (needs a fresh VM) so it ships as a standing predicate +
+scheduled/manual op: ~/.hermes/goals/checks/phoenix-drill-current.sh (drill <100d).
+5 RED-proofed tests (compose gathers+dedups, bootstrap ok on compatible host,
+fail-named on incompatible host, fail on missing secret, portable/host-bound
+triage). No schema, no migration. Reuses Phase 0 validate_host_profile +
+manifest_to_transport.
+
 ## 0.9.30 (archived 2026-10-12, loopskill-api#405 one pin model)
 
 fleetos_1607 Phase T (0.9.30): the trojan skill — the fleet control-plane front
