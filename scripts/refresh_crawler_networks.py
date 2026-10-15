@@ -32,10 +32,15 @@ Usage:
   python3 scripts/refresh_crawler_networks.py --check               # exit 1 if published part is stale
   add --dry-run to print verdicts without writing; --json for a machine-readable report.
 
+Output is deterministic: published lines in PUBLISHED_SOURCES order (each
+source collapsed + sorted), FCrDNS lines deduped and sorted numerically.
+Re-running with the same inputs is a no-op.
+
 Exit codes:
   0  written (or --check / --dry-run found nothing to do)
   1  --check: the published part is stale
-  2  fetch/parse failure (the existing file is left untouched)
+  2  at least one source failed: that source was SKIPPED and its previous
+     lines kept (other sources and FCrDNS entries are still updated)
 """
 
 from __future__ import annotations
@@ -93,22 +98,64 @@ def _fetch_json(url: str, attempts: int = 3) -> dict:
     raise AssertionError("unreachable")
 
 
+def _source_lines(vendor: str, url: str, data: dict) -> list[str]:
+    """Collapsed ``<cidr> <vendor>:<url>`` lines for one vendor payload; ValueError if empty."""
+    nets = []
+    for p in data["prefixes"]:
+        cidr = p.get("ipv4Prefix") or p.get("ipv6Prefix")
+        if cidr:
+            nets.append(ipaddress.ip_network(cidr.strip(), strict=True))
+    if not nets:
+        raise ValueError(f"{url}: no prefixes")
+    lines: list[str] = []
+    for version in (4, 6):
+        for net in ipaddress.collapse_addresses(n for n in nets if n.version == version):
+            lines.append(f"{net} {vendor}:{url}")
+    return lines
+
+
 def published_lines(fetch: Callable[[str], dict] = _fetch_json) -> list[str]:
-    """``<cidr> <vendor>:<url>`` for every published crawler prefix, collapsed per source."""
+    """``<cidr> <vendor>:<url>`` for every published crawler prefix (strict: any failure raises)."""
     lines: list[str] = []
     for vendor, url in PUBLISHED_SOURCES:
-        data = fetch(url)
-        nets = []
-        for p in data["prefixes"]:
-            cidr = p.get("ipv4Prefix") or p.get("ipv6Prefix")
-            if cidr:
-                nets.append(ipaddress.ip_network(cidr.strip(), strict=True))
-        if not nets:
-            raise ValueError(f"{url}: no prefixes")
-        for version in (4, 6):
-            for net in ipaddress.collapse_addresses(n for n in nets if n.version == version):
-                lines.append(f"{net} {vendor}:{url}")
+        lines += _source_lines(vendor, url, fetch(url))
     return lines
+
+
+def fetch_published(
+    fetch: Callable[[str], dict] = _fetch_json,
+) -> tuple[dict[str, list[str]], dict[str, str]]:
+    """Fetch every source independently: ``({label: lines}, {label: error})``.
+
+    A source that fails (network, bad JSON, empty list) lands in the error map
+    and is SKIPPED; the caller keeps that source's previous lines rather than
+    dropping them, so one vendor outage never clobbers the file.
+    """
+    ok: dict[str, list[str]] = {}
+    failed: dict[str, str] = {}
+    for vendor, url in PUBLISHED_SOURCES:
+        label = f"{vendor}:{url}"
+        try:
+            ok[label] = _source_lines(vendor, url, fetch(url))
+        # Rationale: network, JSON, schema and empty-list failures all mean "skip this source".
+        except Exception as exc:  # noqa: BLE001 — any per-source failure skips only that source
+            failed[label] = f"{exc.__class__.__name__}: {exc}"
+    return ok, failed
+
+
+def merge_published(ok: dict[str, list[str]], failed: dict[str, str], current_text: str) -> list[str]:
+    """Published section in PUBLISHED_SOURCES order; a failed source keeps its existing lines."""
+    previous: dict[str, list[str]] = {}
+    for ln in _body(current_text):
+        if ":fcrdns:" in ln:
+            continue
+        cidr, _, label = ln.partition(" ")
+        previous.setdefault(label.strip(), []).append(f"{cidr} {label.strip()}")
+    out: list[str] = []
+    for vendor, url in PUBLISHED_SOURCES:
+        label = f"{vendor}:{url}"
+        out += ok[label] if label in ok else previous.get(label, [])
+    return list(dict.fromkeys(out))
 
 
 # ── FCrDNS ───────────────────────────────────────────────────────────────
@@ -195,10 +242,45 @@ def fcrdns_line(v: Verdict, day: str) -> str:
 # ── file assembly ────────────────────────────────────────────────────────
 
 
-def existing_fcrdns_lines(text: str) -> list[str]:
-    return [
-        ln.strip() for ln in text.splitlines() if ln.strip() and not ln.startswith("#") and ":fcrdns:" in ln
-    ]
+def _is_host_route(cidr: str) -> bool:
+    try:
+        net = ipaddress.ip_network(cidr, strict=True)
+    except ValueError:
+        return False
+    return net.prefixlen == net.max_prefixlen
+
+
+def existing_fcrdns_lines(text: str, warn: Callable[[str], None] | None = None) -> list[str]:
+    """Existing FCrDNS lines, minus anything that is not an exact /32 (or /128).
+
+    An FCrDNS proof covers ONE address; a wider prefix under an ``fcrdns``
+    label (hand edit, bad merge) would hide a whole ISP block, so it is
+    refused and reported instead of carried forward.
+    """
+    out: list[str] = []
+    for ln in _body(text):
+        ln = ln.strip()
+        if ":fcrdns:" not in ln:
+            continue
+        if not _is_host_route(ln.split(" ", 1)[0]):
+            if warn:
+                warn(f"refusing non-/32 FCrDNS entry: {ln}")
+            continue
+        out.append(ln)
+    return out
+
+
+def _sort_key(line: str) -> tuple[int, int, str]:
+    net = ipaddress.ip_network(line.split(" ", 1)[0], strict=False)
+    return (net.version, int(net.network_address), line)
+
+
+def normalize_fcrdns(lines: Iterable[str]) -> list[str]:
+    """Dedupe by address (first label wins: the oldest proof date is kept) and sort numerically."""
+    by_cidr: dict[str, str] = {}
+    for ln in lines:
+        by_cidr.setdefault(ln.split(" ", 1)[0], ln)
+    return sorted(by_cidr.values(), key=_sort_key)
 
 
 def _covered(ip: str, lines: Iterable[str]) -> bool:
@@ -213,7 +295,7 @@ def _covered(ip: str, lines: Iterable[str]) -> bool:
     return False
 
 
-def render(published: list[str], fcrdns: list[str], day: str) -> str:
+def render(published: list[str], fcrdns: list[str], day: str, skipped: Iterable[str] = ()) -> str:
     header = (
         "# Generated by scripts/refresh_crawler_networks.py — do not edit by hand.\n"
         "# Format: <cidr> <vendor>:<source>. Read by app/services/crawler_networks.py.\n"
@@ -225,6 +307,8 @@ def render(published: list[str], fcrdns: list[str], day: str) -> str:
         + ", ".join(f"{v}{list(s)}" for v, s in FCRDNS_DOMAINS.items())
         + " AND forward-confirmed. Append-only.\n"
     )
+    for label in skipped:
+        header += f"# Skipped this run (fetch failed, previous lines kept): {label}\n"
     body = "# --- published ---\n" + "\n".join(published) + "\n# --- fcrdns ---\n"
     if fcrdns:
         body += "\n".join(fcrdns) + "\n"
@@ -277,15 +361,15 @@ def main(argv: list[str] | None = None) -> int:
 
     day = datetime.now(UTC).date().isoformat()
     current = args.out.read_text(encoding="utf-8") if args.out.exists() else ""
-    try:
-        published = published_lines()
-    except Exception as exc:  # noqa: BLE001 — any fetch/parse failure keeps the old file
-        print(f"refresh failed, file untouched: {exc}", file=sys.stderr)
-        return 2
-
+    ok, failed = fetch_published()
+    for label, err in failed.items():
+        print(f"source skipped, previous lines kept: {label} ({err})", file=sys.stderr)
     if args.check:
+        if failed:
+            return 2
         old_pub = [ln for ln in _body(current) if ":fcrdns:" not in ln]
-        return 0 if old_pub == published else 1
+        return 0 if old_pub == merge_published(ok, {}, "") else 1
+    published = merge_published(ok, failed, current)
 
     candidates = list(args.ips)
     if args.ips_file:
@@ -295,7 +379,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.from_db:
         candidates += stranger_ips_from_db()
 
-    fcrdns = existing_fcrdns_lines(current)
+    fcrdns = existing_fcrdns_lines(current, warn=lambda m: print(m, file=sys.stderr))
     verdicts: list[Verdict] = []
     for ip in dict.fromkeys(candidates):
         try:
@@ -311,7 +395,8 @@ def main(argv: list[str] | None = None) -> int:
         if v.admitted:
             fcrdns.append(fcrdns_line(v, day))
 
-    text = render(published, fcrdns, day)
+    fcrdns = normalize_fcrdns(fcrdns)
+    text = render(published, fcrdns, day, skipped=sorted(failed))
     changed = _body(text) != _body(current)
     if not args.dry_run and changed:
         args.out.write_text(text, encoding="utf-8")
@@ -326,6 +411,7 @@ def main(argv: list[str] | None = None) -> int:
                     "admitted": [asdict(v) for v in admitted],
                     "verdicts": [asdict(v) for v in verdicts],
                     "written": bool(changed and not args.dry_run),
+                    "skipped_sources": failed,
                 },
                 indent=2,
             )
@@ -335,7 +421,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{'ADMIT ' if v.admitted else 'reject'} {v.ip:<40} {v.ptr or '-':<50} {v.reason}")
         state = "dry-run, not written" if args.dry_run else ("written" if changed else "unchanged")
         print(f"{len(published)} published + {len(fcrdns)} fcrdns entries ({state}) -> {args.out}")
-    return 0
+    return 2 if failed else 0
 
 
 if __name__ == "__main__":
