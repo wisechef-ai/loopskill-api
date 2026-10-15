@@ -60,9 +60,13 @@ def _load(path_str: str) -> dict[int, tuple[list[int], list[int], list[str]]]:
             net = ipaddress.ip_network(cidr, strict=False)
         except ValueError:
             continue
-        rows[net.version].append(
-            (int(net.network_address), int(net.broadcast_address), label.strip() or "crawler")
-        )
+        label = label.strip() or "crawler"
+        # An FCrDNS proof covers exactly one address. A wider prefix under an
+        # fcrdns label (hand edit, bad merge) would hide an ISP block: skip it.
+        if ":fcrdns:" in label and net.prefixlen != net.max_prefixlen:
+            logger.warning("crawler_networks: ignoring non-host FCrDNS entry %s", line)
+            continue
+        rows[net.version].append((int(net.network_address), int(net.broadcast_address), label))
     out = {}
     for version, items in rows.items():
         segments = _flatten(items)
@@ -88,7 +92,13 @@ def crawler_network(ip: str | None, *, path: Path | None = None) -> tuple[str, s
         return None
     if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
         addr = addr.ipv4_mapped
-    starts, ends, labels = _load(str(path or DATA_PATH))[addr.version]
+    try:
+        starts, ends, labels = _load(str(path or DATA_PATH))[addr.version]
+    # Rationale: classify() runs on every funnel write; a data file this module
+    # failed to parse must degrade to "not a crawler", never break ingestion.
+    except Exception:  # noqa: BLE001
+        logger.exception("crawler_networks: failed to load data; no IP is treated as a crawler")
+        return None
     value = int(addr)
     i = bisect.bisect_right(starts, value) - 1
     if i >= 0 and value <= ends[i]:

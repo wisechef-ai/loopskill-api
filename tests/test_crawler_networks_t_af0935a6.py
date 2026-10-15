@@ -269,12 +269,13 @@ def test_refresh_keeps_fcrdns_lines_and_fails_closed_on_fetch_error(tmp_path: Pa
     def boom(_url):
         raise OSError("network down")
 
-    monkeypatch.setattr(refresh, "published_lines", lambda: boom(""))
+    monkeypatch.setattr(refresh, "fetch_published", lambda: _REAL_FETCH_PUBLISHED(fetch=boom))
     assert refresh.main(["--out", str(out)]) == 2
     assert f"{IP}/32" in out.read_text(encoding="utf-8")
 
+    gpt_label = f"OpenAI-GPTBot:{_url_of('OpenAI-GPTBot')}"
     monkeypatch.setattr(
-        refresh, "published_lines", lambda: ["198.51.100.0/24 OpenAI-GPTBot:https://openai.com/gptbot.json"]
+        refresh, "fetch_published", lambda: ({gpt_label: [f"198.51.100.0/24 {gpt_label}"]}, {})
     )
     monkeypatch.setattr(
         refresh,
@@ -282,11 +283,169 @@ def test_refresh_keeps_fcrdns_lines_and_fails_closed_on_fetch_error(tmp_path: Pa
         lambda ip: refresh.Verdict(ip, False, reason="no PTR (herror)"),
     )
     assert refresh.main(["--out", str(out), "--ips", "203.0.113.9", IP, "198.51.100.4"]) == 0
-    body = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln and not ln.startswith("#")]
-    assert body == [
-        "198.51.100.0/24 OpenAI-GPTBot:https://openai.com/gptbot.json",
+    assert _body_lines(out) == [
+        f"198.51.100.0/24 {gpt_label}",
         f"{IP}/32 Baidu:fcrdns:{HOST}:2026-10-10",
     ]
+
+
+# ── refresh script: t_077d0d01 hardening (synthetic, no network) ────────
+
+
+_REAL_FETCH_PUBLISHED = refresh.fetch_published
+
+
+def _url_of(vendor: str) -> str:
+    return dict(refresh.PUBLISHED_SOURCES)[vendor]
+
+
+def _body_lines(path: Path) -> list[str]:
+    return [ln for ln in path.read_text(encoding="utf-8").splitlines() if ln and not ln.startswith("#")]
+
+
+def _fake_fetch(payloads: dict[str, dict | Exception]):
+    def fetch(url):
+        result = payloads[url]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    return fetch
+
+
+def test_failed_source_is_skipped_and_its_previous_lines_are_kept(tmp_path: Path, monkeypatch):
+    google, bing = _url_of("Google"), _url_of("Bing")
+    out = tmp_path / "crawler_networks.txt"
+    out.write_text(
+        f"192.0.2.0/24 Google:{google}\n"
+        f"198.51.100.0/24 Bing:{bing}\n"
+        f"{IP}/32 Baidu:fcrdns:{HOST}:2026-10-10\n",
+        encoding="utf-8",
+    )
+    payloads: dict[str, dict | Exception] = {url: {"prefixes": []} for _, url in refresh.PUBLISHED_SOURCES}
+    payloads[google] = TimeoutError("timed out")  # Google down: keep its old line
+    payloads[bing] = {"prefixes": [{"ipv4Prefix": "203.0.113.0/24"}]}  # Bing moved: refresh it
+    # the rest return an empty list (ValueError) -> skipped, nothing previous to keep
+    monkeypatch.setattr(
+        refresh, "fetch_published", lambda: _REAL_FETCH_PUBLISHED(fetch=_fake_fetch(payloads))
+    )
+
+    assert refresh.main(["--out", str(out)]) == 2
+    assert _body_lines(out) == [
+        f"192.0.2.0/24 Google:{google}",
+        f"203.0.113.0/24 Bing:{bing}",
+        f"{IP}/32 Baidu:fcrdns:{HOST}:2026-10-10",
+    ]
+    assert f"# Skipped this run (fetch failed, previous lines kept): Google:{google}" in out.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_all_sources_failing_never_clobbers_the_file(tmp_path: Path, monkeypatch):
+    google = _url_of("Google")
+    original = f"192.0.2.0/24 Google:{google}\n{IP}/32 Baidu:fcrdns:{HOST}:2026-10-10\n"
+    out = tmp_path / "crawler_networks.txt"
+    out.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(
+        refresh, "fetch_published", lambda: _REAL_FETCH_PUBLISHED(fetch=_fake_fetch({}))
+    )  # KeyError for every url == every source fails
+    assert refresh.main(["--out", str(out)]) == 2
+    assert out.read_text(encoding="utf-8") == original  # body unchanged -> not rewritten at all
+    assert refresh.main(["--out", str(out), "--check"]) == 2
+
+
+def test_refresh_is_idempotent_sorted_and_deduped(tmp_path: Path, monkeypatch):
+    out = tmp_path / "crawler_networks.txt"
+    other = "116.179.37.9"
+    other_host = "baiduspider-116-179-37-9.crawl.baidu.com"
+    out.write_text(
+        f"{IP}/32 Baidu:fcrdns:{HOST}:2026-10-10\n"
+        f"{other}/32 Baidu:fcrdns:{other_host}:2026-10-11\n"
+        f"{IP}/32 Baidu:fcrdns:{HOST}:2026-10-12\n",  # duplicate address, later date
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(refresh, "fetch_published", lambda: ({}, {}))
+    new_ip, new_host = "116.179.37.50", "baiduspider-116-179-37-50.crawl.baidu.com"
+    monkeypatch.setattr(
+        refresh,
+        "fcrdns_verify",
+        lambda ip: refresh.Verdict(ip, True, vendor="Baidu", ptr=new_host, reason="FCrDNS confirmed"),
+    )
+    assert refresh.main(["--out", str(out), "--ips", new_ip, new_ip]) == 0
+    first = out.read_text(encoding="utf-8")
+    body = _body_lines(out)
+    assert [ln.split(" ")[0] for ln in body] == [f"{other}/32", f"{new_ip}/32", f"{IP}/32"]  # numeric order
+    assert f"{IP}/32 Baidu:fcrdns:{HOST}:2026-10-10" in body  # oldest proof kept
+    assert len(body) == len(set(ln.split(" ")[0] for ln in body))
+
+    # second run with the same inputs: already listed, nothing re-verified, file identical
+    monkeypatch.setattr(refresh, "fcrdns_verify", lambda ip: pytest.fail(f"re-verified {ip}"))
+    assert refresh.main(["--out", str(out), "--ips", new_ip]) == 0
+    assert out.read_text(encoding="utf-8") == first
+
+
+def test_refresh_refuses_non_slash32_fcrdns_entries(tmp_path: Path, monkeypatch, capsys):
+    out = tmp_path / "crawler_networks.txt"
+    out.write_text(
+        f"116.179.37.0/24 Baidu:fcrdns:{HOST}:2026-10-10\n"  # hand-widened: must go
+        f"2001:db8::/64 Baidu:fcrdns:{HOST}:2026-10-10\n"  # same for IPv6
+        f"{IP}/32 Baidu:fcrdns:{HOST}:2026-10-10\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(refresh, "fetch_published", lambda: ({}, {}))
+    assert refresh.main(["--out", str(out)]) == 0
+    assert _body_lines(out) == [f"{IP}/32 Baidu:fcrdns:{HOST}:2026-10-10"]
+    assert "refusing non-/32 FCrDNS entry: 116.179.37.0/24" in capsys.readouterr().err
+
+
+def test_loader_ignores_non_host_fcrdns_entry(tmp_path: Path):
+    data = tmp_path / "c.txt"
+    data.write_text(
+        f"116.179.37.0/24 Baidu:fcrdns:{HOST}:2026-10-10\n198.51.100.0/24 Bing:https://example.test/b.json\n",
+        encoding="utf-8",
+    )
+    assert crawler_networks.crawler_network("116.179.37.1", path=data) is None
+    assert crawler_networks.crawler_network("198.51.100.7", path=data) == (
+        "Bing",
+        "https://example.test/b.json",
+    )
+
+
+def test_loader_failure_degrades_to_stranger_without_raising(monkeypatch):
+    class _Broken:
+        def __call__(self, _path):
+            raise RuntimeError("parser bug")
+
+        def cache_clear(self):
+            return None
+
+    monkeypatch.setattr(crawler_networks, "_load", _Broken())
+    assert crawler_networks.crawler_network(BAIDU_VERIFIED) is None
+    assert classify(ip=BAIDU_VERIFIED) == ("stranger", "no fleet-exclusion match")
+
+
+def test_synthetic_published_and_fcrdns_rules_through_classify(tmp_path: Path, monkeypatch):
+    data = tmp_path / "c.txt"
+    data.write_text(
+        "198.51.100.0/24 Meta:https://example.test/meta-crawlers.json\n"
+        "192.0.2.77/32 Baidu:fcrdns:baiduspider-192-0-2-77.crawl.baidu.com:2026-10-15\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(crawler_networks, "DATA_PATH", data)
+    crawler_networks.clear_cache()
+    pub_ip = "198.51.100.20"
+    assert classify(ip=pub_ip) == (
+        "unknown",
+        f"ip:{pub_ip} is verified crawler (Meta, https://example.test/meta-crawlers.json), no email/key",
+    )
+    assert classify(ip=pub_ip, api_key_id="k-123") == ("stranger", "no fleet-exclusion match")
+    assert classify(ip=pub_ip, email="someone@example.org") == ("stranger", "no fleet-exclusion match")
+    assert classify(ip="192.0.2.77") == (
+        "unknown",
+        "ip:192.0.2.77 is verified crawler (Baidu, fcrdns:baiduspider-192-0-2-77.crawl.baidu.com:2026-10-15), "
+        "no email/key",
+    )
+    assert classify(ip="192.0.2.78") == ("stranger", "no fleet-exclusion match")  # /24 neighbour
 
 
 def test_published_lines_parses_vendor_json_and_skips_nothing():
