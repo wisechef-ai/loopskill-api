@@ -3,7 +3,7 @@
 
 # Route Manifest (bundles_0811 P7)
 
-Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **325** distinct (method, path) surfaces.
+Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **326** distinct (method, path) surfaces.
 
 ## How classification works
 
@@ -24,7 +24,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | admin | 11 |
 | authenticated | 200 |
 | internal | 2 |
-| public | 112 |
+| public | 113 |
 
 ## Full manifest
 
@@ -33,6 +33,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | GET | `/` | public | `app.main` | meta |
 | GET | `/.well-known/agent.json` | public | `app.agent_wellknown_routes` | agents, agents, well-known, well-known |
 | GET | `/.well-known/ai-plugin.json` | public | `app.agent_wellknown_routes` | agents, agents, well-known, well-known |
+| GET | `/.well-known/glama.json` | public | `app.agent_wellknown_routes` | agents, agents, well-known, well-known |
 | GET | `/.well-known/jwks.json` | public | `app.mesh_wellknown_routes` | mesh, mesh, well-known, well-known |
 | GET | `/.well-known/mcp.json` | public | `app.agent_wellknown_routes` | agents, agents, well-known, well-known |
 | GET | `/.well-known/mcp/server-card.json` | public | `app.agent_wellknown_routes` | agents, agents, well-known, well-known |

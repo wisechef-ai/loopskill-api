@@ -184,5 +184,9 @@ EXEMPT_PATHS: frozenset[str] = frozenset(
         # server cannot be listed. The card is the documented bypass; it is
         # built from the same _tool_definitions() tools/list returns, no secrets.
         "/.well-known/mcp/server-card.json",
+        # ah_1016 — Glama connector ownership document. Glama's claim verifier
+        # fetches it with no credential; behind APIKeyMiddleware it 401'd live
+        # (2026-10-16), so the existing Glama listing could not be claimed.
+        "/.well-known/glama.json",
     }
 )

@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 
 from fastapi import APIRouter, Response
 
@@ -368,6 +369,47 @@ def build_mcp_server_card() -> dict:
         "resources": [],
         "prompts": [],
     }
+
+
+GLAMA_CONNECTOR_SCHEMA = "https://glama.ai/mcp/schemas/connector.json"
+_GLAMA_CLAIM_RE = re.compile(r"^glama_claim_[A-Za-z0-9_-]{32}$")
+
+
+def build_glama_ownership() -> dict | None:
+    """The ``/.well-known/glama.json`` body (Glama connector ownership).
+
+    Why it exists: Glama imported our MCP Registry entry
+    (io.github.wisechef-ai/loopskill) as an unclaimed connector. Claiming it
+    (domain method) needs this document on app.loopskill.io; the claim is what
+    lets us give Glama a test x-api-key so the listing stops reading Unhealthy,
+    which is the last label blocking punkpeye/awesome-mcp-servers#13442.
+
+    Follows Glama's connector schema: ``claim`` (account-bound tokens, the
+    current form) and/or ``maintainers`` (legacy email form). A token that does
+    not match the schema pattern is dropped rather than published, because one
+    malformed entry would fail the whole document. Returns None when nothing
+    is configured, so the route 404s instead of serving an invalid document.
+    """
+    tokens = [t for t in settings.GLAMA_CLAIM_TOKENS if _GLAMA_CLAIM_RE.match(t)]
+    email = (settings.GLAMA_MAINTAINER_EMAIL or "").strip()
+    if not tokens and not email:
+        return None
+    body: dict = {"$schema": GLAMA_CONNECTOR_SCHEMA}
+    if tokens:
+        body["claim"] = tokens[0] if len(tokens) == 1 else tokens
+    if email:
+        body["maintainers"] = [{"email": email}]
+    return body
+
+
+@router.get("/.well-known/glama.json")
+def glama_ownership() -> Response:
+    """Public Glama ownership document. Unauthenticated by design: Glama's
+    claim verifier fetches it anonymously."""
+    body = build_glama_ownership()
+    if body is None:
+        return Response(status_code=404)
+    return _etagged_json(body)
 
 
 @router.get("/.well-known/agent.json")

@@ -334,6 +334,21 @@ class Settings(BaseSettings):
     # shipped file. See app/services/funnel_ledger.py:classify().
     FUNNEL_FLEET_EXCLUSIONS_PATH: str = ""
 
+    # ah_1016 — Glama connector ownership (/.well-known/glama.json). Glama
+    # already lists io.github.wisechef-ai/loopskill; claiming it needs this
+    # document on our domain. CLAIM_TOKENS are the account-bound
+    # ``glama_claim_<32>`` tokens from the Glama claim panel (no PII, safe to
+    # publish; comma-separated or JSON list). MAINTAINER_EMAIL is the legacy
+    # email form Glama still accepts; blank it to stop publishing it.
+    GLAMA_CLAIM_TOKENS: Annotated[list[str], NoDecode] = []
+    GLAMA_MAINTAINER_EMAIL: str = "hi@wisechef.ai"
+
+    @field_validator("GLAMA_CLAIM_TOKENS", mode="before")
+    @classmethod
+    def _parse_glama_tokens(cls, value: object) -> object:
+        """Same accepted forms as KNOWN_INTERNAL_IPS ("", "a,b", JSON array)."""
+        return cls._parse_internal_ips(value)
+
     model_config = {"env_file": ".env", "env_prefix": "WR_", "extra": "ignore"}
 
     @model_validator(mode="after")
