@@ -163,6 +163,22 @@ def engine_fixture(worker_id):
     engine.dispose()
 
 
+def _reset_fed_cache() -> None:
+    """Drop the process-wide federation first-page cache (#425).
+
+    ``unified_search._fed_cache`` (60s TTL) is only invalidated by ORM *writes*
+    (after_flush hook). ``db_session`` rolls rows back at teardown, which is not
+    a write, so a row cached by one test was served to the next test inside the
+    TTL — order-dependent "warm" instead of "cold". Reset the three keys in
+    place (``.clear()`` would make ``_cached_first_pages`` KeyError).
+    """
+    from app.services import unified_search
+
+    unified_search._fed_cache["data"] = None
+    unified_search._fed_cache["sources"] = None
+    unified_search._fed_cache["t"] = 0.0
+
+
 @pytest.fixture()
 def db_session(engine_fixture) -> Generator[Session, None, None]:
     """Per-test transactional session using SAVEPOINT isolation.
@@ -181,6 +197,7 @@ def db_session(engine_fixture) -> Generator[Session, None, None]:
 
     # Start a SAVEPOINT inside the outer transaction
     nested = connection.begin_nested()
+    _reset_fed_cache()
 
     # Re-issue a SAVEPOINT each time the session commits, so the outer
     # transaction boundary stays intact.
@@ -196,6 +213,7 @@ def db_session(engine_fixture) -> Generator[Session, None, None]:
         session.close()
         transaction.rollback()
         connection.close()
+        _reset_fed_cache()  # rolled-back rows must not outlive the test via the TTL cache
 
 
 @pytest.fixture()
