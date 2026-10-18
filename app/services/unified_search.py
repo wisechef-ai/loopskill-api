@@ -73,6 +73,26 @@ def _terms(q: str) -> list[str]:
     return (q or "").split()[:_MAX_TERMS]
 
 
+def _like_escape(text: str) -> str:
+    """Escape LIKE metacharacters so user input matches LITERALLY (qa1018 C07).
+
+    Measured on prod 2026-10-18: ``q=__`` and ``q=%%`` returned the whole public
+    catalog in every group, because ``_``/``%`` were live LIKE wildcards. The
+    federated first_page leg already did a literal Python substring test, so the
+    two legs disagreed. Pair with ``escape="\\"`` on every ``ilike`` (Postgres's
+    default LIKE escape is already backslash; SQLite has none, hence explicit).
+    """
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _ilike(column, pattern: str) -> ColumnElement[bool]:
+    return column.ilike(pattern, escape="\\")
+
+
+def _prefix_like(q: str) -> str:
+    return f"{_like_escape(q)}%"
+
+
 def _match_terms(q: str, *columns) -> ColumnElement[bool]:
     """AND across query terms, OR across ``columns`` — the search-box semantic.
 
@@ -95,7 +115,12 @@ def _match_terms(q: str, *columns) -> ColumnElement[bool]:
     """
     if not columns:
         raise ValueError("_match_terms needs at least one column to search")
-    return and_(*(or_(*(column.ilike(f"%{term}%") for column in columns)) for term in _terms(q) or [""]))
+    return and_(
+        *(
+            or_(*(_ilike(column, f"%{_like_escape(term)}%") for column in columns))
+            for term in _terms(q) or [""]
+        )
+    )
 
 
 def _truncate(text: str | None) -> str | None:
@@ -147,11 +172,11 @@ def _federated_relevance(row: dict, q: str) -> tuple[int, int, str, str]:
 
 def search_skills_group(db: Session, q: str, limit: int) -> list[dict]:
     """Public skills matching ``q``, newest surface: /api/skills/search twin."""
-    prefix_like = f"{q}%"
+    prefix_like = _prefix_like(q)
     # Visibility filter copied verbatim from app/skill_routes.py:search_skills.
     query = db.query(Skill).filter(Skill.is_public == True, Skill.is_archived == False)  # noqa: E712
     query = query.filter(_match_terms(q, Skill.title, Skill.description, Skill.category))
-    exact_prefix = case((Skill.title.ilike(prefix_like), 0), else_=1)
+    exact_prefix = case((_ilike(Skill.title, prefix_like), 0), else_=1)
     query = query.order_by(exact_prefix, Skill.install_count.desc(), Skill.title.asc())
     rows = query.limit(limit).all()
     return [
@@ -168,11 +193,11 @@ def search_skills_group(db: Session, q: str, limit: int) -> list[dict]:
 
 def search_loops_group(db: Session, q: str, limit: int) -> list[dict]:
     """Public loops (verifiers) matching ``q``: /api/loops (/api/verifiers) twin."""
-    prefix_like = f"{q}%"
+    prefix_like = _prefix_like(q)
     # Visibility filter copied verbatim from app/verifier_routes.py:list_verifiers.
     query = db.query(Verifier).filter(Verifier.is_public.is_(True), Verifier.is_archived.is_(False))
     query = query.filter(_match_terms(q, Verifier.title, Verifier.description))
-    exact_prefix = case((Verifier.title.ilike(prefix_like), 0), else_=1)
+    exact_prefix = case((_ilike(Verifier.title, prefix_like), 0), else_=1)
     query = query.order_by(exact_prefix, Verifier.run_count.desc(), Verifier.title.asc())
     rows = query.limit(limit).all()
     return [
@@ -190,11 +215,11 @@ def search_loops_group(db: Session, q: str, limit: int) -> list[dict]:
 
 def search_bundles_group(db: Session, q: str, limit: int) -> list[dict]:
     """Public bundles matching ``q``: /api/bundles/public (discover) twin."""
-    prefix_like = f"{q}%"
+    prefix_like = _prefix_like(q)
     # Visibility filter copied verbatim from app/bundle_routes.py:discover_cookbooks.
     query = db.query(Bundle).filter(Bundle.visibility == "public", Bundle.slug.isnot(None))
     query = query.filter(_match_terms(q, Bundle.name, Bundle.description))
-    exact_prefix = case((Bundle.name.ilike(prefix_like), 0), else_=1)
+    exact_prefix = case((_ilike(Bundle.name, prefix_like), 0), else_=1)
     query = query.order_by(exact_prefix, Bundle.name.asc())
     rows = query.limit(limit).all()
     if not rows:
@@ -224,11 +249,11 @@ def search_bundles_group(db: Session, q: str, limit: int) -> list[dict]:
 
 def search_personalities_group(db: Session, q: str, limit: int) -> list[dict]:
     """Public personalities matching ``q``: /api/personalities twin."""
-    prefix_like = f"{q}%"
+    prefix_like = _prefix_like(q)
     # Visibility filter copied verbatim from app/personality_routes.py:list_personalities.
     query = db.query(Personality).filter(Personality.is_public.is_(True), Personality.is_archived.is_(False))
     query = query.filter(_match_terms(q, Personality.title, Personality.description))
-    exact_prefix = case((Personality.title.ilike(prefix_like), 0), else_=1)
+    exact_prefix = case((_ilike(Personality.title, prefix_like), 0), else_=1)
     query = query.order_by(exact_prefix, Personality.install_count.desc(), Personality.title.asc())
     rows = query.limit(limit).all()
     return [
@@ -252,11 +277,11 @@ def search_connectors_group(db: Session, q: str, limit: int) -> list[dict]:
     is a well-formed (possibly empty) list, matching the other four groups'
     "no invented data for an empty group" rule.
     """
-    prefix_like = f"{q}%"
+    prefix_like = _prefix_like(q)
     # Visibility filter copied verbatim from app/connector_routes.py:browse_connectors.
     query = db.query(Connector).filter(Connector.is_public.is_(True), Connector.is_archived.is_(False))
     query = query.filter(_match_terms(q, Connector.slug, Connector.title))
-    exact_prefix = case((Connector.title.ilike(prefix_like), 0), else_=1)
+    exact_prefix = case((_ilike(Connector.title, prefix_like), 0), else_=1)
     query = query.order_by(exact_prefix, Connector.install_count.desc(), Connector.title.asc())
     rows = query.limit(limit).all()
     return [
@@ -390,7 +415,7 @@ def search_federated_group(db: Session, q: str, limit: int) -> tuple[list[dict],
     empty (so the portal can distinguish "no matches" from "index
     unavailable" instead of rendering a silently empty section).
     """
-    like = f"%{q}%"
+    like = f"%{_like_escape(q)}%"
     rows: list[dict] = []
     saw_data = False
 
@@ -424,10 +449,10 @@ def search_federated_group(db: Session, q: str, limit: int) -> tuple[list[dict],
         .filter(_match_terms(q, _search_blob))
         .order_by(
             case(
-                (FederationHubSkill.title.ilike(q), 0),
-                (FederationHubSkill.title.ilike(f"{q}%"), 1),
-                (FederationHubSkill.title.ilike(like), 2),
-                (FederationHubSkill.description.ilike(like), 3),
+                (_ilike(FederationHubSkill.title, _like_escape(q)), 0),
+                (_ilike(FederationHubSkill.title, _prefix_like(q)), 1),
+                (_ilike(FederationHubSkill.title, like), 2),
+                (_ilike(FederationHubSkill.description, like), 3),
                 else_=4,
             ),
             func.lower(FederationHubSkill.title).asc(),

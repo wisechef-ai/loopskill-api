@@ -39,6 +39,18 @@ https://app.loopskill.io/pricing" is now the FIRST line printed (before the
 automated caller can branch on "this bundle needs a key" without parsing
 stdout.
 
+qa1018 C18 (2026-10-18): persona QA found ``seo-and-search-growth``
+"installed 8 skill(s)" when 3 of the 8 files were the locked stub served on a
+failed origin fetch and 1 was an upstream "has moved" signpost, with no
+checksum check at all. The script now decides per member from the server's
+``X-LoopSkill-Installable`` / ``X-LoopSkill-Skip-Reason`` headers (falling back
+to the stub's own text for an older server), verifies ``sha256`` (the index
+value when present, else the ``X-LoopSkill-SHA256`` header), writes a file
+only after it passes, retries 429/5xx with backoff, and ends with
+"installed N skill(s) ...; skipped M" plus one line per skipped member and its
+reason. Exit 5 = members were requested but none installed (exit 4, the
+all-paid case, is unchanged; an empty bundle exits 0).
+
 Dual-mounted at /api/bundles/install.sh (primary) and
 /api/cookbooks/install.sh (compat-alias) — mirrors every other bundle
 surface in this repo. Public (no auth) — same allowlist reasoning as /skill:
@@ -59,7 +71,9 @@ router = APIRouter(tags=["bundles"])
 # it to bash — no surprises, no dynamic per-caller content.
 _INSTALL_SCRIPT_TEMPLATE = r"""#!/usr/bin/env bash
 # LoopSkill bundle installer — auth-free for every free-tier skill in the
-# bundle. Paid-tier members are reported by name, never silently dropped.
+# bundle. Members that are not installable (paid-tier, origin unavailable,
+# moved upstream, failed checksum) are reported by name, never silently
+# dropped and never written to disk.
 #
 # Usage:
 #   curl -fsSL {api_base}/api/bundles/install.sh | bash -s -- <bundle-slug>
@@ -67,6 +81,11 @@ _INSTALL_SCRIPT_TEMPLATE = r"""#!/usr/bin/env bash
 # Env overrides:
 #   LOOPSKILL_API_BASE    — API origin (default: {api_base})
 #   LOOPSKILL_INSTALL_DIR — install target (default: ~/.claude/skills)
+#   LOOPSKILL_RETRY_SLEEP — base seconds between retries on 429/5xx (default 15)
+#
+# Exit codes: 0 = at least one skill installed (or the bundle is empty);
+# 2 = usage; 3 = python3 missing; 4 = every member is paid-tier;
+# 5 = members were requested but none could be installed; 6 = index fetch failed.
 set -euo pipefail
 
 SLUG="${{1:-${{LOOPSKILL_BUNDLE:-}}}}"
@@ -87,15 +106,47 @@ fi
 PYTMP="$(mktemp)"
 trap 'rm -f "$PYTMP"' EXIT
 cat > "$PYTMP" <<'PYEOF'
-import json, os, sys, urllib.request
+import hashlib, json, os, sys, time, urllib.error, urllib.request
 
 api_base, slug, dest, index_url = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 base = f"{{api_base}}/api/bundles/public/{{slug}}/.well-known/skills"
-with urllib.request.urlopen(index_url) as r:
-    data = json.load(r)
-skills = data.get("skills", [])
-free = [s for s in skills if s.get("name") and not s.get("locked")]
-locked = [s.get("name") for s in skills if s.get("name") and s.get("locked")]
+retry_base = float(os.environ.get("LOOPSKILL_RETRY_SLEEP", "15"))
+# Text the server puts in a placeholder SKILL.md (locked stub / origin down).
+# Fallback only: a current server labels every response via X-LoopSkill-* headers.
+STUB_MARKERS = (
+    ("are not served over the public bundle surface", "locked"),
+    ("This file is a placeholder, not the skill.", "unavailable"),
+)
+
+
+def fetch(url):
+    # GET with retry on 429/5xx (honours Retry-After). Returns (body, headers).
+    delays = [retry_base, retry_base * 2, retry_base * 4]
+    while True:
+        try:
+            req = urllib.request.Request(url, headers={{"User-Agent": "loopskill-install.sh"}})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return r.read(), r.headers
+        except urllib.error.HTTPError as e:
+            if e.code not in (429, 502, 503, 504) or not delays:
+                raise
+            wait = delays.pop(0)
+            ra = (e.headers or {{}}).get("Retry-After", "")
+            if ra.isdigit():
+                wait = max(wait, float(ra))
+            time.sleep(wait)
+
+
+try:
+    raw, _ = fetch(index_url)
+    data = json.loads(raw)
+except Exception as e:  # noqa: BLE001
+    print(f"could not fetch the bundle index for '{{slug}}' ({{e}}): {{index_url}}", file=sys.stderr)
+    sys.exit(6)
+
+skills = [s for s in data.get("skills", []) if s.get("name")]
+free = [s for s in skills if not s.get("locked") and s.get("skip_reason") != "locked"]
+locked = [s.get("name") for s in skills if s.get("locked") or s.get("skip_reason") == "locked"]
 
 # fi_first_impression_api: an audit against dev-agent-essentials and
 # research-and-report (2026-08-19) found this script silently printed
@@ -108,28 +159,61 @@ if skills and not free:
     print("This bundle requires Pro — 0 free skills will be installed. See https://app.loopskill.io/pricing")
     sys.exit(4)
 
+if not skills:
+    print(f"LoopSkill: bundle '{{slug}}' has no skills to install.")
+    sys.exit(0)
+
 print(f"LoopSkill: installing bundle '{{slug}}' -> {{dest}}")
-os.makedirs(dest, exist_ok=True)
 
 installed = []
+skipped = [(name, "locked") for name in locked]
 for s in free:
-    name = s.get("name")
+    name = s["name"]
     # bundles_0811: `name` is the WIRE KEY used to fetch; `dir_name` is the
     # filesystem-safe form to mkdir. Federated members are slugged
     # `ext:<source>:<slug>` and a colon is illegal in a Windows path, so
     # writing `name` verbatim produced an unusable directory for 114 of 172
     # public-bundle members. Falls back to `name` for an older API build.
     dir_name = s.get("dir_name") or name
+    try:
+        body, headers = fetch(f"{{base}}/{{name}}/SKILL.md")
+    except Exception as e:  # noqa: BLE001
+        skipped.append((name, f"download failed ({{e}})"))
+        continue
+    # qa1018 C18: the server labels what it served. A placeholder (locked
+    # stub, origin unavailable, upstream "has moved" signpost) is reported,
+    # never written to disk as if it were the skill.
+    reason = None
+    if (headers.get("X-LoopSkill-Installable") or "").lower() == "false":
+        reason = headers.get("X-LoopSkill-Skip-Reason") or "unavailable"
+    else:
+        head = body[:4096].decode("utf-8", "replace")
+        reason = next((r for marker, r in STUB_MARKERS if marker in head), None)
+    if reason is None:
+        digest = hashlib.sha256(body).hexdigest()
+        want = s.get("sha256") or headers.get("X-LoopSkill-SHA256")
+        if want and want.lower() != digest:
+            reason = "checksum mismatch"
+    if reason is not None:
+        skipped.append((name, reason))
+        continue
     outdir = os.path.join(dest, dir_name)
     os.makedirs(outdir, exist_ok=True)
-    urllib.request.urlretrieve(f"{{base}}/{{name}}/SKILL.md", os.path.join(outdir, "SKILL.md"))
+    tmp = os.path.join(outdir, ".SKILL.md.part")
+    with open(tmp, "wb") as fh:
+        fh.write(body)
+    os.replace(tmp, os.path.join(outdir, "SKILL.md"))
     installed.append(name)
 
-print(f"installed {{len(installed)}} skill(s) to {{dest}}")
+print(f"installed {{len(installed)}} skill(s) to {{dest}}; skipped {{len(skipped)}}")
+for name, reason in skipped:
+    print(f"  skipped: {{name}} — {{reason}}")
 if locked:
     print(f"{{len(locked)}} skill(s) require a LoopSkill key (pro tier): {{', '.join(locked)}}")
     print(f"Get one free at {{api_base}}/pricing, then run:")
     print(f'  loopskill_bundle_install from "bundle://{{slug}}"  (via MCP)')
+if not installed:
+    sys.exit(5)
 PYEOF
 
 python3 "$PYTMP" "$API_BASE" "$SLUG" "$DEST" "$INDEX_URL"

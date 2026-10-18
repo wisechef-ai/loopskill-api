@@ -41,10 +41,15 @@ def _get_identity_parts(request: Request) -> tuple[str | None, str | None]:
 
 
 class FederationProposeIn(BaseModel):
-    repo_url: str = Field(min_length=1, max_length=512)
+    # qa1018 C20 / BRK-2: the real limits (repo_url <= 200, https://github.com
+    # only; why <= 2048; contact <= 256) are enforced by the shared tool, which
+    # answers a readable sentence in ``detail``. Pydantic's own length errors
+    # arrive as a list the form rendered as a blank "Not filed:", so the
+    # caps here are only a hard ceiling on request size.
+    repo_url: str = Field(max_length=4096)
     source_id: str | None = Field(default=None, max_length=128)
-    contact: str | None = Field(default=None, max_length=256)
-    why: str | None = Field(default=None, max_length=2048)
+    contact: str | None = Field(default=None, max_length=4096)
+    why: str | None = Field(default=None, max_length=16384)
     agent_id: str | None = Field(default=None, max_length=128)
     force: bool = False
     confirmation: str | None = Field(default=None, max_length=128)

@@ -45,7 +45,37 @@ WITHIN a tier starts to matter; it is not needed to stop discarding the answer.
 
 from __future__ import annotations
 
+import re
 from typing import Any
+
+# qa1018 C07 / BRK-5 — the "is there anything to search for?" gate.
+#
+# Measured on prod 2026-10-18: ``q=' OR 1=1 --`` on the live external fan-out
+# returned 20 unrelated skills.sh rows, because fuzzy upstream search APIs treat
+# 1-2 char / punctuation fragments as near-wildcards (skills.sh answers ``q=--``
+# and ``q=or`` with 100 popular rows each). A query qualifies when it carries a
+# real word: a letter/digit run of >= 3 chars (``<script>alert(1)</script>`` ->
+# ``script``, ``alert``; ``../../etc/passwd`` -> ``etc``, ``passwd`` — genuine
+# token matches, deliberately allowed). Short queries (``ai``, ``qa``, ``c++``,
+# ``.net``, 2-char CJK) still qualify unless they carry injection/markup syntax
+# (quotes, ``=``, ``<>``, ``%``, ``;`` ...), which no real short query needs.
+_WORD_RUN = re.compile(r"[^\W_]+")
+_SHORT_QUERY_SAFE = re.compile(r"[\w\s\-./+#]*")
+MIN_WORD_LEN = 3
+
+
+def is_searchable_query(query: str | None) -> bool:
+    """True when ``query`` contains something worth matching, False for noise.
+
+    Callers treat an empty query separately (browse); this answers only for a
+    non-empty one, and returns False for whitespace-only input.
+    """
+    q = (query or "").strip()
+    words = _WORD_RUN.findall(q)
+    if any(len(w) >= MIN_WORD_LEN for w in words):
+        return True
+    return bool(words) and _SHORT_QUERY_SAFE.fullmatch(q) is not None
+
 
 # The ladder, most-relevant first. Each entry is (name, python_predicate,
 # sql_builder). Position IS the tier number, so the two surfaces cannot
