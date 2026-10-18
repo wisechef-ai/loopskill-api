@@ -72,10 +72,16 @@ def test_copy_makes_no_alert_claim():
     assert "alert" not in text and "notif" not in text
 
 
-def test_meta_skill_tells_agents_to_relay_the_hint():
+def test_meta_skill_tells_agents_sign_in_is_optional_without_verbatim_relay():
+    # qa1018 C17 / SKP-10: the meta-skill used to say "Relay the account_hint
+    # line from the install response verbatim" — server-controlled text passed
+    # to the human unmodified (and it carries UTM params). It now tells the
+    # agent to say it in its own words, with the plain sign-in URL.
     body = SKILL_MD.read_text(encoding="utf-8")
-    assert "account_hint" in body
     assert "Never block or delay an install on it" in body
+    assert "verbatim" not in body.lower()
+    assert "https://app.loopskill.io/signin" in body
+    assert "own words" in body
 
 
 def test_pinned_version_slug_attributes_to_the_base_slug():

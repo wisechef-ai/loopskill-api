@@ -35,7 +35,7 @@ from app import feedback_ratelimit, github_dispatch
 from app.auth_ctx import AuthContext
 from app.mcp.tools.fleet_write import _NOT_HANDLED
 from app.models import FederationRegistryProposal
-from app.services.federation_propose import preflight_repo
+from app.services.federation_propose import preflight_repo, repo_url_problem
 from app.services.federation_sources_config import find_registered_github_repo
 
 logger = logging.getLogger(__name__)
@@ -71,12 +71,17 @@ def loopskill_propose_registry(
     same gate recipes_publish_request / recipify_request use.
     """
     # Public-scope MCP tool: rate-limited registry proposal; no private data exposed.
-    if not repo_url or len(repo_url) > 512:
-        return {"ok": False, "error": "repo_url must be 1-512 characters"}
+    # qa1018 C20: reject a non-GitHub / junk URL before pre-flight, the rate
+    # limiter or the DB; ``detail`` is the sentence the form shows.
+    url_problem = repo_url_problem(repo_url)
+    if url_problem:
+        return {"ok": False, "error": "invalid_repo_url", "detail": url_problem}
     if why is not None and len(why) > 2048:
-        return {"ok": False, "error": "why must be at most 2048 characters"}
+        msg = "The reason is too long. Keep it under 2048 characters."
+        return {"ok": False, "error": "invalid_input", "detail": msg}
     if contact is not None and len(contact) > 256:
-        return {"ok": False, "error": "contact must be at most 256 characters"}
+        msg = "The contact is too long. Keep it under 256 characters."
+        return {"ok": False, "error": "invalid_input", "detail": msg}
 
     # ── 1. Pre-flight the repo BEFORE touching the rate limiter or DB ──────
     preflight = preflight_repo(repo_url)

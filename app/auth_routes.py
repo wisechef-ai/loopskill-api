@@ -49,6 +49,7 @@ from app.services.signup_attribution import (
     _UTM_CTX_COOKIE_NAME,
 )
 from app.services.first_key import ensure_first_api_key
+from app.services.safe_next import is_safe_next
 from app.services.first_key_reveal import REVEAL_COOKIE_NAME, REVEAL_TTL_SECONDS, store_reveal
 from app.tier_labels import _is_paid_tier, _is_pro_plus_tier
 from app.tier_labels import api_key_cap as _tier_api_key_cap
@@ -92,20 +93,10 @@ def _make_success_redirect(
     redirect (no query param, no response body) — same "never in a URL"
     posture as every other secret in this module.
     """
-    # rev 7.3: added /referrals so logged-in users coming from /referrals → /signin
-    # land back where they started, not on /library. Same rationale as the existing
-    # entries — paths that are part of the authed app surface and safe to bounce to.
-    SAFE_NEXT_PREFIXES = (
-        "/api/",
-        "/library",
-        "/skills/",
-        "/billing/",
-        "/publish",
-        "/referrals",
-        "/dashboard",
-    )
+    # The allow-list lives in app/services/safe_next.py so the login legs
+    # (oauth_next cookie) and this callback leg share ONE check (qa1018 C24).
     target = "/library?auth=success"
-    if next_url and any(next_url.startswith(p) for p in SAFE_NEXT_PREFIXES):
+    if is_safe_next(next_url):
         sep = "&" if "?" in next_url else "?"
         target = f"{next_url}{sep}auth=success" if "?" in next_url else f"{next_url}?auth=success"
 
@@ -196,7 +187,7 @@ async def github_login(
         secure=settings.COOKIES_SECURE,
         samesite="lax",
     )
-    if next:
+    if is_safe_next(next):  # qa1018 C24: never store an off-site next=
         response.set_cookie(
             key="oauth_next",
             value=next,
@@ -331,7 +322,7 @@ async def google_login(
         secure=settings.COOKIES_SECURE,
         samesite="lax",
     )
-    if next:
+    if is_safe_next(next):  # qa1018 C24: never store an off-site next=
         response.set_cookie(
             key="oauth_next",
             value=next,

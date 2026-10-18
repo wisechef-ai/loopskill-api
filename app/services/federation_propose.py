@@ -84,6 +84,32 @@ def parse_repo_url(repo_url: str) -> str | None:
     return f"{m.group(1)}/{m.group(2)}"
 
 
+#: qa1018 C20: a real ``https://github.com/<owner>/<repo>`` URL is far shorter.
+REPO_URL_MAX_LEN = 200
+_REPO_URL_HINT = "Use a GitHub repository link like https://github.com/<owner>/<repo>."
+
+
+def repo_url_problem(repo_url: str | None) -> str | None:
+    """Why ``repo_url`` cannot be proposed, as a sentence for a person; None if fine.
+
+    qa1018 C20 / BRK-1: ``javascript:alert(1)`` did not parse, pre-flight
+    degraded to "unknown", and the flow persisted + dispatched it anyway.
+    Checked BEFORE pre-flight, the rate limiter and the DB. https only, no
+    whitespace anywhere (a pasted value is not trimmed into a different URL),
+    at most ``REPO_URL_MAX_LEN`` characters, and it must parse to owner/repo.
+    """
+    url = repo_url or ""
+    if not url:
+        return f"The repository link is empty. {_REPO_URL_HINT}"
+    if len(url) > REPO_URL_MAX_LEN:
+        return f"The repository link is longer than {REPO_URL_MAX_LEN} characters. {_REPO_URL_HINT}"
+    if any(ch.isspace() for ch in url):
+        return f"The repository link contains spaces or line breaks. {_REPO_URL_HINT}"
+    if not url.startswith("https://github.com/") or parse_repo_url(url) is None:
+        return f"That is not a GitHub repository link. {_REPO_URL_HINT}"
+    return None
+
+
 def _github_headers() -> dict[str, str]:
     """GitHub API headers with the env token when present.
 

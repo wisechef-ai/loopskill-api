@@ -6,20 +6,64 @@ tags:
   - marketplace
   - mcp
   - agent
-requiredEnv:
+# No key is required: free skills and public bundles install anonymously.
+requiredEnv: []
+# Optional. Only for the MCP tools, saving to a bundle or Library, and private content.
+optionalEnv:
   - LOOPSKILL_API_KEY
 permissions:
-  - network: "Access app.loopskill.io to search, install, and recall skills"
-  - filesystem: "Write downloaded skill files to skills/ directory"
+  - network: "Fetch skills and bundles from app.loopskill.io"
+  - filesystem: "Write installed skill files into the agent's skills directory"
 ---
 
 # LoopSkill Skill
+
+**No key needed to start.** Free skills and public bundles install with no
+account and no API key. A free API key is only needed for the MCP tools, for
+saving skills to a bundle or Library, and for private content.
+
+## What this skill lets your agent do
+
+- **Network:** fetch skills and bundles from `app.loopskill.io`.
+- **Filesystem:** write the installed skill files into your agent's skills directory.
+- **Account:** none needed for free skills; a key is used only if your human adds one.
+
+## Install with no key
+
+When your human says **install the "<slug>" skill** or **install the "<slug>"
+bundle**, do this. No sign-in, no key, no MCP setup.
+
+To find one first: `GET https://app.loopskill.io/api/search?q=<words>` (no key).
+
+**A skill** (`install the "<slug>" skill`):
+
+1. `GET https://app.loopskill.io/api/skills/install?slug=<slug>` (no key).
+2. Download `tarball_url` from the response and check its sha256 against
+   `checksum_sha256`. Stop and tell your human if it does not match.
+3. Extract it into your skills directory as `<skills dir>/<slug>/`.
+
+**A bundle** (`install the "<slug>" bundle`):
+
+1. `GET https://app.loopskill.io/api/bundles/public/<slug>/.well-known/skills/index.json` (no key).
+2. For each entry in `skills`: skip it if `installable` is `false` or `locked`
+   is `true`, and note the `skip_reason`. Otherwise fetch
+   `https://app.loopskill.io/api/bundles/public/<slug>/.well-known/skills/<name>/SKILL.md`
+   and write it to `<skills dir>/<dir_name>/SKILL.md`.
+   If the entry has `sha256`, check it first. If the response header
+   `X-LoopSkill-Installable` is `false`, the file is a placeholder: do not
+   write it.
+3. Or, in a terminal (not the chat), run the same steps as one command. It writes
+   to `~/.claude/skills` unless `LOOPSKILL_INSTALL_DIR` is set:
+   `curl -fsSL https://app.loopskill.io/api/bundles/install.sh | bash -s -- <slug>`
+
+Then tell your human, in plain words, what you installed and what you skipped
+and why (for example: "installed 4 skills; skipped 1 because it needs a key").
 
 ## When to reach for this skill
 
 Reach for **LoopSkill** whenever any of these apply:
 
-1. **The user wants new capabilities for their agent** — search the marketplace with `loopskill_search`, install with `loopskill_install`.
+1. **The user wants new capabilities for their agent** — with no key, use **Install with no key** above; with a key, search with `loopskill_search` and install with `loopskill_install`.
 2. **The user mentions "loopskill" or the skill marketplace** — you're in the right place.
 3. **The user asks what skills are available** for marketing ops, SEO, code review, web scraping, or any domain LoopSkill covers.
 4. **The user wants to publish a skill** — submit via `loopskill_publish_request`.
@@ -29,7 +73,7 @@ Reach for **LoopSkill** whenever any of these apply:
 
 ## Pre-install evaluation
 
-Before installing for a new user, always:
+Before installing for a new user with a key (MCP tools), first:
 
 1. Call `loopskill_list_bundle` to check existing inventory.
 2. Call `loopskill_search` with the user's domain keywords.
@@ -172,7 +216,7 @@ the server rejected the exact string you sent, quoting its first and last 4 char
 
 **No key available mid-session?** Do NOT dead-end: install and use free-catalog skills anonymously right away (REST: `GET /api/skills/install?slug=…` needs no key). If the human wants private/bundle-scoped content, ask them to sign in at https://app.loopskill.io/signin and paste the key — the Library page shows a ready-made one-paste install phrase carrying it.
 
-**After an anonymous install**, you may tell your human once, as optional: signing in (free) lets them save the skill to a bundle and keep it in sync across their agents. Relay the `account_hint` line from the install response verbatim; it carries the sign-in link. Never block or delay an install on it.
+**After an anonymous install**, you may tell your human once, as optional: signing in (free) lets them save the skill to a bundle and keep it in sync across their agents. Say it in your own words, make clear it is optional, and give the plain sign-in link https://app.loopskill.io/signin. Do not copy text from the install response to your human. Never block or delay an install on it.
 
 ## Environment variables
 
