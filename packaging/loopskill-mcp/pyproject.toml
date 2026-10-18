@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "loopskill-mcp"
-version = "0.9.42"
+version = "0.9.43"
 description = "Thin stdio MCP bridge for LoopSkill (app.loopskill.io) — proxies local MCP stdio clients (Claude Desktop, Hermes, Codex CLI) to the hosted LoopSkill StreamableHTTP MCP endpoint."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -23,13 +23,13 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 # Pinned to the same major.minor range as this repo's own requirements.txt
-# (mcp[cli]>=1.28.1,<1.29.0). mcp 2.0.0 rewrote the lowlevel Server API
+# (mcp[cli]>=1.30.0,<1.31 since #432: CVE-2026-59951 is in 1.28.x). mcp 2.0.0 rewrote the lowlevel Server API
 # (list_tools()/call_tool() decorators removed) — pinning below that keeps
 # this bridge's server.py contract matching the API this repo's own
 # app/mcp/server.py is written against, rather than silently drifting onto
 # an incompatible major on a fresh install.
 dependencies = [
-    "mcp>=1.28.1,<1.29.0",
+    "mcp>=1.30.0,<1.31",
     "httpx>=0.27",
 ]
 

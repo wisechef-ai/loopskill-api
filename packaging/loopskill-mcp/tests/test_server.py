@@ -71,11 +71,85 @@ async def test_list_tools_surfaces_remote_connection_error(monkeypatch: pytest.M
     fake_remote = AsyncMock()
     fake_remote.list_tools.side_effect = RemoteConnectionError("boom")
     monkeypatch.setattr("loopskill_mcp.server.RemoteMCPClient", lambda **_kw: fake_remote)
+    card = AsyncMock(return_value=[_fake_tool()])
+    monkeypatch.setattr("loopskill_mcp.server.fetch_card_tools", card)
 
-    server = build_server(BridgeConfig(mcp_url="https://example.invalid/api/mcp/http/", api_key=None))
+    # With a key configured, a failure is real (bad key / outage): it must
+    # raise, and must NOT be papered over with the public catalogue.
+    server = build_server(BridgeConfig(mcp_url="https://example.invalid/api/mcp/http/", api_key="rec_x"))
     handler = server.request_handlers[types.ListToolsRequest]
     with pytest.raises(RemoteConnectionError):
         await handler(types.ListToolsRequest(method="tools/list"))
+    card.assert_not_awaited()
+
+
+async def test_keyless_list_tools_falls_back_to_server_card(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ah_1018: keyless tools/list serves the public server card, not a TaskGroup error."""
+    fake_remote = AsyncMock()
+    fake_remote.list_tools.side_effect = RemoteConnectionError("401 Invalid or missing x-api-key")
+    monkeypatch.setattr("loopskill_mcp.server.RemoteMCPClient", lambda **_kw: fake_remote)
+    card_tools = [_fake_tool()]
+    card = AsyncMock(return_value=card_tools)
+    monkeypatch.setattr("loopskill_mcp.server.fetch_card_tools", card)
+
+    server = build_server(BridgeConfig(mcp_url="https://host.example/api/mcp/http/", api_key=None))
+    handler = server.request_handlers[types.ListToolsRequest]
+    result = await handler(types.ListToolsRequest(method="tools/list"))
+
+    assert [t.name for t in result.root.tools] == ["loopskill_search"]
+    card.assert_awaited_once_with("https://host.example/.well-known/mcp/server-card.json")
+
+
+async def test_keyless_list_tools_raises_when_card_also_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Both sources down: raise, never return an empty list as the catalogue."""
+    fake_remote = AsyncMock()
+    fake_remote.list_tools.side_effect = RemoteConnectionError("401")
+    monkeypatch.setattr("loopskill_mcp.server.RemoteMCPClient", lambda **_kw: fake_remote)
+    card = AsyncMock(side_effect=RemoteConnectionError("card 503"))
+    monkeypatch.setattr("loopskill_mcp.server.fetch_card_tools", card)
+
+    server = build_server(BridgeConfig(mcp_url="https://host.example/api/mcp/http/", api_key=None))
+    handler = server.request_handlers[types.ListToolsRequest]
+    with pytest.raises(RemoteConnectionError):
+        await handler(types.ListToolsRequest(method="tools/list"))
+
+
+async def test_keyless_call_tool_returns_get_a_key_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keyless tools/call: an isError result naming the register URL, not a crash."""
+    fake_remote = AsyncMock()
+    fake_remote.call_tool.side_effect = RemoteConnectionError("401")
+    monkeypatch.setattr("loopskill_mcp.server.RemoteMCPClient", lambda **_kw: fake_remote)
+
+    server = build_server(BridgeConfig(mcp_url="https://host.example/api/mcp/http/", api_key=None))
+    handler = server.request_handlers[types.CallToolRequest]
+    req = types.CallToolRequest(
+        method="tools/call",
+        params=types.CallToolRequestParams(name="loopskill_search", arguments={"query": "x"}),
+    )
+    result = await handler(req)
+
+    assert result.root.isError is True
+    text = result.root.content[0].text
+    assert "https://host.example/api/agents/register" in text
+    assert "LOOPSKILL_API_KEY" in text
+
+
+async def test_keyed_call_tool_failure_still_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_remote = AsyncMock()
+    fake_remote.call_tool.side_effect = RemoteConnectionError("outage")
+    monkeypatch.setattr("loopskill_mcp.server.RemoteMCPClient", lambda **_kw: fake_remote)
+
+    server = build_server(BridgeConfig(mcp_url="https://host.example/api/mcp/http/", api_key="rec_x"))
+    handler = server.request_handlers[types.CallToolRequest]
+    req = types.CallToolRequest(
+        method="tools/call",
+        params=types.CallToolRequestParams(name="loopskill_search", arguments={}),
+    )
+    result = await handler(req)
+    # The lowlevel Server converts a raised handler exception into an isError
+    # result; what matters is that it is NOT the keyless "get a key" message.
+    assert result.root.isError is True
+    assert "agents/register" not in result.root.content[0].text
 
 
 def test_server_name_matches_documented_identity() -> None:

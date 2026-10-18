@@ -35,19 +35,25 @@ Mirrors the promise in [`docs/SELF_HOST.md`](../../docs/SELF_HOST.md)
 
 | Variable | When to use |
 |----------|-------------|
-| `LOOPSKILL_API_KEY` | Canonical — the standard key for any MCP client. **Required**: the hosted endpoint answers `401` to every MCP request (including `initialize` and `tools/list`) that has no valid `x-api-key`. A free key is enough for search and free-skill install — see "Getting an API key" below. |
+| `LOOPSKILL_API_KEY` | Canonical — the standard key for any MCP client. **Required to call tools**: the hosted endpoint answers `401` to every MCP request without a valid `x-api-key`. Without one the bridge still starts and lists all tools (from the public server card), but each `tools/call` returns an error telling you how to get a free key — see "Getting an API key" below. |
 | `MCP_LOOPSKILL_API_KEY` | Same key, alternate name used by the Hermes wizard integration. |
 | `RECIPES_API_KEY` / `MCP_RECIPES_API_KEY` | Legacy names, still accepted for existing integrations. |
 | `LOOPSKILL_MCP_URL` | Escape hatch to point at a self-hosted LoopSkill instance (default: `https://app.loopskill.io/api/mcp/http/`). Not part of the public promise; for `docs/SELF_HOST.md` deployments. |
+| `LOOPSKILL_SERVER_CARD_URL` | Override for the keyless tool catalogue (default: `<origin of LOOPSKILL_MCP_URL>/.well-known/mcp/server-card.json`). |
 
 Precedence when more than one is set: `LOOPSKILL_API_KEY` >
 `MCP_LOOPSKILL_API_KEY` > `RECIPES_API_KEY` > `MCP_RECIPES_API_KEY`.
 
 ## Getting an API key
 
-The MCP server itself is **not** anonymous: without a key the bridge starts but
-every call fails with `401 Invalid or missing x-api-key header`. Keys are free
-and start with `rec_`:
+The hosted MCP server itself is **not** anonymous: it answers `401 Invalid or
+missing x-api-key header` to keyless requests. Without a key the bridge still
+completes `initialize` and answers `tools/list` from the public, keyless server
+card (`/.well-known/mcp/server-card.json`, the same file MCP directories read),
+so you can see every tool and its schema first. Each keyless `tools/call`
+returns `isError: true` with the steps below. With a key configured, failures
+are reported as-is and are never replaced by the card. Keys are free and start
+with `rec_`:
 
 - **Humans:** sign in at <https://app.loopskill.io/signin>, then create a key at
   <https://app.loopskill.io/library>.

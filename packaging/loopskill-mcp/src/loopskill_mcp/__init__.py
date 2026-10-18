@@ -9,6 +9,6 @@ https://app.loopskill.io/.well-known/mcp.json.
 
 from __future__ import annotations
 
-__version__ = "0.9.42"
+__version__ = "0.9.43"
 
 __all__ = ["__version__"]
