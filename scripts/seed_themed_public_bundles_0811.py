@@ -180,23 +180,26 @@ THEMES: list[dict] = [
     {
         "slug": "seo-and-search-growth",
         "name": "SEO & Search Growth",
+        # qa1018 C03: buyer-facing copy only. The previous text carried an
+        # internal note (search-log demand + index headroom) onto the public
+        # bundle page. Must stay identical to FIXES in
+        # scripts/fix_qa1018_seo_bundle.py (pinned by a test).
         "description": (
-            "Grow organic traffic without a marketing team. On-page "
-            "audits, programmatic SEO, local SEO, and AI-search "
-            "optimization — the 'seo' / 'seo audit' searches LoopSkill "
-            "kept coming up empty for, and the single largest resolvable "
-            "cluster in the federated index (200+ fetchable SEO skills) — "
-            "plenty of headroom to grow this bundle later. Fetched live "
-            "from origin on install; nothing rehosted."
+            "SEO skills for your agent: audit a website or an online store, get your "
+            "pages cited in AI search answers, and build SEO pages at scale from "
+            "templates and data. Each skill is fetched from its author's public repo "
+            "when you install it."
         ),
+        # qa1018 C03: only members verified servable on the public bundle
+        # surface (2026-10-18), one per skill name. Dropped: alirezarezvani
+        # ai-seo + sickn33 programmatic-seo (gone from the hub index, and
+        # duplicates of the names kept here), kostja94 local-seo (origin fetch
+        # returns no body), aaron-he-zhu on-page-seo-auditor (origin now
+        # serves a "has moved" signpost). Live rows: fix_qa1018_seo_bundle.py.
         "skills": [
             "skills-sh-coreyhaines31-marketingskills-ai-seo",
-            "skills-sh-alirezarezvani-claude-skills-ai-seo",
             "skills-sh-affilino-ecommerce-seo-audit-skill-ecommerce-seo-audit",
             "skills-sh-firecrawl-firecrawl-workflows-firecrawl-seo-audit",
-            "skills-sh-aaron-he-zhu-seo-geo-claude-skills-on-page-seo-auditor",
-            "skills-sh-sickn33-antigravity-awesome-skills-programmatic-seo",
-            "skills-sh-kostja94-marketing-skills-local-seo",
             "skills-sh-kostja94-marketing-skills-programmatic-seo",
         ],
     },

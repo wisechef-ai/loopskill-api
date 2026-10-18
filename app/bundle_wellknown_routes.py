@@ -46,6 +46,16 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import Bundle
+from app.services.bundle_external import is_external_skill
+from app.services.bundle_servability import (
+    SKIP_LOCKED,
+    SKIP_MOVED,
+    SKIP_UNAVAILABLE,
+    index_flags,
+    is_moved_signpost,
+    record_serve_outcome,
+    serve_headers,
+)
 
 _h = APIRouter(tags=["bundles", "well-known"])  # prefix-free; dual-mounted below
 
@@ -164,6 +174,36 @@ def _stub_skill_md(skill, cookbook_slug: str) -> str:
     )
 
 
+def _unavailable_skill_md(skill, cookbook_slug: str) -> str:
+    """Placeholder for a redistributable federated member whose origin fetch failed.
+
+    qa1018 C18: this case used to get the paid-tier stub ("install with an
+    authenticated key"), which was false — an API key cannot fix an origin
+    that did not answer. ``locked: true`` stays in the frontmatter for
+    clients that only check that flag (the body is still withheld).
+    """
+    title = skill.title or skill.slug
+    desc = (skill.description or "").replace("\n", " ").strip()
+    origin = (skill.external_resources or {}).get("origin_url") or skill.original_source_url or ""
+    source_line = f"Source: {origin}\n\n" if origin else ""
+    return (
+        "---\n"
+        f"name: {skill.slug}\n"
+        f"description: {desc}\n"
+        "metadata:\n"
+        "  loopskill:\n"
+        "    locked: true\n"
+        "    installable: false\n"
+        "    skip_reason: unavailable\n"
+        f"    cookbook: {cookbook_slug}\n"
+        "---\n\n"
+        f"# {title}\n\n"
+        "> This file is a placeholder, not the skill. The skill's origin could not "
+        "be fetched just now, so nothing usable is served here. Try again later.\n\n"
+        f"{source_line}"
+    )
+
+
 @_h.get("/public/{slug}/.well-known/skills/index.json")
 def cookbook_wellknown_index(slug: str, db: Session = Depends(get_db)) -> JSONResponse:
     """agentskills.io discovery index for a public cookbook.
@@ -201,9 +241,15 @@ def cookbook_wellknown_index(slug: str, db: Session = Depends(get_db)) -> JSONRe
         # federated skill unlocks here too when its resolved license permits
         # redistribution — see _is_redistributable_external's docstring for
         # the install.sh bug this closes.
-        if not (_is_free(skill) or _is_redistributable_external(skill)):
+        servable_tier = _is_free(skill) or _is_redistributable_external(skill)
+        if not servable_tier:
             entry["locked"] = True
             entry["tier"] = skill.tier or "pro"
+        # qa1018 C18: additive ``installable`` / ``skip_reason`` / ``sha256``
+        # keys so the portal and install.sh can tell a real skill from a
+        # locked stub, an unreachable origin or an upstream "has moved"
+        # signpost. Legacy ``locked``/``tier`` above stay tier-only.
+        entry.update(index_flags(skill, servable_tier=servable_tier, is_external=is_external_skill(skill)))
         skills.append(entry)
 
     body = {
@@ -249,25 +295,43 @@ def cookbook_wellknown_skill_md(
         raise HTTPException(status_code=404, detail="skill_not_in_bundle")
 
     if _is_free(match) and (match.readme or "").strip():
-        return PlainTextResponse(match.readme, media_type="text/markdown")
+        body = match.readme
+        return _md_response(body, SKIP_MOVED if is_moved_signpost(body) else None)
 
     if _is_redistributable_external(match):
-        from app.services.bundle_external import descriptor_source_slug, resolve_external_install
+        from app.services import bundle_external as _be
 
-        pair = descriptor_source_slug(match)
+        pair = _be.descriptor_source_slug(match)
         if pair is not None:
             source, ext_slug = pair
-            installed = resolve_external_install(source, ext_slug)
+            installed = _be.resolve_external_install(source, ext_slug)
             if installed is not None and (installed.get("content") or "").strip():
-                return PlainTextResponse(installed["content"], media_type="text/markdown")
-        # Transient origin failure / unresolvable at serve time — fall through
-        # to the honest stub rather than a raw 500; the index already
-        # advertised this entry as unlocked so a stub here is a degrade, not
-        # a lie about licensing.
+                body = installed["content"]
+                # qa1018 C18: an upstream "has moved" signpost is served as-is
+                # (it is the origin's own words) but labelled, and recorded so
+                # the index can flag it without fetching.
+                reason = SKIP_MOVED if is_moved_signpost(body) else None
+                record_serve_outcome(db, match, reason)
+                return _md_response(body, reason)
+        # Origin failure / unresolvable at serve time: an honest placeholder
+        # (never a raw 500), labelled + recorded as ``unavailable`` so the
+        # index stops advertising it as installable until a fetch succeeds.
+        record_serve_outcome(db, match, SKIP_UNAVAILABLE)
+        return _md_response(_unavailable_skill_md(match, cb.slug), SKIP_UNAVAILABLE)
 
-    # Paid (or free-but-empty-body, or transient external-fetch failure):
-    # serve the non-leaking stub.
-    return PlainTextResponse(_stub_skill_md(match, cb.slug), media_type="text/markdown")
+    # Paid (or free-but-empty-body): serve the non-leaking stub.
+    reason = SKIP_LOCKED if not _is_free(match) else SKIP_UNAVAILABLE
+    return _md_response(_stub_skill_md(match, cb.slug), reason)
+
+
+def _md_response(body: str, skip_reason: str | None) -> PlainTextResponse:
+    """A SKILL.md response labelled for installers (qa1018 C18).
+
+    ``X-LoopSkill-Installable`` / ``X-LoopSkill-Skip-Reason`` say what the
+    bytes ARE (a skill, or a placeholder not to install); ``X-LoopSkill-SHA256``
+    hashes exactly the bytes sent.
+    """
+    return PlainTextResponse(body, media_type="text/markdown", headers=serve_headers(body, skip_reason))
 
 
 # Dual-mount: bundle surface primary; /api/cookbooks kept as compat alias.  # compat-alias
