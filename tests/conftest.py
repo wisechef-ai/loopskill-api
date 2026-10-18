@@ -57,11 +57,7 @@ def _test_database_url() -> str:
     gives for free. CI sets DATABASE_URL, which is read above, so nothing
     is lost by ignoring WR_DATABASE_URL.
     """
-    return (
-        os.environ.get("TEST_DATABASE_URL")
-        or os.environ.get("DATABASE_URL")
-        or "sqlite:///:memory:"
-    )
+    return os.environ.get("TEST_DATABASE_URL") or os.environ.get("DATABASE_URL") or "sqlite:///:memory:"
 
 
 # ── Reusable helper (importable by other test modules) ─────────────────────
@@ -298,3 +294,25 @@ def client(db_session: Session):
         raise_server_exceptions=True,
     ) as c:
         yield c
+
+
+@pytest.fixture(autouse=True)
+def _reset_unified_search_first_page_cache():
+    """Reset the process-wide first_page cache in unified_search per test.
+
+    ``_cached_first_pages`` memoises ``federation_index_cache.first_page`` for the
+    whole process (keyed by the sources set, TTL-bound). Under pytest-randomly a
+    test that searched over cached rows left them in that dict, and a later
+    ``test_empty_index_is_cold_not_warm`` read ``warm`` from the leftover data
+    (random-order CI, qa1018 PR #434). Production wants the cache; tests must not
+    share it.
+    """
+    import sys
+
+    us = sys.modules.get("app.services.unified_search")
+    if us is not None and isinstance(getattr(us, "_fed_cache", None), dict):
+        us._fed_cache.update({"data": None, "sources": None, "t": 0.0})
+    yield
+    us = sys.modules.get("app.services.unified_search")
+    if us is not None and isinstance(getattr(us, "_fed_cache", None), dict):
+        us._fed_cache.update({"data": None, "sources": None, "t": 0.0})
