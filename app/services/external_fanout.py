@@ -166,7 +166,14 @@ def _query_one(
     """
     import app.services.federation_live as fl
 
+    from app.services.federation_relevance import is_searchable_query
+
     q_norm = normalize_query(query)
+    # qa1018 C07: never forward a noise query (``' OR 1=1 --``, ``--``, ``%%``)
+    # to a fuzzy upstream — it answers with popular, unrelated rows. Healthy
+    # source, nothing to search: ok=True, no rows, not degraded, not cached.
+    if q_norm and not is_searchable_query(q_norm):
+        return ExternalFanoutResult(source_id, [], ok=True, elapsed_s=0.0, reason="unsearchable_query")
     key = _cache_key(source_id, query, limit)
     if not force_refresh:
         cached = fl._cache.get(key, fl._SEARCH_TTL_S)

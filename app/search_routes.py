@@ -33,6 +33,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.services.federation_relevance import is_searchable_query
 from app.services.unified_search import (
     search_bundles_group,
     search_connectors_group,
@@ -47,6 +48,7 @@ router = APIRouter(tags=["search"])
 _MAX_LIMIT = 20
 _DEFAULT_LIMIT = 5
 _MIN_QUERY_LEN = 2
+_GROUPS = ("skills", "loops", "bundles", "personalities", "connectors")
 
 
 @router.get("/search")
@@ -88,6 +90,12 @@ def unified_search(
     connectors) plus one small grouped aggregate for bundle skill_count — see
     app/services/unified_search.py for the per-type query + ordering detail.
     """
+    if not is_searchable_query(q):
+        # qa1018 C07 / BRK-5: pure punctuation / markup / SQL-noise queries
+        # (``__``, ``--``, ``' OR 1=1 --``) have no word to match, so every
+        # group is honestly empty. "warm" = "no matches", which is the truth
+        # here regardless of index state; it never claims the index is down.
+        return {"query": q, **{g: [] for g in _GROUPS}, "federated": [], "federated_cache_status": "warm"}
     federated_rows, federated_status = search_federated_group(db, q, limit)
     return {
         "query": q,
