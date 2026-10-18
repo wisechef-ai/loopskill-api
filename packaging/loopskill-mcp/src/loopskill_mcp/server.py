@@ -20,11 +20,21 @@ from mcp.server.stdio import stdio_server
 
 from loopskill_mcp import __version__
 from loopskill_mcp.config import BridgeConfig, load_config
-from loopskill_mcp.remote import RemoteConnectionError, RemoteMCPClient
+from loopskill_mcp.remote import RemoteConnectionError, RemoteMCPClient, fetch_card_tools
 
 logger = logging.getLogger("loopskill_mcp")
 
 SERVER_NAME = "loopskill-mcp"
+
+
+def keyless_call_error(name: str, register_url: str) -> types.CallToolResult:
+    """The tools/call answer when no API key is configured and the host 401s."""
+    text = (
+        f"LoopSkill tool '{name}' needs a free API key. Get one (no signup form): "
+        f"POST {register_url} , then set LOOPSKILL_API_KEY in this MCP server's env "
+        "and restart your client. tools/list works without a key."
+    )
+    return types.CallToolResult(content=[types.TextContent(type="text", text=text)], isError=True)
 
 
 def build_server(config: BridgeConfig) -> Server:
@@ -41,14 +51,24 @@ def build_server(config: BridgeConfig) -> Server:
         try:
             return await remote.list_tools()
         except RemoteConnectionError:
-            logger.exception("tools/list: could not reach hosted LoopSkill endpoint")
-            raise
+            if config.api_key:
+                # A configured key that fails is a real error (bad key, outage);
+                # never mask it with the public catalogue.
+                logger.exception("tools/list: could not reach hosted LoopSkill endpoint")
+                raise
+            # Keyless: the hosted endpoint 401s by design (#393). Serve the
+            # public server card instead, so directory checks and first-time
+            # users see the real catalogue. If the card fails too, raise.
+            logger.info("tools/list: no API key; serving tools from %s", config.card_url)
+            return await fetch_card_tools(config.card_url)
 
     @server.call_tool()
     async def _call_tool(name: str, arguments: dict) -> types.CallToolResult:
         try:
             return await remote.call_tool(name, arguments)
         except RemoteConnectionError:
+            if not config.api_key:
+                return keyless_call_error(name, config.register_url)
             logger.exception("tools/call %s: could not reach hosted LoopSkill endpoint", name)
             raise
 

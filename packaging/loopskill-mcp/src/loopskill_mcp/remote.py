@@ -23,6 +23,7 @@ import logging
 from contextlib import AsyncExitStack
 from typing import Any
 
+import httpx
 import mcp.types as types
 from mcp import ClientSession
 
@@ -96,3 +97,28 @@ class RemoteMCPClient:
             return await session.call_tool(name, arguments)
 
         return await self._run(_call)
+
+
+async def fetch_card_tools(card_url: str, timeout: float = 10.0) -> list[types.Tool]:
+    """Read the tool list from the hosted, keyless static server card.
+
+    The card (``/.well-known/mcp/server-card.json``) is the same document MCP
+    directories (Smithery, Glama) read; each entry carries ``name``,
+    ``description`` and ``inputSchema``. Any fetch/parse failure, or a card
+    with zero valid tools, raises :class:`RemoteConnectionError` so the caller
+    never serves an empty list as if it were the real catalogue.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            resp = await client.get(card_url, headers={"accept": "application/json"})
+            resp.raise_for_status()
+            payload = resp.json()
+        raw = payload.get("tools") if isinstance(payload, dict) else None
+        if not isinstance(raw, list):
+            raise ValueError("server card has no 'tools' list")
+        tools = [types.Tool.model_validate(t) for t in raw if isinstance(t, dict)]
+    except Exception as exc:
+        raise RemoteConnectionError(f"failed to read server card {card_url}: {exc}") from exc
+    if not tools:
+        raise RemoteConnectionError(f"server card {card_url} lists no tools")
+    return tools
