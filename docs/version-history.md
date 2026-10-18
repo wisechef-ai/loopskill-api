@@ -5,6 +5,31 @@ sits under the 600-line gate (`tests/test_w0_2_pyfile_size_discipline.py`), so
 the oldest entries are moved here verbatim when it fills up. Newest entries
 stay in `app/version.py`.
 
+## 0.9.32-0.9.33 (archived 2026-10-18, qa1018-w3 0.9.72)
+
+fleetos_1607 Phase I (0.9.32): the ingest surface — the missing write path.
+Phases 0/A shipped LoopManifest + FleetMemberLiveness schema + read/compute/authz
+but NO tool ever WROTE those rows, so the placement chain was inert by
+construction (assign can't fire without a manifest; preflight can't pass without
+a liveness row). app/mcp/tools/fleet_ingest.py adds loopskill_ping (member
+advertises liveness + typed provides{}, upsert) and loopskill_declare_loop
+(owner declares/updates a loop's desired-state manifest, upsert by
+(owner-scope, loop_id) with version bump). Both owner/master-gated (bare member
+key -> 403). Wired into the delegated dispatch chain. 9 RED-proofed tests incl.
+the KEYSTONE test_ingest_makes_assign_succeed: declare_loop + ping => preflight
+passes => assign creates a real placement at epoch 1 (the exact chain that was
+inert). No schema, no migration.
+
+0.9.33 - ClawHub origin_url is owner-scoped (issue #139). ClawHub skill pages
+    live at /<ownerHandle>/skills/<slug>; the bare /skills/<slug> form we minted
+    307-redirects to /skills/skills/<slug>, a soft-404 that still answers HTTP
+    200 (SPA shell). Measured 69,150 of 90,605 federated rows (76.3%) advertising
+    a dead deep link — and ClawHub is deep_link-only by policy, so the link IS
+    the deliverable. New app/services/clawhub_url.py centralises URL building +
+    a cached owner resolver; all four mint sites route through it. Ingest cannot
+    resolve 69k owners inline (snapshot carries no handle) so it fails safe to
+    the browse page. Verified against prod /api/healthz 0.9.32 before bumping.
+
 ## 0.9.31 (archived 2026-10-14, loopskill-api#407 rebase onto 0.9.69)
 
 fleetos_1607 Phase C (0.9.31): golden bundle composition + bootstrap planner.
