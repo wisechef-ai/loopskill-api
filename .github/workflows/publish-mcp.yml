@@ -1,0 +1,141 @@
+name: Publish loopskill-mcp to PyPI
+
+# Releases the stdio MCP bridge in packaging/loopskill-mcp (PyPI name:
+# loopskill-mcp). Until this workflow existed every release was a manual
+# `twine upload` from a maintainer's machine, so merged fixes (e.g. 0.9.43,
+# #435: keyless tools/list) sat unreleased while PyPI kept serving 0.9.42.
+#
+# Tag convention: `loopskill-mcp-vX.Y.Z`, namespaced so it never collides with
+# the CLI's `loopskill-v*` tags (publish-cli.yml) in this monorepo.
+#
+# Every run (PR, push to main, tag, dispatch) executes the SAME release gate:
+#   build sdist+wheel -> twine check -> install the wheel into a clean venv and
+#   run a KEYLESS stdio initialize + tools/list (scripts/stdio_smoke.py) ->
+#   build packaging/loopskill-mcp/Dockerfile and run the same smoke against the
+#   container (the handshake Glama / Smithery use to introspect a server).
+# Only a pushed tag, or a manual dispatch with dry_run=false, uploads.
+#
+# ONE-TIME MANUAL SETUP before the first upload can succeed (pick one):
+#   A. Trusted Publishing (preferred, no secret): on pypi.org -> project
+#      `loopskill-mcp` -> Publishing -> add a GitHub publisher:
+#        Owner: wisechef-ai   Repository: loopskill-api
+#        Workflow: publish-mcp.yml   Environment: pypi
+#   B. Or add a repo secret PYPI_MCP_API_TOKEN scoped to project loopskill-mcp.
+#      (The existing PYPI_API_TOKEN is scoped to the `loopskill` CLI project and
+#      cannot upload this package.)
+# Then: git tag loopskill-mcp-v0.9.43 <sha> && git push origin loopskill-mcp-v0.9.43
+
+on:
+  push:
+    tags:
+      - "loopskill-mcp-v*"
+    branches: [main]
+    paths:
+      - "packaging/loopskill-mcp/**"
+      - ".github/workflows/publish-mcp.yml"
+  pull_request:
+    paths:
+      - "packaging/loopskill-mcp/**"
+      - ".github/workflows/publish-mcp.yml"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish from (e.g. loopskill-mcp-v0.9.43). Empty = current ref, gate only."
+        required: false
+        default: ""
+      dry_run:
+        description: "Run the release gate only; do not upload."
+        type: boolean
+        default: true
+
+concurrency:
+  group: publish-mcp-${{ github.ref }}-${{ inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Build + keyless stdio smoke (wheel and container)
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.mode.outputs.publish }}
+    defaults:
+      run:
+        working-directory: packaging/loopskill-mcp
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Decide mode (gate-only vs publish)
+        id: mode
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ] && [[ "${GITHUB_REF}" == refs/tags/* ]]; then TAG="${GITHUB_REF#refs/tags/}"; fi
+          PUBLISH=false
+          if [[ "${GITHUB_REF}" == refs/tags/loopskill-mcp-v* ]]; then PUBLISH=true; fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" = "false" ]; then PUBLISH=true; fi
+          VERSION=$(python3 -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "tag=$TAG version=$VERSION publish=$PUBLISH"
+          if [ "$PUBLISH" = "true" ]; then
+            if ! [[ "$TAG" =~ ^loopskill-mcp-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Publishing needs a tag matching loopskill-mcp-vX.Y.Z (got '$TAG')"; exit 1
+            fi
+            if [ "${TAG#loopskill-mcp-v}" != "$VERSION" ]; then
+              echo "::error::Tag $TAG does not match pyproject version $VERSION. Refusing a mismatched release."; exit 1
+            fi
+          fi
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+
+      - name: Build sdist + wheel, twine check
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build --sdist --wheel -o dist .
+          twine check dist/*
+
+      - name: Keyless stdio smoke — wheel in a clean venv
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install dist/*.whl
+          python3 scripts/stdio_smoke.py /tmp/smoke/bin/loopskill-mcp
+
+      - name: Keyless stdio smoke — container image
+        run: |
+          docker build -t loopskill-mcp:ci .
+          python3 scripts/stdio_smoke.py docker run -i --rm loopskill-mcp:ci
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: loopskill-mcp-dist
+          path: packaging/loopskill-mcp/dist/
+
+  publish:
+    name: Upload to PyPI
+    needs: gate
+    if: needs.gate.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # Trusted Publishing (OIDC)
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: loopskill-mcp-dist
+          path: dist/
+      - name: Publish (project token if configured, else Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          # Empty when the secret is unset -> the action falls back to OIDC.
+          password: ${{ secrets.PYPI_MCP_API_TOKEN }}
