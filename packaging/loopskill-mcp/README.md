@@ -28,6 +28,17 @@ python -m build packaging/loopskill-mcp
 uvx --from ./packaging/loopskill-mcp/dist/loopskill_mcp-*.whl loopskill-mcp
 ```
 
+### Docker
+
+```bash
+docker build -t loopskill-mcp packaging/loopskill-mcp
+docker run -i --rm loopskill-mcp                               # keyless
+docker run -i --rm -e LOOPSKILL_API_KEY=lsk_... loopskill-mcp  # keyed
+```
+
+The image is built from this source tree (not from PyPI), speaks MCP over
+stdio (`-i` is required) and opens no ports.
+
 ## Environment variables
 
 Mirrors the promise in [`docs/SELF_HOST.md`](../../docs/SELF_HOST.md)
@@ -125,12 +136,26 @@ python -m build
 twine check dist/*
 ```
 
-## Publish runbook (human-gated — not run by CI or agents)
+## Publish runbook
+
+Releases go through `.github/workflows/publish-mcp.yml`. Every PR that touches
+this package runs the same release gate the upload uses: build, `twine check`,
+then a **keyless** stdio `initialize` + `tools/list` against both the wheel and
+the container image (`scripts/stdio_smoke.py`).
+
+One-time setup (a PyPI maintainer, once): add a Trusted Publisher on pypi.org
+for project `loopskill-mcp` (owner `wisechef-ai`, repo `loopskill-api`,
+workflow `publish-mcp.yml`, environment `pypi`), or add a repo secret
+`PYPI_MCP_API_TOKEN` scoped to `loopskill-mcp`. Then each release is:
 
 ```bash
-cd packaging/loopskill-mcp
-rm -rf dist build src/*.egg-info
-python -m build
-twine check dist/*
-twine upload dist/*          # prompts for a PyPI API token
+# version in pyproject.toml already bumped and merged
+git tag loopskill-mcp-v0.9.43 origin/main
+git push origin loopskill-mcp-v0.9.43     # gate -> upload
+```
+
+Smoke any launch command locally (strips every `*API_KEY*` var first):
+
+```bash
+python3 scripts/stdio_smoke.py uvx --from dist/loopskill_mcp-*.whl loopskill-mcp
 ```
