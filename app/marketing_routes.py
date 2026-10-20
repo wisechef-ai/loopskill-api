@@ -9,12 +9,20 @@ tool list) read from config/recipes-marketing.yaml.
 
 Phase L (topshelf_2605): demo-funnel endpoints extracted from routes.py and
 added to this module as wisechef_router. Same URL paths preserved.
+
+perf_1020: /snapshot payload TTL-cached on the HTTP route (probes were already
+memoized by perf_0905). See the TTL-cache block below the router for the
+design notes.
 """
 
 from __future__ import annotations
 
+import copy
+import os
+import threading
 from functools import lru_cache
 
+import cachetools
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -26,6 +34,62 @@ from app.tier_labels import display_label
 from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(prefix="/api/marketing", tags=["marketing"])
+
+# ── Snapshot payload TTL cache (perf_1020) ───────────────────────────────────
+# perf_0905 memoized the code-derived probes (_live_rest_paths /
+# _live_mcp_tool_names), but every /snapshot call still re-parses
+# config/recipes-marketing.yaml, re-runs the ~8 DB aggregates (tier counts,
+# bundles, personalities, connectors, federation cache sum, founding seats)
+# and reloads tier prices. This TTL-caches the assembled payload.
+#
+# Design constraints:
+#   * the pure ``marketing_snapshot(db)`` stays UNCACHED — tests and internal
+#     callers seed per-test data and must see it immediately (live-overlay
+#     semantics, see tests/test_marketing_snapshot_live_overlay.py);
+#   * the cache lives on the HTTP route only, and it EXPIRES (300s default),
+#     far below the 4h drift-watchdog cadence, so drift-proofing still
+#     converges — data is at most TTL seconds stale;
+#   * ``WR_MARKETING_CACHE_TTL`` overrides the TTL in seconds; ``0`` disables
+#     caching entirely — ops escape hatch without a code change.
+
+DEFAULT_MARKETING_CACHE_TTL = 300.0
+
+
+def _marketing_cache_ttl_from_env() -> float:
+    raw = os.environ.get("WR_MARKETING_CACHE_TTL", "")
+    try:
+        ttl = float(raw) if raw else DEFAULT_MARKETING_CACHE_TTL
+    except ValueError:
+        return DEFAULT_MARKETING_CACHE_TTL
+    return ttl if ttl > 0 else 0.0
+
+
+def _build_marketing_caches() -> None:
+    """(Re)create the payload TTL cache from the current env TTL.
+
+    Called once at import; tests call it again after monkeypatching
+    WR_MARKETING_CACHE_TTL to exercise expiry without sleeping 300s.
+    """
+    global _snapshot_payload_cache, _marketing_cache_enabled
+    ttl = _marketing_cache_ttl_from_env()
+    _marketing_cache_enabled = ttl > 0
+    # maxsize=0 makes a TTLCache store nothing (reads always miss), which is
+    # how TTL=0 disables caching. TTLCache requires ttl > 0, hence the max().
+    _snapshot_payload_cache = cachetools.TTLCache(
+        maxsize=1 if _marketing_cache_enabled else 0,
+        ttl=ttl if ttl > 0 else 1.0,
+    )
+
+
+_marketing_cache_enabled = True
+_marketing_cache_lock = threading.Lock()
+_build_marketing_caches()
+
+
+def clear_marketing_caches() -> None:
+    """Drop the cached snapshot payload (tests, ops, invalidation hooks)."""
+    with _marketing_cache_lock:
+        _snapshot_payload_cache.clear()
 
 # ── WiseChef demo-funnel router ──────────────────────────────────────────────
 # Paths mirror the original /api/wisechef/* surface from routes.py.
@@ -220,13 +284,39 @@ def marketing_counts(db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/snapshot")
-def marketing_snapshot(db: Session = Depends(get_db)) -> dict:
+def marketing_snapshot_endpoint(db: Session = Depends(get_db)) -> dict:
     """Full marketing SSOT — counts merged with config/recipes-marketing.yaml.
 
     Phase F of top1pct_1105: every public surface should read from this
     endpoint OR from the yaml at build time. The yaml is the static base;
     counts are live-overlaid. Drift watchdog (recipes-publish-watchdog cron,
     every 4h) verifies the yaml matches DB and surfaces.
+
+    perf_1020: the assembled payload is TTL-cached (300s default;
+    WR_MARKETING_CACHE_TTL overrides, 0 disables). Cache hits skip the yaml
+    parse and all DB aggregates; TTL << 4h watchdog cadence so drift-proofing
+    still converges, and ``clear_marketing_caches()`` forces immediate
+    re-derivation. The pure ``marketing_snapshot(db)`` below stays uncached
+    for direct/live callers (tests, drift-proofing).
+    """
+    with _marketing_cache_lock:
+        cached = _snapshot_payload_cache.get("payload")
+    if cached is not None:
+        return copy.deepcopy(cached)
+    snap = marketing_snapshot(db)
+    if _marketing_cache_enabled:
+        with _marketing_cache_lock:
+            _snapshot_payload_cache["payload"] = copy.deepcopy(snap)
+    return snap
+
+
+def marketing_snapshot(db: Session) -> dict:
+    """Compute the full marketing snapshot from live sources (uncached).
+
+    Reads the yaml prose base, overlays live DB counts, reachability counts,
+    registry tool roster, live REST paths, tier prices and the founding-SKU
+    block. Direct callers (tests, drift-proofing) always see fresh data;
+    only the HTTP route caches the result.
     """
     from pathlib import Path
 
