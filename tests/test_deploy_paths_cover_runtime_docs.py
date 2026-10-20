@@ -114,6 +114,11 @@ NOT_RUNTIME_READS: dict[str, tuple[str, ...]] = {
     # bundle_install_script_routes.py: the route literal @_h.get("/install.sh");
     # the script body is built inline, the repo file is never opened.
     "install.sh": ("app/skill_patch_validation.py", "app/bundle_install_script_routes.py"),
+    # The route literal "/.well-known/glama.json" (connector body built inline by
+    # build_glama_ownership) and its public-path allowlist entry. The repo-root
+    # glama.json is the Glama SERVER maintainers file, read by Glama's crawler
+    # from GitHub, never opened by app/.
+    "glama.json": ("app/agent_wellknown_routes.py", "app/middleware/_public_paths.py"),
     # @tombstoned(ledger=...) stores the path as a label in TOMBSTONES; never opened.
     "docs/ops/tombstones.md": ("@tombstoned-ledger",),
 }
