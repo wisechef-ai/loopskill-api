@@ -11,6 +11,7 @@ _live_mcp_tool_names); this file pins the payload cache added on top:
 4. WR_MARKETING_CACHE_TTL=0 disables caching entirely (escape hatch).
 5. Mutating a returned payload cannot poison the cache.
 """
+
 from __future__ import annotations
 
 import time

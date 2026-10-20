@@ -91,6 +91,7 @@ def clear_marketing_caches() -> None:
     with _marketing_cache_lock:
         _snapshot_payload_cache.clear()
 
+
 # ── WiseChef demo-funnel router ──────────────────────────────────────────────
 # Paths mirror the original /api/wisechef/* surface from routes.py.
 wisechef_router = APIRouter(prefix="/api/wisechef", tags=["wisechef"])
