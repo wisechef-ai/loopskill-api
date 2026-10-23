@@ -1,5 +1,7 @@
 # loopskill-mcp
 
+<!-- mcp-name: io.github.wisechef-ai/loopskill -->
+
 Thin stdio MCP bridge for [LoopSkill](https://app.loopskill.io) — the skill,
 loop and bundle marketplace for AI agents.
 
