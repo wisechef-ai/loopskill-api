@@ -67,3 +67,12 @@ def test_packaging_readme_does_not_claim_anonymous_mcp():
     readme = (ROOT / "packaging/loopskill-mcp/README.md").read_text()
     assert "works anonymously" not in readme
     assert "install\nwith no key at all" not in readme
+
+
+def test_packaging_readme_carries_registry_mcp_name_marker():
+    """The MCP Registry verifies PyPI ownership by an `mcp-name: <server name>` line in the
+    PUBLISHED package README. It must ship inside the wheel's README before the first stdio
+    `packages[]` entry is registered, or the registry publish fails and needs a re-release."""
+    name = json.loads((ROOT / "server.json").read_text())["name"]
+    readme = (ROOT / "packaging/loopskill-mcp/README.md").read_text()
+    assert f"mcp-name: {name}" in readme
