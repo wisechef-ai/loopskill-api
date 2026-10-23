@@ -316,3 +316,21 @@ def _reset_unified_search_first_page_cache():
     us = sys.modules.get("app.services.unified_search")
     if us is not None and isinstance(getattr(us, "_fed_cache", None), dict):
         us._fed_cache.update({"data": None, "sources": None, "t": 0.0})
+
+
+@pytest.fixture(autouse=True)
+def _clear_marketing_snapshot_cache():
+    """Reset the process-wide /api/marketing/snapshot TTL cache per test.
+
+    Same rationale as _reset_unified_search_first_page_cache above (qa1018 PR
+    #434, random-order CI): app.marketing_routes TTL-caches the snapshot
+    payload at module level. Without this fixture a test that seeds DB rows
+    could be served an earlier test's cached snapshot, silently breaking the
+    live-overlay / drift-proof contracts the marketing suites pin. Production
+    wants the cache; tests must not share it.
+    """
+    from app.marketing_routes import clear_marketing_caches
+
+    clear_marketing_caches()
+    yield
+    clear_marketing_caches()

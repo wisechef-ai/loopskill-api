@@ -2951,7 +2951,7 @@
     {
       "method": "GET",
       "path": "/api/marketing/snapshot",
-      "name": "marketing_snapshot",
+      "name": "marketing_snapshot_endpoint",
       "module": "app.marketing_routes",
       "tags": [
         "marketing",
