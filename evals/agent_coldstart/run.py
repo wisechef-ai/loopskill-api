@@ -306,6 +306,59 @@ def _copy_codex_oauth_credentials(home: Path) -> bool:
     return True
 
 
+def _copy_parent_hermes_auth_pool(hermes_home: Path, parent_hermes_home: Path, provider: str) -> bool:
+    """coldstart_1029 — seed the isolated HERMES_HOME with the parent's live
+    credential-pool entries for the model provider.
+
+    The eval box's parent Hermes now authenticates Anthropic via its own PKCE
+    OAuth stored in auth.json's credential_pool (source: hermes_pkce), not via
+    a static env key (both anthropic vars are present-but-empty in .env here)
+    and not via Claude Code's ~/.claude/.credentials.json — that refresh token
+    died terminally on 2026-10-27 (invalid_grant, "Refresh token expired").
+    With neither older path able to carry a usable token, every hermes leg was
+    stillborn at boot (`No Anthropic credentials found`, 0 tool calls, the
+    agent never started) while the parent itself ran Anthropic fine.
+
+    Copy ONLY the token-bearing pool entries for the model provider — never
+    the whole auth.json (the parent's pool also holds codex/copilot
+    credentials irrelevant to a hermes leg) and never fingerprint-only
+    entries, whose tokens live elsewhere (e.g. claude_code → ~/.claude).
+    Returns True if any entry was seeded.
+    """
+    auth_path = parent_hermes_home / "auth.json"
+    if not auth_path.exists():
+        return False
+    try:
+        payload = json.loads(auth_path.read_text())
+    except json.JSONDecodeError:
+        return False
+    pool = payload.get("credential_pool")
+    if not isinstance(pool, dict):
+        return False
+    entries = pool.get(provider)
+    if not isinstance(entries, list):
+        return False
+    seedable = [
+        entry
+        for entry in entries
+        if isinstance(entry, dict)
+        and (str(entry.get("access_token") or "").strip() or str(entry.get("refresh_token") or "").strip())
+    ]
+    if not seedable:
+        return False
+    dest: dict[str, Any] = {
+        "version": payload.get("version", 1),
+        "credential_pool": {provider: seedable},
+    }
+    strategies = payload.get("credential_pool_strategies")
+    if isinstance(strategies, dict) and strategies.get(provider) is not None:
+        dest["credential_pool_strategies"] = {provider: strategies[provider]}
+    dest_path = hermes_home / "auth.json"
+    dest_path.write_text(json.dumps(dest, indent=2))
+    dest_path.chmod(0o600)
+    return True
+
+
 def write_isolated_hermes_home(tmp_home: Path, parent_hermes_home: Path) -> tuple[Path, str]:
     """Build a minimal, LoopSkill-blind HERMES_HOME under the fresh $HOME.
 
@@ -335,6 +388,11 @@ def write_isolated_hermes_home(tmp_home: Path, parent_hermes_home: Path) -> tupl
         (hermes_home / ".env").write_text("\n".join(env_lines) + "\n")
     else:
         _copy_claude_oauth_credentials(tmp_home, provider)
+        # coldstart_1029 — the .claude OAuth path above died terminally on
+        # this box; the parent's own PKCE pool entry is the credential that
+        # actually authenticates the parent today, so seed it too rather
+        # than let a leg be stillborn while the parent runs fine.
+        _copy_parent_hermes_auth_pool(hermes_home, parent_hermes_home, provider)
 
     return hermes_home, model_block["default"]
 
@@ -546,6 +604,18 @@ def _count_hermes_tool_calls(hermes_home: Path) -> int | None:
     return None
 
 
+# coldstart_1029 — hermes stillbirth signatures at provider pre-flight.
+# The generic form is `No usable credentials found for provider 'zai'`
+# (hermes_cli/runtime_provider.py:904); the per-provider form is
+# `No Anthropic credentials found. Run 'hermes auth add anthropic' …`
+# (hermes_cli/runtime_provider.py:346) — the message the current CLI emits
+# for anthropic, which the old literal-only classifier missed, so a
+# credentials-stillborn leg scored `fail` and charged a harness artifact to
+# the product. Either signature means the agent never started: per RUBRIC.md
+# that is outcome `error` (excluded), never `fail`.
+_STILLBORN_CREDS_RE = re.compile(r"No usable credentials found for provider|No \S+ credentials found\.")
+
+
 def run_hermes_harness(prompt: str, home: Path, max_minutes: int, parent_hermes_home: Path) -> HarnessResult:
     hermes_home, model = write_isolated_hermes_home(home, parent_hermes_home)
     assert_no_secret_leak(home)  # config/env we just wrote must itself be clean
@@ -579,14 +649,14 @@ def run_hermes_harness(prompt: str, home: Path, max_minutes: int, parent_hermes_
     transcript_path.write_text(stdout + "\n---stderr---\n" + stderr)
 
     combined_out = f"{stdout}{stderr}"
-    if not timed_out and "No usable credentials found for provider" in combined_out:
+    if not timed_out and _STILLBORN_CREDS_RE.search(combined_out):
         # Rationale: hermes exits before the agent takes a single action when
         # the isolated home lacks provider credentials (e.g. the parent moved
         # to a provider this runner's cred map doesn't know). That is a
         # harness artifact, not agent behavior — per RUBRIC it must score
         # `error` (excluded), never `fail`.
         banner = next(
-            (ln for ln in combined_out.splitlines() if "No usable credentials" in ln),
+            (ln for ln in combined_out.splitlines() if _STILLBORN_CREDS_RE.search(ln)),
             "",
         )[:200]
         harness_error = (
