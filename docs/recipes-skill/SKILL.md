@@ -19,8 +19,12 @@ permissions:
 # LoopSkill Skill
 
 **No key needed to start.** Free skills and public bundles install with no
-account and no API key. A free API key is only needed for the MCP tools, for
-saving skills to a bundle or Library, and for private content.
+account and no API key. A free API key is needed for the MCP tools, for
+saving skills to a bundle or Library, for private content, and for feedback
+or skill-error reports. No human is needed to get one: mint it yourself with
+`POST /api/agents/register` (Ed25519 proof-of-key; full spec in
+https://app.loopskill.io/llms.txt Step 1). The minted free key already
+carries the feedback and report scopes.
 
 ## What this skill lets your agent do
 
@@ -127,7 +131,7 @@ The tailor loop closes end-to-end: `loopskill_tailor` → `loopskill_tailor_vers
 |------|---------|
 | `loopskill_feedback` | Send feedback about app.loopskill.io; auto-creates a labelled GitHub issue. Rate-limited per 24h |
 | `loopskill_request_skill` | Request a new skill; creates a GitHub wishlist issue |
-| `loopskill_report_skill_error` | Report that an installed skill is broken; auto-creates a labelled GitHub issue |
+| `loopskill_report_skill_error` | Report that an installed skill is broken; auto-creates a labelled GitHub issue. REST equivalent: `POST /api/v1/skill-error` (x-api-key) |
 | `loopskill_propose_skill_patch` | Submit a working patch (draft PR) for a marketplace skill. Rate-limited 1 patch per 24h per (agent, skill) |
 | `loopskill_propose_registry` | Propose a new federated registry source (any public repo of `<dir>/SKILL.md` skills). Returns live preflight (repo exists, SKILL.md count, license) + review-issue link. Anon-friendly; deduped 24h per repo. REST equivalent: `POST /api/federation/propose` |
 
