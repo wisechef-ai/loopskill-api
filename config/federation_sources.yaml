@@ -237,3 +237,14 @@ github_taps:
     repo_license: "MIT"
     trust: curated-community
     in_metasearch: false
+  # garrytan/gbrain — MIT, ~30.9k stars, active (pushed 2026-10-14).
+  # Accepted from self-serve proposal #311 (owner decision 2026-10-14): tap
+  # `skills/` ONLY — ~165 more SKILL.md files live outside it (fixtures, docs)
+  # and would pollute the index. Kept out of metasearch until the corpus has
+  # had a quality spot-check (87 entries under skills/, incl. non-skill files).
+  - source_id: github-gbrain
+    repo: garrytan/gbrain
+    path: "skills/"
+    repo_license: "MIT"
+    trust: curated-community
+    in_metasearch: false
