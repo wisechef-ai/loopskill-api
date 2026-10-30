@@ -76,8 +76,33 @@ def test_unknown_fleet_key_returns_none_not_exception():
 
 
 def test_fleet_key_hash_is_deterministic_sha256():
-    """Two resolutions of the same key must hash identically (lookup key)."""
+    """The lookup column value IS sha256(key) — and identical across calls.
+
+    Pins what resolve_fleet_auth_ctx actually derives
+    (app/middleware/_token_auth.py): key_hash = sha256(key.encode()).hexdigest()
+    queried as ``Fleet.fleet_api_key_hash == key_hash``. Two resolutions of
+    the same key must hit the DB with the same 64-char hash and resolve the
+    same principal; a hash-function or encoding change silently 401s every
+    fleet agent, so the hash is read back FROM the query, not recomputed in
+    the test beside it.
+    """
     key = "rec_fleet_" + "b" * 32
-    h1 = hashlib.sha256(key.encode()).hexdigest()
-    h2 = hashlib.sha256(key.encode()).hexdigest()
-    assert h1 == h2 and len(h1) == 64  # matches Fleet.fleet_api_key_hash String(64)
+    expected_hash = hashlib.sha256(key.encode()).hexdigest()
+    fleet_row = SimpleNamespace(id=uuid.uuid4(), owner_user_id=uuid.uuid4())
+
+    session_local, session = _patch_fleet_query(fleet_row)
+    with patch("app.database.SessionLocal", session_local), \
+         patch("app.models.Fleet") as fleet_cls:
+        ctx1 = resolve_fleet_auth_ctx(key)
+        ctx2 = resolve_fleet_auth_ctx(key)
+        queried = [
+            c.args[0]
+            for c in fleet_cls.fleet_api_key_hash.__eq__.call_args_list
+        ]
+
+    assert queried == [expected_hash, expected_hash]
+    assert len(queried[0]) == 64  # matches Fleet.fleet_api_key_hash String(64)
+    assert ctx1 is not None and ctx2 is not None
+    assert ctx1.fleet_id == ctx2.fleet_id == fleet_row.id
+    assert ctx1.user_id == ctx2.user_id == fleet_row.owner_user_id
+    assert session.close.call_count == 2  # one session opened+closed per call
