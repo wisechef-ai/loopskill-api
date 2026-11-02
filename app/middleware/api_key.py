@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
+from app.middleware._no_key_401 import no_key_401_body as _no_key_401_body
 from app.middleware._public_paths import EXEMPT_PATHS as _EXEMPT_PATHS
 from app.middleware._public_paths import PUBLIC_PREFIXES as _PUBLIC_PREFIXES
 from app.middleware._public_paths import is_public_plugin_manifest_path as _is_plugin_manifest_path
@@ -384,31 +385,8 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             # Honour a valid cookie before rejecting (see _try_jwt_cookie_auth).
             if _try_jwt_cookie_auth(request):
                 return await call_next(request)
-            return JSONResponse(
-                status_code=401,
-                content={
-                    "detail": "Invalid or missing x-api-key header",
-                    # coldstart_1029 — a bare 401 is a dead end for a keyless
-                    # agent: every public surface it read to get here said
-                    # "no key needed" until this line (observed live: a cold
-                    # agent built a valid POST /api/v1/skill-error payload,
-                    # hit this exact body, and gave up — no pointer anywhere
-                    # to the keyless enroll funnel). Attach the one self-serve
-                    # path that mints a key so the rejection is also a route
-                    # forward. Machine-readable keys, not prose: agents parse
-                    # this body, and free-tier minted keys carry the scopes
-                    # most cold agents need (search/install/feedback/report).
-                    "how_to_get_a_key": {
-                        "enroll": "POST /api/agents/register",
-                        "docs": "https://app.loopskill.io/llms.txt",
-                        "machine": "https://app.loopskill.io/.well-known/agent.json",
-                        "note": (
-                            "self-serve, Ed25519 proof-of-key, no human; "
-                            "free tier includes feedback + report_skill_errors"
-                        ),
-                    },
-                },
-            )
+            # coldstart_1029: the no-key 401 also names the self-serve enroll path.
+            return JSONResponse(status_code=401, content=_no_key_401_body())
 
         # Enforce rec_ prefix — but first check for cbt_ share tokens
         if key.startswith("cbt_"):
