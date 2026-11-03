@@ -247,3 +247,24 @@ class TestSSETransportRegression:
         """Verify the new /api/mcp/http route is wired."""
         paths = {getattr(r, "path", None) for r in mcp_app.router.routes}
         assert "/api/mcp/http" in paths, "StreamableHTTP endpoint not registered"
+
+
+# ── coldstart_1029 (#445): the streamable-HTTP auth gate's 401 carries the ──
+# same enroll breadcrumb as the REST middleware. A keyless MCP client lands
+# HERE (POST /api/mcp/http), not in APIKeyMiddleware, so without this the
+# breadcrumb never reached the callers it was written for.
+
+
+@pytest.mark.parametrize("key", [None, "", "not-a-rec-key"])
+def test_streamable_http_no_key_401_points_to_enroll(mcp_app, key):
+    headers = {} if key is None else {"x-api-key": key}
+    with TestClient(mcp_app) as c:
+        r = c.post(
+            "/api/mcp/http/",
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            headers=headers,
+        )
+    assert r.status_code == 401
+    body = r.json()
+    assert body["detail"] == "Invalid or missing x-api-key header"
+    assert body["how_to_get_a_key"]["enroll"] == "POST /api/agents/register"

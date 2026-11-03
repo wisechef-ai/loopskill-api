@@ -23,6 +23,7 @@ from starlette.routing import Mount
 
 from app.auth_ctx import AuthContext
 from app.config import settings
+from app.middleware._no_key_401 import no_key_401_body as _no_key_401_body
 
 logger = logging.getLogger("loopskill.mcp")
 
@@ -85,10 +86,7 @@ def _build_streamable_http_mount() -> Mount:
             # no per-user identity (user_id=None, api_key_id=None) which is
             # exactly the master-scope fallback contract (legacy: was 'operator-scope').
             if not key or not key.startswith("rec_"):
-                response = JSONResponse(
-                    {"detail": "Invalid or missing x-api-key header"},
-                    status_code=401,
-                )
+                response = JSONResponse(_no_key_401_body(), status_code=401)
                 await response(scope, receive, send)
                 return
 
@@ -114,10 +112,7 @@ def _build_streamable_http_mount() -> Mount:
                 finally:
                     db.close()
                 if result["scope"] == "unauthorized":
-                    response = JSONResponse(
-                        {"detail": "Invalid or missing x-api-key header"},
-                        status_code=401,
-                    )
+                    response = JSONResponse(_no_key_401_body(), status_code=401)
                     await response(scope, receive, send)
                     return
                 request.state.mcp_caller = result
