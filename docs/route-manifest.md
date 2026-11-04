@@ -3,7 +3,7 @@
 
 # Route Manifest (bundles_0811 P7)
 
-Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **326** distinct (method, path) surfaces.
+Derived from `app.main.app.routes` cross-referenced with the actual auth gate (`app.middleware.api_key.APIKeyMiddleware`) — **327** distinct (method, path) surfaces.
 
 ## How classification works
 
@@ -24,7 +24,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | admin | 11 |
 | authenticated | 200 |
 | internal | 2 |
-| public | 113 |
+| public | 114 |
 
 ## Full manifest
 
@@ -50,6 +50,7 @@ Because the middleware is the source of truth, this manifest reflects the **actu
 | PATCH | `/api/admin/skill-publish-requests/{request_id}/status` | admin | `app.admin_routes` | admin, admin |
 | GET | `/api/admin/skill-publish-requests/{request_id}/tarball` | admin | `app.admin_routes` | admin, admin |
 | POST | `/api/admin/sync-report-prune` | admin | `app.admin_routes` | admin, admin |
+| GET | `/api/agents/enroll.sh` | public | `app.agent_enroll_script_routes` | agents |
 | POST | `/api/agents/register` | public | `app.agent_registration_routes` | agents, agents |
 | GET | `/api/api-keys` | authenticated | `app.api_key_routes` | api-keys, api-keys |
 | POST | `/api/api-keys` | authenticated | `app.api_key_routes` | api-keys, api-keys |

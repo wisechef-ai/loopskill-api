@@ -22,6 +22,10 @@ def no_key_401_body() -> dict:
         "detail": NO_KEY_DETAIL,
         "how_to_get_a_key": {
             "enroll": "POST /api/agents/register",
+            # ah_1104: the same enrolment as one command (bash + curl + OpenSSL 3).
+            "enroll_script": (
+                "curl -fsSL https://app.loopskill.io/api/agents/enroll.sh | bash -s -- <agent-name>"
+            ),
             "docs": "https://app.loopskill.io/llms.txt",
             "machine": "https://app.loopskill.io/.well-known/agent.json",
             "note": (

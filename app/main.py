@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.access_routes import router as access_router  # Phase E: access split
 from app.admin_routes import router as admin_router
+from app.agent_enroll_script_routes import router as agent_enroll_script_router  # ah_1104
 from app.agent_registration_routes import router as agent_registration_router  # agentreg_0819
 from app.agent_wellknown_routes import router as agent_wellknown_router  # agentreg_0819
 from app.version import __version__
@@ -240,6 +241,7 @@ def create_app() -> FastAPI:
     # unauthenticated) and POST /api/agents/register + the admin revoke surface.
     app.include_router(agent_wellknown_router, tags=["agents", "well-known"])
     app.include_router(agent_registration_router, tags=["agents"])
+    app.include_router(agent_enroll_script_router)  # ah_1104: GET /api/agents/enroll.sh
     app.include_router(mesh_router, tags=["mesh"])
     from app.mesh_discovery_routes import router as mesh_discovery_router  # mesh_0408 T3-A
 
