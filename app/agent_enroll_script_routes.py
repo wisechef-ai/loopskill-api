@@ -118,12 +118,16 @@ fi
 
 umask 077
 mkdir -p "$CONF"
-# -L first and on its own: [ -e ] is false for a DANGLING symlink, which
-# openssl would then follow when writing the new private key.
-if [ -L "$KEY" ] || { [ -e "$KEY" ] && [ ! -f "$KEY" ]; }; then
-  err "$KEY is a symlink or not a regular file; refusing to use it"
-  exit 3
-fi
+# Every path this script writes a secret to must be a plain file or absent.
+# -L is tested on its own: [ -e ] is false for a DANGLING symlink, which a
+# redirect or openssl would then follow, and umask does not protect an
+# existing target.
+for target in "$KEY" "$KEYFILE" "$CONF/enrollment.json"; do
+  if [ -L "$target" ] || { [ -e "$target" ] && [ ! -f "$target" ]; }; then
+    err "$target is a symlink or not a regular file; refusing to write secrets there"
+    exit 3
+  fi
+done
 if [ -s "$KEY" ]; then
   # Reused key (a retry after a network failure): it may predate this script's
   # umask, so tighten it before trusting it with an identity.
@@ -177,12 +181,14 @@ fi
 # Persist the raw response FIRST: it holds the shown-once key, and nothing
 # after this line may be allowed to lose it.
 printf '%s\n' "$RBODY" >"$CONF/enrollment.json"
+chmod 600 "$CONF/enrollment.json"
 API_KEY="$(printf '%s' "$RBODY" | sed -n 's/.*"api_key"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')" || API_KEY=""
 if [ -z "$API_KEY" ]; then
   err "HTTP $CODE but no api_key could be parsed; the full response is saved to $CONF/enrollment.json"
   exit 4
 fi
 printf '%s\n' "$API_KEY" >"$KEYFILE"
+chmod 600 "$KEYFILE"
 
 echo "enrolled '$NAME' on $API_BASE (free tier)."
 echo "API key saved to $KEYFILE (mode 600). The server shows it only once: back it up."

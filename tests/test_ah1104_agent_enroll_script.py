@@ -212,11 +212,17 @@ def test_a_missing_parser_fails_before_the_server_mints_anything(tmp_path):
 
 
 @needs_openssl
-def test_a_dangling_symlink_key_path_is_refused_not_followed(tmp_path):
+@pytest.mark.parametrize("name", ["agent-ed25519.pem", "api_key", "enrollment.json"])
+def test_a_dangling_symlink_at_any_secret_path_is_refused_not_followed(tmp_path, name):
     conf = tmp_path / "conf"
     conf.mkdir()
-    target = tmp_path / "elsewhere.pem"
-    (conf / "agent-ed25519.pem").symlink_to(target)  # dangling: target absent
-    run = _run(tmp_path, "cold-agent-7")
+    target = tmp_path / "elsewhere"
+    (conf / name).symlink_to(target)  # dangling: target absent
+    marker = tmp_path / "posted.json"
+    _stub_curl(tmp_path / "bin", marker)
+    run = _run(
+        tmp_path, "cold-agent-7", dry_run=False, path=f"{tmp_path / 'bin'}:/usr/local/bin:/usr/bin:/bin"
+    )
     assert run.returncode == 3, (run.returncode, run.stderr)
-    assert not target.exists(), "key material must never be written through a symlink"
+    assert not target.exists(), "secrets must never be written through a symlink"
+    assert not marker.exists(), "refuse before the server mints a key"
