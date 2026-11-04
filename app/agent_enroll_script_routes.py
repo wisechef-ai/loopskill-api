@@ -102,7 +102,7 @@ if [ -n "$CONTACT" ] && ! [[ "$CONTACT" =~ ^[A-Za-z0-9@._+:/-]{1,128}$ ]]; then
   exit 2
 fi
 
-for dep in "$OPENSSL" base64 tail tr date; do
+for dep in "$OPENSSL" base64 tail tr date sed chmod mktemp; do
   command -v "$dep" >/dev/null 2>&1 || { err "missing dependency: $dep"; exit 3; }
 done
 if [ "${LOOPSKILL_ENROLL_DRY_RUN:-0}" != "1" ]; then
@@ -118,7 +118,15 @@ fi
 
 umask 077
 mkdir -p "$CONF"
-if [ ! -s "$KEY" ]; then
+if [ -e "$KEY" ] && { [ ! -f "$KEY" ] || [ -L "$KEY" ]; }; then
+  err "$KEY exists but is not a regular file; refusing to use it"
+  exit 3
+fi
+if [ -s "$KEY" ]; then
+  # Reused key (a retry after a network failure): it may predate this script's
+  # umask, so tighten it before trusting it with an identity.
+  chmod 600 "$KEY" || { err "cannot restrict $KEY to mode 600"; exit 3; }
+else
   if ! "$OPENSSL" genpkey -algorithm ed25519 -out "$KEY" 2>/dev/null; then
     rm -f "$KEY"
     err "$OPENSSL cannot generate Ed25519 keys (need OpenSSL 3; see the header of this script)"
@@ -164,14 +172,15 @@ if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
   exit 4
 fi
 
-API_KEY="$(printf '%s' "$RBODY" | sed -n 's/.*"api_key"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+# Persist the raw response FIRST: it holds the shown-once key, and nothing
+# after this line may be allowed to lose it.
+printf '%s\n' "$RBODY" >"$CONF/enrollment.json"
+API_KEY="$(printf '%s' "$RBODY" | sed -n 's/.*"api_key"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')" || API_KEY=""
 if [ -z "$API_KEY" ]; then
-  err "HTTP $CODE but no api_key in the response; body saved to $CONF/enrollment.json"
-  printf '%s\n' "$RBODY" >"$CONF/enrollment.json"
+  err "HTTP $CODE but no api_key could be parsed; the full response is saved to $CONF/enrollment.json"
   exit 4
 fi
 printf '%s\n' "$API_KEY" >"$KEYFILE"
-printf '%s\n' "$RBODY" >"$CONF/enrollment.json"
 
 echo "enrolled '$NAME' on $API_BASE (free tier)."
 echo "API key saved to $KEYFILE (mode 600). The server shows it only once: back it up."

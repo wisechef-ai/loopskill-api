@@ -47,11 +47,13 @@ def _openssl_has_ed25519() -> bool:
 needs_openssl = pytest.mark.skipif(not _openssl_has_ed25519(), reason="OpenSSL with Ed25519 not available")
 
 
-def _run(tmp_path, *args: str, dry_run: bool = True) -> subprocess.CompletedProcess:
+def _run(
+    tmp_path, *args: str, dry_run: bool = True, path: str = "/usr/local/bin:/usr/bin:/bin"
+) -> subprocess.CompletedProcess:
     script = tmp_path / "enroll.sh"
     script.write_text(render_enroll_script(BASE))
     env = {
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "PATH": path,
         "HOME": str(tmp_path / "home"),
         "LOOPSKILL_CONFIG_DIR": str(tmp_path / "conf"),
     }
@@ -144,3 +146,66 @@ def test_breadcrumb_and_agent_json_advertise_the_script():
     reg = c.get("/.well-known/agent.json").json()["registration"]
     assert reg["enroll_script"]["url"].endswith(ENROLL_SCRIPT_PATH)
     assert "openssl>=3" in reg["enroll_script"]["requires"]
+
+
+SECRET = "lsk_agent_ENROLLSECRET0123456789"
+
+
+def _stub_curl(bindir, marker):
+    """A curl that records the POSTed body and answers 201 with a key."""
+    bindir.mkdir(exist_ok=True)
+    stub = bindir / "curl"
+    body = json.dumps({"agent_name": "x", "api_key": SECRET})
+    stub.write_text(
+        "#!/bin/sh\n"
+        'while [ $# -gt 0 ]; do [ "$1" = --data ] && { shift; printf %s "$1" > '
+        + str(marker)
+        + "; }; shift; done\n"
+        "cat <<'RESP'\n" + body + "\n201\nRESP\n"
+    )
+    stub.chmod(0o755)
+
+
+@needs_openssl
+def test_post_path_saves_the_key_owner_only_and_never_prints_it(tmp_path):
+    marker = tmp_path / "posted.json"
+    _stub_curl(tmp_path / "bin", marker)
+    run = _run(
+        tmp_path, "cold-agent-4", dry_run=False, path=f"{tmp_path / 'bin'}:/usr/local/bin:/usr/bin:/bin"
+    )
+    assert run.returncode == 0, run.stderr
+    assert SECRET not in run.stdout + run.stderr, "the shown-once key must never reach stdout/stderr"
+    conf = tmp_path / "conf"
+    assert (conf / "api_key").read_text().strip() == SECRET
+    for name in ("api_key", "enrollment.json", "agent-ed25519.pem"):
+        assert (conf / name).stat().st_mode & 0o077 == 0, name
+    posted = json.loads(marker.read_text())
+    verify_registration_signature(
+        **{k: posted[k] for k in ("pubkey", "timestamp", "nonce", "agent_name", "signature")}
+    )
+
+
+@needs_openssl
+def test_a_reused_private_key_is_tightened_to_owner_only(tmp_path):
+    assert _run(tmp_path, "cold-agent-5").returncode == 0
+    key = tmp_path / "conf" / "agent-ed25519.pem"
+    key.chmod(0o644)
+    assert _run(tmp_path, "cold-agent-5").returncode == 0
+    assert key.stat().st_mode & 0o077 == 0
+
+
+@needs_openssl
+def test_a_missing_parser_fails_before_the_server_mints_anything(tmp_path):
+    # sed parses the shown-once key: without it the script must stop BEFORE the
+    # POST, never after the server has issued a key it cannot save.
+    bindir = tmp_path / "bin"
+    marker = tmp_path / "posted.json"
+    _stub_curl(bindir, marker)
+    for tool in ("openssl", "base64", "tail", "tr", "date", "chmod", "mktemp", "mkdir", "rm", "sh", "bash"):
+        exe = shutil.which(tool)
+        assert exe, tool
+        (bindir / tool).symlink_to(exe)
+    run = _run(tmp_path, "cold-agent-6", dry_run=False, path=str(bindir))
+    assert run.returncode == 3, (run.returncode, run.stderr)
+    assert "sed" in run.stderr
+    assert not marker.exists(), "no request may be sent when the key could not be saved"
