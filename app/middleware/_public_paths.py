@@ -68,6 +68,10 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     # serves a static asset, no write verb on this path.
     "/api/bundles/install.sh",
     "/api/cookbooks/install.sh",  # compat-alias
+    # ah_1104 — the keyless agent enroller script. Public for the same reason:
+    # it is how a caller GETS its first key. Read-only static asset; the POST it
+    # drives (/api/agents/register) has its own method-aware allowlist entry.
+    "/api/agents/enroll.sh",
     # bundles0811-P1 (F3) — fork claim (the SAVE step). This IS a write verb,
     # but the handler (app/bundle_fork_claim_routes.py:claim_bundle_fork)
     # deliberately self-enforces auth by reading request.state.auth_ctx and

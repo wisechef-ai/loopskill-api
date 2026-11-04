@@ -134,6 +134,15 @@ def build_agent_descriptor() -> dict:
             # verbatim, join with ':', sign the UTF-8 bytes.
             "canonical_string": CANONICAL_TEMPLATE,
             "signature_encoding": "base64",
+            # ah_1104: a ready-made client for this exact contract. It renders
+            # the canonical prefix/version from the same module, so it cannot
+            # drift from ``canonical_string`` above.
+            "enroll_script": {
+                "url": f"{origin}/api/agents/enroll.sh",
+                "usage": f"curl -fsSL {origin}/api/agents/enroll.sh | bash -s -- <agent-name> [contact]",
+                "requires": ["bash", "curl", "openssl>=3"],
+                "stores": "~/.config/loopskill/agent-ed25519.pem and api_key (mode 600); the key is never printed",
+            },
             # The SUCCESS contract, published next to ``errors`` so a strict
             # client never has to guess (coldstart_0927: this block was absent
             # and llms.txt's stale "200" was the only claim anywhere — a cold

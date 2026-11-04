@@ -1,12 +1,12 @@
 {
   "source": "app.main.app.routes + app.middleware.api_key.APIKeyMiddleware (dispatch tree replayed), derived at import time",
   "generator": "scripts/generate_route_manifest.py",
-  "route_count": 326,
+  "route_count": 327,
   "counts_by_classification": {
     "admin": 11,
     "authenticated": 200,
     "internal": 2,
-    "public": 113
+    "public": 114
   },
   "routes": [
     {
@@ -260,6 +260,17 @@
       ],
       "classification": "admin",
       "summary": "Prune raw sync-report telemetry past retention (30d default)."
+    },
+    {
+      "method": "GET",
+      "path": "/api/agents/enroll.sh",
+      "name": "agent_enroll_script",
+      "module": "app.agent_enroll_script_routes",
+      "tags": [
+        "agents"
+      ],
+      "classification": "public",
+      "summary": "Serve the keyless enrolment script. No auth (see module docstring)."
     },
     {
       "method": "POST",
