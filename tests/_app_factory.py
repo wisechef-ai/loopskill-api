@@ -193,6 +193,7 @@ _ROUTER_SPECS: list[tuple[str, str, str]] = [
     ("app.first_key_routes", "router", ""),
     ("app.agent_wellknown_routes", "router", ""),
     ("app.agent_registration_routes", "router", ""),
+    ("app.agent_enroll_script_routes", "router", ""),  # ah_1104
     ("app.pageview_routes", "router", ""),  # perclient_1110: POST /api/pv beacon
     # issue #357: missing entirely — the remaining tail of create_app's
     # router list (internal PATCH-back, feedback polling, MCP SSE surface,
