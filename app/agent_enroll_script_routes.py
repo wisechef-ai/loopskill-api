@@ -118,8 +118,10 @@ fi
 
 umask 077
 mkdir -p "$CONF"
-if [ -e "$KEY" ] && { [ ! -f "$KEY" ] || [ -L "$KEY" ]; }; then
-  err "$KEY exists but is not a regular file; refusing to use it"
+# -L first and on its own: [ -e ] is false for a DANGLING symlink, which
+# openssl would then follow when writing the new private key.
+if [ -L "$KEY" ] || { [ -e "$KEY" ] && [ ! -f "$KEY" ]; }; then
+  err "$KEY is a symlink or not a regular file; refusing to use it"
   exit 3
 fi
 if [ -s "$KEY" ]; then

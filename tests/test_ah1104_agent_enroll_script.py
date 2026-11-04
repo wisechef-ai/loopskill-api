@@ -209,3 +209,14 @@ def test_a_missing_parser_fails_before_the_server_mints_anything(tmp_path):
     assert run.returncode == 3, (run.returncode, run.stderr)
     assert "sed" in run.stderr
     assert not marker.exists(), "no request may be sent when the key could not be saved"
+
+
+@needs_openssl
+def test_a_dangling_symlink_key_path_is_refused_not_followed(tmp_path):
+    conf = tmp_path / "conf"
+    conf.mkdir()
+    target = tmp_path / "elsewhere.pem"
+    (conf / "agent-ed25519.pem").symlink_to(target)  # dangling: target absent
+    run = _run(tmp_path, "cold-agent-7")
+    assert run.returncode == 3, (run.returncode, run.stderr)
+    assert not target.exists(), "key material must never be written through a symlink"
