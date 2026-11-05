@@ -23,7 +23,7 @@ import subprocess
 import pytest
 from fastapi.testclient import TestClient
 
-from app.agent_enroll_script_routes import ENROLL_SCRIPT_PATH, render_enroll_script
+from app.agent_enroll_script_routes import ENROLL_BODY_MARKER, ENROLL_SCRIPT_PATH, render_enroll_script
 from app.main import create_app
 from app.middleware._no_key_401 import no_key_401_body
 from app.services.agent_registration_proof import (
@@ -71,6 +71,95 @@ def test_rendered_script_carries_the_canonical_string_from_the_proof_module():
     assert f'API_BASE="${{LOOPSKILL_API_BASE:-{BASE}}}"' in body, "trailing slash must be stripped"
     r = subprocess.run(["bash", "-n"], input=body, capture_output=True, text=True, check=False)
     assert r.returncode == 0, r.stderr
+    # The outer prologue is POSIX and the bash body hides inside a here-document,
+    # which `bash -n` on the whole file does not parse: check the body on its own.
+    inner = _bash_body(body)
+    assert inner.startswith("set -euo pipefail\n")
+    r = subprocess.run(["bash", "-n"], input=inner, capture_output=True, text=True, check=False)
+    assert r.returncode == 0, r.stderr
+
+
+def _bash_body(script: str) -> str:
+    """The here-document the POSIX prologue hands to bash, delimiters excluded."""
+    opener = f"<<'{ENROLL_BODY_MARKER}'\n"
+    assert script.count(opener) == 1, "exactly one quoted here-document opener"
+    tail = script.split(opener, 1)[1]
+    closer = f"\n{ENROLL_BODY_MARKER}\n"
+    assert closer in tail, "the here-document must be closed on its own line"
+    inner = tail.split(closer, 1)[0] + "\n"
+    assert ENROLL_BODY_MARKER not in inner, "the marker must never appear inside the body"
+    return inner
+
+
+POSIX_SHELLS = [s for s in ("dash", "sh") if shutil.which(s)][:1] + (
+    ["busybox"] if shutil.which("busybox") else []
+)
+
+
+@needs_openssl
+@pytest.mark.parametrize(
+    "shell", POSIX_SHELLS or [pytest.param("dash", marks=pytest.mark.skip("no POSIX sh"))]
+)
+def test_piped_to_a_posix_sh_the_script_enrolls(tmp_path, shell):
+    """ah_1105: `curl ... | sh -s -- <name>` used to die on `set -o pipefail` (rc=2).
+
+    Fed through a PIPE, not a file: that is the shape that breaks a naive
+    `exec bash -s` re-exec (dash reads pipes in blocks).
+    """
+    script = render_enroll_script(BASE)
+    argv = ["busybox", "sh"] if shell == "busybox" else [shell]
+    env = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "HOME": str(tmp_path / "home"),
+        "LOOPSKILL_CONFIG_DIR": str(tmp_path / "conf"),
+        "LOOPSKILL_ENROLL_DRY_RUN": "1",
+    }
+    run = subprocess.run(
+        [*argv, "-s", "--", "cold-agent-sh", "ops@example.com"],
+        input=script,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+        check=False,
+    )
+    assert run.returncode == 0, (run.returncode, run.stderr)
+    payload = json.loads(run.stdout)
+    assert payload["agent_name"] == "cold-agent-sh"
+    verify_registration_signature(
+        **{k: payload[k] for k in ("pubkey", "timestamp", "nonce", "agent_name", "signature")}
+    )
+    # exit codes survive the hand-off: a refused name is still rc=2 under sh
+    bad = subprocess.run(
+        [*argv, "-s", "--", "bad name"],
+        input=script,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=30,
+        check=False,
+    )
+    assert bad.returncode == 2, (bad.returncode, bad.stderr)
+
+
+def test_the_prologue_names_bash_when_it_is_missing(tmp_path):
+    sh = shutil.which("dash") or shutil.which("sh")
+    if not sh:
+        pytest.skip("no POSIX sh")
+    bindir = tmp_path / "bin"  # a PATH with a shell but no bash
+    bindir.mkdir()
+    (bindir / "sh").symlink_to(sh)
+    run = subprocess.run(
+        [str(bindir / "sh"), "-s", "--", "cold-agent-nobash"],
+        input=render_enroll_script(BASE),
+        capture_output=True,
+        text=True,
+        env={"PATH": str(bindir), "HOME": str(tmp_path)},
+        timeout=30,
+        check=False,
+    )
+    assert run.returncode == 3, (run.returncode, run.stderr)
+    assert "missing dependency: bash" in run.stderr
 
 
 def test_route_is_public_and_serves_plain_text():
@@ -78,7 +167,7 @@ def test_route_is_public_and_serves_plain_text():
     r = c.get(ENROLL_SCRIPT_PATH)  # no x-api-key: the point of the route
     assert r.status_code == 200, r.text[:300]
     assert r.headers["content-type"].startswith("text/plain")
-    assert r.text.startswith("#!/usr/bin/env bash")
+    assert r.text.startswith("#!/bin/sh\n")
     assert "/api/agents/register" in r.text
 
 

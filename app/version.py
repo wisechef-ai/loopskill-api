@@ -575,6 +575,13 @@ qa1018-w3 (0.9.72): launch-QA fixes. /skill: key optional in frontmatter
     safe_next.py). Bundle well-known index flags installable/skip_reason;
     install.sh skips placeholders, checks sha256, reports skipped members.
     Search: noise queries match nothing; LIKE wildcards escaped.
+enroll-sh-posix (0.9.73, ah_1105): GET /api/agents/enroll.sh survives
+    `| sh`. Piped to dash/busybox it died on `set -o pipefail` (rc=2) before
+    keygen. A POSIX prologue now hands the bash body over as one quoted
+    here-document (a plain `exec bash -s` re-exec starts mid-buffer on a pipe).
+    README + loopskill-mcp README + the bridge's keyless tools/call error now
+    name the one-command enroller (loopskill-mcp 0.9.44). Verified against
+    prod /api/healthz 0.9.72 before bumping.
 """
 
-__version__ = "0.9.72"
+__version__ = "0.9.73"

@@ -44,6 +44,9 @@ SERVER_CARD_PATH = "/.well-known/mcp/server-card.json"
 
 #: Path of the keyless self-registration endpoint that mints a free API key.
 REGISTER_PATH = "/api/agents/register"
+#: One-command keyless enroller (keygen + sign + POST register); saves the key
+#: to ~/.config/loopskill/api_key and never prints it.
+ENROLL_SCRIPT_PATH = "/api/agents/enroll.sh"
 
 
 def _origin(url: str) -> str:
@@ -67,6 +70,10 @@ class BridgeConfig:
     @property
     def register_url(self) -> str:
         return _origin(self.mcp_url) + REGISTER_PATH
+
+    @property
+    def enroll_script_url(self) -> str:
+        return _origin(self.mcp_url) + ENROLL_SCRIPT_PATH
 
 
 def resolve_api_key(env: Mapping[str, str] | None = None) -> str | None:

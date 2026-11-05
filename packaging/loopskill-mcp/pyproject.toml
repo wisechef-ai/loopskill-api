@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "loopskill-mcp"
-version = "0.9.43"
+version = "0.9.44"
 description = "Thin stdio MCP bridge for LoopSkill (app.loopskill.io) — proxies local MCP stdio clients (Claude Desktop, Hermes, Codex CLI) to the hosted LoopSkill StreamableHTTP MCP endpoint."
 readme = "README.md"
 requires-python = ">=3.10"

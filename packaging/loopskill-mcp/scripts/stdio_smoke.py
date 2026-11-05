@@ -3,7 +3,7 @@
 
 Usage:
     python3 stdio_smoke.py docker run -i --rm loopskill-mcp
-    python3 stdio_smoke.py uvx --from dist/loopskill_mcp-0.9.43-py3-none-any.whl loopskill-mcp
+    python3 stdio_smoke.py uvx --from dist/loopskill_mcp-0.9.44-py3-none-any.whl loopskill-mcp
 
 Sends initialize -> notifications/initialized -> tools/list over stdio and
 exits 0 only when tools/list returns at least MIN_TOOLS tools. This is the

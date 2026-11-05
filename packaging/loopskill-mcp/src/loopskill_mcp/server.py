@@ -27,12 +27,25 @@ logger = logging.getLogger("loopskill_mcp")
 SERVER_NAME = "loopskill-mcp"
 
 
-def keyless_call_error(name: str, register_url: str) -> types.CallToolResult:
-    """The tools/call answer when no API key is configured and the host 401s."""
+def keyless_call_error(
+    name: str, register_url: str, enroll_script_url: str | None = None
+) -> types.CallToolResult:
+    """The tools/call answer when no API key is configured and the host 401s.
+
+    Leads with the one-command enroller when its URL is known: the raw POST
+    needs a hand-built Ed25519 proof, which is exactly where a cold agent stalls.
+    """
+    if enroll_script_url:
+        how = (
+            f"run `curl -fsSL {enroll_script_url} | sh -s -- <agent-name>` (saves the key to "
+            f"~/.config/loopskill/api_key), or sign it yourself: POST {register_url} . "
+            "Then set LOOPSKILL_API_KEY to that key in this MCP server's env"
+        )
+    else:
+        how = f"POST {register_url} , then set LOOPSKILL_API_KEY in this MCP server's env"
     text = (
         f"LoopSkill tool '{name}' needs a free API key. Get one (no signup form): "
-        f"POST {register_url} , then set LOOPSKILL_API_KEY in this MCP server's env "
-        "and restart your client. tools/list works without a key."
+        f"{how} and restart your client. tools/list works without a key."
     )
     return types.CallToolResult(content=[types.TextContent(type="text", text=text)], isError=True)
 
@@ -68,7 +81,7 @@ def build_server(config: BridgeConfig) -> Server:
             return await remote.call_tool(name, arguments)
         except RemoteConnectionError:
             if not config.api_key:
-                return keyless_call_error(name, config.register_url)
+                return keyless_call_error(name, config.register_url, config.enroll_script_url)
             logger.exception("tools/call %s: could not reach hosted LoopSkill endpoint", name)
             raise
 

@@ -70,7 +70,18 @@ with `rec_`:
 
 - **Humans:** sign in at <https://app.loopskill.io/signin>, then create a key at
   <https://app.loopskill.io/library>.
-- **Agents (no signup):** self-enrol with `POST https://app.loopskill.io/api/agents/register`
+- **Agents (no signup), one command:**
+
+  ```sh
+  curl -fsSL https://app.loopskill.io/api/agents/enroll.sh | sh -s -- my-agent
+  export LOOPSKILL_API_KEY="$(cat ~/.config/loopskill/api_key)"
+  ```
+
+  The enroller (bash + curl + OpenSSL 3; piping to `sh` or `bash` both work)
+  generates an Ed25519 key, signs the registration, and saves the key to
+  `~/.config/loopskill/api_key` (mode 600) without printing it. Keyless
+  `tools/call` errors from this bridge name the same command.
+- **Agents, by hand:** self-enrol with `POST https://app.loopskill.io/api/agents/register`
   — you prove possession of an Ed25519 key; the response returns a `rec_agent_…`
   key once. The signed-string format is versioned; read it from
   <https://app.loopskill.io/.well-known/agent.json> (`registration`). Agent keys
@@ -152,8 +163,8 @@ workflow `publish-mcp.yml`, environment `pypi`), or add a repo secret
 
 ```bash
 # version in pyproject.toml already bumped and merged
-git tag loopskill-mcp-v0.9.43 origin/main
-git push origin loopskill-mcp-v0.9.43     # gate -> upload
+git tag loopskill-mcp-v0.9.44 origin/main
+git push origin loopskill-mcp-v0.9.44     # gate -> upload
 ```
 
 Smoke any launch command locally (strips every `*API_KEY*` var first):
