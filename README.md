@@ -36,6 +36,23 @@ The agent will:
 - hand back the next command for your real skills, plus which commands touch
   the network or write files.
 
+### An agent key for the hosted registry, in one command
+
+The CLI above needs no key. The hosted registry's MCP endpoint
+(`app.loopskill.io`) does, and an agent can get a free one by itself, with no
+signup form. The enroller generates an Ed25519 key, signs the registration and
+saves the API key to `~/.config/loopskill/api_key` (mode 600) without printing
+it. It needs bash, curl and OpenSSL 3, and works piped to `sh` or `bash`:
+
+```sh
+curl -fsSL https://app.loopskill.io/api/agents/enroll.sh | sh -s -- my-agent
+export LOOPSKILL_API_KEY="$(cat ~/.config/loopskill/api_key)"
+```
+
+Read it first if you like: `curl -fsSL https://app.loopskill.io/api/agents/enroll.sh | less`.
+The signed-string protocol behind it is in
+[`/.well-known/agent.json`](https://app.loopskill.io/.well-known/agent.json) (`registration`).
+
 ---
 
 ## 60 seconds: see skill drift, reproducibly
@@ -180,7 +197,7 @@ loop's success check under enforced bounds and hands you a verdict.
 
 ## What's actually in this codebase (and the honest answer to "why so big")
 
-349 app Python files, 85,341 lines of app code, 119 Alembic migrations,
+349 app Python files, 85,369 lines of app code, 119 Alembic migrations,
 511 test files (clean-checkout counts), **2 GitHub stars, 0 forks** (measured 2026-08-21 via `gh
 repo view wisechef-ai/loopskill-api --json stargazerCount,forkCount`).
 

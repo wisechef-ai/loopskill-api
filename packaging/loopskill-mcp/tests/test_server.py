@@ -132,6 +132,9 @@ async def test_keyless_call_tool_returns_get_a_key_error(monkeypatch: pytest.Mon
     text = result.root.content[0].text
     assert "https://host.example/api/agents/register" in text
     assert "LOOPSKILL_API_KEY" in text
+    # ah_1105: the one-command enroller leads, served by the same origin
+    assert "curl -fsSL https://host.example/api/agents/enroll.sh | sh -s -- <agent-name>" in text
+    assert "~/.config/loopskill/api_key" in text
 
 
 async def test_keyed_call_tool_failure_still_raises(monkeypatch: pytest.MonkeyPatch) -> None:

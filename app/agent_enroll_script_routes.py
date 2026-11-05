@@ -9,7 +9,7 @@ versioned string is exactly where a cold agent stalls, and no client shipped
 for it. Authenticated non-fleet accounts were still 0 when this landed.
 
 This module serves ONE static shell script (bash + curl + OpenSSL 3, nothing
-else) that does the whole enrolment::
+else) that does the whole enrolment, piped to ``sh`` or ``bash`` (ah_1105)::
 
     curl -fsSL https://app.loopskill.io/api/agents/enroll.sh | bash -s -- <agent-name>
 
@@ -58,10 +58,24 @@ ENROLL_SCRIPT_PATH = "/api/agents/enroll.sh"
 # Placeholders are @@TOKENS@@ rather than str.format fields: the body is bash,
 # and doubling every ${VAR} brace would make the script unreadable to the very
 # humans and agents who are told to `curl` it and read it before piping.
-_ENROLL_SCRIPT_TEMPLATE = r"""#!/usr/bin/env bash
+#
+# ah_1105: the script must survive ``| sh``. Agents and container images often
+# normalise ``| bash`` to ``| sh`` (dash, busybox ash), and the bash body died
+# there on line 20 (``set: Illegal option -o pipefail``, rc=2) before keygen.
+# The fix is a POSIX prologue that hands the WHOLE bash body to bash as one
+# quoted here-document. A plain ``exec bash -s`` re-exec does NOT work when the
+# script is piped: dash reads a pipe in blocks, so bash would start reading the
+# rest of the script mid-buffer. A here-document is parsed in full by the outer
+# shell before ``exec`` runs, so the hand-off is byte-exact under bash, dash and
+# busybox alike. The body does not read stdin (no prompts), same as when piped
+# to bash, where stdin is the script itself.
+ENROLL_BODY_MARKER = "__LOOPSKILL_ENROLL_BASH_BODY__"
+
+_ENROLL_SCRIPT_TEMPLATE = r"""#!/bin/sh
 # LoopSkill agent enrolment: one command, no human, no pre-existing key.
 #
-# Usage:
+# Usage (sh or bash, either works):
+#   curl -fsSL @@API_BASE@@/api/agents/enroll.sh | sh -s -- <agent-name> [contact]
 #   curl -fsSL @@API_BASE@@/api/agents/enroll.sh | bash -s -- <agent-name> [contact]
 #
 # Generates an Ed25519 key, signs the canonical registration string
@@ -77,6 +91,11 @@ _ENROLL_SCRIPT_TEMPLATE = r"""#!/usr/bin/env bash
 # Env: LOOPSKILL_API_BASE (default @@API_BASE@@), LOOPSKILL_CONFIG_DIR,
 #      OPENSSL (binary), LOOPSKILL_ENROLL_DRY_RUN=1 (print the signed body, no POST).
 # Exit: 0 ok | 2 usage | 3 missing dependency | 4 server refused | 5 already enrolled
+#
+# The body below is bash. This POSIX prologue hands it to bash in one piece
+# (a here-document is read whole before exec), so `| sh` works too.
+command -v bash >/dev/null 2>&1 || { printf 'enroll: missing dependency: bash\n' >&2; exit 3; }
+exec bash -s -- "$@" <<'@@BODY_MARKER@@'
 set -euo pipefail
 
 API_BASE="${LOOPSKILL_API_BASE:-@@API_BASE@@}"
@@ -89,7 +108,7 @@ CONTACT="${2:-}"
 err() { printf 'enroll: %s\n' "$*" >&2; }
 
 if [ -z "$NAME" ]; then
-  err "usage: bash -s -- <agent-name> [contact]"
+  err "usage: curl -fsSL $API_BASE/api/agents/enroll.sh | sh -s -- <agent-name> [contact]"
   exit 2
 fi
 # Conservative charsets: both values are placed inside JSON without an encoder.
@@ -193,6 +212,7 @@ chmod 600 "$KEYFILE"
 echo "enrolled '$NAME' on $API_BASE (free tier)."
 echo "API key saved to $KEYFILE (mode 600). The server shows it only once: back it up."
 echo "use it:  export LOOPSKILL_API_KEY=\"\$(cat $KEYFILE)\"   # header: x-api-key"
+@@BODY_MARKER@@
 """
 
 
@@ -205,6 +225,7 @@ def render_enroll_script(api_base: str) -> str:
         _ENROLL_SCRIPT_TEMPLATE.replace("@@API_BASE@@", api_base.rstrip("/"))
         .replace("@@CANONICAL_PREFIX@@", CANONICAL_PREFIX)
         .replace("@@CANONICAL_VERSION@@", CANONICAL_VERSION)
+        .replace("@@BODY_MARKER@@", ENROLL_BODY_MARKER)
     )
 
 
