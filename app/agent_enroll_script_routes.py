@@ -71,6 +71,17 @@ ENROLL_SCRIPT_PATH = "/api/agents/enroll.sh"
 # to bash, where stdin is the script itself.
 ENROLL_BODY_MARKER = "__LOOPSKILL_ENROLL_BASH_BODY__"
 
+# ah_1106: the bundle a freshly enrolled agent is pointed at. One value, read by
+# the script template AND /.well-known/agent.json, so the two cannot drift.
+# dev-agent-essentials is small (3 skills) and installs keyless today:
+# verified 2026-11-06, ``install.sh dev-agent-essentials`` -> installed 3, rc 0.
+FIRST_INSTALL_BUNDLE = "dev-agent-essentials"
+
+
+def first_install_command(api_base: str) -> str:
+    """The exact keyless first-install line for ``api_base`` (trailing slash stripped)."""
+    return f"curl -fsSL {api_base.rstrip('/')}/api/bundles/install.sh | bash -s -- {FIRST_INSTALL_BUNDLE}"
+
 _ENROLL_SCRIPT_TEMPLATE = r"""#!/bin/sh
 # LoopSkill agent enrolment: one command, no human, no pre-existing key.
 #
@@ -212,6 +223,9 @@ chmod 600 "$KEYFILE"
 echo "enrolled '$NAME' on $API_BASE (free tier)."
 echo "API key saved to $KEYFILE (mode 600). The server shows it only once: back it up."
 echo "use it:  export LOOPSKILL_API_KEY=\"\$(cat $KEYFILE)\"   # header: x-api-key"
+# ah_1106: end on a first install, not a dead end. The bundle installer is
+# keyless, so this line works whether or not the export above was run.
+echo "next:    install a starter bundle (no key needed): curl -fsSL $API_BASE/api/bundles/install.sh | bash -s -- @@FIRST_INSTALL_BUNDLE@@"
 @@BODY_MARKER@@
 """
 
@@ -226,6 +240,7 @@ def render_enroll_script(api_base: str) -> str:
         .replace("@@CANONICAL_PREFIX@@", CANONICAL_PREFIX)
         .replace("@@CANONICAL_VERSION@@", CANONICAL_VERSION)
         .replace("@@BODY_MARKER@@", ENROLL_BODY_MARKER)
+        .replace("@@FIRST_INSTALL_BUNDLE@@", FIRST_INSTALL_BUNDLE)
     )
 
 
