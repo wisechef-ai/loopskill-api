@@ -315,3 +315,51 @@ def test_a_dangling_symlink_at_any_secret_path_is_refused_not_followed(tmp_path,
     assert run.returncode == 3, (run.returncode, run.stderr)
     assert not target.exists(), "secrets must never be written through a symlink"
     assert not marker.exists(), "refuse before the server mints a key"
+
+
+# --- ah_1106: enrolment ends with a first install, not a dead end ------------
+# Live 11-06: an agent that enrolled got a key and no next step (the script
+# stopped at the export line), while the keyless bundle installer that works
+# was named in neither the enroller nor /.well-known/agent.json.
+
+
+@needs_openssl
+def test_a_successful_enrolment_ends_with_the_first_install_line(tmp_path):
+    from app.agent_enroll_script_routes import FIRST_INSTALL_BUNDLE, first_install_command
+
+    marker = tmp_path / "posted.json"
+    _stub_curl(tmp_path / "bin", marker)
+    run = _run(
+        tmp_path, "cold-agent-7", dry_run=False, path=f"{tmp_path / 'bin'}:/usr/local/bin:/usr/bin:/bin"
+    )
+    assert run.returncode == 0, run.stderr
+    want = f"curl -fsSL {BASE}/api/bundles/install.sh | bash -s -- {FIRST_INSTALL_BUNDLE}"
+    assert first_install_command(BASE + "/") == want
+    last = run.stdout.rstrip("\n").splitlines()[-1]
+    assert last.startswith("next:") and last.endswith(want), run.stdout
+    assert SECRET not in run.stdout
+
+
+@needs_openssl
+def test_dry_run_and_refusals_print_no_install_line(tmp_path):
+    # The next step is only honest AFTER a key exists: a dry run must still be
+    # pure JSON on stdout, and a refused name must not advertise an install.
+    dry = _run(tmp_path, "cold-agent-8")
+    assert dry.returncode == 0
+    json.loads(dry.stdout)
+    assert "install.sh" not in dry.stdout
+    assert "install.sh" not in _run(tmp_path, "bad name").stdout
+
+
+def test_agent_json_names_the_same_first_install_as_the_script():
+    from app.agent_enroll_script_routes import FIRST_INSTALL_BUNDLE
+
+    c = TestClient(create_app())
+    reg = c.get("/.well-known/agent.json").json()["registration"]
+    nxt = reg["enroll_script"]["next_step"]
+    assert nxt["bundle"] == FIRST_INSTALL_BUNDLE
+    assert nxt["command"].endswith(f"/api/bundles/install.sh | bash -s -- {FIRST_INSTALL_BUNDLE}")
+    assert nxt["requires_key"] is False
+    body = c.get(ENROLL_SCRIPT_PATH).text
+    tail = f"/api/bundles/install.sh | bash -s -- {FIRST_INSTALL_BUNDLE}"
+    assert f"curl -fsSL $API_BASE{tail}" in body, "agent.json and the served script must name one command"

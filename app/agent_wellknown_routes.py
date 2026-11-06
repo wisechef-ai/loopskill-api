@@ -62,6 +62,7 @@ from fastapi import APIRouter, Response
 from app.config import public_origin, settings
 from app.middleware.key_prefixes import AGENT_KEY_PREFIX
 from app.agent_registration_routes import REGISTRATION_SUCCESS_STATUS
+from app.agent_enroll_script_routes import FIRST_INSTALL_BUNDLE, first_install_command
 from app.services.agent_registration import (
     CANONICAL_VERSION,
     MAX_ACTIVE_KEYS_PER_IDENTITY,
@@ -142,6 +143,13 @@ def build_agent_descriptor() -> dict:
                 "usage": f"curl -fsSL {origin}/api/agents/enroll.sh | bash -s -- <agent-name> [contact]",
                 "requires": ["bash", "curl", "openssl>=3"],
                 "stores": "~/.config/loopskill/agent-ed25519.pem and api_key (mode 600); the key is never printed",
+                # ah_1106: what to run once enrolled. Same value the script prints.
+                "next_step": {
+                    "description": "install a starter bundle; the bundle installer needs no key",
+                    "bundle": FIRST_INSTALL_BUNDLE,
+                    "command": first_install_command(origin),
+                    "requires_key": False,
+                },
             },
             # The SUCCESS contract, published next to ``errors`` so a strict
             # client never has to guess (coldstart_0927: this block was absent
