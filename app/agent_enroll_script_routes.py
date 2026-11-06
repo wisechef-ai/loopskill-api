@@ -82,6 +82,7 @@ def first_install_command(api_base: str) -> str:
     """The exact keyless first-install line for ``api_base`` (trailing slash stripped)."""
     return f"curl -fsSL {api_base.rstrip('/')}/api/bundles/install.sh | bash -s -- {FIRST_INSTALL_BUNDLE}"
 
+
 _ENROLL_SCRIPT_TEMPLATE = r"""#!/bin/sh
 # LoopSkill agent enrolment: one command, no human, no pre-existing key.
 #
