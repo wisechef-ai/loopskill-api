@@ -40,7 +40,9 @@ Installing a paid skill's real body still requires authenticated
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 
@@ -56,6 +58,8 @@ from app.services.bundle_servability import (
     record_serve_outcome,
     serve_headers,
 )
+
+logger = logging.getLogger(__name__)
 
 _h = APIRouter(tags=["bundles", "well-known"])  # prefix-free; dual-mounted below
 
@@ -261,9 +265,80 @@ def cookbook_wellknown_index(slug: str, db: Session = Depends(get_db)) -> JSONRe
     return JSONResponse(body)
 
 
+# ah_1107: the User-Agent the served installer (bundle_install_script_routes.py)
+# sends on every fetch. It is the ONE signal that a SKILL.md GET is an install
+# rather than a crawler reading a public page — see _record_installer_fetch.
+INSTALLER_USER_AGENT = "loopskill-install.sh"
+
+
+def _is_installer_request(request: Request) -> bool:
+    return (request.headers.get("user-agent") or "").startswith(INSTALLER_USER_AGENT)
+
+
+def _record_installer_fetch(db: Session, request: Request, *, skill, cookbook_id, version_semver) -> None:
+    """Record an InstallEvent when install.sh pulls a real SKILL.md body.
+
+    ah_1107: the keyless first-install line (enroll.sh -> install.sh, #451)
+    worked end to end but wrote NOTHING, so a stranger's first install was
+    invisible to every funnel. This is the record.
+
+    Gated on the installer's own User-Agent, deliberately: this route is a
+    public, crawlable page, and ``record_install_with_provenance`` bumps the
+    public ``Skill.install_count`` for anonymous organic traffic. Counting
+    every GET would let a crawler inflate the ranking counter. A UA can be
+    forged, but no crawler sends ours, and an anonymous install is equally
+    forgeable on every other install route.
+
+    Attribution: install.sh forwards the enrolled key as ``x-api-key``. This
+    route sits under a PUBLIC_PREFIXES path, where the middleware stamps
+    ``request.state.auth_ctx`` (opportunistic auth) but NOT
+    ``request.state.api_key_id`` — the field the recorder reads. So the key id
+    is copied across here; without it a keyed install would record anonymous.
+    The organic-counter rule (app/install_integrity.py) is unchanged: an
+    agent key's event is recorded but does not bump the public counter.
+
+    Observability only: a recording failure never breaks serving the file.
+    """
+    if not _is_installer_request(request):
+        return
+    try:
+        ctx = getattr(request.state, "auth_ctx", None)
+        key_id = getattr(ctx, "api_key_id", None)
+        if key_id is not None and getattr(request.state, "api_key_id", None) is None:
+            request.state.api_key_id = key_id
+        from app.services.provenance import record_install_with_provenance
+
+        record_install_with_provenance(
+            db,
+            skill=skill,
+            version_semver=version_semver,
+            request=request,
+            source="install_sh",
+            cookbook_id=cookbook_id,
+            commit=True,
+        )
+    # Rationale: observability-only, same posture as every install recorder
+    # (Issue #22) — the caller already has the bytes; a DB hiccup must not 500.
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "install.sh install-event record failed for %s", getattr(skill, "slug", "?"), exc_info=True
+        )
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _local_semver(db: Session, skill) -> str:
+    from app.services.semver import latest_version_row_for_skill
+
+    row = latest_version_row_for_skill(db, skill.id)
+    return row.semver if row is not None else "readme"
+
+
 @_h.get("/public/{slug}/.well-known/skills/{skill_name}/SKILL.md")
 def cookbook_wellknown_skill_md(
-    slug: str, skill_name: str, db: Session = Depends(get_db)
+    slug: str, skill_name: str, request: Request, db: Session = Depends(get_db)
 ) -> PlainTextResponse:
     """Serve one skill's SKILL.md from a public cookbook bundle.
 
@@ -296,7 +371,12 @@ def cookbook_wellknown_skill_md(
 
     if _is_free(match) and (match.readme or "").strip():
         body = match.readme
-        return _md_response(body, SKIP_MOVED if is_moved_signpost(body) else None)
+        reason = SKIP_MOVED if is_moved_signpost(body) else None
+        if reason is None:
+            _record_installer_fetch(
+                db, request, skill=match, cookbook_id=cb.id, version_semver=_local_semver(db, match)
+            )
+        return _md_response(body, reason)
 
     if _is_redistributable_external(match):
         from app.services import bundle_external as _be
@@ -312,6 +392,10 @@ def cookbook_wellknown_skill_md(
                 # the index can flag it without fetching.
                 reason = SKIP_MOVED if is_moved_signpost(body) else None
                 record_serve_outcome(db, match, reason)
+                if reason is None:
+                    _record_installer_fetch(
+                        db, request, skill=match, cookbook_id=cb.id, version_semver="external"
+                    )
                 return _md_response(body, reason)
         # Origin failure / unresolvable at serve time: an honest placeholder
         # (never a raw 500), labelled + recorded as ``unavailable`` so the

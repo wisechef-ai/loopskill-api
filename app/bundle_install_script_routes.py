@@ -82,6 +82,10 @@ _INSTALL_SCRIPT_TEMPLATE = r"""#!/usr/bin/env bash
 #   LOOPSKILL_API_BASE    — API origin (default: {api_base})
 #   LOOPSKILL_INSTALL_DIR — install target (default: ~/.claude/skills)
 #   LOOPSKILL_RETRY_SLEEP — base seconds between retries on 429/5xx (default 15)
+#   LOOPSKILL_API_KEY     — optional; sent as x-api-key so the install is
+#                           attributed (else read from
+#                           ${{LOOPSKILL_CONFIG_DIR:-~/.config/loopskill}}/api_key,
+#                           where enroll.sh stores it). Never printed.
 #
 # Exit codes: 0 = at least one skill installed (or the bundle is empty);
 # 2 = usage; 3 = python3 missing; 4 = every member is paid-tier;
@@ -119,12 +123,34 @@ STUB_MARKERS = (
 )
 
 
+def enrolled_key():
+    # ah_1107: attribute the install to the agent's key when it has one, so a
+    # first install is countable. Same sources enroll.sh documents:
+    # $LOOPSKILL_API_KEY, else <LOOPSKILL_CONFIG_DIR or ~/.config/loopskill>/api_key.
+    # Optional: no key means an anonymous install, exactly as before.
+    key = os.environ.get("LOOPSKILL_API_KEY", "").strip()
+    if key:
+        return key
+    conf = os.environ.get("LOOPSKILL_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".config", "loopskill")
+    try:
+        with open(os.path.join(conf, "api_key"), encoding="utf-8") as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
+
+
+API_KEY = enrolled_key()
+HEADERS = {{"User-Agent": "loopskill-install.sh"}}
+if API_KEY:
+    HEADERS["x-api-key"] = API_KEY
+
+
 def fetch(url):
     # GET with retry on 429/5xx (honours Retry-After). Returns (body, headers).
     delays = [retry_base, retry_base * 2, retry_base * 4]
     while True:
         try:
-            req = urllib.request.Request(url, headers={{"User-Agent": "loopskill-install.sh"}})
+            req = urllib.request.Request(url, headers=HEADERS)
             with urllib.request.urlopen(req, timeout=60) as r:
                 return r.read(), r.headers
         except urllib.error.HTTPError as e:
