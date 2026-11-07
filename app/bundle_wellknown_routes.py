@@ -41,6 +41,7 @@ Installing a paid skill's real body still requires authenticated
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -306,6 +307,10 @@ def _record_installer_fetch(db: Session, request: Request, *, skill, cookbook_id
         key_id = getattr(ctx, "api_key_id", None)
         if key_id is not None and getattr(request.state, "api_key_id", None) is None:
             request.state.api_key_id = key_id
+        if _already_recorded_today(
+            db, request, skill=skill, api_key_id=getattr(request.state, "api_key_id", None)
+        ):
+            return
         from app.services.provenance import record_install_with_provenance
 
         record_install_with_provenance(
@@ -327,6 +332,37 @@ def _record_installer_fetch(db: Session, request: Request, *, skill, cookbook_id
             db.rollback()
         except Exception:  # noqa: BLE001
             pass
+
+
+INSTALLER_DEDUPE_WINDOW = timedelta(hours=24)
+
+
+def _already_recorded_today(db: Session, request: Request, *, skill, api_key_id) -> bool:
+    """One install-sh event per (skill, caller) per 24h.
+
+    The UA gate keeps crawlers out but is caller-controlled, so a client
+    could forge it and loop this public GET to pump ``Skill.install_count``.
+    The caller identity is the key when one was sent, else the client IP
+    (the same IP the recorder stores). A re-run inside the window is the same
+    install, not a new one. An unidentifiable caller (no key, no IP) is not
+    deduped: in production the proxy always supplies an IP.
+    """
+    from app.config import settings
+    from app.models import InstallEvent
+    from app.utils.client_ip import _real_client_ip
+
+    q = db.query(InstallEvent.id).filter(
+        InstallEvent.skill_id == skill.id,
+        InstallEvent.created_at >= datetime.now(UTC) - INSTALLER_DEDUPE_WINDOW,
+    )
+    if api_key_id is not None:
+        q = q.filter(InstallEvent.api_key_id == api_key_id)
+    else:
+        ip = _real_client_ip(request, settings.TRUSTED_PROXY_CIDRS)
+        if not ip:
+            return False
+        q = q.filter(InstallEvent.api_key_id.is_(None), InstallEvent.client_ip == ip)
+    return q.first() is not None
 
 
 def _local_semver(db: Session, skill) -> str:

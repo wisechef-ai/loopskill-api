@@ -249,3 +249,40 @@ def test_recorder_failure_still_serves_the_file(world, monkeypatch):
     )
     assert r.status_code == 200 and "body" in r.text
     assert events() == []
+
+
+def test_forged_installer_ua_loop_cannot_pump_the_counter(world):
+    """Review finding (PR #452): the UA is caller-controlled. Looping the
+    public GET with it must yield ONE event per (skill, caller) per 24h."""
+    app, ids, events = world
+    c = TestClient(app)
+    for _ in range(5):
+        r = c.get(
+            "/api/bundles/public/mixed-bundle/.well-known/skills/free-one/SKILL.md",
+            headers={"User-Agent": "loopskill-install.sh"},
+        )
+        assert r.status_code == 200
+    assert events() == [(ids["free"], None, ids["bundle"])]
+
+
+def test_a_keyed_caller_is_a_distinct_install_from_the_anonymous_one(world):
+    app, ids, events = world
+    c = TestClient(app)
+    url = "/api/bundles/public/mixed-bundle/.well-known/skills/free-one/SKILL.md"
+    c.get(url, headers={"User-Agent": "loopskill-install.sh"})
+    for _ in range(3):
+        c.get(url, headers={"User-Agent": "loopskill-install.sh", "x-api-key": AGENT_KEY})
+    assert sorted(events(), key=str) == sorted(
+        [(ids["free"], None, ids["bundle"]), (ids["free"], ids["key"], ids["bundle"])], key=str
+    )
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash required")
+def test_rerunning_install_sh_is_the_same_install(live, tmp_path):
+    base, ids, events = live
+    for i in range(2):
+        sub = tmp_path / f"run{i}"
+        sub.mkdir()
+        proc = _run(base, sub)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert events() == [(ids["free"], None, ids["bundle"])]
