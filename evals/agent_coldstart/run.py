@@ -420,14 +420,79 @@ LOOPSKILL_CRED_ENV_SUBSTRINGS = (
 )
 
 
-def build_cold_env() -> dict[str, str]:
+# coldstart_1108 — parent-tooling leak (run 20261108-fc2aaf6c, codex leg):
+# build_cold_env copied os.environ wholesale, so the eval host's agent CLIs
+# stayed on the inherited PATH. The codex agent ran `command -v hermes`, found
+# the host's hermes wrapper — which is hardwired to the REAL ~/.hermes
+# regardless of $HOME — and answered install-unnamed-need by installing
+# official/email/agentmail from the Hermes Skills Hub (wrong marketplace)
+# while writing into /home/adam/.hermes/skills: a host mutation from inside
+# the "isolated" sandbox. HOME was isolated; the parent's TOOLING was not.
+# Hermes legs are exempt: there the hermes binary IS the harness and its
+# writes are pinned to the sandbox HERMES_HOME (write_isolated_hermes_home).
+PARENT_TOOLING_ENV_SUBSTRINGS = ("HERMES",)
+
+
+def _inside_real_home(path: Path | str) -> bool:
+    """True when `path` resolves inside the real user's home tree."""
+    try:
+        Path(path).resolve().relative_to(Path.home().resolve())
+    except (ValueError, OSError):
+        return False
+    return True
+
+
+def _abs_binary(name: str) -> str:
+    """Absolute path for a harness CLI, resolved against the RUNNER's PATH.
+
+    subprocess resolves a bare argv[0] against the CHILD env's PATH; after
+    the non-hermes cold-path scrub the npm-shim CLIs under the real home
+    (e.g. ~/.local/bin/codex -> codex.js) no longer resolve there."""
+    return shutil.which(name) or name
+
+
+def _cold_path(harness: str) -> str:
+    """PATH for a cold agent.
+
+    Hermes legs keep the parent PATH verbatim — the hermes binary must
+    resolve, and its data writes are pinned to the sandbox HERMES_HOME.
+    Non-hermes legs drop every real-home entry EXCEPT the directory of the
+    node runtime: npm-shim harness CLIs (codex -> codex.js with a
+    `#!/usr/bin/env node` shebang) bootstrap through it, and that dir
+    exports only node/npm/npx — generic runtimes, not LoopSkill-answering
+    tools."""
+    entries = [e for e in os.environ.get("PATH", "").split(os.pathsep) if e]
+    if harness == "hermes":
+        return os.pathsep.join(entries)
+    node_bin = shutil.which("node")
+    node_dir = str(Path(node_bin).parent) if node_bin else ""
+    kept: list[str] = []
+    for entry in entries:
+        if entry != node_dir and _inside_real_home(entry):
+            continue
+        if entry not in kept:
+            kept.append(entry)
+    if node_dir and node_dir not in kept:
+        kept.insert(0, node_dir)
+    return os.pathsep.join(kept)
+
+
+def build_cold_env(harness: str = "hermes") -> dict[str, str]:
     """The environment a cold agent may see: a copy of os.environ minus every
-    LoopSkill-credential-shaped variable. Never mutates the parent env."""
+    LoopSkill-credential-shaped variable. Never mutates the parent env.
+
+    For non-hermes harnesses the env is additionally stripped of parent
+    tooling: HERMES-shaped variables are dropped and PATH is rebuilt without
+    any real-home entry (see _cold_path)."""
     scrubbed: dict[str, str] = {}
     for key, value in os.environ.items():
         if any(sub in key for sub in LOOPSKILL_CRED_ENV_SUBSTRINGS):
             continue  # key-shaped: excluded from the cold env
+        if harness != "hermes" and any(sub in key for sub in PARENT_TOOLING_ENV_SUBSTRINGS):
+            continue  # parent-agent tooling: not part of a cold start
         scrubbed[key] = value
+    if harness != "hermes":
+        scrubbed["PATH"] = _cold_path(harness)
     return scrubbed
 
 
@@ -460,13 +525,6 @@ def _cold_home_base() -> Path:
     exists to prevent).
     """
     real_home = Path.home().resolve()
-
-    def _inside_real_home(p: Path) -> bool:
-        try:
-            p.resolve().relative_to(real_home)
-        except ValueError:
-            return False
-        return True
 
     candidates: list[Path] = []
     override = os.environ.get("COLDSTART_SANDBOX_BASE")
@@ -621,7 +679,7 @@ def run_hermes_harness(prompt: str, home: Path, max_minutes: int, parent_hermes_
     assert_no_secret_leak(home)  # config/env we just wrote must itself be clean
 
     transcript_path = home / "hermes_transcript.txt"
-    env = build_cold_env()
+    env = build_cold_env("hermes")
     env["HOME"] = str(home)
     env["HERMES_HOME"] = str(hermes_home)
     # coldstart_0927 — hermes subprocesses inherit the cold env; keep their
@@ -680,7 +738,7 @@ def run_claude_harness(prompt: str, home: Path, max_minutes: int) -> HarnessResu
     cwd.mkdir(parents=True, exist_ok=True)
     _copy_claude_oauth_credentials(home, "anthropic")
     transcript_path = home / "claude_transcript.json"
-    env = build_cold_env()
+    env = build_cold_env("claude")
     env["HOME"] = str(home)
     # coldstart_0927 — same walk-up isolation as the codex adapter: pin
     # Claude Code's config root and TMPDIR inside the sandbox so no ancestor
@@ -692,7 +750,14 @@ def run_claude_harness(prompt: str, home: Path, max_minutes: int) -> HarnessResu
     stdout = ""
     try:
         proc = subprocess.run(
-            ["claude", "-p", prompt, "--output-format", "json", "--dangerously-skip-permissions"],
+            [
+                _abs_binary("claude"),
+                "-p",
+                prompt,
+                "--output-format",
+                "json",
+                "--dangerously-skip-permissions",
+            ],
             cwd=str(cwd),
             env=env,
             capture_output=True,
@@ -745,7 +810,7 @@ def run_codex_harness(prompt: str, home: Path, max_minutes: int) -> HarnessResul
     cwd.mkdir(parents=True, exist_ok=True)
     _copy_codex_oauth_credentials(home)
     transcript_path = home / "codex_transcript.jsonl"
-    env = build_cold_env()
+    env = build_cold_env("codex")
     env["HOME"] = str(home)
     # coldstart_0927 — pin codex's OWN config root to the sandbox. Without
     # this, codex walks UP from cwd looking for .codex/config.toml in every
@@ -763,7 +828,7 @@ def run_codex_harness(prompt: str, home: Path, max_minutes: int) -> HarnessResul
     try:
         proc = subprocess.run(
             [
-                "codex",
+                _abs_binary("codex"),
                 "exec",
                 "--json",
                 "--skip-git-repo-check",
