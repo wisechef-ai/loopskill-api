@@ -138,19 +138,7 @@ def build_agent_descriptor() -> dict:
             # ah_1104: a ready-made client for this exact contract. It renders
             # the canonical prefix/version from the same module, so it cannot
             # drift from ``canonical_string`` above.
-            "enroll_script": {
-                "url": f"{origin}/api/agents/enroll.sh",
-                "usage": f"curl -fsSL {origin}/api/agents/enroll.sh | bash -s -- <agent-name> [contact]",
-                "requires": ["bash", "curl", "openssl>=3"],
-                "stores": "~/.config/loopskill/agent-ed25519.pem and api_key (mode 600); the key is never printed",
-                # ah_1106: what to run once enrolled. Same value the script prints.
-                "next_step": {
-                    "description": "install a starter bundle; the bundle installer needs no key",
-                    "bundle": FIRST_INSTALL_BUNDLE,
-                    "command": first_install_command(origin),
-                    "requires_key": False,
-                },
-            },
+            "enroll_script": enroll_script_descriptor(origin),
             # The SUCCESS contract, published next to ``errors`` so a strict
             # client never has to guess (coldstart_0927: this block was absent
             # and llms.txt's stale "200" was the only claim anywhere — a cold
@@ -258,6 +246,30 @@ def build_agent_descriptor() -> dict:
     }
 
 
+def enroll_script_descriptor(origin: str) -> dict:
+    """The one-command enroller block, shared by every discovery document.
+
+    ah_1111: an MCP client reads ``/.well-known/mcp.json`` or the server card,
+    not agent.json. Both used to name only ``/api/agents/register`` (a protocol
+    that needs a hand-built Ed25519 signature), so a stranger on the MCP path
+    never learned that ``enroll.sh`` does it in one command. One builder, three
+    documents: they cannot drift apart.
+    """
+    return {
+        "url": f"{origin}/api/agents/enroll.sh",
+        "usage": f"curl -fsSL {origin}/api/agents/enroll.sh | bash -s -- <agent-name> [contact]",
+        "requires": ["bash", "curl", "openssl>=3"],
+        "stores": "~/.config/loopskill/agent-ed25519.pem and api_key (mode 600); the key is never printed",
+        # ah_1106: what to run once enrolled. Same value the script prints.
+        "next_step": {
+            "description": "install a starter bundle; the bundle installer needs no key",
+            "bundle": FIRST_INSTALL_BUNDLE,
+            "command": first_install_command(origin),
+            "requires_key": False,
+        },
+    }
+
+
 def build_mcp_descriptor() -> dict:
     """The ``/.well-known/mcp.json`` body. Pure — no request, no DB, no PII."""
     origin = public_origin()
@@ -277,6 +289,7 @@ def build_mcp_descriptor() -> dict:
             "type": "api_key",
             "header": "x-api-key",
             "self_registration": f"{origin}/api/agents/register",
+            "enroll_script": enroll_script_descriptor(origin),
             "discovery": f"{origin}/.well-known/agent.json",
         },
         "documentation": f"{origin}/docs",
@@ -378,6 +391,7 @@ def build_mcp_server_card() -> dict:
             "schemes": ["apiKey"],
             "header": "x-api-key",
             "self_registration": f"{origin}/api/agents/register",
+            "enroll_script": enroll_script_descriptor(origin),
             "discovery": f"{origin}/.well-known/agent.json",
         },
         "tools": [
