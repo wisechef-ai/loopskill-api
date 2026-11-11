@@ -117,6 +117,22 @@ def _postgres_test_url() -> str | None:
     return url
 
 
+def _purge_seed_rows(engine: sa.Engine) -> None:
+    """Delete the 90k synthetic rows AND physically reclaim their pages.
+
+    A plain DELETE leaves dead tuples, so ``relpages`` stays at ~3x the live
+    size. Seq-scan cost is priced off ``relpages``, so after a seeding test has
+    run, the RED-proof's "planner still picks a seq scan" assertion flips to a
+    BitmapOr over the three legacy indexes (#426: order-dependent under
+    pytest-randomly). VACUUM FULL cannot run inside a transaction, hence the
+    separate AUTOCOMMIT connection.
+    """
+    with engine.begin() as conn:
+        conn.execute(sa.text("DELETE FROM federation_hub_skills WHERE slug LIKE 'issue282-seed-%'"))
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.execute(sa.text("VACUUM FULL federation_hub_skills"))
+
+
 def _seed_prod_scale(conn: sa.Connection, n: int = 90_000) -> None:
     conn.execute(sa.text("DELETE FROM federation_hub_skills WHERE slug LIKE 'issue282-seed-%'"))
     conn.execute(
@@ -212,6 +228,7 @@ class TestRedProofLegacyThreeIndexDesignWasBroken:
 
         engine = sa.create_engine(url)
         try:
+            _purge_seed_rows(engine)  # bloat left by an earlier seeding test skews seq-scan cost (#426)
             with engine.begin() as conn:
                 conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
                 for name, col in _LEGACY_INDEXES.items():
@@ -240,7 +257,7 @@ class TestRedProofLegacyThreeIndexDesignWasBroken:
             with engine.begin() as conn:
                 for name in _LEGACY_INDEXES:
                     conn.execute(sa.text(f"DROP INDEX IF EXISTS {name}"))
-                conn.execute(sa.text("DELETE FROM federation_hub_skills WHERE slug LIKE 'issue282-seed-%'"))
+            _purge_seed_rows(engine)
             engine.dispose()
 
 
@@ -266,6 +283,7 @@ class TestPostgresIndexScan:
         command.upgrade(cfg, "head")
 
         engine = sa.create_engine(url)
+        _purge_seed_rows(engine)
         with engine.begin() as conn:
             _seed_prod_scale(conn)
 
@@ -273,8 +291,7 @@ class TestPostgresIndexScan:
         session = Session()
         yield session
         session.close()
-        with engine.begin() as conn:
-            conn.execute(sa.text("DELETE FROM federation_hub_skills WHERE slug LIKE 'issue282-seed-%'"))
+        _purge_seed_rows(engine)
         engine.dispose()
 
     def _search_expr_query(self, session):
