@@ -74,6 +74,11 @@ _LEGACY_INDEXES = {
 }
 
 
+# Private per-session TEMP table the RED-proof seeds instead of the shared
+# federation_hub_skills (see the RED-proof test for why).
+_REDPROOF_TABLE = "issue282_redproof_skills"
+
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 
@@ -117,12 +122,12 @@ def _postgres_test_url() -> str | None:
     return url
 
 
-def _seed_prod_scale(conn: sa.Connection, n: int = 90_000) -> None:
-    conn.execute(sa.text("DELETE FROM federation_hub_skills WHERE slug LIKE 'issue282-seed-%'"))
+def _seed_prod_scale(conn: sa.Connection, n: int = 90_000, table: str = "federation_hub_skills") -> None:
+    conn.execute(sa.text(f"DELETE FROM {table} WHERE slug LIKE 'issue282-seed-%'"))
     conn.execute(
         sa.text(
-            """
-            INSERT INTO federation_hub_skills (slug, title, description, source, install_path)
+            f"""
+            INSERT INTO {table} (slug, title, description, source, install_path)
             SELECT
                 'issue282-seed-' || g || '-' || md5(random()::text),
                 'Skill Title ' || g || ' ' || md5(random()::text),
@@ -134,7 +139,7 @@ def _seed_prod_scale(conn: sa.Connection, n: int = 90_000) -> None:
         ),
         {"n": n},
     )
-    conn.execute(sa.text("ANALYZE federation_hub_skills"))
+    conn.execute(sa.text(f"ANALYZE {table}"))
 
 
 # ── DoD #1/#2/#3 — SQLite no-op leg, chain integrity ────────────────────────
@@ -202,6 +207,58 @@ class TestRedProofLegacyThreeIndexDesignWasBroken:
     OR query STILL seq-scans a prod-scale table even with all 3 present.
     """
 
+    @staticmethod
+    def _legacy_plan(url: str) -> tuple[int, str]:
+        """EXPLAIN the legacy 3-clause-OR query on a private TEMP table.
+
+        SELF-CONTAINED (#454, also #426): the planner's seq-scan-vs-bitmap-OR
+        choice is priced off the table's relpages/reltuples. The shared
+        ``federation_hub_skills`` carries dead-tuple bloat and committed rows
+        left by whichever tests ran earlier under pytest-randomly (the
+        TestPostgresIndexScan cleanup is a plain DELETE), which flips this
+        proof. So prove the planner behaviour on a private TEMP table with
+        the same column types and no history: a fresh table plans the same
+        under every shuffle. TEMP => never autovacuumed, session-scoped,
+        cannot leak into other tests even if this one crashes.
+        """
+        engine = sa.create_engine(url)
+        try:
+            with engine.begin() as conn:
+                conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+                conn.execute(
+                    sa.text(
+                        f"CREATE TEMP TABLE {_REDPROOF_TABLE} AS "
+                        "SELECT slug, title, description, source, install_path "
+                        "FROM federation_hub_skills WHERE false"
+                    )
+                )
+                for name, col in _LEGACY_INDEXES.items():
+                    conn.execute(
+                        sa.text(f"CREATE INDEX {name} ON {_REDPROOF_TABLE} USING gin ({col} gin_trgm_ops)")
+                    )
+                _seed_prod_scale(conn, table=_REDPROOF_TABLE)
+                n_rows = conn.execute(sa.text(f"SELECT count(*) FROM {_REDPROOF_TABLE}")).scalar()
+                plan_rows = conn.execute(
+                    sa.text(
+                        f"EXPLAIN SELECT slug, title FROM {_REDPROOF_TABLE} "
+                        "WHERE title ILIKE :like OR slug ILIKE :like OR description ILIKE :like "
+                        "ORDER BY title ASC LIMIT 20"
+                    ),
+                    {"like": "%security%"},
+                ).fetchall()
+            return n_rows, "\n".join(str(r[0]) for r in plan_rows)
+        finally:
+            engine.dispose()  # closes the session, which drops the TEMP table
+
+    @staticmethod
+    def _assert_seq_scan(n_rows: int, plan_text: str) -> None:
+        # Precondition first: names a seed problem instead of a bare plan diff.
+        assert n_rows == 90_000, f"private RED-proof table must hold exactly the 90k seed rows, got {n_rows}"
+        assert f"Seq Scan on {_REDPROOF_TABLE}" in plan_text, (
+            "Expected the RED-proof to reproduce the bug (seq scan despite "
+            f"3 legacy indexes present) but got:\n{plan_text}"
+        )
+
     def test_three_column_indexes_with_or_still_seq_scans(self, tmp_path, monkeypatch) -> None:
         url = _postgres_test_url()
         if url is None:
@@ -210,36 +267,27 @@ class TestRedProofLegacyThreeIndexDesignWasBroken:
         monkeypatch.setenv("WR_DATABASE_URL", url)  # scoped: a raw write leaked into later tests
         command.upgrade(cfg, PRIOR_REVISION)  # pre-fix state: no expr index yet
 
+        self._assert_seq_scan(*self._legacy_plan(url))
+
+    def test_red_proof_survives_bloat_left_in_shared_table(self, tmp_path, monkeypatch) -> None:
+        """#454 regression: simulate the exact leak — a prior test seeded then
+        plain-DELETEd 90k rows in ``federation_hub_skills`` (dead tuples,
+        inflated relpages). The RED-proof must not care."""
+        url = _postgres_test_url()
+        if url is None:
+            pytest.skip("no reachable Postgres — set TEST_DATABASE_URL to a postgres:// DSN to run this test")
+        cfg = _alembic_cfg(url)
+        monkeypatch.setenv("WR_DATABASE_URL", url)  # scoped: a raw write leaked into later tests
+        command.upgrade(cfg, PRIOR_REVISION)
+
         engine = sa.create_engine(url)
         try:
             with engine.begin() as conn:
-                conn.execute(sa.text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
-                for name, col in _LEGACY_INDEXES.items():
-                    conn.execute(
-                        sa.text(
-                            f"CREATE INDEX IF NOT EXISTS {name} ON federation_hub_skills USING gin ({col} gin_trgm_ops)"
-                        )
-                    )
-                _seed_prod_scale(conn)
-
-            with engine.connect() as conn:
-                plan_rows = conn.execute(
-                    sa.text(
-                        "EXPLAIN SELECT slug, title FROM federation_hub_skills "
-                        "WHERE title ILIKE :like OR slug ILIKE :like OR description ILIKE :like "
-                        "ORDER BY title ASC LIMIT 20"
-                    ),
-                    {"like": "%security%"},
-                ).fetchall()
-            plan_text = "\n".join(str(r[0]) for r in plan_rows)
-            assert "Seq Scan on federation_hub_skills" in plan_text, (
-                "Expected the RED-proof to reproduce the bug (seq scan despite "
-                f"3 legacy indexes present) but got:\n{plan_text}"
-            )
+                _seed_prod_scale(conn)  # 90k live rows in the SHARED table
+                conn.execute(sa.text("DELETE FROM federation_hub_skills WHERE slug LIKE 'issue282-seed-%'"))
+            self._assert_seq_scan(*self._legacy_plan(url))
         finally:
             with engine.begin() as conn:
-                for name in _LEGACY_INDEXES:
-                    conn.execute(sa.text(f"DROP INDEX IF EXISTS {name}"))
                 conn.execute(sa.text("DELETE FROM federation_hub_skills WHERE slug LIKE 'issue282-seed-%'"))
             engine.dispose()
 
