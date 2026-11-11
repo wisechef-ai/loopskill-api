@@ -232,6 +232,13 @@ class SandboxProfile:
         if os.path.exists("/sbin"):
             args.extend(["--ro-bind", "/sbin", "/sbin"])
 
+        # Debian/Ubuntu: /usr/bin/awk, /usr/bin/editor, ... are symlinks into
+        # /etc/alternatives, which in turn point back into /usr. Without this
+        # directory the links dangle and `awk` is "command not found" (#457).
+        # Read-only, and only the symlink farm: no other /etc file is exposed.
+        if os.path.isdir("/etc/alternatives"):
+            args.extend(["--ro-bind", "/etc/alternatives", "/etc/alternatives"])
+
         # Proc
         args.extend(["--proc", "/proc"])
 
