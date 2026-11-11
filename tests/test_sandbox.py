@@ -251,6 +251,27 @@ class TestBwrapArgGeneration(unittest.TestCase):
         args = profile.to_bwrap_args(self.sandbox_root, "/skill")
         self.assertIn("--die-with-parent", args)
 
+    def test_etc_alternatives_bound_read_only_when_present(self):
+        """#457: Debian/Ubuntu /usr/bin/awk -> /etc/alternatives/awk dangles without it."""
+        profile = SandboxProfile()
+        real_isdir = os.path.isdir
+        with patch("app.sandbox.profile.os.path.isdir",
+                   side_effect=lambda p: True if p == "/etc/alternatives" else real_isdir(p)):
+            args = profile.to_bwrap_args(self.sandbox_root, "/skill")
+        triples = [tuple(args[i:i + 3]) for i in range(len(args) - 2)]
+        self.assertIn(("--ro-bind", "/etc/alternatives", "/etc/alternatives"), triples)
+        # never writable, and never the whole /etc
+        self.assertNotIn(("--bind", "/etc/alternatives", "/etc/alternatives"), triples)
+        self.assertNotIn(("--ro-bind", "/etc", "/etc"), triples)
+
+    def test_etc_alternatives_skipped_when_absent(self):
+        profile = SandboxProfile()
+        real_isdir = os.path.isdir
+        with patch("app.sandbox.profile.os.path.isdir",
+                   side_effect=lambda p: False if p == "/etc/alternatives" else real_isdir(p)):
+            args = profile.to_bwrap_args(self.sandbox_root, "/skill")
+        self.assertNotIn("/etc/alternatives", args)
+
 
 class TestNetworkEgressBlocking(unittest.TestCase):
     """Prove that network egress outside allowlist is blocked.
@@ -652,6 +673,34 @@ class TestSandboxIntegration(unittest.TestCase):
         )
         self.assertTrue(result.success, f"Sandbox failed: {result.stderr}\nstdout: {result.stdout}")
         self.assertIn("High scorers", result.stdout)
+
+    def test_alternatives_symlink_binaries_resolve_and_are_read_only(self):
+        """#457 RED-proof: a script that shells out to awk (an /etc/alternatives
+        symlink on Debian/Ubuntu) must run, /etc/alternatives must be read-only,
+        and the rest of /etc must stay invisible."""
+        self._skip_if_no_bwrap()
+        skill_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, skill_dir, ignore_errors=True)
+        script = Path(skill_dir) / "setup.sh"
+        script.write_text(
+            "#!/bin/bash\n"
+            "echo 'a b' | awk '{print \"AWK_OK\", $2}'\n"
+            "if touch /etc/alternatives/pwn 2>/dev/null; then echo WRITABLE; else echo RO; fi\n"
+            "if [ -e /etc/passwd ]; then echo PASSWD_VISIBLE; else echo PASSWD_HIDDEN; fi\n"
+        )
+        script.chmod(0o755)
+        runner = SandboxRunner(workspace=tempfile.mkdtemp())
+        result = runner.run(
+            skill_dir=skill_dir,
+            entrypoint="setup.sh",
+            profile=SandboxProfile(exec_allow=["bash", "awk"]),
+            skill_slug="alt-probe",
+        )
+        self.assertTrue(result.success, f"Sandbox failed: {result.stderr}\nstdout: {result.stdout}")
+        self.assertIn("AWK_OK b", result.stdout)
+        self.assertIn("RO", result.stdout.split())
+        self.assertNotIn("WRITABLE", result.stdout)
+        self.assertIn("PASSWD_HIDDEN", result.stdout)
 
 
 if __name__ == "__main__":

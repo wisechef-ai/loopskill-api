@@ -582,6 +582,14 @@ enroll-sh-posix (0.9.73, ah_1105): GET /api/agents/enroll.sh survives
     README + loopskill-mcp README + the bridge's keyless tools/call error now
     name the one-command enroller (loopskill-mcp 0.9.44). Verified against
     prod /api/healthz 0.9.72 before bumping.
+sandbox-etc-alternatives (0.9.74, #457): on Debian/Ubuntu /usr/bin/awk (and
+    editor, python3-config, ...) is a symlink into /etc/alternatives, which the
+    bwrap profile did not mount, so the link dangled inside the sandbox and
+    `awk` was "command not found" (surfaced on the ubuntu-26.04 CI image, where
+    bwrap now works). to_bwrap_args now ro-binds /etc/alternatives when it is a
+    directory: read-only, symlinks only, targets live under /usr (already
+    bound); the rest of /etc stays invisible. Verified against prod
+    /api/healthz 0.9.73 before bumping.
 """
 
-__version__ = "0.9.73"
+__version__ = "0.9.74"
