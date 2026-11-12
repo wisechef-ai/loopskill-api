@@ -26,11 +26,11 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Uuid,
     func,
     text,
 )
 from sqlalchemy import false as sa_false
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, relationship, validates
 
 
@@ -58,7 +58,7 @@ class LikedBundleNotPublishableError(ValueError):
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     github_id = Column(Integer, unique=True, nullable=True, index=True)
     google_id = Column(String(255), unique=True, nullable=True, index=True)
     email = Column(String(512), nullable=True, index=True)
@@ -99,7 +99,7 @@ class User(Base):
     # migration over an existing table.
     referral_code = Column(String(16), nullable=True, unique=True, index=True)
     referred_by = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
@@ -155,15 +155,15 @@ class User(Base):
 class APIKey(Base):
     __tablename__ = "api_keys"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    user_id = Column(Uuid(), ForeignKey("users.id"), nullable=False, index=True)
     key_prefix = Column(String(12), nullable=False)  # first 8 chars for lookup
     key_hash = Column(String(255), nullable=False)  # full sha256 of key
     name = Column(String(255), nullable=True)  # label like "production"
     # Phase C — per-bundle scoping + human label
     label = Column(String(100), nullable=True)  # human label e.g. "ACME client"
     bundle_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("bundles.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
@@ -199,8 +199,8 @@ class APIKey(Base):
 class Creator(Base):
     __tablename__ = "creators"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, unique=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    user_id = Column(Uuid(), ForeignKey("users.id"), nullable=True, unique=True)
     name = Column(String(255), nullable=False)
     slug = Column(String(255), unique=True, nullable=False, index=True)
     avatar_url = Column(Text, nullable=True)
@@ -223,7 +223,7 @@ class Creator(Base):
 class Org(Base):
     __tablename__ = "orgs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     name = Column(String(255), nullable=False)
     slug = Column(String(255), unique=True, nullable=False, index=True)
     api_key_hash = Column(String(255), nullable=False)
@@ -241,7 +241,7 @@ VALID_SKILL_KINDS = ("skill", "loop", "verifier", "mcp-server", "personality")
 class Skill(Base):
     __tablename__ = "skills"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     slug = Column(String(255), unique=True, nullable=False, index=True)
     title = Column(String(512), nullable=False)
     description = Column(Text, nullable=True)
@@ -253,8 +253,8 @@ class Skill(Base):
     )  # free, pro, pro_plus (legacy: cook, operator, studio retired v7/phase-F)
     is_public = Column(Boolean, default=True)
 
-    creator_id = Column(UUID(as_uuid=True), ForeignKey("creators.id"), nullable=True)
-    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id"), nullable=True)
+    creator_id = Column(Uuid(), ForeignKey("creators.id"), nullable=True)
+    org_id = Column(Uuid(), ForeignKey("orgs.id"), nullable=True)
 
     # D1 additions (Sprint 4) — nullable so existing rows are unaffected
     # vertical: agency | solo | enterprise | horizontal
@@ -364,8 +364,8 @@ class Skill(Base):
 class SkillVersion(Base):
     __tablename__ = "skill_versions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    skill_id = Column(Uuid(), ForeignKey("skills.id"), nullable=False, index=True)
     semver = Column(String(32), nullable=False)
     tarball_path = Column(Text, nullable=True)
     tarball_size_bytes = Column(Integer, nullable=True)
@@ -404,10 +404,10 @@ class SkillVersion(Base):
 class InstallEvent(Base):
     __tablename__ = "install_events"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    skill_id = Column(Uuid(), ForeignKey("skills.id"), nullable=False, index=True)
     skill_slug = Column(String(255), nullable=True, index=True)
-    api_key_id = Column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=True)
+    api_key_id = Column(Uuid(), ForeignKey("api_keys.id"), nullable=True)
     version_semver = Column(String(32), nullable=True)
     client_ip = Column(String(64), nullable=True)
     # F.6 rollback marker: 'ok' | 'rolled_back' | 'partial' | 'in_progress'
@@ -422,7 +422,7 @@ class InstallEvent(Base):
     #                 non-fetch install: no body fetched → no deeper attribution).
     #                 Transient FETCH_ORIGIN failures are NOT mis-stamped here —
     #                 they stay hard errors and never reach this row.
-    bundle_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    bundle_id = Column(Uuid(), nullable=True, index=True)
     attribution = Column(String(16), nullable=False, server_default="attributed")
     # coldstart_0609/A — True when the write came from a known fleet/system
     # probe (see app/services/probe_detection.py — the ONE function both
@@ -449,7 +449,7 @@ class FunnelEntity(Base):
 
     __tablename__ = "funnel_entities"
 
-    entity_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    entity_id = Column(Uuid(), primary_key=True, default=uuid4)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     identifiers = relationship("FunnelIdentifier", back_populates="entity", cascade="all, delete-orphan")
@@ -465,10 +465,8 @@ class FunnelIdentifier(Base):
 
     __tablename__ = "funnel_identifiers"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    entity_id = Column(
-        UUID(as_uuid=True), ForeignKey("funnel_entities.entity_id", ondelete="CASCADE"), nullable=False
-    )
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    entity_id = Column(Uuid(), ForeignKey("funnel_entities.entity_id", ondelete="CASCADE"), nullable=False)
     kind = Column(String(32), nullable=False)
     value = Column(Text, nullable=False)
 
@@ -495,12 +493,10 @@ class FunnelEvent(Base):
 
     __tablename__ = "funnel_events"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     ts = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     stage = Column(String(32), nullable=False)
-    entity_id = Column(
-        UUID(as_uuid=True), ForeignKey("funnel_entities.entity_id", ondelete="CASCADE"), nullable=False
-    )
+    entity_id = Column(Uuid(), ForeignKey("funnel_entities.entity_id", ondelete="CASCADE"), nullable=False)
     source_system = Column(Text, nullable=False)
     source_event_id = Column(Text, nullable=False)
     source_loop = Column(Text, nullable=False)
@@ -549,12 +545,12 @@ class PaywallHit(Base):
 
     __tablename__ = "paywall_hits"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     day = Column(Date, nullable=False)
     gate = Column(String(64), nullable=False)
     subject_key = Column(String(128), nullable=False)
-    user_id = Column(UUID(as_uuid=True), nullable=True, index=True)
-    api_key_id = Column(UUID(as_uuid=True), nullable=True)
+    user_id = Column(Uuid(), nullable=True, index=True)
+    api_key_id = Column(Uuid(), nullable=True)
     tier = Column(String(32), nullable=True)
     http_status = Column(Integer, nullable=False)
     classification = Column(String(16), nullable=False)
@@ -590,7 +586,7 @@ class UserSyncDay(Base):
 
     __tablename__ = "user_sync_days"
 
-    user_id = Column(UUID(as_uuid=True), primary_key=True)
+    user_id = Column(Uuid(), primary_key=True)
     day = Column(Date, primary_key=True)
     first_source = Column(String(32), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -609,7 +605,7 @@ class LoopRunLedger(Base):
 
     __tablename__ = "loop_runs_ledger"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     ts = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     job_id = Column(Text, nullable=False)
     loop_name = Column(Text, nullable=False)
@@ -649,7 +645,7 @@ class ProvenanceRecord(Base):
 
     provenance_id = Column(String(64), primary_key=True)
     install_event_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("install_events.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
@@ -662,7 +658,7 @@ class ProvenanceRecord(Base):
 class TelemetryEvent(Base):
     __tablename__ = "telemetry_events"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     event_type = Column(String(128), nullable=False, index=True)
     skill_slug = Column(String(255), nullable=True, index=True)
     payload = Column(Text, nullable=True)  # JSON string (legacy mode)
@@ -672,7 +668,7 @@ class TelemetryEvent(Base):
     # ── Typed telemetry columns (D3 — Sprint 4) ─────────────────────────
     # skill_id resolves skill_slug → FK; stored alongside slug for back-compat
     # Uses UUID type to match skills.id (both stored as 32-char hex in SQLite)
-    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=True, index=True)
+    skill_id = Column(Uuid(), ForeignKey("skills.id"), nullable=True, index=True)
     # open enum — store as text, no server-side rejection on unknown value
     goal_class = Column(String(128), nullable=True)
     # task duration in seconds (0..86400); NULL when not provided
@@ -685,7 +681,7 @@ class TelemetryEvent(Base):
     agent_class_hash = Column(String(64), nullable=True)
     # optional link to the install_event that preceded this telemetry event
     # Uses UUID type to match install_events.id
-    install_event_id = Column(UUID(as_uuid=True), ForeignKey("install_events.id"), nullable=True)
+    install_event_id = Column(Uuid(), ForeignKey("install_events.id"), nullable=True)
 
 
 # ── Carousel ────────────────────────────────────────────────────────────
@@ -694,8 +690,8 @@ class TelemetryEvent(Base):
 class CarouselEntry(Base):
     __tablename__ = "carousel_entries"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    skill_id = Column(Uuid(), ForeignKey("skills.id"), nullable=False)
     featured_date = Column(DateTime, nullable=False, index=True)
     tagline = Column(String(512), nullable=True)
     position = Column(Integer, default=0)
@@ -716,7 +712,7 @@ class CarouselEntry(Base):
 class Recipe(Base):
     __tablename__ = "recipes"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     slug = Column(String(255), unique=True, nullable=False, index=True)
     title = Column(String(512), nullable=False)
     description = Column(Text, nullable=True)
@@ -724,7 +720,7 @@ class Recipe(Base):
     category = Column(String(128), nullable=True, index=True)
     is_public = Column(Boolean, default=True)
 
-    creator_id = Column(UUID(as_uuid=True), ForeignKey("creators.id"), nullable=True)
+    creator_id = Column(Uuid(), ForeignKey("creators.id"), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -737,7 +733,7 @@ class Recipe(Base):
 class APILibraryEntry(Base):
     __tablename__ = "api_library"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     slug = Column(String(255), unique=True, nullable=False, index=True)
     title = Column(String(512), nullable=False)
     description = Column(Text, nullable=True)
@@ -754,8 +750,8 @@ class APILibraryEntry(Base):
 class CreatorPayout(Base):
     __tablename__ = "creator_payouts"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    creator_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    creator_id = Column(Uuid(), ForeignKey("users.id"), nullable=False, index=True)
     # ── Legacy skill-install fields (period_start/period_end were NOT NULL on
     # the original schema; relaxed to NULL by WIS-660 migration so referral
     # payouts — which have no billing period — can use the same table.)
@@ -773,7 +769,7 @@ class CreatorPayout(Base):
     # referral_id: backref to the Referral row that triggered the payout
     source = Column(String(32), nullable=False, default="skill_install", server_default="skill_install")
     amount_cents = Column(Integer, nullable=True)
-    referral_id = Column(UUID(as_uuid=True), ForeignKey("referrals.id"), nullable=True, index=True)
+    referral_id = Column(Uuid(), ForeignKey("referrals.id"), nullable=True, index=True)
     created_at = Column(DateTime, server_default=func.now())
     paid_at = Column(DateTime, nullable=True)
 
@@ -786,9 +782,9 @@ class CreatorPayout(Base):
 class Referral(Base):
     __tablename__ = "referrals"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    referrer_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
-    referred_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    referrer_user_id = Column(Uuid(), ForeignKey("users.id"), nullable=False, index=True)
+    referred_user_id = Column(Uuid(), ForeignKey("users.id"), nullable=True)
     referral_code = Column(
         String(64), nullable=False, index=True
     )  # referrer's code; non-unique (a referrer can be linked to many referred users)
@@ -808,7 +804,7 @@ class Referral(Base):
 class WiseChefDemoRequest(Base):
     __tablename__ = "wisechef_demo_requests"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     email = Column(String(512), nullable=False, index=True)
     company_name = Column(String(255), nullable=True)
     company_size = Column(String(32), nullable=True)  # "5-20", "20-50", etc.
@@ -869,7 +865,7 @@ class SkillDerivedEdge(Base):
 
     __tablename__ = "skill_derived_edges"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     source_slug = Column(String(255), nullable=False, index=True)
     target_slug = Column(String(255), nullable=False, index=True)
     weight = Column(Float, nullable=False)
@@ -892,8 +888,8 @@ class IncidentReport(Base):
 
     __tablename__ = "incident_reports"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    skill_id = Column(Uuid(), ForeignKey("skills.id"), nullable=False, index=True)
     error_signature = Column(Text, nullable=False, index=True)
     env_fingerprint = Column(JSON, nullable=False)
     agent_fp_anon = Column(Text, nullable=False, index=True)
@@ -916,8 +912,8 @@ class PatchCandidate(Base):
 
     __tablename__ = "patch_candidates"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    skill_id = Column(Uuid(), ForeignKey("skills.id"), nullable=False, index=True)
     error_signature = Column(Text, nullable=False, index=True)
     cluster_count = Column(Integer, nullable=False, default=0)
     distinct_agents = Column(Integer, nullable=False, default=0)
@@ -942,15 +938,15 @@ class SkillFork(Base):
 
     __tablename__ = "skill_forks"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
-    source_skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    user_id = Column(Uuid(), ForeignKey("users.id"), nullable=False, index=True)
+    source_skill_id = Column(Uuid(), ForeignKey("skills.id"), nullable=False, index=True)
     name = Column(Text, nullable=False)
     slug = Column(Text, nullable=False)
     readme = Column(Text, nullable=True)
     visibility = Column(Text, server_default="private", nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    latest_version_id = Column(UUID(as_uuid=True), nullable=True)
+    latest_version_id = Column(Uuid(), nullable=True)
 
     versions = relationship(
         "ForkVersion",
@@ -971,8 +967,8 @@ class SkillFork(Base):
 class ForkVersion(Base):
     __tablename__ = "fork_versions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    fork_id = Column(UUID(as_uuid=True), ForeignKey("skill_forks.id"), nullable=False, index=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    fork_id = Column(Uuid(), ForeignKey("skill_forks.id"), nullable=False, index=True)
     semver = Column(Text, nullable=False)
     tarball_path = Column(Text, nullable=False)
     tarball_size_bytes = Column(BigInteger, nullable=False)
@@ -996,9 +992,9 @@ class SkillReplacement(Base):
 
     __tablename__ = "skill_replacements"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    source_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
-    target_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    source_id = Column(Uuid(), ForeignKey("skills.id"), nullable=False, index=True)
+    target_id = Column(Uuid(), ForeignKey("skills.id"), nullable=False, index=True)
     reason = Column(Text, nullable=True)
     created_by = Column(String(255), nullable=True)  # curator label / "master"
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -1017,9 +1013,9 @@ class ReplacementCandidate(Base):
 
     __tablename__ = "replacement_candidates"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    source_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
-    target_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    source_id = Column(Uuid(), ForeignKey("skills.id"), nullable=False, index=True)
+    target_id = Column(Uuid(), ForeignKey("skills.id"), nullable=False, index=True)
     evidence_json = Column(JSON, nullable=True)  # incident rates, co-invoke weight, sample count
     status = Column(
         String(32), nullable=False, default="pending", index=True
@@ -1054,7 +1050,7 @@ class FleetPing(Base):
 
     __tablename__ = "fleet_pings"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     salt_hash = Column(LargeBinary, nullable=False, index=True)
     last_seen_day = Column(Date, nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -1077,19 +1073,19 @@ class ReconcileEvent(Base):
 
     __tablename__ = "reconcile_events"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    bundle_id = Column(UUID(as_uuid=True), index=True, nullable=True)
-    skill_id = Column(UUID(as_uuid=True), index=True, nullable=False)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    bundle_id = Column(Uuid(), index=True, nullable=True)
+    skill_id = Column(Uuid(), index=True, nullable=False)
     semver = Column(String(32), nullable=False)
     channel = Column(String(20), nullable=False, default="canary")
     # outcome: 'success' | 'reconcile_failed' | 'rolled_back'
     outcome = Column(String(20), nullable=False)
     failure_reason = Column(Text, nullable=True)
-    api_key_id = Column(UUID(as_uuid=True), nullable=True)
+    api_key_id = Column(Uuid(), nullable=True)
     # activate_0701 Phase 1: per-agent identity (lock #13). No FK — events
     # must survive member deletion for telemetry history; nullable for
     # pre-Phase-1 rows and anonymous self-test.
-    member_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    member_id = Column(Uuid(), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
     __table_args__ = (Index("ix_reconcile_events_skill_semver", "skill_id", "semver"),)
@@ -1120,7 +1116,7 @@ class IntentSurveyResponse(Base):
 
     __tablename__ = "intent_survey_responses"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     q1 = Column(String(16), nullable=False, index=True)
     q2 = Column(Text, nullable=True)
     q3 = Column(Text, nullable=True)
@@ -1144,20 +1140,18 @@ class Bundle(Base):
 
     __tablename__ = "bundles"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     is_base = Column(Boolean, nullable=False, default=False, server_default="0")
     is_liked = Column(Boolean, nullable=False, default=False, server_default="0")
     parent_bundle_id = Column(
-        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="SET NULL"), nullable=True, index=True
+        Uuid(), ForeignKey("bundles.id", ondelete="SET NULL"), nullable=True, index=True
     )
-    bundle_owner = Column(UUID(as_uuid=True), nullable=True, index=True)
+    bundle_owner = Column(Uuid(), nullable=True, index=True)
     bundle_link_token = Column(String(64), nullable=True)
     link_expires_at = Column(DateTime(timezone=True), nullable=True)
-    synced_from_bundle_id = Column(
-        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="SET NULL"), nullable=True
-    )
+    synced_from_bundle_id = Column(Uuid(), ForeignKey("bundles.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -1273,7 +1267,7 @@ class Bundle(Base):
     # activate_0701/TEN: tenant boundary for bundles. NULL = personal scope
     # (backward compat). Set when created by an org member or inherited at
     # fleet subscribe time. Gates cross-org bundle access in fleet subscriptions.
-    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
+    org_id = Column(Uuid(), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # spotify_1507 PhA — Spotify playlist semantics. follower_count is a
     # denormalized counter maintained on follow/unfollow (not re-counted per
@@ -1297,13 +1291,9 @@ class FollowedBundle(Base):
 
     __tablename__ = "followed_bundles"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id = Column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    bundle_id = Column(
-        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    user_id = Column(Uuid(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    bundle_id = Column(Uuid(), ForeignKey("bundles.id", ondelete="CASCADE"), nullable=False, index=True)
     followed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (UniqueConstraint("user_id", "bundle_id", name="uq_followed_bundles_user_bundle"),)
@@ -1319,14 +1309,10 @@ class SkillLike(Base):
 
     __tablename__ = "skill_likes"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id = Column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    user_id = Column(Uuid(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     # Local skill reference (NULL for federated-only tracks)
-    skill_id = Column(
-        UUID(as_uuid=True), ForeignKey("skills.id", ondelete="CASCADE"), nullable=True, index=True
-    )
+    skill_id = Column(Uuid(), ForeignKey("skills.id", ondelete="CASCADE"), nullable=True, index=True)
     # Federated track identity (NULL for local skills). Together with skill_id,
     # exactly one must be non-NULL. The pair (federated_source, federated_slug)
     # is the stable identity that survives upstream renames/deep-link changes.
@@ -1358,13 +1344,9 @@ class SkillFavourite(Base):
 
     __tablename__ = "skill_favourites"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id = Column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    skill_id = Column(
-        UUID(as_uuid=True), ForeignKey("skills.id", ondelete="CASCADE"), nullable=True, index=True
-    )
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    user_id = Column(Uuid(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    skill_id = Column(Uuid(), ForeignKey("skills.id", ondelete="CASCADE"), nullable=True, index=True)
     federated_source = Column(String(64), nullable=True, index=True)
     federated_slug = Column(String(255), nullable=True, index=True)
     favourited_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -1418,14 +1400,10 @@ class BundleSkill(Base):
 
     __tablename__ = "bundle_skills"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    bundle_id = Column(
-        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    bundle_id = Column(Uuid(), ForeignKey("bundles.id", ondelete="CASCADE"), nullable=False, index=True)
     # Local skill reference (NULL for federated-only tracks — spotify_2607 A).
-    skill_id = Column(
-        UUID(as_uuid=True), ForeignKey("skills.id", ondelete="CASCADE"), nullable=True, index=True
-    )
+    skill_id = Column(Uuid(), ForeignKey("skills.id", ondelete="CASCADE"), nullable=True, index=True)
     # Federated track identity (NULL for local skills). Together with
     # skill_id, exactly one identity must be set — see CheckConstraint below.
     federated_source = Column(String(64), nullable=True)
@@ -1484,10 +1462,8 @@ class BundleLock(Base):
 
     __tablename__ = "bundle_locks"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    bundle_id = Column(
-        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    bundle_id = Column(Uuid(), ForeignKey("bundles.id", ondelete="CASCADE"), nullable=False, index=True)
     # Monotonic per-bundle revision. rev 1 = first publish; each bump += 1.
     revision = Column(Integer, nullable=False, default=1)
     # Frozen snapshot of every entry's exact resolved version + content hash.
@@ -1497,7 +1473,7 @@ class BundleLock(Base):
     # to know if two agents are on the same lock without diffing entry-by-entry.
     lock_hash = Column(String(64), nullable=False)
     # Who/what minted it + when. created_at is the immutable mint time.
-    created_by = Column(UUID(as_uuid=True), nullable=True)
+    created_by = Column(Uuid(), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
@@ -1534,10 +1510,10 @@ class ArtifactOrigin(Base):
 
     __tablename__ = "artifact_origins"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     # Owning scope — the fleet/user whose private repo this is.
-    owner_user_id = Column(UUID(as_uuid=True), nullable=True, index=True)
-    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
+    owner_user_id = Column(Uuid(), nullable=True, index=True)
+    org_id = Column(Uuid(), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
     # Logical artifact identity (e.g. a skill slug or loop_id) this origin backs.
     artifact_kind = Column(String(32), nullable=False)  # 'skill' | 'loop' | 'scripts_pack' | 'soul'
     artifact_key = Column(String(255), nullable=False)
@@ -1584,11 +1560,11 @@ class OriginDriftEvent(Base):
 
     __tablename__ = "origin_drift_events"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     origin_id = Column(
-        UUID(as_uuid=True), ForeignKey("artifact_origins.id", ondelete="CASCADE"), nullable=True, index=True
+        Uuid(), ForeignKey("artifact_origins.id", ondelete="CASCADE"), nullable=True, index=True
     )
-    member_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    member_id = Column(Uuid(), nullable=True, index=True)
     repo = Column(String(512), nullable=False)
     commit_sha = Column(String(64), nullable=False)
     expected_hash = Column(String(64), nullable=False)
@@ -1610,9 +1586,9 @@ class BundleShareToken(Base):
 
     __tablename__ = "bundle_share_tokens"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     bundle_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("bundles.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -1620,7 +1596,7 @@ class BundleShareToken(Base):
     token_prefix = Column(String(20), nullable=False)
     scope = Column(String(8), nullable=False, default="install", server_default="install")
     name = Column(String(120), nullable=True)
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_by = Column(Uuid(), ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     is_active = Column(Boolean, default=True, server_default="true", nullable=False)
     last_used_at = Column(DateTime(timezone=True), nullable=True)
@@ -1664,18 +1640,18 @@ class BundleDeployment(Base):
 
     __tablename__ = "bundle_deployments"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     bundle_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("bundles.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=True)
+    skill_id = Column(Uuid(), ForeignKey("skills.id"), nullable=True)
     # NOTE: cross-branch FK target. The `skill_forks` table is created by the
     # sibling forks branch. We don't declare the FK here at the ORM level so the
     # model loads cleanly whether or not the table exists (mirrors BucketSkill).
-    fork_id = Column(UUID(as_uuid=True), nullable=True)
+    fork_id = Column(Uuid(), nullable=True)
     version_pin = Column(String(64), nullable=True)
     install_order = Column(Integer, nullable=False, default=100, server_default="100")
 
@@ -1711,20 +1687,20 @@ class BundleApplyJob(Base):
 
     __tablename__ = "bundle_apply_jobs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     bundle_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("bundles.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     member_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("fleet_members.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
-    requested_by_user_id = Column(UUID(as_uuid=True), nullable=True)
+    requested_by_user_id = Column(Uuid(), nullable=True)
     status = Column(String(20), nullable=False, default="applying", server_default="applying")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
@@ -1754,14 +1730,14 @@ class BundleApplyJobItem(Base):
 
     __tablename__ = "bundle_apply_job_items"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     job_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("bundle_apply_jobs.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False)
+    skill_id = Column(Uuid(), ForeignKey("skills.id"), nullable=False)
     skill_slug = Column(String(255), nullable=False)
     expected_semver = Column(String(64), nullable=False)
     outcome = Column(String(20), nullable=True)  # NULL = not yet reported
@@ -1786,12 +1762,12 @@ class Fleet(Base):
 
     __tablename__ = "fleets"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    owner_user_id = Column(UUID(as_uuid=True), nullable=False)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    owner_user_id = Column(Uuid(), nullable=False)
     name = Column(String(255), nullable=False)
     fleet_api_key_hash = Column(String(64), unique=True, nullable=False)
     # activate_0701/TEN: tenant boundary. NULL = personal scope (backward compat).
-    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
+    org_id = Column(Uuid(), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
     # activate_0701/E: EU data residency. NULL = unrestricted (own fleet default).
     residency = Column(String(32), nullable=True)  # "eu" | "row" | null
     # mesh_0408 W4: this fleet is LoopSkill's own (proof-of-life beacons, CI,
@@ -1820,11 +1796,9 @@ class OrgMembership(Base):
 
     __tablename__ = "org_memberships"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=False, index=True)
-    user_id = Column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    org_id = Column(Uuid(), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Uuid(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     role = Column(String(32), nullable=False, default="member", server_default="member")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -1841,14 +1815,12 @@ class FleetMember(Base):
 
     __tablename__ = "fleet_members"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    fleet_id = Column(
-        UUID(as_uuid=True), ForeignKey("fleets.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    fleet_id = Column(Uuid(), ForeignKey("fleets.id", ondelete="CASCADE"), nullable=False, index=True)
     host = Column(String(255), nullable=False)  # e.g. "adam-xps"
     profile = Column(String(100), nullable=False, default="default", server_default="default")
     skills_dir = Column(Text, nullable=False)  # e.g. "~/.hermes/loopskill"
-    api_key_id = Column(UUID(as_uuid=True), ForeignKey("api_keys.id"), nullable=False, unique=True)
+    api_key_id = Column(Uuid(), ForeignKey("api_keys.id"), nullable=False, unique=True)
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
     # mesh_0408 W4: this agent is ours, inside an otherwise-real fleet (the
     # beacon host). Three-valued like Fleet.is_synthetic (NULL = unclassified);
@@ -1875,12 +1847,8 @@ class FleetSubscription(Base):
 
     __tablename__ = "fleet_subscriptions"
 
-    fleet_id = Column(
-        UUID(as_uuid=True), ForeignKey("fleets.id", ondelete="CASCADE"), primary_key=True, nullable=False
-    )
-    bundle_id = Column(
-        UUID(as_uuid=True), ForeignKey("bundles.id", ondelete="CASCADE"), primary_key=True, nullable=False
-    )
+    fleet_id = Column(Uuid(), ForeignKey("fleets.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    bundle_id = Column(Uuid(), ForeignKey("bundles.id", ondelete="CASCADE"), primary_key=True, nullable=False)
     channel = Column(String(20), nullable=False, default="stable", server_default="stable")
     subscribed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -1925,15 +1893,15 @@ class LoopManifest(Base):
 
     __tablename__ = "loop_manifests"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     # Stable, human-meaningful loop identity — survives re-declaration + moves.
     # Unique per (owner scope) — a fleet cannot declare two loops with one id.
     loop_id = Column(String(128), nullable=False, index=True)
     manifest_version = Column(Integer, nullable=False, default=1, server_default="1")
 
     # Ownership / tenancy. owner_user_id for personal fleets; org_id for orgs.
-    owner_user_id = Column(UUID(as_uuid=True), nullable=True, index=True)
-    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
+    owner_user_id = Column(Uuid(), nullable=True, index=True)
+    org_id = Column(Uuid(), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
 
     enabled = Column(Boolean, nullable=False, default=True, server_default="true")
 
@@ -2020,10 +1988,10 @@ class ScriptsPack(Base):
 
     __tablename__ = "scripts_packs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     name = Column(String(255), nullable=False)
-    owner_user_id = Column(UUID(as_uuid=True), nullable=True, index=True)
-    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
+    owner_user_id = Column(Uuid(), nullable=True, index=True)
+    org_id = Column(Uuid(), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
     # Content address — the identity of the pack. Two identical trees share a row.
     sha256 = Column(String(64), nullable=False, index=True)
     tarball_path = Column(Text, nullable=True)  # storage locator for the bytes
@@ -2060,10 +2028,10 @@ class HostProfile(Base):
 
     __tablename__ = "host_profiles"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     name = Column(String(255), nullable=False)  # e.g. "adam-xps" / "tori-default"
-    owner_user_id = Column(UUID(as_uuid=True), nullable=True, index=True)
-    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
+    owner_user_id = Column(Uuid(), nullable=True, index=True)
+    org_id = Column(Uuid(), ForeignKey("orgs.id", ondelete="SET NULL"), nullable=True, index=True)
     # {"os": "linux", "arch": "x86_64"}  — matched against a loop's requires.os.
     os = Column(JSON, nullable=False, default=dict)
     # {"python": "3.11.9", "node": "20.11.0", …}  — version strings, compared
@@ -2117,17 +2085,13 @@ class LoopPlacement(Base):
 
     __tablename__ = "loop_placements"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    fleet_id = Column(
-        UUID(as_uuid=True), ForeignKey("fleets.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    fleet_id = Column(Uuid(), ForeignKey("fleets.id", ondelete="CASCADE"), nullable=False, index=True)
     # Stable loop identity — matches LoopManifest.loop_id (a string key, not an
     # FK, so a placement can be declared before/independent of a manifest row and
     # survives manifest re-authoring).
     loop_key = Column(String(128), nullable=False, index=True)
-    member_id = Column(
-        UUID(as_uuid=True), ForeignKey("fleet_members.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    member_id = Column(Uuid(), ForeignKey("fleet_members.id", ondelete="CASCADE"), nullable=False, index=True)
     # assigned → active → draining → removed  (see VALID_PLACEMENT_STATUS)
     status = Column(String(16), nullable=False, default="assigned", server_default="assigned")
     # Monotonic per (fleet_id, loop_key). CAS guard on every transition.
@@ -2171,13 +2135,11 @@ class PlacementConfirmation(Base):
 
     __tablename__ = "placement_confirmations"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     placement_id = Column(
-        UUID(as_uuid=True), ForeignKey("loop_placements.id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid(), ForeignKey("loop_placements.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    member_id = Column(
-        UUID(as_uuid=True), ForeignKey("fleet_members.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    member_id = Column(Uuid(), ForeignKey("fleet_members.id", ondelete="CASCADE"), nullable=False, index=True)
     # The epoch the member is confirming it drained. Must match the placement's
     # draining epoch or the confirmation is rejected as stale.
     confirmed_epoch = Column(Integer, nullable=False)
@@ -2202,7 +2164,7 @@ class FleetMemberLiveness(Base):
     __tablename__ = "fleet_member_liveness"
 
     member_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("fleet_members.id", ondelete="CASCADE"),
         primary_key=True,
         nullable=False,
@@ -2228,12 +2190,12 @@ class RecipifyRequest(Base):
 
     __tablename__ = "recipify_requests"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     target_name = Column(Text, nullable=False)
     why_useful = Column(Text, nullable=False)
     suggested_sources = Column(JSON, nullable=False, default=list)
     agent_id = Column(Text, nullable=True)
-    api_key_id = Column(UUID(as_uuid=True), nullable=True)
+    api_key_id = Column(Uuid(), nullable=True)
     signature = Column(Text, nullable=False)  # sha256(target_name|why_useful) hex
     issue_url = Column(Text, nullable=True)
     feedback_status = Column(Text, default="pending")
@@ -2254,12 +2216,12 @@ class FeedbackSubmission(Base):
 
     __tablename__ = "feedback_submissions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     category = Column(Text, nullable=False)
     message = Column(Text, nullable=False)
     context = Column(JSON, nullable=False, default=dict)
     agent_id = Column(Text, nullable=True)
-    api_key_id = Column(UUID(as_uuid=True), nullable=True)
+    api_key_id = Column(Uuid(), nullable=True)
     signature = Column(Text, nullable=False)  # sha256(category|message) hex
     issue_url = Column(Text, nullable=True)
     feedback_status = Column(Text, default="pending")
@@ -2281,20 +2243,20 @@ class SkillPublishRequest(Base):
 
     __tablename__ = "skill_publish_requests"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     slug = Column(Text, nullable=False, index=True)
     version = Column(Text, nullable=False)
     sha256 = Column(Text, nullable=False)
     # BYTEA: full tarball, capped at 10 MB at app level
     tarball_bytes = Column(LargeBinary, nullable=True)
     requester_user_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
     requester_creator_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("creators.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
@@ -2327,7 +2289,7 @@ class SkillPatch(Base):
 
     __tablename__ = "skill_patches"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     ts = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     api_key_h = Column(Text, nullable=True)  # sha256 of the api key (anon)
     slug = Column(Text, nullable=True)
@@ -2366,15 +2328,15 @@ class SubscriberCredit(Base):
 
     __tablename__ = "subscriber_credits"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     user_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
     type = Column(Text, nullable=False)
     amount_pct = Column(Integer, nullable=False)
-    granted_for_skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=True)
+    granted_for_skill_id = Column(Uuid(), ForeignKey("skills.id"), nullable=True)
     granted_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     used_at = Column(DateTime(timezone=True), nullable=True)
@@ -2395,9 +2357,9 @@ class MissingSkillQuery(Base):
 
     __tablename__ = "missing_skill_queries"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     query = Column(Text, nullable=False)
-    user_id = Column(UUID(as_uuid=True), nullable=True)
+    user_id = Column(Uuid(), nullable=True)
     day = Column(Date, nullable=False)
     count = Column(Integer, nullable=False, default=1, server_default="1")
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -2570,7 +2532,7 @@ class Verifier(Base):
 
     __tablename__ = "loops"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     slug = Column(String(255), unique=True, nullable=False, index=True)
     title = Column(String(512), nullable=False)
     description = Column(Text, nullable=True)
@@ -2580,8 +2542,8 @@ class Verifier(Base):
     tier = Column(String(32), nullable=True)  # free, pro
     is_public = Column(Boolean, default=True, nullable=False)
 
-    creator_id = Column(UUID(as_uuid=True), ForeignKey("creators.id"), nullable=True)
-    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id"), nullable=True)
+    creator_id = Column(Uuid(), ForeignKey("creators.id"), nullable=True)
+    org_id = Column(Uuid(), ForeignKey("orgs.id"), nullable=True)
 
     # ── The safety-bounded execution contract (the load-bearing part) ──
     # The natural-language goal the loop drives toward.
@@ -2645,11 +2607,9 @@ class VerifierRating(Base):
 
     __tablename__ = "loop_ratings"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    loop_id = Column(
-        UUID(as_uuid=True), ForeignKey("loops.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    rater_user_id = Column(UUID(as_uuid=True), nullable=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    loop_id = Column(Uuid(), ForeignKey("loops.id", ondelete="CASCADE"), nullable=False, index=True)
+    rater_user_id = Column(Uuid(), nullable=True)
     rating = Column(Integer, nullable=False)
     comment = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
@@ -2660,8 +2620,8 @@ class VerifierRating(Base):
 class VerifierVersion(Base):
     __tablename__ = "loop_versions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    loop_id = Column(UUID(as_uuid=True), ForeignKey("loops.id"), nullable=False, index=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    loop_id = Column(Uuid(), ForeignKey("loops.id"), nullable=False, index=True)
     semver = Column(String(32), nullable=False)
     tarball_path = Column(Text, nullable=True)
     tarball_size_bytes = Column(Integer, nullable=True)
@@ -2692,7 +2652,7 @@ class Personality(Base):
 
     __tablename__ = "personalities"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     slug = Column(String(255), unique=True, nullable=False, index=True)
     title = Column(String(512), nullable=False)
     description = Column(Text, nullable=True)
@@ -2702,8 +2662,8 @@ class Personality(Base):
     tier = Column(String(32), nullable=True)  # free, pro
     is_public = Column(Boolean, default=True, nullable=False)
 
-    creator_id = Column(UUID(as_uuid=True), ForeignKey("creators.id"), nullable=True)
-    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id"), nullable=True)
+    creator_id = Column(Uuid(), ForeignKey("creators.id"), nullable=True)
+    org_id = Column(Uuid(), ForeignKey("orgs.id"), nullable=True)
 
     # ── The persona contract ──
     # The system prompt / SOUL body that defines the persona.
@@ -2731,8 +2691,8 @@ class Personality(Base):
 class PersonalityVersion(Base):
     __tablename__ = "personality_versions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    personality_id = Column(UUID(as_uuid=True), ForeignKey("personalities.id"), nullable=False, index=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    personality_id = Column(Uuid(), ForeignKey("personalities.id"), nullable=False, index=True)
     semver = Column(String(32), nullable=False)
     tarball_path = Column(Text, nullable=True)
     tarball_size_bytes = Column(Integer, nullable=True)
@@ -2760,9 +2720,9 @@ class LoopRun(Base):
 
     __tablename__ = "loop_runs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    member_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    fleet_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    member_id = Column(Uuid(), nullable=False, index=True)
+    fleet_id = Column(Uuid(), nullable=False, index=True)
     loop_slug = Column(String(255), nullable=False, index=True)
     instance_key = Column(String(255), nullable=False)
     outcome = Column(String(32), nullable=False)
@@ -2832,9 +2792,9 @@ class CronHealthSnapshot(Base):
 
     __tablename__ = "cron_health_snapshots"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    member_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    fleet_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    member_id = Column(Uuid(), nullable=False, index=True)
+    fleet_id = Column(Uuid(), nullable=False, index=True)
     failed = Column(JSON, nullable=False, default=list)
     total_count = Column(Integer, nullable=False)
     ok_count = Column(Integer, nullable=False)
@@ -2859,9 +2819,9 @@ class MemberLockfileSnapshot(Base):
 
     __tablename__ = "member_lockfile_snapshots"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    member_id = Column(UUID(as_uuid=True), nullable=False, unique=True, index=True)
-    fleet_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    member_id = Column(Uuid(), nullable=False, unique=True, index=True)
+    fleet_id = Column(Uuid(), nullable=False, index=True)
     skills = Column(JSON, nullable=False, default=list)
     cycle_ts = Column(String(64), nullable=True)
     reported_at = Column(
@@ -2883,9 +2843,9 @@ class SkillErrorReport(Base):
 
     __tablename__ = "skill_error_reports"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    member_id = Column(UUID(as_uuid=True), nullable=True, index=True)
-    fleet_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    member_id = Column(Uuid(), nullable=True, index=True)
+    fleet_id = Column(Uuid(), nullable=True, index=True)
     slug = Column(String(255), nullable=False, index=True)
     semver = Column(String(32), nullable=True)
     signature = Column(Text, nullable=False)
@@ -2905,9 +2865,9 @@ class LoopRunDailyRollup(Base):
 
     __tablename__ = "loop_run_daily_rollups"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    fleet_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    member_id = Column(UUID(as_uuid=True), nullable=False)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    fleet_id = Column(Uuid(), nullable=False, index=True)
+    member_id = Column(Uuid(), nullable=False)
     loop_slug = Column(String(255), nullable=False)
     day = Column(Date, nullable=False)
     runs = Column(Integer, nullable=False, default=0, server_default="0")
@@ -2942,7 +2902,7 @@ class Connector(Base):
 
     __tablename__ = "connectors"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     slug = Column(String(255), unique=True, nullable=False, index=True)
     title = Column(String(512), nullable=False)
     description = Column(Text, nullable=True)
@@ -2950,8 +2910,8 @@ class Connector(Base):
     is_public = Column(Boolean, default=True, nullable=False, server_default="1")
     is_archived = Column(Boolean, default=False, nullable=False, server_default="0")
     # Optional creator/org attribution (parallel to Loop/Personality).
-    creator_id = Column(UUID(as_uuid=True), ForeignKey("creators.id"), nullable=True)
-    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id"), nullable=True)
+    creator_id = Column(Uuid(), ForeignKey("creators.id"), nullable=True)
+    org_id = Column(Uuid(), ForeignKey("orgs.id"), nullable=True)
     # Phase E will consume residency for EU/data-sovereignty routing; TAG NOW
     # so existing rows carry the value forward without a backfill migration.
     residency_tag = Column(String(32), nullable=True)  # "eu" | "non-eu" | null
@@ -2991,10 +2951,8 @@ class ConnectorVersion(Base):
 
     __tablename__ = "connector_versions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    connector_id = Column(
-        UUID(as_uuid=True), ForeignKey("connectors.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    connector_id = Column(Uuid(), ForeignKey("connectors.id", ondelete="CASCADE"), nullable=False, index=True)
     semver = Column(String(32), nullable=False)
     config_template = Column(JSON, nullable=False)  # mcp-server block, ${VAR} refs
     required_env = Column(JSON, nullable=False, default=list)  # ["ZAI_API_KEY"]
@@ -3017,13 +2975,13 @@ class BundleConnector(Base):
     __tablename__ = "bundle_connectors"
 
     bundle_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("bundles.id", ondelete="CASCADE"),
         primary_key=True,
         nullable=False,
     )
     connector_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("connectors.id", ondelete="CASCADE"),
         primary_key=True,
         nullable=False,
@@ -3069,7 +3027,7 @@ class ExternalConnector(Base):
 
     __tablename__ = "external_connectors"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     # Stable external identity: (source, external_id) is unique so a re-walk
     # upserts rather than duplicates. external_id is the source's own path/id
     # (e.g. "docker/mcp-registry:servers/SQLite", MCP registry's server name).
@@ -3101,9 +3059,7 @@ class ExternalConnector(Base):
     promotion_status = Column(String(16), nullable=True)  # "promoted" | "rejected" | null
     promotion_reason = Column(Text, nullable=True)  # gate failure reasons, "; "-joined
     promoted_at = Column(DateTime(timezone=True), nullable=True)
-    promoted_connector_id = Column(
-        UUID(as_uuid=True), ForeignKey("connectors.id", ondelete="SET NULL"), nullable=True
-    )
+    promoted_connector_id = Column(Uuid(), ForeignKey("connectors.id", ondelete="SET NULL"), nullable=True)
     discovered_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -3128,15 +3084,15 @@ class CompositeLoop(Base):
 
     __tablename__ = "composite_loops"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     slug = Column(String(255), unique=True, nullable=False, index=True)
     title = Column(String(512), nullable=False)
     description = Column(Text, nullable=True)
     is_public = Column(Boolean, default=True, nullable=False)
     is_archived = Column(Boolean, default=False, server_default="false", nullable=False)
 
-    creator_id = Column(UUID(as_uuid=True), ForeignKey("creators.id"), nullable=True)
-    org_id = Column(UUID(as_uuid=True), ForeignKey("orgs.id"), nullable=True)
+    creator_id = Column(Uuid(), ForeignKey("creators.id"), nullable=True)
+    org_id = Column(Uuid(), ForeignKey("orgs.id"), nullable=True)
 
     tier = Column(String(32), nullable=True)
 
@@ -3175,10 +3131,8 @@ class CompositeLoopVersion(Base):
 
     __tablename__ = "composite_loop_versions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    composite_loop_id = Column(
-        UUID(as_uuid=True), ForeignKey("composite_loops.id"), nullable=False, index=True
-    )
+    id = Column(Uuid(), primary_key=True, default=uuid4)
+    composite_loop_id = Column(Uuid(), ForeignKey("composite_loops.id"), nullable=False, index=True)
     semver = Column(String(32), nullable=False)
     manifest = Column(JSON, nullable=False)  # frozen full composition
     changelog = Column(Text, nullable=True)
@@ -3199,13 +3153,13 @@ class BundleCompositeLoop(Base):
     __tablename__ = "bundle_composite_loops"
 
     bundle_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("bundles.id", ondelete="CASCADE"),
         primary_key=True,
         nullable=False,
     )
     composite_loop_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("composite_loops.id", ondelete="CASCADE"),
         primary_key=True,
         nullable=False,
@@ -3227,13 +3181,13 @@ class BundlePersonality(Base):
     __tablename__ = "bundle_personalities"
 
     bundle_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("bundles.id", ondelete="CASCADE"),
         primary_key=True,
         nullable=False,
     )
     personality_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("personalities.id", ondelete="CASCADE"),
         primary_key=True,
         nullable=False,
@@ -3257,7 +3211,7 @@ class FederationRegistryProposal(Base):
 
     __tablename__ = "federation_registry_proposals"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     repo_url = Column(Text, nullable=False)
     proposed_source_id = Column(Text, nullable=False)
     contact = Column(Text, nullable=True)
@@ -3310,7 +3264,7 @@ class AgentIdentity(Base):
 
     __tablename__ = "agent_identities"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     # Base64 of the 32-byte raw Ed25519 public key (44 chars with padding).
     # DISPLAY/interop column. It is NOT the uniqueness basis — see below.
     pubkey = Column(String(128), nullable=False, unique=True, index=True)
@@ -3332,7 +3286,7 @@ class AgentIdentity(Base):
     # user per agent identity, so the reverse lookup in the middleware
     # (user_id -> identity) is unambiguous.
     user_id = Column(
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         unique=True,
@@ -3366,7 +3320,7 @@ class AgentRegistrationGate(Base):
 
     __tablename__ = "agent_registration_gate"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     # "global", or "ip:<address>". One row = one serialisation domain.
     scope = Column(String(128), nullable=False, unique=True, index=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC))
@@ -3393,7 +3347,7 @@ class AgentRegistrationNonce(Base):
 
     __tablename__ = "agent_registration_nonces"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     # sha256 hex of the raw nonce string — the nonce itself is never stored.
     nonce_hash = Column(String(64), nullable=False, unique=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -3426,7 +3380,7 @@ class AgentRegistrationQuota(Base):
 
     __tablename__ = "agent_registration_quota"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    id = Column(Uuid(), primary_key=True, default=uuid4)
     # "global", or "ip:<address>". Textual so a future bucket dimension (ASN,
     # subnet, pubkey family) needs no schema change.
     bucket = Column(String(128), nullable=False)

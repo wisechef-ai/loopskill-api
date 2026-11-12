@@ -118,7 +118,22 @@ def _postgres_test_url() -> str | None:
 
 
 def _seed_prod_scale(conn: sa.Connection, n: int = 90_000) -> None:
-    conn.execute(sa.text("DELETE FROM federation_hub_skills WHERE slug LIKE 'issue282-seed-%'"))
+    # TRUNCATE, not DELETE — order-dependence fix (random-order flake, PR #460
+    # job 131011275596). The RED-proof below asserts a planner decision, and
+    # DELETE leaves dead tuples behind: when an earlier test in the shuffled
+    # order already ran a seed+delete cycle on this shared table, the heap is
+    # left bloated (~2-3x relpages), the ANALYZE below bakes that bloat into
+    # the stats, the seq-scan cost doubles, and the planner flips to a
+    # BitmapOr over the three legacy trigram indexes -> "expected Seq Scan"
+    # fails (measured: virgin heap 2990 pages -> Seq Scan cost 4565 wins;
+    # one prior seed+delete cycle -> 5979 pages -> BitmapOr 5184 wins).
+    # TRUNCATE resets the physical state to virgin on every run, making the
+    # plan deterministic no matter which siblings ran first or whether
+    # autovacuum raced in between. Safe: this table on the shared public
+    # schema is written only by this file's tests (ORM tests run inside
+    # per-worker schemas and roll back), and any leftover rows from a
+    # previously failed run are exactly what we WANT gone.
+    conn.execute(sa.text("TRUNCATE TABLE federation_hub_skills"))
     conn.execute(
         sa.text(
             """
