@@ -232,6 +232,20 @@ class SandboxProfile:
         if os.path.exists("/sbin"):
             args.extend(["--ro-bind", "/sbin", "/sbin"])
 
+        # ── update-alternatives symlinks (Debian/Ubuntu) ──
+        # On Debian/Ubuntu, /usr/bin/awk (also vi, cc, …) is a symlink into
+        # /etc/alternatives, not a real binary. Binding /usr without /etc
+        # leaves those symlinks dangling inside the sandbox and bash reports
+        # "command not found" — every alternatives-managed tool breaks.
+        # Surfaced 2026-11-11 when GitHub's ubuntu-latest rolled to
+        # ubuntu-26.04 and CI's bwrap leg turned red on
+        # tests/test_sandbox.py::test_file_transformer_execution
+        # ("./setup.sh: line 26: awk: command not found").
+        # /etc/alternatives holds only symlinks — read-only, no config or
+        # secret exposure (unlike binding all of /etc).
+        if os.path.isdir("/etc/alternatives"):
+            args.extend(["--ro-bind", "/etc/alternatives", "/etc/alternatives"])
+
         # Proc
         args.extend(["--proc", "/proc"])
 

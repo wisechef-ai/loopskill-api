@@ -251,6 +251,39 @@ class TestBwrapArgGeneration(unittest.TestCase):
         args = profile.to_bwrap_args(self.sandbox_root, "/skill")
         self.assertIn("--die-with-parent", args)
 
+    def test_etc_alternatives_bound_read_only(self):
+        """Regression (2026-11-11): alternatives-managed binaries must work in-sandbox.
+
+        On Debian/Ubuntu /usr/bin/awk -> /etc/alternatives/awk -> gawk|mawk.
+        Binding /usr without /etc leaves the symlink dangling, so bash reports
+        "awk: command not found" — every alternatives-managed tool (awk, vi,
+        cc, …) breaks inside a bwrap sandbox. CI caught this live when
+        GitHub's ubuntu-latest rolled to ubuntu-26.04 and
+        test_file_transformer_execution failed on setup.sh line 26
+        (exec_allow lists awk, so the profile contract requires it).
+        """
+        profile = SandboxProfile()
+        # Force the branch deterministically regardless of host distro.
+        with patch("app.sandbox.profile.os.path.isdir", return_value=True):
+            args = profile.to_bwrap_args(self.sandbox_root, "/skill")
+        triplets = [args[i : i + 3] for i in range(len(args) - 2)]
+        self.assertIn(
+            ["--ro-bind", "/etc/alternatives", "/etc/alternatives"],
+            triplets,
+            "expected /etc/alternatives to be bind-mounted read-only",
+        )
+        # Must be ro-bind (never writable) — the sandbox contract for host dirs.
+        for i, a in enumerate(args):
+            if a == "--bind" and i + 2 < len(args) and args[i + 2] == "/etc/alternatives":
+                self.fail("/etc/alternatives must not be writable inside the sandbox")
+
+    def test_etc_alternatives_absent_skips_bind(self):
+        """Non-Debian hosts (no /etc/alternatives) must not emit a dead bind."""
+        profile = SandboxProfile()
+        with patch("app.sandbox.profile.os.path.isdir", return_value=False):
+            args = profile.to_bwrap_args(self.sandbox_root, "/skill")
+        self.assertNotIn("/etc/alternatives", args)
+
 
 class TestNetworkEgressBlocking(unittest.TestCase):
     """Prove that network egress outside allowlist is blocked.
