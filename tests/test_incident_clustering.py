@@ -6,15 +6,13 @@ Covers:
   - upsert idempotency
   - status preservation when candidate already advanced past 'pending'
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-import pytest
-
 from app.crons.incident_clustering import (
-    CLUSTER_THRESHOLD,
     Cluster,
     find_clusters,
     run_once,
@@ -34,27 +32,36 @@ def _mk_skill(db, slug="cluster-target"):
     return s
 
 
-def _mk_incident(db, skill, sig, agent, *, occurred_at=None, report_type=IncidentReport.TYPE_SKILL_ERROR):
-    """Seed one incident_reports row.
+def _mk_incident(db, skill, sig, agent, *, occurred_at=None, report_type=None):
+    """Seed one incident_reports row for clustering tests.
 
-    Defaults to ``TYPE_SKILL_ERROR`` because that is the only population the
-    auto-improve lane is allowed to cluster (t_0111f6c4). Before the provenance
-    filter these tests passed a row with no report_type and inherited the
-    server_default of ``incident`` — so they were, unknowingly, asserting that
-    CRASH reports cluster. Pass ``report_type=IncidentReport.TYPE_INCIDENT`` to
-    test the crash side explicitly.
+    ``report_type`` defaults to ``skill_error`` and is stated rather than left
+    to the server default. It used to be omitted entirely, so EVERY row in this
+    file landed on the default ``incident`` — a crash report from the
+    auto-improve tooling — and the whole suite proved "qualifying incidents in,
+    a patch_candidate out" using rows that ``find_clusters`` now (correctly)
+    refuses to cluster, because the drafter downstream opens PRs against
+    marketplace SKILLS. That made the suite a bystander to the very conflation
+    t_a0607d92 fixed in ``app/transparency_routes.py``.
+
+    ``command`` / ``exit_code`` / ``stack_trace_top`` are crash-report fields:
+    the real skill_error population has them NULL (measured on prod 2026-11-16:
+    11 of 11 rows with command/exit_code NULL), so they are only populated for
+    the crash population. Clustering never reads them.
     """
+    report_type = report_type or IncidentReport.TYPE_SKILL_ERROR
+    crash_shaped = report_type == IncidentReport.TYPE_INCIDENT
     r = IncidentReport(
         id=uuid4(),
         skill_id=skill.id,
         error_signature=sig,
+        report_type=report_type,
         env_fingerprint={"os": "linux"},
         agent_fp_anon=agent,
         occurred_at=occurred_at or datetime.now(timezone.utc),
-        command="x",
-        exit_code=1,
-        stack_trace_top="module.py:1:fn",
-        report_type=report_type,
+        command="x" if crash_shaped else None,
+        exit_code=1 if crash_shaped else None,
+        stack_trace_top="module.py:1:fn" if crash_shaped else None,
     )
     db.add(r)
     db.flush()
@@ -146,14 +153,40 @@ def test_upsert_preserves_advanced_status(db_session):
     db_session.add(cand)
     db_session.flush()
 
-    cluster = Cluster(skill_id=skill.id,
-                      error_signature=SIG_A,
-                      cluster_count=99, distinct_agents=12)
+    cluster = Cluster(skill_id=skill.id, error_signature=SIG_A, cluster_count=99, distinct_agents=12)
     upsert_candidate(db_session, cluster)
     db_session.flush()
 
-    refreshed = db_session.query(PatchCandidate).filter_by(
-        skill_id=skill.id, error_signature=SIG_A).one()
+    refreshed = db_session.query(PatchCandidate).filter_by(skill_id=skill.id, error_signature=SIG_A).one()
     assert refreshed.status == "canary"
     assert refreshed.cluster_count == 99
     assert refreshed.distinct_agents == 12
+
+
+def test_crash_reports_never_cluster_into_skill_fixes(db_session):
+    """incident_reports holds two populations (t_a0607d92). A crash report is
+    the auto-improve TOOLING dying and says nothing about a marketplace skill,
+    yet the drafter downstream writes PR-ready fixes against skill directories —
+    so clustering must never mint a candidate from this population."""
+    skill = _mk_skill(db_session, slug="crash-only")
+    for agent in ["a1", "a2", "a3"]:
+        _mk_incident(db_session, skill, SIG_A, agent, report_type=IncidentReport.TYPE_INCIDENT)
+    assert find_clusters(db_session) == []
+    assert run_once(db=db_session) == 0
+    assert db_session.query(PatchCandidate).count() == 0
+
+
+def test_mixed_populations_cannot_cross_the_distinct_agent_bar(db_session):
+    """2 skill errors + 1 crash report = 3 distinct agents on one
+    (skill, signature). The UNION clears the >= 3 bar while neither population
+    supports the cluster on its own, so the bar must be per-population."""
+    skill = _mk_skill(db_session, slug="mixed")
+    _mk_incident(db_session, skill, SIG_A, "a1", report_type=IncidentReport.TYPE_SKILL_ERROR)
+    _mk_incident(db_session, skill, SIG_A, "a2", report_type=IncidentReport.TYPE_SKILL_ERROR)
+    _mk_incident(db_session, skill, SIG_A, "c1", report_type=IncidentReport.TYPE_INCIDENT)
+    db_session.flush()
+    assert find_clusters(db_session) == []
+    assert run_once(db=db_session) == 0
+    # the third agent being skill-shaped, however, is a real cluster
+    _mk_incident(db_session, skill, SIG_A, "a3", report_type=IncidentReport.TYPE_SKILL_ERROR)
+    assert len(find_clusters(db_session)) == 1

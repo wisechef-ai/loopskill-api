@@ -11,8 +11,55 @@ As of bundles0811-P8 the catalog no longer lives in this repo (it moved to
 wisechef-ai/loopskill-recipes to keep loopskill-api lean); ``--catalog`` is
 now REQUIRED and must point at a checkout of that repo.
 
-Designed to be stdlib + httpx only. The systemd timer is in
-``deploy/recipes-version-staleness-check.{service,timer}``.
+NOT WIRED: no catalog on the host, and no consumer for its output (t_f1867996)
+-----------------------------------------------------------------------------
+This docstring used to point at its two systemd unit files under ``deploy/`` as
+"the systemd timer". Neither was ever installed — ``systemctl list-timers --all``
+on wisechef-hq lists zero loopskill/recipes units, and the unit ran
+``/opt/recipes-api/.venv/bin/python``, a prefix that does not exist on that host. The units are deleted in this commit.
+
+This job is deliberately NOT moved onto the ``wisechef`` crontab, for two
+measured reasons (wisechef-hq, 2026-11-16):
+
+1. **It cannot run.** ``--catalog`` is required and must point at a checkout of
+   ``wisechef-ai/loopskill-recipes``. There is no such checkout on the host
+   (``/opt/loopskill-recipes`` does not exist; ``find /home/wisechef -maxdepth 3
+   -type d -name loopskill-recipes`` returned nothing), so the command exits 2
+   with ``catalog not found`` on every attempt.
+2. **Nobody reads the answer.** :func:`open_auto_merge_pr` / :func:`flag_publisher`
+   / :func:`require_human` ``print`` an intent JSON — the auto-merge is explicitly
+   mocked ("real auto-merge needs CI hooks the plan defers"). A cron line whose
+   only effect is an unread log line is the same false attestation the deleted
+   units were, wearing a crontab instead of a unit file.
+
+Also unauthenticated GitHub API access is 60 requests/hour/IP, and this scan
+makes one call per pinned binary, so without a token a large catalog reports
+"no findings" while actually being rate-limited — a silent false negative, which
+is worse than an honest absence.
+
+To wire it, all four are required — the third is a CODE change, not config:
+
+1. clone + keep ``loopskill-recipes`` fresh on the host (``--catalog``);
+2. route the findings somewhere a human or CI acts on them (today the routing
+   half of "scan and route" is a ``print`` statement nobody reads);
+3. **send an auth header in ``fetch_latest_github``** — it currently builds its
+   request with only ``Accept: application/vnd.github+json`` and never reads
+   ``GITHUB_TOKEN``, so exporting the variable on the host changes nothing and
+   the scan stays on the 60/hr unauthenticated budget. Or verify the catalog is
+   small enough that 60/hr suffices, and say so here;
+4. distinguish "throttled" from "everything is fresh": a 403 falls through
+   ``if getattr(r, "status_code", 0) != 200: return None``, ``scan_recipe``
+   skips a falsy ``latest``, and the job reports ``count: 0`` — which reads as
+   a clean catalog while it was actually rate-limited. Surface an ``errors``
+   count (or a non-zero exit) before this job is ever trusted.
+
+Then add ``CRONTAB_LINE`` + ``deploy/crontab.version-staleness`` + a predicate in
+``~/.hermes/goals/``; the structural test in ``tests/test_crons_wiring.py``
+fails the build if a schedule is added without all three.
+
+Manual run:
+
+    python -m app.crons.version_staleness --catalog /path/to/loopskill-recipes --json
 """
 
 from __future__ import annotations

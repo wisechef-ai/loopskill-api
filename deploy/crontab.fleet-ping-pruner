@@ -1,0 +1,32 @@
+# deploy/crontab.fleet-ping-pruner — the schedule of record for fleet_pings TTL prune (90-day floor = fleet-liveness product floor) (t_f1867996).
+#
+# WHY THIS FILE EXISTS
+# This job used to ship systemd unit files under deploy/ and a docstring citing
+# them as its schedule. They were never installed: `systemctl list-timers --all`
+# on wisechef-hq lists zero loopskill/recipes units, and their ExecStart
+# targeted /opt/recipes-api and /srv/recipes-api prefixes that do not exist on
+# that host. The job was provably dead — t_f1867996 audited it by OUTCOME (row
+# age / its own log line), not by the presence of a unit file. An uninstalled
+# schedule is not a schedule, so the units are deleted and the live mechanism on
+# this host — the `wisechef` user crontab — is what this file describes.
+#
+# The line below is kept byte-identical to CRONTAB_LINE in
+# app/crons/fleet_ping_pruner.py; tests/test_crons_wiring.py asserts they match, so code
+# and schedule cannot drift apart silently.
+#
+# INSTALL (idempotent — installs the line FROM THE MODULE, not from here, so the
+# two can never disagree in prod; the grep keys on the module path, which is
+# present in the line exactly once, so re-running this replaces instead of
+# appending a duplicate):
+#   cd /home/wisechef/loopskill-api && set -a; . ./.env; set +a
+#   LINE=$(venv/bin/python -c 'from app.crons.fleet_ping_pruner import CRONTAB_LINE; print(CRONTAB_LINE)')
+#   crontab -l 2>/dev/null | grep -v 'app.crons.fleet_ping_pruner' > /tmp/ct.new
+#   echo "$LINE" >> /tmp/ct.new && crontab /tmp/ct.new
+# VERIFY it is installed and actually running:
+#   crontab -l | grep 'app.crons.fleet_ping_pruner'
+#   tail -5 /home/wisechef/wiserecipes-logs/fleet_ping_pruner.log
+# and the standing predicate ~/.hermes/goals/fleet-ping-retention-90d.md (daily verify-goals.sh
+# sweep) fails loudly if the outcome drifts or the wire is removed — the cron
+# dying is a signal, not a silent state.
+
+55 3 * * * cd /home/wisechef/loopskill-api && set -a; . ./.env; set +a; flock -n -E 4 /tmp/loopskill-fleet-ping-pruner.lock venv/bin/python -m app.crons.fleet_ping_pruner >> /home/wisechef/wiserecipes-logs/fleet_ping_pruner.log 2>&1; rc=$?; [ $rc -ne 4 ] || echo '{"skipped": "lock held by a live run"}' >> /home/wisechef/wiserecipes-logs/fleet_ping_pruner.log 2>&1; exit $rc
