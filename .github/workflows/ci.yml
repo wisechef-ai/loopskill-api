@@ -179,6 +179,10 @@ jobs:
               "tests/migrations/test_chain_postgres.py::test_tier_drift_sweep_archived_renames_archived_legacy_rows",
               # tests/migrations/test_issue282_fed_hub_trgm.py — postgres_only proofs
               "tests/migrations/test_issue282_fed_hub_trgm.py::TestRedProofLegacyThreeIndexDesignWasBroken::test_three_column_indexes_with_or_still_seq_scans",
+              # #454/#426 regression guard: the RED-proof must stay immune to
+              # whatever state the shared table is in. Postgres-only, so it
+              # belongs in this list too (see this step's own convention).
+              "tests/migrations/test_issue282_fed_hub_trgm.py::TestRedProofLegacyThreeIndexDesignWasBroken::test_red_proof_is_immune_to_shared_table_state",
               "tests/migrations/test_issue282_fed_hub_trgm.py::TestPostgresIndexScan::test_explain_shows_index_scan_not_seq_scan",
               "tests/migrations/test_issue282_fed_hub_trgm.py::TestPostgresIndexScan::test_search_federated_group_uses_index_and_returns_seeded_row",
               "tests/migrations/test_issue282_fed_hub_trgm.py::TestPostgresReversibility::test_downgrade_drops_index_upgrade_recreates_it",
