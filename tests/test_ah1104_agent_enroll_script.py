@@ -363,3 +363,51 @@ def test_agent_json_names_the_same_first_install_as_the_script():
     body = c.get(ENROLL_SCRIPT_PATH).text
     tail = f"/api/bundles/install.sh | bash -s -- {FIRST_INSTALL_BUNDLE}"
     assert f"curl -fsSL $API_BASE{tail}" in body, "agent.json and the served script must name one command"
+
+
+# --- ah_1116: enrolment ends with a working MCP wiring line ------------------
+# Live 11-16: after enroll.sh an agent had a key and a bundle command, but no
+# MCP client wiring. /api/mcp/http 401s keyless, and /skill advertised
+# `python -m app.mcp`, which only runs inside a checkout of this repo.
+
+
+def _mcp_wire_command(keyfile: str) -> str:
+    return f'claude mcp add --transport http loopskill {BASE}/api/mcp/http/ --header "x-api-key: $(cat {keyfile})"'
+
+
+@needs_openssl
+def test_a_successful_enrolment_prints_a_paste_ready_mcp_wiring_line(tmp_path):
+    marker = tmp_path / "posted.json"
+    _stub_curl(tmp_path / "bin", marker)
+    run = _run(
+        tmp_path, "cold-agent-9", dry_run=False, path=f"{tmp_path / 'bin'}:/usr/local/bin:/usr/bin:/bin"
+    )
+    assert run.returncode == 0, run.stderr
+    keyfile = str(tmp_path / "conf" / "api_key")
+    want = _mcp_wire_command(keyfile)
+    wire = [ln for ln in run.stdout.splitlines() if ln.startswith("mcp:")]
+    assert wire and wire[0].endswith(want), run.stdout
+    assert any("uvx loopskill-mcp" in ln for ln in run.stdout.splitlines()), run.stdout
+    assert SECRET not in run.stdout + run.stderr, "the wiring line must reference the key file, never print the key"
+    # Pasted into a shell, the header expands to the saved key: the line works as printed.
+    header = want.split("--header ", 1)[1]
+    expanded = subprocess.run(["sh", "-c", f"printf '%s' {header}"], capture_output=True, text=True, check=True)
+    assert expanded.stdout == f"x-api-key: {SECRET}"
+    assert run.stdout.rstrip("\n").splitlines()[-1].startswith("next:"), "the first install stays the last line"
+
+
+@needs_openssl
+def test_dry_run_prints_no_mcp_wiring_line(tmp_path):
+    dry = _run(tmp_path, "cold-agent-10")
+    assert dry.returncode == 0
+    json.loads(dry.stdout)
+    assert "claude mcp add" not in dry.stdout
+
+
+def test_skill_page_names_the_enroller_and_a_client_that_runs_outside_a_checkout():
+    c = TestClient(create_app())
+    body = c.get("/skill").text
+    assert '"app.mcp"' not in body, "python -m app.mcp only works inside a loopskill-api checkout"
+    assert "uvx" in body and "loopskill-mcp" in body
+    assert "/api/agents/enroll.sh" in body
+    assert "claude mcp add --transport http loopskill https://app.loopskill.io/api/mcp/http/" in body

@@ -173,10 +173,25 @@ Header: `x-api-key: <key>`
 ### stdio (local / Claude Desktop)
 
 ```bash
-python -m app.mcp
+uvx loopskill-mcp
 ```
 
-Env: `LOOPSKILL_API_KEY=<key>`
+Env: `LOOPSKILL_API_KEY=<key>`. The `loopskill-mcp` package (PyPI) bridges stdio to the hosted
+StreamableHTTP endpoint, so it runs anywhere `uv` is installed — no checkout of this repo needed.
+
+### No key yet? Enroll in one command
+
+```bash
+curl -fsSL https://app.loopskill.io/api/agents/enroll.sh | bash -s -- <agent-name>
+```
+
+It mints a free-tier key, saves it to `~/.config/loopskill/api_key` (mode 600, never printed) and
+ends with a paste-ready MCP wiring line. The MCP endpoint rejects keyless calls (401), so wire it
+with the key:
+
+```bash
+claude mcp add --transport http loopskill https://app.loopskill.io/api/mcp/http/ --header "x-api-key: $(cat ~/.config/loopskill/api_key)"
+```
 
 ## Authentication
 
@@ -260,8 +275,8 @@ mcpServers:
 {
   "mcpServers": {
     "loopskill": {
-      "command": "python",
-      "args": ["-m", "app.mcp"],
+      "command": "uvx",
+      "args": ["loopskill-mcp"],
       "env": {
         "LOOPSKILL_API_KEY": "<your-key>"
       }
