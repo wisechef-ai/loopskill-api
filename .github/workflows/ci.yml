@@ -158,6 +158,7 @@ jobs:
             tests/migrations/ \
             tests/test_catalog_invariant_trigger_psycopg2.py \
             tests/test_loopclose_3005_x_migration_psycopg2.py \
+            tests/test_t61421779_denominator_postgres.py \
             | tee postgres-migrations.log
       - name: Assert the Postgres gates actually RAN (anti-skip)
         # A job in which every Postgres-gated test skips is GREEN — and
@@ -193,6 +194,11 @@ jobs:
               # tests/*_psycopg2.py — deploy-safety regressions
               "tests/test_catalog_invariant_trigger_psycopg2.py::test_trigger_function_creates_via_psycopg2",
               "tests/test_loopclose_3005_x_migration_psycopg2.py::test_phase_x_migration_cleanup_and_invariant",
+              # t_61421779: the transparency denominator gained two uuid outer joins
+              # and an `IS false` that SQLite renders as `IS 0`. SQLite-only proof
+              # would leave it unproven on the engine that actually serves the
+              # public endpoint, so it must be seen PASSED here.
+              "tests/test_t61421779_denominator_postgres.py::test_denominator_query_executes_and_filters_on_postgres",
           ]
 
           passed = set()
