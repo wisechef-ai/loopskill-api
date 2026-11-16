@@ -36,6 +36,24 @@ logger = logging.getLogger(__name__)
 #: cron; rollups are never deleted, so adoption history survives.
 DEFAULT_RETENTION_DAYS = 30
 
+#: Smallest retention window any caller may request. Enforced in
+#: :func:`retention_cutoff` — the single choke point every destructive path
+#: (:func:`prune_raw`, :func:`raw_counts_before`, :func:`uncovered_day_groups`)
+#: goes through, so neither ``POST /api/admin/sync-report-prune {"days": -1}``
+#: nor ``--days 0`` can reach a delete.
+#:
+#: A non-positive window is not a "delete everything" mode, it is a bug:
+#: ``older_than_days=0`` is midnight tonight (deletes today's ingest as well),
+#: and a negative value lands the cutoff in the FUTURE, so ``created_at <
+#: cutoff`` matches the entire table. The rollup guard does not catch either,
+#: because :func:`app.crons.sync_report_pruner.prune` step 1 has already
+#: rolled up every day that has raw rows — the guard's invariant ("only delete
+#: what has an aggregate") is then satisfied for the whole table and it
+#: obligingly permits the wipe. Measured before this bound existed: an admin
+#: POST of ``{"days": -1}`` returned 200 and took 12/12 raw rows including the
+#: ones written minutes earlier.
+MIN_RETENTION_DAYS = 1
+
 
 def utc_today() -> date:
     """The current day on the rollup's clock.
@@ -98,7 +116,20 @@ def retention_cutoff(
 
     ``reference_time`` is injectable so the cutoff is testable without freezing
     the clock process-wide (same shape as ``stripe_event_pruner.prune``).
+
+    Raises ``ValueError`` for a window below ``MIN_RETENTION_DAYS``. This is the
+    one place the bound is checked on purpose: every destructive and every
+    preview path derives its cutoff from here, so a caller that forgets to
+    validate still cannot ask for a window that deletes the retained range. A
+    non-positive window puts the cutoff at or after "now", which makes
+    ``created_at < cutoff`` match rows the 30-day contract promises to keep.
     """
+    if older_than_days < MIN_RETENTION_DAYS:
+        raise ValueError(
+            f"retention window must be >= {MIN_RETENTION_DAYS} days, got {older_than_days}: "
+            f"a window of 0 deletes today's ingest and a negative one puts the cutoff in the "
+            f"future, matching the entire table. Refusing rather than deleting."
+        )
     ref = _as_utc(reference_time or datetime.now(UTC))
     return datetime.combine(ref - timedelta(days=older_than_days), datetime.min.time(), tzinfo=UTC)
 
