@@ -227,10 +227,20 @@ class TestGetRedisHelpers:
             mw._redis_client = original_client
             mw._redis_available = original_avail
 
-    def test_get_redis_connection_error_sets_backoff(self):
-        """Redis connection error sets _redis_available=False and schedules retry (line 176-180)."""
+    def test_get_redis_connection_error_sets_backoff(self, monkeypatch):
+        """Redis connection error sets _redis_available=False and schedules retry (line 176-180).
+
+        Needs a NON-BLANK REDIS_URL. ``get_redis()`` treats a blank URL as "no
+        Redis is configured" and returns ``None`` before it ever attempts a
+        connection, so the backoff bookkeeping asserted here would never run.
+        conftest.py pins ``WR_REDIS_URL`` blank for suite-wide determinism
+        (t_555b26e2), which means this test's precondition has to be stated
+        explicitly instead of inherited from whatever the host happens to run.
+        """
         import app.middleware as mw
         import redis as redis_lib
+
+        monkeypatch.setattr(mw.settings, "REDIS_URL", "redis://127.0.0.1:6399/0")
         original_client = mw._redis_client
         original_avail = mw._redis_available
         original_retry = mw._redis_next_retry_at
