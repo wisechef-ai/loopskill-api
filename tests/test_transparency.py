@@ -43,6 +43,11 @@ def test_transparency_returns_200(client):
     body = r.json()
     for key in (
         "install_count_drift",
+        # t_61421779: a quotient is never published alone — the base and the
+        # numerator ship beside the rate so 0.0-over-nothing can never again be
+        # mistaken for 0.0-over-thousands.
+        "skill_error_count_7d",
+        "installs_7d",
         "skill_error_rate_7d",
         "feedback_volume_7d",
         "median_issue_resolution_h",
@@ -52,6 +57,8 @@ def test_transparency_returns_200(client):
         assert key in body, key
     assert body["ttl_seconds"] == 60
     assert isinstance(body["install_count_drift"], int)
+    assert isinstance(body["skill_error_count_7d"], int)
+    assert isinstance(body["installs_7d"], int)
     assert 0.0 <= body["skill_error_rate_7d"] <= 1.0
 
 

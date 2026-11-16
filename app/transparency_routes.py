@@ -10,7 +10,15 @@ have a real problem to fix. Visibility forces honesty.
 Schema (response):
     {
       "install_count_drift": int,         # |denormalised - recomputed|, summed across skills
-      "skill_error_rate_7d": float,       # skill_errors / (telemetry installs in 7d), 0..1
+      "skill_error_count_7d": int,        # ABSOLUTE count of skill-error reports in 7d —
+                                          # the numerator, published raw
+      "installs_7d": int,                 # ABSOLUTE count of the base — the denominator,
+                                          # published raw. Server-minted InstallEvent rows,
+                                          # organic + non-probe + status='ok'; see
+                                          # _installs_7d for why this is not telemetry
+      "skill_error_rate_7d": float,       # skill_error_count_7d / installs_7d, 0..1. A
+                                          # DERIVED quotient of the two fields above — read
+                                          # those, not this, when judging the platform.
                                           # ONLY incident_reports rows whose report_type is
                                           # 'skill_error' (an agent saying a skill it ran
                                           # misbehaved) — NOT crash reports; see below
@@ -26,6 +34,14 @@ Schema (response):
       "computed_at": datetime,            # always now()
       "ttl_seconds": 60,
     }
+
+Every metric whose value is a quotient of two separately-measured counts is
+published HERE as its two absolutes plus the derived ratio, never as the ratio
+alone. A number shaped like ``errors / installs`` taken from two tables at two
+instants is not a rate anyone can interpret without its base — ``0.0`` is exactly
+as ambiguous as ``0.009`` unless the reader can see how many installs were in
+scope. That is why ``skill_error_rate_7d`` keeps its name (public contract) but
+must never again ship without the two counts beside it.
 
 The endpoint is unauthenticated and cached 60s in-process. Same disclosure
 level as a status page.
@@ -98,6 +114,26 @@ def _compute_install_count_drift(db: Session) -> int:
 
     Truth = union of (telemetry events with event_type='install') and
             (install_events rows). RCP-13 alignment.
+
+    WHY THIS POPULATION DIFFERS FROM THE RATE'S DENOMINATOR
+    (:func:`_installs_7d`) — the two metrics ask different questions, so they
+    legitimately need different bases, and this note is the deliberate record of
+    that rather than an accident waiting to be "unified":
+
+    * This one audits ``Skill.install_count``, which TWO independent writers bump:
+      the InstallEvent writers and the telemetry writer
+      (``app/core_routes.py``, the ``event_type == "install"`` branch). The audit
+      question is "did ANY emitter move the counter", so it must consider both —
+      a telemetry-only skill like ``code-reviewer`` (20 telemetry rows, 0
+      install_events in prod) is exactly the drift this metric exists to catch.
+      Counting only ``InstallEvent`` here would hide real counter corruption.
+    * The rate asks "of the installs we actually served, what fraction produced a
+      skill error" — one coherent, non-inflatable, auditable population.
+
+    It is also unfiltered by the organic predicate for the same structural reason:
+    a non-organic write that wrongly incremented the counter IS drift, so filtering
+    it out here would blind the probe to the very bug it hunts. The rate filters,
+    because it wants the honest audience, not the write-audit surface.
     """
     # Recomputed counts per slug
     telemetry_q = (
@@ -126,18 +162,69 @@ def _compute_install_count_drift(db: Session) -> int:
 
 
 def _installs_7d(db: Session) -> int:
-    """Telemetry ``install`` events inside the 7d window — the rate's denominator.
+    """Server-minted installs inside the 7d window — the rate's denominator.
 
-    Extracted verbatim from :func:`_compute_skill_error_rate_7d`; the query is
-    deliberately UNCHANGED (out of scope for t_a0607d92 — see that function's
-    docstring for what is wrong with it). It lives here so the denominator the
-    metric publishes is one named thing a test can pin, not an inline expression.
+    t_61421779 (2026-11-16) replaced the old ``TelemetryEvent``/``event_type='install'``
+    base. Three measured reasons, all against prod on that date:
+
+    1. **The old base was a dead emitter.** 0 rows in 7d, 0 in 30d, 120 all-time,
+       last write 2026-06-27, covering 4 distinct slugs. ``install_events`` in the
+       same window: 348 rows, 342 distinct slugs, newest write minutes ago. A
+       denominator that is structurally 0 makes the quotient publish ``0.0`` from
+       the ``installs <= 0`` guard no matter what the numerator says — which is the
+       "scorecard that can only ever read 0.0" defect this card was filed for.
+    2. **The old base was client-self-reported.** Telemetry rows arrive from
+       ``POST /api/telemetry``, where the caller picks ``event_type``. Adding a row
+       RAISES the denominator and therefore LOWERS a public, unauthenticated
+       quality metric — so any key holder (and keys are self-mintable via the
+       public ``POST /api/agents/register``) could buy itself a healthier-looking
+       error rate. ``InstallEvent`` rows are only ever written by the server's own
+       install paths (``app/services/provenance.py``, ``_skill_helpers``), never by
+       a request body.
+    3. **The old base was unauditable.** ``TelemetryEvent`` has no ``api_key_id``,
+       no ``status`` and no ``is_probe`` column, so the codebase's own integrity
+       rules cannot be applied to it after the fact. ``InstallEvent`` carries all
+       three, which is what lets this filter exist.
+
+    The population is deliberately the STRICTEST honest one, not the widest:
+
+    * ``organic_install_predicate()`` — the ONE shared organic definition
+      (:mod:`app.install_integrity`), the same predicate every other install
+      surface uses, so the scorecard and the public ``Skill.install_count`` never
+      disagree about what a real install is. Drops test keys and self-registered
+      agent keys.
+    * ``is_probe IS FALSE`` — fleet/system probe installs
+      (:mod:`app.services.probe_detection`) are our own automation installing our
+      own skills. They can never be judged by a skill-error report, so counting
+      them would dilute a quality signal with synthetic traffic. Stricter than
+      ``/api/stats``, on purpose: when a transparency metric must lean, it leans
+      toward the LESS flattering number (124 of the 348 rows in the current window
+      are probes — excluding them raises the published rate from 0.0058 to 0.0090).
+    * ``status == 'ok'`` — a ``rolled_back`` / ``partial`` / ``in_progress``
+      install (the F.6 marker) is not a completed install and can never produce a
+      skill error, so it can only bias the rate toward healthy. 0 such rows in prod
+      today; this is forward-looking, not cosmetic.
+
+    No ``except`` here, deliberately, unlike the numerator helper. Swallowing a DB
+    error into ``0`` is exactly this metric's failure mode — a laundered zero
+    denominator publishes a rate of ``0.0``, i.e. "flawless", which is the opposite
+    of what a transparency endpoint exists to do. Let it raise; a broken scorecard
+    must be loud, not flattering.
     """
+    from app.install_integrity import organic_install_predicate
+    from app.models import APIKey, User
+
     cutoff = datetime.now(UTC) - timedelta(days=7)
     return (
-        db.query(func.count(TelemetryEvent.id))
-        .filter(TelemetryEvent.event_type == "install")
-        .filter(TelemetryEvent.created_at >= cutoff)
+        db.query(func.count(InstallEvent.id))
+        .outerjoin(APIKey, APIKey.id == InstallEvent.api_key_id)
+        .outerjoin(User, User.id == APIKey.user_id)
+        .filter(
+            InstallEvent.created_at >= cutoff,
+            InstallEvent.status == "ok",
+            InstallEvent.is_probe.is_(False),
+            *organic_install_predicate(),
+        )
         .scalar()
         or 0
     )
@@ -191,7 +278,15 @@ def _incident_report_counts_7d(db: Session) -> tuple[int, int]:
 
 
 def _skill_error_rate_from_counts(skill_errors: int, installs: int) -> float:
-    """skill_errors / installs, 0..1. Returns 0.0 if the denominator is 0."""
+    """skill_errors / installs, 0..1. Returns 0.0 if the denominator is 0.
+
+    The ``installs <= 0`` case returns ``0.0`` rather than ``None`` and that is a
+    contract decision, not an oversight: this is a public, unauthenticated scorecard
+    whose consumers pin the type. It is survivable ONLY because the same payload now
+    publishes ``installs_7d`` next to it — "0.0 over 0 installs" and "0.0 over 4,000
+    installs" are different claims, and a reader who cannot see the base cannot tell
+    them apart. Never publish this quotient without its absolute again.
+    """
     if installs <= 0:
         return 0.0
     return round(min(1.0, skill_errors / installs), 6)
@@ -206,14 +301,21 @@ def _compute_skill_error_rate_7d(db: Session) -> float:
     never been observable because the ``created_at``/``AttributeError`` bug pinned
     the metric at 0.0 for its entire existence (see the IncidentReport docstring).
 
-    OUT OF SCOPE, stated so rather than left implicit: the DENOMINATOR is
-    untouched here. It is ``TelemetryEvent`` rows with ``event_type='install'``
-    in the same 7d window. That choice has its own problems — measured on prod
-    2026-11-16 it reads 0 installs/7d against 120 all-time, so the metric returns
-    0.0 by the denominator guard regardless of the numerator, and telemetry
-    installs are not the same population as ``InstallEvent`` — but retuning it
-    would change a second public contract at the same time as this one fixes the
-    first. It gets its own card.
+    The DENOMINATOR was settled on 2026-11-16 (t_61421779): server-minted
+    ``InstallEvent`` rows, organic + non-probe + ``status='ok'``. It used to be
+    ``TelemetryEvent`` rows with ``event_type='install'``, which read 0 in prod for
+    five months straight — 120 all-time, none since 2026-06-27 — so this function
+    returned ``0.0`` from the denominator guard regardless of the numerator. Read
+    :func:`_installs_7d` before changing it; the three reasons it cannot go back to
+    telemetry are measured there.
+
+    Residual mismatch, stated rather than papered over: a skill error filed today
+    may describe a skill installed last month, so numerator and denominator are
+    counts of two different populations taken from two different tables — it is a
+    per-window indicator, not a true cohort rate. That is why the payload publishes
+    ``skill_error_count_7d`` and ``installs_7d`` as absolutes and the rate as their
+    derived quotient; a reader with the two counts can judge the quotient, a reader
+    with only the rate cannot.
     """
     errors, _crashes = _incident_report_counts_7d(db)
     return _skill_error_rate_from_counts(errors, _installs_7d(db))
@@ -308,9 +410,22 @@ def _build_payload(db: Session) -> dict[str, Any]:
     # snapshots of the table (each _compute_* helper on its own would query twice
     # and could straddle an insert).
     skill_errors, crash_reports = _incident_report_counts_7d(db)
+    # Same rule for the base: read it ONCE and derive both the absolute and the
+    # quotient from that single read, or the payload could publish an
+    # ``installs_7d`` that the ``skill_error_rate_7d`` was not computed against.
+    installs = _installs_7d(db)
     return {
         "install_count_drift": _compute_install_count_drift(db),
-        "skill_error_rate_7d": _skill_error_rate_from_counts(skill_errors, _installs_7d(db)),
+        # ── the absolutes come FIRST, deliberately ────────────────────────────
+        # The rate is a quotient of two counts taken from two different tables at
+        # two different instants, so on its own it is not interpretable: 0.0 over
+        # zero installs and 0.0 over thousands are different claims. The standing
+        # rule for that shape of measurement is to publish the absolutes and let
+        # the reader hold the quotient — the rate stays only because its name is a
+        # public contract. These two fields are the actual transparency surface.
+        "skill_error_count_7d": skill_errors,
+        "installs_7d": installs,
+        "skill_error_rate_7d": _skill_error_rate_from_counts(skill_errors, installs),
         # The crash-report half of incident_reports, which until t_a0607d92 was
         # counted INSIDE skill_error_rate_7d. Separating the two populations must
         # not silently drop one of them off the scorecard — this keeps the number
