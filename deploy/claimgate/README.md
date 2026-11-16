@@ -17,10 +17,11 @@ never depends on it.
 
 ## Deploy / update
 ```bash
-scp deploy/claimgate/{install.sql,claimgate_sync.py,claimgate_redproof.py} wisechef-hq:services/claimgate/
+scp deploy/claimgate/{install.sql,claimgate_sync.py,claimgate_redproof.py,postiz_converter.lock.json} wisechef-hq:services/claimgate/
 ssh wisechef-hq 'cd ~/services/claimgate && python3 claimgate_sync.py'          # reinstalls + syncs
 ssh wisechef-hq 'cd ~/services/claimgate && curl -s https://app.loopskill.io/api/marketing/claims > c.json && python3 claimgate_redproof.py c.json'
 ```
+`claimgate_sync.py` reads `postiz_converter.lock.json` from its own directory, so the lock must be copied with the scripts; a stale lock on the host keeps `converter_drift` firing after the repo lock is regenerated.
 crontab (wisechef-hq):
 `*/10 * * * * cd /home/wisechef/services/claimgate && python3 claimgate_sync.py >> /home/wisechef/logs/claimgate.log 2>&1`
 
