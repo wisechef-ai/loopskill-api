@@ -156,10 +156,15 @@ The registry also serves **10 vetted loops** (`scripts/seed_starter_catalog.py`)
 a *fleet member* so it fires on a schedule is a second path with two constraints
 worth knowing before you build on it:
 
-1. **A loop reports nothing unless its own prompt says to.** Telemetry exists
-   only because the loop's prompt calls `scripts/loopskill-emit-run.sh`. Nothing
-   else observes a fire — not the scheduler, not the server. Omit that line and
-   the loop runs forever while every dashboard shows zero. This is the reason
+1. **A loop's cost is reported only if its own prompt says to.** Whether a
+   scheduled loop *ran* is observed for you: the collector reads the scheduler's
+   own record (`last_run_at`, `last_status`, `last_dispatch`) for every cron in
+   the platform's `loopskill/` namespace, so a loop that dies before it can
+   speak still lands as a `fail` rather than vanishing. But `cost_usd`,
+   `duration_s` and `accepted_change` exist only because the loop's prompt calls
+   `scripts/loopskill-emit-run.sh`, and a loop placed by any route other than
+   `app/loop_apply_cli` is invisible to both. Omit the emit line and every
+   dashboard shows that it ran, never what it cost. This is the reason
    `loop_runs` sat at 1 for a year.
 2. **Cron materialization is Hermes-only.** `app/loop_apply.py` writes the Hermes
    scheduler's `~/.hermes/cron/jobs.json`, and nothing else speaks that format

@@ -225,19 +225,37 @@ python -m app.reconcile_cli \
 ### 8. Report outcomes (Phase T — batched sync-report)
 
 The sync-report collector batches loop runs, skill errors, and cron health
-into ONE POST per cycle:
+into ONE POST per cycle. Install it with the installer — not by hand-copying
+the script — because the installer also fences its crontab block and writes the
+key to a 0600 file:
 
 ```bash
-# Install the collector (shipped in the repo):
-install -m 0755 scripts/loopskill-collect-reports.py ~/.hermes/scripts/
-LOOPSKILL_MEMBER_KEY=rec_live_MEMBER_KEY python3 ~/.hermes/scripts/loopskill-collect-reports.py
-
-# Emit a loop-run outcome:
-scripts/loopskill-emit-run.sh <loop_slug> <outcome> [accepted] [cost_usd] [duration_s] [detail]
+export RECIPES_API_KEY="rec_live_MEMBER_KEY"
+bash scripts/install-loop-apply.sh --api https://your-host
 ```
 
-`scripts/install-loop-apply.sh` (see **Running loops**, below) places both of
-these for you.
+Then preview what your host is about to claim, without posting anything:
+
+```bash
+python3 ~/.hermes/scripts/loopskill-collect-reports.py --dry-run
+# prints the exact payload, then: "DRY RUN — nothing posted [N loop_runs,
+# M scheduler-derived, key_source=file:/home/you/.hermes/loopskill/member.key]"
+```
+
+`key_source=` is printed on every real run too. It exists because a collector
+that silently falls back to a different key file than the one your crontab
+specified is indistinguishable from one that is working. Resolution order:
+`$LOOPSKILL_MEMBER_KEY`, then `$RECIPES_API_KEY`, then
+`$LOOPSKILL_MEMBER_KEY_FILE` (default `~/.hermes/loopskill/member.key`), then
+the `$LOOPSKILL_SECRETS` JSON field `member_api_key_plain_b64`.
+
+Emit the rich fields from inside a loop when you want cost and duration
+(`outcome` is `success` or `failure`; the collector normalises both vocabularies
+on the way in):
+
+```bash
+scripts/loopskill-emit-run.sh <loop_slug> <outcome> [accepted] [cost_usd] [duration_s] [detail]
+```
 
 ### 9. Verify the loop is working
 
@@ -269,7 +287,8 @@ The whole chain, and the file that owns each hop:
 | 3 | The member reads its assignments | `GET /api/my/loop-assignments` |
 | 4 | Materialize a local cron | `python -m app.loop_apply_cli` |
 | 5 | The cron fires | your host scheduler |
-| 6 | The loop reports its outcome | `scripts/loopskill-emit-run.sh` |
+| 6a | Whether it ran, and pass/fail/unknown | `scripts/loopskill-collect-reports.py`, reading the scheduler's record |
+| 6b | Its cost, duration and accepted change | `scripts/loopskill-emit-run.sh`, called from the loop's prompt |
 | 7 | The outcome is batched + POSTed | `scripts/loopskill-collect-reports.py` |
 | 8 | Telemetry lands | `POST /api/sync-report` |
 
@@ -349,10 +368,15 @@ missing requirements rather than placing onto a member that cannot run the loop.
 A member that has never pinged fails with `liveness:member-never-pinged` — call
 `loopskill_ping` for it once.
 
-**The loop's prompt is what emits its telemetry.** Nothing else does. If the
-prompt never calls `loopskill-emit-run.sh`, the loop will run forever and report
-nothing — this is the single most common way a loop looks healthy and is not
-measured. Put the emit line in the prompt when you declare the loop.
+**Two things observe a loop, and they report different facts.** The collector
+reads the scheduler's own record — `last_run_at`, `last_status`,
+`last_dispatch` — for every cron in the `loopskill/` namespace, so a fire is
+filed as `pass` / `fail` / `unknown` even when the agent never got as far as
+speaking. That is the half that no longer depends on prompt discipline, and it
+is why a crashed loop now reads as a failure instead of as silence. What only
+the prompt can report is the *content*: `cost_usd`, `duration_s`,
+`accepted_change`. Put the emit line in the prompt when you declare the loop,
+or the platform will know the loop ran and never what it produced.
 
 ### 12. Watch it converge
 

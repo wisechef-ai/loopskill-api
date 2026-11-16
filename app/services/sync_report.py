@@ -22,9 +22,33 @@ loopskill_report_skill_error.
 
 Key functions:
   - ingest_sync_report: caps, truncation, inserts. Returns (recorded, truncated).
+    Entries carrying a ``tick_id`` are routed through the Phase-D run registry
+    (app/services/run_registry.py) instead of being inserted blind — see
+    t_de052498 below.
   - rollup_loop_runs: idempotent daily UPSERT from raw LoopRun rows.
   - prune_raw: deletes LoopRun + CronHealthSnapshot past retention (30d).
   - cost_per_accepted_change: query helper reading rollups.
+
+RETIRED? NO — t_de052498 (2026-11-16) chose the opposite of the
+``skill_error_reports`` disposition, and the reason is worth keeping next to
+the function that benefited from it. ``loop_runs`` held 20,828 rows of one
+self-originated beacon and exactly ONE real run (a hand-written Phase-T test),
+for the same structural reason: nothing produced it. But here the gap was a
+caller, not a feature — ``scripts/loopskill-emit-run.sh`` was shipped, hardened
+and tested, and no scheduler ever called it, because the member-side apply
+(``app/loop_apply_cli.py``) was written with "follow-up wiring on the member
+host" in its own docstring and that follow-up never happened. Zero
+``loopskill/*`` jobs existed in ``~/.hermes/cron/jobs.json`` on any fleet host
+(measured 2026-11-16), so the three ``active`` rows in ``loop_placements``
+described crons that had never existed.
+
+The producer now reads the SCHEDULER's record of a fire rather than trusting a
+line inside the loop's own prompt: ``collect_scheduled_loop_runs()`` in the
+collector turns each new ``loopskill/*`` fire into a tick-bearing record. A
+prompt-driven emitter can only report what the agent decides to say, and a
+crashed loop says nothing — which is indistinguishable from "never scheduled",
+the exact FAILING-vs-OVERDUE ambiguity app/services/loop_convergence.py exists
+to resolve.
 """
 
 from __future__ import annotations
@@ -44,6 +68,12 @@ from app.models import (
     LoopRunDailyRollup,
     MemberLockfileSnapshot,
 )
+from app.services.run_registry import (
+    OUTCOME_FAIL,
+    OUTCOME_PASS,
+    OUTCOME_UNKNOWN,
+    ingest_run,
+)
 from app.services.synthetic_runs import (
     SELF_ORIGINATED_LOOP_SLUGS,
     RunCounts,
@@ -51,6 +81,61 @@ from app.services.synthetic_runs import (
 )
 
 logger = logging.getLogger(__name__)
+
+# ── one vocabulary, on the way in ────────────────────────────────────────────
+# ``loop_runs`` carries TWO outcome vocabularies today and both are legitimate:
+# the legacy at-least-once emitter says ``success``/``failure``
+# (``scripts/loopskill-emit-run.sh``, docs/SELF_HOST.md), the Phase-D registry
+# says ``pass``/``fail``/``unknown``. app/services/loop_convergence.py already
+# has to accept both (``_PASS_OUTCOMES = {"pass", "success"}``) precisely
+# because nothing ever reconciled them at the boundary.
+#
+# A record that arrives on the HONEST path (it carries a ``tick_id``) is
+# normalized here, once, before :func:`ingest_run` — which is stricter than the
+# legacy path and would otherwise file ``success`` as ``unknown``, silently
+# removing every real run from the pass-rate denominator. A number that quietly
+# stops counting is worse than a number that is wrong.
+_OUTCOME_ALIASES = {
+    "success": OUTCOME_PASS,
+    "pass": OUTCOME_PASS,
+    "ok": OUTCOME_PASS,
+    "failure": OUTCOME_FAIL,
+    "fail": OUTCOME_FAIL,
+    "error": OUTCOME_FAIL,
+    # A loop killed by its budget or turn cap terminated KNOWN and did NOT
+    # pass. Mapping these to ``unknown`` would drop them out of the denominator
+    # entirely — which is exactly how a loop that never finishes reads as
+    # healthy. They are counted as not-passed, and they are never a pass.
+    "budget_stop": OUTCOME_FAIL,
+    "max_turns_stop": OUTCOME_FAIL,
+}
+
+
+def _to_int(value: Any) -> int | None:
+    """Coerce a client-supplied integer, rejecting bools and junk.
+
+    ``member_seq``/``attempt``/``placement_epoch`` are dedup and ordering axes;
+    ``True`` arriving as ``1`` would collide a real attempt, and a string would
+    raise deep inside the insert. Anything un-coercible is ``None`` — absent,
+    not zero.
+    """
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_float(value: Any) -> float | None:
+    """Coerce a client-supplied cost, same rationale as :func:`_to_int`."""
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
 
 # ── D9 size caps (from design contract §endpoint) ──────────────────────────
 
@@ -137,8 +222,32 @@ def ingest_sync_report(
     # the bug the backstop is supposed to be a backstop against.
     member_verdict = origin_verdict_for_member(db, member)
     synthetic_ingested = 0
+    registry_new = 0
+    registry_deduped = 0
+    legacy_inserted = 0
+    malformed = 0
 
+    # TWO PASSES, deliberately. ``ingest_run`` is a compare-and-swap and commits
+    # per row; running it in the same loop as the legacy ``db.add`` inserts
+    # would flush every not-yet-validated legacy row the moment the first
+    # tick-bearing record landed.
+    #
+    # A record is on the honest path iff it carries a ``tick_id``. That is the
+    # whole routing rule, and it is why the field is worth having: without it a
+    # duplicate delivery is a second fact, and a second fact is a second vote in
+    # whatever pass rate someone computes downstream.
+    #
+    # ``isinstance`` first: a non-dict entry used to reach ``lr.get(...)`` and
+    # raise AttributeError, so one malformed element from a fleet agent turned a
+    # whole batched telemetry cycle into a 500.
     for lr in loop_runs:
+        if not isinstance(lr, dict):
+            # Counted, not swallowed: an ack that silently drops entries is how
+            # a producer starts believing it is reporting.
+            malformed += 1
+            continue
+        if (lr.get("tick_id") or "")[:255]:
+            continue  # honest path — handled in the second pass
         slug = (lr.get("loop_slug") or "")[:255]
         run_synthetic = member_verdict if member_verdict is not None else slug in SELF_ORIGINATED_LOOP_SLUGS
         synthetic_ingested += int(run_synthetic)
@@ -151,13 +260,52 @@ def ingest_sync_report(
                 instance_key=(lr.get("instance_key") or "")[:255],
                 outcome=(lr.get("outcome") or "failure")[:32],
                 accepted_change=bool(lr.get("accepted_change", False)),
-                cost_usd=lr.get("cost_usd"),
-                duration_seconds=lr.get("duration_seconds"),
+                # Coerced, not passed through: these are Numeric columns, and a
+                # fleet agent sending ``cost_usd: "n/a"`` used to raise on flush
+                # and 500 the entire batched telemetry cycle.
+                cost_usd=_to_float(lr.get("cost_usd")),
+                duration_seconds=_to_int(lr.get("duration_seconds")),
                 provenance_id=(lr.get("provenance_id") or None)[:64] if lr.get("provenance_id") else None,
                 started_at=_parse_dt(lr.get("started_at")),
                 detail=_truncate(lr.get("detail")),
             )
         )
+        legacy_inserted += 1
+
+    for lr in loop_runs:
+        if not isinstance(lr, dict):
+            continue
+        tick_id = (lr.get("tick_id") or "")[:255]
+        if not tick_id:
+            continue
+        slug = (lr.get("loop_slug") or "")[:255]
+        raw_outcome = str(lr.get("outcome") or "").strip().lower()
+        res = ingest_run(
+            db,
+            member_id=member.id,
+            fleet_id=member.fleet_id,
+            loop_slug=slug,
+            tick_id=tick_id,
+            attempt=_to_int(lr.get("attempt")) or 0,
+            placement_epoch=_to_int(lr.get("placement_epoch")),
+            outcome=_OUTCOME_ALIASES.get(raw_outcome, OUTCOME_UNKNOWN),
+            member_seq=_to_int(lr.get("member_seq")),
+            cost_usd=_to_float(lr.get("cost_usd")),
+            duration_seconds=_to_int(lr.get("duration_seconds")),
+            detail=_truncate(lr.get("detail")),
+        )
+        if res.deduped:
+            registry_deduped += 1
+        else:
+            registry_new += 1
+            # The row itself is stamped inside ingest_run by
+            # classify_run_synthetic(member_id=...); this is the same verdict
+            # from the same inputs, counted here so the ack's split still
+            # covers registry rows. Two derivations of one rule is the seam to
+            # watch if either side ever diverges.
+            synthetic_ingested += int(
+                member_verdict if member_verdict is not None else slug in SELF_ORIGINATED_LOOP_SLUGS
+            )
 
     # ── skill_errors ─ RETIRED (t_a7ebcc96, 2026-11-16) ─────────────────────
     # This block was the sole writer of skill_error_reports. It read
@@ -237,7 +385,12 @@ def ingest_sync_report(
     # mesh_0408 W4: the ack reports a run count, so it reports the split too —
     # ``loop_runs`` alone would be the same combined-figure-only lie the
     # dashboard used to tell.
-    ingested = RunCounts(total=len(loop_runs), synthetic=synthetic_ingested)
+    # ``total`` counts rows this call actually wrote — NOT ``len(loop_runs)``.
+    # With two producers the entry count and the written count are different
+    # numbers: a re-delivered tick writes nothing, and a malformed entry writes
+    # nothing, and an ack that reports arrivals as recordings is the exact
+    # unfalsifiable-number defect t_a7ebcc96 retired a whole table over.
+    ingested = RunCounts(total=legacy_inserted + registry_new, synthetic=synthetic_ingested)
     # t_a7ebcc96: skill_errors is no longer persisted, but the ack still counts
     # what arrived, under a key that says so. The old ack reported
     # ``"skill_errors": N`` from a table that never held a row — an unfalsifiable
@@ -249,6 +402,13 @@ def ingest_sync_report(
         "loop_runs": ingested.total,
         "loop_runs_synthetic": ingested.synthetic,
         "loop_runs_external": ingested.external,
+        # t_de052498: the honest path reports what its dedup actually did. A
+        # client that re-sends a tick it already delivered must be able to see
+        # the server refuse the second copy — an ack that counts arrivals only
+        # cannot tell "recorded" from "recorded twice".
+        "loop_runs_registry_new": registry_new,
+        "loop_runs_registry_deduped": registry_deduped,
+        "loop_runs_malformed": malformed,
         "skill_errors_ignored": len(_se_arrived) if isinstance(_se_arrived, list) else 0,
         "cron_health": cron_stored,
         "lockfile_state": lockfile_stored,
