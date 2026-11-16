@@ -888,9 +888,41 @@ class IncidentReport(Base):
     Sanitized at the wire (regex audit on POST), normalized error_signature
     is sha256 of the top-5 stack frames. Indexed for clustering by signature
     and for per-skill recency.
+
+    PROVENANCE (t_a0607d92, 2026-11-16). This one table is the persistence
+    model for THREE writers carrying TWO different meanings:
+
+      * ``POST /api/feedback/incident`` (app/feedback_routes.py) — a **crash
+        report** from the auto-improve agent: the tooling itself crashed.
+        Nothing to do with a marketplace skill misbehaving.
+      * ``POST /api/v1/skill-error`` (app/skill_error_routes.py) and the MCP tool
+        ``loopskill_report_skill_error`` (app/mcp/tools/skill_error.py) — an
+        **agent reporting that a skill it ran misbehaved**. That is the population
+        the public transparency metric ``skill_error_rate_7d`` claims to measure
+        and that creators triage in their curator repo.
+
+    Before ``report_type`` these were physically indistinguishable at rest, so
+    the transparency endpoint counted the UNION under a skill-error name. The
+    conflation was never *observable* only because the metric had its own bug —
+    it filtered on a non-existent ``created_at`` (the timestamp column here is
+    ``occurred_at``) and a blanket ``except`` laundered the AttributeError into
+    0.0 for the metric's entire existence. Measured on prod 2026-11-16: 11 rows,
+    all 11 skill-error-shaped (``command``/``exit_code`` NULL, empty
+    ``env_fingerprint``, traces quoting installed skill versions from agents such
+    as ``mcp-tool`` and ``codex-skill-reporter``); zero crash reports have ever
+    been filed. So the defect was latent, not live — which is exactly why it is
+    fixed before the metric starts publishing numbers rather than after.
+
+    Classify at write time, in the server. Never accept ``report_type`` from a
+    client: whoever can relabel a crash report as a skill error can move a
+    public metric.
     """
 
     __tablename__ = "incident_reports"
+
+    #: Provenance vocabulary for :attr:`report_type`.
+    TYPE_INCIDENT = "incident"  # crash report — POST /api/feedback/incident
+    TYPE_SKILL_ERROR = "skill_error"  # POST /api/v1/skill-error + MCP report_skill_error
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     skill_id = Column(UUID(as_uuid=True), ForeignKey("skills.id"), nullable=False, index=True)
@@ -901,6 +933,19 @@ class IncidentReport(Base):
     command = Column(Text, nullable=True)
     exit_code = Column(Integer, nullable=True)
     stack_trace_top = Column(Text, nullable=True)
+    # Which rail produced this row — see the class docstring. Assigned by the
+    # SERVER at each write site; never read from a client payload.
+    #
+    # NOT NULL with a server_default so pre-existing rows stay valid and a writer
+    # that forgets to classify lands on "incident" — the side that can only
+    # under-count the skill-error metric, never inflate it with crashes.
+    #
+    # The index is declared per spec, but be honest about what it buys: two
+    # distinct values over a table that has held 11 rows in 4.5 months. The
+    # planner will seq-scan this table for the foreseeable future; the index is
+    # for the day the curator-repo rails start querying by provenance at volume,
+    # not for today's transparency query.
+    report_type = Column(String(32), nullable=False, server_default=TYPE_INCIDENT, index=True)
 
 
 class PatchCandidate(Base):

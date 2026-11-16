@@ -10,7 +10,14 @@ have a real problem to fix. Visibility forces honesty.
 Schema (response):
     {
       "install_count_drift": int,         # |denormalised - recomputed|, summed across skills
-      "skill_error_rate_7d": float,       # errors / (telemetry installs in 7d), 0..1
+      "skill_error_rate_7d": float,       # skill_errors / (telemetry installs in 7d), 0..1
+                                          # ONLY incident_reports rows whose report_type is
+                                          # 'skill_error' (an agent saying a skill it ran
+                                          # misbehaved) — NOT crash reports; see below
+      "crash_report_count_7d": int,       # incident_reports rows with report_type 'incident'
+                                          # (POST /api/feedback/incident — the auto-improve
+                                          # tooling crashed). Split out of the numerator
+                                          # above on 2026-11-16 (t_a0607d92); additive.
       "feedback_volume_7d": int,          # rows in feedback_submissions in last 7d
       "median_issue_resolution_h": float | null,
                                           # median (closed_at - created_at) hours, GitHub
@@ -40,6 +47,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -117,31 +125,110 @@ def _compute_install_count_drift(db: Session) -> int:
     return drift
 
 
-def _compute_skill_error_rate_7d(db: Session) -> float:
-    """errors_7d / installs_7d, 0..1. Returns 0.0 if denominator is 0."""
+def _installs_7d(db: Session) -> int:
+    """Telemetry ``install`` events inside the 7d window — the rate's denominator.
+
+    Extracted verbatim from :func:`_compute_skill_error_rate_7d`; the query is
+    deliberately UNCHANGED (out of scope for t_a0607d92 — see that function's
+    docstring for what is wrong with it). It lives here so the denominator the
+    metric publishes is one named thing a test can pin, not an inline expression.
+    """
     cutoff = datetime.now(UTC) - timedelta(days=7)
-    installs = (
+    return (
         db.query(func.count(TelemetryEvent.id))
         .filter(TelemetryEvent.event_type == "install")
         .filter(TelemetryEvent.created_at >= cutoff)
         .scalar()
         or 0
     )
-    # IncidentReport is the persistence model for both /api/feedback/incident
-    # and /api/v1/skill-error. Filter by report_type if available, else count all.
+
+
+def _incident_report_counts_7d(db: Session) -> tuple[int, int]:
+    """(skill_errors, crash_reports) inside the 7d window — one query, one guard.
+
+    Why one helper for both halves: they used to be ONE undifferentiated count.
+    ``incident_reports`` holds two populations with two different meanings
+    (crash reports from ``POST /api/feedback/incident`` and agent skill errors
+    from ``POST /api/v1/skill-error`` + MCP ``loopskill_report_skill_error``) and
+    the public metric is named after only the second — see the IncidentReport
+    class docstring. Deriving both from a single grouped query means the metric
+    and its companion can never be read from different snapshots, and neither
+    half can silently degrade to 0 while the other still looks healthy.
+
+    The filter is on ``occurred_at``, the model's only timestamp column — there
+    is no ``created_at`` on this table. The guard catches ONLY a genuinely absent
+    table (a missing table is legitimately a 0 on an older self-host DB); a real
+    coding error propagates instead of being laundered into a healthy-looking
+    zero, which is the entire point of a transparency endpoint.
+    """
+    cutoff = datetime.now(UTC) - timedelta(days=7)
+    from app.models import IncidentReport
+
     try:
-        from app.models import IncidentReport
-
-        errors = (
-            db.query(func.count(IncidentReport.id)).filter(IncidentReport.created_at >= cutoff).scalar() or 0
+        rows = (
+            db.query(IncidentReport.report_type, func.count(IncidentReport.id))
+            .filter(IncidentReport.occurred_at >= cutoff)
+            .group_by(IncidentReport.report_type)
+            .all()
         )
-    # Rationale: IncidentReport table may not exist on older DBs; return 0 as safe default
-    except Exception:  # noqa: BLE001
-        errors = 0
+    except SQLAlchemyError:
+        return 0, 0
 
+    skill_errors = crash_reports = 0
+    for report_type, count in rows:
+        if report_type == IncidentReport.TYPE_SKILL_ERROR:
+            skill_errors += int(count or 0)
+        else:
+            # Anything that is not provably a skill error — a legacy row the
+            # backfill could not prove, or a future rail that forgot to classify
+            # and inherited the server_default — counts as a crash report, NOT as
+            # a skill error. Deliberately biased this way: a skill-error rate
+            # inflated by crashes misleads whoever is judging a creator's skill on
+            # a public page, while an understated one only hides a problem that is
+            # still visible in crash_report_count_7d.
+            crash_reports += int(count or 0)
+    return skill_errors, crash_reports
+
+
+def _skill_error_rate_from_counts(skill_errors: int, installs: int) -> float:
+    """skill_errors / installs, 0..1. Returns 0.0 if the denominator is 0."""
     if installs <= 0:
         return 0.0
-    return round(min(1.0, errors / installs), 6)
+    return round(min(1.0, skill_errors / installs), 6)
+
+
+def _compute_skill_error_rate_7d(db: Session) -> float:
+    """skill_errors_7d / installs_7d, 0..1. Returns 0.0 if denominator is 0.
+
+    Numerator counts ONLY rows with ``report_type == TYPE_SKILL_ERROR``. Counting
+    the whole ``incident_reports`` table — which is what this did — published the
+    union of crash reports and skill errors under a skill-error name. It had
+    never been observable because the ``created_at``/``AttributeError`` bug pinned
+    the metric at 0.0 for its entire existence (see the IncidentReport docstring).
+
+    OUT OF SCOPE, stated so rather than left implicit: the DENOMINATOR is
+    untouched here. It is ``TelemetryEvent`` rows with ``event_type='install'``
+    in the same 7d window. That choice has its own problems — measured on prod
+    2026-11-16 it reads 0 installs/7d against 120 all-time, so the metric returns
+    0.0 by the denominator guard regardless of the numerator, and telemetry
+    installs are not the same population as ``InstallEvent`` — but retuning it
+    would change a second public contract at the same time as this one fixes the
+    first. It gets its own card.
+    """
+    errors, _crashes = _incident_report_counts_7d(db)
+    return _skill_error_rate_from_counts(errors, _installs_7d(db))
+
+
+def _compute_crash_report_count_7d(db: Session) -> int:
+    """Crash reports (``POST /api/feedback/incident``) in the window.
+
+    Published alongside the skill-error rate so that separating the two
+    populations does not quietly delete a signal from the transparency
+    scorecard: this number was always inside ``skill_error_rate_7d``'s numerator,
+    just filed under the wrong name.
+    """
+    _skill_errors, crashes = _incident_report_counts_7d(db)
+    return crashes
 
 
 def _compute_feedback_volume_7d(db: Session) -> int:
@@ -216,9 +303,19 @@ def _compute_last_backfill_at() -> datetime | None:
 
 
 def _build_payload(db: Session) -> dict[str, Any]:
+    # ONE grouped read of incident_reports for both halves of the split, so the
+    # skill-error rate and the crash count can never be published from different
+    # snapshots of the table (each _compute_* helper on its own would query twice
+    # and could straddle an insert).
+    skill_errors, crash_reports = _incident_report_counts_7d(db)
     return {
         "install_count_drift": _compute_install_count_drift(db),
-        "skill_error_rate_7d": _compute_skill_error_rate_7d(db),
+        "skill_error_rate_7d": _skill_error_rate_from_counts(skill_errors, _installs_7d(db)),
+        # The crash-report half of incident_reports, which until t_a0607d92 was
+        # counted INSIDE skill_error_rate_7d. Separating the two populations must
+        # not silently drop one of them off the scorecard — this keeps the number
+        # visible and puts it under its real name.
+        "crash_report_count_7d": crash_reports,
         "feedback_volume_7d": _compute_feedback_volume_7d(db),
         "median_issue_resolution_h": _compute_median_issue_resolution_h(),
         "last_backfill_at": (_compute_last_backfill_at() or None),
