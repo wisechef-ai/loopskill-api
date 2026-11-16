@@ -654,28 +654,169 @@ def test_malformed_amount_is_nan(token: str) -> None:
     assert v != v
 
 
+# --- load-vs-complexity policy for test_number_runs_stay_linear --------------
+# The half-vs-full RATIO is the only blocking wall-clock gate: both samples are
+# taken back-to-back on the same machine, so it measures complexity, not load.
+# The old absolute `assert t_full < 10.0` measured neither reliably — a starved
+# GitHub-hosted runner exceeded it on provably linear code (CI flake on the
+# blocking sqlite leg, 2026-11-16; green on re-run, zero changes). What still
+# fails the leg: (a) the ratio gate — a super-linear pattern blows the 3x
+# bound; (b) the hang alarm below — an input that never completes while the
+# machine is demonstrably responsive is pathological by definition. What can
+# no longer fail it: a noisy neighbour.
+# Constants are grounded in measurements, not guesses: the four adversarial
+# bodies run t_full = 0.14-0.36 s on a loaded (loadavg ~3) dev box, and the
+# fixed-work probe below measures ~1-9 ms.
+_WARN_CEILING_S = 10.0  # the former hard gate; now recorded, never blocking
+_HANG_ALARM_S = 60.0  # 6x the former ceiling, well under the per-test
+# pytest-timeout override below — so a catastrophic regex
+# fails THIS test with an interrupted-at stack trace instead
+# of the timeout plugin killing the whole session unnamed.
+_RATIO_ATTEMPTS = 3  # re-measure the half/full pair this many times before
+# failing the ratio bound: a transient CPU-steal burst
+# (t_half sampled in a good slice, t_full starved) is
+# what flaked the cov+xdist leg once at ratio ~3.7 on
+# linear code; a genuinely super-linear pattern blows
+# 3x on EVERY attempt. Red stays red, load noise does not.
+_FAST_PROBE_S = 0.1  # ~11x the worst probe on a loaded box, ~100x on a quiet
+# one: a probe under this proves the machine is fit to judge
+# the result, so a 60 s non-completion is the pattern's fault.
+_PROBE_BODY = "Total 1,199.50 USD for 20 API keys and 2 private bundles. " * 20
+
+
+class _NumberRunHang(AssertionError):
+    """An adversarial body did not complete within the hang alarm while the
+    machine was demonstrably responsive: the run pattern is not linear."""
+
+
+# Under deliberate CPU starvation (2x nproc nice-0 stressors + nice -n 19,
+# the acceptance scenario) a fully linear run of this test measured ~400 s
+# wall — over the repo-wide pytest-timeout=120 (pyproject), which is sized
+# for ordinary tests and would kill it for machine load, exactly the sin this
+# test must not commit. Per-test override at ~2x that worst adversarial
+# observation and ~150x a healthy run (~3 s); CI realistically never exceeds
+# a few tens of seconds here. This does NOT weaken hang detection:
+# catastrophic backtracking on a responsive machine is caught by the 60 s
+# alarm below (fast path, named test + interrupted-at stack); on a starved
+# machine the alarm records a warning and this marker is the final backstop.
+@pytest.mark.timeout(900)
 def test_number_runs_stay_linear() -> None:
     """Worst cases for the run pattern (separator-led repetitions) on the
     20k-char API cap must stay LINEAR: no catastrophic backtracking.
 
-    A wall-clock limit measures machine load, not complexity (it went flaky
-    under a loaded CI box), so this compares each body at half and at full
-    length: linear work doubles (ratio ~2), backtracking explodes. A generous
-    absolute ceiling stays as a backstop."""
+    A wall-clock limit measures machine load, not complexity (the old 10 s
+    absolute gate went flaky under a loaded CI box), so the BLOCKING gate is
+    half-vs-full: linear work doubles (ratio ~2), backtracking explodes. The
+    pair is sampled interleaved and re-measured up to _RATIO_ATTEMPTS times:
+    a transient CPU steal inflates both sides or gets out-measured, while a
+    super-linear pattern blows 3x on every attempt. The absolute ceiling is
+    demoted to a recorded warning, and a generous hang alarm keeps
+    catastrophic backtracking red: it fails this test when a body fails to
+    complete in 60 s while a fixed-work probe shows the machine responsive at
+    both arm time and alarm time (a starved machine can't attribute the
+    delay, so there we only warn and let pytest-timeout own a genuine
+    hang)."""
+    import os
+    import signal
+    import threading
     import time
+    import traceback
+    import warnings
 
     def took(body: str) -> float:
         t0 = time.perf_counter()
         cc.check_text(body)
         return time.perf_counter() - t0
 
-    for body in ("1 " + "111 " * 4900, "1," * 9900, "$" + "1." * 9900, "1 111" * 3900):
-        full = body[: cc.MAX_CHECK_CHARS]
-        half = full[: len(full) // 2]
-        took(half)  # warm the regex cache
-        t_half, t_full = min(took(half) for _ in range(2)), min(took(full) for _ in range(2))
-        assert t_full < 3.0 * t_half + 0.05, (body[:20], t_half, t_full)
-        assert t_full < 10.0, body[:20]
+    def probe() -> float:
+        took(_PROBE_BODY)  # warm
+        return min(took(_PROBE_BODY) for _ in range(2))
+
+    state = {"armed": False, "body": "", "p0": 0.0}
+
+    def on_hang(signum, frame):  # fixed signal-handler signature
+        if not state["armed"]:
+            return
+        state["armed"] = False
+        signal.setitimer(signal.ITIMER_REAL, 0.0)
+        p2 = probe()  # is the machine STILL responsive at alarm time?
+        where = "".join(traceback.format_stack(frame)[-6:])
+        if state["p0"] > _FAST_PROBE_S or p2 > _FAST_PROBE_S:
+            # Starved machine: the delay is not attributable to the pattern.
+            # The ratio gate stays authoritative and pytest-timeout (120 s,
+            # thread method) still owns a genuine infinite hang.
+            warnings.warn(
+                f"number-run body {state['body']!r} still incomplete after "
+                f"{_HANG_ALARM_S}s on a starved machine (probe "
+                f"{state['p0'] * 1000:.0f}ms at arm -> {p2 * 1000:.0f}ms at alarm, "
+                f"loadavg {os.getloadavg()}); recorded, not failed",
+                stacklevel=1,
+            )
+            return
+        raise _NumberRunHang(
+            f"number-run body {state['body']!r} did not complete in "
+            f"{_HANG_ALARM_S}s while the machine was responsive (probe "
+            f"{state['p0'] * 1000:.1f}ms at arm, {p2 * 1000:.1f}ms at alarm, "
+            f"loadavg {os.getloadavg()}) — the run pattern is super-linear. "
+            f"Interrupted at:\n{where}"
+        )
+
+    # SIGALRM timers only exist on POSIX and only work from the main thread;
+    # without them the ratio gate and the warning still apply.
+    have_alarm = hasattr(signal, "SIGALRM") and threading.current_thread() is threading.main_thread()
+    prev = signal.getsignal(signal.SIGALRM) if have_alarm else None
+    if have_alarm:
+        signal.signal(signal.SIGALRM, on_hang)
+    try:
+        for body in ("1 " + "111 " * 4900, "1," * 9900, "$" + "1." * 9900, "1 111" * 3900):
+            full = body[: cc.MAX_CHECK_CHARS]
+            half = full[: len(full) // 2]
+            state["body"] = body[:20]
+            state["p0"] = probe()
+            state["armed"] = True
+            if have_alarm:
+                signal.setitimer(signal.ITIMER_REAL, _HANG_ALARM_S)
+            try:
+                # HALF,FULL,HALF,FULL interleaved (not two blocks): a load
+                # transient inside one attempt inflates BOTH sides, keeping
+                # the ratio honest; block-wise sampling is what let a
+                # transient flake the cov+xdist leg once on linear code.
+                # min() of the two pairs keeps a single stall out of the
+                # result. The first call doubles as regex-cache warmup.
+                t_half = t_full = 0.0  # static provability; loop always runs
+                for attempt in range(1, _RATIO_ATTEMPTS + 1):
+                    th1, tf1 = took(half), took(full)
+                    th2, tf2 = took(half), took(full)
+                    t_half, t_full = min(th1, th2), min(tf1, tf2)
+                    if t_full < 3.0 * t_half + 0.05 or attempt == _RATIO_ATTEMPTS:
+                        break
+                    warnings.warn(
+                        f"number-run ratio gate tripped on attempt {attempt}/"
+                        f"{_RATIO_ATTEMPTS} for {body[:20]!r} "
+                        f"(t_half={t_half:.3f}s t_full={t_full:.3f}s) — "
+                        "re-measuring: transient load or real super-linearity?",
+                        stacklevel=1,
+                    )
+            finally:
+                # clear the flag BEFORE disarming: a signal already raised but
+                # not yet delivered must hit the armed=False guard and no-op,
+                # since the measurements just completed.
+                state["armed"] = False
+                if have_alarm:
+                    signal.setitimer(signal.ITIMER_REAL, 0.0)
+            assert t_full < 3.0 * t_half + 0.05, (body[:20], t_half, t_full, _RATIO_ATTEMPTS)
+            if t_full > _WARN_CEILING_S:
+                warnings.warn(
+                    f"number-run body {body[:20]!r} took {t_full:.1f}s "
+                    f"(> {_WARN_CEILING_S}s ceiling; ratio "
+                    f"{t_full / max(t_half, 1e-9):.1f}x of half-length) — "
+                    "pathological slowdown on this machine, recorded not failed",
+                    stacklevel=1,
+                )
+    finally:
+        if have_alarm:
+            signal.setitimer(signal.ITIMER_REAL, 0.0)
+            signal.signal(signal.SIGALRM, prev)
 
 
 PIPELINE_FIXTURE = json.loads((Path(__file__).parent / "fixtures" / "postiz_pipeline.json").read_text())
