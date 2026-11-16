@@ -332,6 +332,11 @@ def post_skill_error(
         command=anon.get("command", payload.command),
         exit_code=payload.exit_code,
         stack_trace_top=anon.get("stack_trace_top", payload.stack_trace_top),
+        # An agent telling us a marketplace skill it ran misbehaved — this is the
+        # population skill_error_rate_7d is named after (t_a0607d92). Server-set:
+        # the request model has no report_type field and this construction lists
+        # every column explicitly, so a client cannot relabel its own row.
+        report_type=IncidentReport.TYPE_SKILL_ERROR,
     )
     db.add(report)
     db.commit()

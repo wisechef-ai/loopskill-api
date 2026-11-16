@@ -140,6 +140,12 @@ def loopskill_report_skill_error(
         command=None,
         exit_code=None,
         stack_trace_top=details,
+        # MCP loopskill_report_skill_error is an agent reporting a skill it ran
+        # misbehaved — the population skill_error_rate_7d is named after
+        # (t_a0607d92). This rail also files the curator-repo issue via the
+        # provenance routing below, so the two surfaces now agree on what a row
+        # means. Server-set; the tool signature takes no provenance argument.
+        report_type=IncidentReport.TYPE_SKILL_ERROR,
     )
     db.add(report)
     db.commit()

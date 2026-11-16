@@ -186,6 +186,12 @@ def post_incident(
         command=payload.command,
         exit_code=payload.exit_code,
         stack_trace_top=payload.stack_trace_top,
+        # A crash report from the auto-improve agent — the tooling crashed, which
+        # says nothing about any marketplace skill. Counting these under
+        # skill_error_rate_7d is the conflation t_a0607d92 found. Server-set:
+        # IncidentIn has no report_type field, so a client cannot launder a crash
+        # into the skill-error metric.
+        report_type=IncidentReport.TYPE_INCIDENT,
     )
     db.add(report)
     db.commit()
