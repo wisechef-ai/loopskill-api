@@ -26,11 +26,18 @@ Two ways to opt in:
 
        bash scripts/test-migrations-against-postgres.sh
 
-   That script spins ``pgvector/pgvector:pg16`` on port 5499, exports the
-   right env vars, runs this test, and tears the container down. ~25s.
+   That script spins ``pgvector/pgvector:pg16`` on a free port (5499 default),
+   exports the right env vars, runs the whole ``tests/migrations/`` dir plus
+   the ``*_psycopg2`` deploy-safety regressions, and tears the container down.
+   ~2 min.
 
-2. CI matrix job — set ``WITH_POSTGRES=1`` plus ``POSTGRES_DSN`` to a
-   reachable Postgres URL. See ``.github/workflows/ci.yml`` migration-postgres job.
+2. CI — the ``migrations-postgres`` job in ``.github/workflows/ci.yml``
+   sets ``WITH_POSTGRES=1`` + ``POSTGRES_DSN`` + ``DATABASE_URL`` against a
+   ``postgres:17`` service container (the prod dialect, matching
+   docker-compose.prod.yml) and runs the same target set. The job ends with
+   an anti-skip assertion that fails red if a named Postgres gate reports
+   SKIPPED instead of PASSED — a fully-skipped gate looks green otherwise
+   (that is how F-4 hid; see the job's comments).
 
 References
 ----------
@@ -44,7 +51,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-import tempfile
 import uuid
 from pathlib import Path
 
@@ -54,6 +60,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # Same constants as the SQLite test — pin the chain points we depend on
 BASELINE_REV = "4ba0bf05cd47"
+
+# table -> columns exempt from the model↔schema parity check in
+# test_model_columns_present_after_full_upgrade. Keep this EMPTY whenever
+# possible: an entry here is a column the migration chain deliberately does
+# NOT manage, and every entry MUST carry a reason comment. An entry without a
+# real reason is how F-4-class drift comes back.
+_PARITY_SKIP_COLUMNS: dict[str, set[str]] = {}
 
 # Tables that the BASELINE production schema had at rev a7f7db696591 (which is
 # what BASELINE_DDL captures). Lifted verbatim from
@@ -200,9 +213,7 @@ def test_alembic_upgrade_head_from_baseline_postgres(fresh_postgres_db):
     _seed_baseline_schema(fresh_postgres_db)
 
     stamp = _run_alembic(["stamp", BASELINE_REV], fresh_postgres_db)
-    assert stamp.returncode == 0, (
-        f"alembic stamp failed:\nSTDOUT: {stamp.stdout}\nSTDERR: {stamp.stderr}"
-    )
+    assert stamp.returncode == 0, f"alembic stamp failed:\nSTDOUT: {stamp.stdout}\nSTDERR: {stamp.stderr}"
 
     upgrade = _run_alembic(["upgrade", "head"], fresh_postgres_db)
     assert upgrade.returncode == 0, (
@@ -214,9 +225,7 @@ def test_alembic_upgrade_head_from_baseline_postgres(fresh_postgres_db):
     assert current.returncode == 0
     # Head changes over time, but alembic-current always prints the rev.
     # Check it contains "(head)" — alembic appends that marker.
-    assert "(head)" in current.stdout, (
-        f"upgrade succeeded but current revision is not head: {current.stdout}"
-    )
+    assert "(head)" in current.stdout, f"upgrade succeeded but current revision is not head: {current.stdout}"
 
 
 def test_bootstrap_legacy_tables_creates_users_with_baseline_columns(fresh_postgres_db):
@@ -233,9 +242,7 @@ def test_bootstrap_legacy_tables_creates_users_with_baseline_columns(fresh_postg
     stamp = _run_alembic(["stamp", BASELINE_REV], fresh_postgres_db)
     assert stamp.returncode == 0
 
-    upgrade_to_bootstrap = _run_alembic(
-        ["upgrade", "a8b9c0d1e2f3"], fresh_postgres_db
-    )
+    upgrade_to_bootstrap = _run_alembic(["upgrade", "a8b9c0d1e2f3"], fresh_postgres_db)
     assert upgrade_to_bootstrap.returncode == 0, (
         f"alembic upgrade to bootstrap failed:\n"
         f"STDOUT: {upgrade_to_bootstrap.stdout}\nSTDERR: {upgrade_to_bootstrap.stderr}"
@@ -246,8 +253,7 @@ def test_bootstrap_legacy_tables_creates_users_with_baseline_columns(fresh_postg
 
     for table in ("users", "api_keys", "creators", "creator_payouts", "referrals"):
         cur.execute(
-            "SELECT 1 FROM information_schema.tables "
-            "WHERE table_schema='public' AND table_name = %s;",
+            "SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name = %s;",
             (table,),
         )
         assert cur.fetchone(), f"bootstrap migration did not create '{table}'"
@@ -280,43 +286,70 @@ def test_bootstrap_legacy_tables_creates_users_with_baseline_columns(fresh_postg
 
 
 def test_model_columns_present_after_full_upgrade(fresh_postgres_db):
-    """After ``upgrade head``, every column declared in ``app.models`` exists.
+    """After ``upgrade head``, every column declared by EVERY model exists.
 
-    Detects model-vs-migration drift — if someone adds a column to a model
-    and forgets the migration (or vice versa), this catches it on Postgres.
+    Model-vs-schema drift detection across the WHOLE registry, not just the
+    five bootstrapped tables. F-4 (2026-11-16): this test used to iterate only
+    ``User, APIKey, Creator, CreatorPayout, Referral`` — a column added to any
+    other model with no matching migration passed the entire suite, which is
+    how ``incident_reports.issue_url`` shipped with no parity gate at all.
+    Now every concrete table in ``app.models.Base`` is compared against the
+    live ``information_schema`` after a full chain run, so "model declares it,
+    migration never creates it" is impossible to merge unnoticed.
+
+    Known intentional exclusions go in ``_PARITY_SKIP_COLUMNS`` with a
+    reason — never widen it silently.
     """
     import psycopg2
     from sqlalchemy import inspect as sa_inspect
+
+    from app.models import Base
 
     _seed_baseline_schema(fresh_postgres_db)
     assert _run_alembic(["stamp", BASELINE_REV], fresh_postgres_db).returncode == 0
     upgrade = _run_alembic(["upgrade", "head"], fresh_postgres_db)
     assert upgrade.returncode == 0, upgrade.stderr
 
-    # Compare model columns to live schema for the five bootstrapped tables.
-    from app.models import APIKey, Creator, CreatorPayout, Referral, User
+    # table -> union of declared columns across every mapper for that table.
+    # Joined-table inheritance can put several mappers on one table; a column
+    # declared by ANY of them must exist in the DB.
+    declared: dict[str, set[str]] = {}
+    for mapper in Base.registry.mappers:
+        table = mapper.local_table
+        if table is None:  # abstract / non-table declarative
+            continue
+        declared.setdefault(table.name, set()).update(col.name for col in sa_inspect(mapper.class_).columns)
 
     conn = psycopg2.connect(fresh_postgres_db)
     cur = conn.cursor()
-
-    for model in (User, APIKey, Creator, CreatorPayout, Referral):
-        cur.execute(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_schema='public' AND table_name = %s;",
-            (model.__tablename__,),
-        )
-        live_cols = {r[0] for r in cur.fetchall()}
-        model_cols = {col.name for col in sa_inspect(model).columns}
-        missing = model_cols - live_cols
-        # Filter out cols that the migration chain genuinely doesn't manage
-        # (e.g. server-side compute columns). For now we expect zero missing.
-        assert not missing, (
-            f"{model.__tablename__}: model declares {missing} but migration "
-            f"chain doesn't create them. Either add a migration or drop "
-            f"the column from the model."
-        )
-
+    cur.execute(
+        "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public';"
+    )
+    live: dict[str, set[str]] = {}
+    for tbl, col in cur.fetchall():
+        live.setdefault(tbl, set()).add(col)
     conn.close()
+
+    problems: list[str] = []
+    for table in sorted(declared):
+        model_cols = declared[table] - _PARITY_SKIP_COLUMNS.get(table, set())
+        live_cols = live.get(table)
+        if live_cols is None:
+            problems.append(
+                f"{table}: app.models declares this table but the migration chain never creates it"
+            )
+            continue
+        missing = model_cols - live_cols
+        if missing:
+            problems.append(
+                f"{table}: model declares {sorted(missing)} but the migration chain doesn't create them"
+            )
+    assert not problems, (
+        "model↔schema drift (every model is checked, not just the "
+        "bootstrapped five):\n  "
+        + "\n  ".join(problems)
+        + "\nEither add a migration or drop the column from the model."
+    )
 
 
 def test_tier_drift_sweep_archived_renames_archived_legacy_rows(fresh_postgres_db):
@@ -341,8 +374,7 @@ def test_tier_drift_sweep_archived_renames_archived_legacy_rows(fresh_postgres_d
     # Migrate up to (but not past) the original non-archived sweep.
     upgrade_to_g = _run_alembic(["upgrade", "g1h2i3j4k5l6"], fresh_postgres_db)
     assert upgrade_to_g.returncode == 0, (
-        f"upgrade to g1h2i3j4k5l6 failed:\nSTDOUT: {upgrade_to_g.stdout}\n"
-        f"STDERR: {upgrade_to_g.stderr}"
+        f"upgrade to g1h2i3j4k5l6 failed:\nSTDOUT: {upgrade_to_g.stdout}\nSTDERR: {upgrade_to_g.stderr}"
     )
 
     # Seed: archived rows with legacy slugs (the prod state on 2026-05-20).
@@ -373,22 +405,16 @@ def test_tier_drift_sweep_archived_renames_archived_legacy_rows(fresh_postgres_d
         "GROUP BY tier ORDER BY tier;"
     )
     pre = dict(cur.fetchall())
-    assert pre == {"cook": 2, "operator": 1, "studio": 1}, (
-        f"seed didn't land as expected: {pre}"
-    )
+    assert pre == {"cook": 2, "operator": 1, "studio": 1}, f"seed didn't land as expected: {pre}"
 
     # Apply the archived sweep.
     upgrade_to_h = _run_alembic(["upgrade", "h2i3j4k5l6m7"], fresh_postgres_db)
     assert upgrade_to_h.returncode == 0, (
-        f"upgrade to h2i3j4k5l6m7 failed:\nSTDOUT: {upgrade_to_h.stdout}\n"
-        f"STDERR: {upgrade_to_h.stderr}"
+        f"upgrade to h2i3j4k5l6m7 failed:\nSTDOUT: {upgrade_to_h.stdout}\nSTDERR: {upgrade_to_h.stderr}"
     )
 
     # Post-sweep: ZERO rows with any legacy slug, anywhere.
-    cur.execute(
-        "SELECT COUNT(*) FROM skills "
-        "WHERE tier IN ('cook','operator','studio');"
-    )
+    cur.execute("SELECT COUNT(*) FROM skills WHERE tier IN ('cook','operator','studio');")
     remaining = cur.fetchone()[0]
     assert remaining == 0, (
         f"after h2i3j4k5l6m7, {remaining} rows still have legacy tier slugs. "
@@ -396,14 +422,9 @@ def test_tier_drift_sweep_archived_renames_archived_legacy_rows(fresh_postgres_d
     )
 
     # Counts moved to the right canonical buckets.
-    cur.execute(
-        "SELECT tier, COUNT(*) FROM skills WHERE is_archived=true "
-        "GROUP BY tier ORDER BY tier;"
-    )
+    cur.execute("SELECT tier, COUNT(*) FROM skills WHERE is_archived=true GROUP BY tier ORDER BY tier;")
     arch = dict(cur.fetchall())
     assert arch.get("pro") == 2, f"archived cook→pro count wrong: {arch}"
-    assert arch.get("pro_plus") == 2, (
-        f"archived operator+studio→pro_plus count wrong: {arch}"
-    )
+    assert arch.get("pro_plus") == 2, f"archived operator+studio→pro_plus count wrong: {arch}"
 
     conn.close()

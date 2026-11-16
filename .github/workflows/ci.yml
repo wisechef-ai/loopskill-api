@@ -87,6 +87,127 @@ jobs:
           python -m pytest -q -p no:cacheprovider -n auto --dist loadfile \
             --cov=app --cov-report=term-missing --cov-fail-under=80
 
+  migrations-postgres:
+    name: migrations against Postgres
+    runs-on: ubuntu-latest
+    # F-4 (2026-11-16): this is the gate that was advertised by
+    # tests/migrations/test_chain_postgres.py's docstring but never existed.
+    # The `test` job above starts a postgres:17 service but never sets
+    # WITH_POSTGRES/POSTGRES_DSN, so every Postgres-dialect test opened by
+    # those vars silently SKIPPED — a green check that proved nothing about
+    # the production dialect (CHECK constraints, triggers, GIN indexes,
+    # DDL, model↔migration column parity). This job runs the real thing:
+    #   - whole tests/migrations/ dir (chain-from-baseline, full-registry
+    #     model↔schema parity, trgm/GIN index-scan proofs, downgrade
+    #     reversibility),
+    #   - tests/*_psycopg2.py deploy-safety regressions (catalog invariant
+    #     trigger, cookbook owner CHECK).
+    # Keep the target set in sync with scripts/test-migrations-against-postgres.sh
+    # (the local one-shot; same tests, own container).
+    #
+    # postgres:17 (not pgvector) on purpose: docker-compose.prod.yml runs
+    # vanilla postgres:17, and the pgvector migration has a dialect+extension
+    # probe with a TEXT fallback — this proves the FALLBACK that prod takes.
+    # The pgvector-native branch is exercised locally via the script's
+    # pgvector/pgvector:pg16 container.
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: loopskill
+          POSTGRES_PASSWORD: loopskill
+          POSTGRES_DB: loopskill_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Opens the WITH_POSTGRES skipif gates (tests/migrations/ chain +
+      # *_psycopg2 regressions).
+      WITH_POSTGRES: "1"
+      POSTGRES_DSN: "postgresql://loopskill:loopskill@localhost:5432/loopskill_test"
+      # Opens the postgres_only-marked proofs (issue282 trgm/GIN tests
+      # self-skip unless TEST_DATABASE_URL/DATABASE_URL resolves to a
+      # reachable Postgres — same contract as conftest's engine selection).
+      DATABASE_URL: "postgresql://loopskill:loopskill@localhost:5432/loopskill_test"
+      # WR stays sqlite (same contract as the `test` job): app.config's
+      # production-secrets gate must never fire in a test job. The migration
+      # fixtures set WR_DATABASE_URL themselves per alembic subprocess.
+      WR_DATABASE_URL: "sqlite:///:memory:"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # pytest-xdist is required even for -n 0: conftest's fixtures
+          # request xdist's worker_id (same finding as ci-proof.yml).
+          pip install pytest pytest-xdist pytest-timeout
+      - name: Run migration + psycopg2 gates against Postgres 17
+        run: |
+          set -euo pipefail
+          python -m pytest -v --tb=short -rA -p no:cacheprovider \
+            -n auto --dist loadfile \
+            tests/migrations/ \
+            tests/test_catalog_invariant_trigger_psycopg2.py \
+            tests/test_loopclose_3005_x_migration_psycopg2.py \
+            | tee postgres-migrations.log
+      - name: Assert the Postgres gates actually RAN (anti-skip)
+        # A job in which every Postgres-gated test skips is GREEN — and
+        # proves nothing. That is exactly how F-4 hid for months, so this
+        # step hard-fails if any named Postgres-only gate did not report
+        # PASSED in the -rA summary above. When you add a Postgres-only
+        # gate (a WITH_POSTGRES skipif or a postgres_only marker), add its
+        # node id here too.
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import sys
+
+          REQUIRED = [
+              # tests/migrations/test_chain_postgres.py — full chain + parity
+              "tests/migrations/test_chain_postgres.py::test_alembic_upgrade_head_from_baseline_postgres",
+              "tests/migrations/test_chain_postgres.py::test_bootstrap_legacy_tables_creates_users_with_baseline_columns",
+              "tests/migrations/test_chain_postgres.py::test_model_columns_present_after_full_upgrade",
+              "tests/migrations/test_chain_postgres.py::test_tier_drift_sweep_archived_renames_archived_legacy_rows",
+              # tests/migrations/test_issue282_fed_hub_trgm.py — postgres_only proofs
+              "tests/migrations/test_issue282_fed_hub_trgm.py::TestRedProofLegacyThreeIndexDesignWasBroken::test_three_column_indexes_with_or_still_seq_scans",
+              "tests/migrations/test_issue282_fed_hub_trgm.py::TestPostgresIndexScan::test_explain_shows_index_scan_not_seq_scan",
+              "tests/migrations/test_issue282_fed_hub_trgm.py::TestPostgresIndexScan::test_search_federated_group_uses_index_and_returns_seeded_row",
+              "tests/migrations/test_issue282_fed_hub_trgm.py::TestPostgresReversibility::test_downgrade_drops_index_upgrade_recreates_it",
+              "tests/migrations/test_issue282_fed_hub_trgm.py::TestQueryResultEquivalence::test_new_expression_matches_original_or_clauses[kubernetes]",
+              "tests/migrations/test_issue282_fed_hub_trgm.py::TestQueryResultEquivalence::test_new_expression_matches_original_or_clauses[Skill]",
+              "tests/migrations/test_issue282_fed_hub_trgm.py::TestQueryResultEquivalence::test_new_expression_matches_original_or_clauses[nothing]",
+              "tests/migrations/test_issue282_fed_hub_trgm.py::TestQueryResultEquivalence::test_new_expression_matches_original_or_clauses[unrelated]",
+              # tests/*_psycopg2.py — deploy-safety regressions
+              "tests/test_catalog_invariant_trigger_psycopg2.py::test_trigger_function_creates_via_psycopg2",
+              "tests/test_loopclose_3005_x_migration_psycopg2.py::test_phase_x_migration_cleanup_and_invariant",
+          ]
+
+          passed = set()
+          with open("postgres-migrations.log", encoding="utf-8", errors="replace") as fh:
+              for line in fh:
+                  if line.startswith("PASSED "):
+                      passed.add(line.split()[1])
+
+          missing = [t for t in REQUIRED if t not in passed]
+          if missing:
+              print("::error::Postgres gate is NOT actually running — these "
+                    "tests did not report PASSED (skipped or never collected):")
+              for t in missing:
+                  print(f"  - {t}")
+              sys.exit(1)
+          print(f"All {len(REQUIRED)} named Postgres gates ran and passed. "
+                f"(Total PASSED in job: {len(passed)}.)")
+          PY
+
   secret-scan:
     name: secret scan (gitleaks)
     runs-on: ubuntu-latest

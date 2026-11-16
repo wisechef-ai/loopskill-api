@@ -12,12 +12,20 @@
 #
 # Why this script exists
 # ----------------------
-# tests/migrations/test_chain_postgres.py runs alembic upgrade head against a
-# real Postgres database — the actual production dialect. SQLite test fixtures
+# tests/migrations/ holds the Postgres-dialect gates (chain-from-baseline,
+# model↔schema parity, trgm/GIN index proofs, downgrade reversibility), and
+# tests/*_psycopg2.py holds deploy-safety regressions — SQLite fixtures
 # can't exercise Postgres-only DDL (FK ALTER, JSONB casts, GIN indexes,
-# information_schema reads, etc.), so without a real Postgres they were
-# silently lying — which is exactly how the recipes_2005/G regression slipped
-# through to production.
+# CHECK constraints, triggers, information_schema reads, etc.), so without a
+# real Postgres they were silently lying — which is exactly how the
+# recipes_2005/G regression slipped through to production, and how F-4
+# (2026-11-16: CI's advertised Postgres migration gate never actually ran)
+# hid for months.
+#
+# The target is deliberately the WHOLE tests/migrations/ dir (not a single
+# file) so any new gate added there is picked up automatically, plus the
+# *_psycopg2 deploy-safety regressions. This mirrors the `migrations-postgres`
+# job in .github/workflows/ci.yml — keep the two target sets in sync.
 #
 # Documented in the alembic-postgres-only-sql-discipline skill.
 
@@ -87,8 +95,21 @@ fi
 
 export WITH_POSTGRES=1
 export POSTGRES_DSN="postgresql://postgres:test@127.0.0.1:${PORT}/postgres"
+# DATABASE_URL opens the postgres_only-marked proofs (e.g. the issue282
+# trgm/GIN index-scan tests use the app's own engine-selection contract,
+# TEST_DATABASE_URL > DATABASE_URL, to decide whether a real Postgres is
+# reachable). Without it those tests self-skip here and the local run would
+# silently prove LESS than the CI migrations-postgres job — keep them equal.
+export DATABASE_URL="${POSTGRES_DSN}"
 
 echo "→ Running migration tests against ${POSTGRES_DSN%/*}..."
-pytest tests/migrations/test_chain_postgres.py -v --tb=short "$@"
+# Whole tests/migrations/ dir — new gates are picked up automatically
+# (F-4: this line used to hardcode test_chain_postgres.py alone, so every
+# gate added under tests/migrations/ after that never ran). Mirrors the
+# migrations-postgres job in .github/workflows/ci.yml.
+pytest tests/migrations/ \
+  tests/test_catalog_invariant_trigger_psycopg2.py \
+  tests/test_loopclose_3005_x_migration_psycopg2.py \
+  -v --tb=short "$@"
 
 echo "→ All migration tests passed."

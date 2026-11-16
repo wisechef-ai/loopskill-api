@@ -136,7 +136,7 @@ Hooks (local `pre-commit install`, NOT all enforced in CI — see CI workflows t
 
 | File | Triggers | What it does |
 |------|----------|--------------|
-| `.github/workflows/ci.yml` | push/PR to main | `ruff check` + `ruff format --check`, pytest + coverage ≥80%, gitleaks secret scan |
+| `.github/workflows/ci.yml` | push/PR to main | `ruff check` + `ruff format --check`, pytest + coverage ≥80%, **migrations-postgres** (whole `tests/migrations/` dir + `*_psycopg2` regressions against a real `postgres:17` service, with an anti-skip step that fails the job if a named Postgres gate skips instead of passes), gitleaks secret scan |
 | `.github/workflows/lint.yml` | push/PR to main | `bandit -r app/ -lll` (HIGH only) + `pip-audit` |
 | `.github/workflows/deploy.yml` | push to main (after CI green) | self-hosted runner: git pull + pip install + alembic upgrade + systemd restart + public verification |
 
