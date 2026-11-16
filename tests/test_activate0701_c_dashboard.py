@@ -41,7 +41,13 @@ def test_dashboard_empty(client, db_session):
     body = r.json()
     assert body["fleet_name"] == "dash-fleet"
     assert body["members"] == []
-    assert body["voice"]["skill_errors"] == 0
+    # t_a7ebcc96: the skill_errors badge is retired, not pinned to 0. A permanent
+    # zero is what made a structurally-dead rail look healthy for 4.5 months, so
+    # the key must be ABSENT — a reader that assumes it exists should fail loudly.
+    voice = body["voice"]
+    assert "skill_errors" not in voice
+    assert voice["recipify_requests"] == 0
+    assert voice["feedback"] == 0
 
 
 def test_dashboard_with_member(client, db_session):

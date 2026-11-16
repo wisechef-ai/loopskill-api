@@ -31,8 +31,16 @@ class SyncReportIn(BaseModel):
     cycle_ts: ISO timestamp of the 30-min cycle this report covers.
     lockfile_state: NOT stored as rows (D9); only bumps member liveness.
     loop_runs: raw loop outcome records (capped at 200 server-side).
-    skill_errors: agent-reported skill errors (capped at 100).
+    skill_errors: DEPRECATED — accepted, never stored (see below).
     cron_health: failures + counts snapshot (failed list capped at 50).
+
+    ``skill_errors`` is kept on the wire so an old emitter cannot start failing
+    (extra keys are ignored by Pydantic anyway, so this is documentation, not a
+    compat shim), but nothing has ever been persisted from it: no client produced
+    the key and skill_error_reports held 0 rows for its whole life. The server
+    answers the count it dropped under ``recorded.skill_errors_ignored`` — see
+    app/services/sync_report.py. To report a skill error that actually lands,
+    use POST /api/v1/skill-error or the loopskill_report_skill_error MCP tool.
     """
 
     cycle_ts: str | None = None

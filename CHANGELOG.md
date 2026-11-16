@@ -4,6 +4,47 @@ All notable changes to recipes-api are documented here. Format loosely follows [
 
 ## [Unreleased]
 
+### Removed
+
+- **Fleet sync-report skill-error rail retired** (`t_a7ebcc96`, 2026-11-16).
+  `skill_error_reports` held **0 rows across its entire existence** (2026-07-02 →
+  2026-11-16) while `POST /api/sync-report` stayed demonstrably healthy — 22,834
+  accepted sync cycles over that window (~167/day across the 3 live members;
+  count of `cron_health_snapshots`, prod, 2026-11-16). The cause is structural, not luck: its only writer read
+  `payload["skill_errors"]`, and the fleet client that builds that payload
+  (`scripts/loopskill-collect-reports.py::build_payload()`) has never had a
+  `skill_errors` key — the only code in the repo that ever populated the field
+  was `scripts/load_test_sync_report.py`, a load tester aimed at a disposable DB.
+  Removed, in dependency order (readers before writer before table):
+  the `voice_counts.skill_errors` pending badge on `GET /api/fleets/{id}/dashboard`,
+  the `type: "skill_error"` items of MCP `loopskill_voice_inbox_read`, the
+  skill_error rail + `item_type` of `app/voice_routes.py` (both of its endpoints
+  were already tombstoned 2026-09-22 at 0 requests/30d), the `SkillErrorReport`
+  model, and the ingestion block in `app/services/sync_report.py`.
+  Migration `ser1116b_retire_skill_err` drops the table, **hard-aborts if it ever
+  holds a row**, and its `downgrade` recreates the table and its four indexes
+  byte-for-byte. `pg_dump -t skill_error_reports` taken before merge; row recorded
+  in `~/.hermes/state/deletion-ledger.tsv`.
+  `skill_errors` is still **accepted** on the sync-report wire (ignored) so no old
+  emitter can start failing; the ack now answers `recorded.skill_errors_ignored`
+  instead of the old unfalsifiable `recorded.skill_errors`.
+  **Skill errors agents actually report are unaffected** — they are
+  `IncidentReport` rows via `POST /api/v1/skill-error`, `POST /api/feedback/incident`
+  and MCP `loopskill_report_skill_error`. Regression-pinned by
+  `tests/test_t1116_retire_skill_error_reports.py`, which fails if a producer-less
+  version of this rail is ever rebuilt.
+  **Two premises in the originating audit were wrong and are corrected here.**
+  (1) `POST /api/sync-report` was never dark: it is ingesting now (`max
+  cron_health_snapshots.created_at` = 2026-11-16 15:43 UTC, all 3 live members).
+  The audit inferred "ingest silent ~2 months" from `max(loop_runs.started_at)`
+  = 2026-09-16, which tracks something else entirely. (2) The "20,829 live
+  loop_runs" in the title are not live agent outcomes: **20,828** of them are the
+  self-originated `p4-loop-proof` beacon (`is_synthetic = true`,
+  `detail = "scheduled fire ok"`, correctly classified by mesh_0408 W4) and the
+  20,829th is one manual Phase T gate-1 test on 2026-07-02. No real agent loop
+  outcome has ever been ingested — the same missing-producer shape as
+  `skill_errors`, one layer up. Follow-ups filed separately.
+
 ## [0.9.48] — 2026-09-02 — feat/funnel-ledger (flywheel_0902/B)
 
 ### Added

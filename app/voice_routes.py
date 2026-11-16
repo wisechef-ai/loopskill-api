@@ -1,9 +1,15 @@
 """Phase FB+VOICE — agent voice wiring + fleet owner inbox (activate_0701).
 
-Routes the EXISTING voice models (FeedbackSubmission, RecipifyRequest,
-SkillErrorReport) into an aggregated fleet-level inbox. Deployed agents get
-the voice tools wired by default; per-fleet auto-issue toggle controls whether
-pending SkillErrorReports auto-file GitHub issues.
+Routes the EXISTING voice models (FeedbackSubmission, RecipifyRequest) into an
+aggregated fleet-level inbox.
+
+RETIRED (t_a7ebcc96, 2026-11-16): the SkillErrorReport rail is deleted. Its only
+writer was app/services/sync_report.py reading payload["skill_errors"] from
+POST /api/sync-report, and no client has ever sent that key
+(scripts/loopskill-collect-reports.py:build_payload() has no skill_errors field),
+so the table held 0 rows for its entire existence. Both endpoints here were
+already tombstoned on 2026-09-22 (docs/ops/tombstones.md) with 0 requests in the
+30-day inventory, so no consumer lost anything, ever.
 
 Endpoints:
   GET  /api/fleets/{fleet_id}/voice-inbox    — paginated aggregated stream
@@ -20,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.fleet_routes import resolve_fleet_ctx
-from app.models import FeedbackSubmission, Fleet, RecipifyRequest, SkillErrorReport
+from app.models import FeedbackSubmission, Fleet, RecipifyRequest
 from app.tombstone import tombstoned  # moneypath-C: 0-use public surfaces (routes kept)
 
 router = APIRouter(prefix="/api/fleets", tags=["voice-inbox"])
@@ -56,10 +62,15 @@ def get_voice_inbox(
     status_filter: str = Query(default="pending,filed", alias="status"),
     after: str | None = Query(default=None),
 ) -> dict[str, Any]:
-    """Aggregated voice inbox: skill_errors + loop_failures + recipify + feedback.
+    """Aggregated voice inbox: recipify requests + feedback.
 
-    Reads from SkillErrorReport (pending), RecipifyRequest (pending),
-    FeedbackSubmission (pending) — UNION'd by created_at, keyset-paginated.
+    Reads from RecipifyRequest (pending), FeedbackSubmission (pending) —
+    UNION'd by created_at, keyset-paginated.
+
+    The skill_error rail was removed 2026-11-16 (t_a7ebcc96): see module docstring.
+    ``status`` values accepted for ``item_type`` are ``recipify_request`` and
+    ``feedback``; ``skill_error`` now resolves to 422 invalid_item_type rather
+    than silently "resolving" a row in a table that has never held a row.
     """
     fleet = _resolve_owned_fleet(db, fleet_id, request)
     statuses = [s.strip() for s in status_filter.split(",") if s.strip()]
@@ -75,26 +86,6 @@ def get_voice_inbox(
         .filter(FleetMember.fleet_id == fleet.id, FleetMember.is_active == True)  # noqa: E712
         .all()
     ]
-
-    # Skill errors from deployed members
-    for r in (
-        db.query(SkillErrorReport)
-        .filter(SkillErrorReport.member_id.in_(member_ids) if member_ids else SkillErrorReport.id.is_(None))
-        .filter(SkillErrorReport.feedback_status.in_(statuses))
-        .order_by(SkillErrorReport.created_at.desc())
-        .limit(limit)
-        .all()
-    ):
-        items.append(
-            {
-                "type": "skill_error",
-                "id": str(r.id),
-                "slug": r.slug,
-                "summary": (r.summary or "")[:200],
-                "status": r.feedback_status,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-            }
-        )
 
     # RecipifyRequest (by fleet owner)
     for r in (
@@ -164,8 +155,10 @@ def resolve_voice_item(
 ) -> dict[str, str]:
     """Mark a voice inbox item as resolved."""
     _resolve_owned_fleet(db, fleet_id, request)
+    # "skill_error" is intentionally absent (t_a7ebcc96): the table it named is
+    # dropped by this PR, so keeping the key would 404 instead of telling the
+    # caller the item type no longer exists.
     model_map = {
-        "skill_error": SkillErrorReport,
         "recipify_request": RecipifyRequest,
         "feedback": FeedbackSubmission,
     }

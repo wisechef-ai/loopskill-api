@@ -22,6 +22,14 @@ VPS-class extrapolation (documented in docs/design/):
     Each POST carries ~200 loop_runs + ~50 skill_errors + cron_health.
     DB rows/day at 200 agents: ~9,600 × 250 = 2.4M raw rows, ~9,600 rollup rows.
     Pruned at 30d retention → steady-state ~72M raw rows, ~288K rollup rows.
+
+NOTE (t_a7ebcc96, 2026-11-16): the ``skill_errors`` section of the payload is
+still SENT by this loader on purpose — it is still accepted on the wire — but the
+server no longer persists it, so it contributes 0 rows. The extrapolation above
+therefore overstates raw rows/day by the ~50 skill_error rows per POST: the live
+figure is ~200 loop_run rows + 1 cron_health row = ~201 rows/POST, ~1.9M rows/day
+at 200 agents. The bytes on the wire are unchanged, so p95 numbers stay directly
+comparable with the pre-change baseline.
 """
 
 from __future__ import annotations

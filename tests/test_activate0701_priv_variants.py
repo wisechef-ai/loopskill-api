@@ -59,8 +59,14 @@ def test_private_variant_reconcile_serves_fork(db_session):
 
 
 def test_private_variant_voice_routes_to_org(db_session):
-    """Voice feedback on a variant carries the fork slug, not upstream."""
-    from app.models import APIKey, Fleet, FleetMember, SkillErrorReport, User
+    """Voice feedback on a variant carries the fork slug, not upstream.
+
+    Retargeted in t_a7ebcc96: this used SkillErrorReport purely as a slug
+    carrier, and that rail (skill_error_reports) is dropped by this PR — it had
+    0 rows in its entire life. RecipifyRequest is a voice rail that does receive
+    rows, so the same round-trip is now proven on a live surface.
+    """
+    from app.models import APIKey, Fleet, FleetMember, RecipifyRequest, User
     import hashlib
 
     owner = User(email="v@t.com", display_name="V", subscription_tier="pro_plus")
@@ -72,16 +78,18 @@ def test_private_variant_voice_routes_to_org(db_session):
     member = FleetMember(fleet_id=fleet.id, host="vh", profile="d", skills_dir="~", api_key_id=key.id)
     db_session.add(member); db_session.flush()
 
-    err = SkillErrorReport(
-        member_id=member.id,
-        fleet_id=fleet.id,
-        slug="catalog-skill-org-private",
+    req = RecipifyRequest(
+        target_name="catalog-skill-org-private",
+        why_useful="Private variant crashed",
+        suggested_sources=[],
+        api_key_id=key.id,
         signature="sig",
-        summary="Private variant crashed",
+        feedback_status="pending",
     )
-    db_session.add(err)
+    db_session.add(req)
     db_session.commit()
 
-    db_session.refresh(err)
-    assert err.slug == "catalog-skill-org-private"
-    assert "private" in err.summary.lower()
+    db_session.refresh(req)
+    assert req.target_name == "catalog-skill-org-private"
+    assert "private" in req.why_useful.lower()
+    assert req.api_key_id == key.id
