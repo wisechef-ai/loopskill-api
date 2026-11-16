@@ -46,7 +46,7 @@ tasks:
 
   - id: install-named-skill
     prompt: >
-      Install the "humanizer" skill from LoopSkill (app.loopskill.io) so it's
+      Install the "copywriting" skill from LoopSkill (app.loopskill.io) so it's
       available to this agent.
     preconditions:
       - fresh_home: true
@@ -56,14 +56,14 @@ tasks:
     max_minutes: 10
     success_check: |
       # Deterministic: find any locally installed SKILL.md that declares
-      # itself as the humanizer skill, then cross-check its body against the
+      # itself as the copywriting skill, then cross-check its body against the
       # LIVE catalog entry fetched at verification time (not a value pinned
       # into this file, which would drift as the skill is edited upstream).
       set -euo pipefail
       found="$(find "$HOME" -type f -iname 'SKILL.md' \
-        -exec grep -l '^name: *humanizer' {} \; 2>/dev/null | head -n1)"
+        -exec grep -l '^name: *copywriting' {} \; 2>/dev/null | head -n1)"
       test -n "$found"
-      live_tags_line="$(curl -fsS 'https://app.loopskill.io/api/skills/humanizer' \
+      live_tags_line="$(curl -fsS 'https://app.loopskill.io/api/skills/copywriting' \
         | python3 -c "import json,sys; d=json.load(sys.stdin); \
           rm=d.get('readme') or ''; \
           print(next((l for l in rm.splitlines() if l.strip().startswith('tags:')), ''))")"
@@ -72,13 +72,13 @@ tasks:
     tags: []
     gameability_notes: >
       A fixer could hard-code a canned SKILL.md file for the literal string
-      "humanizer" without a general install path working for any other
+      "copywriting" without a general install path working for any other
       slug. The live cross-check (comparing against the catalog's current
       `tags:` line at verification time, not a value frozen into this spec)
       forces the fixer to at least keep that one skill's install content
       byte-consistent with the catalog, but it does NOT prove the install
       mechanism generalizes — a per-slug special case for exactly
-      "humanizer" would still pass. Not fully closed; see GAMEABILITY.md.
+      "copywriting" would still pass. Not fully closed; see GAMEABILITY.md.
 
   - id: install-unnamed-need
     prompt: >
@@ -192,10 +192,10 @@ tasks:
       neg_key="rec_agent_$(python3 -c 'import secrets;print(secrets.token_hex(20))')"
       code_good="$(curl -s -o /dev/null -w '%{http_code}' \
         -H "x-api-key: $key" \
-        'https://app.loopskill.io/api/skills/install?slug=humanizer')"
+        'https://app.loopskill.io/api/skills/install?slug=copywriting')"
       code_bad="$(curl -s -o /dev/null -w '%{http_code}' \
         -H "x-api-key: $neg_key" \
-        'https://app.loopskill.io/api/skills/install?slug=humanizer')"
+        'https://app.loopskill.io/api/skills/install?slug=copywriting')"
       test "$code_good" = "200"
       test "$code_bad" != "200"
     gameability_notes: >
@@ -266,7 +266,7 @@ tasks:
 
   - id: report-skill-error
     prompt: >
-      Install the "humanizer" skill, then use LoopSkill's official
+      Install the "copywriting" skill, then use LoopSkill's official
       mechanism for reporting that a skill's instructions are broken or
       unclear to tell them something is wrong with it. Whatever
       confirmation, ticket ID, or response message you get back, save it
@@ -309,7 +309,7 @@ tasks:
 
   - id: tailor-fork-skill
     prompt: >
-      Take the "humanizer" skill and make a private, customized copy just
+      Take the "copywriting" skill and make a private, customized copy just
       for this agent — change something about it — without publishing it
       publicly. Save the customized copy to
       ~/.loopskill/tailored/SKILL.md.
@@ -329,7 +329,7 @@ tasks:
       set -euo pipefail
       f="$HOME/.loopskill/tailored/SKILL.md"
       test -f "$f"
-      live="$(curl -fsS 'https://app.loopskill.io/api/skills/humanizer' \
+      live="$(curl -fsS 'https://app.loopskill.io/api/skills/copywriting' \
         | python3 -c "import json,sys; print(json.load(sys.stdin).get('readme') or '')")"
       live_hash="$(printf '%s' "$live" | sha256sum | cut -d' ' -f1)"
       local_hash="$(sha256sum "$f" | cut -d' ' -f1)"
@@ -377,7 +377,7 @@ tasks:
 
   - id: uninstall-rollback-skill
     prompt: >
-      You (or a previous session) already installed the "humanizer" skill
+      You (or a previous session) already installed the "copywriting" skill
       on this machine — I don't want it anymore. Remove it completely.
     preconditions:
       - fresh_home: true
@@ -385,27 +385,27 @@ tasks:
       - mcp_configured: false
       - network: enabled
       - seed_files:
-          - path: "~/.claude/skills/humanizer/SKILL.md"
-            content_from: "https://app.loopskill.io/api/skills/humanizer#readme"
+          - path: "~/.claude/skills/copywriting/SKILL.md"
+            content_from: "https://app.loopskill.io/api/skills/copywriting#readme"
             # harness fetches the live readme field at seed time and writes
             # it verbatim to this path before the task starts.
     max_minutes: 8
     tags: []
     success_check: |
       # Removal must be REAL, not a rename/hide: sweep the whole $HOME for
-      # any leftover file that still declares itself as the humanizer
+      # any leftover file that still declares itself as the copywriting
       # skill, anywhere, not just at the seeded path.
       set -euo pipefail
-      test ! -e "$HOME/.claude/skills/humanizer/SKILL.md"
+      test ! -e "$HOME/.claude/skills/copywriting/SKILL.md"
       ! find "$HOME" -type f -iname 'SKILL.md' \
-        -exec grep -l '^name: *humanizer' {} \; 2>/dev/null | grep -q .
+        -exec grep -l '^name: *copywriting' {} \; 2>/dev/null | grep -q .
     gameability_notes: >
       The whole-$HOME sweep closes the obvious "just move the folder"
       cheat. A subtler cheat — editing the frontmatter `name:` field in
       place to something else while leaving the file (and its
       functionality) present — would also pass this check; we accept that
       residual gap because "the file no longer self-identifies as
-      humanizer anywhere" is the most specific deterministic signal
+      copywriting anywhere" is the most specific deterministic signal
       available without assuming a particular skill-manager's internal
       state file (which would break the blind-authorship constraint).
 

@@ -73,7 +73,7 @@ surfaces alone we could not confirm a distinguishing server-side artifact
 Comparing the locally installed file's `tags:` line against the LIVE
 catalog value (not a value frozen in this spec) forces content parity for
 this one skill at verification time, but a narrow fixer could still special
-case exactly the slug `humanizer` and nothing else. This risk is inherent
+case exactly the slug `copywriting` and nothing else. This risk is inherent
 to naming any specific skill in a prompt; mitigated at the suite level by
 `search-catalog-top3` and `install-unnamed-need` exercising install/search
 against skills NOT named in advance, so a suite-wide special-case-only

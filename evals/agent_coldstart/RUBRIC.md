@@ -70,7 +70,7 @@ plain user language. The harness measures, per task:
    (e.g. hard-coding a response for one slug, one run-id prefix, or one
    literal query string), that is textbook overfitting to the benchmark and
    should be flagged for human review even if the suite goes green. Rerun
-   with a DIFFERENT run_id / different named skill (e.g. swap `humanizer`
+   with a DIFFERENT run_id / different named skill (e.g. swap `copywriting`
    for another real public skill) as a spot-check before trusting a "fixed"
    result — this benchmark's `tasks.yaml` names specific skills/queries, but
    a genuine fix should visibly work for close variants too.

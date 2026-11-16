@@ -269,8 +269,14 @@ def post_skill_error(
             detail="Error reporting is disabled (RECIPES_REPORT_ERRORS=false).",
         )
 
-    # Look up skill by slug
-    skill = db.query(Skill).filter(Skill.slug == payload.skill_slug).first()
+    # Look up skill by slug. Same visibility predicate as the public lookup route
+    # (GET /api/skills/{slug}): an archived or non-public skill answers the same
+    # 404 as a missing one, so this rail can never file a GitHub issue for it.
+    skill = (
+        db.query(Skill)
+        .filter(Skill.slug == payload.skill_slug, Skill.is_public == True, Skill.is_archived == False)  # noqa: E712
+        .first()
+    )
     if skill is None:
         raise HTTPException(status_code=404, detail=f"skill not found: {payload.skill_slug}")
 
