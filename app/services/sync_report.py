@@ -1,7 +1,24 @@
 """Sync-report ingestion service — activate_0701 Phase T.
 
-Batched ingestion of fleet telemetry (loop runs, cron health, skill errors).
+Batched ingestion of fleet telemetry (loop runs, cron health, lockfile state).
 Kept in the services layer so the route module stays thin (600-line gate).
+
+RETIRED (t_a7ebcc96, 2026-11-16): the `skill_errors` section is no longer
+ingested. It was the ONLY writer of skill_error_reports, and the fleet client
+never sent the key — scripts/loopskill-collect-reports.py:build_payload() builds
+cycle_ts / lockfile_state / loop_runs / cron_health and nothing else.
+
+The emptiness was structural, not an outage. This endpoint stayed demonstrably
+healthy the whole time: 22,834 accepted sync cycles between 2026-07-02 and
+2026-11-16 (~167/day across the 3 live members; count of cron_health_snapshots,
+prod, measured 2026-11-16 — the newest row landed 7 minutes before that
+measurement), and skill_error_reports still held 0 rows. A field no client
+produces cannot fill a table no matter how healthy the ingest is.
+
+The request field is still ACCEPTED (ignored) for wire compatibility; see
+app/sync_report_routes.py. Skill errors agents actually report are IncidentReport
+rows — POST /api/v1/skill-error, POST /api/feedback/incident, MCP
+loopskill_report_skill_error.
 
 Key functions:
   - ingest_sync_report: caps, truncation, inserts. Returns (recorded, truncated).
@@ -26,7 +43,6 @@ from app.models import (
     LoopRun,
     LoopRunDailyRollup,
     MemberLockfileSnapshot,
-    SkillErrorReport,
 )
 from app.services.synthetic_runs import (
     SELF_ORIGINATED_LOOP_SLUGS,
@@ -39,7 +55,6 @@ logger = logging.getLogger(__name__)
 # ── D9 size caps (from design contract §endpoint) ──────────────────────────
 
 MAX_LOOP_RUNS = 200
-MAX_SKILL_ERRORS = 100
 MAX_CRON_FAILED = 50
 MAX_FIELD_LEN = 2000
 MAX_LOCKFILE_SKILLS = 500  # feat/fleet-console-state — cap per snapshot
@@ -144,26 +159,11 @@ def ingest_sync_report(
             )
         )
 
-    # ── skill_errors ─────────────────────────────────────────────────────────
-    skill_errors = payload.get("skill_errors") or []
-    se_truncated = 0
-    if len(skill_errors) > MAX_SKILL_ERRORS:
-        se_truncated = len(skill_errors) - MAX_SKILL_ERRORS
-        skill_errors = skill_errors[:MAX_SKILL_ERRORS]
-    if se_truncated:
-        truncated["skill_errors"] = se_truncated
-
-    for se in skill_errors:
-        db.add(
-            SkillErrorReport(
-                member_id=member.id,
-                fleet_id=member.fleet_id,
-                slug=(se.get("slug") or "")[:255],
-                semver=(se.get("semver") or None)[:32] if se.get("semver") else None,
-                signature=(se.get("signature") or "")[:65535],
-                summary=_truncate(se.get("summary")) or "",
-            )
-        )
+    # ── skill_errors ─ RETIRED (t_a7ebcc96, 2026-11-16) ─────────────────────
+    # This block was the sole writer of skill_error_reports. It read
+    # payload["skill_errors"], a key no client has ever produced; the table held
+    # 0 rows across the feature's entire life while this endpoint ingested
+    # 22,834 accepted sync cycles.
 
     # ── cron_health ──────────────────────────────────────────────────────────
     cron_health = payload.get("cron_health")
@@ -238,11 +238,18 @@ def ingest_sync_report(
     # ``loop_runs`` alone would be the same combined-figure-only lie the
     # dashboard used to tell.
     ingested = RunCounts(total=len(loop_runs), synthetic=synthetic_ingested)
+    # t_a7ebcc96: skill_errors is no longer persisted, but the ack still counts
+    # what arrived, under a key that says so. The old ack reported
+    # ``"skill_errors": N`` from a table that never held a row — an unfalsifiable
+    # number that read as health. ``skill_errors_ignored`` makes the dead rail
+    # observable instead: a client that starts sending the field sees its own
+    # payload counted and dropped, rather than a silent success.
+    _se_arrived = payload.get("skill_errors")
     recorded: dict[str, int | bool] = {
         "loop_runs": ingested.total,
         "loop_runs_synthetic": ingested.synthetic,
         "loop_runs_external": ingested.external,
-        "skill_errors": len(skill_errors),
+        "skill_errors_ignored": len(_se_arrived) if isinstance(_se_arrived, list) else 0,
         "cron_health": cron_stored,
         "lockfile_state": lockfile_stored,
     }

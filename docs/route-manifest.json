@@ -2526,7 +2526,7 @@
         "voice-inbox"
       ],
       "classification": "authenticated",
-      "summary": "Aggregated voice inbox: skill_errors + loop_failures + recipify + feedback."
+      "summary": "Aggregated voice inbox: recipify requests + feedback."
     },
     {
       "method": "POST",

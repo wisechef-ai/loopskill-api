@@ -122,10 +122,14 @@ def test_full_payload_all_rows_landed(middleware_client, db_session):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["recorded"]["loop_runs"] == 1
-    assert body["recorded"]["skill_errors"] == 1
+    # t_a7ebcc96: skill_errors is accepted on the wire and counted, but nothing
+    # is persisted. The ack says exactly that — the old key claimed a number for
+    # a table that never held a row.
+    assert body["recorded"]["skill_errors_ignored"] == 1
+    assert "skill_errors" not in body["recorded"]
     assert body["recorded"]["cron_health"] is True
 
-    from app.models import CronHealthSnapshot, LoopRun, SkillErrorReport
+    from app.models import CronHealthSnapshot, LoopRun
 
     from app.services.fleet_members import resolve_member_for_key
     from app.models import APIKey
@@ -145,10 +149,10 @@ def test_full_payload_all_rows_landed(middleware_client, db_session):
     assert lr[0].accepted_change is True
     assert lr[0].fleet_id == fleet.id
 
-    se = db_session.query(SkillErrorReport).filter(SkillErrorReport.member_id == member.id).all()
-    assert len(se) == 1
-    assert se[0].slug == "broken-skill"
-    assert se[0].feedback_status == "pending"
+    # The retired rail must not exist at all — not merely be empty.
+    from app.models import Base
+
+    assert "skill_error_reports" not in Base.metadata.tables
 
     ch = db_session.query(CronHealthSnapshot).filter(CronHealthSnapshot.member_id == member.id).all()
     assert len(ch) == 1
@@ -256,7 +260,7 @@ def test_empty_payload_bumps_updated_at(middleware_client, db_session):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["recorded"]["loop_runs"] == 0
-    assert body["recorded"]["skill_errors"] == 0
+    assert body["recorded"]["skill_errors_ignored"] == 0
     assert body["recorded"]["cron_health"] is False
 
     db_session.refresh(member)

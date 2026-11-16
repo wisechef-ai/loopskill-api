@@ -929,16 +929,22 @@ def readback_skill_error_report(run_id: str, wall_seconds: float) -> str:
 
     Per GAMEABILITY.md #1 this check is otherwise self-attested. If
     LOOPSKILL_MASTER_KEY is set, attempt an authenticated read-back of
-    recently created skill_error_reports; if no such public/admin GET route
+    recently created skill-error rows; if no such public/admin GET route
     exists (verified: it does not, as of this runner's authoring — see
     app/skill_error_routes.py and app/admin_routes.py), record
     'unavailable' rather than inventing an endpoint.
+
+    t_a7ebcc96 (2026-11-16): the rows a report creates are **IncidentReport**
+    (incident_reports), written by app/mcp/tools/skill_error.py. The separate
+    skill_error_reports table named here at authoring time never received a row
+    and has been dropped; there is still no admin GET read-back for either, so
+    the honest answer is unchanged.
     """
     if not os.environ.get("LOOPSKILL_MASTER_KEY"):
         return "not_attempted"
-    # No admin/public GET route for skill_error_reports exists in this
-    # codebase (confirmed by inspection of app/skill_error_routes.py and
-    # app/admin_routes.py at authoring time). Recording explicitly rather
+    # No admin/public GET route for incident_reports (the real skill-error rail)
+    # exists in this codebase (confirmed by inspection of app/skill_error_routes.py
+    # and app/admin_routes.py at authoring time). Recording explicitly rather
     # than fabricating a call to a nonexistent endpoint.
     return "unavailable"
 

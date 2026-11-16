@@ -30,7 +30,6 @@ from app.models import (
     LoopRunDailyRollup,
     ReconcileEvent,
     RecipifyRequest,
-    SkillErrorReport,
 )
 from app.services.loop_convergence import fleet_convergence
 from app.services.synthetic_runs import RunCounts
@@ -111,16 +110,21 @@ def get_fleet_dashboard(
             if mid not in cron_failed:
                 cron_failed[mid] = cr.error_count or 0
 
-    # Voice counts (pending items)
-    voice_counts = {"skill_errors": 0, "recipify_requests": 0, "feedback": 0}
-    if member_ids:
-        voice_counts["skill_errors"] = (
-            db.query(func.count(SkillErrorReport.id))
-            .filter(SkillErrorReport.member_id.in_(member_ids))
-            .filter(SkillErrorReport.feedback_status == "pending")
-            .scalar()
-            or 0
-        )
+    # Voice counts (pending items).
+    #
+    # RETIRED (t_a7ebcc96, 2026-11-16): the "skill_errors" key is GONE from this
+    # payload — deliberately not pinned to 0. Its only writer was
+    # app/services/sync_report.py reading payload["skill_errors"], and no client
+    # ever populated that key: scripts/loopskill-collect-reports.py:build_payload()
+    # emits cycle_ts / lockfile_state / loop_runs / cron_health and nothing else.
+    # So skill_error_reports held 0 rows across its entire life (07-02 → 11-16)
+    # while POST /api/sync-report stayed healthy — 22,834 accepted cycles over
+    # its life (~167/day, prod) — this badge could
+    # only ever answer 0, and that permanent 0 is exactly what hid the dead rail.
+    # Agent-reported skill errors are real and live in IncidentReport
+    # (POST /api/v1/skill-error, POST /api/feedback/incident, MCP
+    # loopskill_report_skill_error) — the rail that actually receives data.
+    voice_counts = {"recipify_requests": 0, "feedback": 0}
     if api_key_ids:
         voice_counts["recipify_requests"] = (
             db.query(func.count(RecipifyRequest.id))

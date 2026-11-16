@@ -274,36 +274,19 @@ def loopskill_voice_inbox_read(
     if not authz.can_use_fleet(ctx, fleet):
         return {"error": "forbidden", "code": 403}
 
-    from app.models import RecipifyRequest, SkillErrorReport
-
-    member_ids = [
-        m.id
-        for m in db.query(FleetMember)
-        .filter(FleetMember.fleet_id == fleet.id, FleetMember.is_active == True)  # noqa: E712
-        .all()
-    ]
+    from app.models import RecipifyRequest
 
     items: list[dict[str, Any]] = []
 
-    if member_ids:
-        for r in (
-            db.query(SkillErrorReport)
-            .filter(SkillErrorReport.member_id.in_(member_ids))
-            .filter(SkillErrorReport.feedback_status.in_(["pending", "filed"]))
-            .order_by(SkillErrorReport.created_at.desc())
-            .limit(limit)
-            .all()
-        ):
-            items.append(
-                {
-                    "type": "skill_error",
-                    "id": str(r.id),
-                    "slug": r.slug,
-                    "summary": (r.summary or "")[:200],
-                    "status": r.feedback_status,
-                    "created_at": r.created_at.isoformat() if r.created_at else None,
-                }
-            )
+    # RETIRED (t_a7ebcc96, 2026-11-16): the "skill_error" item type is gone from
+    # this inbox. It read skill_error_reports, whose only writer was the
+    # sync-report payload key payload["skill_errors"] — a key no client has ever
+    # sent (see the matching removal in app/dashboard_routes.py). The table held
+    # 0 rows for its whole life, so this tool could never return a skill_error
+    # item: an MCP surface advertising a quality signal that cannot fire is worse
+    # than no surface. Agent-reported skill errors are filed as IncidentReport
+    # rows via loopskill_report_skill_error and surface on the transparency
+    # scorecard + curator-repo issue rail, which is where that population lives.
 
     api_key_ids = [m.api_key_id for m in db.query(FleetMember).filter(FleetMember.fleet_id == fleet.id).all()]
     if api_key_ids:

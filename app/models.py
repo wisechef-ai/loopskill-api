@@ -2873,27 +2873,6 @@ class MemberLockfileSnapshot(Base):
     )
 
 
-class SkillErrorReport(Base):
-    """Agent-reported skill error from the sync cycle.
-
-    Voice pre-wiring for the feedback (FB) phase: the FB phase consumes rows
-    where feedback_status = 'pending'. The sync-report emitter collects skill
-    errors observed during the cycle and ships them in one batch.
-    """
-
-    __tablename__ = "skill_error_reports"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    member_id = Column(UUID(as_uuid=True), nullable=True, index=True)
-    fleet_id = Column(UUID(as_uuid=True), nullable=True, index=True)
-    slug = Column(String(255), nullable=False, index=True)
-    semver = Column(String(32), nullable=True)
-    signature = Column(Text, nullable=False)
-    summary = Column(Text, nullable=False)
-    feedback_status = Column(Text, default="pending", server_default="pending")
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
-
-
 class LoopRunDailyRollup(Base):
     """Daily rollup per (fleet, member, loop_slug, day).
 

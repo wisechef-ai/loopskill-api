@@ -85,8 +85,14 @@ def test_voice_inbox_empty(client, db_session):
     assert body["items"] == []
 
 
-def test_voice_inbox_shows_skill_error(client, db_session):
-    from app.models import FleetMember, SkillErrorReport
+def test_voice_inbox_shows_recipify_and_never_skill_error(client, db_session):
+    """The surviving rail still works; the retired one can never appear.
+
+    Was ``test_voice_inbox_shows_skill_error``. Retired in t_a7ebcc96: the
+    skill_error rail read skill_error_reports, a table no client ever wrote to
+    (0 rows across its whole life), so this inbox could never return one.
+    """
+    from app.models import FleetMember, RecipifyRequest
 
     owner = _mk_user(db_session)
     from app.api_key_routes import _generate_key
@@ -103,14 +109,15 @@ def test_voice_inbox_shows_skill_error(client, db_session):
     )
     db_session.add(member)
     db_session.flush()
-    err = SkillErrorReport(
-        member_id=member.id,
-        fleet_id=fleet.id,
-        slug="broken-skill",
+    req = RecipifyRequest(
+        target_name="catalog-skill",
+        why_useful="agents keep needing this",
+        suggested_sources=[],
+        api_key_id=key.id,
         signature="sig123",
-        summary="This skill crashed",
+        feedback_status="pending",
     )
-    db_session.add(err)
+    db_session.add(req)
     db_session.commit()
 
     r = client.get(
@@ -120,12 +127,14 @@ def test_voice_inbox_shows_skill_error(client, db_session):
     assert r.status_code == 200, r.text
     body = r.json()
     assert len(body["items"]) == 1
-    assert body["items"][0]["type"] == "skill_error"
-    assert body["items"][0]["slug"] == "broken-skill"
+    assert body["items"][0]["type"] == "recipify_request"
+    assert body["items"][0]["target_name"] == "catalog-skill"
+    # No rail may ever produce this type again.
+    assert all(i["type"] != "skill_error" for i in body["items"])
 
 
 def test_voice_inbox_resolve(client, db_session):
-    from app.models import FleetMember, SkillErrorReport
+    from app.models import FleetMember, RecipifyRequest
 
     owner = _mk_user(db_session)
     from app.api_key_routes import _generate_key
@@ -142,25 +151,54 @@ def test_voice_inbox_resolve(client, db_session):
     )
     db_session.add(member)
     db_session.flush()
-    err = SkillErrorReport(
-        member_id=member.id,
-        fleet_id=fleet.id,
-        slug="bad",
+    req = RecipifyRequest(
+        target_name="bad",
+        why_useful="err",
+        suggested_sources=[],
+        api_key_id=key.id,
         signature="s",
-        summary="err",
+        feedback_status="pending",
     )
-    db_session.add(err)
+    db_session.add(req)
     db_session.commit()
-    err_id = str(err.id)
+    req_id = str(req.id)
 
     r = client.post(
-        f"/api/fleets/{fleet.id}/voice-inbox/skill_error/{err_id}/resolve",
+        f"/api/fleets/{fleet.id}/voice-inbox/recipify_request/{req_id}/resolve",
         headers={"x-api-key": plaintext},
     )
     assert r.status_code == 200, r.text
     db_session.expire_all()
-    refreshed = db_session.query(SkillErrorReport).filter(SkillErrorReport.id == err.id).first()
+    refreshed = db_session.query(RecipifyRequest).filter(RecipifyRequest.id == req.id).first()
     assert refreshed.feedback_status == "resolved"
+
+
+def test_voice_inbox_resolve_skill_error_item_type_is_422(client, db_session):
+    """t_a7ebcc96: resolving a skill_error is a 422, not a silent success.
+
+    Before the retire this accepted item_type="skill_error" and flipped
+    feedback_status on a row in a table that has never held a row — a resolve
+    that could only ever 404. The API now says the item type does not exist.
+    """
+    import uuid
+
+    owner = _mk_user(db_session)
+    from app.api_key_routes import _generate_key
+
+    plaintext, _pfx, hash_val = _generate_key()
+    from app.models import APIKey
+
+    key = APIKey(user_id=owner.id, key_prefix=_pfx, key_hash=hash_val, is_active=True)
+    db_session.add(key)
+    db_session.flush()
+    fleet = _mk_fleet(db_session, owner)
+
+    r = client.post(
+        f"/api/fleets/{fleet.id}/voice-inbox/skill_error/{uuid.uuid4()}/resolve",
+        headers={"x-api-key": plaintext},
+    )
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"] == "invalid_item_type"
 
 
 def test_voice_inbox_non_owner_404(client, db_session):
