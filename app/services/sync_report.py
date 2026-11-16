@@ -17,8 +17,12 @@ produces cannot fill a table no matter how healthy the ingest is.
 
 The request field is still ACCEPTED (ignored) for wire compatibility; see
 app/sync_report_routes.py. Skill errors agents actually report are IncidentReport
-rows — POST /api/v1/skill-error, POST /api/feedback/incident, MCP
-loopskill_report_skill_error.
+rows written by POST /api/v1/skill-error or MCP loopskill_report_skill_error —
+i.e. rows matching IncidentReport.skill_error_rows(). Do NOT read "IncidentReport"
+as one population when counting them: POST /api/feedback/incident writes the SAME
+table with report_type='incident', and those are crash reports of LoopSkill's own
+tooling, not skill errors (t_0111f6c4, 2026-11-16; see the IncidentReport class
+docstring).
 
 Key functions:
   - ingest_sync_report: caps, truncation, inserts. Returns (recorded, truncated).

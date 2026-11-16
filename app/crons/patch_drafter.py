@@ -4,7 +4,13 @@ For each `patch_candidates` row with status='pending':
 
   1. Pulls the latest skill source (tarball or extracted dir) via
      `app.publisher_routes` storage path.
-  2. Pulls top 3 incident reports for that signature (most recent).
+  2. Pulls top 3 incident reports for that signature (most recent), restricted
+     to skill-error provenance via ``IncidentReport.skill_error_rows()`` — the
+     same predicate `incident_clustering` uses, and it must stay the same one.
+     Crash reports (``POST /api/feedback/incident``) are LoopSkill's own tooling
+     crashing; their stack/command describe this repo, not the creator's skill,
+     and feeding them to a model asked to patch the skill produces a confident
+     patch against the wrong codebase. See `_top_reports`.
   3. Calls Haiku 4.5 through the local litellm proxy (http://localhost:4000)
      with master key from env `WR_LITELLM_MASTER_KEY`.
   4. Output MUST be a unified-diff patch + a runnable regression test.
@@ -143,11 +149,37 @@ def _latest_version(db: Session, skill_id: Any) -> SkillVersion | None:
 
 
 def _top_reports(db: Session, skill_id: Any, signature: str, limit: int = 3) -> list[IncidentReport]:
+    """Three most-recent DRAFTING-EVIDENCE rows for this (skill, signature).
+
+    Skill-error provenance only, via the same predicate ``incident_clustering``
+    uses — the two MUST stay identical. They read the same ``(skill_id,
+    error_signature)`` pair, and any asymmetry between them is a bug in one
+    direction or the other:
+
+      * clustering filtered, drafter not → a candidate legitimately earned by 3
+        agents' skill errors gets its prompt built from the 3 most-recent rows
+        for that signature, which may be crash reports. The LLM is handed
+        LoopSkill's own stack trace and asked for a patch to the creator's
+        skill — and ``parse_draft`` only checks that the reply *looks* like a
+        diff plus a test, so a confident wrong patch passes the draft gate and
+        advances to canary.
+      * drafter filtered, clustering not → crash rows inflate ``cluster_count``
+        / ``distinct_agents`` past the threshold, minting a candidate the
+        drafter then finds has no qualifying evidence; ``draft_patch`` raises,
+        ``run_once`` counts it ``errored`` and leaves it ``pending``, so the
+        same candidate re-errors every 6h forever.
+
+    ``command`` / ``exit_code`` are printed verbatim into the prompt
+    (_build_prompt), and a crash report is precisely the row where those
+    describe LoopSkill's tooling rather than the skill — contaminating them
+    would mislead the model about what failed.
+    """
     return (
         db.query(IncidentReport)
         .filter(
             IncidentReport.skill_id == skill_id,
             IncidentReport.error_signature == signature,
+            IncidentReport.skill_error_rows(),
         )
         .order_by(IncidentReport.occurred_at.desc())
         .limit(limit)
@@ -173,7 +205,15 @@ def draft_patch(
     version = _latest_version(db, candidate.skill_id)
     reports = _top_reports(db, candidate.skill_id, candidate.error_signature)
     if not reports:
-        raise ValueError("no incident reports for candidate")
+        # Phrasing keeps the pre-t_0111f6c4 "no incident reports" prefix so the
+        # existing raise-contract test still matches; the tail names the real
+        # reason, because after the provenance filter this fires when rows exist
+        # but none are skill errors — a bare "no incident reports" would send
+        # whoever reads the log looking for deleted data.
+        raise ValueError(
+            "no incident reports for candidate with skill-error provenance "
+            "(crash reports are not drafting evidence)"
+        )
     prompt = _build_prompt(skill, version, reports)
     content = llm_call(prompt)
     result = parse_draft(content)

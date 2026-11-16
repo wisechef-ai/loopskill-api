@@ -34,7 +34,16 @@ def _mk_skill(db, slug="cluster-target"):
     return s
 
 
-def _mk_incident(db, skill, sig, agent, *, occurred_at=None):
+def _mk_incident(db, skill, sig, agent, *, occurred_at=None, report_type=IncidentReport.TYPE_SKILL_ERROR):
+    """Seed one incident_reports row.
+
+    Defaults to ``TYPE_SKILL_ERROR`` because that is the only population the
+    auto-improve lane is allowed to cluster (t_0111f6c4). Before the provenance
+    filter these tests passed a row with no report_type and inherited the
+    server_default of ``incident`` — so they were, unknowingly, asserting that
+    CRASH reports cluster. Pass ``report_type=IncidentReport.TYPE_INCIDENT`` to
+    test the crash side explicitly.
+    """
     r = IncidentReport(
         id=uuid4(),
         skill_id=skill.id,
@@ -45,6 +54,7 @@ def _mk_incident(db, skill, sig, agent, *, occurred_at=None):
         command="x",
         exit_code=1,
         stack_trace_top="module.py:1:fn",
+        report_type=report_type,
     )
     db.add(r)
     db.flush()

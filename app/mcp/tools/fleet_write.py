@@ -287,6 +287,14 @@ def loopskill_voice_inbox_read(
     # than no surface. Agent-reported skill errors are filed as IncidentReport
     # rows via loopskill_report_skill_error and surface on the transparency
     # scorecard + curator-repo issue rail, which is where that population lives.
+    #
+    # PROVENANCE WARNING (t_0111f6c4, 2026-11-16) for whoever re-adds that item
+    # type here: `incident_reports` is NOT one population. Only rows matching
+    # IncidentReport.skill_error_rows() are agent-reported skill errors;
+    # POST /api/feedback/incident writes the same table as report_type='incident'
+    # and is a crash report of LoopSkill's own tooling. An inbox fed by a bare
+    # count/select of that table would show an agent's tooling crash as a
+    # complaint about a creator's skill.
 
     api_key_ids = [m.api_key_id for m in db.query(FleetMember).filter(FleetMember.fleet_id == fleet.id).all()]
     if api_key_ids:

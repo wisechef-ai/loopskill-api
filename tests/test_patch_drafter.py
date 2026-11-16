@@ -41,7 +41,14 @@ def _mk_skill(db, slug="drafter-target"):
     return s
 
 
-def _mk_incident(db, skill, agent="agent-x"):
+def _mk_incident(db, skill, agent="agent-x", *, report_type=IncidentReport.TYPE_SKILL_ERROR):
+    """Seed one drafting-evidence row.
+
+    Defaults to ``TYPE_SKILL_ERROR`` — the only population ``_top_reports`` may
+    hand the prompt (t_0111f6c4). These tests previously created the row without
+    a report_type and inherited the ``incident`` server_default, i.e. they were
+    proving the drafter works off crash reports.
+    """
     r = IncidentReport(
         id=uuid4(),
         skill_id=skill.id,
@@ -52,6 +59,7 @@ def _mk_incident(db, skill, agent="agent-x"):
         command="run",
         exit_code=1,
         stack_trace_top="frame1\nframe2\nframe3",
+        report_type=report_type,
     )
     db.add(r)
     db.flush()
