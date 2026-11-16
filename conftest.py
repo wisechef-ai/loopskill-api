@@ -36,6 +36,28 @@ os.environ.setdefault("WR_COOKIES_SECURE", "false")
 # instead, against an injected fake, in tests/test_unisearch_p1_shared_cache.py.
 os.environ.setdefault("WR_METASEARCH_SHARED_CACHE", "false")
 
+# t_555b26e2: the SAME reasoning must cover the rate limiter, which the line
+# above does not reach. WR_REDIS_URL defaults to a live localhost Redis, and
+# RateLimitMiddleware keys its sliding window by CLIENT IP — every TestClient in
+# the process presents 127.0.0.1, so on a box running Redis the whole ~8,350-test
+# suite shares ONE 60-requests/minute bucket for the life of the run. Which tests
+# land past request #60 inside a 60s window depends on run order and wall clock,
+# so they 429 at random. Measured A/B on wisechef-agents, identical CI seed
+# 3716405558, serial: Redis reachable -> 30 failures (the 9 known host-sandbox
+# ones + 21 rate-limit casualties: test_marketing_claims_routes x9,
+# test_ah1111_wellknown_enroll_script x6, test_ah1104_agent_enroll_script x3,
+# test_ah1016_glama_wellknown x2, test_claims_contract_v2 x1, several surfacing
+# as `assert 429 == 200` or KeyError on a JSON body that is really the 429
+# envelope); Redis unreachable -> exactly the 9 known host-sandbox failures.
+# CI has no Redis, so this was pure host-dependent divergence: a red/green coin
+# flip that could not be reproduced from the published seed.
+# Blank is the documented zero-config value (docker-compose.yml ships it) and
+# every Redis-backed service degrades to a per-instance in-memory fallback;
+# tests that want the Redis path inject a client explicitly
+# (tests/test_topshelf_f_middleware_coverage.py, tests/test_unisearch_p1_shared_cache.py).
+# `setdefault`, so a run that deliberately points at a real Redis still can.
+os.environ.setdefault("WR_REDIS_URL", "")
+
 os.environ.setdefault("WR_STRIPE_PRICE_PRO", "price_test_pro")
 os.environ.setdefault("WR_STRIPE_PRICE_PRO_PLUS", "price_test_pro_plus")
 
