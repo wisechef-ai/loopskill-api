@@ -388,12 +388,18 @@ def test_a_successful_enrolment_prints_a_paste_ready_mcp_wiring_line(tmp_path):
     wire = [ln for ln in run.stdout.splitlines() if ln.startswith("mcp:")]
     assert wire and wire[0].endswith(want), run.stdout
     assert any("uvx loopskill-mcp" in ln for ln in run.stdout.splitlines()), run.stdout
-    assert SECRET not in run.stdout + run.stderr, "the wiring line must reference the key file, never print the key"
+    assert SECRET not in run.stdout + run.stderr, (
+        "the wiring line must reference the key file, never print the key"
+    )
     # Pasted into a shell, the header expands to the saved key: the line works as printed.
     header = want.split("--header ", 1)[1]
-    expanded = subprocess.run(["sh", "-c", f"printf '%s' {header}"], capture_output=True, text=True, check=True)
+    expanded = subprocess.run(
+        ["sh", "-c", f"printf '%s' {header}"], capture_output=True, text=True, check=True
+    )
     assert expanded.stdout == f"x-api-key: {SECRET}"
-    assert run.stdout.rstrip("\n").splitlines()[-1].startswith("next:"), "the first install stays the last line"
+    assert run.stdout.rstrip("\n").splitlines()[-1].startswith("next:"), (
+        "the first install stays the last line"
+    )
 
 
 @needs_openssl
