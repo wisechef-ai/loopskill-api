@@ -90,7 +90,13 @@ def loopskill_report_skill_error(
     if not signature or not _HEX_RE.match(signature.lower()):
         return {"ok": False, "error": "signature must be a hex string"}
 
-    skill = db.query(Skill).filter(Skill.slug == slug).first()
+    # Same visibility predicate as the public lookup route: archived / non-public
+    # skills answer exactly like a missing one and never reach github_dispatch.
+    skill = (
+        db.query(Skill)
+        .filter(Skill.slug == slug, Skill.is_public == True, Skill.is_archived == False)  # noqa: E712
+        .first()
+    )
     if skill is None:
         return {"ok": False, "error": f"skill not found: {slug}"}
 

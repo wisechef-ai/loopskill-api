@@ -268,7 +268,8 @@ def install_skill(
             return _install_federated_hermes_hub_ref(fed_slug, db)
 
     skill = db.query(Skill).filter(Skill.slug == slug).first()
-    if not skill:
+    # Archived == gone for every caller (admin/creator too): same 404 as the lookup route.
+    if not skill or skill.is_archived:
         # WIS-903: check retired skill registry
         _alt = _RETIRED_SKILLS.get(slug)
         if _alt:
