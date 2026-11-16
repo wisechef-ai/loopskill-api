@@ -22,15 +22,27 @@ loopskill_report_skill_error.
 
 Key functions:
   - ingest_sync_report: caps, truncation, inserts. Returns (recorded, truncated).
-  - rollup_loop_runs: idempotent daily UPSERT from raw LoopRun rows.
-  - prune_raw: deletes LoopRun + CronHealthSnapshot past retention (30d).
+  - rollup_loop_runs: idempotent, NON-destructive daily aggregate from raw rows.
+  - prune_raw: deletes LoopRun + CronHealthSnapshot past retention (30d). Mechanism
+    only — see its docstring for why nothing in ``app/`` may call it directly.
+  - uncovered_day_groups: the prune's precondition (rollup must exist per day-group).
+  - raw_counts_before: read-only preview of what a prune at this cutoff removes.
   - cost_per_accepted_change: query helper reading rollups.
+
+RETENTION IS SCHEDULED, NOT ASSUMED (t_28f34a8a, 2026-11-16). This module's prose
+says raw rows are pruned at 30d and the rollup docstrings lean on that ("carried
+onto the rollup because raw rows are pruned at 30d"). In prod it had never been
+true: 137 days of raw ``loop_runs`` + ``cron_health_snapshots`` were on disk and
+``loop_run_daily_rollups`` held 2 rows for 46 raw day-groups. A retention window
+nobody schedules is a promise with no implementation, so the schedule now lives in
+one place — ``app/crons/sync_report_pruner.py`` (+ ``deploy/crontab.sync-report-retention``)
+— and the prune refuses to run without rollup coverage.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -61,9 +73,6 @@ MAX_LOCKFILE_SKILLS = 500  # feat/fleet-console-state — cap per snapshot
 
 # Server-side body cap (checked in the route handler before JSON parse).
 MAX_BODY_BYTES = 256 * 1024  # 256 KB
-
-# Retention window for raw telemetry rows.
-DEFAULT_RETENTION_DAYS = 30
 
 
 def _truncate(value: str | None, limit: int = MAX_FIELD_LEN) -> str | None:
@@ -256,110 +265,23 @@ def ingest_sync_report(
     return recorded, truncated
 
 
-def utc_today() -> date:
-    """The current day on the rollup's clock.
-
-    Rollup buckets are UTC days (``day_start`` below is midnight UTC), so the
-    default day must be read on the SAME clock. ``date.today()`` is the host's
-    local date: on a non-UTC host it names a different day for up to the UTC
-    offset's worth of hours each night (00:00-02:00 under CEST), and a default
-    rollup then aggregates a window that holds none of the day's runs.
-    """
-    return datetime.now(UTC).date()
-
-
-def rollup_loop_runs(db: Session, day: date | None = None) -> int:
-    """Aggregate all LoopRun rows for ``day`` into LoopRunDailyRollup.
-
-    Idempotent: re-running for the same day produces the same aggregates.
-    Uses delete-then-insert in SQLite (test path); the unique constraint
-    ensures correctness on Postgres via ON CONFLICT when available.
-
-    Returns the number of rollup rows written.
-    """
-    if day is None:
-        day = utc_today()
-
-    # Find all distinct (fleet_id, member_id, loop_slug) groups for this day.
-    # We compute the date from LoopRun.created_at (timezone-aware).
-    day_start = datetime.combine(day, datetime.min.time(), tzinfo=UTC)
-    day_end = day_start + timedelta(days=1)
-
-    # Delete existing rollups for this day so re-insertion is idempotent.
-    db.query(LoopRunDailyRollup).filter(LoopRunDailyRollup.day == day).delete()
-
-    # Aggregate from raw rows — load grouped rows, then iterate to compute
-    # all aggregates per (fleet, member, loop_slug).
-    groups = (
-        db.query(LoopRun.fleet_id, LoopRun.member_id, LoopRun.loop_slug)
-        .filter(LoopRun.created_at >= day_start, LoopRun.created_at < day_end)
-        .group_by(LoopRun.fleet_id, LoopRun.member_id, LoopRun.loop_slug)
-        .all()
-    )
-
-    count = 0
-    for fleet_id, member_id, loop_slug in groups:
-        # Compute successes/failures/cost/duration in a second pass for this group.
-        group_rows = (
-            db.query(LoopRun)
-            .filter(
-                LoopRun.fleet_id == fleet_id,
-                LoopRun.member_id == member_id,
-                LoopRun.loop_slug == loop_slug,
-                LoopRun.created_at >= day_start,
-                LoopRun.created_at < day_end,
-            )
-            .all()
-        )
-        successes = sum(1 for r in group_rows if r.outcome in ("success", "budget_stop", "max_turns_stop"))
-        failures = sum(1 for r in group_rows if r.outcome == "failure")
-        # mesh_0408 W4: carried onto the rollup because raw rows are pruned at
-        # 30d — without it, every adoption number older than a month would
-        # silently re-merge our own beacon back into the total.
-        synthetic = sum(1 for r in group_rows if r.is_synthetic)
-        accepted_changes = sum(1 for r in group_rows if r.accepted_change)
-        cost_total = sum(float(r.cost_usd or 0) for r in group_rows)
-        duration_total = sum(r.duration_seconds or 0 for r in group_rows)
-
-        db.add(
-            LoopRunDailyRollup(
-                fleet_id=fleet_id,
-                member_id=member_id,
-                loop_slug=loop_slug,
-                day=day,
-                runs=len(group_rows),
-                synthetic_runs=synthetic,
-                successes=successes,
-                failures=failures,
-                accepted_changes=accepted_changes,
-                cost_usd_total=round(cost_total, 4) if cost_total else None,
-                duration_seconds_total=duration_total or None,
-            )
-        )
-        count += 1
-
-    db.commit()
-    return count
-
-
-def prune_raw(db: Session, older_than_days: int = DEFAULT_RETENTION_DAYS) -> dict[str, int]:
-    """Delete LoopRun + CronHealthSnapshot rows past retention.
-
-    NEVER touches rollups. Returns counts of deleted rows per table.
-    """
-    cutoff = datetime.now(UTC) - timedelta(days=older_than_days)
-
-    loop_run_count = db.query(LoopRun).filter(LoopRun.created_at < cutoff).delete()
-    cron_count = db.query(CronHealthSnapshot).filter(CronHealthSnapshot.created_at < cutoff).delete()
-    db.commit()
-
-    logger.info(
-        "sync-report prune: deleted %d loop_runs, %d cron_health_snapshots (older than %d days)",
-        loop_run_count,
-        cron_count,
-        older_than_days,
-    )
-    return {"loop_runs": loop_run_count, "cron_health_snapshots": cron_count}
+# ── Retention / lifecycle API ──────────────────────────────────────────────
+# Split into app/services/sync_report_retention.py (600-line module gate). The
+# re-export is load-bearing: app/admin_routes.py, scripts and
+# tests/test_activate0701_sync_report.py import these names from here, and
+# test_activate0701 monkeypatches them as attributes OF THIS MODULE.
+from app.services.sync_report_retention import (  # noqa: F401
+    DEFAULT_RETENTION_DAYS,
+    MAX_ROLLUP_SCAN_DAYS,
+    days_with_raw_rows,
+    prune_raw,
+    raw_counts_before,
+    raw_day_groups,
+    retention_cutoff,
+    rollup_loop_runs,
+    uncovered_day_groups,
+    utc_today,
+)
 
 
 def cost_per_accepted_change(

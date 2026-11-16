@@ -485,7 +485,7 @@ def admin_loop_run_rollup(
     if api_key_user_id is not None:
         raise HTTPException(status_code=403, detail="Admin only")
 
-    from app.services.sync_report import rollup_loop_runs, utc_today
+    from app.services.sync_report_retention import rollup_loop_runs, utc_today
 
     # utc_today(), not date.today(): rollup buckets are UTC days.
     target_day = body.day if body.day is not None else utc_today()
@@ -503,13 +503,34 @@ def admin_sync_report_prune(
     """Prune raw sync-report telemetry past retention (30d default).
 
     Master-only (cron-callable). NEVER touches rollups.
+
+    GOVERNED (t_28f34a8a): runs the same entry point cron runs — roll up, verify
+    rollup coverage, then delete — and answers **409** instead of deleting when a
+    day in the window has no aggregate behind it. No ``allow_unrolled`` field on
+    purpose: the destructive override belongs on the CLI, where the caller
+    already holds shell + DB credentials. See app/crons/sync_report_pruner.py.
     """
     api_key_user_id = getattr(request.state, "api_key_user_id", "MISSING")
     if api_key_user_id is not None:
         raise HTTPException(status_code=403, detail="Admin only")
 
-    from app.services.sync_report import prune_raw
+    from app.crons.sync_report_pruner import prune
 
-    counts = prune_raw(db, older_than_days=body.days)
-    logger.info("admin sync-report-prune: %s", counts)
-    return {"pruned": counts}
+    result = prune(db=db, older_than_days=body.days)
+    if result["blocked"]:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "rollup_coverage_missing",
+                "uncovered_day_groups": result["uncovered_day_groups"],
+                "sample": result["sample"],
+                "rollup": result["rollup"],
+                "hint": (
+                    "raw rows in the window have no loop_run_daily_rollups row; run "
+                    "python -m app.crons.sync_report_pruner (it rolls up first) before pruning"
+                ),
+            },
+        )
+
+    logger.info("admin sync-report-prune: %s (rollup: %s)", result["pruned"], result["rollup"])
+    return {"pruned": result["pruned"], "rollup": result["rollup"]}
