@@ -1,15 +1,58 @@
-name: Random order tests (non-blocking)
+name: Random order tests
 
 # Runs the FULL pytest suite in randomized order with pytest-randomly, on both
-# engines, to surface order-dependent tests (shared-state leaks). NON-BLOCKING by
-# design: issue #300 owner decision (2026-10-15) was to add this as a regression
-# guard first and only consider gating once it has been stable for a while.
+# engines, to surface order-dependent tests (shared-state leaks).
 #
-#   - `continue-on-error: true` at the job level: a red run here never fails the
-#     workflow run or a PR. Do NOT add these checks to branch protection / required
-#     status checks. Kept in its own file so it can never break ci.yml.
-#   - Failures found here are tracked as separate issues (see #300, #420); this
-#     workflow only detects, it does not fix.
+# Policy change — t_555b26e2 (2026-11-16), replacing the issue #300 decision
+# ("add it as a regression guard first, consider gating once it is stable").
+# ---------------------------------------------------------------------------
+# It used to run on `pull_request` with `continue-on-error: true`. That
+# combination produced a red cell nobody acted on, which is worse than no job at
+# all: it still costs a reviewer a decision about whose fault it is, and it
+# trains them to ignore the column.
+#
+# Measured before changing anything (17 workflow runs / 34 legs, 2026-11-16):
+#
+#   - 4 of 34 legs red (12%). Every one was a DETERMINISTIC suite-wide gate, not
+#     an order effect: test_w0_2_pyfile_size_discipline, test_w0_5_tier_vocab_audit,
+#     test_readme_claims. All three are ordinary tests the BLOCKING
+#     `pytest + coverage` job runs too — and on BOTH red commits checked side by
+#     side (ef7cfecc, 8711bac2) ci.yml's `pytest + coverage (sqlite)` and
+#     `(postgres)` jobs went red in the same minute. So the PR-time red cell
+#     carried no information the required checks did not already carry.
+#   - The two tests this card was filed for were the only genuinely
+#     non-reproducible failures, and neither was order-dependent:
+#       * issue282 fed_hub trgm RED-proof seq-scan — a planner assertion that
+#         trusted stats left behind by other tests. Fixed on main in a09c99f
+#         (#473) by running the proof on a private, session-scoped TEMP table.
+#       * test_m1_private_bundle_meter `'float' object has no attribute
+#         'replace'` — NOT a shuffle effect. app/models.py typed every uuid column
+#         as sqlalchemy.dialects.postgresql.UUID, which has no SQLite compiler, so
+#         SQLite saw the bare type name UUID, gave the column NUMERIC affinity,
+#         and coerced a numeric-shaped uuid4 hex (all digits, or <digits>e<digits>)
+#         into a REAL — sometimes inf. Whether a run hit it depended on
+#         os.urandom, which pytest-randomly does not seed: P ~ 1.2e-6 per uuid, so
+#         replaying the published seed reproduced nothing. Fixed in app/models.py
+#         (sqlalchemy.Uuid — identical Postgres DDL, CHAR(32) on SQLite) and pinned
+#         by tests/test_t555b26e2_sqlite_uuid_affinity.py.
+#
+# The shuffle was never the coin flip; the coin flip was a latent product bug,
+# now removed. The job keeps what it is uniquely good at — detecting order
+# dependence — and runs where a red is actionable:
+#
+#   - `push` to main and the nightly schedule are BLOCKING (no continue-on-error).
+#     A failure cannot block a merge — the merge already happened — but it turns
+#     the branch red and opens/refreshes a tracking issue automatically, so an
+#     order-dependent test can no longer be silently tolerated.
+#   - `workflow_dispatch` stays for replaying a published seed.
+#   - It no longer runs on `pull_request`. A PR that introduces order dependence
+#     is caught on main within ~24h instead of at PR time. That is the deliberate
+#     trade: coverage that is trusted beats coverage that is ignored — and its
+#     deterministic findings were duplicates of ci.yml anyway (see the measurement
+#     above), so nothing unique is lost. If this job goes 14 consecutive days
+#     green on main, adding `pull_request` back is a one-line change.
+#
+#   - Failures found here are tracked as issues (see #300, #420, #454, #473).
 #
 # Why pytest-randomly (not pytest-random-order): it prints the seed in the pytest
 # header (`Using --randomly-seed=N`), shuffles modules, classes and functions, and
@@ -26,6 +69,19 @@ name: Random order tests (non-blocking)
 #
 #   # one file's order only (fast triage): add the suspect test files after the options.
 #
+# Host parity (t_555b26e2): conftest.py pins WR_REDIS_URL blank. If you export a
+# real WR_REDIS_URL to reproduce, you also inherit a process-wide shared
+# rate-limit bucket and get ~21 extra 429-shaped failures CI cannot produce.
+# Reproduce without it.
+#
+# Seed-vs-reality caveat (t_555b26e2): the published seed pins the ORDER only.
+# Anything a test draws from `os.urandom` — every `uuid4()` primary key — is
+# outside the seed, so "red on seed N, green when I replay seed N" is the
+# expected signature of a data-dependent defect. Do not conclude "not
+# reproducible, therefore not real"; look for a data-dependent cause before
+# blaming the shuffle. That misread is what let the uuid-affinity bug below
+# survive being called an order-dependent flake.
+#
 # xdist note: this job uses `-n auto --dist loadfile` like ci.yml. pytest-randomly
 # seeds every xdist worker identically, so all workers see the same shuffled order,
 # and `loadfile` then keeps each file on one worker. Which files share a worker is
@@ -40,8 +96,6 @@ name: Random order tests (non-blocking)
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   schedule:
     # Nightly, 03:17 UTC (off the hour to avoid the scheduler rush).
     - cron: "17 3 * * *"
@@ -55,17 +109,21 @@ on:
 
 concurrency:
   group: random-order-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Never cancel: a red nightly is evidence, and a later push must not eat it.
+  cancel-in-progress: false
 
 permissions:
   contents: read
+  # Used by "Open or refresh tracking issue" so a red main cannot be ignored.
+  issues: write
 
 jobs:
   random-order:
-    name: random-order pytest (${{ matrix.engine }}, non-blocking)
+    name: random-order pytest (${{ matrix.engine }})
     runs-on: ubuntu-latest
-    # NON-BLOCKING: see header. A failure here must never fail the workflow run.
-    continue-on-error: true
+    # BLOCKING since t_555b26e2 — see header. Runs only on push-to-main / nightly
+    # / dispatch, where a red result must be loud. It never runs on pull_request,
+    # so it cannot gate a merge.
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -141,7 +199,62 @@ jobs:
             grep -E '^(FAILED|ERROR) ' pytest-random-order.log | head -50 || true
           } >> "$GITHUB_STEP_SUMMARY"
           if [ "${OUTCOME}" != "success" ]; then
-            echo "::warning title=random-order (${{ matrix.engine }}) failed::seed=${SEED:-unknown}; non-blocking. See job summary / junit artifact."
+            # Blocking since t_555b26e2: a red here is a red main, not a warning.
+            echo "::error title=random-order (${{ matrix.engine }}) failed::seed=${SEED:-unknown}; main is red. See job summary / junit artifact."
+          fi
+      - name: Open or refresh tracking issue
+        # Only for events that represent real main state — a dispatched seed
+        # replay is an investigation, not a regression report.
+        if: failure() && github.event_name != 'workflow_dispatch'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENGINE: ${{ matrix.engine }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          LABEL="random-order-flake"
+          SEED=$(grep -m1 -o 'randomly-seed=[0-9]*' pytest-random-order.log | cut -d= -f2 || true)
+          SEED="${SEED:-unknown}"
+          FAILING=$(grep -E '^(FAILED|ERROR) ' pytest-random-order.log | head -20 || true)
+          # One open issue PER ENGINE. A nightly that stays red for 30 nights must
+          # not file 30 issues, or the label becomes the same noise the red cell was.
+          gh label create "$LABEL" --color F9D0C4 \
+            --description "random-order pytest job is red on main" >/dev/null 2>&1 || true
+          EXISTING=$(gh issue list --label "$LABEL" --state open \
+            --search "$ENGINE in:title" --json number --jq '.[0].number // empty')
+          if [ -n "${EXISTING:-}" ]; then
+            gh issue comment "$EXISTING" \
+              --body "Still red — seed \`$SEED\`, commit \`$COMMIT\`, run $RUN_URL."
+            echo "refreshed existing issue #$EXISTING"
+          else
+            BODY="The blocking \`random-order\` job is red on main for the **$ENGINE** engine.
+
+          | | |
+          |---|---|
+          | seed | \`$SEED\` |
+          | commit | \`$COMMIT\` |
+          | run | $RUN_URL |
+          | artifact | \`random-order-$ENGINE\` (junit XML + full log) |
+
+          Reproduce (serial, same relative order):
+
+              python -m pytest -q -p no:cacheprovider -p randomly -n 0 --randomly-seed=$SEED
+
+          Two checks before chasing it: the seed pins ORDER only — anything drawn
+          from \`os.urandom\` (every \`uuid4()\` PK) is outside it, so look for a
+          data-dependent cause before assuming a shared-state leak — and if the
+          same test is red in ci.yml's \`pytest + coverage\` job too, it is not an
+          order-dependent test at all.
+
+          <details><summary>failing tests</summary>
+
+              $FAILING
+
+          </details>"
+            gh issue create --title "[random-order] $ENGINE leg red on main" \
+              --label "$LABEL" --body "$BODY"
           fi
       - name: Upload junit XML and log
         if: always()
