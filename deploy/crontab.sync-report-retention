@@ -1,0 +1,28 @@
+# deploy/crontab.sync-report-retention — the schedule of record for raw
+# sync-report telemetry retention (t_28f34a8a).
+#
+# WHY THIS FILE EXISTS
+# Every other pruner in app/crons/ cites deploy/*.timer + *.service as its
+# schedule, and none of them are installed: `systemctl list-timers` on
+# wisechef-hq lists zero loopskill/recipes units, the units point at a dead
+# /opt/recipes-api prefix, and the surviving pruners are provably dead
+# (stripe_event_ids 13 rows past its 7d TTL, fleet_pings 47 rows past 90d —
+# measured 2026-11-16). An uninstalled schedule is not a schedule. The live
+# mechanism on this host is the `wisechef` user crontab, so that is where this
+# job lives, and the line below is kept byte-identical to CRONTAB_LINE in
+# app/crons/sync_report_pruner.py — tests/test_sync_report_retention_cron.py
+# asserts they match, so code and schedule cannot drift apart silently.
+#
+# INSTALL (idempotent — installs the line from the module, not from here):
+#   cd /home/wisechef/loopskill-api && set -a; . ./.env; set +a
+#   LINE=$(venv/bin/python -c 'from app.crons.sync_report_pruner import CRONTAB_LINE; print(CRONTAB_LINE)')
+#   crontab -l 2>/dev/null | grep -v sync_report_pruner > /tmp/ct.new
+#   echo "$LINE" >> /tmp/ct.new && crontab /tmp/ct.new
+# VERIFY it is installed and running:
+#   crontab -l | grep sync_report_pruner
+#   tail -5 /home/wisechef/wiserecipes-logs/sync_report_retention.log
+# and the standing predicate ~/.hermes/goals/sync-report-retention-30d.md
+# (daily verify-goals.sh sweep) fails loudly if min(created_at) drifts past the
+# window again — the cron dying is a signal, not a silent state.
+
+40 3 * * * cd /home/wisechef/loopskill-api && set -a; . ./.env; set +a; flock -n /tmp/loopskill-sync-report-retention.lock venv/bin/python -m app.crons.sync_report_pruner >> /home/wisechef/wiserecipes-logs/sync_report_retention.log 2>&1
