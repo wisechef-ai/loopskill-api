@@ -224,6 +224,11 @@ chmod 600 "$KEYFILE"
 echo "enrolled '$NAME' on $API_BASE (free tier)."
 echo "API key saved to $KEYFILE (mode 600). The server shows it only once: back it up."
 echo "use it:  export LOOPSKILL_API_KEY=\"\$(cat $KEYFILE)\"   # header: x-api-key"
+# ah_1116: /api/mcp/http 401s keyless, so a fresh key is useless to an MCP
+# client until it is wired. Print a paste-ready line that READS the key file
+# (\$(cat ...) expands when pasted) so the shown-once key is never printed.
+echo "mcp:     claude mcp add --transport http loopskill $API_BASE/api/mcp/http/ --header \"x-api-key: \$(cat $KEYFILE)\""
+echo "stdio:   LOOPSKILL_API_KEY=\"\$(cat $KEYFILE)\" uvx loopskill-mcp   # Claude Desktop: command uvx, args [\"loopskill-mcp\"]"
 # ah_1106: end on a first install, not a dead end. The bundle installer is
 # keyless, so this line works whether or not the export above was run.
 echo "next:    install a starter bundle (no key needed): curl -fsSL $API_BASE/api/bundles/install.sh | bash -s -- @@FIRST_INSTALL_BUNDLE@@"
