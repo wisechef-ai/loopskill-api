@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import FeedbackSubmission, RecipifyRequest
+from app.models import FeedbackSubmission, IncidentReport, RecipifyRequest
 
 logger = logging.getLogger(__name__)
 
@@ -79,16 +79,22 @@ def get_feedback_status(
     request: Request,
     db: Session = Depends(get_db),
 ) -> FeedbackStatusOut:
-    """Return the current status and issue_url for a feedback or recipify-request row.
+    """Return the current status and issue_url for a feedback, recipify or incident row.
 
-    Looks up the row_id in both feedback_submissions and recipify_requests tables.
-    Returns 404 if the row is not found in either table.
+    Looks up the row_id in feedback_submissions, recipify_requests and
+    incident_reports. Returns 404 if no row matches.
     """
     _check_status_rate_limit(request)
 
     row = db.query(FeedbackSubmission).filter(FeedbackSubmission.id == row_id).first()
     if row is None:
         row = db.query(RecipifyRequest).filter(RecipifyRequest.id == row_id).first()
+    # The skill-error contract (app/mcp/tools/skill_error.py) hands the caller an
+    # *incident_reports* id and tells clients to poll THIS endpoint for the
+    # resolved issue URL. incident_reports was never queried here, so every
+    # skill-error poll was a 404 and the URL was unreachable by design.
+    if row is None:
+        row = db.query(IncidentReport).filter(IncidentReport.id == row_id).first()
 
     if row is None:
         raise HTTPException(
@@ -96,9 +102,17 @@ def get_feedback_status(
             detail="Feedback row not found",
         )
 
+    # FeedbackSubmission and RecipifyRequest both carry a non-null `created_at`, so
+    # this line was safe as long as the handler could only see those two tables.
+    # IncidentReport has NO created_at — its only timestamp is `occurred_at` — so
+    # the moment incident ids began resolving this raised AttributeError and the
+    # public poll endpoint 500'd for every skill-error report. Resolve per model
+    # instead of assuming a column shared by all three.
+    created_at = row.created_at if hasattr(row, "created_at") else row.occurred_at
+
     return FeedbackStatusOut(
         id=str(row.id),
         status=getattr(row, "feedback_status", "pending") or "pending",
-        issue_url=row.issue_url or "",
-        created_at=row.created_at,
+        issue_url=getattr(row, "issue_url", "") or "",
+        created_at=created_at,
     )

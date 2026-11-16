@@ -82,7 +82,13 @@ jobs:
               // Build title and body from the dispatch payload (feedback / skill-error / publish-request / skill-patch)
               const category = payload.category || 'general';
               const message = payload.message || 'No message provided';
-              const agentId = payload.agent_id || 'unknown';
+              // skill-error dispatches send `agent_fp_anon`; feedback/skill-patch
+              // send `agent_id`. Reading only agent_id made every skill-error issue
+              // print "Source: MCP tool (agent: unknown)" even though the API row
+              // knew the agent (prod #462/#463 both said "unknown" while
+              // incident_reports.agent_fp_anon was hermes-agent-adam /
+              // codex-humanizer-report).
+              const agentId = payload.agent_fp_anon || payload.agent_id || 'unknown';
               const signature = payload.signature || '';
 
               body = `**Category:** ${category}\n\n**Message:**\n${message}\n`;
@@ -121,12 +127,23 @@ jobs:
 
           ISSUE_URL="${{ steps.create_issue.outputs.issue_url }}"
           ROW_ID="${{ github.event.client_payload.id }}"
+          # Composite signature, forwarded so the API can backfill its dedup cache
+          # with the real issue URL. Sanitised to hex: it is interpolated into a
+          # JSON body, and a malformed value must not be able to break out.
+          SIG_RAW="${{ github.event.client_payload.signature }}"
+          SIG="$(printf '%s' "$SIG_RAW" | tr -cd '0-9a-fA-F' | cut -c1-64)"
 
           echo "Patching issue URL for row ${ROW_ID}: ${ISSUE_URL}"
 
           # Determine table type from event action
           case "${{ github.event.action }}" in
             publish-request) TABLE="recipify" ;;
+            # skill-error reports persist to incident_reports, NOT feedback_submissions
+            # (app/mcp/tools/skill_error.py + app/skill_error_routes.py both add an
+            # IncidentReport and dispatch its id). Sending table="feedback" here made
+            # the PATCH handler look the id up in the wrong table and 404 on every
+            # single skill-error event — the issue got filed, the URL never stored.
+            skill-error) TABLE="incident" ;;
             federation-registry-propose) TABLE="federation" ;;
             *) TABLE="feedback" ;;
           esac
@@ -136,7 +153,7 @@ jobs:
               -X PATCH \
               -H "Content-Type: application/json" \
               -H "X-Internal-Token: ${INTERNAL_PATCH_TOKEN}" \
-              -d "{\"issue_url\": \"${ISSUE_URL}\", \"table\": \"${TABLE}\"}" \
+              -d "{\"issue_url\": \"${ISSUE_URL}\", \"table\": \"${TABLE}\"${SIG:+, \"signature\": \"${SIG}\"}}" \
               "${API_BASE_URL}/api/internal/feedback/${ROW_ID}/issue-url"
           )
 

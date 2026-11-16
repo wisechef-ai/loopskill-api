@@ -991,6 +991,15 @@ class IncidentReport(Base):
         """
         return cls.report_type == cls.TYPE_SKILL_ERROR
 
+    # skill-error dispatch write-back. Both skill-error writers
+    # (app/mcp/tools/skill_error.py, app/skill_error_routes.py) hand the Feedback
+    # Dispatcher workflow `report.id` where `report` is an *IncidentReport*, and the
+    # workflow PATCHes the created issue's URL onto THAT row
+    # (app/internal_routes.py, table="incident"). NULL/"" = issue not linked yet,
+    # which is what the MCP tool's status="pending" contract reports.
+    issue_url = Column(Text, nullable=True)
+    feedback_status = Column(Text, default="pending", server_default="pending")
+
 
 class PatchCandidate(Base):
     """B.4/B.6 — Clustered incident signatures awaiting patch drafting.
