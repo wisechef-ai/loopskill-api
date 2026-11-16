@@ -121,9 +121,18 @@ def get_fleet_dashboard(
     # while POST /api/sync-report stayed healthy — 22,834 accepted cycles over
     # its life (~167/day, prod) — this badge could
     # only ever answer 0, and that permanent 0 is exactly what hid the dead rail.
-    # Agent-reported skill errors are real and live in IncidentReport
-    # (POST /api/v1/skill-error, POST /api/feedback/incident, MCP
-    # loopskill_report_skill_error) — the rail that actually receives data.
+    #
+    # There is deliberately NO skill-error badge here, and no IncidentReport read
+    # in this module (pinned by tests/test_t0111f6c4_incident_reader_provenance.py).
+    # The earlier version of this comment pointed at IncidentReport as where
+    # "agent-reported skill errors are real" and listed all three write rails —
+    # including POST /api/feedback/incident, which is a CRASH report of LoopSkill's
+    # own tooling and not a skill error at all. That prose was an invitation to
+    # re-add this badge by counting the whole table, which is the conflation
+    # t_a0607d92 fixed on the public transparency metric. If a skill-error badge
+    # is wanted here, filter with IncidentReport.skill_error_rows() — never a bare
+    # count of incident_reports — and name the crash population separately, the way
+    # transparency_routes publishes crash_report_count_7d beside the rate.
     voice_counts = {"recipify_requests": 0, "feedback": 0}
     if api_key_ids:
         voice_counts["recipify_requests"] = (

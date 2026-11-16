@@ -9,10 +9,15 @@ The Stage 1-3 graph already exposes:
 This module adds three more, all surfaced through GET /api/graph/related:
 
   - `failed_after`        — skill A run, skill B run within 5 min, B failed.
-                            Derived from `incident_reports`. The table is
-                            created in a sibling task (B.1 auto-improve); we
-                            check existence at runtime so the endpoint
-                            degrades to [] when the data isn't there yet.
+                            Derived from the skill-error population of
+                            `incident_reports` (report_type='skill_error'), not
+                            from the whole table — a crash report from
+                            POST /api/feedback/incident is LoopSkill's own tooling
+                            dying and is not evidence about two marketplace
+                            skills. The table is created in a sibling task
+                            (B.1 auto-improve); we check existence at runtime so
+                            the endpoint degrades to [] when the data isn't there
+                            yet.
 
   - `arch_compatible_with`— skills that succeed on the same host fingerprint.
                             Derived from `install_events.host_fingerprint`,
@@ -35,6 +40,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from app.models import (
+    IncidentReport,
     InstallEvent,
     ReplacementCandidate,
     Skill,
@@ -151,18 +157,40 @@ def failed_after_edges(
     #
     # Detect the shape rather than assuming either one, and roll back on failure
     # so a swallowed error can never poison the caller's session.
+    #
+    # t_0111f6c4 (2026-11-16): a THIRD dimension of that shape-split is
+    # provenance. The real schema holds two populations under one table — agent
+    # skill errors, and crash reports of LoopSkill's own tooling from
+    # POST /api/feedback/incident (see the IncidentReport class docstring). A
+    # crash report says LoopSkill's tooling died; it says nothing about a
+    # `failed_after` relationship between two marketplace skills, and this feeds
+    # the public no-auth GET /api/graph/related. So the real-shape branch filters
+    # to skill errors. The test-shape branch cannot: that table has no
+    # report_type column at all, which is why the filter is gated on
+    # _column_exists the same way ts_col is rather than assumed. Provenance
+    # filtering is therefore a property of the REAL schema; asserting it belongs
+    # to tests that use models.IncidentReport, not to these derivation tests.
+    _prov = ""
+    if _column_exists(db, "incident_reports", "report_type"):
+        _prov = " AND report_type = :prov"
     if _column_exists(db, "incident_reports", "skill_slug"):
-        incident_sql = f"SELECT {ts_col} FROM incident_reports WHERE skill_slug = :slug"
+        incident_sql = f"SELECT {ts_col} FROM incident_reports WHERE skill_slug = :slug{_prov}"
     elif _column_exists(db, "incident_reports", "skill_id"):
         incident_sql = (
             f"SELECT i.{ts_col} FROM incident_reports i "
-            "JOIN skills s ON s.id = i.skill_id WHERE s.slug = :slug"
+            f"JOIN skills s ON s.id = i.skill_id WHERE s.slug = :slug{_prov}"
         )
     else:
         return []
 
     try:
-        incident_rows = db.execute(text(incident_sql), {"slug": skill_slug}).fetchall()
+        params: dict[str, object] = {"slug": skill_slug}
+        if _prov:
+            # Module-level import, deliberately NOT re-imported here: an import
+            # placed inside this try would be laundered into [] by the same
+            # blanket except that the P6 comment above exists to warn about.
+            params["prov"] = IncidentReport.TYPE_SKILL_ERROR
+        incident_rows = db.execute(text(incident_sql), params).fetchall()
     # Rationale: incident_reports may be absent or differently shaped on an older
     # schema. Roll back first — on Postgres the failed statement has already
     # aborted the transaction, and returning [] without a rollback hands the

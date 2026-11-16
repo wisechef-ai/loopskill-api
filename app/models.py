@@ -947,6 +947,50 @@ class IncidentReport(Base):
     # not for today's transparency query.
     report_type = Column(String(32), nullable=False, server_default=TYPE_INCIDENT, index=True)
 
+    @classmethod
+    def skill_error_rows(cls):
+        """SQLAlchemy predicate: rows proving *a marketplace skill* misbehaved.
+
+        THE canonical filter. Every reader of ``incident_reports`` that speaks or
+        writes about "skill errors" MUST apply this, and no reader should
+        hand-write ``report_type == ...`` — that is how three readers drifted
+        apart from the transparency metric after ``report_type`` landed
+        (t_0111f6c4, 2026-11-16).
+
+        Who wants it:
+
+          * ``app/transparency_routes.py`` — ``skill_error_rate_7d`` (public).
+          * ``app/crons/incident_clustering.py`` — a ``PatchCandidate`` is a
+            request to patch a *skill's source*, so only skill errors may seed
+            one. Clustering is keyed on ``error_signature`` = sha256 of the top-5
+            stack frames; a crash report's frames are LoopSkill's own tooling, so
+            a candidate seeded from one asks for a patch to the wrong codebase.
+          * ``app/crons/patch_drafter.py::_top_reports`` — feeds report text into
+            the drafting prompt. MUST match the clustering filter exactly: if the
+            two disagree, clustering can mint a candidate from skill-error rows
+            while the drafter pulls the three most-recent rows for that
+            ``(skill_id, signature)`` and finds only crash reports — or, filtered
+            the other way round, a candidate with no qualifying row raises every
+            6h forever, because ``run_once`` only counts it ``errored`` and leaves
+            it ``pending``.
+          * ``app/graph_extension.py::failed_after_edges`` — the public, no-auth
+            ``GET /api/graph/related`` ``failed_after`` edges.
+
+        Who does NOT: a reader that genuinely wants both populations counts the
+        union and says so out loud in its docstring. ``transparency_routes``
+        publishes the crash half explicitly as ``crash_report_count_7d`` rather
+        than folding it in, and is the reference implementation of that.
+
+        Fail direction, deliberately asymmetric and inherited from t_a0607d92:
+        equality against ``TYPE_SKILL_ERROR`` means any row that is not *provably*
+        a skill error — a backfill-inconclusive legacy row, or a future rail that
+        forgot to classify and inherited ``server_default=TYPE_INCIDENT`` — falls
+        to the crash side. Under-counting skill errors is survivable; letting a
+        crash masquerade as a skill error is not, because a skill-error rate is
+        read by people judging a creator's work.
+        """
+        return cls.report_type == cls.TYPE_SKILL_ERROR
+
 
 class PatchCandidate(Base):
     """B.4/B.6 — Clustered incident signatures awaiting patch drafting.
