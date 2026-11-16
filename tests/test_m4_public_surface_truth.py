@@ -96,6 +96,16 @@ class TestEachRuleFiresOnReintroduction:
             ("fast-sync", "Fast sync keeps every machine current."),
             ("loops-on-any-host", "Your loops run on any agent you own."),
             ("automatic-telemetry", "Loop telemetry is collected automatically."),
+            # t_de052498 made "the scheduler observes every fire" true for pass/fail.
+            # This is that true sentence carrying the two fields it cannot carry.
+            (
+                "rich-fields-from-the-scheduler",
+                "Cost, duration and accepted change are captured from the scheduler for every fire.",
+            ),
+            (
+                "rich-fields-from-the-scheduler",
+                "cost_usd and duration_s are recorded for each fire of a placed loop.",
+            ),
         ],
     )
     def test_rule_fires(self, audit, rule_id, sentence):
@@ -123,7 +133,12 @@ class TestEachRuleStaysSilentOnTheTruth:
             # Telemetry, described honestly. The first version of this gate
             # flagged the exact disclosure M4 requires — a rule that punishes
             # the honest sentence trains people to write the dishonest one.
+            # Post-t_de052498 phrasing: pass/fail comes from the scheduler, the
+            # rich fields from the prompt. Both halves must stay sayable.
             "Telemetry lands only when the loop's prompt calls the emitter.",
+            "The collector reads the scheduler's own record, so a crashed loop lands as a fail.",
+            "cost_usd and duration_s are reported only when the prompt calls the emitter.",
+            "A loop placed outside app/loop_apply_cli is invisible to both producers.",
             "Telemetry is NOT automatic.",
             "Loop telemetry is never collected automatically.",
             "Sync is not instant — the agent polls every 30 minutes.",
@@ -134,9 +149,7 @@ class TestEachRuleStaysSilentOnTheTruth:
     )
     def test_true_sentence_is_not_flagged(self, audit, sentence):
         hits = audit.scan_text(sentence, "synthetic.md")
-        assert hits == [], (
-            f"a TRUE sentence was flagged by {[h.rule.id for h in hits]}: {sentence!r}"
-        )
+        assert hits == [], f"a TRUE sentence was flagged by {[h.rule.id for h in hits]}: {sentence!r}"
 
 
 # ── 2. SELF_HOST.md is runnable as written ─────────────────────────────────
@@ -170,11 +183,7 @@ class TestSelfHostGuideIsRunnable:
         fields = _settings_field_names()
         text = SELF_HOST.read_text(encoding="utf-8")
         bare = sorted(
-            {
-                name
-                for name in _EXPORT_RE.findall(text)
-                if name in fields and name not in _NON_SETTINGS_ENV
-            }
+            {name for name in _EXPORT_RE.findall(text) if name in fields and name not in _NON_SETTINGS_ENV}
         )
         assert bare == [], (
             "docs/SELF_HOST.md exports Settings field(s) without the WR_ prefix, so the "
@@ -193,9 +202,7 @@ class TestSelfHostGuideIsRunnable:
         if "auth/github" not in text:
             pytest.skip("the guide no longer routes sign-in through GitHub OAuth")
         exported = set(_EXPORT_RE.findall(text))
-        missing = sorted(
-            {"WR_GITHUB_CLIENT_ID", "WR_GITHUB_CLIENT_SECRET"} - exported
-        )
+        missing = sorted({"WR_GITHUB_CLIENT_ID", "WR_GITHUB_CLIENT_SECRET"} - exported)
         assert missing == [], (
             "docs/SELF_HOST.md tells the reader to sign in via GitHub OAuth but never "
             f"has them set: {missing}"
@@ -267,6 +274,5 @@ class TestReadmeCountsMatchTheCode:
         claimed = re.search(r"\*\*(\d+) vetted loops\*\*", README.read_text("utf-8"))
         assert claimed is not None, "README no longer states a starter-loop count"
         assert int(claimed.group(1)) == seeded, (
-            f"README claims {claimed.group(1)} vetted loops; "
-            f"scripts/seed_starter_catalog.py seeds {seeded}"
+            f"README claims {claimed.group(1)} vetted loops; scripts/seed_starter_catalog.py seeds {seeded}"
         )

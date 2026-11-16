@@ -177,9 +177,39 @@ RULES: tuple[Rule, ...] = (
         ),
         claim="hub §5 — loop telemetry is NOT automatic",
         why=(
-            "A loop run is recorded only if the loop's own prompt calls "
-            "scripts/loopskill-emit-run.sh. Nothing else observes a fire. That is the "
-            "structural reason loop_runs sat at 1 for a year (/tmp/ISSUES-p4.md)."
+            "Two producers feed loop_runs and each observes a different fact. The "
+            "collector reads the scheduler's own record, so pass/fail of a "
+            "platform-managed fire is seen without prompt cooperation (t_de052498, "
+            "2026-11-16 — before that the surface sat at 20,828 beacon rows + 1 "
+            "hand-written test for its whole life). cost_usd, duration_s and "
+            "accepted_change still come ONLY from the loop's own prompt calling "
+            "scripts/loopskill-emit-run.sh, and a loop placed outside "
+            "app/loop_apply_cli is seen by neither. 'Automatic' erases both limits, "
+            "which is the difference between a fleet that is measured and a fleet "
+            "that is believed."
+        ),
+        unless=_DENIAL,
+    ),
+    Rule(
+        id="rich-fields-from-the-scheduler",
+        pattern=(
+            r"\b(?:cost_usd|duration_s|accepted_change|cost and duration|cost, duration)\b"
+            r"[^.\n]{0,80}?"
+            r"\b(?:captured|recorded|reported|collected|tracked|measured|observed|known)\w*\b"
+            r"[^.\n]{0,60}?"
+            r"\b(?:from the scheduler|from its cron|from the cron|from jobs\.json"
+            r"|for every fire|for each fire)\b"
+            r"|\b(?:cost_usd|duration_s|accepted_change|cost and duration|cost, duration)\b"
+            r"[^.\n]{0,80}?\bautomatic\w*\b"
+        ),
+        claim="hub §5 — cost/duration/accepted_change come only from the emitter",
+        why=(
+            "Added with t_de052498, which made 'the scheduler observes every fire' "
+            "TRUE for pass/fail. The temptation is to let that sentence carry the "
+            "rich fields too. It cannot: jobs.json records last_run_at and "
+            "last_status, never what the loop cost or shipped. A dashboard quoting "
+            "cost per accepted change from scheduler-derived rows is quoting a "
+            "field that is NULL."
         ),
         unless=_DENIAL,
     ),
