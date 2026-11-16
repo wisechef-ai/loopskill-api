@@ -11,10 +11,8 @@ so test patches via patch("app.middleware.get_redis") work correctly.
 import hashlib
 import hmac
 import logging
-import time
 from datetime import UTC
 
-import redis
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -50,10 +48,10 @@ from app.revenue_truth import entitled_tier
 logger = logging.getLogger("loopskill.middleware")
 
 
-# Shared Redis client (lazy init)
-_redis_client = None
-_redis_available = None
-_redis_next_retry_at: float = 0.0  # F-API-05: backoff timestamp
+# No Redis client state lives here any more. This module used to keep its own
+# `_redis_client` / `_redis_available` / `_redis_next_retry_at` trio and its own
+# `get_redis()`; the copy drifted from `app/middleware/__init__.py` and crashed
+# the blank-URL zero-config path at import time. See get_redis() below.
 
 
 def _auth_ctx_from_api_key(request) -> "AuthContext | None":
@@ -134,31 +132,34 @@ def _auth_ctx_from_api_key(request) -> "AuthContext | None":
 
 
 def get_redis():
-    """Get Redis client with lazy initialization, health check, and 30s backoff."""
-    global _redis_client, _redis_available, _redis_next_retry_at
-    if _redis_client is not None and _redis_available:
-        return _redis_client
-    # F-API-05: if we're in the backoff window, skip retry
-    if not _redis_available and time.monotonic() < _redis_next_retry_at:
-        return None
-    try:
-        client = redis.from_url(settings.REDIS_URL, decode_responses=True, socket_connect_timeout=2)
-        client.ping()
-        _redis_client = client
-        _redis_available = True
-        logger.info("Redis connected for rate limiting")
-        return client
-    except (redis.ConnectionError, redis.TimeoutError) as e:
-        _redis_available = False
-        _redis_next_retry_at = time.monotonic() + 30.0  # F-API-05: 30s backoff
-        logger.warning("Redis unavailable, falling back to in-memory rate limiting: %s", e)
-        return None
+    """Delegate to the single implementation in ``app.middleware``.
+
+    This module used to carry its own copy of the client builder. The copy
+    drifted: it never received the blank-URL guard that
+    ``app/middleware/__init__.py:get_redis`` got, and it caught only
+    ``ConnectionError``/``TimeoutError`` — so on the documented zero-config
+    self-host path (``docker-compose.yml`` ships ``WR_REDIS_URL: ""``) it
+    raised ``ValueError: Redis URL must specify one of the following
+    schemes`` at ``redis.from_url("")``. ``app/last_used_tracker.py`` imports
+    this symbol and calls it at MODULE IMPORT time, so a fresh
+    ``docker compose up`` without Redis crashed every request path that
+    touches the last-used tracker — the same class of failure the guarded
+    twin was fixed for.
+
+    One implementation, late-imported so ``patch("app.middleware.get_redis")``
+    is honoured at call time (this module's own NOTE has always asked for
+    that; the duplicate silently broke it).
+    """
+    from app.middleware import get_redis as _get_redis
+
+    return _get_redis()
 
 
 def mark_redis_failed():
-    """Mark Redis as unavailable so next call retries connection."""
-    global _redis_available
-    _redis_available = None  # None = unknown, will retry on next request
+    """Delegate to the single implementation in ``app.middleware``."""
+    from app.middleware import mark_redis_failed as _mark_redis_failed
+
+    _mark_redis_failed()
 
 
 class APIKeyMiddleware(BaseHTTPMiddleware):
