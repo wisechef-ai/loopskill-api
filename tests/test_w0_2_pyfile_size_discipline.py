@@ -9,10 +9,13 @@ the (currently runner-blocked) CI job:
      pushed api_key.py to 611; W0.2 extracted fleet-key resolution into
      app/middleware/_token_auth.py to restore headroom.
 
-  2. The 5 legacy modules above 600 are a CLOSED waiver set. No NEW app/ module
+  2. The 4 legacy modules above 600 are a CLOSED waiver set. No NEW app/ module
      may exceed 600 — that would be exactly the god-object regression the gate
-     exists to stop. The waiver list here mirrors the allowlist in
-     .github/workflows/pyfile-size-check.yml; the two must agree.
+     exists to stop. (Historically this list mirrored an allowlist in
+     .github/workflows/pyfile-size-check.yml; that workflow was retired in
+     7323383 and this test is now the single source of truth.)
+     app/graph_extension.py left the set in t_e4c8c189, when the dead
+     sweep_replacement_candidates deletion brought it to 561 lines.
 """
 from __future__ import annotations
 
@@ -29,7 +32,6 @@ LEGACY_WAIVER = {
     "app/subscription_service.py",
     "app/bundle_routes.py",
     "app/skill_routes.py",
-    "app/graph_extension.py",
 }
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
