@@ -1126,7 +1126,7 @@ class TestWellKnownIsPublic:
         assert reg["algorithm"] == "Ed25519"
         assert reg["issues"]["key_prefix"] == "rec_agent_"
         assert "sandbox_run" in reg["denies"]
-        assert doc["mcp"]["endpoint"].endswith("/api/mcp/http")
+        assert doc["mcp"]["endpoint"].endswith("/api/mcp/http/")
         assert doc["catalog"]["stats"].endswith("/api/stats")
 
     def test_published_canonical_string_matches_the_verifier(self, client):
@@ -1157,7 +1157,7 @@ class TestWellKnownIsPublic:
 
     def test_mcp_json_points_at_self_registration(self, client):
         doc = client.get("/.well-known/mcp.json").json()
-        assert doc["transport"]["url"].endswith("/api/mcp/http")
+        assert doc["transport"]["url"].endswith("/api/mcp/http/")
         assert doc["authentication"]["self_registration"].endswith("/api/agents/register")
 
 

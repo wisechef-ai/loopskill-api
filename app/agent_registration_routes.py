@@ -251,7 +251,7 @@ def register_agent_route(
             "active_keys": MAX_ACTIVE_KEYS_PER_IDENTITY,
         },
         endpoints={
-            "mcp": f"{origin}/api/mcp/http",
+            "mcp": f"{origin}/api/mcp/http/",
             "search": f"{origin}/api/skills/search",
             "install": f"{origin}/api/skills/install",
             "docs": f"{origin}/docs",

@@ -24,7 +24,7 @@ Add to `~/.hermes/config.yaml`:
 mcpServers:
   loopskill:
     transport: streamable-http
-    url: https://app.loopskill.io/api/mcp/http
+    url: https://app.loopskill.io/api/mcp/http/
     headers:
       x-api-key: <key>
 ```
@@ -38,7 +38,7 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "loopskill": {
       "type": "streamable-http",
-      "url": "https://app.loopskill.io/api/mcp/http",
+      "url": "https://app.loopskill.io/api/mcp/http/",
       "headers": {
         "x-api-key": "YOUR_API_KEY"
       }
@@ -54,7 +54,7 @@ Set in your environment:
 ```bash
 export LOOPSKILL_API_KEY=YOUR_API_KEY
 # Then reference in your Codex MCP config pointing to:
-# https://app.loopskill.io/api/mcp/http
+# https://app.loopskill.io/api/mcp/http/
 ```
 
 > Get your API key at [app.loopskill.io/signin](https://app.loopskill.io/signin) — free tier available.

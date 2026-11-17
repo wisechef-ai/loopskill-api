@@ -379,12 +379,12 @@ def flow_wellknown_agent_json(ctx: VerifyContext) -> dict[str, Any]:
     _require(
         urlparse(registration.get("endpoint") or "").path == "/api/agents/register", "bad registration path"
     )
-    _require(urlparse(mcp.get("endpoint") or "").path == "/api/mcp/http", "bad MCP path")
+    _require(urlparse(mcp.get("endpoint") or "").path == "/api/mcp/http/", "bad MCP path (bare /api/mcp/http 307s)")
     return {
         "ok": True,
         "steps": [
             "GET /.well-known/agent.json -> name=LoopSkill, canonical_version=v1, "
-            "registration=/api/agents/register, mcp=/api/mcp/http"
+            "registration=/api/agents/register, mcp=/api/mcp/http/"
         ],
     }
 
