@@ -5,7 +5,8 @@ derived `tag_overlap`, derived `co_install`. B.5 adds three more:
 
   - `failed_after`        — A run, B run within 5min, B failed
   - `arch_compatible_with`— same-host-fingerprint co-occurrence
-  - `replaced_by`         — manual curator + auto-detected candidates
+  - `replaced_by`         — manual curator edges + candidate read path
+                            (the auto-detection sweep was dead code, deleted)
 
 Plus a public `/api/graph/related?skill=&edge=&min_weight=` endpoint.
 
@@ -13,7 +14,9 @@ Tests cover:
   * failed_after derivation with mocked incident_reports rows
   * arch_compatible_with empty path (no host_fingerprint column) and
     populated path (column simulated via raw SQL)
-  * replaced_by manual + auto-detection sweep
+  * replaced_by manual edges + candidate read path (the auto-detection
+    sweep was deleted in t_e4c8c189 — it only ever worked against the
+    test-fabricated table shape, never the shipped schema)
   * endpoint param validation + public access (no API key required)
   * existing edge types (tag_overlap, co_install, related_skills,
     category_sibling) still answerable via the new endpoint
@@ -355,105 +358,6 @@ class TestReplacedBy:
         db_session.commit()
 
         assert replaced_by_edges(db_session, "flaky") == []
-
-    def test_sweep_proposes_candidates_when_evidence_meets_threshold(
-        self, db_session: Session
-    ):
-        """The cron sweep should flag a high-incident skill with a viable
-        co-installed alternative that itself has fewer incidents."""
-        from app.graph_extension import sweep_replacement_candidates
-
-        _ensure_incident_reports_table(db_session)
-        try:
-            flaky = _make_skill_with_tags(db_session, "flaky", ["x"])
-            stable = _make_skill_with_tags(db_session, "stable", ["x"])
-            db_session.commit()
-
-            # 60% of incidents are 'flaky', co-install signal is strong
-            t = datetime.now(timezone.utc) - timedelta(days=1)
-            for _ in range(6):
-                _insert_incident(db_session, "flaky", "Boom", t)
-            for _ in range(4):
-                _insert_incident(db_session, "stable", "Boom", t)
-
-            db_session.add(SkillDerivedEdge(
-                id=uuid4(),
-                source_slug="flaky", target_slug="stable",
-                weight=0.5,
-                signals={"jaccard": 0.0, "category": 0.0, "coinstall": 0.6},
-            ))
-            db_session.commit()
-
-            inserted = sweep_replacement_candidates(db_session)
-            db_session.commit()
-            assert inserted == 1
-            cands = db_session.query(ReplacementCandidate).all()
-            assert len(cands) == 1
-            assert cands[0].source_id == flaky.id
-            assert cands[0].target_id == stable.id
-            assert cands[0].status == "pending"
-        finally:
-            _drop_incident_reports_table(db_session)
-
-    def test_sweep_skips_when_co_invoke_weight_below_threshold(self, db_session: Session):
-        from app.graph_extension import sweep_replacement_candidates
-
-        _ensure_incident_reports_table(db_session)
-        try:
-            flaky = _make_skill_with_tags(db_session, "flaky", ["x"])
-            stable = _make_skill_with_tags(db_session, "stable", ["x"])
-            db_session.commit()
-
-            t = datetime.now(timezone.utc) - timedelta(days=1)
-            for _ in range(8):
-                _insert_incident(db_session, "flaky", "Boom", t)
-            for _ in range(2):
-                _insert_incident(db_session, "stable", "Boom", t)
-
-            # Co-invoke too weak (0.1 < CO_INVOKED_MIN=0.3)
-            db_session.add(SkillDerivedEdge(
-                id=uuid4(),
-                source_slug="flaky", target_slug="stable",
-                weight=0.2, signals={"coinstall": 0.1},
-            ))
-            db_session.commit()
-
-            assert sweep_replacement_candidates(db_session) == 0
-            assert db_session.query(ReplacementCandidate).count() == 0
-        finally:
-            _drop_incident_reports_table(db_session)
-
-    def test_sweep_is_idempotent(self, db_session: Session):
-        from app.graph_extension import sweep_replacement_candidates
-
-        _ensure_incident_reports_table(db_session)
-        try:
-            flaky = _make_skill_with_tags(db_session, "flaky", ["x"])
-            stable = _make_skill_with_tags(db_session, "stable", ["x"])
-            db_session.commit()
-
-            t = datetime.now(timezone.utc) - timedelta(days=1)
-            for _ in range(7):
-                _insert_incident(db_session, "flaky", "Boom", t)
-            for _ in range(3):
-                _insert_incident(db_session, "stable", "Boom", t)
-            db_session.add(SkillDerivedEdge(
-                id=uuid4(),
-                source_slug="flaky", target_slug="stable",
-                weight=0.6, signals={"coinstall": 0.5},
-            ))
-            db_session.commit()
-
-            n1 = sweep_replacement_candidates(db_session)
-            db_session.commit()
-            n2 = sweep_replacement_candidates(db_session)
-            db_session.commit()
-
-            assert n1 == 1
-            assert n2 == 0  # second run sees existing candidate, no-ops
-            assert db_session.query(ReplacementCandidate).count() == 1
-        finally:
-            _drop_incident_reports_table(db_session)
 
 
 # ── 4. /api/graph/related endpoint ──────────────────────────────────────

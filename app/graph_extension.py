@@ -24,8 +24,16 @@ This module adds three more, all surfaced through GET /api/graph/related:
                             which lands in A.9. Degrades to [] until then.
 
   - `replaced_by`         — manual curator edits (skill_replacements) +
-                            auto-detected pending review (replacement_candidates,
-                            populated by `sweep_replacement_candidates`).
+                            pending `replacement_candidates`. The auto-detect
+                            sweep that was meant to populate the candidates
+                            table was deleted (t_e4c8c189): it hardcoded
+                            `incident_reports.skill_slug`, a column only the
+                            test scaffolding ever created — the shipped schema
+                            keys by `skill_id` — so its bare `except` laundered
+                            UndefinedColumn into "0 candidates" forever, and it
+                            had no production caller (no cron, no script, no
+                            unit). The read path stays: a candidate inserted
+                            manually still surfaces here.
 
 Public access (no auth) — keep the API consistent with /api/skills/{slug}/graph.
 """
@@ -34,7 +42,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
 
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
@@ -53,13 +60,6 @@ from app.models import (
 # `failed_after`: window between skill A's run and skill B's failure for the
 # pair to count as a co-occurrence. 5 minutes per spec.
 FAILED_AFTER_WINDOW = timedelta(minutes=5)
-
-# Replacement-candidate sweep: lookback for incident counts.
-REPLACEMENT_LOOKBACK = timedelta(days=30)
-# Min share of recent incidents in the source skill to flag it.
-INCIDENT_SHARE_MIN = 0.5
-# Min co_invoked edge weight (we reuse co_install as the co-invoked proxy).
-CO_INVOKED_MIN = 0.3
 
 
 # ── Edge-type registry ────────────────────────────────────────────────────
@@ -558,121 +558,3 @@ def edges_for(
     if edge_type == "replaced_by":
         return replaced_by_edges(db, skill_slug, min_weight=min_weight)
     raise ValueError(f"unknown edge_type {edge_type!r}")
-
-
-# ── Replacement-candidate sweep (cron entry point) ────────────────────────
-
-
-def sweep_replacement_candidates(db: Session) -> int:
-    """Walk recent incidents and propose replacement candidates for review.
-
-    Logic per B.5 spec:
-      - For each skill X, count incidents in the last 30 days.
-      - If X's incidents are >50% of all incidents for X-or-similar skills
-        in the window AND there exists a co_invoked-edge neighbour Y with
-        weight > 0.3 AND Y has a lower incident rate → propose X→Y.
-
-    Returns the number of new pending candidates inserted. Existing
-    candidates (matched by source/target pair) are left untouched, so this
-    is idempotent across reruns.
-    """
-    if not _table_exists(db, "incident_reports"):
-        return 0
-
-    since = datetime.now(UTC) - REPLACEMENT_LOOKBACK
-
-    # Per-slug recent incident counts. Defensive about the timestamp column.
-    ts_col = (
-        "occurred_at"
-        if _column_exists(db, "incident_reports", "occurred_at")
-        else "failed_at"
-        if _column_exists(db, "incident_reports", "failed_at")
-        else "created_at"
-    )
-    try:
-        rows = db.execute(
-            text(
-                f"SELECT skill_slug, COUNT(*) FROM incident_reports "
-                f"WHERE {ts_col} >= :since GROUP BY skill_slug"
-            ),
-            {"since": since},
-        ).fetchall()
-    # Rationale: incident_reports table may not exist on older DBs; return 0 count
-    except Exception:  # noqa: BLE001
-        return 0
-    incident_counts: dict[str, int] = {slug: int(n) for slug, n in rows if slug}
-    if not incident_counts:
-        return 0
-    total = sum(incident_counts.values())
-
-    inserted = 0
-    skills_by_slug = {
-        s.slug: s for s in db.query(Skill).filter(Skill.slug.in_(list(incident_counts.keys()))).all()
-    }
-    for slug, count in incident_counts.items():
-        share = count / total if total else 0.0
-        if share <= INCIDENT_SHARE_MIN:
-            continue
-        src = skills_by_slug.get(slug)
-        if not src:
-            continue
-
-        # Find a co_invoked neighbour with weight > 0.3 and lower incident rate.
-        edges = (
-            db.query(SkillDerivedEdge)
-            .filter(SkillDerivedEdge.source_slug == slug)
-            .order_by(SkillDerivedEdge.weight.desc())
-            .all()
-        )
-        for e in edges:
-            cow = float((e.signals or {}).get("coinstall") or 0.0)
-            if cow <= CO_INVOKED_MIN:
-                continue
-            other_count = incident_counts.get(e.target_slug, 0)
-            if other_count >= count:
-                continue
-            tgt = db.query(Skill).filter(Skill.slug == e.target_slug).first()
-            if not tgt:
-                continue
-
-            # Skip if a candidate or manual replacement already exists.
-            existing = (
-                db.query(ReplacementCandidate)
-                .filter(
-                    ReplacementCandidate.source_id == src.id,
-                    ReplacementCandidate.target_id == tgt.id,
-                )
-                .first()
-            )
-            if existing:
-                continue
-            existing_manual = (
-                db.query(SkillReplacement)
-                .filter(
-                    SkillReplacement.source_id == src.id,
-                    SkillReplacement.target_id == tgt.id,
-                )
-                .first()
-            )
-            if existing_manual:
-                continue
-
-            db.add(
-                ReplacementCandidate(
-                    id=uuid4(),
-                    source_id=src.id,
-                    target_id=tgt.id,
-                    evidence_json={
-                        "incident_count": count,
-                        "incident_share": round(share, 4),
-                        "co_invoke_weight": round(cow, 4),
-                        "alternative_incident_count": other_count,
-                        "window_days": REPLACEMENT_LOOKBACK.days,
-                    },
-                    status="pending",
-                )
-            )
-            inserted += 1
-            break  # one candidate per source per sweep — keep review queue tractable
-    db.flush()
-    return inserted
