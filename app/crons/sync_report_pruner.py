@@ -26,17 +26,18 @@ day from 2026-07-02 to 2026-09-16 — with no aggregate left behind. So:
 
 WHY CRONTAB AND NOT A SYSTEMD TIMER
 ----------------------------------
-Every other pruner in ``app/crons/`` ships ``deploy/*.timer`` + ``*.service``
-and cites them as its schedule. That path is fiction on the box that actually
-serves prod: ``systemctl list-timers`` on wisechef-hq returns zero
-loopskill/recipes units (measured 2026-11-16), the units point at a
-``/opt/recipes-api`` prefix that no longer exists, and the two surviving
-pruners are provably dead — ``stripe_event_ids`` holds 13 rows older than its
-7d TTL and ``fleet_pings`` holds 47 rows older than its 90d TTL. A schedule that
-is never installed is indistinguishable from no schedule, which is this card's
-title. The live mechanism on this host is the ``wisechef`` user crontab (12
-working entries, same ``cd + . ./.env + venv/bin/python >> log`` shape), so the
-line below is the schedule of record. Install it, do not re-document it:
+Every other pruner in ``app/crons/`` used to ship ``deploy/*.timer`` +
+``*.service`` and cite them as its schedule. That path was fiction on the box
+that actually serves prod: ``systemctl list-timers`` on wisechef-hq returns zero
+loopskill/recipes units (measured 2026-11-16), the units pointed at a
+``/opt/recipes-api`` prefix that no longer exists, and the two surviving pruners
+were provably dead — ``stripe_event_ids`` held 13 rows older than its 7d TTL and
+``fleet_pings`` held 47 rows older than its 90d TTL, until t_f1867996 wired them
+onto the same crontab and deleted the unit files. A schedule that is never
+installed is indistinguishable from no schedule, which is this card's title. The
+live mechanism on this host is the ``wisechef`` user crontab (19 working
+entries, same ``cd + . ./.env + venv/bin/python >> log`` shape), so the line
+below is the schedule of record. Install it, do not re-document it:
 
     (crontab -l; echo "$(python -c 'from app.crons.sync_report_pruner import CRONTAB_LINE; print(CRONTAB_LINE)')") | crontab -
 

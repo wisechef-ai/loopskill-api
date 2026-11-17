@@ -1,4 +1,35 @@
-"""B.6 — `recipes-patch-drafter` cron (every 6h).
+"""B.6 — the LLM patch drafter (intent: every 6h). NOT WIRED: prerequisites absent.
+
+FOR NOW THIS JOB HAS NO SCHEDULE — and that is a measured decision, not an
+oversight (t_f1867996). It shipped with two systemd unit files
+under ``deploy/`` citing "every 6 hours"; they were never installed
+(``systemctl list-timers`` on wisechef-hq lists zero loopskill/recipes units,
+and the unit started ``/srv/recipes-api/.venv/bin/python``, a prefix that does
+not exist there), so
+this module has never run in prod: measured 2026-11-16, ``patch_candidates``
+held 0 rows, no row ever had a ``proposal_path``, and neither proposal
+directory existed on the host. The units are deleted in this commit.
+
+It is deliberately NOT moved onto the ``wisechef`` crontab the way
+``stripe_event_pruner`` / ``fleet_ping_pruner`` / ``incident_clustering`` were,
+because every one of its hard dependencies is missing on wisechef-hq (measured
+2026-11-16). Installing it today would buy a cron that exits 1 every six hours:
+
+| dependency | required | state on wisechef-hq |
+|---|---|---|
+| litellm proxy | ``http://localhost:4000/v1/chat/completions`` | nothing listening on :4000 (`ss -ltn` → 0, ``curl`` → 000), no litellm container in ``docker ps`` |
+| ``WR_LITELLM_MASTER_KEY`` | non-empty env | absent from ``~/loopskill-api/.env`` → ``run_once`` raises ``RuntimeError("WR_LITELLM_MASTER_KEY missing")`` |
+| proposal dir | one writable dir | neither ``~/obsidian-vault/proposals`` nor ``/var/lib/recipes/proposals`` exists |
+| work | ``patch_candidates`` rows with ``status='pending'`` | 0 rows in the table (and the upstream ``incident_clustering`` cron that minted them was itself dead until t_f1867996) |
+
+To wire it properly: stand up the proxy + key, create the proposal dir, confirm
+``incident_clustering`` is producing candidates, then add ``CRONTAB_LINE`` here
+plus ``deploy/crontab.patch-drafter`` and a predicate in ``~/.hermes/goals/`` —
+same shape as the three wired jobs, and the structural test in
+``tests/test_crons_wiring.py`` will fail if a schedule is ever added without
+that shape. An honest ``NOT WIRED`` beats a unit file that lies.
+
+Run manually: ``python -m app.crons.patch_drafter``.
 
 For each `patch_candidates` row with status='pending':
 
@@ -21,8 +52,6 @@ For each `patch_candidates` row with status='pending':
      falling back to:
        /var/lib/recipes/proposals/<skill-slug>-<sig>.md
      The path is recorded in patch_candidates.proposal_path.
-
-Run as `python -m app.crons.patch_drafter`.
 """
 
 from __future__ import annotations

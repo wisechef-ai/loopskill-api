@@ -1,4 +1,4 @@
-"""B.4 — Hourly clustering cron `recipes-incident-clustering`.
+"""B.4 — Hourly incident clustering (was: the `recipes-` prefixed unit name).
 
 Groups incident_reports from the last 24h by (skill_id, error_signature)
 and upserts a row into patch_candidates whenever a cluster crosses the
@@ -23,18 +23,38 @@ Existing patch_candidate rows for the same (skill_id, signature) are
 updated in place — status only escalates from `pending`. Clusters that
 have already entered the canary pipeline keep their downstream status.
 
-Run as `python -m app.crons.incident_clustering` from a systemd timer.
+WIRING — crontab, not the systemd unit that shipped with it (t_f1867996)
+------------------------------------------------------------------------
+This docstring used to say "Run as ``python -m app.crons.incident_clustering``
+from a systemd timer". Its two systemd unit files existed in ``deploy/`` and
+were never installed: ``systemctl list-timers --all`` on wisechef-hq listed
+zero loopskill/recipes units, and the unit started
+``/srv/recipes-api/.venv/bin/python``, a prefix that does not exist on that
+host. Outcome evidence that it never ran: measured 2026-11-16,
+``patch_candidates`` held **0 rows** and ``max(last_clustered_at)`` was NULL —
+no clustering pass in the table's history. The units are deleted in this commit;
+the schedule of record is ``CRONTAB_LINE`` below, mirrored byte-for-byte into
+``deploy/crontab.incident-clustering`` and asserted equal by
+``tests/test_crons_wiring.py``.
+
+Run manually with ``python -m app.crons.incident_clustering`` (hourly via cron).
+Exit codes: 0 = ran (0 clusters is a healthy result, not a failure), 1 = error,
+2 = refused an unsafe parameter, 3 = usage error; 4 is reserved for the cron
+lock and this job must never return it (see app/crons/_cli.py).
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.crons._cli import Parser as CliParser, positive_int
 from app.database import SessionLocal
 from app.models import IncidentReport, PatchCandidate
 
@@ -42,6 +62,23 @@ log = logging.getLogger("recipes.incident_clustering")
 
 CLUSTER_THRESHOLD = 3
 WINDOW_HOURS = 24
+
+# The schedule of record — mirrored byte-for-byte into
+# deploy/crontab.incident-clustering and asserted equal by
+# tests/test_crons_wiring.py. Hourly, matching the intent of the
+# deleted 1h-interval timer that shipped with this module. :07 clears the :02
+# drain, the :05 postiz monitor and the :10 claimgate sync.
+#
+# Hourly is also where a lock collision is genuinely likely, which is why this
+# line — not just this job — was rewritten. ONE `flock -n -E 4`: the reserved
+# exit 4, the measured silence of plain flock, and why the skip marker is guarded
+# rather than a bare `||`, are all in app/crons/_cli.
+CRONTAB_LINE = (
+    "7 * * * * cd /home/wisechef/loopskill-api && set -a; . ./.env; set +a; "
+    "flock -n -E 4 /tmp/loopskill-incident-clustering.lock venv/bin/python -m app.crons.incident_clustering >> /home/wisechef/wiserecipes-logs/incident_clustering.log 2>&1; "
+    'rc=$?; [ $rc -ne 4 ] || echo \'{"skipped": "lock held by a live run"}\' >> /home/wisechef/wiserecipes-logs/incident_clustering.log 2>&1; '
+    "exit $rc"
+)
 
 
 @dataclass
@@ -134,11 +171,17 @@ def upsert_candidate(db: Session, cluster: Cluster, *, now: datetime | None = No
     return existing
 
 
-def run_once(db: Session | None = None, *, now: datetime | None = None) -> int:
+def run_once(
+    db: Session | None = None,
+    *,
+    now: datetime | None = None,
+    threshold: int = CLUSTER_THRESHOLD,
+    window_hours: int = WINDOW_HOURS,
+) -> int:
     own_session = db is None
     db = db or SessionLocal()
     try:
-        clusters = find_clusters(db, now=now)
+        clusters = find_clusters(db, now=now, threshold=threshold, window_hours=window_hours)
         for c in clusters:
             upsert_candidate(db, c, now=now)
         db.commit()
@@ -149,6 +192,50 @@ def run_once(db: Session | None = None, *, now: datetime | None = None) -> int:
             db.close()
 
 
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point — this is what cron runs, so it is what the tests pin.
+
+    Zero clusters is a healthy outcome, not a failure: with a quiet incident
+    stream the correct behaviour is to log ``clusters: 0`` and exit 0. A job
+    that exits non-zero on "nothing to do" trains everyone to ignore the log.
+    """
+    ap = CliParser(
+        prog="incident_clustering",
+        description="Cluster incident_reports into patch_candidates (B.4).",
+    )
+    ap.add_argument(
+        "--hours",
+        type=int,
+        default=WINDOW_HOURS,
+        help=f"look-back window in hours (default {WINDOW_HOURS})",
+    )
+    ap.add_argument(
+        "--threshold",
+        type=int,
+        default=CLUSTER_THRESHOLD,
+        help=f"min count AND min distinct agents per cluster (default {CLUSTER_THRESHOLD})",
+    )
+    args = ap.parse_args(argv)
+    # Both go through the same floor the pruners use. A zero/negative threshold
+    # pushes `HAVING COUNT(DISTINCT agent_fp_anon) >= 0`, which qualifies EVERY
+    # group in the window — single-report, single-agent noise becomes `pending`
+    # patch candidates and lands in the automated patch/canary queue the >= 3
+    # bar exists to keep out. A zero window reads as `clusters: 0` + exit 0,
+    # i.e. it looks healthy while doing nothing.
+    threshold = positive_int("threshold", args.threshold, minimum=1)
+    hours = positive_int("hours", args.hours, minimum=1)
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    try:
+        clusters = run_once(threshold=threshold, window_hours=hours)
+        print(
+            json.dumps({"clusters": clusters, "window_hours": hours, "threshold": threshold}, sort_keys=True)
+        )
+        return 0
+    except Exception:  # noqa: BLE001 — Rationale: top-level cron; log-and-exit-nonzero
+        log.exception("incident_clustering: unhandled error")
+        return 1
+
+
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    run_once()
+    sys.exit(main())
