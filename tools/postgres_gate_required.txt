@@ -78,3 +78,12 @@ migrations tests/test_t61421779_denominator_postgres.py::test_denominator_query_
 # (the Unconsumed-column-name class of bug) goes unproven on the real dialect.
 # Verified PASSED locally under ci.yml's exact command + env, 2026-11-17.
 migrations tests/migrations/test_ser1116c_incident_report_type.py::test_backfill_update_compiles_and_classifies_on_postgres
+# t_4e706c5d: telemetry_events skill_id/install_event_id varchar→uuid widening.
+# The chain test runs this migration on a 0-row DB, so the refusal guards and
+# the USING cast are ONLY exercised by these seeded proofs — and the headline
+# assertion is the card's own production failure (join → `operator does not
+# exist`) proven RED on the pre-migration schema, GREEN after.
+migrations tests/migrations/test_t4e706c5d_telemetry_uuid_fk.py::test_uuid_join_executes_after_upgrade_on_postgres
+migrations tests/migrations/test_t4e706c5d_telemetry_uuid_fk.py::test_upgrade_refuses_on_non_uuid_garbage
+migrations tests/migrations/test_t4e706c5d_telemetry_uuid_fk.py::test_upgrade_refuses_on_orphaned_uuid
+migrations tests/migrations/test_t4e706c5d_telemetry_uuid_fk.py::test_round_trip_walks_both_ways_on_postgres
