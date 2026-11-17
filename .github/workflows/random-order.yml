@@ -34,6 +34,12 @@ name: Random order tests (non-blocking)
 # failure only appears under xdist, re-run with `-n 8 --dist loadfile
 # --randomly-seed=N` (best effort) and read the per-worker test list in the log.
 #
+# Self-certifying (t_3e8a5037): the postgres leg asserts IN-JOB that the
+# Postgres-only proofs reported PASSED, reading the junit XML its own pytest run
+# writes. It runs pytest without -v, so "no FAILED line" was the only signal this
+# leg had — and a leg whose Postgres gates all skipped would have read `success`.
+# See the "Assert the Postgres-only proofs actually RAN" step for the numbers.
+#
 # The same seed can be replayed in CI via workflow_dispatch (`seed` input).
 # To turn the shuffle off for a given run use `-p no:randomly`.
 
@@ -125,6 +131,52 @@ jobs:
             -n auto --dist loadfile \
             --junitxml="junit-random-order-${{ matrix.engine }}.xml" \
             2>&1 | tee -a pytest-random-order.log
+      - name: Assert the Postgres-only proofs actually RAN (anti-skip)
+        id: anti_skip
+        # WHY THIS STEP EXISTS (t_3e8a5037). This leg runs pytest WITHOUT -v/-rA,
+        # so a PASSING test never prints its node id and the only in-log signal
+        # is the ABSENCE of a FAILED line — and absence-of-red is not evidence of
+        # execution. Postgres genuinely runs here today: 148 skipped on this leg
+        # vs 782 on sqlite, and that ~634-test delta is the fingerprint of the
+        # postgres_only suite executing (measured 2026-11-17, run 43985349634).
+        # If this leg's postgres service or DSN ever broke, all 634 would skip,
+        # the leg would read `success`, and NOTHING would notice: ci.yml's
+        # `migrations against Postgres` job has its own service container and its
+        # own pytest invocation, so its anti-skip step certifies that job and not
+        # this one.
+        #
+        # So this job certifies ITSELF from the junit XML its own pytest run just
+        # wrote — in-job, no artifact download, no network, no cross-job trust.
+        # The required node ids come from the shared list ci.yml also reads:
+        # tools/postgres_gate_required.txt, scope `random-order`.
+        #
+        # The two numbers are floors against "everything silently skipped", for
+        # tests nobody thought to name. Both measured on run 43985349634
+        # (main @ e55afea, 9328 collected):
+        #   --max-skipped 400   baseline here is 148; a dead postgres service
+        #                       collapses the leg onto the sqlite fingerprint of
+        #                       782. 400 sits below the midpoint (465), so it
+        #                       trips once ~40% of the 634-test postgres_only
+        #                       suite stops running — a PARTIAL breakage trips it
+        #                       too — while still leaving 2.7x the baseline for
+        #                       legitimately new environment-conditional skips.
+        #   --min-tests  8500   the leg collects 9328 tests; a conftest import
+        #                       error or a bad --ignore that drops a subtree must
+        #                       not be able to read green. ~9% headroom for
+        #                       ordinary test churn (the README claims test is the
+        #                       ratchet that catches a real mass deletion).
+        # Postgres leg ONLY: on sqlite these tests legitimately skip, so the same
+        # gate there would be permanently red and therefore worthless.
+        if: always() && matrix.engine == 'postgres'
+        shell: bash
+        run: |
+          python tools/assert_postgres_gates_ran.py \
+            --evidence "junit-random-order-${{ matrix.engine }}.xml" \
+            --scope random-order \
+            --label "random-order postgres" \
+            --max-skipped 400 \
+            --min-tests 8500
+
       - name: Summarize seed and result
         if: always()
         shell: bash
@@ -137,6 +189,7 @@ jobs:
             echo "- seed: \`${SEED:-unknown}\`"
             echo "- reproduce (serial): \`python -m pytest -q -p no:cacheprovider -p randomly -n 0 --randomly-seed=${SEED:-N}\`"
             echo "- replay in CI: Actions → Random order tests → Run workflow → seed=${SEED:-N}"
+            echo "- anti-skip (postgres leg): \`${{ steps.anti_skip.outcome }}\` (n/a on sqlite)"
             echo ""
             grep -E '^(FAILED|ERROR) ' pytest-random-order.log | head -50 || true
           } >> "$GITHUB_STEP_SUMMARY"

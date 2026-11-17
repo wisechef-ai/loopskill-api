@@ -164,59 +164,27 @@ jobs:
         # A job in which every Postgres-gated test skips is GREEN — and
         # proves nothing. That is exactly how F-4 hid for months, so this
         # step hard-fails if any named Postgres-only gate did not report
-        # PASSED in the -rA summary above. When you add a Postgres-only
-        # gate (a WITH_POSTGRES skipif or a postgres_only marker), add its
-        # node id here too.
+        # PASSED in the -rA summary above.
+        #
+        # The names live in ONE file — tools/postgres_gate_required.txt —
+        # under scope `migrations`; random-order.yml's postgres leg reads the
+        # same file under scope `random-order` from its own in-job junit XML.
+        # Before t_3e8a5037 this step held the repo's ONLY name-asserted
+        # anti-skip list and certified only THIS job: the random-order postgres
+        # leg runs pytest without -v, so its green could be produced by silent
+        # skipping and nothing else could see it.
+        #
+        # When you add a Postgres-only gate (a WITH_POSTGRES skipif or a
+        # postgres_only marker), add its node id to that file with the scope
+        # that actually runs it. tests/test_assert_postgres_gates_ran.py then
+        # fails the build if a listed test stops existing or a scope empties,
+        # so the list cannot rot into a decorative green.
         run: |
           set -euo pipefail
-          python - <<'PY'
-          import sys
-
-          REQUIRED = [
-              # tests/migrations/test_chain_postgres.py — full chain + parity
-              "tests/migrations/test_chain_postgres.py::test_alembic_upgrade_head_from_baseline_postgres",
-              "tests/migrations/test_chain_postgres.py::test_bootstrap_legacy_tables_creates_users_with_baseline_columns",
-              "tests/migrations/test_chain_postgres.py::test_model_columns_present_after_full_upgrade",
-              "tests/migrations/test_chain_postgres.py::test_tier_drift_sweep_archived_renames_archived_legacy_rows",
-              # tests/migrations/test_issue282_fed_hub_trgm.py — postgres_only proofs
-              "tests/migrations/test_issue282_fed_hub_trgm.py::TestRedProofLegacyThreeIndexDesignWasBroken::test_three_column_indexes_with_or_still_seq_scans",
-              # #454/#426 regression guard: the RED-proof must stay immune to
-              # whatever state the shared table is in. Postgres-only, so it
-              # belongs in this list too (see this step's own convention).
-              "tests/migrations/test_issue282_fed_hub_trgm.py::TestRedProofLegacyThreeIndexDesignWasBroken::test_red_proof_is_immune_to_shared_table_state",
-              "tests/migrations/test_issue282_fed_hub_trgm.py::TestPostgresIndexScan::test_explain_shows_index_scan_not_seq_scan",
-              "tests/migrations/test_issue282_fed_hub_trgm.py::TestPostgresIndexScan::test_search_federated_group_uses_index_and_returns_seeded_row",
-              "tests/migrations/test_issue282_fed_hub_trgm.py::TestPostgresReversibility::test_downgrade_drops_index_upgrade_recreates_it",
-              "tests/migrations/test_issue282_fed_hub_trgm.py::TestQueryResultEquivalence::test_new_expression_matches_original_or_clauses[kubernetes]",
-              "tests/migrations/test_issue282_fed_hub_trgm.py::TestQueryResultEquivalence::test_new_expression_matches_original_or_clauses[Skill]",
-              "tests/migrations/test_issue282_fed_hub_trgm.py::TestQueryResultEquivalence::test_new_expression_matches_original_or_clauses[nothing]",
-              "tests/migrations/test_issue282_fed_hub_trgm.py::TestQueryResultEquivalence::test_new_expression_matches_original_or_clauses[unrelated]",
-              # tests/*_psycopg2.py — deploy-safety regressions
-              "tests/test_catalog_invariant_trigger_psycopg2.py::test_trigger_function_creates_via_psycopg2",
-              "tests/test_loopclose_3005_x_migration_psycopg2.py::test_phase_x_migration_cleanup_and_invariant",
-              # t_61421779: the transparency denominator gained two uuid outer joins
-              # and an `IS false` that SQLite renders as `IS 0`. SQLite-only proof
-              # would leave it unproven on the engine that actually serves the
-              # public endpoint, so it must be seen PASSED here.
-              "tests/test_t61421779_denominator_postgres.py::test_denominator_query_executes_and_filters_on_postgres",
-          ]
-
-          passed = set()
-          with open("postgres-migrations.log", encoding="utf-8", errors="replace") as fh:
-              for line in fh:
-                  if line.startswith("PASSED "):
-                      passed.add(line.split()[1])
-
-          missing = [t for t in REQUIRED if t not in passed]
-          if missing:
-              print("::error::Postgres gate is NOT actually running — these "
-                    "tests did not report PASSED (skipped or never collected):")
-              for t in missing:
-                  print(f"  - {t}")
-              sys.exit(1)
-          print(f"All {len(REQUIRED)} named Postgres gates ran and passed. "
-                f"(Total PASSED in job: {len(passed)}.)")
-          PY
+          python tools/assert_postgres_gates_ran.py \
+            --evidence postgres-migrations.log \
+            --scope migrations \
+            --label "migrations-postgres"
 
   secret-scan:
     name: secret scan (gitleaks)
