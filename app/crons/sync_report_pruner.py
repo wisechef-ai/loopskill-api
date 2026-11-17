@@ -47,9 +47,22 @@ Manual runs (idempotent, safe to repeat):
     venv/bin/python -m app.crons.sync_report_pruner --dry-run   # preview, writes nothing
     venv/bin/python -m app.crons.sync_report_pruner             # roll up + prune
 
-Exit codes: 0 = pruned (or nothing to do), 2 = BLOCKED on missing rollup
-coverage, 1 = unexpected error. 2 is deliberately distinct from 1 so the cron
-mail / log grep can tell "refused to destroy data" apart from "crashed".
+Exit codes: 0 = pruned (or nothing to do), 2 = REFUSED (BLOCKED on missing
+rollup coverage, or an out-of-range ``--days``), 1 = unexpected error. 2 is
+deliberately distinct from 1 so whoever reads the log can tell "refused to destroy
+data" apart from "crashed".
+
+How a refusal actually reaches a human: it does not arrive by cron mail. The
+schedule below redirects BOTH stdout and stderr into a log file, which
+suppresses the mail cron would otherwise send, and nothing in this repo greps
+that log. The real detector is the standing predicate
+``~/.hermes/goals/sync-report-retention-30d.md``, swept daily by
+``verify-goals.sh`` via ``scripts/sync-report-retention-gate.py``, which checks
+the wire (crontab entry present on wisechef-hq) and the outcome
+(``min(created_at)`` within 35d) against prod. A permanently BLOCKED prune
+therefore surfaces as retention drift past the 35d grace window rather than as
+an alert on the exit code — read as: outcome-based, with up to ~5 days of lag,
+not event-based.
 """
 
 from __future__ import annotations
@@ -69,6 +82,7 @@ from app.services.sync_report_retention import (
     days_with_raw_rows,
     prune_raw,
     raw_counts_before,
+    retention_cutoff,
     rollup_loop_runs,
     uncovered_day_groups,
 )
@@ -134,6 +148,12 @@ def prune(
     shell + DB credentials.
     """
     owns_session = db is None
+    # Validate the window BEFORE anything is written. prune()'s first step is a
+    # rollup (a write), so without this a request that is about to be refused
+    # still leaves rollup rows behind. retention_cutoff is pure and is where the
+    # bound lives, so calling it here re-checks the argument without duplicating
+    # the rule.
+    retention_cutoff(older_than_days, reference_time)
     if owns_session:
         # Late import on purpose (same trick as crons/drain_last_used.py): the
         # name is resolved at CALL time, so a test that monkeypatches
@@ -272,6 +292,13 @@ def main(argv: list[str] | None = None) -> int:
         result = prune(db=db, older_than_days=args.days, allow_unrolled=args.allow_unrolled)
         print(json.dumps(result, default=str, sort_keys=True))
         return 2 if result["blocked"] else 0
+    except ValueError as exc:
+        # A refused request, not a crash: an out-of-range --days. Handled apart
+        # from the blanket handler below so whoever reads the cron log gets one
+        # line instead of a traceback, and it exits 2 — same verdict class
+        # as a coverage block ("the prune declined"), never 1 ("it crashed").
+        logger.error("sync_report_pruner: REFUSED — %s", exc)
+        return 2
     except Exception:  # noqa: BLE001 — Rationale: top-level cron; log-and-exit-nonzero
         logger.exception("sync_report_pruner: unhandled error")
         return 1

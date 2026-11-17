@@ -516,7 +516,15 @@ def admin_sync_report_prune(
 
     from app.crons.sync_report_pruner import prune
 
-    result = prune(db=db, older_than_days=body.days)
+    try:
+        result = prune(db=db, older_than_days=body.days)
+    except ValueError as exc:
+        # Bad retention window (see MIN_RETENTION_DAYS). 422 rather than letting
+        # a 500 read as a server fault: the request is well-formed, the number
+        # is not, and the caller can fix it without paging anyone.
+        raise HTTPException(
+            status_code=422, detail={"error": "invalid_retention_window", "detail": str(exc)}
+        ) from exc
     if result["blocked"]:
         raise HTTPException(
             status_code=409,
