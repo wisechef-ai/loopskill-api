@@ -78,3 +78,10 @@ migrations tests/test_t61421779_denominator_postgres.py::test_denominator_query_
 # (the Unconsumed-column-name class of bug) goes unproven on the real dialect.
 # Verified PASSED locally under ci.yml's exact command + env, 2026-11-17.
 migrations tests/migrations/test_ser1116c_incident_report_type.py::test_backfill_update_compiles_and_classifies_on_postgres
+
+# ---- SABOTAGE (throwaway commit; revert immediately after the RED log is captured) ----
+# Deliberately requires a proof that CANNOT pass on this leg: without WITH_POSTGRES=1
+# this test skips, so the anti-skip step must go RED. This is the F-4 incident simulated
+# on demand - a required Postgres proof that silently stops running. If this line ever
+# ships, the gate has been neutered.
+random-order tests/migrations/test_chain_postgres.py::test_model_columns_present_after_full_upgrade
