@@ -69,7 +69,7 @@ class TestConfigBlocks:
         parsed = json.loads(json_text)
         assert "mcpServers" in parsed
         srv = parsed["mcpServers"]["recipes-shared"]
-        assert srv["url"] == "https://recipes.wisechef.ai/api/mcp/http"
+        assert srv["url"] == "https://recipes.wisechef.ai/api/mcp/http/"
         assert srv["headers"]["x-api-key"] == MOCK_TOKEN
         assert srv["type"] == "streamable-http"
 

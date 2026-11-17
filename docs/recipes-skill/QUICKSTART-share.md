@@ -32,7 +32,7 @@ Copy-paste the block that matches your client:
 mcpServers:
   loopskill-shared:
     transport: streamable-http
-    url: https://app.loopskill.io/api/mcp/http
+    url: https://app.loopskill.io/api/mcp/http/
     headers:
       x-api-key: cbt_a1...a9b0
 
@@ -41,7 +41,7 @@ mcpServers:
   "mcpServers": {
     "loopskill-shared": {
       "type": "streamable-http",
-      "url": "https://app.loopskill.io/api/mcp/http",
+      "url": "https://app.loopskill.io/api/mcp/http/",
       "headers": {
         "x-api-key": "cbt_a1b2c3d4_e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
       }

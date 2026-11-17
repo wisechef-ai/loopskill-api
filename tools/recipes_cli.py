@@ -74,7 +74,7 @@ def _api_delete(path: str, api_key: str) -> None:
 
 def _print_config_blocks(token: str) -> None:
     """Print copy-paste MCP config blocks for Hermes and Claude Desktop."""
-    url = f"{API_BASE}/api/mcp/http"
+    url = f"{API_BASE}/api/mcp/http/"
     divider = "=" * 60
 
     hermes_block = f"""\

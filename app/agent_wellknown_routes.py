@@ -41,7 +41,7 @@ OpenAPI spec, see ``/docs/api-reference``, the hand-written substitute).
 ``build_ai_plugin_manifest`` therefore does NOT point ``api.url`` at
 ``/openapi.json`` (the exact "documented but broken" defect class this route
 exists to kill); it points at the MCP descriptor (``/.well-known/mcp.json``)
-and the MCP HTTP endpoint (``/api/mcp/http``) — surfaces that genuinely exist
+and the MCP HTTP endpoint (``/api/mcp/http/``; the bare path 307s) — surfaces that genuinely exist
 and 200 anonymously (mcp.json) or answer the MCP protocol (the HTTP
 endpoint). ``auth`` describes the real flow honestly: agents self-register
 via ``POST /api/agents/register`` (Ed25519 proof-of-key, no human OAuth) and
