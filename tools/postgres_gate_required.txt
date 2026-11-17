@@ -1,0 +1,80 @@
+# tools/postgres_gate_required.txt — SINGLE SOURCE OF TRUTH for the
+# "the Postgres gates actually RAN" assertions.
+#
+# Read by tools/assert_postgres_gates_ran.py, which is called from TWO jobs:
+#
+#   scope `migrations`     .github/workflows/ci.yml      job `migrations against Postgres`
+#                          (evidence: pytest -rA log)
+#   scope `random-order`   .github/workflows/random-order.yml
+#                          job `random-order pytest (postgres, non-blocking)`
+#                          (evidence: junit XML written by that same job)
+#
+# WHY ONE FILE: before t_3e8a5037 the only name-asserted anti-skip list lived
+# inline in ci.yml. The random-order postgres leg — a DIFFERENT workflow with
+# its own postgres service and its own pytest invocation — could therefore
+# never be certified by it, and its own green was produced by "no FAILED line"
+# (that job runs pytest WITHOUT -v/-rA, so a passing test never prints a name).
+# One list, two readers, is what makes both legs self-certifying.
+#
+# FORMAT:  <scopes> <node-id>          (# to end of line is a comment)
+#   <scopes>   comma-separated: migrations, random-order, or `all`
+#   <node-id>  a pytest node id exactly as pytest reports it
+#
+# A line with no scope token means `all`.
+#
+# CHOOSING A SCOPE — the rule is "does this test actually run in that job?",
+# not "is it Postgres-flavoured?":
+#   - `postgres_only`-marked tests self-skip unless DATABASE_URL/
+#     TEST_DATABASE_URL resolves to a reachable Postgres. BOTH jobs set that on
+#     their postgres leg, so they belong to `all`.
+#   - `skipif(not os.environ.get("WITH_POSTGRES"))` tests run ONLY in the
+#     migrations job — random-order.yml never exports WITH_POSTGRES (deliberate:
+#     enabling it there would put the alembic chain under pytest-randomly +
+#     xdist, a new flake surface in a non-blocking leg). Asserting them in the
+#     random-order scope would be a permanent false-red, so they are `migrations`.
+#     Verified against junit-random-order-postgres.xml from run 43985349634:
+#     every test_chain_postgres / *_psycopg2 node id below carries <skipped> on
+#     the random-order postgres leg.
+#
+# Adding a Postgres-only gate: add its node id here, with the scope that
+# actually runs it, and make sure the job you name collects the file.
+# tests/test_assert_postgres_gates_ran.py fails the build if a listed test
+# stops existing, or if a scope ever selects zero tests.
+
+# --- tests/migrations/test_chain_postgres.py — full chain + model parity -----
+# skipif(WITH_POSTGRES unset) -> migrations job only.
+migrations tests/migrations/test_chain_postgres.py::test_alembic_upgrade_head_from_baseline_postgres
+migrations tests/migrations/test_chain_postgres.py::test_bootstrap_legacy_tables_creates_users_with_baseline_columns
+migrations tests/migrations/test_chain_postgres.py::test_model_columns_present_after_full_upgrade
+migrations tests/migrations/test_chain_postgres.py::test_tier_drift_sweep_archived_renames_archived_legacy_rows
+
+# --- tests/migrations/test_issue282_fed_hub_trgm.py — postgres_only proofs ---
+# These are the proofs that the pg_trgm/GIN index actually removes the seq
+# scan (#282), that the legacy three-index OR design really was broken, and
+# that the RED-proof is immune to shared-table state (#454/#426). They run in
+# BOTH jobs' postgres legs.
+all tests/migrations/test_issue282_fed_hub_trgm.py::TestRedProofLegacyThreeIndexDesignWasBroken::test_three_column_indexes_with_or_still_seq_scans
+all tests/migrations/test_issue282_fed_hub_trgm.py::TestRedProofLegacyThreeIndexDesignWasBroken::test_red_proof_is_immune_to_shared_table_state
+all tests/migrations/test_issue282_fed_hub_trgm.py::TestPostgresIndexScan::test_explain_shows_index_scan_not_seq_scan
+all tests/migrations/test_issue282_fed_hub_trgm.py::TestPostgresIndexScan::test_search_federated_group_uses_index_and_returns_seeded_row
+all tests/migrations/test_issue282_fed_hub_trgm.py::TestPostgresReversibility::test_downgrade_drops_index_upgrade_recreates_it
+all tests/migrations/test_issue282_fed_hub_trgm.py::TestQueryResultEquivalence::test_new_expression_matches_original_or_clauses[kubernetes]
+all tests/migrations/test_issue282_fed_hub_trgm.py::TestQueryResultEquivalence::test_new_expression_matches_original_or_clauses[Skill]
+all tests/migrations/test_issue282_fed_hub_trgm.py::TestQueryResultEquivalence::test_new_expression_matches_original_or_clauses[nothing]
+all tests/migrations/test_issue282_fed_hub_trgm.py::TestQueryResultEquivalence::test_new_expression_matches_original_or_clauses[unrelated]
+
+# --- tests/*_psycopg2.py + the Postgres-dialect regressions -----------------
+# skipif(WITH_POSTGRES unset) -> migrations job only.
+migrations tests/test_catalog_invariant_trigger_psycopg2.py::test_trigger_function_creates_via_psycopg2
+migrations tests/test_loopclose_3005_x_migration_psycopg2.py::test_phase_x_migration_cleanup_and_invariant
+# t_61421779: the transparency denominator gained two uuid outer joins and an
+# `IS false` that SQLite renders as `IS 0`. SQLite-only proof would leave it
+# unproven on the engine that actually serves the public endpoint, so it must
+# be seen PASSED here.
+migrations tests/test_t61421779_denominator_postgres.py::test_denominator_query_executes_and_filters_on_postgres
+# t_3e8a5037 census: this is the third WITH_POSTGRES-gated proof under
+# tests/migrations/ and it was the only one nothing asserted — a silent skip
+# here would mean the incident_report_type backfill's `sa.update()` compile
+# (the Unconsumed-column-name class of bug) goes unproven on the real dialect.
+# Verified PASSED locally under ci.yml's exact command + env, 2026-11-17.
+migrations tests/migrations/test_ser1116c_incident_report_type.py::test_backfill_update_compiles_and_classifies_on_postgres
