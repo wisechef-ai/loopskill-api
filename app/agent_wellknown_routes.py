@@ -121,7 +121,7 @@ def build_agent_descriptor() -> dict:
         # llms.txt (REST surface) and /.well-known/mcp.json (MCP descriptor).
         "mcp": {
             "descriptor": f"{origin}/.well-known/mcp.json",
-            "endpoint": f"{origin}/api/mcp/http",
+            "endpoint": f"{origin}/api/mcp/http/",
             "transport": "streamable-http",
             "authentication": {"type": "api_key", "header": "x-api-key"},
         },
@@ -282,7 +282,7 @@ def build_mcp_descriptor() -> dict:
         "version": CANONICAL_VERSION,
         "transport": {
             "type": "streamable-http",
-            "url": f"{origin}/api/mcp/http",
+            "url": f"{origin}/api/mcp/http/",
             "healthz": f"{origin}/api/mcp/healthz",
         },
         "authentication": {
@@ -344,7 +344,7 @@ def build_ai_plugin_manifest() -> dict:
         "api": {
             "type": "mcp",
             "url": f"{origin}/.well-known/mcp.json",
-            "endpoint": f"{origin}/api/mcp/http",
+            "endpoint": f"{origin}/api/mcp/http/",
             "transport": "streamable-http",
             "is_user_authenticated": False,
         },
@@ -384,7 +384,7 @@ def build_mcp_server_card() -> dict:
         ),
         "transport": {
             "type": "streamable-http",
-            "url": f"{origin}/api/mcp/http",
+            "url": f"{origin}/api/mcp/http/",
         },
         "authentication": {
             "required": True,

@@ -15,7 +15,7 @@ def build_config_blocks(
     *,
     token: str,
     cookbook_id: str | None = None,
-    server_url: str = "https://app.loopskill.io/api/mcp/http",
+    server_url: str = "https://app.loopskill.io/api/mcp/http/",
 ) -> dict[str, str]:
     """Return Hermes YAML + Claude Desktop JSON snippets for an API key or share token.
 

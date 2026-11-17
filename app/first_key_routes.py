@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-_MCP_ENDPOINT = "https://app.loopskill.io/api/mcp/http"
+_MCP_ENDPOINT = "https://app.loopskill.io/api/mcp/http/"
 
 
 @router.get("/first-key-reveal")

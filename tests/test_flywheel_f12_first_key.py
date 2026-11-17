@@ -310,7 +310,7 @@ def test_first_key_reveal_returns_key_and_config_blocks_once(monkeypatch):
     assert "hermes_yaml" in body["config_blocks"]
     assert "claude_desktop_json" in body["config_blocks"]
     assert "rec_live_abc123" in body["config_blocks"]["hermes_yaml"]
-    assert body["mcp_endpoint"] == "https://app.loopskill.io/api/mcp/http"
+    assert body["mcp_endpoint"] == "https://app.loopskill.io/api/mcp/http/"
     # Cookie must be cleared on the response either way (one-shot).
     set_cookie_headers = (
         r.headers.get_list("set-cookie")

@@ -165,7 +165,7 @@ class TestEveryAdvertisedUrlIsARealRoute:
             # /api/mcp/http is an ASGI sub-mount (StreamableHTTP), not a
             # plain FastAPI route object — verify by real HTTP call instead
             # of route-table membership.
-            if path == "/api/mcp/http":
+            if path.rstrip("/") == "/api/mcp/http":
                 resp = client.post(path)
                 assert resp.status_code != 404, f"{path} is not mounted (404)"
             else:

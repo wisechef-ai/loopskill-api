@@ -78,7 +78,7 @@ def test_server_info_matches_live_server(db_session):
     assert card["serverInfo"]["version"] == SERVER_VERSION
     assert card["authentication"]["required"] is True
     assert card["authentication"]["header"] == "x-api-key"
-    assert card["transport"]["url"].endswith("/api/mcp/http")
+    assert card["transport"]["url"].endswith("/api/mcp/http/")
 
 
 def test_card_carries_no_key_material(db_session):
