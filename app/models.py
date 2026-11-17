@@ -30,7 +30,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy import false as sa_false
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Uuid as UUID
 from sqlalchemy.orm import DeclarativeBase, relationship, validates
 
 
