@@ -2375,7 +2375,7 @@
         "feedback-status"
       ],
       "classification": "authenticated",
-      "summary": "Return the current status and issue_url for a feedback or recipify-request row."
+      "summary": "Return the current status and issue_url for a feedback, recipify or incident row."
     },
     {
       "method": "GET",
