@@ -511,9 +511,11 @@ def test_all_14_preexisting_sources_survive_config_move():
         "github-opencodereview",
         # self-serve proposal #354 accepted (Adam, 2026-10-12)
         "github-autoprompt",
+        # self-serve proposal #311 accepted (owner decision, 2026-10-14)
+        "github-gbrain",
     }
     assert set(LIVE_SOURCES) == expected, f"drift: {set(LIVE_SOURCES) ^ expected}"
-    assert len(LIVE_SOURCES) == 33
+    assert len(LIVE_SOURCES) == 34
 
 
 # ── Test 8: the REST endpoint mirrors the MCP tool contract ──────────────────
