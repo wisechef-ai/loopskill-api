@@ -50,7 +50,7 @@ loudly instead of silently zeroing a public metric.
 from __future__ import annotations
 
 import inspect
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -59,7 +59,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.database import get_db
-from app.models import IncidentReport, TelemetryEvent
+from app.models import IncidentReport
 
 INTERNAL_TOKEN = "test-internal-token-f4-skill-error"
 WORKFLOW = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "feedback-dispatch.yml"
@@ -246,81 +246,9 @@ class TestStatusPollResolvesIncidentId:
 # ── 4. transparency must stop laundering a crash into a healthy zero ─────────
 
 
-class TestTransparencySkillErrorRate:
-    def test_counts_incidents_inside_the_window(self, db_session):
-        """The headline bug: metric read 0.0 forever."""
-        from app.transparency_routes import _compute_skill_error_rate_7d
-
-        for _ in range(3):
-            make_incident(db_session)
-        for _ in range(10):
-            db_session.add(TelemetryEvent(id=uuid4(), event_type="install", created_at=_utc_naive()))
-        db_session.flush()
-
-        rate = _compute_skill_error_rate_7d(db_session)
-        assert rate == pytest.approx(0.3, abs=1e-6), (
-            f"expected 3 errors / 10 installs = 0.3, got {rate}. A 0.0 here means the "
-            "IncidentReport query is failing again and being swallowed."
-        )
-
-    def test_incidents_outside_the_window_do_not_count(self, db_session):
-        from app.transparency_routes import _compute_skill_error_rate_7d
-
-        make_incident(db_session, occurred_at=datetime.now(UTC) - timedelta(days=30))
-        for _ in range(10):
-            db_session.add(TelemetryEvent(id=uuid4(), event_type="install", created_at=_utc_naive()))
-        db_session.flush()
-
-        assert _compute_skill_error_rate_7d(db_session) == 0.0
-
-    def test_coding_error_is_not_swallowed_into_zero(self, db_session, monkeypatch):
-        """The guard must cover a missing table, not a broken query.
-
-        Simulates the original class of bug (attribute that does not exist) and
-        requires it to PROPAGATE. `except Exception` made the public transparency
-        metric silently wrong for its entire existence.
-        """
-        import app.models as models
-        from app import transparency_routes
-
-        class _NoSuchColumn:
-            id = None  # no `occurred_at` — accessing it raises AttributeError
-
-        monkeypatch.setattr(models, "IncidentReport", _NoSuchColumn, raising=False)
-
-        with pytest.raises(Exception) as excinfo:  # noqa: PT011 - deliberately broad on purpose
-            transparency_routes._compute_skill_error_rate_7d(db_session)
-        assert not isinstance(
-            excinfo.value, __import__("sqlalchemy").exc.SQLAlchemyError
-        ), "a non-DB coding error must not be caught — it silently becomes errors=0"
-
-    def test_guard_is_narrowed_in_source(self):
-        """Checked via AST, not string matching — a comment that merely mentions
-        `except Exception` (as this file's own docstring does) must not trip it,
-        and neither can it be fooled by the real handler hiding in a comment."""
-        import ast
-        import textwrap
-
-        from app import transparency_routes
-
-        src = inspect.getsource(transparency_routes._compute_skill_error_rate_7d)
-        tree = ast.parse(textwrap.dedent(src))
-        handlers = [n for n in ast.walk(tree) if isinstance(n, ast.ExceptHandler)]
-
-        assert handlers, "expected a guard for a genuinely absent table"
-        for h in handlers:
-            assert h.type is not None, "bare `except:` is banned in a transparency metric"
-            caught = [ast.unparse(t) for t in (h.elts.items if isinstance(h.type, ast.Tuple) else [h.type])]
-            assert not any(
-                c in ("Exception", "BaseException") for c in caught
-            ), f"blanket handler {caught} resurrected — it launders AttributeError into a healthy-looking 0.0"
-            assert any(
-                "SQLAlchemyError" in c for c in caught
-            ), f"handler should catch SQLAlchemyError, got {caught}"
-        assert "occurred_at" in src, "must filter on occurred_at, the model's only timestamp column"
-
-
-# ── 5. the dedup cache must learn the real URL ──────────────────────────────
+# Defect 3 (transparency created_at -> occurred_at, narrowed guard) landed on main
+# independently via t_0111f6c4 / t_61421779; its pins live in
+# tests/test_t1116_transparency_provenance.py, so this file no longer duplicates them.
 
 
 class TestDedupCacheBackfill:
