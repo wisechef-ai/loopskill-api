@@ -316,5 +316,21 @@ class TestWorkflowWiring:
         constrained to hex so it cannot break out of the string."""
         assert "tr -cd '0-9a-fA-F'" in _wf(), "signature must be sanitised before interpolation"
 
+    def test_no_event_value_is_interpolated_into_a_run_script(self):
+        """`${{ github.event.* }}` inside a `run:` block is spliced into the script
+        text BEFORE bash parses it, so a `$(...)` or `"` in client_payload executes
+        before any `tr` sanitiser runs (review finding on #468). Event values must
+        reach shell steps through `env:` only."""
+        import yaml
+
+        doc = yaml.safe_load(_wf())
+        offenders = []
+        for job_name, job in (doc.get("jobs") or {}).items():
+            for step in job.get("steps") or []:
+                script = step.get("run") or ""
+                if "${{ github.event" in script or "${{ steps." in script:
+                    offenders.append(f"{job_name}/{step.get('name')}")
+        assert not offenders, f"event/step output interpolated into run script: {offenders}"
+
     def test_workflow_file_exists_where_tests_and_docs_point(self):
         assert WORKFLOW.exists(), f"workflow moved: {WORKFLOW}"
