@@ -202,9 +202,10 @@ jobs:
 
           def js(body):
               try:
-                  return json.loads(body)
+                  v = json.loads(body)
               except ValueError:
                   return {}
+              return v if isinstance(v, dict) else {}
 
           CHECKS = [
               ("healthz status+db ok", "/api/healthz",
@@ -221,20 +222,24 @@ jobs:
               # Proving the mount needs a keyed initialize, which needs a deploy secret.
           ]
 
-          fail = 0
-          for name, path, ok in CHECKS:
-              for attempt in range(1, 5):
-                  code, body = fetch(path)
-                  if ok(code, body):
-                      break
-                  if attempt < 4:
-                      time.sleep(attempt * 8)
-              good = ok(code, body)
-              print(f"  {'ok ' if good else 'BAD'} {name:<32} {path} {code}")
-              if not good:
-                  fail += 1
-                  print(f"::error::strict probe failed: {name} ({path} -> {code}): {body[:160]!r}")
-          sys.exit(1 if fail else 0)
+          def main():
+              fail = 0
+              for name, path, ok in CHECKS:
+                  for attempt in range(1, 5):
+                      code, body = fetch(path)
+                      if ok(code, body):
+                          break
+                      if attempt < 4:
+                          time.sleep(attempt * 8)
+                  good = ok(code, body)
+                  print(f"  {'ok ' if good else 'BAD'} {name:<32} {path} {code}")
+                  if not good:
+                      fail += 1
+                      print(f"::error::strict probe failed: {name} ({path} -> {code}): {body[:160]!r}")
+              sys.exit(1 if fail else 0)
+
+          if __name__ == "__main__":  # the test exec()s this with another __name__ to pin CHECKS
+              main()
           PY
           echo "Strict content probes passed."
 
