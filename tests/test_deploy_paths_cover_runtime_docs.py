@@ -177,3 +177,53 @@ def test_runtime_repo_files_trigger_deploy():
 
 def test_deploy_runs_alembic_so_its_config_triggers_deploy():
     assert _covered("alembic.ini", _deploy_paths())
+
+
+def _public_verification_run() -> str:
+    wf = yaml.safe_load((ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8"))
+    for job in wf["jobs"].values():
+        for step in job.get("steps", []):
+            if step.get("name") == "Public verification":
+                return step["run"]
+    raise AssertionError("deploy.yml has no 'Public verification' step")
+
+
+def test_public_verification_content_checks_agent_paths():
+    """ah_1122: the liveness loop accepts 401/403/405, so it cannot tell a broken
+    route from a gated one. The paths agents use must be content-checked."""
+    run = _public_verification_run()
+    py = run.split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
+    ns: dict = {"__name__": "deploy_verify_test"}  # not __main__: defines CHECKS, makes no request
+    exec(compile(py, "deploy-verify", "exec"), ns)
+    checks = {path: ok for _name, path, ok in ns["CHECKS"]}
+    assert set(checks) == {
+        "/api/healthz",
+        "/api/bundles/install.sh",
+        "/api/mcp/healthz",
+        "/.well-known/mcp.json",
+    }
+
+    hz = checks["/api/healthz"]
+    assert hz("200", '{"status":"ok","db":"ok"}')
+    assert not hz("200", '{"status":"ok","db":"down"}')
+    assert not hz("401", '{"status":"ok","db":"ok"}')
+    assert not hz("200", "<html>cf error</html>")
+    assert not hz("200", "[]")  # non-object JSON must fail, not crash the probe
+
+    sh = checks["/api/bundles/install.sh"]
+    assert sh("200", "#!/usr/bin/env bash\necho hi\n")
+    assert not sh("200", "<!doctype html>")
+    assert not sh("401", "#!/usr/bin/env bash")
+
+    mh = checks["/api/mcp/healthz"]
+    assert mh("200", '{"name":"loopskill-mcp","tools":["a"]}')
+    assert not mh("200", '{"name":"loopskill-mcp","tools":[]}')
+    assert not mh("200", '{"name":"other","tools":["a"]}')
+
+    mj = checks["/.well-known/mcp.json"]
+    assert mj("200", '{"transport":{"url":"https://app.loopskill.io/api/mcp/http/"}}')
+    assert not mj(
+        "200", '{"transport":{"url":"https://app.loopskill.io/api/mcp/http"}}'
+    )  # the #490 regression
+    assert not mj("200", "{}")
+    assert "${{" not in run, "no expression splicing inside run: use env:"
