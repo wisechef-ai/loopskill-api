@@ -185,6 +185,59 @@ jobs:
           fi
           echo "All routes returned acceptable status."
 
+          # Strict content probes. The loop above accepts 401/403/405, so a
+          # broken route and a gated one look the same to it. These are the
+          # paths agents actually use (install path + MCP transport, #490):
+          # each must return the right STATUS and the right BODY.
+          python3 - <<'PY'
+          import json, subprocess, sys, time
+
+          BASE = "https://app.loopskill.io"
+
+          def fetch(path):
+              cmd = ["curl", "-s", "--max-time", "15", "-o", "-", "-w", "\n%{http_code}", BASE + path]
+              out = subprocess.run(cmd, capture_output=True, text=True).stdout
+              body, _, code = out.rpartition("\n")
+              return code.strip() or "000", body
+
+          def js(body):
+              try:
+                  return json.loads(body)
+              except ValueError:
+                  return {}
+
+          CHECKS = [
+              ("healthz status+db ok", "/api/healthz",
+               lambda c, b: c == "200" and js(b).get("status") == "ok" and js(b).get("db") == "ok"),
+              ("install.sh is a script", "/api/bundles/install.sh",
+               lambda c, b: c == "200" and b.startswith("#!")),
+              ("mcp healthz lists tools", "/api/mcp/healthz",
+               lambda c, b: c == "200" and js(b).get("name") == "loopskill-mcp" and len(js(b).get("tools") or []) > 0),
+              ("mcp.json transport url ends /", "/.well-known/mcp.json",
+               lambda c, b: c == "200" and str((js(b).get("transport") or {}).get("url", "")).endswith("/api/mcp/http/")),
+              # NOT probed: whether /api/mcp/http/ is mounted. The keyless auth
+              # middleware answers 401 for ANY /api/mcp/* path (a bogus
+              # /api/mcp/httpX/ also gets 401), so a keyless check could never fail.
+              # Proving the mount needs a keyed initialize, which needs a deploy secret.
+          ]
+
+          fail = 0
+          for name, path, ok in CHECKS:
+              for attempt in range(1, 5):
+                  code, body = fetch(path)
+                  if ok(code, body):
+                      break
+                  if attempt < 4:
+                      time.sleep(attempt * 8)
+              good = ok(code, body)
+              print(f"  {'ok ' if good else 'BAD'} {name:<32} {path} {code}")
+              if not good:
+                  fail += 1
+                  print(f"::error::strict probe failed: {name} ({path} -> {code}): {body[:160]!r}")
+          sys.exit(1 if fail else 0)
+          PY
+          echo "Strict content probes passed."
+
       # ---- Discord notify on success/failure (only if webhook secret exists) ----
       - name: Notify Discord
         if: always() && env.DISCORD_AGENT_SYNC_WEBHOOK != ''
