@@ -196,7 +196,12 @@ def test_public_verification_content_checks_agent_paths():
     ns: dict = {"__name__": "deploy_verify_test"}  # not __main__: defines CHECKS, makes no request
     exec(compile(py, "deploy-verify", "exec"), ns)
     checks = {path: ok for _name, path, ok in ns["CHECKS"]}
-    assert set(checks) == {"/api/healthz", "/api/bundles/install.sh", "/api/mcp/healthz", "/.well-known/mcp.json"}
+    assert set(checks) == {
+        "/api/healthz",
+        "/api/bundles/install.sh",
+        "/api/mcp/healthz",
+        "/.well-known/mcp.json",
+    }
 
     hz = checks["/api/healthz"]
     assert hz("200", '{"status":"ok","db":"ok"}')
@@ -217,6 +222,8 @@ def test_public_verification_content_checks_agent_paths():
 
     mj = checks["/.well-known/mcp.json"]
     assert mj("200", '{"transport":{"url":"https://app.loopskill.io/api/mcp/http/"}}')
-    assert not mj("200", '{"transport":{"url":"https://app.loopskill.io/api/mcp/http"}}')  # the #490 regression
+    assert not mj(
+        "200", '{"transport":{"url":"https://app.loopskill.io/api/mcp/http"}}'
+    )  # the #490 regression
     assert not mj("200", "{}")
     assert "${{" not in run, "no expression splicing inside run: use env:"
