@@ -126,6 +126,43 @@ class TestMcpRecipesInstallBumpsCounter:
         assert _read_count(db_session, "pr-draft") == 1
         assert _read_count(db_session, "clean-architecture") == 0
 
+    def test_mcp_install_test_key_records_event_without_bumping(
+        self, db_session: Session
+    ) -> None:
+        """ah_1124: the MCP writer honours the shared organic predicate.
+
+        An is_test key install still writes its InstallEvent (audit) but must
+        not inflate the public counter, matching every other counter writer.
+        """
+        import hashlib
+
+        from app.auth_ctx import AuthContext
+        from app.mcp.tools.install import loopskill_install
+        from app.models import APIKey, InstallEvent, User
+
+        user = User(id=uuid4(), display_name="t-ah1124", email="t-ah1124@example.com")
+        db_session.add(user)
+        db_session.flush()
+        raw = f"rec_live_{uuid4().hex}"
+        key = APIKey(
+            id=uuid4(),
+            user_id=user.id,
+            key_prefix=raw[:12],
+            key_hash=hashlib.sha256(raw.encode()).hexdigest(),
+            is_active=True,
+            is_test=True,
+            name="ah1124-test-key",
+        )
+        db_session.add(key)
+        skill = make_skill(db_session, slug="ah1124-mcp-organic")
+        _make_version(db_session, skill)
+
+        r = loopskill_install(db_session, slug="ah1124-mcp-organic", api_key_id=key.id, ctx=AuthContext(scope="master"))
+
+        assert "error" not in r, r
+        assert db_session.query(InstallEvent).filter(InstallEvent.skill_slug == "ah1124-mcp-organic").count() == 1
+        assert _read_count(db_session, "ah1124-mcp-organic") == 0
+
     def test_mcp_install_pinned_version_bumps_counter(
         self, db_session: Session
     ) -> None:

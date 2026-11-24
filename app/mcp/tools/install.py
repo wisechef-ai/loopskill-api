@@ -307,10 +307,17 @@ def loopskill_install(
     # never incremented the counter, causing install_count to drift negative
     # for all 9 "hot skills" that were installed via cbt_token → MCP path.
     # Atomic SQL-level expression — concurrent installs cannot lose writes.
-    db.query(Skill).filter(Skill.id == skill.id).update(
-        {Skill.install_count: Skill.install_count + 1},
-        synchronize_session=False,
-    )
+    # ah_1124: gated on the ONE shared organic definition, like every other
+    # counter writer (chef_0823). Ungated, an is_test or agent-key install
+    # bumped the public counter while recompute_organic_skill_installs (the
+    # drift metric's truth) correctly excluded it.
+    from app.install_integrity import install_is_organic
+
+    if install_is_organic(db, api_key_id=api_key_id, client_ip=None):
+        db.query(Skill).filter(Skill.id == skill.id).update(
+            {Skill.install_count: Skill.install_count + 1},
+            synchronize_session=False,
+        )
     db.commit()
 
     related = _related_slugs(db, base_slug, limit=10)

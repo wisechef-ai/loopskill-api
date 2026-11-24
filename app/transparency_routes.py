@@ -134,24 +134,32 @@ def _compute_install_count_drift(db: Session) -> int:
     a non-organic write that wrongly incremented the counter IS drift, so filtering
     it out here would blind the probe to the very bug it hunts. The rate filters,
     because it wants the honest audience, not the write-audit surface.
+
+    ah_1124: the "unfiltered" argument above holds for the COUNTER side only. The
+    InstallEvent TRUTH must be organic, because every counter writer bumps only on
+    an organic install (chef_0823). Comparing an organic-only counter with an
+    unfiltered event count publishes every probe, CI and agent-key install as
+    drift. Prod 2026-11-24 read 1995: 1930 of it was non-organic rows the counter
+    correctly ignores (super-memory alone 1460), and the organic diff was 1.
+    A non-organic write that wrongly bumped the counter still shows up here, as
+    counter > organic truth. This is the same truth the hourly probe uses
+    (``scripts/install_count_drift_probe.compute_truth``). Telemetry stays raw and
+    max()-ed in, as it does there: its rows carry no key or IP provenance to filter on.
     """
-    # Recomputed counts per slug
+    from app.install_integrity import recompute_organic_skill_installs
+
     telemetry_q = (
         db.query(TelemetryEvent.skill_slug, func.count().label("c"))
         .filter(TelemetryEvent.event_type == "install")
         .group_by(TelemetryEvent.skill_slug)
         .all()
     )
-    install_q = (
-        db.query(InstallEvent.skill_slug, func.count().label("c")).group_by(InstallEvent.skill_slug).all()
-    )
     truth: dict[str, int] = {}
     for slug, count in telemetry_q:
         if slug:
             truth[slug] = max(truth.get(slug, 0), count)
-    for slug, count in install_q:
-        if slug:
-            truth[slug] = max(truth.get(slug, 0), count)
+    for slug, count in recompute_organic_skill_installs(db).items():
+        truth[slug] = max(truth.get(slug, 0), count)
 
     drift = 0
     for skill in db.query(Skill).all():

@@ -425,6 +425,31 @@ def test_drift_probe_truth_is_organic(integrity_client, db_session, monkeypatch)
     assert truth.get("drift-skill") == 1
 
 
+def test_transparency_drift_truth_is_organic(integrity_client, db_session, monkeypatch):
+    """ah_1124: the public endpoint's drift shares the probe's organic truth.
+
+    The probe got the chef_0823 organic fix; the endpoint's copy kept counting
+    every InstallEvent row, so prod published install_count_drift=1995 against an
+    organic diff of 1. A counter in sync with organic installs must read zero, and
+    an over-bumped counter must still read as drift.
+    """
+    monkeypatch.setattr("app.config.settings.SERVER_PUBLIC_IP", _SERVER_IP)
+    monkeypatch.setattr("app.config.settings.KNOWN_INTERNAL_IPS", [_DOGFOOD_IP])
+    from app.transparency_routes import _compute_install_count_drift
+
+    sk = _mk_skill(db_session, "drift-endpoint-skill")
+    _mk_install(db_session, sk, key=None, client_ip=_SERVER_IP)
+    _mk_install(db_session, sk, key=None, client_ip=_DOGFOOD_IP)
+    _mk_install(db_session, sk, key=None, client_ip=_EXTERNAL_IP)
+    sk.install_count = 1  # in sync: one organic install
+    db_session.commit()
+    assert _compute_install_count_drift(db_session) == 0
+
+    sk.install_count = 3  # a non-organic write wrongly bumped the counter
+    db_session.commit()
+    assert _compute_install_count_drift(db_session) == 2
+
+
 # ── Migration fail-closed gate ──────────────────────────────────────────────
 
 
