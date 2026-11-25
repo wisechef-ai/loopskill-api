@@ -52,6 +52,22 @@ features:
           - The response slug and checksum match the seeded version.
           - The signed download returns the exact seeded tarball bytes.
     verify: skill_install_signed_url_roundtrip
+  skill_install_archived:
+    path: /api/skills/install
+    auth: api_key
+    entry: GET with x-api-key for the seeded ARCHIVED member of the public verify bundle.
+    source: app/install_routes.py
+    flows:
+      - name: archived_refused
+        steps:
+          - Request an install URL for the seeded archived (still-public) skill.
+          - Read the public bundle well-known index.
+          - Fetch the archived skill's well-known SKILL.md.
+        invariants:
+          - The install rail answers 404 — archived == gone for every caller, no admin exception.
+          - The well-known index omits the archived member (installers are never advertised it).
+          - The well-known SKILL.md answers 404 and never contains the withdrawn body marker.
+    verify: skill_install_archived_refused
   bundle_public_wellknown:
     path: /api/bundles/public/{slug}/.well-known/skills/index.json
     auth: public

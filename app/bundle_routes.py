@@ -2323,6 +2323,11 @@ def install_cookbook(
     skills_payload = []
     installed_skills: list[tuple[Skill, str, int]] = []
     for cs, skill in rows:
+        # #469 follow-up: archived == gone — skip like an over-tier skill, so a
+        # withdrawn member of a shared bundle is silently absent from the bulk
+        # payload (same behaviour the MCP bulk tool gets via can_install).
+        if authz.skill_gone_for_install(skill):
+            continue
         # portal_0610 R1: skip skills the bundle owner's tier cannot install.
         if not tier_rank_allows_install(owner_tier, getattr(skill, "tier", None)):
             continue
@@ -2675,9 +2680,12 @@ def install_single_skill_from_cookbook(
 
     cb = _resolve_owned_cookbook(db, ctx, cookbook_id)
 
-    # Find the skill globally; then check it's actually in this bundle
+    # Find the skill globally; then check it's actually in this bundle.
+    # #469 follow-up: archived == gone for every caller (owner/master
+    # included) — same 404 as the missing-skill path, via the ONE shared
+    # predicate the direct install rail uses.
     skill = db.query(Skill).filter(Skill.slug == slug).first()
-    if skill is None:
+    if skill is None or authz.skill_gone_for_install(skill):
         raise HTTPException(status_code=404, detail="skill_not_found")
 
     cs = (

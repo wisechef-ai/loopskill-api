@@ -19,16 +19,23 @@ from app.authz import (
     can_write_cookbook,
     can_call_admin_mcp_tool,
     can_run_sandbox,
+    skill_gone_for_install,
 )
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def make_skill(is_public: bool = True, skill_owner=None):
-    """Create a mock skill object."""
+def make_skill(is_public: bool = True, skill_owner=None, is_archived: bool = False):
+    """Create a mock skill object.
+
+    ``is_archived`` MUST be stamped explicitly: a bare MagicMock auto-creates
+    any attribute read off it, so ``skill_gone_for_install``'s getattr would
+    see a truthy Mock and treat every mock skill as withdrawn.
+    """
     skill = MagicMock()
     skill.is_public = is_public
     skill.skill_owner = skill_owner
+    skill.is_archived = is_archived
     return skill
 
 
@@ -129,7 +136,11 @@ def test_phase_c_clause_skipped_without_db():
 # ── can_install ───────────────────────────────────────────────────────────────
 
 def test_can_install_mirrors_can_read():
-    """can_install has the same rules as can_read_skill."""
+    """can_install has the same rules as can_read_skill — for LIVE skills.
+
+    #469 follow-up: the ONE deliberate divergence is archived skills, refused
+    by can_install for every caller (see skill_gone_for_install below).
+    """
     uid = uuid4()
     ctx = AuthContext(scope="user", user_id=uid)
     public_skill = make_skill(is_public=True)
@@ -142,10 +153,24 @@ def test_can_install_mirrors_can_read():
 
 
 def test_can_install_master_all():
-    """Master can install anything."""
+    """Master can install anything — except an archived skill (== gone)."""
     ctx = AuthContext(scope="master")
     skill = make_skill(is_public=False)
     assert can_install(ctx, skill) is True
+    archived = make_skill(is_public=False, is_archived=True)
+    assert can_install(ctx, archived) is False
+
+
+def test_skill_gone_for_install_predicate():
+    """#469 follow-up: archived == gone on install rails — scope-independent."""
+    assert skill_gone_for_install(make_skill(is_public=True, is_archived=True)) is True
+    assert skill_gone_for_install(make_skill(is_public=False, is_archived=True)) is True
+    # is_public stays readable on the READ side (owner/admin views) — only the
+    # install predicate treats archived as gone.
+    assert can_read_skill(AuthContext(scope="master"), make_skill(is_archived=True)) is True
+    assert skill_gone_for_install(make_skill(is_public=True, is_archived=False)) is False
+    # Non-skill objects without the attribute (defensive) read as live.
+    assert skill_gone_for_install(object()) is False
 
 
 # ── can_write_cookbook ────────────────────────────────────────────────────────

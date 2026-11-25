@@ -268,8 +268,12 @@ def install_skill(
             return _install_federated_hermes_hub_ref(fed_slug, db)
 
     skill = db.query(Skill).filter(Skill.slug == slug).first()
-    # Archived == gone for every caller (admin/creator too): same 404 as the lookup route.
-    if not skill or skill.is_archived:
+    # Archived == gone for every caller (admin/creator too): same 404 as the
+    # lookup route. #469 follow-up: routed through the ONE shared predicate so
+    # this rail and the MCP/bundle rails cannot drift apart again.
+    from app.authz import skill_gone_for_install
+
+    if not skill or skill_gone_for_install(skill):
         # WIS-903: check retired skill registry
         _alt = _RETIRED_SKILLS.get(slug)
         if _alt:

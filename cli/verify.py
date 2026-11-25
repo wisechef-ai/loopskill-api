@@ -25,8 +25,10 @@ VERIFY_API_KEY = "rec_verify_local_agent_key"
 VERIFY_MASTER_KEY = "rec_verify_local_master_key"
 VERIFY_SKILL_SLUG = "verify-git-skill"
 VERIFY_PAID_SLUG = "verify-paid-secret-skill"
+VERIFY_ARCHIVED_SLUG = "verify-archived-skill"
 VERIFY_BUNDLE_SLUG = "verify-agent-bundle"
 PAID_MARKER = "VERIFY_PAID_BODY_MUST_NEVER_LEAK_7f03"
+ARCHIVED_MARKER = "VERIFY_ARCHIVED_BODY_MUST_NEVER_INSTALL_1125"
 TARBALL_BYTES = b"loopskill deterministic verify tarball\n"
 
 
@@ -238,6 +240,66 @@ def flow_skill_install_signed_url_roundtrip(ctx: VerifyContext) -> dict[str, Any
     }
 
 
+def flow_skill_install_archived_refused(ctx: VerifyContext) -> dict[str, Any]:
+    """#469 follow-up: archived == gone on every install rail.
+
+    The seeded archived skill is public and a real member of the public verify
+    bundle (the exact shape a withdrawal-for-security leaves behind), so each
+    rail must answer it exactly like a missing slug.
+    """
+    response = ctx.client.get(
+        "/api/skills/install",
+        params={"slug": VERIFY_ARCHIVED_SLUG},
+        headers={"x-api-key": VERIFY_API_KEY},
+    )
+    _require(
+        response.status_code == 404,
+        f"skill_install archived: expected 404, got HTTP {response.status_code}: {response.text[:200]}",
+    )
+    # Discriminate the 404s: the fixture carries a real SkillVersion, so the
+    # only reachable 404 here is the not-found one. "No versions available"
+    # would mean the archived predicate regressed into a different gate.
+    detail = (
+        (response.json().get("detail") or "")
+        if response.headers.get("content-type", "").startswith("application/json")
+        else response.text
+    )
+    _require(
+        "not found" in detail.lower() and "no versions" not in detail.lower(),
+        f"skill_install archived: wrong 404 gate: {detail!r}",
+    )
+
+    base = f"/api/bundles/public/{VERIFY_BUNDLE_SLUG}/.well-known/skills"
+    index_response = ctx.client.get(f"{base}/index.json")
+    index = _json(index_response, "bundle_wellknown index")
+    _require(index_response.status_code == 200, f"bundle_wellknown index: HTTP {index_response.status_code}")
+    names = [row.get("name") for row in index.get("skills", [])]
+    # Positive control first: a live member MUST be advertised, so an empty or
+    # broken index cannot pass the omission check vacuously.
+    _require(VERIFY_SKILL_SLUG in names, f"bundle_wellknown index: live member absent: {names}")
+    _require(
+        VERIFY_ARCHIVED_SLUG not in names,
+        f"bundle_wellknown index advertised the archived skill: {names}",
+    )
+    gone_md = ctx.client.get(f"{base}/{VERIFY_ARCHIVED_SLUG}/SKILL.md")
+    _require(
+        gone_md.status_code == 404,
+        f"bundle_wellknown archived SKILL.md: expected 404, got HTTP {gone_md.status_code}",
+    )
+    _require(
+        ARCHIVED_MARKER not in gone_md.text,
+        "bundle_wellknown archived SKILL.md leaked the withdrawn body",
+    )
+    return {
+        "ok": True,
+        "steps": [
+            f"install slug={VERIFY_ARCHIVED_SLUG} -> HTTP 404 (archived == gone)",
+            f"bundle index -> archived member omitted (skills={len(names)})",
+            f"archived SKILL.md -> HTTP 404, marker_present=false",
+        ],
+    }
+
+
 def flow_bundle_wellknown_paid_stub_never_leaks_readme(ctx: VerifyContext) -> dict[str, Any]:
     base = f"/api/bundles/public/{VERIFY_BUNDLE_SLUG}/.well-known/skills"
     index_response = ctx.client.get(f"{base}/index.json")
@@ -379,7 +441,9 @@ def flow_wellknown_agent_json(ctx: VerifyContext) -> dict[str, Any]:
     _require(
         urlparse(registration.get("endpoint") or "").path == "/api/agents/register", "bad registration path"
     )
-    _require(urlparse(mcp.get("endpoint") or "").path == "/api/mcp/http/", "bad MCP path (bare /api/mcp/http 307s)")
+    _require(
+        urlparse(mcp.get("endpoint") or "").path == "/api/mcp/http/", "bad MCP path (bare /api/mcp/http 307s)"
+    )
     return {
         "ok": True,
         "steps": [
@@ -437,6 +501,7 @@ FLOW_RUNNERS: dict[str, FlowRunner] = {
     "skill_search": flow_skill_search,
     "skill_detail": flow_skill_detail,
     "skill_install_signed_url_roundtrip": flow_skill_install_signed_url_roundtrip,
+    "skill_install_archived_refused": flow_skill_install_archived_refused,
     "bundle_wellknown_paid_stub_never_leaks_readme": flow_bundle_wellknown_paid_stub_never_leaks_readme,
     "agent_register_ed25519_roundtrip": flow_agent_register_ed25519_roundtrip,
     "checkout_rejects_api_key": flow_checkout_rejects_api_key,
@@ -487,6 +552,7 @@ def _seed_verify_rows(db_path: Path) -> None:
         user_id = UUID("00000000-0000-4000-8000-000000000101")
         free_id = UUID("00000000-0000-4000-8000-000000000201")
         paid_id = UUID("00000000-0000-4000-8000-000000000202")
+        archived_id = UUID("00000000-0000-4000-8000-000000000204")
         bundle_id = UUID("00000000-0000-4000-8000-000000000301")
         tarball_path = db_path.with_suffix(".verify-skill.tar.gz").resolve()
         tarball_path.write_bytes(TARBALL_BYTES)
@@ -523,6 +589,20 @@ def _seed_verify_rows(db_path: Path) -> None:
             tier="pro",
             is_public=True,
         )
+        # #469 follow-up: a WITHDRAWN (archived but still public) member of the
+        # verify bundle — every install rail must answer it as gone.
+        archived = Skill(
+            id=archived_id,
+            slug=VERIFY_ARCHIVED_SLUG,
+            title="Verify Archived Skill",
+            description="Archived fixture that no install rail may serve",
+            category="development",
+            readme=f"# Archived body\n\n{ARCHIVED_MARKER}",
+            license="MIT",
+            tier="free",
+            is_public=True,
+            is_archived=True,
+        )
         version = SkillVersion(
             id=UUID("00000000-0000-4000-8000-000000000203"),
             skill_id=free_id,
@@ -532,6 +612,18 @@ def _seed_verify_rows(db_path: Path) -> None:
             checksum_sha256=checksum,
             changelog="Deterministic verify fixture",
         )
+        # ocr review (medium): the archived fixture MUST carry a real version,
+        # else the flow's 404 could come vacuously from the no-versions gate
+        # and a predicate regression would still pass the harness.
+        archived_version = SkillVersion(
+            id=UUID("00000000-0000-4000-8000-000000000205"),
+            skill_id=archived_id,
+            semver="1.0.0",
+            tarball_path=str(tarball_path),
+            tarball_size_bytes=len(TARBALL_BYTES),
+            checksum_sha256=checksum,
+            changelog="Archived verify fixture (must never be installable)",
+        )
         bundle = Bundle(
             id=bundle_id,
             bundle_owner=user_id,
@@ -540,12 +632,15 @@ def _seed_verify_rows(db_path: Path) -> None:
             description="Disposable verification bundle",
             visibility="public",
         )
-        session.add_all([user, key, free, paid, version, bundle])
+        session.add_all([user, key, free, paid, archived, archived_version, version, bundle])
         session.flush()
         session.add_all(
             [
                 BundleSkill(bundle_id=bundle_id, skill_id=free_id, source="custom-added", install_order=1),
                 BundleSkill(bundle_id=bundle_id, skill_id=paid_id, source="custom-added", install_order=2),
+                BundleSkill(
+                    bundle_id=bundle_id, skill_id=archived_id, source="custom-added", install_order=3
+                ),
             ]
         )
         session.commit()

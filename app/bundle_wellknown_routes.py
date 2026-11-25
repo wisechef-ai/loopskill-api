@@ -47,6 +47,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 
+from app.authz import skill_gone_for_install
 from app.database import get_db
 from app.models import Bundle
 from app.services.bundle_external import is_external_skill
@@ -230,6 +231,12 @@ def cookbook_wellknown_index(slug: str, db: Session = Depends(get_db)) -> JSONRe
 
     skills = []
     for _cs, skill in rows:
+        # #469 follow-up: archived == gone on every install rail — an
+        # installer iterating this index must never be advertised a withdrawn
+        # skill (the SKILL.md route 404s it below; omitting here keeps the two
+        # halves consistent).
+        if skill_gone_for_install(skill):
+            continue
         entry = {
             "name": skill.slug,
             # bundles_0811: the filesystem-safe form. `name` stays the WIRE KEY
@@ -402,7 +409,10 @@ def cookbook_wellknown_skill_md(
     rows = _skills_for(db, cb.id, include_disabled=False)
 
     match = next((skill for _cs, skill in rows if skill.slug == skill_name), None)
-    if match is None:
+    # #469 follow-up: archived == gone — same 404 as a non-member, so this
+    # public install surface never serves (or records an install of) a
+    # withdrawn skill's body.
+    if match is None or skill_gone_for_install(match):
         raise HTTPException(status_code=404, detail="skill_not_in_bundle")
 
     if _is_free(match) and (match.readme or "").strip():
