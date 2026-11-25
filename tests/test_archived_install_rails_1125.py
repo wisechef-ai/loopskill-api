@@ -412,3 +412,75 @@ def test_compose_link_live_skill_resolves(db_session):
 
     live = _seed_with_version(db_session, slug="rail-compose-live")
     assert _resolve_one_link_to_skills(db_session, "skill://rail-compose-live") == [live]
+
+
+# ── 9. Signed download URLs minted BEFORE the archive (PR #494 review F1) ──────
+
+
+@pytest.fixture
+def _dl_client(db_session, monkeypatch):
+    from tests._app_factory import build_test_app
+
+    return TestClient(build_test_app(db_session=db_session, monkeypatch=monkeypatch))
+
+
+def _sign_download(version_id, slug: str) -> str:
+    from itsdangerous import URLSafeTimedSerializer
+
+    from app.config import settings
+
+    s = URLSafeTimedSerializer(settings.SIGNING_SECRET, salt="loopskill-install")
+    return s.dumps({"slug": slug, "version_id": str(version_id), "mode": "install"})
+
+
+def _only_version_id(db, skill):
+    from app.models import SkillVersion
+
+    return db.query(SkillVersion).filter(SkillVersion.skill_id == skill.id).one().id
+
+
+def test_download_url_signed_while_live_stops_serving_after_archive(_dl_client, db_session):
+    """RED on dea8b55: _download resolved the SkillVersion only, so a URL signed
+    while the skill was live kept streaming after the skill was archived (until
+    the token expired). Archived must answer like a missing version."""
+    sk = _seed_with_version(db_session, slug="rail-dl-archived-later")
+    token = _sign_download(_only_version_id(db_session, sk), sk.slug)
+    sk.is_archived = True
+    db_session.flush()
+
+    resp = _dl_client.get(f"/api/skills/_download?token={token}")
+    assert resp.status_code == 404
+    assert resp.json().get("detail") == "Version not found"
+
+
+def test_download_url_for_live_skill_passes_the_archive_gate(_dl_client, db_session):
+    """Control: a live skill's token passes the archive gate and reaches the
+    on-disk check (no tarball is seeded, so that check answers 404)."""
+    sk = _seed_with_version(db_session, slug="rail-dl-live")
+    token = _sign_download(_only_version_id(db_session, sk), sk.slug)
+
+    resp = _dl_client.get(f"/api/skills/_download?token={token}")
+    assert resp.status_code == 404
+    assert "Tarball missing on disk" in str(resp.json().get("detail"))
+
+
+def test_mcp_bundle_install_single_archived_answers_like_missing(db_session):
+    """PR #494 review F2: an archived member must answer skill_not_found (the
+    missing-slug code), not skill_not_in_bundle, so the error code reveals
+    nothing about the row."""
+    from app.mcp.tools.bundle_install import CookbookInstallError, loopskill_bundle_install
+
+    cb = _mk_bundle(db_session)
+    archived = _seed_with_version(db_session, slug="rail-bi-archived-code", is_archived=True)
+    _attach(db_session, cb, archived)
+
+    with pytest.raises(CookbookInstallError) as archived_err:
+        loopskill_bundle_install(
+            db=db_session, ctx=_master_ctx(), cookbook_id=str(cb.id), slug="rail-bi-archived-code"
+        )
+    with pytest.raises(CookbookInstallError) as missing_err:
+        loopskill_bundle_install(
+            db=db_session, ctx=_master_ctx(), cookbook_id=str(cb.id), slug="rail-bi-never-existed"
+        )
+    assert archived_err.value.code == missing_err.value.code == "skill_not_found"
+    assert archived_err.value.status == missing_err.value.status == 404

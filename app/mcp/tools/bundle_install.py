@@ -218,7 +218,10 @@ def loopskill_bundle_install(
     if slug is not None:
         # Single-skill path
         skill = db.query(Skill).filter(Skill.slug == slug).first()
-        if skill is None:
+        # An archived skill answers exactly like a missing one (PR #494 review F2):
+        # routing it into the can_install branch below would return
+        # skill_not_in_bundle and reveal that the slug still resolves to a row.
+        if skill is None or authz.skill_gone_for_install(skill):
             raise CookbookInstallError("skill_not_found", "skill_not_found", status=404)
 
         # SECURITY: gate via the shared predicate so the bundle-scope clause

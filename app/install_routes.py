@@ -584,6 +584,15 @@ def download_tarball(
     if not version:
         raise HTTPException(status_code=404, detail="Version not found")
 
+    # #469 follow-up (PR #494 review F1): a URL signed while the skill was live
+    # must stop serving once the skill is archived — archiving is a withdrawal,
+    # not "no new URLs". Same 404 shape as a missing version (no oracle).
+    from app.authz import skill_gone_for_install
+
+    owner = db.query(Skill).filter(Skill.id == version.skill_id).first()
+    if owner is None or skill_gone_for_install(owner):
+        raise HTTPException(status_code=404, detail="Version not found")
+
     # Stream the actual tarball file. Path is recorded at publish-time as
     # absolute (e.g. /var/lib/recipes-skills/agent-rescue/1.1.0.tar.gz).
     import pathlib as _pl
