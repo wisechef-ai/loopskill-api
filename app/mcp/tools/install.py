@@ -262,6 +262,12 @@ def loopskill_install(
     # Phase B (Issue #6): visibility check — no existence oracle for private skills.
     # cookbook_share_2105 Phase C: thread db through so cbt_token callers can
     # reach the bundle-scope clause inside can_install.
+    # #469 follow-up: an ARCHIVED skill is also refused here, for every caller —
+    # can_install consults authz.skill_gone_for_install first. Note the reach:
+    # the internal exact-match above still wins for an archived row, so this
+    # answers not_found WITHOUT ever falling through to the federated resolver
+    # below (a withdrawn ``github--*`` internal slug cannot be re-resolved via
+    # federation).
     if not authz.can_install(ctx, skill, db=db):
         return {"error": "not_found", "slug": base_slug}
 

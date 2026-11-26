@@ -57,6 +57,7 @@ from uuid import uuid4
 from sqlalchemy.orm import Session
 
 from app.auth_ctx import AuthContext
+from app.authz import skill_gone_for_install
 from app.mcp.tools.bundle_install import (
     CookbookInstallError,
     _make_install_url,
@@ -147,17 +148,30 @@ def _resolve_public_cookbook(db: Session, slug: str) -> Bundle:
 
 
 def _cookbook_member_rows(db: Session, cookbook_id: Any) -> list[tuple[BundleSkill, Skill]]:
-    """Active (non-disabled) member rows of a cookbook, ordered deterministically."""
-    return (
-        db.query(BundleSkill, Skill)
-        .join(Skill, Skill.id == BundleSkill.skill_id)
-        .filter(
-            BundleSkill.bundle_id == cookbook_id,  # compat-alias
-            BundleSkill.source != "disabled",
+    """Active (non-disabled) member rows of a cookbook, ordered deterministically.
+
+    #469 follow-up: archived members are excluded — every consumer of this
+    helper (install-from-bundle, pick-best, compose-from-links) hands out
+    install lines or builds new membership, and a withdrawn skill must be
+    gone on all of them. Filtering here rather than per-verb keeps the three
+    verbs from drifting; external pointer rows are is_archived=False by
+    construction, so the curator's intentionally-public federated entries the
+    module docstring protects are unaffected.
+    """
+    return [
+        (cs, skill)
+        for cs, skill in (
+            db.query(BundleSkill, Skill)
+            .join(Skill, Skill.id == BundleSkill.skill_id)
+            .filter(
+                BundleSkill.bundle_id == cookbook_id,  # compat-alias
+                BundleSkill.source != "disabled",
+            )
+            .order_by(BundleSkill.added_at.asc())
+            .all()
         )
-        .order_by(BundleSkill.added_at.asc())
-        .all()
-    )
+        if not skill_gone_for_install(skill)
+    ]
 
 
 def _skill_install_entry(
@@ -370,7 +384,9 @@ def _resolve_one_link_to_skills(db: Session, link: str) -> list[Skill]:
 
     if kind[0] == LINK_SKILL:
         skill = db.query(Skill).filter(Skill.slug == kind[1]).first()
-        if skill is None or not skill.is_public:
+        # #469 follow-up: archived == gone — same skill_not_found as a missing
+        # slug, so a withdrawn skill cannot be composed into a new bundle.
+        if skill is None or not skill.is_public or skill_gone_for_install(skill):
             raise CookbookInstallError("skill_not_found", f"skill_not_found: {kind[1]}", status=404)
         return [skill]
 
@@ -389,7 +405,8 @@ def _resolve_one_link_to_skills(db: Session, link: str) -> list[Skill]:
     if cb is not None:
         return [skill for _cs, skill in _cookbook_member_rows(db, cb.id)]
     skill = db.query(Skill).filter(Skill.slug == token, Skill.is_public.is_(True)).first()
-    if skill is not None:
+    # #469 follow-up: archived == gone for bare-token resolution too.
+    if skill is not None and not skill_gone_for_install(skill):
         return [skill]
     raise CookbookInstallError("link_unresolvable", f"link_unresolvable: {token}", status=404)
 

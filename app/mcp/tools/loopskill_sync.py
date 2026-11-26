@@ -254,7 +254,11 @@ def _build_install_urls(db: Session, outdated: list[dict[str, Any]]) -> list[dic
     )
     for o in outdated:
         skill = skills_by_id.get(o["skill_id"])
-        if not skill or not skill.versions:
+        # #469 follow-up: archived == gone on install rails — a withdrawn
+        # skill gets no fresh one-shot tarball URL here. The pin change
+        # itself still applies; the agent just receives no re-download line
+        # for that slug.
+        if not skill or authz.skill_gone_for_install(skill) or not skill.versions:
             continue
         latest = skill.latest_version_row
         token = serializer.dumps({"slug": o["slug"], "version_id": str(latest.id), "mode": "files"})

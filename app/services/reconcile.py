@@ -304,7 +304,11 @@ def _attach_tarball_urls(db: Session, plan: ReconcilePlan) -> None:
             if not slug:
                 continue
             skill = skills_by_slug.get(slug)
-            if skill is None:
+            # #469 follow-up: archived == gone on install rails — no fresh
+            # one-shot URL for a withdrawn skill. The client fetcher already
+            # reports a missing tarball_url per-slug and rolls that row back
+            # safely (same path as a skill deleted between plan and fetch).
+            if skill is None or authz.skill_gone_for_install(skill):
                 continue
             target_semver = row.get("version") or row.get("to")
             version = None

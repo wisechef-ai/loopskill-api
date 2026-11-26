@@ -205,13 +205,37 @@ def can_read_skill(ctx: AuthContext, skill: Any, db: "Session | None" = None) ->
     return False
 
 
+def skill_gone_for_install(skill: Any) -> bool:
+    """True when a resolved Skill row must answer as GONE on install rails.
+
+    #469 follow-up (2026-11-25). PR #469 made the REST single-skill rail
+    (``install_routes.install_skill``) 404 archived skills for EVERY caller
+    (admin/creator included — pinned by tests/test_archived_skill_guard_1116.py),
+    but that guard lived inline in one route: the MCP twin resolved archived
+    public skills by slug and kept handing out signed tarball URLs. This
+    predicate is the ONE shared definition of "archived == gone" for installs
+    so no rail can drift from it again — two copies, one fixed, is exactly how
+    the MCP gap happened (see PR #493 for the same pattern).
+
+    Deliberately scope-independent: there is NO owner/admin exception, matching
+    the REST contract. Un-archiving goes through the publisher routes
+    (``publisher_routes.publish`` resets ``is_archived``), never an install
+    rail. Read-side surfaces that must still show an archived row to its owner
+    (admin views, membership management) do not route through install authz.
+    """
+    return bool(getattr(skill, "is_archived", False))
+
+
 def can_install(ctx: AuthContext, skill: Any, db: "Session | None" = None) -> bool:
     """Return True if ctx may install the given skill.
 
-    Same rules as can_read_skill — install requires at least read access.
-    ``db`` is forwarded to can_read_skill so cbt_token callers can resolve
-    cookbook-scope skill membership.
+    Same rules as can_read_skill — install requires at least read access —
+    EXCEPT that an archived skill is refused for every caller (see
+    ``skill_gone_for_install``). ``db`` is forwarded to can_read_skill so
+    cbt_token callers can resolve cookbook-scope skill membership.
     """
+    if skill_gone_for_install(skill):
+        return False
     return can_read_skill(ctx, skill, db=db)
 
 
