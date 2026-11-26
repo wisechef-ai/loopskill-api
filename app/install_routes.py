@@ -25,6 +25,7 @@ from app._skill_helpers import (
     _set_utm_ref_cookie,
 )
 from app.access_routes import TIER_INSTALL_LIMITS
+from app.authz import skill_gone_for_install, tier_rank_allows_install
 from app.database import get_db
 from app.models import Bundle, BundleSkill, Skill, SkillVersion
 from app.schemas import InstallResponse
@@ -268,11 +269,7 @@ def install_skill(
             return _install_federated_hermes_hub_ref(fed_slug, db)
 
     skill = db.query(Skill).filter(Skill.slug == slug).first()
-    # Archived == gone for every caller (admin/creator too): same 404 as the
-    # lookup route. #469 follow-up: routed through the ONE shared predicate so
-    # this rail and the MCP/bundle rails cannot drift apart again.
-    from app.authz import skill_gone_for_install
-
+    # Archived == gone for every caller (admin/creator too): one predicate for every install rail (#469).
     if not skill or skill_gone_for_install(skill):
         # WIS-903: check retired skill registry
         _alt = _RETIRED_SKILLS.get(slug)
@@ -318,8 +315,6 @@ def install_skill(
         # tier=NULL, appears free-tier in the public catalog/stats, but
         # anonymous install 401'd. Route through the single-sourced policy
         # so a NULL tier resolves the SAME way on every anonymous surface.
-        from app.authz import tier_rank_allows_install
-
         if not tier_rank_allows_install(None, skill.tier):
             raise HTTPException(
                 status_code=401,
@@ -368,8 +363,6 @@ def install_skill(
     # Anonymous free-install callers are already constrained to tier=free skills
     # above (line ~128), so this is the gate for AUTHENTICATED callers.
     if not is_anonymous_free_install:
-        from app.authz import tier_rank_allows_install
-
         if not tier_rank_allows_install(caller_tier, skill.tier):
             from app.services.paywall_hits import GATE_SKILL_INSTALL_TIER, record_paywall_hit_for_ctx
             from app.tier_labels import display_label as _dl
@@ -581,16 +574,9 @@ def download_tarball(
             raise HTTPException(status_code=400, detail="Malformed version id in token") from exc
 
     version = db.query(SkillVersion).filter(SkillVersion.id == version_id).first()
-    if not version:
-        raise HTTPException(status_code=404, detail="Version not found")
-
-    # #469 follow-up (PR #494 review F1): a URL signed while the skill was live
-    # must stop serving once the skill is archived — archiving is a withdrawal,
-    # not "no new URLs". Same 404 shape as a missing version (no oracle).
-    from app.authz import skill_gone_for_install
-
-    owner = db.query(Skill).filter(Skill.id == version.skill_id).first()
-    if owner is None or skill_gone_for_install(owner):
+    owner = db.query(Skill).filter(Skill.id == version.skill_id).first() if version else None
+    # Archived == withdrawn: a URL signed while live stops serving (#494 F1). Same 404 as missing (no oracle).
+    if not version or owner is None or skill_gone_for_install(owner):
         raise HTTPException(status_code=404, detail="Version not found")
 
     # Stream the actual tarball file. Path is recorded at publish-time as

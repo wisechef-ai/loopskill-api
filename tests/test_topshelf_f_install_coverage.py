@@ -266,6 +266,7 @@ class TestDownloadTarballCoverage:
         mock_version = MagicMock()
         mock_version.tarball_path = "/nonexistent/path/skill.tar.gz"
         mock_version.semver = "1.0.0"
+        mock_version.skill_id = sk.id  # PR #494: download re-checks the owner is not archived
 
         real_query = db_session.query
 
@@ -306,6 +307,7 @@ class TestDownloadTarballCoverage:
             mock_version = MagicMock()
             mock_version.tarball_path = tarball_path
             mock_version.semver = "1.0.0"
+            mock_version.skill_id = sk.id  # PR #494: download re-checks the owner is not archived
             mock_version.checksum_sha256 = "abc123"
 
             real_query = db_session.query
