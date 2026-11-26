@@ -31,6 +31,11 @@ Schema (response):
                                           # median (closed_at - created_at) hours, GitHub
                                           # issues with label `agent-reported` closed in 30d
       "last_backfill_at": datetime | null,
+                                          # written by scripts/install_count_drift_probe.py
+                                          # (hourly cron on the wisechef user crontab)
+      "last_backfill_stale": bool,        # true when last_backfill_at is null, unparseable,
+                                          # in the future, or older than 24h. An old
+                                          # timestamp is never to be read as fresh.
       "computed_at": datetime,            # always now()
       "ttl_seconds": 60,
     }
@@ -401,15 +406,40 @@ def _compute_median_issue_resolution_h() -> float | None:
     return round(statistics.median(durations), 2)
 
 
+# The ONE file the drift probe writes and this endpoint reads. Pinned equal to
+# scripts/install_count_drift_probe.SENTINEL by tests/test_drift_probe_rehome.py.
+BACKFILL_SENTINEL_PATH = "/var/lib/recipes-api/last_backfill_at"
+# The probe is hourly; a day without a run is a dead probe, not a quiet hour.
+BACKFILL_STALE_AFTER = timedelta(hours=24)
+# Tolerated writer/reader clock skew before a "future" timestamp is called bogus.
+_BACKFILL_FUTURE_SKEW = timedelta(minutes=5)
+
+
 def _compute_last_backfill_at() -> datetime | None:
-    """Read the last successful backfill timestamp from a sentinel file."""
-    sentinel = "/var/lib/recipes-api/last_backfill_at"
+    """Read the last successful backfill timestamp from the sentinel file."""
     try:
-        with open(sentinel) as f:
+        with open(BACKFILL_SENTINEL_PATH) as f:
             ts = f.read().strip()
         return datetime.fromisoformat(ts)
     except (OSError, ValueError):
         return None
+
+
+def _backfill_is_stale(ts: datetime | None, now: datetime | None = None) -> bool:
+    """True unless ``ts`` is a recent, sane timestamp.
+
+    Missing -> stale (no evidence the probe ever ran). Naive -> read as UTC (the
+    probe writes tz-aware UTC; a naive value is a hand edit, not a reason to
+    crash). Future beyond clock skew -> stale: a far-future stamp would otherwise
+    read as fresh forever.
+    """
+    if ts is None:
+        return True
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    now = now or datetime.now(UTC)
+    age = now - ts
+    return age > BACKFILL_STALE_AFTER or age < -_BACKFILL_FUTURE_SKEW
 
 
 def _build_payload(db: Session) -> dict[str, Any]:
@@ -422,6 +452,7 @@ def _build_payload(db: Session) -> dict[str, Any]:
     # quotient from that single read, or the payload could publish an
     # ``installs_7d`` that the ``skill_error_rate_7d`` was not computed against.
     installs = _installs_7d(db)
+    last_backfill_at = _compute_last_backfill_at()
     return {
         "install_count_drift": _compute_install_count_drift(db),
         # ── the absolutes come FIRST, deliberately ────────────────────────────
@@ -441,7 +472,8 @@ def _build_payload(db: Session) -> dict[str, Any]:
         "crash_report_count_7d": crash_reports,
         "feedback_volume_7d": _compute_feedback_volume_7d(db),
         "median_issue_resolution_h": _compute_median_issue_resolution_h(),
-        "last_backfill_at": (_compute_last_backfill_at() or None),
+        "last_backfill_at": last_backfill_at,
+        "last_backfill_stale": _backfill_is_stale(last_backfill_at),
         "computed_at": datetime.now(UTC).isoformat(),
         "ttl_seconds": _CACHE_TTL_S,
     }

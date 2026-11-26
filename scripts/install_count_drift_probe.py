@@ -5,12 +5,34 @@ Compares Skill.install_count (denormalised counter) to the recomputed truth
 (union of telemetry installs + install_events) and POSTs to
 /api/v1/skill-error with quality:hardcoded-path label when drift > 0.
 
-Run hourly via cron (entry installed by the Stream 0 deploy).
-Idempotent — re-running with no drift is a no-op.
+Run hourly via the `wisechef` user crontab on wisechef-hq — the schedule of
+record is ``CRONTAB_LINE`` below, mirrored byte-for-byte in
+``deploy/crontab.install-count-drift-probe``. Idempotent — re-running with no
+drift is a no-op.
 
 Sentinel file `/var/lib/recipes-api/last_backfill_at` is updated on every
 successful run with the current ISO timestamp; the transparency endpoint
-reads it.
+reads it (``app.transparency_routes.BACKFILL_SENTINEL_PATH`` — same file) and
+flags it stale once it is older than 24h.
+
+### Issue-flood gate (t_a1edaf10)
+
+``report_drift`` POSTs one /api/v1/skill-error per drifting slug. Prod carries
+~68 legacy drifting rows (telemetry-only counters, PR #493), so the re-homed
+cron must not turn them into 68 issues. Three layers, all driven by a durable
+ledger of KNOWN drift (``KNOWN_DRIFT_LEDGER``, ``{slug: (actual, expected)}``):
+
+  1. BASELINE — the first run (ledger absent/corrupt) records every current
+     drift as known and reports NOTHING. The sentinel is still written, so the
+     freshness signal starts immediately.
+  2. DEDUPE   — afterwards only a slug that is new, or whose (actual, expected)
+     changed, is a candidate; a known one is never re-reported. A slug that stops
+     drifting leaves the ledger, so it can be reported again if it re-drifts.
+  3. CAP      — at most ``MAX_REPORTS_PER_RUN`` POSTs per run; the rest are
+     deferred (left out of the ledger) and picked up by later runs.
+
+It fails CLOSED: if the ledger cannot be persisted the run reports nothing,
+because every hourly run would otherwise look like a first run.
 
 ### Signature stability (repohygiene_2605 Phase A)
 
@@ -35,6 +57,7 @@ Exit codes:
     1  config error (missing API key)
     2  transient network failure (will retry next hour)
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -56,12 +79,34 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 # ── Constants (module-level, but no side-effects) ─────────────────────────
 
+# Must stay the exact path app.transparency_routes.BACKFILL_SENTINEL_PATH reads
+# (pinned by tests/test_drift_probe_rehome.py).
 SENTINEL = Path("/var/lib/recipes-api/last_backfill_at")
+KNOWN_DRIFT_LEDGER = Path(os.environ.get("DRIFT_PROBE_LEDGER", "/var/lib/recipes-api/drift-probe-known.json"))
+MAX_REPORTS_PER_RUN = 5
 DEFAULT_RATE_LIMIT_STATE = Path.home() / ".hermes" / "state" / "drift-probe-seen.json"
 RATE_LIMIT_WINDOW_SECONDS = 24 * 3600
 
-API_BASE = os.environ.get("RECIPES_API_BASE", "http://127.0.0.1:3360")
+# 3370 = loopskill-api (systemd loopskill-api.service). 3360 is the SEPARATE
+# recipes product; the pre-rehome default pointed the report at the wrong app.
+API_BASE = os.environ.get("RECIPES_API_BASE", "http://127.0.0.1:3370")
 WR_API_KEY = os.environ.get("WR_API_KEY", "")
+
+
+# The schedule of record. Byte-identical to deploy/crontab.install-count-drift-probe
+# (asserted by tests/test_drift_probe_rehome.py). Runs from the LIVE checkout and
+# its `venv` (the dir loopskill-api.service itself execs; `.venv` exists too but
+# the retired cron died on a hardcoded `.venv/bin/python`). Minute 12 is free of
+# every other wired job. flock -E 4 = a stalled run never stacks, and the skip
+# leaves a marker instead of vanishing.
+CRONTAB_LINE = (
+    "12 * * * * cd /home/wisechef/loopskill-api && set -a; . ./.env; set +a; "
+    "flock -n -E 4 /tmp/loopskill-install-count-drift-probe.lock "
+    "venv/bin/python scripts/install_count_drift_probe.py "
+    ">> /home/wisechef/wiserecipes-logs/install_count_drift_probe.log 2>&1; rc=$?; "
+    '[ $rc -ne 4 ] || echo \'{"skipped": "lock held by a live run"}\' '
+    ">> /home/wisechef/wiserecipes-logs/install_count_drift_probe.log 2>&1; exit $rc"
+)
 
 
 # ── Pure helpers (test surface for repohygiene_2605/A) ────────────────────
@@ -127,6 +172,67 @@ def should_report(
         # rather re-report than crash; a parallel cron will retry on next tick.
         logger.warning("drift-probe could not persist rate-limit state: %s", exc)
     return True
+
+
+# ── Known-drift ledger + report planner (t_a1edaf10) ─────────────────────
+
+Drift = tuple[int, int]  # (actual counter, expected truth)
+
+
+def load_known(path: Path) -> dict[str, Drift] | None:
+    """Return the ledger, or None when it is absent OR unreadable/malformed.
+
+    None means "treat this as a first run": the caller re-seeds the baseline and
+    reports nothing. Corruption must never read as an empty ledger — that would
+    make every drifting slug look new and flood the tracker.
+    """
+    try:
+        raw = json.loads(path.read_text())
+        known = raw["known"]
+        if not isinstance(known, dict):
+            return None
+        return {str(slug): (int(v[0]), int(v[1])) for slug, v in known.items()}
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, TypeError, KeyError, IndexError) as exc:
+        logger.warning("drift-probe known-drift ledger unreadable, re-seeding: %s", exc)
+        return None
+
+
+def save_known(path: Path, known: dict[str, Drift]) -> bool:
+    """Atomically persist the ledger (tmp + replace). False when it cannot."""
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps({"known": {k: list(v) for k, v in sorted(known.items())}}, sort_keys=True))
+        os.replace(tmp, path)
+        return True
+    except OSError as exc:
+        logger.warning("drift-probe could not persist known-drift ledger %s: %s", path, exc)
+        return False
+
+
+def plan_reports(drifts: dict[str, Drift], known: dict[str, Drift]) -> list[str]:
+    """Candidate slugs, sorted: new or changed vs ``known``.
+
+    Pure: no I/O, inputs untouched, deterministic order (so a deferred slug is
+    picked up predictably by the next run). The per-run CAP is applied by the
+    caller, on POSTs actually attempted — a slug the 24h rate limit suppresses
+    sends nothing and must not use up a cap slot.
+    """
+    return sorted(slug for slug, value in drifts.items() if known.get(slug) != value)
+
+
+def _write_sentinel() -> None:
+    """Atomic: the endpoint must never read a half-written timestamp."""
+    tmp = SENTINEL.with_name(SENTINEL.name + ".tmp")
+    try:
+        tmp.write_text(datetime.now(timezone.utc).isoformat())
+        os.replace(tmp, SENTINEL)
+    except OSError as exc:
+        # Rationale: sentinel write is observability, not correctness — must
+        # not crash the probe in dev/test envs without /var/lib perms.
+        logger.warning("could not update sentinel %s: %s", SENTINEL, exc)
 
 
 # ── DB + network ─────────────────────────────────────────────────────────
@@ -216,9 +322,7 @@ def report_drift(slug: str, actual: int, expected: int) -> bool:
             return True
     except urllib.error.HTTPError as exc:
         if exc.code == 403:
-            logger.info(
-                "drift report opt-in disabled (RECIPES_REPORT_ERRORS=false); skipping"
-            )
+            logger.info("drift report opt-in disabled (RECIPES_REPORT_ERRORS=false); skipping")
             return False
         logger.warning("drift report HTTP %s: %s", exc.code, exc.reason)
         return False
@@ -227,52 +331,67 @@ def report_drift(slug: str, actual: int, expected: int) -> bool:
         return False
 
 
+def collect_drifts(db, truth: dict[str, int]) -> dict[str, Drift]:
+    """{slug: (counter, truth)} for every skill whose counter disagrees."""
+    from app.models import Skill  # noqa: WPS433 — lazy
+
+    drifts: dict[str, Drift] = {}
+    for skill in db.query(Skill).all():
+        actual = int(skill.install_count or 0)
+        expected = int(truth.get(skill.slug, 0))
+        if actual != expected:
+            drifts[skill.slug] = (actual, expected)
+    return drifts
+
+
+def _report_planned(drifts: dict[str, Drift], known: dict[str, Drift]) -> tuple[dict[str, Drift], int, int]:
+    """Report what the gate allows. Returns (new ledger, reported, suppressed)."""
+    new_known = {slug: v for slug, v in known.items() if slug in drifts}
+    attempted = reported = suppressed = 0
+    for slug in plan_reports(drifts, known):
+        if attempted >= MAX_REPORTS_PER_RUN:
+            break  # the rest stay out of the ledger: deferred to a later run, not lost
+        actual, expected = drifts[slug]
+        if not should_report(slug, compute_signature(slug)):
+            suppressed += 1
+            logger.info("drift on %s suppressed by 24h rate limit", slug)
+            continue
+        attempted += 1
+        if report_drift(slug, actual, expected):
+            reported += 1
+            new_known[slug] = drifts[slug]  # only a delivered report marks it known
+        else:
+            logger.info("drift on %s: actual=%d expected=%d (not reported)", slug, actual, expected)
+    return new_known, reported, suppressed
+
+
 def main() -> int:
     """Cron entry point. Returns shell-style exit code."""
     # Sentinel dir creation deferred from import-time to runtime so tests + dev
     # environments can import this module without /var/lib/recipes-api perms.
     try:
         SENTINEL.parent.mkdir(parents=True, exist_ok=True)
-    except PermissionError as exc:
+    except OSError as exc:
         logger.warning("sentinel dir not writable (non-prod env?): %s", exc)
-
-    from app.models import Skill  # noqa: WPS433 — lazy
 
     db = _open_session()
     try:
-        truth = compute_truth(db)
-        total_drift = 0
-        reported = 0
-        suppressed = 0
-        for skill in db.query(Skill).all():
-            actual = int(skill.install_count or 0)
-            expected = int(truth.get(skill.slug, 0))
-            if actual != expected:
-                total_drift += abs(actual - expected)
-                signature = compute_signature(skill.slug)
-                if not should_report(skill.slug, signature):
-                    suppressed += 1
-                    logger.info(
-                        "drift on %s suppressed by 24h rate limit (signature=%s)",
-                        skill.slug,
-                        signature,
-                    )
-                    continue
-                if report_drift(skill.slug, actual, expected):
-                    reported += 1
-                else:
-                    logger.info(
-                        "drift on %s: actual=%d expected=%d (not reported)",
-                        skill.slug,
-                        actual,
-                        expected,
-                    )
-        try:
-            SENTINEL.write_text(datetime.now(timezone.utc).isoformat())
-        except OSError as exc:
-            # Rationale: sentinel write is observability, not correctness — must
-            # not crash the probe in dev/test envs without /var/lib perms.
-            logger.warning("could not update sentinel %s: %s", SENTINEL, exc)
+        drifts = collect_drifts(db, compute_truth(db))
+        total_drift = sum(abs(a - e) for a, e in drifts.values())
+        known = load_known(KNOWN_DRIFT_LEDGER)
+        reported = suppressed = 0
+        if known is None:
+            # BASELINE: first run (or corrupt ledger). Record, report nothing.
+            seeded = save_known(KNOWN_DRIFT_LEDGER, drifts)
+            logger.info(
+                "drift baseline %s: %d legacy drifting slugs recorded, 0 reported",
+                "seeded" if seeded else "NOT persisted (fail-closed)",
+                len(drifts),
+            )
+        else:
+            new_known, reported, suppressed = _report_planned(drifts, known)
+            save_known(KNOWN_DRIFT_LEDGER, new_known)
+        _write_sentinel()
         logger.info(
             "drift probe complete: total_drift=%d reported=%d suppressed=%d",
             total_drift,

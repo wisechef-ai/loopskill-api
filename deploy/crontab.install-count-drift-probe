@@ -1,0 +1,40 @@
+# deploy/crontab.install-count-drift-probe — the schedule of record for the
+# hourly install-count drift probe (t_a1edaf10).
+#
+# WHY THIS FILE EXISTS
+# scripts/install_count_drift_probe.py is the ONLY writer of the sentinel
+# /var/lib/recipes-api/last_backfill_at, which /api/health/transparency reads as
+# `last_backfill_at`. Its old hourly cron lived in the retired wiserecipes-api
+# checkout's crontab on wisechef-hq (archived 2026-11-02, deletion-ledger row
+# hq-crontab:5-lines-archived) and died with it ~2026-07-12; the last words in
+# /home/wisechef/logs/recipes-api-drift.log are '.venv/bin/python: No such file
+# or directory'. Nothing scheduled it afterwards, so the endpoint kept serving a
+# months-old timestamp. This line runs from the LIVE loopskill-api checkout and
+# its `venv` (the directory loopskill-api.service execs), as the `wisechef` user
+# that owns /var/lib/recipes-api.
+#
+# The line is kept byte-identical to CRONTAB_LINE in
+# scripts/install_count_drift_probe.py; tests/test_drift_probe_rehome.py asserts
+# they match, so code and schedule cannot drift apart silently.
+#
+# ⚠ DO NOT INSTALL BEFORE THE PROBE'S ISSUE-FLOOD GATE IS DEPLOYED. The pre-gate
+# probe POSTs one /api/v1/skill-error per drifting slug (~68 legacy rows on prod).
+# Order: merge -> deploy.yml pulls the checkout -> confirm
+#   grep -c KNOWN_DRIFT_LEDGER /home/wisechef/loopskill-api/scripts/install_count_drift_probe.py   # >= 1
+# -> only then install. The first run seeds the baseline and reports zero.
+#
+# INSTALL (idempotent — installs the line FROM THE MODULE, not from here; the grep
+# keys on the script path, present in the line exactly once, so a re-run replaces
+# instead of appending a duplicate):
+#   cd /home/wisechef/loopskill-api && set -a; . ./.env; set +a
+#   LINE=$(venv/bin/python -c 'from scripts.install_count_drift_probe import CRONTAB_LINE; print(CRONTAB_LINE)')
+#   crontab -l 2>/dev/null | grep -v 'scripts/install_count_drift_probe.py' > /tmp/ct.new
+#   echo "$LINE" >> /tmp/ct.new && crontab /tmp/ct.new
+# VERIFY it is installed and actually running:
+#   crontab -l | grep 'scripts/install_count_drift_probe.py'
+#   tail -5 /home/wisechef/wiserecipes-logs/install_count_drift_probe.log   # "drift baseline seeded ... 0 reported"
+#   curl -s https://app.loopskill.io/api/health/transparency | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d["last_backfill_at"], d["last_backfill_stale"])'
+# The endpoint (not this file) is the alarm: last_backfill_stale=true means the
+# probe is not running, whatever crontab says.
+
+12 * * * * cd /home/wisechef/loopskill-api && set -a; . ./.env; set +a; flock -n -E 4 /tmp/loopskill-install-count-drift-probe.lock venv/bin/python scripts/install_count_drift_probe.py >> /home/wisechef/wiserecipes-logs/install_count_drift_probe.log 2>&1; rc=$?; [ $rc -ne 4 ] || echo '{"skipped": "lock held by a live run"}' >> /home/wisechef/wiserecipes-logs/install_count_drift_probe.log 2>&1; exit $rc
