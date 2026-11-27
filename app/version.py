@@ -7,46 +7,8 @@ made "is the live box running the code we shipped?" unverifiable from
 ``/api/healthz``. Every deploy that changes behaviour MUST bump this constant
 so the healthz probe can prove the cutover landed.
 
-Entries for 0.9.4-0.9.13, 0.9.19-0.9.23, 0.9.25-0.9.33 and 0.9.34-0.9.35 are
+Entries for 0.9.4-0.9.13, 0.9.19-0.9.23, 0.9.25-0.9.33 and 0.9.34-0.9.37 are
 archived verbatim in docs/version-history.md.
-
-0.9.36 - fix(issue-219 item 1): LOOPSKILL_API_KEY dual-accept for the
-    agent-side loop-apply tooling. tools/recipes_cli.py already had this
-    (qa0208-w3); scripts/install-loop-apply.sh and
-    meta-skills/recipes-auto-improve/incident_reporter.py still hard-read
-    the legacy RECIPES_API_KEY name only, so a user who exported only
-    LOOPSKILL_API_KEY (the branded name docs/MCP config use everywhere
-    else) got a confusing "set RECIPES_API_KEY" error with a perfectly
-    valid key. LOOPSKILL_API_KEY now wins when both are set; RECIPES_API_KEY
-    keeps working unchanged as a fallback. Pure env-var resolution change,
-    no schema, no migration. Verified against prod /api/healthz 0.9.35
-    before bumping.
-
-0.9.37 - agent/tori/first-impression-api: first-impression fixes on the
-    cold-path a stranger actually hits (bundle discover -> install.sh).
-    (1) requires_pro on GET /api/bundles/discover cards and GET
-    /api/bundles/public/{slug} — computed from member skill tiers (reuses
-    bundle_wellknown_routes._is_free / _is_redistributable_external
-    verbatim, so discover/public-page/install.sh can never disagree on
-    which member is free). (2) install.sh: when a bundle's
-    installable-free count is 0, prints "This bundle requires Pro — 0 free
-    skills will be installed. See https://app.loopskill.io/pricing" as the
-    FIRST line (before any progress output) and exits 4 (distinct from the
-    pre-existing usage=2 / missing-python3=3 codes) — closes a live defect
-    where dev-agent-essentials/research-and-report (100% Pro) silently
-    printed "installed 0 skill(s)" with no explanation. (3) /api/mcp/healthz:
-    SERVER_NAME "recipes-mcp" -> "loopskill-mcp" (dead brand); SERVER_VERSION
-    now reads app.version.__version__ directly instead of a frozen "0.1.0"
-    literal, so the MCP identity handshake tracks real deploys. (4)
-    /api/skills/external bare-call default (empty enabled_sources) was
-    audited and left AS-IS — it is Adam's explicit isolation-namespace
-    directive (see federation.py's module docstring, "off by default"),
-    already has a pinned regression test
-    (test_evergreen_f2_external_route.py::test_toggle_off_by_default_returns_no_external),
-    and changing it would silently start querying live upstream federation
-    adapters (rate-limited GitHub search, etc.) on every anonymous cold
-    load with no user action — not a safe default flip. No schema, no
-    migration. Verified against prod /api/healthz 0.9.36 before bumping.
 
 0.9.38 - fix(issue-149, Option B, owner-approved 2026-08-19): the 3rd
     owner-facing bundle read path — GET /api/cookbooks/{id}/manifest —
@@ -580,6 +542,41 @@ liveness-writer (0.9.74, t_5734546c): ingest_sync_report now stamps
     ("created"|"refreshed") derived from the actual write, never a constant
     (the skill_errors-ack lesson). No schema change, no migration.
     Verified against prod /api/healthz 0.9.73 before bumping.
+stale-caller (0.9.75, t_e5dcc325): the Phase-A stale-member alert finally has
+    a caller. find_stale_members() shipped correct, was documented as the
+    failover replacement, and had ZERO callers in app/ — only tests imported it
+    — so "a host went dark, do something" could never reach a human. Prod
+    proof: astrovita has been is_active=true since 2026-08-05 with no
+    fleet_member_liveness row at all (114 days dark, silently). Two callers,
+    because a dashboard only reports what someone thought to look at: push =
+    app/crons/stale_member_alert.py (15 * * * * — hourly; the collector's ping
+    phase is client-owned, so calibration not sampling time keeps alive hosts
+    green — flock -n -E 4 + skip marker per the app/crons/_cli.py contract;
+    exit 0 all-alive / 5 a host is dark / 1
+    the sweeper crashed / 2 refused empty scope — 5-vs-1 must stay distinct or a
+    dead alert looks green again) + pull = stale_members/stale_count on GET
+    /api/fleets/{id}/dashboard, the only /api/fleets/* route with real traffic
+    (10 organic hits/30d; every sibling is tombstoned at 0). The dashboard key
+    is ALWAYS present — retiring it is how the skill_errors rail (t_a7ebcc96)
+    hid a dead writer for 4.5 months behind a permanent 0. fleet_id= scoping is
+    load-bearing: the detector is unscoped-by-default (correct for the deployment-wide
+    cron, a cross-tenant disclosure per-tenant), so a malformed id scopes to
+    NOTHING rather than to every fleet. New scripts/repair_fleet_liveness_intervals.py
+    calibrates the three prod rows still carrying reconcile_interval_seconds=300
+    (the SQLAlchemy server default nobody chose) against the 1800s collector
+    cadence — 300x3=900s against an 1800s ping meant every healthy host read
+    "dark" 50% of the time, and a crying-wolf alert gets muted, which is worse
+    than none. Refuses --execute without a target, --reason, or --backup-dir,
+    and without --fleet-id for host targets (host is unique only per fleet —
+    cross-tenant guard); touches ONLY the untouched server default, with the
+    guard re-asserted inside the UPDATE predicate (loopskill_ping is a live
+    concurrent writer); snapshot + sha256 land BEFORE the commit, the ledger
+    row (member_ids + was→would) right after it.
+    36 tests + 95 wiring-suite tests (stale_member_alert joins SKIP_MARKED, so
+    the flock -E 4/marker/exit-$rc contract now runs against its real
+    CRONTAB_LINE too), 14/14 mutants killed; the AST caller guard is what 4
+    months of direct-call tests could not see. No schema, no migration.
+    Verified against prod /api/healthz 0.9.74 before bumping.
 """
 
-__version__ = "0.9.74"
+__version__ = "0.9.75"

@@ -184,6 +184,26 @@ def get_fleet_dashboard(
 
     ralph_loops = find_ralph_loops(db, fleet.id)
 
+    # t_e5dcc325 — the Phase-A "a host went dark, do something" alert, wired to
+    # the one fleet surface with live traffic (10 organic hits/30d; every other
+    # /api/fleets/* route is tombstoned at 0). fleet_id is load-bearing:
+    # find_stale_members is unscoped-by-default and would otherwise put another
+    # client's hostnames in this payload. Surfaced even when empty (a real []),
+    # never omitted — the skill_errors lesson is that an absent key lets a dead
+    # rail look healthy forever.
+    #
+    # DEPLOY ORDERING (ocr r2): scripts/repair_fleet_liveness_intervals.py
+    # --execute must run BEFORE this ships to a tenant with rows still on the
+    # untouched 300s server default — those rows read dark ~15 min of every
+    # 30-min cycle against the 1800s collector cadence, and a tenant badge that
+    # flickers on alive hosts is how this alert gets ignored. The standing
+    # predicate ~/.hermes/goals/fleet-stale-member-alert.md pages if the
+    # calibration regresses. Entries share the cron's payload()/by_urgency()
+    # so push and pull views cannot drift.
+    from app.services.stale_member_alert import by_urgency, find_stale_members
+
+    stale_members = [s.payload() for s in by_urgency(find_stale_members(db, fleet_id=fleet.id))]
+
     return {
         "fleet_id": str(fleet.id),
         "fleet_name": fleet.name,
@@ -203,6 +223,12 @@ def get_fleet_dashboard(
         "external_runs": runs.external,
         "ralph_loops": ralph_loops,
         "ralph_count": len(ralph_loops),
+        # t_e5dcc325: the stale-member alert reaching whoever is on call. Key is ALWAYS
+        # present (empty list = all hosts alive) so a reader can tell "wired and
+        # clean" from "not wired at all" — the permanent-zero/absent-key trap
+        # that hid the dead skill_errors rail for 4.5 months.
+        "stale_members": stale_members,
+        "stale_count": len(stale_members),
     }
 
 
