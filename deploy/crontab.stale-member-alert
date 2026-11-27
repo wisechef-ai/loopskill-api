@@ -1,0 +1,50 @@
+# deploy/crontab.stale-member-alert — the schedule of record for the dark-host
+# operator sweep (t_e5dcc325, 2026-11-27).
+#
+# WHY THIS FILE EXISTS
+# ``find_stale_members`` shipped in fleetos_1607 Phase A as the documented
+# replacement for the deleted Phase F failover — the thing whose operator
+# outcome is "a host went dark, do something" — and had ZERO callers in app/.
+# Only tests imported it. It stayed that way from 2026-07-16 to 2026-11-27
+# while prod carried ``astrovita``: is_active=true since 2026-08-05 with no
+# fleet_member_liveness row at all, i.e. a host dark for 114 days that a
+# correct, unit-tested, never-invoked detector silently failed to report. An
+# uninstalled schedule is not a schedule, and an uninvoked detector is not an
+# alert — which is precisely this card's title. See the identical diagnosis in
+# app/crons/sync_report_pruner.py (prune_raw: 4.5 months, no caller).
+#
+# The live mechanism on this host is the `wisechef` user crontab, so that is
+# where this job lives, and the line below is kept byte-identical to
+# CRONTAB_LINE in app/crons/stale_member_alert.py —
+# tests/test_t_e5dcc325_stale_member_caller.py asserts they match, so code and
+# schedule cannot drift apart silently.
+#
+# EXIT CODES (part of the interface, asserted by tests)
+#   0 = sweep ran, saw >=1 active member, nothing dark
+#   1 = the sweeper itself failed
+#   2 = refused: the sweep saw ZERO active members (typo'd fleet, wrong .env)
+#       — "I could not see anything" is not an all-clear and must not exit 0
+#   3 = usage error, via app.crons._cli.Parser (a typo'd flag, not a verdict)
+#   4 = lock conflict (flock -E 4) — a {"skipped": ...} marker line is written,
+#       never a silent exit 1 masquerading as a crash (app/crons/_cli.py contract)
+#   5 = sweep ran and FOUND dark hosts  <- grep this, not "did it crash"
+# 5 is deliberately outside the package contract 0-4 (3 is usage, 4 is the
+# reserved flock-conflict code) and distinct from 1, so a crashed sweeper can
+# never read as an all-clear. That conflation is how the previous alert died:
+# quietly.
+#
+# INSTALL (idempotent — installs the line from the module, not from here):
+#   cd /home/wisechef/loopskill-api && set -a; . ./.env; set +a
+#   LINE=$(venv/bin/python -c 'from app.crons.stale_member_alert import CRONTAB_LINE; print(CRONTAB_LINE)')
+#   crontab -l 2>/dev/null | grep -v stale_member_alert > /tmp/ct.new
+#   echo "$LINE" >> /tmp/ct.new && crontab /tmp/ct.new
+# VERIFY it is installed and actually running:
+#   crontab -l | grep stale_member_alert
+#   tail -5 /home/wisechef/wiserecipes-logs/stale_member_alert.log
+# and the standing predicate ~/.hermes/goals/fleet-stale-member-alert.md
+# (daily verify-goals.sh sweep), which asserts the sweep ran in the last 26h AND
+# that every active member with a current fleet_members.updated_at also has a
+# liveness row — the latter is what proves the detector is still wired, not just
+# that a cron line exists.
+
+15 * * * * cd /home/wisechef/loopskill-api && set -a; . ./.env; set +a; flock -n -E 4 /tmp/loopskill-stale-member-alert.lock venv/bin/python -m app.crons.stale_member_alert --json >> /home/wisechef/wiserecipes-logs/stale_member_alert.log 2>&1; rc=$?; [ $rc -ne 4 ] || echo '{"skipped": "lock held by a live run"}' >> /home/wisechef/wiserecipes-logs/stale_member_alert.log 2>&1; exit $rc

@@ -64,6 +64,7 @@ WIRED = {
     "fleet_ping_pruner": "crontab.fleet-ping-pruner",
     "incident_clustering": "crontab.incident-clustering",
     "sync_report_pruner": "crontab.sync-report-retention",
+    "stale_member_alert": "crontab.stale-member-alert",
 }
 # The two jobs deliberately left unscheduled — see their docstrings. They must
 # say why, in the module, rather than ship a unit file that implies otherwise.
@@ -839,7 +840,7 @@ def test_no_opt_in_hatch_can_cluster_crash_reports(tmp_path):
 
 # 5f — the flock skip must be visible, and exit codes must stay honest ────────
 
-SKIP_MARKED = ("stripe_event_pruner", "fleet_ping_pruner", "incident_clustering")
+SKIP_MARKED = ("stripe_event_pruner", "fleet_ping_pruner", "incident_clustering", "stale_member_alert")
 
 # Measured on this fleet's util-linux 2.39.3: plain `flock -n LOCK cmd >> LOG 2>&1`
 # exits **1 and writes zero bytes** when a live run holds the lock. flock is silent
@@ -932,7 +933,13 @@ def test_locked_out_run_leaves_a_skip_marker_and_never_executes_the_job(module, 
 
 @pytest.mark.parametrize(
     ("module", "stub_rc"),
-    [(m, rc) for m in SKIP_MARKED for rc in (0, 1, 2, 3)],
+    [
+        (m, rc)
+        for m in SKIP_MARKED
+        # 5 joins 0-3: stale_member_alert's "dark hosts found" must also pass
+        # through the marker wrapper unlabelled — it is a verdict, not a skip.
+        for rc in (0, 1, 2, 3, 5)
+    ],
 )
 def test_a_run_that_started_is_never_labelled_a_skip(module, stub_rc, tmp_path):
     """A crash must not be misread as a lock skip — that would be a second
@@ -960,8 +967,7 @@ def test_exit_code_4_is_reserved_for_the_lock(module, tmp_path):
         assert proc.returncode != _CONFLICT_RC, f"{module} {argv} claimed the reserved lock code 4"
 
 
-
-# 5g — the manifest is an operator runbook; a broken one is worse than none ───
+# 5g — the manifest is an operator runbook; a broken one is worse than none ————
 
 
 @pytest.mark.parametrize(("module", "manifest"), sorted(WIRED.items()))
