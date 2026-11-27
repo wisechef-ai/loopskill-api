@@ -24,6 +24,17 @@ table with report_type='incident', and those are crash reports of LoopSkill's ow
 tooling, not skill errors (t_0111f6c4, 2026-11-16; see the IncidentReport class
 docstring).
 
+LIVENESS WRITER (t_5734546c, 2026-11-27): ingest_sync_report also stamps
+fleet_member_liveness.last_ping_at — the member's operational ping. That column
+previously had one writer, the owner-gated loopskill_ping MCP tool, which no
+client calls: prod sat at 2026-07-16 for all three live members while this
+endpoint proved them alive every cycle. Same diagnosis as the skill_errors
+retirement above, opposite verdict — there the writer read a key no client ever
+built, so the rail was dead end-to-end; here the producer already exists, is
+member-key authenticated, and fires every cycle, so the honest fix is to route
+the ping where the life already flows. provides{} stays owner-authoritative
+(loopskill_ping); see _stamp_member_liveness.
+
 Key functions:
   - ingest_sync_report: caps, truncation, inserts. Returns (recorded, truncated).
   - rollup_loop_runs: idempotent, NON-destructive daily aggregate from raw rows.
@@ -56,6 +67,7 @@ from sqlalchemy.orm import Session
 from app.models import (
     CronHealthSnapshot,
     FleetMember,
+    FleetMemberLiveness,
     LoopRun,
     LoopRunDailyRollup,
     MemberLockfileSnapshot,
@@ -77,6 +89,48 @@ MAX_LOCKFILE_SKILLS = 500  # feat/fleet-console-state — cap per snapshot
 
 # Server-side body cap (checked in the route handler before JSON parse).
 MAX_BODY_BYTES = 256 * 1024  # 256 KB
+
+# t_5734546c (2026-11-27): the collector's cadence — the deployed crontab runs
+# loopskill-collect-reports.py every 30 minutes, so a liveness row created by a
+# sync-report (rather than by an owner ping) declares this interval. The
+# stale-member alert flags at STALE_MULTIPLE (3x) of the declared interval; at
+# the model default (300s) a */30 collector would read as stale 15 minutes
+# into every cycle. 1800s x 3 = 90 min tolerates two missed cycles, matching
+# the alert's stated intent (stale_member_alert.py).
+SYNC_REPORT_RECONCILE_INTERVAL_SECONDS = 1800
+
+
+def _stamp_member_liveness(db: Session, member: FleetMember, now: datetime) -> str:
+    """Upsert the member's operational ping — an accepted sync-report IS one.
+
+    t_5734546c: ``fleet_member_liveness.last_ping_at`` previously had exactly
+    one writer — the owner-gated ``loopskill_ping`` MCP tool, which no client
+    calls — so the column sat at 2026-07-16 while THIS path proved the members
+    alive every cycle (``fleet_members.updated_at`` stayed current). The
+    sync-report POST is member-key authenticated and fires on every collector
+    cycle, which makes it the natural writer; no client change is required.
+
+    Creation stamps ``reconcile_interval_seconds`` with the collector cadence
+    so the stale-member alert's 3x threshold is honest for */30 members. The
+    owner's ``provides{}`` advertisement and any owner-declared interval are
+    NEVER touched here: an ingest must not fabricate capabilities, and the
+    owner ping stays authoritative for both.
+
+    Returns ``"created"`` or ``"refreshed"`` so the ack can report the ping
+    honestly instead of asserting a constant the write path cannot falsify.
+    """
+    row = db.query(FleetMemberLiveness).filter(FleetMemberLiveness.member_id == member.id).first()
+    if row is None:
+        db.add(
+            FleetMemberLiveness(
+                member_id=member.id,
+                last_ping_at=now,
+                reconcile_interval_seconds=SYNC_REPORT_RECONCILE_INTERVAL_SECONDS,
+            )
+        )
+        return "created"
+    row.last_ping_at = now
+    return "refreshed"
 
 
 def _truncate(value: str | None, limit: int = MAX_FIELD_LEN) -> str | None:
@@ -117,11 +171,13 @@ def ingest_sync_report(
     db: Session,
     member: FleetMember,
     payload: dict[str, Any],
-) -> tuple[dict[str, int | bool], dict[str, int]]:
+) -> tuple[dict[str, int | bool | str], dict[str, int]]:
     """Ingest one batched sync-report payload.
 
     Applies caps + truncation, inserts rows, bumps FleetMember.updated_at
-    as the liveness marker. lockfile_state is NOT stored as rows (D9).
+    as the liveness marker, and stamps the member's operational ping in
+    fleet_member_liveness (t_5734546c — an accepted report IS a ping).
+    lockfile_state is NOT stored as rows (D9).
 
     Returns:
         (recorded, truncated) where recorded has the counts and truncated
@@ -242,8 +298,13 @@ def ingest_sync_report(
 
     # Bump FleetMember.updated_at as the liveness marker (drift computation
     # stays in the reconcile endpoint; the snapshot above is the console's
-    # actual-state read surface).
+    # actual-state read surface)…
     member.updated_at = now
+    # …and stamp the operational ping (t_5734546c): an accepted sync-report
+    # is itself proof of life, so fleet_member_liveness.last_ping_at now
+    # carries the same instant — the writer that was missing is the one the
+    # collector already makes on every cycle. Same transaction, same commit.
+    ping_result = _stamp_member_liveness(db, member, now)
 
     db.commit()
 
@@ -258,13 +319,17 @@ def ingest_sync_report(
     # observable instead: a client that starts sending the field sees its own
     # payload counted and dropped, rather than a silent success.
     _se_arrived = payload.get("skill_errors")
-    recorded: dict[str, int | bool] = {
+    recorded: dict[str, int | bool | str] = {
         "loop_runs": ingested.total,
         "loop_runs_synthetic": ingested.synthetic,
         "loop_runs_external": ingested.external,
         "skill_errors_ignored": len(_se_arrived) if isinstance(_se_arrived, list) else 0,
         "cron_health": cron_stored,
         "lockfile_state": lockfile_stored,
+        # t_5734546c: derived from the actual write ("created" | "refreshed"),
+        # never a constant — an ack key the write path cannot falsify is the
+        # same lie class the old skill_errors count was.
+        "member_ping": ping_result,
     }
     return recorded, truncated
 

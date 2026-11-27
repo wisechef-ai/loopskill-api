@@ -5,6 +5,30 @@ sits under the 600-line gate (`tests/test_w0_2_pyfile_size_discipline.py`), so
 the oldest entries are moved here verbatim when it fills up. Newest entries
 stay in `app/version.py`.
 
+## 0.9.34-0.9.35 (archived 2026-11-27, t_5734546c 0.9.74)
+
+0.9.34 - feat/loops-value-taglines: value_tagline + agent_instructions +
+    deploy_hint on the /api/loops (Verifier) surface. The composite-loop
+    surface shipped these serve-time copy fields (PRs #135, #136) but the 10
+    starter loops on /api/loops never got them — every browse card was dead
+    copy. Mirrors the composite pattern exactly (no DB column, no migration):
+    per-slug bespoke taglines ≤12 words for all 10 starter loops + generic
+    fallbacks for future user-published verifiers. Verified against prod
+    /api/healthz 0.9.33 before bumping.
+
+0.9.35 - fix(issue-157 Phase 1): removed "cookbook" from every MCP tool
+    description and inputSchema property description an agent reads on
+    every tool listing (26 violations across 4 registry modules — bundle
+    install/list/sync/skillify, share tokens, fleet subscribe/sync/list,
+    tailor attach/handoff, streaming install/pick/compose, feedback
+    config). Pure copy change, zero behaviour change: the wire-contract
+    field name `cookbook_id` and the live route
+    `/api/cookbooks/{id}/install` are intentionally left alone (schema-
+    breaking renames are Phase 3/4 per the issue's phasing, tracked
+    separately). This is Phase 1 of 5 from issue #157 — the words agents
+    and users actually read, for ~5% of the total work. Verified against
+    prod /api/healthz 0.9.34 before bumping.
+
 ## 0.9.32-0.9.33 (archived 2026-10-18, qa1018-w3 0.9.72)
 
 fleetos_1607 Phase I (0.9.32): the ingest surface — the missing write path.

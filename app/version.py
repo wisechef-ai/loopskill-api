@@ -7,30 +7,8 @@ made "is the live box running the code we shipped?" unverifiable from
 ``/api/healthz``. Every deploy that changes behaviour MUST bump this constant
 so the healthz probe can prove the cutover landed.
 
-Entries for 0.9.4-0.9.13, 0.9.19-0.9.23 and 0.9.25-0.9.33 are archived verbatim in
-docs/version-history.md.
-
-0.9.34 - feat/loops-value-taglines: value_tagline + agent_instructions +
-    deploy_hint on the /api/loops (Verifier) surface. The composite-loop
-    surface shipped these serve-time copy fields (PRs #135, #136) but the 10
-    starter loops on /api/loops never got them — every browse card was dead
-    copy. Mirrors the composite pattern exactly (no DB column, no migration):
-    per-slug bespoke taglines ≤12 words for all 10 starter loops + generic
-    fallbacks for future user-published verifiers. Verified against prod
-    /api/healthz 0.9.33 before bumping.
-
-0.9.35 - fix(issue-157 Phase 1): removed "cookbook" from every MCP tool
-    description and inputSchema property description an agent reads on
-    every tool listing (26 violations across 4 registry modules — bundle
-    install/list/sync/skillify, share tokens, fleet subscribe/sync/list,
-    tailor attach/handoff, streaming install/pick/compose, feedback
-    config). Pure copy change, zero behaviour change: the wire-contract
-    field name `cookbook_id` and the live route
-    `/api/cookbooks/{id}/install` are intentionally left alone (schema-
-    breaking renames are Phase 3/4 per the issue's phasing, tracked
-    separately). This is Phase 1 of 5 from issue #157 — the words agents
-    and users actually read, for ~5% of the total work. Verified against
-    prod /api/healthz 0.9.34 before bumping.
+Entries for 0.9.4-0.9.13, 0.9.19-0.9.23, 0.9.25-0.9.33 and 0.9.34-0.9.35 are
+archived verbatim in docs/version-history.md.
 
 0.9.36 - fix(issue-219 item 1): LOOPSKILL_API_KEY dual-accept for the
     agent-side loop-apply tooling. tools/recipes_cli.py already had this
@@ -582,6 +560,26 @@ enroll-sh-posix (0.9.73, ah_1105): GET /api/agents/enroll.sh survives
     README + loopskill-mcp README + the bridge's keyless tools/call error now
     name the one-command enroller (loopskill-mcp 0.9.44). Verified against
     prod /api/healthz 0.9.72 before bumping.
+liveness-writer (0.9.74, t_5734546c): ingest_sync_report now stamps
+    fleet_member_liveness.last_ping_at — the member's operational ping.
+    That column had exactly one writer, the owner-gated loopskill_ping MCP
+    tool, which no client ever calls (member keys are forbidden from it by
+    design), so prod sat at 2026-07-16 for all three live members while the
+    same members proved themselves alive on every collector cycle via
+    fleet_members.updated_at (22,834+ accepted cycles). Decision against
+    full-table retirement: provides{} is load-bearing (assign preflight
+    capability matching, mesh-discovery a2a registration, reconcile drift
+    recheck) — only the ping WRITER was dead, not the rail. An accepted
+    sync-report IS a ping (member-key authenticated, */30 cadence, zero
+    client change — mac01/adam-xps are not SSH-reachable, so a client-side
+    fix could never cover them). Creation stamps
+    reconcile_interval_seconds=1800 (collector cadence) so the 3x
+    stale-member threshold tolerates two missed cycles; provides{} and any
+    owner-declared interval are never touched — loopskill_ping stays
+    authoritative for capabilities. Ack gains member_ping
+    ("created"|"refreshed") derived from the actual write, never a constant
+    (the skill_errors-ack lesson). No schema change, no migration.
+    Verified against prod /api/healthz 0.9.73 before bumping.
 """
 
-__version__ = "0.9.73"
+__version__ = "0.9.74"
