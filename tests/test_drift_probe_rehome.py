@@ -231,6 +231,21 @@ def test_unwritable_ledger_reports_nothing(harness, monkeypatch):
     assert harness.reports == []
 
 
+def test_ledger_that_turns_unwritable_after_baseline_reports_nothing(harness, monkeypatch, caplog):
+    """Review finding on #495: the fail-closed rule held only for the baseline.
+    With a ledger already on disk, a run whose ledger write fails would POST and
+    then forget it did, so every later run would re-report the same slugs. The
+    ledger must prove it can be written BEFORE any POST."""
+    _seed_legacy(harness, 2)
+    probe.main()  # baseline seeded and persisted
+    _mk_drifting_skill(harness.db, "fresh-drift")
+    monkeypatch.setattr(probe, "save_known", lambda *a, **k: False)
+    with caplog.at_level("WARNING"):
+        assert probe.main() == 0
+    assert harness.reports == [], "an unpersistable ledger must suppress every POST"
+    assert any("fail-closed" in r.getMessage() for r in caplog.records)
+
+
 def test_ledger_survives_a_crash_halfway_write(harness, monkeypatch):
     """Atomic replace: a crash between write and rename must leave the previous
     ledger intact, never a truncated one that re-seeds."""

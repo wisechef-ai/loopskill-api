@@ -100,7 +100,7 @@ WR_API_KEY = os.environ.get("WR_API_KEY", "")
 # every other wired job. flock -E 4 = a stalled run never stacks, and the skip
 # leaves a marker instead of vanishing.
 CRONTAB_LINE = (
-    "12 * * * * cd /home/wisechef/loopskill-api && set -a; . ./.env; set +a; "
+    "12 * * * * cd /home/wisechef/loopskill-api || exit 1; set -a; . ./.env; set +a; "
     "flock -n -E 4 /tmp/loopskill-install-count-drift-probe.lock "
     "venv/bin/python scripts/install_count_drift_probe.py "
     ">> /home/wisechef/wiserecipes-logs/install_count_drift_probe.log 2>&1; rc=$?; "
@@ -388,9 +388,19 @@ def main() -> int:
                 "seeded" if seeded else "NOT persisted (fail-closed)",
                 len(drifts),
             )
+        elif not save_known(KNOWN_DRIFT_LEDGER, known):
+            # Fail CLOSED on every run, not only the baseline: prove the ledger
+            # can be written BEFORE any POST. A run that reports and then cannot
+            # record it would re-report the same slugs every hour.
+            logger.warning(
+                "drift ledger %s not writable: %d drifting slugs, 0 reported (fail-closed)",
+                KNOWN_DRIFT_LEDGER,
+                len(drifts),
+            )
         else:
             new_known, reported, suppressed = _report_planned(drifts, known)
-            save_known(KNOWN_DRIFT_LEDGER, new_known)
+            if not save_known(KNOWN_DRIFT_LEDGER, new_known):
+                logger.error("drift ledger write failed AFTER %d reports; they may repeat next run", reported)
         _write_sentinel()
         logger.info(
             "drift probe complete: total_drift=%d reported=%d suppressed=%d",

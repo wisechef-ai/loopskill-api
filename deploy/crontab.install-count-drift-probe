@@ -37,4 +37,4 @@
 # The endpoint (not this file) is the alarm: last_backfill_stale=true means the
 # probe is not running, whatever crontab says.
 
-12 * * * * cd /home/wisechef/loopskill-api && set -a; . ./.env; set +a; flock -n -E 4 /tmp/loopskill-install-count-drift-probe.lock venv/bin/python scripts/install_count_drift_probe.py >> /home/wisechef/wiserecipes-logs/install_count_drift_probe.log 2>&1; rc=$?; [ $rc -ne 4 ] || echo '{"skipped": "lock held by a live run"}' >> /home/wisechef/wiserecipes-logs/install_count_drift_probe.log 2>&1; exit $rc
+12 * * * * cd /home/wisechef/loopskill-api || exit 1; set -a; . ./.env; set +a; flock -n -E 4 /tmp/loopskill-install-count-drift-probe.lock venv/bin/python scripts/install_count_drift_probe.py >> /home/wisechef/wiserecipes-logs/install_count_drift_probe.log 2>&1; rc=$?; [ $rc -ne 4 ] || echo '{"skipped": "lock held by a live run"}' >> /home/wisechef/wiserecipes-logs/install_count_drift_probe.log 2>&1; exit $rc
