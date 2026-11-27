@@ -45,6 +45,10 @@ fresh GitHub issue each hour — 127 noise issues accumulated in ~5 days.
 Post-fix:
   * ``compute_signature(slug)`` uses ``hashlib.sha256`` over a canonical input
     so the signature is stable across processes, hosts, clocks, and users.
+  * ``limiter_signature(slug, actual, expected)`` is the rate-limiter key: it
+    includes the drift values, so a changed value is not delayed by an earlier
+    report of the same slug. (``compute_signature`` stays value-blind: it is the
+    wire ``error_signature`` the tracker dedupes on.)
   * ``should_report(slug, sig, state_path, now_ts)`` enforces a per-skill,
     per-signature 24h rate limit backed by a tiny JSON state file. Even if
     upstream dedup ever regresses again, the probe itself won't re-spam.
@@ -119,6 +123,20 @@ def compute_signature(slug: str) -> str:
     Python's salt-randomized builtin ``hash()`` and drifted across cron runs.
     """
     canonical = f"{slug}|install_count_drift".encode()
+    return hashlib.sha256(canonical).hexdigest()[:16]
+
+
+def limiter_signature(slug: str, actual: int, expected: int) -> str:
+    """Rate-limiter key for ``(slug, actual, expected)``.
+
+    The limiter must treat a CHANGED drift value as a new report: keyed on the
+    slug alone, a slug reported once and then drifting to a different
+    ``(actual, expected)`` inside the 24h window was held back until the window
+    passed. The wire ``error_signature`` (``compute_signature``) deliberately stays
+    value-blind so the tracker keeps deduping per slug; only this local key sees
+    the values. ``|`` separates the numbers so ``(1, 23)`` and ``(12, 3)`` differ.
+    """
+    canonical = f"{slug}|install_count_drift|{int(actual)}|{int(expected)}".encode()
     return hashlib.sha256(canonical).hexdigest()[:16]
 
 
@@ -352,7 +370,7 @@ def _report_planned(drifts: dict[str, Drift], known: dict[str, Drift]) -> tuple[
         if attempted >= MAX_REPORTS_PER_RUN:
             break  # the rest stay out of the ledger: deferred to a later run, not lost
         actual, expected = drifts[slug]
-        if not should_report(slug, compute_signature(slug)):
+        if not should_report(slug, limiter_signature(slug, actual, expected)):
             suppressed += 1
             logger.info("drift on %s suppressed by 24h rate limit", slug)
             continue

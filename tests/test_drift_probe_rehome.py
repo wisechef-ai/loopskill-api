@@ -301,6 +301,77 @@ def test_rate_limit_suppression_is_counted_not_reported(harness, monkeypatch, ca
     assert any("suppressed=1" in r.getMessage() and "reported=0" in r.getMessage() for r in caplog.records)
 
 
+def _set_counter(h, slug: str, value: int) -> None:
+    skill = h.db.query(Skill).filter_by(slug=slug).one()
+    skill.install_count = value
+    h.db.flush()
+
+
+def test_changed_value_inside_the_24h_window_is_reported_not_delayed(harness):
+    """Follow-up on #495: the limiter key was constant per slug, so a slug reported
+    once and then drifting to a NEW (actual, expected) inside 24h was held back until
+    the window passed. A different value is a different report."""
+    probe.main()  # baseline (empty)
+    _mk_drifting_skill(harness.db, "moving", counter=5)
+    probe.main()  # reported once: (5, 0)
+    _set_counter(harness, "moving", 99)  # (99, 0), same hour
+    probe.main()
+    assert harness.reports == ["moving", "moving"]
+    ledger = json.loads((harness.tmp / "known.json").read_text())
+    assert ledger["known"]["moving"] == [99, 0], "the delivered report marks the NEW value known"
+
+
+def test_same_value_inside_the_24h_window_is_still_suppressed(harness, caplog):
+    """Dedupe must not regress: heal then re-drift to the SAME (actual, expected)
+    inside 24h sends nothing, and the slug stays out of the ledger (not lost)."""
+    probe.main()
+    _mk_drifting_skill(harness.db, "flapper", counter=5)
+    probe.main()  # reported: (5, 0)
+    _set_counter(harness, "flapper", 0)  # heals -> leaves the ledger
+    probe.main()
+    _set_counter(harness, "flapper", 5)  # re-drifts, identical value
+    with caplog.at_level("INFO"):
+        probe.main()
+    assert harness.reports == ["flapper"], "identical (actual, expected) inside 24h: no duplicate issue"
+    assert "flapper" not in json.loads((harness.tmp / "known.json").read_text())["known"]
+    assert any("suppressed=1" in r.getMessage() for r in caplog.records)
+
+
+def test_limiter_signature_is_a_pure_function_of_slug_and_both_values():
+    sig = probe.limiter_signature
+    assert sig("a", 5, 0) == sig("a", 5, 0)
+    assert len({sig("a", 5, 0), sig("a", 6, 0), sig("a", 5, 1), sig("b", 5, 0)}) == 4
+    assert sig("a", 1, 23) != sig("a", 12, 3), "no digit-boundary collision between actual and expected"
+    assert sig("a", 5, 0) != probe.compute_signature("a"), (
+        "the value-blind wire signature is not the limiter key"
+    )
+
+
+def test_wire_signature_stays_value_blind(monkeypatch):
+    """The error_signature POSTed to the tracker keeps its per-slug dedupe; only the
+    local limiter key learns about the values."""
+    sent = []
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b""
+
+    def fake_urlopen(req, timeout=0):
+        sent.append(json.loads(req.data))
+        return _Resp()
+
+    monkeypatch.setattr(probe, "WR_API_KEY", "k")
+    monkeypatch.setattr(probe.urllib.request, "urlopen", fake_urlopen)
+    assert probe.report_drift("s", 5, 0) and probe.report_drift("s", 9, 0)
+    assert {p["error_signature"] for p in sent} == {probe.compute_signature("s")}
+
+
 # ── pure planner ────────────────────────────────────────────────────────────
 
 
