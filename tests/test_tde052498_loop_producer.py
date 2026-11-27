@@ -34,6 +34,7 @@ from app.services.sync_report import ingest_sync_report
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COLLECTOR = REPO_ROOT / "scripts" / "loopskill-collect-reports.py"
+MARKER = REPO_ROOT / "scripts" / "set_fleet_origin.py"
 
 
 # ── fixtures ─────────────────────────────────────────────────────────────────
@@ -95,14 +96,30 @@ def _managed_job(**overrides) -> dict:
     return job
 
 
-def _mk_member(db, *, is_synthetic=None, member_is_test=None):
+def _mk_member(
+    db,
+    *,
+    is_synthetic=None,
+    member_is_test=None,
+    fleet_is_synthetic=None,
+    host="wisechef-agents",
+    runs=0,
+    synth_runs=0,
+):
     """A real FleetMember with its own key + fleet, origin left UNCLASSIFIED by
-    default — which is precisely the state prod was found in."""
+    default — which is precisely the state prod was found in.
+
+    ``fleet_is_synthetic`` / ``host`` / ``runs`` / ``synth_runs`` shape the
+    owned-host-evidence fixtures for the marker CLI (t_d0b42dfa): a client
+    fleet is the all-defaults call, and ``runs=3, synth_runs=3`` reproduces
+    the beacon rows ``wise-agents-supervision`` was classified on.
+    """
     fleet = Fleet(
         id=uuid.uuid4(),
         owner_user_id=uuid.uuid4(),
         name=f"f-{uuid.uuid4().hex[:8]}",
         fleet_api_key_hash=hashlib.sha256(uuid.uuid4().hex.encode()).hexdigest(),
+        is_synthetic=fleet_is_synthetic,
     )
     db.add(fleet)
     db.flush()
@@ -123,7 +140,7 @@ def _mk_member(db, *, is_synthetic=None, member_is_test=None):
     member = FleetMember(
         id=uuid.uuid4(),
         fleet_id=fleet.id,
-        host="wisechef-agents",
+        host=host,
         profile="default",
         skills_dir="~/.hermes/loopskill",
         api_key_id=key.id,
@@ -131,6 +148,18 @@ def _mk_member(db, *, is_synthetic=None, member_is_test=None):
     )
     db.add(member)
     db.flush()
+    for i in range(runs):
+        db.add(
+            LoopRun(
+                id=uuid.uuid4(),
+                member_id=member.id,
+                fleet_id=fleet.id,
+                loop_slug="p4-loop-proof",
+                instance_key=f"{host}/default",
+                outcome="success",
+                is_synthetic=(i < synth_runs),
+            )
+        )
     db.commit()
     return member, fleet
 
@@ -829,3 +858,200 @@ class TestAckIsFalsifiable:
         row = _rows(db_session, member.id)[0]
         assert row.cost_usd == Decimal("0.42")
         assert row.duration_seconds == 95
+
+
+# ── 5. the marker CLI refuses silent no-ops (t_d0b42dfa) ─────────────────────
+
+
+@pytest.fixture
+def marker(tmp_path, monkeypatch):
+    """The origin-marker CLI as a module, pointed at a private file-backed DB.
+
+    The script binds ``SessionLocal`` at import time, so the fixture swaps it
+    for a sessionmaker over a throwaway sqlite file: the CLI's commits are
+    real (the whole point of these tests is what lands and what refuses to),
+    and nothing touches the suite's shared engine.
+    """
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    from app.models import Base
+
+    engine = create_engine(f"sqlite:///{tmp_path}/marker.db")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+
+    spec = importlib.util.spec_from_file_location("_td0b42dfa_marker", MARKER)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    sys_modules_pop("_td0b42dfa_marker")
+    monkeypatch.setattr(mod, "SessionLocal", factory)
+    return mod, factory
+
+
+class TestMarkerRefusesSilentNoOps:
+    """t_d0b42dfa — an ``--execute`` that changes nothing must never exit 0.
+
+    Measured before the guards (2026-11-27, scratch DB, both reproduced live):
+    ``--execute`` with no target printed the report and exited 0 — a dry run
+    wearing an execute flag — and ``--fleet <client> --synthetic true
+    --execute`` flipped a real client fleet to ours, also exiting 0. A typo
+    erasing an entire fleet's adoption signal is the same defect class as an
+    ack that counts arrivals as recordings.
+    """
+
+    def test_execute_without_a_target_refuses(self, marker, capsys):
+        mod, _ = marker
+        assert mod.main(["--execute"]) == 2
+        assert "--execute requires a target" in capsys.readouterr().err
+
+    def test_a_bare_invocation_is_still_a_report(self, marker, capsys):
+        mod, _ = marker
+        assert mod.main([]) == 0
+        assert capsys.readouterr().out.startswith("Fleets")
+
+    def test_synthetic_without_a_target_refuses(self, marker, capsys):
+        """``--synthetic true`` with nothing to apply it to silently no-ops the
+        same way — the operator believes the classification landed."""
+        mod, _ = marker
+        assert mod.main(["--synthetic", "true"]) == 2
+        assert "needs a target" in capsys.readouterr().err
+
+    def test_profile_without_host_refuses(self, marker, capsys):
+        mod, _ = marker
+        assert mod.main(["--profile", "default"]) == 2
+        assert "--profile needs --host" in capsys.readouterr().err
+
+    def test_synthetic_true_on_a_client_fleet_is_refused(self, marker, capsys):
+        """astrovita-client-fleet is the live example: a real customer whose
+        runs must read as adoption. Nothing in it says ours, so the blanket
+        flag is refused and nothing is written."""
+        mod, factory = marker
+        db = factory()
+        _, fleet = _mk_member(db, host="inter-plus")
+        db.close()
+
+        assert mod.main(["--fleet", fleet.name, "--synthetic", "true", "--execute"]) == 2
+        err = capsys.readouterr().err
+        assert "no owned-host evidence" in err
+        assert fleet.name in err
+
+        db = factory()
+        try:
+            assert db.get(Fleet, fleet.id).is_synthetic is None
+        finally:
+            db.close()
+
+    def test_the_refusal_fires_in_a_dry_run_too(self, marker, capsys):
+        """A dry run of a command that would be refused must say so — the dry
+        run is the pre-flight, and a pre-flight that hides a refusal is the
+        report-wearing-an-execute-flag defect pointed the other way."""
+        mod, factory = marker
+        db = factory()
+        _, fleet = _mk_member(db, host="inter-plus")
+        db.close()
+
+        assert mod.main(["--fleet", fleet.name, "--synthetic", "true"]) == 2
+        assert "no owned-host evidence" in capsys.readouterr().err
+
+    def test_beacon_runs_are_owned_host_evidence(self, marker, capsys):
+        """wise-agents-supervision was classified on exactly this evidence:
+        unclassified members holding rows the ingest path had already flagged
+        synthetic (the p4-loop-proof beacon stamps is_synthetic at ingest)."""
+        mod, factory = marker
+        db = factory()
+        member, fleet = _mk_member(db, host="adam-xps", runs=3, synth_runs=3)
+        db.close()
+
+        assert mod.main(["--fleet", fleet.name, "--synthetic", "true", "--execute"]) == 0
+
+        db = factory()
+        try:
+            assert db.get(Fleet, fleet.id).is_synthetic is True
+            rows = db.query(LoopRun).filter(LoopRun.member_id == member.id).all()
+            assert len(rows) == 3
+            assert all(r.is_synthetic for r in rows)
+        finally:
+            db.close()
+
+    def test_an_ours_member_verdict_is_owned_host_evidence(self, marker):
+        mod, factory = marker
+        db = factory()
+        _, fleet = _mk_member(db, is_synthetic=True)
+        db.close()
+
+        assert mod.main(["--fleet", fleet.name, "--synthetic", "true", "--execute"]) == 0
+
+        db = factory()
+        try:
+            assert db.get(Fleet, fleet.id).is_synthetic is True
+        finally:
+            db.close()
+
+    def test_a_member_test_key_is_owned_host_evidence(self, marker):
+        """APIKey.is_test is the module's single sanctioned definition of
+        'ours', so a test-keyed member is evidence by definition."""
+        mod, factory = marker
+        db = factory()
+        _, fleet = _mk_member(db, member_is_test=True)
+        db.close()
+
+        assert mod.main(["--fleet", fleet.name, "--synthetic", "true", "--execute"]) == 0
+
+        db = factory()
+        try:
+            assert db.get(Fleet, fleet.id).is_synthetic is True
+        finally:
+            db.close()
+
+    def test_an_already_ours_fleet_re_runs(self, marker):
+        """Idempotent re-run: the fleet itself is the evidence."""
+        mod, factory = marker
+        db = factory()
+        _, fleet = _mk_member(db, fleet_is_synthetic=True)
+        db.close()
+
+        assert mod.main(["--fleet", fleet.name, "--synthetic", "true", "--execute"]) == 0
+
+        db = factory()
+        try:
+            assert db.get(Fleet, fleet.id).is_synthetic is True
+        finally:
+            db.close()
+
+    def test_synthetic_false_on_a_client_fleet_is_not_guarded(self, marker):
+        """The false direction stays open on purpose: understating adoption is
+        the survivable error, and the setters are bidirectional by contract."""
+        mod, factory = marker
+        db = factory()
+        _, fleet = _mk_member(db, host="inter-plus")
+        db.close()
+
+        assert mod.main(["--fleet", fleet.name, "--synthetic", "false", "--execute"]) == 0
+
+        db = factory()
+        try:
+            assert db.get(Fleet, fleet.id).is_synthetic is False
+        finally:
+            db.close()
+
+    def test_marking_one_member_is_the_unguarded_path_that_creates_evidence(self, marker):
+        """The remediation the refusal prints must actually work: a member
+        verdict is the deliberate, specific act, and once it exists the
+        fleet-level command passes its own guard."""
+        mod, factory = marker
+        db = factory()
+        _, fleet = _mk_member(db, host="inter-plus")
+        db.close()
+
+        assert (
+            mod.main(["--host", "inter-plus", "--profile", "default", "--synthetic", "true", "--execute"])
+            == 0
+        )
+        assert mod.main(["--fleet", fleet.name, "--synthetic", "true", "--execute"]) == 0
+
+        db = factory()
+        try:
+            assert db.get(Fleet, fleet.id).is_synthetic is True
+        finally:
+            db.close()

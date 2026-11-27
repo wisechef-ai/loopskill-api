@@ -34,6 +34,22 @@ verdict set here outlives any later fleet flip.
 
 DRY RUN BY DEFAULT. ``--execute`` is required to write anything.
 
+TWO REFUSALS (t_d0b42dfa), both exit code 2 — an ``--execute`` that changes
+nothing must never read as success:
+
+1. ``--execute`` with no ``--fleet``/``--host``/``--member`` target refuses.
+   The no-target form is a read-only report; printing it under ``--execute``
+   is a dry run wearing an execute flag — the operator believes the
+   classification landed and it silently did not. Measured before the guard:
+   ``--execute`` alone left every identity ``unset`` and exited 0.
+2. ``--fleet X --synthetic true`` refuses unless the fleet carries owned-host
+   evidence (already classified ours; a member flagged ours; a member test
+   key; or run rows already flagged synthetic — our beacon stamps those at
+   ingest). A real client fleet marked ours by typo reads as our own traffic
+   instead of adoption, the one number this marker exists to keep honest.
+   ``--synthetic false`` is never guarded: understating adoption is the
+   survivable direction, and the setters stay bidirectional on purpose.
+
 Usage::
 
     python -m scripts.set_fleet_origin                                  # report every identity
@@ -49,7 +65,7 @@ import sys
 from uuid import UUID
 
 from app.database import SessionLocal
-from app.models import Fleet, FleetMember, LoopRun
+from app.models import APIKey, Fleet, FleetMember, LoopRun
 from app.services.synthetic_runs import set_fleet_origin, set_member_origin
 
 
@@ -98,6 +114,54 @@ def _resolve_members(db, member: str | None, host: str | None, profile: str | No
     return []
 
 
+def _no_owned_host_evidence(db, fleet: Fleet) -> str | None:
+    """Why this fleet may NOT be blanket-marked ours, or ``None`` if it may.
+
+    ``--fleet X --synthetic true`` is the one command that can mislabel a
+    whole customer fleet with a single typo, so it demands evidence the fleet
+    is ours — using the module's own precedence order, not a new hard-coded
+    host list (a hard-coded list is the anti-pattern this module replaced):
+
+    * the fleet is already classified ours (an idempotent re-run);
+    * a member carries an explicit ours verdict;
+    * a member's key is a test key — ``APIKey.is_test``, the single definition;
+    * a member holds run rows already flagged synthetic — the beacon stamps
+      ``is_synthetic`` at ingest, so any fleet with our hosts on it carries
+      them (``wise-agents-supervision`` had 20,828).
+
+    ``None`` means evidence was found, proceed. A string is the refusal reason
+    for the operator — this script is the setters' only caller, and a CLI
+    refuses loudly; it does not raise.
+    """
+    if fleet.is_synthetic is True:
+        return None
+
+    members = db.query(FleetMember).filter(FleetMember.fleet_id == fleet.id).all()
+    ours = sum(1 for m in members if m.is_synthetic is True)
+    if ours:
+        return None
+
+    key_ids = [m.api_key_id for m in members if m.api_key_id is not None]
+    if key_ids and db.query(APIKey).filter(APIKey.id.in_(key_ids), APIKey.is_test.is_(True)).count():
+        return None
+
+    member_ids = [m.id for m in members]
+    if member_ids:
+        flagged = (
+            db.query(LoopRun)
+            .filter(LoopRun.member_id.in_(member_ids), LoopRun.is_synthetic.is_(True))
+            .count()
+        )
+        if flagged:
+            return None
+
+    verdict = "a customer's" if fleet.is_synthetic is False else "unset"
+    return (
+        f"no owned-host evidence (fleet verdict {verdict}, {ours} of {len(members)} "
+        "member(s) flagged ours, no member test key, no synthetic-flagged run rows)"
+    )
+
+
 def _list_all(db) -> int:
     """Print every fleet and member with its current verdict.
 
@@ -136,6 +200,20 @@ def main(argv: list[str] | None = None) -> int:
     db = SessionLocal()
     try:
         if not args.fleet and not args.member and not args.host:
+            if args.execute:
+                print(
+                    "error: --execute requires a target (--fleet, --host, or --member); "
+                    "the no-target form is a read-only report, so nothing would be written",
+                    file=sys.stderr,
+                )
+                return 2
+            if args.synthetic is not None or args.profile:
+                print(
+                    "error: --synthetic needs a target (--fleet/--host/--member) and "
+                    "--profile needs --host; a bare report ignores both",
+                    file=sys.stderr,
+                )
+                return 2
             return _list_all(db)
 
         if args.synthetic is None:
@@ -155,6 +233,21 @@ def main(argv: list[str] | None = None) -> int:
             if fleet is None:
                 print(f"error: no fleet {args.fleet!r}", file=sys.stderr)
                 return 1
+            if synthetic:
+                why = _no_owned_host_evidence(db, fleet)
+                if why is not None:
+                    print(
+                        f"error: refusing --synthetic true on fleet {fleet.name!r}: {why}",
+                        file=sys.stderr,
+                    )
+                    print(
+                        "  marking a real client fleet ours makes its runs read as ours, not "
+                        "adoption. If this fleet really is ours, first mark ONE member "
+                        "(--host H --profile P --synthetic true --execute) — that verdict is "
+                        "the evidence — then re-run this command.",
+                        file=sys.stderr,
+                    )
+                    return 2
             member_ids = [m.id for m in db.query(FleetMember).filter(FleetMember.fleet_id == fleet.id).all()]
             before = _split(db, member_ids)
             print(f"fleet {fleet.name!r}: {_verdict(fleet.is_synthetic)} → {_verdict(synthetic)}")
