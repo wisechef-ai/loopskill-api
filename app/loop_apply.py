@@ -16,6 +16,10 @@ Design contract (Adam 2026-07-17, subscriber framing):
   * Epoch-guarded: each managed job records the placement epoch it was built
     from. A stale-epoch assignment (epoch < recorded) is SKIPPED — placement
     moves are monotonic (see LoopPlacement CAS docstring).
+  * Host route pin: a managed job whose ``provider`` is a non-blank string was repinned by
+    the host operator (apply itself only ever writes ``provider: None``). Its provider,
+    model and base_url are kept across applies and the manifest model is not drift there.
+    Every other field stays manifest-owned.
   * Atomic: jobs.json is rewritten via tempfile + os.replace (a half-written
     file crashes every cron on the host). Same discipline as reconcile_client.
   * **`script` is DELETED, permanently, by lock #14 (mesh_0408 plan §0).**
@@ -52,6 +56,8 @@ from typing import Any
 
 MANAGED_PREFIX = "loopskill/"
 MANAGED_TAG = "loopskill-managed"
+# The route fields a host may pin on a managed job; a pinned job keeps all three across applies.
+_ROUTE_PIN_FIELDS = ("provider", "model", "base_url")
 
 # Accepted schedule forms — mirrors fleet_artifacts._SCHEDULE_RE ("cron-5-field
 # or '<N>m|h' / 'every <N>h' shorthand"). Hermes cron accepts both natively.
@@ -174,7 +180,26 @@ def manifest_to_job(
     )
     if base.get("skills"):
         base["skill"] = base["skills"][0]
+    base.update(_host_route_pin(existing))
     return base
+
+
+def _host_route_pinned(job: dict[str, Any] | None) -> bool:
+    """True when the host repinned this job's route (a non-blank ``provider`` string).
+
+    ``manifest_to_job`` always writes ``provider: None``, so a non-null provider on a managed
+    job can only be an operator pin. The pin is the host's: a manifest cannot know that this
+    host's quota is spent or that its prompt reads private data (Chef, 2026-11-22).
+    """
+    provider = (job or {}).get("provider")
+    return isinstance(provider, str) and bool(provider.strip())
+
+
+def _host_route_pin(job: dict[str, Any] | None) -> dict[str, Any]:
+    """The route fields to carry over from a host-pinned job; empty for an unpinned one."""
+    if not _host_route_pinned(job):
+        return {}
+    return {k: (job or {}).get(k) for k in _ROUTE_PIN_FIELDS}
 
 
 def _job_desired_equal(existing: dict[str, Any], desired: dict[str, Any]) -> bool:
